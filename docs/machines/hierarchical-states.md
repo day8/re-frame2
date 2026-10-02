@@ -1,4 +1,6 @@
-# 5. Hierarchical states
+# Hierarchical states
+
+<a id="5-hierarchical-states"></a>
 
 <a id="hierarchical-states"></a>
 
@@ -172,7 +174,19 @@ it. A present `nil` value means the same thing.
 If no level handles the event, it is an unhandled no-op
 (`:rf.machine.event/unhandled-no-op`).
 
-## Wildcards and hierarchy
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `reg-machine` throws `:rf.error/machine-compound-state-missing-initial` | A `:states` map with no `:initial` | Name the child to enter when the compound is targeted |
+| `reg-machine` throws `:rf.error/machine-unresolved-target` | A keyword target that is not a sibling of the declaring state | Use a vector path for a cross-level jump |
+| Landed in the wrong leaf | The target named a compound, so `:initial` cascaded | Target the leaf with a vector path |
+| `:auth/logout` does nothing in one child | That child declares `:auth/logout {}` or `:auth/logout nil` | Remove the key to inherit; keep it only to block |
+| View broke after reshaping the tree | The view matched a long `:state` path | Ask a tag: `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
+| Machine vanished after the "last screen" | A root-level `:final?` auto-destroys | Omit `:final?` on a resting leaf |
+## Advanced
+
+### Wildcards and hierarchy
 
 At each level, event resolution checks:
 
@@ -188,7 +202,7 @@ as handled.
 
 <a id="entryexit-cascading-along-the-lca"></a>
 
-## Entry/exit cascading along the LCA
+### Entry/exit cascading along the LCA
 
 Moving from one path to another fires exits and entries along the least common
 compound ancestor.
@@ -213,7 +227,7 @@ then lands on its `:initial` child.
 
 For a flat machine this collapses to the familiar `exit → action → entry`.
 
-## Parent lifecycle spans child states
+### Parent lifecycle spans child states
 
 Put lifecycle work on the parent when it should span several child states.
 
@@ -234,7 +248,7 @@ The socket actor is spawned when `:active` is entered and destroyed when
 `:active` is left. Moving from `:connecting` to `:connected` does not restart
 it. See [Actors](actors.md).
 
-## The machine root
+### The machine root
 
 The top-level map is a state too: the outermost parent, active for the
 machine's whole life. Its `:on` is the last fallback, tried after every active
@@ -262,7 +276,7 @@ message names the substitute. A root `:after` works only on a
 
 <a id="when-a-sub-flow-finishes-nested-final-states"></a>
 
-## When a sub-flow finishes: nested final states
+### When a sub-flow finishes: nested final states
 
 A `:final?` leaf inside a compound means the compound's sub-flow is complete.
 The machine itself keeps running.
@@ -290,14 +304,3 @@ A root-level `:final?` leaf is different: it means the whole machine is done
 and should be destroyed. For a resting end-screen, omit `:final?`. A spawned
 child's root-level `:final?` is how it reports back — see
 [Actors → When a child finishes](actors.md#when-a-child-finishes).
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `reg-machine` throws `:rf.error/machine-compound-state-missing-initial` | A `:states` map with no `:initial` | Name the child to enter when the compound is targeted |
-| `reg-machine` throws `:rf.error/machine-unresolved-target` | A keyword target that is not a sibling of the declaring state | Use a vector path for a cross-level jump |
-| Landed in the wrong leaf | The target named a compound, so `:initial` cascaded | Target the leaf with a vector path |
-| `:auth/logout` does nothing in one child | That child declares `:auth/logout {}` or `:auth/logout nil` | Remove the key to inherit; keep it only to block |
-| View broke after reshaping the tree | The view matched a long `:state` path | Ask a tag: `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
-| Machine vanished after the "last screen" | A root-level `:final?` auto-destroys | Omit `:final?` on a resting leaf |

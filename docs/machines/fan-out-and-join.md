@@ -1,88 +1,176 @@
-# 9. Fan-out and join
+# Fan-out and join
 
-Some work splits into several children that run at once: the shards of a long
-job, the fetches a boot sequence waits for. Put `:spawn-all` on the state that
-does the work. Entering the state starts every child; the parent moves on when
-the join resolves — when all of them finish, or the first one does.
+<a id="9-fan-out-and-join"></a>
+
+After sign-in, session startup may need both a profile and preferences before
+opening the application. Use `:spawn-all` when those tasks should run
+together, and leaving the startup state should cancel both.
+
+This is a process with a joint completion rule. For independent server-data
+reads that need caching and invalidation, use [resources](../resources/index.md).
+
+## Wait for every child
+
+First register a reusable request child. It uses the same self-addressed
+HTTP reply and final-state pattern as the [login request actor](actors.md#state-bound-spawn):
 
 ```clojure
-;; cf. examples/patterns/long_running_work
-:working
-{:spawn-all
- {:children
-  [{:id :s1 :machine-id :work/processor :data {:shard :s1 :total 100}
-    :on-done (fn [{:keys [data result]}] (assoc-in data [:results :s1] result))}
-   {:id :s2 :machine-id :work/processor :data {:shard :s2 :total 100}}
-   {:id :s3 :machine-id :work/processor :data {:shard :s3 :total 100}}]
+(ns app.session-startup
+  (:require [re-frame.core :as rf]
+            [re-frame.machines]
+            [re-frame.http.managed]))
 
-  :join            :all
-  :on-all-complete [:work/all-done]
-  :on-any-failed   [:work/any-failed]}
+(rf/defmachine load-json
+  {:initial :running
+   :data {}
+   :actions
+   {:fetch
+    (fn [{:keys [data]}]
+      {:fx [[:rf.http/managed
+             {:request {:method :get :url (:url data)}
+              :decode :json
+              :on-success [(:rf/self-id data) [:loaded]]
+              :on-failure [(:rf/self-id data) [:failed]]}]]})
+    :keep-value (fn [{[_ reply] :event}]
+                  {:data {:value (:value reply)}})
+    :keep-error (fn [{[_ reply] :event}]
+                  {:data {:reason (:error reply)}})}
+   :states
+   {:running {:entry :fetch
+              :on {:loaded {:target :done :action :keep-value}
+                   :failed {:target :error :action :keep-error}}}
+    :done  {:final? true :output-key :value}
+    :error {:final? true :error? true :output-key :reason}}})
 
- :on
- {:progress        {:action :record-progress}   ;; no :target — don't respawn
-  :work/all-done   {:target :complete}
-  :work/any-failed {:target :failed}
-  :cancel          {:target :cancelled}}}
+(rf/reg-machine :auth/load-json load-json)
 ```
 
-Each entry in `:children` is a spawn spec like a single
-[`:spawn`](actors.md#spawn-spec-keys)'s, plus an `:id` that names the child
-within the block; [Rules](#rules) lists the differences. The block's `:on-*` keys name the events the join sends the
-parent; the parent's `:on` decides where each one goes. Leaving `:working` by
-any route, `:cancel` included, destroys every child still running.
+The parent starts two instances of that type with different URLs. Each child
+has a unique logical `:id`, and its `:on-done` fold stores its result in the
+parent's working data:
+
+```clojure
+(rf/defmachine session-startup
+  {:initial :loading-session
+   :data {:profile nil :preferences nil}
+   :states
+   {:loading-session
+    {:entry (fn [_] {:data {:profile nil :preferences nil}})
+     :spawn-all
+     {:children
+      [{:id :profile :machine-id :auth/load-json
+        :data {:url "/api/me"}
+        :on-done (fn [{:keys [data result]}]
+                   (assoc data :profile result))}
+       {:id :preferences :machine-id :auth/load-json
+        :data {:url "/api/preferences"}
+        :on-done (fn [{:keys [data result]}]
+                   (assoc data :preferences result))}]
+      :join :all
+      :on-all-complete [:auth/session-loaded]
+      :on-any-failed [:auth/session-failed]}
+     :after {8000 :failed}
+     :on {:auth/session-loaded :ready
+          :auth/session-failed :failed
+          :auth/logout :signed-out}}
+    :ready {:tags #{:auth/ready}
+            :on {:auth/logout :signed-out}}
+    :failed {:on {:auth/retry :loading-session
+                  :auth/logout :signed-out}}
+    :signed-out {}}})
+
+(rf/reg-machine :auth.session/startup session-startup)
+(rf/dispatch [:auth.session/startup [:rf.machine/start]])
+```
+
+`:join :all` waits for every child to succeed. The parent's ordinary `:on`
+handles the resolution event and moves to `:ready`. Any failure or the
+eight-second deadline moves to `:failed`; logout moves to `:signed-out`.
+Every exit destroys the children that are still running.
+
+The entry action resets working data for a retry. Progress updates should
+use a targetless transition so they preserve those children:
+
+```clojure
+:on {:auth/progress {:action :record-progress}}
+```
 
 ## How a child reports
 
-Each child is an ordinary machine, and it **completes without any parent
-vocabulary**, exactly the way it would under a single `:spawn` — by
-entering a root-level `:final?` leaf, naming its result slot with
-`:output-key`:
+A child reports by reaching a root-level `:final?` leaf and naming its
+result with `:output-key`. It sends no application event to the parent.
+The same child definition works under a single `:spawn` and a `:spawn-all`.
 
-```clojure
-:done   {:final? true :output-key :shard-result}                ;; success
-:failed {:final? true :error? true :output-key :reason}         ;; failure
-```
-
-So one child machine composes unchanged under `:spawn` and under
-`:spawn-all`. `:meta {:terminal? true}` on such a leaf is redundant with
-`:final?`.
+A child `:on-done` fold runs before the join checks completion. It takes
+`{:data ... :result ...}` and returns the parent's whole next data map. Use
+one to collect each result, as the two folds above do.
 
 ## The resolution event
 
-The runtime owns the join bookkeeping. When the join resolves it fires the
-parent event **and** destroys any siblings still in flight. The event carries
-the decisive child and its result:
-`[<parent-id> [<resolution-event…> <child-id> <result>]]`. `<child-id>` is the
-`:id` the block gave that child, not its allocated actor id, and `<result>` is
-one value, the child's `:output-key` slot (its error payload on
-`:on-any-failed`).
+The join emits its configured parent trigger with the decisive child's
+logical `:id` and result appended:
+
+```clojure
+[:auth/session-loaded :preferences {:theme "dark"}]
+```
+
+That is one child's result, not a map of all results. Read the parent's
+`:data` to use everything collected by the child folds. The logical id
+`:preferences` is the id in `:children`, rather than the actor's allocated id.
+When the join resolves, any children still running are destroyed.
 
 ## Wait for the first success
 
 Use `:any` when several children offer alternatives and one successful result
-is enough:
+is enough. This variant asks two profile endpoints using the same registered
+`:auth/load-json` child:
 
 ```clojure
-:finding-session
+:finding-profile
 {:spawn-all
- {:children [{:id :local :machine-id :auth/local-session}
-             {:id :remote :machine-id :auth/remote-session}]
+ {:children [{:id :primary :machine-id :auth/load-json
+              :data {:url "/api/me"}}
+             {:id :backup :machine-id :auth/load-json
+              :data {:url "/api/profile-backup"}}]
   :join :any
-  :on-some-complete [:auth/session-found]}
- :after {5000 :anonymous}
- :on {:auth/session-found {:target :authed
-                           :action (fn [{[_ _ token] :event}]
-                                     {:data {:token token}})}}}
+  :on-some-complete [:auth/profile-found]}
+ :after {5000 :failed}
+ :on {:auth/profile-found
+      {:target :ready
+       :action (fn [{[_ _ profile] :event}]
+                 {:data {:profile profile}})}}}
 ```
 
-The two registered child types report their token through `:output-key`.
-Here a failed child leaves the other running. The first success cancels any
-survivor. If both fail, the deadline provides a way out. Add `:on-any-failed`
-only when **any failure should end the whole attempt immediately**, even if
-another child could still succeed.
+Here one failure leaves the other child running. The first success cancels
+any survivor. If both fail, the deadline provides a way out. Add
+`:on-any-failed` only when any failure should end the whole attempt
+immediately, even when another child could still succeed.
 
-## Rules
+## When not to use `:spawn-all`
+
+- **The list is known only at run time.** Emit one `[:rf.machine/spawn …]`
+  per item from an action
+  ([Imperative spawn and destroy](actors.md#imperative-spawn-and-destroy)).
+  Those children have no parent, so pass each an address to report to in its
+  `:data`.
+- **The children are independently valuable** — fire-and-forget, with no
+  cancel-the-rest. Use separate `:spawn`s on active states in parallel
+  regions, or hand-emit spawns and destroy them explicitly when finished.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. For quorum, count in each child's `:on-done` and decide in a guarded `:after` |
+| Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | the `:spawn-all` block names an event for its children to dispatch | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
+| Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
+| `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
+| `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
+| The parent never leaves the state; `:rf.warning/spawn-all-join-unsatisfiable` | a child failed and the block has no `:on-any-failed` | Declare `:on-any-failed`, or give the state an `:after` deadline |
+| Children torn down or respawned on a progress event | The transition exited their state, targeted a compound that reset its descendants, or set `:reenter? true` | Use a targetless action for progress. A leaf self-target without re-entry also preserves its children |
+## Advanced
+
+### Rules
 
 - **Each child needs a unique `:id`** (the join key) on top of the usual
   spawn keys. Duplicates are `:rf.error/machine-spawn-all-duplicate-id`.
@@ -120,9 +208,10 @@ another child could still succeed.
 - A wall-clock bound on the join is the same as single `:spawn`: `:after`
   or `:timeout` / `:on-timeout` on the spawn-all-bearing state.
 
-## Quorum
+### Quorum
 
-Quorum counts successes in the parent's `:data` and decides at a deadline.
+The [long-running-work example](../../examples/patterns/long_running_work/)
+shows a larger worker fan-out. For a quorum, count successes in the parent's `:data` and decides at a deadline.
 Each child's `:on-done` bumps the count, and the state's `:after` is a guarded
 candidate vector that reads it:
 
@@ -148,26 +237,3 @@ An `:always` guard cannot make this decision: a join child's completion folds
 into the join without a parent macrostep, so `:always` is not re-checked as
 each child finishes. The count lives in `:data`, which outlives the state, so `:entry`
 resets it. Leaving the state destroys any child still running.
-
-## When not to use `:spawn-all`
-
-- **The list is known only at run time.** Emit one `[:rf.machine/spawn …]`
-  per item from an action
-  ([Imperative spawn and destroy](actors.md#imperative-spawn-and-destroy)).
-  Those children have no parent, so pass each an address to report to in its
-  `:data`.
-- **The children are independently valuable** — fire-and-forget, with no
-  cancel-the-rest. Use separate `:spawn`s on active states in parallel
-  regions, or hand-emit spawns and destroy them explicitly when finished.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. For quorum, count in each child's `:on-done` and decide in a guarded `:after` |
-| Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | the `:spawn-all` block names an event for its children to dispatch | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
-| Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
-| `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
-| `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
-| The parent never leaves the state; `:rf.warning/spawn-all-join-unsatisfiable` | a child failed and the block has no `:on-any-failed` | Declare `:on-any-failed`, or give the state an `:after` deadline |
-| Children torn down or respawned on a progress event | The transition exited their state, targeted a compound that reset its descendants, or set `:reenter? true` | Use a targetless action for progress. A leaf self-target without re-entry also preserves its children |

@@ -1,4 +1,6 @@
-# 3. Tags
+# Tags
+
+<a id="3-tags"></a>
 
 <a id="tags"></a>
 <a id="state-tags"></a>
@@ -49,7 +51,38 @@ span several states. The `:rf/*` and `:rf.*/*` namespaces are reserved, and a
 tag in them is `:rf.error/machine-bad-tags` too; tag with your own feature
 prefix. Dotted forms such as `:ui.state/loading` are fine.
 
-If a tag will only ever match one state, skip it and read `:state` directly.
+Read `:state` directly when the caller needs that exact state, rather than
+a label that may apply to more states as the flow grows.
+
+## Query one tag
+
+<a id="querying-with-machine-has-tag"></a>
+
+The query is this subscription:
+
+```clojure
+@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
+;; => true or false
+```
+
+```clojure
+(rf/reg-view sign-in-button []
+  (let [busy? @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
+    [:button {:disabled busy?} "Sign in"]))
+```
+
+It returns `false` for an unknown or not-yet-initialised machine. The sub is
+derived: a view that asks one tag re-renders when that membership flips, not on
+every `:data` write.
+
+Need the whole set? Read the snapshot:
+
+```clojure
+(:tags @(rf/subscribe [:rf/machine :auth.login/flow]))
+;; => #{:auth/busy}
+```
+
+Use that form for selectors and render-priority tables.
 
 ## The snapshot's `:tags`
 
@@ -77,56 +110,6 @@ The runtime owns `:tags`. An action cannot return `{:tags …}` — the slot is 
 projection of `:state`. When no active state declares tags, the runtime
 **elides** the key. Do not declare `:tags #{}` to force the slot; omit it.
 
-## Query one tag
-
-<a id="querying-with-machine-has-tag"></a>
-
-The query is this subscription:
-
-```clojure
-@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
-;; => true or false
-```
-
-```clojure
-(rf/reg-view sign-in-button []
-  (let [busy? @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
-    [:button {:disabled busy?} "Sign in"]))
-```
-
-It returns `false` for an unknown or not-yet-initialised machine. The sub is
-derived: a view that asks one tag re-renders when that membership flips, not on
-every `:data` write.
-
-There is no `machine-has-tag?` function and no `[:rf/machine-has-tag? …]`
-vector. The membership question is `[:rf.machine/has-tag? machine-id tag]`.
-
-Need the whole set? Read the snapshot:
-
-```clojure
-(:tags @(rf/subscribe [:rf/machine :auth.login/flow]))
-;; => #{:auth/busy}
-```
-
-Use that form for selectors and render-priority tables.
-
-## Tags as a cross-region signal
-
-In a [parallel machine](parallel-states.md) a region's guards and actions
-receive the machine-wide tag union as `:tags`, so one region can read another's
-state by tag without knowing its state names. A tag appearing fires nothing; a
-guard reads it when it runs.
-[Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein)
-has the example.
-
-## What tags are not
-
-- **Not transition labels.** `:tags` is a state-node slot. Transitions carry
-  none.
-- **Not `:meta`.** A state's `:meta` (for example `{:terminal? true}`) is static,
-  tooling-visible metadata. `:tags` is the live projection of the active
-  configuration. Both can sit on the same state.
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -135,9 +118,30 @@ has the example.
 | Snapshot has no `:tags` key | No active state declares tags; the empty union is elided | Omit the key; `(contains? (:tags snap) x)` is still false |
 | Guard ctx has no `:tags` / `:all-state` | The machine is flat or compound | Those keys exist only inside a parallel region |
 
+## Advanced
+
+### Tags as a cross-region signal
+
+In a [parallel machine](parallel-states.md) a region's guards and actions
+receive the machine-wide tag union as `:tags`, so one region can read another's
+state by tag without knowing its state names. A tag appearing fires nothing; a
+guard reads it when it runs.
+[Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein)
+has the example.
+
+### What tags are not
+
+- **Not transition labels.** `:tags` is a state-node slot. Transitions carry
+  none.
+- **Not `:meta`.** A state's `:meta` (for example `{:terminal? true}`) is static,
+  tooling-visible metadata. `:tags` is the live projection of the active
+  configuration. Both can sit on the same state.
+
+<a id="advanced-collapsing-many-states-into-one-render-decision"></a>
+
 <a id="collapsing-many-states-into-one-render-decision"></a>
 
-## Advanced: collapsing many states into one render decision
+### Render priority
 
 Several tags can be live at once in a [parallel](parallel-states.md) machine, but
 a page can render only one main view.

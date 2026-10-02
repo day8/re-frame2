@@ -2,8 +2,9 @@
 
 <a id="machines-examples"></a>
 
-Runnable machines in the repo. Pair each app with the guide pages that
-name the same machinery.
+Choose a runnable app by the behavior you want to try. The login app
+implements the tutorial; the larger examples show distinct lifecycle and
+coordination problems.
 
 | Example | What it shows | Pair with |
 |---|---|---|

@@ -1,4 +1,6 @@
-# 7. History
+# History
+
+<a id="7-history"></a>
 
 <a id="history"></a>
 <a id="history-states"></a>
@@ -12,14 +14,6 @@ was when you left it.
 
 History is only for compound states. If the remembered thing is a flat value,
 store it in [`:data`](glossary.md#data).
-
-## A history state is a target, not a place you sit
-
-A history state is a pseudo-state declared under a compound's `:states`.
-
-The machine never occupies it. A transition targets it, and the runtime resolves
-that target to a real child. The [snapshot](glossary.md#snapshot)'s `:state`
-records the resolved leaf — never the pseudo-state.
 
 ## Example: last signed-in screen
 
@@ -80,21 +74,13 @@ The target `[:authenticated :hist]` means "enter `:authenticated` through
 its history pseudo-state." First login has no recording, so
 `:default-target` opens `:dashboard`.
 
-## The keys
+## A history state is a target, not a place you sit
 
-| Key | Meaning |
-|---|---|
-| `:type :history` | Marks the node as a history pseudo-state. Required. |
-| `:deep? true` | Restore the full nested path. Absent or `false` means shallow. |
-| `:default-target` | Where to go before anything has been recorded. Absent ⇒ the owning compound's `:initial`. |
+A history state is a pseudo-state declared under a compound's `:states`.
 
-A history pseudo-state cannot declare `:on`, `:entry`, `:exit`, `:always`,
-`:after`, `:spawn`, `:spawn-all`, `:states`, `:initial`, `:tags`, or `:final?`.
-It is not a real state. Any extra key is `:rf.error/machine-history-extra-keys`
-at `reg-machine` time.
-
-A keyword `:default-target` names a direct child of the owning compound. Use a
-vector for an absolute path.
+The machine never occupies it. A transition targets it, and the runtime resolves
+that target to a real child. The [snapshot](glossary.md#snapshot)'s `:state`
+records the resolved leaf — never the pseudo-state.
 
 ## Shallow vs deep
 
@@ -136,7 +122,35 @@ because `:authenticated` was never exited. It remained the
 If history is not sticking, check that the transition leaves the compound that
 owns the history node.
 
-## Restore order
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| History never restores; always hits default | Owning compound never left (sibling moves keep it as LCA) | Give the compound an off-state outside it (`:unauthenticated` next to `:authenticated`) |
+| View `case`s on `:hist` | Pseudo-state is never in `:state` | Transition to `:hist` resolves to a real leaf — case on that |
+| Registration error at root / bare parallel | History needs an enclosing compound | Nest under a compound with `:states` + `:initial`. Error: `:rf.error/machine-history-misplaced` |
+| Two history children under one compound | At most one history node per compound | Use one node; deep vs shallow is `:deep?`. Error: `:rf.error/machine-history-duplicate` |
+| Unresolvable `:default-target` | Keyword form must name a *direct child* | Use a direct-child keyword, or a vector for an absolute path. Error: `:rf.error/machine-history-bad-default-target` |
+| Extra keys on the history node | The pseudo-state is never occupied | Only `:type`, `:deep?`, `:default-target`. Error: `:rf.error/machine-history-extra-keys` |
+## Advanced
+
+### The keys
+
+| Key | Meaning |
+|---|---|
+| `:type :history` | Marks the node as a history pseudo-state. Required. |
+| `:deep? true` | Restore the full nested path. Absent or `false` means shallow. |
+| `:default-target` | Where to go before anything has been recorded. Absent ⇒ the owning compound's `:initial`. |
+
+A history pseudo-state cannot declare `:on`, `:entry`, `:exit`, `:always`,
+`:after`, `:spawn`, `:spawn-all`, `:states`, `:initial`, `:tags`, or `:final?`.
+It is not a real state. Any extra key is `:rf.error/machine-history-extra-keys`
+at `reg-machine` time.
+
+A keyword `:default-target` names a direct child of the owning compound. Use a
+vector for an absolute path.
+
+### Restore order
 
 When a transition targets a history pseudo-state, the runtime resolves it in
 this order:
@@ -151,7 +165,7 @@ recording and falls back to the default. That is not an error.
 Once resolved, the normal exit/entry cascade runs. History is target resolution,
 not a separate transition mechanism.
 
-## The `:rf/history` snapshot slot
+### The `:rf/history` snapshot slot
 
 History recordings live in a runtime-owned snapshot slot:
 
@@ -167,7 +181,7 @@ deep history or a direct child keyword for shallow history.
 You do not write this slot. It is part of the snapshot, so it participates in
 undo, time-travel, persistence, and SSR hydration.
 
-## Parallel regions
+### Parallel regions
 
 Inside a [parallel](parallel-states.md) machine, history is scoped to the region
 that owns it. The `:rf/history` key is region-qualified so recordings do not
@@ -180,14 +194,3 @@ collide.
 
 The region name heads the key; the value is the within-region path. Restoring
 history in one region leaves the others alone.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| History never restores; always hits default | Owning compound never left (sibling moves keep it as LCA) | Give the compound an off-state outside it (`:unauthenticated` next to `:authenticated`) |
-| View `case`s on `:hist` | Pseudo-state is never in `:state` | Transition to `:hist` resolves to a real leaf — case on that |
-| Registration error at root / bare parallel | History needs an enclosing compound | Nest under a compound with `:states` + `:initial`. Error: `:rf.error/machine-history-misplaced` |
-| Two history children under one compound | At most one history node per compound | Use one node; deep vs shallow is `:deep?`. Error: `:rf.error/machine-history-duplicate` |
-| Unresolvable `:default-target` | Keyword form must name a *direct child* | Use a direct-child keyword, or a vector for an absolute path. Error: `:rf.error/machine-history-bad-default-target` |
-| Extra keys on the history node | The pseudo-state is never occupied | Only `:type`, `:deep?`, `:default-target`. Error: `:rf.error/machine-history-extra-keys` |
