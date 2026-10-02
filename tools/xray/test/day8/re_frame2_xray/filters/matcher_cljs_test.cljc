@@ -143,16 +143,9 @@
                [{:pattern :auth/*}])))))
 
 ;; ---- keep-event-bundle? + filter-event-bundles ------------------------------------
-
-(deftest keep-event-bundle-no-filters-keeps-all
-  (let [filters {:in [] :out []}]
-    (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
-    (is (matcher/keep-event-bundle? {:event [:mouse-move]} filters))))
-
-(deftest keep-event-bundle-out-only-blacklists
-  (let [filters {:in [] :out [{:pattern :mouse-move}]}]
-    (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
-    (is (not (matcher/keep-event-bundle? {:event [:mouse-move]} filters)))))
+;;
+;; `filter-event-bundles` is `filterv` over `keep-event-bundle?`, so its rows
+;; grade the predicate too.
 
 (deftest keep-event-bundle-in-pill-bare-keyword-keeps-the-namespace
   (testing "the whole point, at the level the L2 list
@@ -191,10 +184,6 @@
                          (matcher/filter-event-bundles cascades filters)))
         "OUT drops :mouse-move; survivors keep their order")))
 
-(deftest filter-event-bundles-empty-input-is-empty
-  (is (= [] (matcher/filter-event-bundles [] {:in [] :out []})))
-  (is (= [] (matcher/filter-event-bundles [] {:in [{:pattern :auth/*}] :out []}))))
-
 ;; ---- spec/018 §7 first-session honesty ----------------------------------
 
 (deftest filter-event-bundles-default-empty-keeps-everything
@@ -208,21 +197,17 @@
              (matcher/filter-event-bundles cascades {:in [] :out []}))))))
 
 ;; ---- frame-picker filter ------------------------------------------------
+;;
+;; `filter-event-bundles-by-frame` is `filterv` over
+;; `keep-event-bundle-for-frame?` once a frame is picked, so its rows grade the
+;; predicate's match and frameless-drop branches. The predicate's own nil row
+;; is the branch the filter's nil short-circuit never reaches.
 
 (deftest keep-event-bundle-for-frame-nil-picker-keeps-everything
   (testing "nil picker-frame means 'no frame filter' — every cascade survives"
     (is (matcher/keep-event-bundle-for-frame? {:frame :cart-frame} nil))
     (is (matcher/keep-event-bundle-for-frame? {:frame :checkout-frame} nil))
     (is (matcher/keep-event-bundle-for-frame? {:frame nil} nil))))
-
-(deftest keep-event-bundle-for-frame-matching-frame-keeps
-  (is (matcher/keep-event-bundle-for-frame? {:frame :cart-frame} :cart-frame))
-  (is (matcher/keep-event-bundle-for-frame? {:frame :rf/default} :rf/default)))
-
-(deftest keep-event-bundle-for-frame-non-matching-frame-drops
-  (is (not (matcher/keep-event-bundle-for-frame? {:frame :cart-frame} :checkout-frame)))
-  (is (not (matcher/keep-event-bundle-for-frame? {:frame nil} :cart-frame))
-      "ungrouped/frame-less cascade drops when a frame filter is active"))
 
 (deftest filter-event-bundles-by-frame-nil-is-identity
   (let [cascades [{:dispatch-id 1 :frame :cart-frame}
@@ -252,21 +237,15 @@
                          (matcher/filter-event-bundles-by-frame cascades :cart-frame)))))))
 
 ;; ---- view-scope filter --------------------------------------------------
+;;
+;; The same layering: the filter rows grade `keep-event-bundle-for-view-scope?`
+;; for a set scope, and the predicate's nil row covers what the short-circuit
+;; hides.
 
 (deftest keep-event-bundle-for-view-scope-nil-keeps-everything
   (testing "nil scope-frame means 'no view scope' — every cascade survives"
     (is (matcher/keep-event-bundle-for-view-scope? {:frame :cart-frame} nil))
     (is (matcher/keep-event-bundle-for-view-scope? {:frame nil} nil))))
-
-(deftest keep-event-bundle-for-view-scope-keeps-matching-and-frameless
-  (testing "a view scope keeps the matching frame AND the
-            frame-agnostic `:ungrouped` bucket (nil frame); only OTHER
-            real frames drop"
-    (is (matcher/keep-event-bundle-for-view-scope? {:frame :cart-frame} :cart-frame))
-    (is (matcher/keep-event-bundle-for-view-scope? {:frame nil} :cart-frame)
-        "frameless :ungrouped bucket survives the view scope")
-    (is (not (matcher/keep-event-bundle-for-view-scope? {:frame :other-frame} :cart-frame))
-        "a different real frame drops out of scope")))
 
 (deftest filter-event-bundles-by-view-scope-preserves-frameless-bucket
   (testing "unlike the strict frame filter, the view-scope
