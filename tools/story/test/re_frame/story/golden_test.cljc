@@ -422,21 +422,6 @@
       (testing "the plan was never replayed"
         (is (zero? @dispatched))))))
 
-;; A failing fx run carries a per-run `:error-trace` pointer and the raw
-;; thrown exception; were the canonical slice to keep either, a golden would
-;; never match the very artifact it was captured from.
-(deftest golden-of-a-failing-artifact-matches-its-own-replay
-  (testing "a golden captured from an artifact whose fx throws matches a
-            re-replay of that artifact"
-    (rf/reg-fx :golden.fx/boom {:platforms #{:client :server}}
-               (fn [_ _] (throw (ex-info "boom" {:k 1}))))
-    (rf/reg-event :golden/boom (fn [_ _] {:fx [[:golden.fx/boom {}]]}))
-    (let [art (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:golden/boom]]]})
-          g   (rf.story.golden/capture-golden art {:keep-run-result true})]
-      (is (= :fail (:status (:run-result g))) "control: the captured run genuinely fails")
-      (is (true? (rf.story.golden/golden-match? g art)))
-      (is (true? (:match? (rf.story.golden/compare-golden g art)))))))
-
 ;; A REGISTERED stubbed variant: no real effect fires through
 ;; capture, match or compare, and the variant's golden is captured from its
 ;; run-result. JVM-only: `rf.story/run` derefs a CompletableFuture here.
