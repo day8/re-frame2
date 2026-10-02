@@ -178,7 +178,7 @@
       (is (not (contains? (rf.story/variant-frames) :story.destroy.list/v))
           "the destroyed variant is gone from the listing"))))
 
-(deftest destroy-variant-idempotent-on-running-frame
+(deftest destroy-variant-is-idempotent
   (testing "calling destroy-variant! twice in a row does not throw"
     (rf/reg-event :test/nothing (fn [{:keys [db]} _] {:db db}))
     (rf.story/reg-variant :story.destroy.twice/v
@@ -186,9 +186,7 @@
     (rf.story.async/deref-blocking (rf.story/run-variant :story.destroy.twice/v) 5000)
     (is (nil? (rf.story/destroy-variant! :story.destroy.twice/v)))
     (is (nil? (rf.story/destroy-variant! :story.destroy.twice/v))
-        "second destroy is a no-op (returns nil, no throw)")))
-
-(deftest destroy-variant-on-unallocated-id-does-not-throw
+        "second destroy is a no-op (returns nil, no throw)"))
   (testing "destroy-variant! on a never-allocated id is a no-op"
     (is (nil? (rf.story/destroy-variant! :story.never/allocated))
         "no frame, no watchers, no assertion accumulators — nothing to do")))
