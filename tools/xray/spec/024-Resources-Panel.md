@@ -611,7 +611,7 @@ here by their literal op keys via `optimistic-mutation-op?` in
 
 | Operation | Emit site | Carries |
 |---|---|---|
-| `:rf.mutation/optimistic-applied` | `mutation-events.cljc` (phase 1.5, before the request lowers) | `:mutation` `:instance` `:work/id` `:generation` `:scope` `:snapshot-id` `:affected-keys` `:revisions` (per-key `{:resource/key :revision :forward}` at apply time — the conflict-check basis) `:tag-matched-keys` `:target-unresolved` `:cause` |
+| `:rf.mutation/optimistic-applied` | `mutation-events.cljc` (phase 1.5, before the request lowers) | `:mutation` `:instance` `:work/id` `:generation` `:scope` `:snapshot-id` `:affected-keys` `:revisions` (per-key `{:resource/key :revision :forward}`, the PRE-apply revision observed before the apply's own bump) `:tag-matched-keys` `:target-unresolved` `:cause` |
 | `:rf.mutation/optimistic-reconciled` | `mutation-events.cljc` (mutation SUCCESS — commit) | `:instance` `:mutation` `:work/id` `:generation` `:snapshot-id` `:optimistic-keys` `:committed` `:reconciliation-refetches` `:cause` |
 | `:rf.mutation/optimistic-rolled-back` | `mutation-events.cljc` (mutation FAILURE / cancel / restore-dangle; a same-instance re-execute or `:rf.mutation/clear` abandoning a pending apply, carrying THAT apply's `:snapshot-id`) | `:instance` `:mutation` `:work/id` `:generation` `:snapshot-id` `:on-conflict` `:dispositions` (per-key `{:resource/key :restored :conflict :on-conflict}`) `:restored` `:conflicted` `:refetched` `:cause` |
 
@@ -621,7 +621,8 @@ alongside a `:force` rollback that clobbered a concurrent write — carries
 `:reason`). The consumer (`optimistic-lifecycle` / `optimistic-force-clobbers`)
 pairs each `:applied` with its terminal settle by `[frame :snapshot-id]` to
 drive the §6d **Optimistic mutations** section above. The settle is keyed on
-the recorded `:revision` + the work-id/generation acceptance verdict, never a
+the recorded POST-apply `:applied-revision` (compared against the entry's
+current `:revision`) + the work-id/generation acceptance verdict, never a
 wall-clock race; a STALE / superseded reply emits NEITHER terminal op (the
 reply writes nothing), and — unless its supersession already rolled keys
 back and emitted a settle row for it — the apply row is instead paired with that
