@@ -17,11 +17,11 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/resources-artefact-missing` | Forgot the require | `(:require [re-frame.resources])` at boot |
 | `:rf.error/resource-missing-scope-policy` | `:scope` omitted, or not one of the two shapes | Declare `:scope` as `:rf.scope/global` or `{:from-db <id>}` |
 | `:rf.error/resource-bad-spec` | A malformed spec: the request fn in the metadata, no `:params-schema`, a bad `:gc-after-ms`, `:stale-after-ms` or `:infinite`, … | The `:reason` names the key |
-| `:rf.error/infinite-missing-next-page-param` | `:infinite true` without `:next-page-param` | [Paginate a feed](how-to/paginate-a-feed.md) |
+| `:rf.error/infinite-missing-next-page-param` | `:infinite true` without `:next-page-param` | [Load more](how-to/load-more.md) |
 | `:rf.error/invalid-resource-scope-spec` | A malformed `reg-resource-scope`: `:inputs` not `{name [:db path]}`, or no resolver fn in the third slot | Fix the resolver registration |
 | `:rf.error/resource-scope-source-reserved` | A `reg-resource-scope` input of `[:runtime …]`, a reserved source | Read the input from app-db with `[:db path]` |
 | `:rf.error/mutation-bad-spec` | A malformed `reg-mutation`, including an unknown `:invalidate-timing` or `:on-conflict` | The `:reason` names the key |
-| `:rf.error/mutation-optimistic-before-request` | An optimistic plan with `:invalidate-timing :before-request` | [Pick one](how-to/invalidate-after-a-mutation.md#when-the-invalidation-fires-invalidate-timing) |
+| `:rf.error/mutation-optimistic-before-request` | An optimistic plan with `:invalidate-timing :before-request` | [Use success timing](how-to/optimistic-updates.md#verify-rollback-in-the-inspector) |
 
 ## Causing and reading
 
@@ -43,7 +43,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/resource-route-plan` (on `:rf.route/error`) | A route entry's `:params`, `:scope` or `:when` threw or returned nothing usable | Fix the entry; the original error data is under `:cause` |
 | `:rf.error/resource-ssr-blocking-timeout` | Under SSR, a blocking resource did not settle within the render deadline. It is reported, not thrown, and the resource settles as a first-load failure | Fix the fetch, or render the resource's error state |
 | `:rf.error/no-frame-context` | `resource-state` or `mutation-state` outside frame context without `:frame` | Pass `:frame`, or call within frame context |
-| `:rf.error/infinite-missing-page-accessor` | A feed's pages aren't vectors and it declares no `:page->items` | [Paginate a feed](how-to/paginate-a-feed.md) |
+| `:rf.error/infinite-missing-page-accessor` | A feed's pages aren't vectors and it declares no `:page->items` | [Load more](how-to/load-more.md) |
 
 ## Writing
 

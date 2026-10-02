@@ -3,11 +3,8 @@
 This page shows how to test the cache: that a read loads, that a write invalidates
 what it should, and that it sends exactly the requests you expect.
 
-The three lanes — register, cause, project — are what make resources testable. A
-test *causes* with an ordinary dispatch, answers the network with the same canned
-replies a [pipeline-run test](../core/testing/pipeline-runs.md) uses, and *reads* the
-outcome through the same subscriptions a view uses. No live server, no waiting, no
-browser.
+Dispatch the operation under test, answer the network with canned replies, and
+assert the same subscriptions a view reads. These JVM tests need no live server.
 
 A test reads the `:rf/resource` and `:rf/mutation` subscriptions without the reactive runtime: `rf/compute-sub` computes a subscription against `rf/frame-state-value`, which carries both [partitions](../core/glossary.md#the-two-partitions), because resource entries and mutation instances live in runtime-db ([Test a subscription](../core/testing/subscriptions.md)). The booleans a view branches on — `:has-data?`, `:stale?`, `:success?` — exist only in those subscriptions.
 

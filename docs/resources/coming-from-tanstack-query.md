@@ -145,7 +145,7 @@ mutations and direct managed requests use the same policy.
 
 ## Check the boundaries of the migration
 
-[Infinite resources](how-to/paginate-a-feed.md) accumulate pages in one entry.
+[Infinite resources](how-to/load-more.md) accumulate pages in one entry.
 Their default refetch replaces page zero and retains the tail. Choose
 `:refetch {:refetch-all-pages? true}` to refresh every loaded page, or
 `:refetch {:refetch-window n}` for a leading window. There is no prepend event

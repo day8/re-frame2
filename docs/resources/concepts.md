@@ -276,8 +276,9 @@ while unowned matches become stale for the next ensure.
 The view watches `[:rf/mutation {:instance [:editor/save "hello"]}]` for
 `:pending?`, `:success?` and `:error`. Retrying uses the same execute command;
 clearing the instance dismisses its settled state. The
-[mutation recipe](how-to/invalidate-after-a-mutation.md) adds direct cache
-updates, completion events and optimistic changes without a second read.
+[mutation recipe](how-to/invalidate-after-a-mutation.md) shows tag invalidation
+and direct updates; [optimistic updates](how-to/optimistic-updates.md) makes a
+small write visible before confirmation.
 
 ## Advanced
 
@@ -293,8 +294,8 @@ A route can declare several resources. `:id` / `:after` order their ensure
 dispatches; they do not wait for earlier data. When one read needs another's
 result, use a completion event to compute and ensure the dependent read.
 
-[Pagination](how-to/paginate-a-feed.md) chooses between an entry per numbered
-page and one growing infinite feed. Resource entries live in
+[Numbered pagination](how-to/paginate-a-feed.md) caches one entry per page;
+[load-more](how-to/load-more.md) grows one entry. Resource entries live in
 [runtime-db](../core/glossary.md#runtime-db), alongside mutation instances and
 work records; ordinary application handlers never edit those tables directly.
 SSR hydrates eligible entries and applies the same scope and freshness rules.
