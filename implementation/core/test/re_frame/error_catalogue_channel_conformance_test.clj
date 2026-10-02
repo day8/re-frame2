@@ -547,21 +547,6 @@
           "catalogue parse yielded the full table (>= 100 rows), not a
            partial match from a shape change"))))
 
-(deftest every-emitted-category-carries-a-channel
-  (testing "Per Spec 009 §Error event catalogue:
-            EVERY catalogue row carries a `Channel` value, and that value
-            is exactly one of the two channels. The parser captures the
-            WHOLE Channel cell, so a row with an EMPTY or typo'd channel
-            cell still parses as a row, and asserting its channel is in
-            the allowed set catches it. A
-            typo'd channel (e.g. `always_on`, `diag`) lands a row with an
-            out-of-set channel and fails here."
-    (let [rows (parse-catalogue)
-          bad  (remove (comp allowed-channels :channel) rows)]
-      (is (empty? bad)
-          (str "every catalogue row's Channel must be one of "
-               allowed-channels "; offending rows: " (pr-str bad))))))
-
 (deftest catalogue-categories-are-unique
   (testing "The category vocabulary is a SET — each `:rf.<area>/<category>`
             appears in exactly one catalogue row. A duplicate row (e.g. a
@@ -626,7 +611,9 @@
                                catalogue-always-on))))))))
 
 (deftest every-table-row-has-a-nonblank-valid-channel
-  (testing "The catalogue parser captures the WHOLE
+  (testing "Per Spec 009 §Error event catalogue: EVERY catalogue row carries a
+            `Channel` value, and that value is exactly one of the two channels.
+            The catalogue parser captures the WHOLE
             third column (not a pre-filtered lowercase token), so a row
             whose Channel cell is BLANK or holds a typo'd value parses as
             a row with an out-of-set `:channel` and fails HERE directly —

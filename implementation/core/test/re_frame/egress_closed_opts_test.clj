@@ -72,10 +72,9 @@
                  {:a 1}
                  {:frame :app/main
                   :rf.egress/profile :rf.egress/off-box-tool}))]
-      (is (some? d)
-          "a profile handed to the walker throws :rf.error/bad-egress-opts")
       (is (= [:rf.egress/profile] (:unknown-keys d))
-          "ex-data NAMES the offending key")
+          "a profile handed to the walker throws :rf.error/bad-egress-opts, and
+           the ex-data NAMES the offending key")
       (is (= :pass-the-profile-to-project-egress (:recovery d))
           "the profile case carries its own recovery disposition")
       (is (= 're-frame.elision/elide-wire-value (:where d))
@@ -83,7 +82,14 @@
       (is (contains? (set (:accepted d)) :rf.egress/include-sensitive?)
           "ex-data enumerates the ACCEPTED set so the caller needs no docs")
       (is (not (contains? (set (:accepted d)) :rf.egress/profile))
-          "and the accepted set does not include the key just rejected"))))
+          "and the accepted set does not include the key just rejected"))
+    (is (nil? (bad-opts-ex-data
+                #(rf.projection/project-egress
+                   {:a 1}
+                   {:frame :app/main
+                    :rf.egress/profile :rf.egress/off-box-tool})))
+        "the SAME map is valid at project-egress — the two sets differ by
+         exactly the key that layer OWNS, and that asymmetry is the split")))
 
 (deftest walker-rejects-the-unqualified-inclusion-axes
   (testing "the unqualified `include-sensitive?` spelling is the OTHER half.
@@ -92,8 +98,7 @@
             opt-in that never happened."
     (doseq [k [:include-sensitive? :include-large? :include-digests?]]
       (let [d (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} {k true}))]
-        (is (some? d) (str k " throws"))
-        (is (= [k] (:unknown-keys d)) (str k " is named"))
+        (is (= [k] (:unknown-keys d)) (str k " throws and is named"))
         (is (= :use-a-recognised-egress-opts-key (:recovery d))
             "a plain misspelling gets the generic recovery")))))
 
@@ -108,14 +113,14 @@
     (doseq [k [:rf.size/include-sensitive? :rf.size/include-large?
                :rf.size/include-digests?   :rf.size/threshold-bytes]]
       (let [d (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} {k true}))]
-        (is (some? d) (str "the retired " k " is refused by the walker"))
-        (is (= [k] (:unknown-keys d)) (str k " is NAMED in the ex-data")))
+        (is (= [k] (:unknown-keys d))
+            (str "the retired " k " is refused by the walker and NAMED in the ex-data")))
       (let [d (bad-opts-ex-data
                 #(rf.projection/project-egress
                    {:a 1}
                    {:rf.egress/profile :rf.egress/off-box-tool k true}))]
-        (is (some? d) (str "the retired " k " is refused at project-egress"))
-        (is (= [k] (:unknown-keys d)) (str k " is named at that door too")))))
+        (is (= [k] (:unknown-keys d))
+            (str "the retired " k " is refused and named at project-egress too")))))
   (testing "the three epoch-only axes are `:rf.egress/*` too, so their
             bare spellings are refused alongside the `:rf.size/*` ones."
     (doseq [k [:include-fx-args? :include-runtime-db? :include-event-args?]]
@@ -123,8 +128,7 @@
                 #(rf.projection/project-egress
                    {:a 1}
                    {:rf.egress/profile :rf.egress/off-box-tool k true}))]
-        (is (some? d) (str "the retired bare " k " is refused"))
-        (is (= [k] (:unknown-keys d)) (str k " is named")))))
+        (is (= [k] (:unknown-keys d)) (str "the retired bare " k " is refused and named")))))
   (testing "CONTROL — every LIVE spelling is accepted at the door it belongs
             to. Without this, a guard that had simply narrowed to nothing
             would satisfy every assertion above."
@@ -156,8 +160,7 @@
             at BOTH doors — never a silently schema-invalid marker."
     (let [d (bad-opts-ex-data
               #(rf.elision/elide-wire-value {:a 1} {:as-of-epoch 7}))]
-      (is (some? d) "the walker refuses :as-of-epoch")
-      (is (= [:as-of-epoch] (:unknown-keys d)) "and names it")
+      (is (= [:as-of-epoch] (:unknown-keys d)) "the walker refuses :as-of-epoch and names it")
       (is (= 're-frame.elision/elide-wire-value (:where d)))
       (is (= :use-a-recognised-egress-opts-key (:recovery d)))
       (is (not (contains? (set (:accepted d)) :as-of-epoch))))
@@ -165,8 +168,7 @@
               #(rf.projection/project-egress
                  {:a 1}
                  {:rf.egress/profile :rf.egress/off-box-tool :as-of-epoch 7}))]
-      (is (some? d) "project-egress refuses :as-of-epoch")
-      (is (= [:as-of-epoch] (:unknown-keys d)) "and names it")
+      (is (= [:as-of-epoch] (:unknown-keys d)) "project-egress refuses :as-of-epoch and names it")
       (is (= 'rf/project-egress (:where d)))
       (is (= :use-a-recognised-egress-opts-key (:recovery d)))
       (is (not (contains? (set (:accepted d)) :as-of-epoch)))))
@@ -185,7 +187,6 @@
     (let [d (bad-opts-ex-data
               #(rf.elision/elide-wire-value {:a 1} {:frame :app/main
                                                     :totally-made-up true}))]
-      (is (some? d))
       (is (= [:totally-made-up] (:unknown-keys d)))))
   (testing "several unknown keys are ALL named, sorted, not just the first"
     (let [d (bad-opts-ex-data
@@ -262,21 +263,10 @@
                    record
                    {:rf.egress/profile :rf.egress/off-box-tool
                     :include-sensitive? true}))]
-        (is (some? d) (str label " throws on an unqualified inclusion axis"))
         (is (= [:include-sensitive?] (:unknown-keys d))
-            (str label " names the offending key"))
+            (str label " throws on an unqualified inclusion axis, naming it"))
         (is (= 'rf/project-egress (:where d))
             (str label " attributes the throw to project-egress"))))))
-
-(deftest project-egress-accepts-a-profile-the-walker-refuses
-  (testing "the two sets differ by exactly the key this layer
-            OWNS. The same map that throws at the walker is valid here; that
-            asymmetry is the whole point of the split."
-    (is (nil? (bad-opts-ex-data
-                #(rf.projection/project-egress
-                   {:a 1}
-                   {:frame :app/main
-                    :rf.egress/profile :rf.egress/off-box-tool}))))))
 
 (deftest walker-and-projection-sets-agree
   (testing "`project-egress`'s set is DERIVED from the walker's,

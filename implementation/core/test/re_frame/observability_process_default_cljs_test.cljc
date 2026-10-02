@@ -162,10 +162,9 @@
         ;; whole slot would fail closed to `:rf/redacted` — so this assertion,
         ;; and not the summary slots above, is what witnesses that inheritance
         ;; moved the SINK LIST without moving the redaction authority.
-        (is (map? (:tags r))
-            "a live owner governs, so the tree slot is WALKED, not failed closed")
         (is (= {:auth {:token "secret" :user "ann"}} (:tags r))
-            "this frame declares no classification, so its payload rides raw
+            "a live owner governs, so the tree slot is WALKED, not failed closed;
+             this frame declares no classification, so its payload rides raw
              — inheritance moved the entries, never the authority")))))
 
 (deftest inheriting-frames-own-classification-governs-the-projection
@@ -282,9 +281,9 @@
     (let [ex (try (rf/configure! {:observability {:errors "x"}})
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-      (is (some? ex) "a non-vector stream is refused")
       (is (= :rf.error/bad-frame-classification (:rf.error/id (ex-data ex)))
-          "the SAME category make-frame raises — one grammar, two doors")
+          "a non-vector stream is refused with the SAME category make-frame
+           raises — one grammar, two doors")
       (is (= 'rf/configure! (:where (ex-data ex)))
           ":where names the door the author actually typed"))
     (testing "and the closed ENTRY grammar is enforced from this door too"
@@ -292,8 +291,8 @@
                       {:observability {:errors [{:sink :s :opts {:a 1}}]}})
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-        (is (some? ex) "an unknown entry key is refused")
-        (is (= 'rf/configure! (:where (ex-data ex))))))
+        (is (= 'rf/configure! (:where (ex-data ex)))
+            "an unknown entry key is refused at the door the author typed")))
     (testing "a refused call installs NOTHING"
       (is (nil? (rf.observability/current-observability-config))))))
 
