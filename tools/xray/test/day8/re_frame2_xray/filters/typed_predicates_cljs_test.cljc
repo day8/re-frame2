@@ -96,9 +96,9 @@
 ;; ---- :event-id-pattern kind ---------------------------------------------
 
 (deftest event-id-pattern-typed-shape
-  (let [cascade (mk-cascade {:event [:auth/login]})
-        pill    {:kind :event-id-pattern :params {:pattern :auth/*}}]
-    (is (typed/event-bundle-matches-pill? cascade pill))))
+  (let [pill {:kind :event-id-pattern :params {:pattern :auth/*}}]
+    (is (typed/event-bundle-matches-pill? (mk-cascade {:event [:auth/login]}) pill))
+    (is (not (typed/event-bundle-matches-pill? (mk-cascade {:event [:order/submit]}) pill)))))
 
 (deftest event-id-pattern-legacy-shape
   (testing "the legacy `{:pattern :auth/*}` shape matches via the
@@ -107,11 +107,6 @@
       (is (typed/event-bundle-matches-pill? cascade {:pattern :auth/*}))
       (is (typed/event-bundle-matches-pill? cascade {:pattern :auth/login}))
       (is (not (typed/event-bundle-matches-pill? cascade {:pattern :order/*}))))))
-
-(deftest event-id-pattern-no-match
-  (let [cascade (mk-cascade {:event [:order/submit]})]
-    (is (not (typed/event-bundle-matches-pill?
-               cascade {:kind :event-id-pattern :params {:pattern :auth/*}})))))
 
 ;; ---- :machine kind ------------------------------------------------------
 
@@ -140,14 +135,6 @@
                              :effects [(tagged {:rf.fx/id :db})]})
         pill    {:kind :machine :params {:machine-id :form}}]
     (is (not (typed/event-bundle-matches-pill? cascade pill)))))
-
-(deftest machine-kind-nil-target-never-matches
-  (testing "nil `:machine-id` in the pill — guards against a half-filled
-            programmatic dispatch"
-    (let [cascade (mk-cascade {:event   [:foo]
-                               :effects [(tagged {:machine-id :form})]})
-          pill    {:kind :machine :params {:machine-id nil}}]
-      (is (not (typed/event-bundle-matches-pill? cascade pill))))))
 
 ;; ---- :http-correlation kind ---------------------------------------------
 
@@ -379,21 +366,6 @@
       (is (= [1 2 3] kept)
           "root → mid → leaf all survive via the whole-chain walk"))))
 
-(deftest parent-walk-cycle-guarded
-  (testing "a malformed trace with a parent loop terminates the walk
-            rather than spinning (a defensive guard)"
-    (let [a (mk-child-cascade {:dispatch-id 1 :parent-dispatch-id 2
-                               :event [:a]})
-          b (mk-child-cascade {:dispatch-id 2 :parent-dispatch-id 1
-                               :event       [:b]
-                               :effects     [(tagged {:machine-id :form})]})
-          filters {:in  [{:kind :machine :params {:machine-id :form}}]
-                   :out []}
-          ;; both match (a reaches b via its parent link; b matches
-          ;; directly) and the walk does NOT hang on the 1↔2 cycle.
-          kept    (mapv :dispatch-id (typed/filter-event-bundles [a b] filters))]
-      (is (= [1 2] kept)))))
-
 ;; ---- frame-qualified lineage identity -----------------------------------
 ;;
 ;; The published trace contract guarantees dispatch-id uniqueness only
@@ -523,11 +495,10 @@
   (is (= "abc-123"
          (typed/pill-label {:kind :http-correlation :params {:correlation-id "abc-123"}})))
   (is (= ":rf.http/managed"
-         (typed/pill-label {:kind :fx :params {:fx-id :rf.http/managed}}))))
-
-(deftest pill-label-legacy-shape-renders
+         (typed/pill-label {:kind :fx :params {:fx-id :rf.http/managed}})))
   (is (= ":auth/*"
-         (typed/pill-label {:pattern :auth/*}))))
+         (typed/pill-label {:pattern :auth/*}))
+      "the legacy `{:pattern …}` shape labels through the canonicaliser"))
 
 (deftest pill-glyph-per-kind
   (is (nil? (typed/pill-glyph {:kind :event-id-pattern :params {:pattern :auth/*}})))

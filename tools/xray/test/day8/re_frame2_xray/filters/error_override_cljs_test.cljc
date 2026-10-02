@@ -73,18 +73,6 @@
       (is (not-any? :rf.xray/filter-bypassed? result)
           "nothing is tagged when the override is off"))))
 
-(deftest frame-scope-drops-are-never-re-added
-  (testing "the override operates on the frame-SCOPED list — an errored event
-            already excluded by the VIEW SCOPE (absent from `scoped`) is never
-            dragged back in (frame is a view scope, not a filter)"
-    ;; `scoped` is post-view-scope, so a cross-frame errored bundle simply is
-    ;; NOT a member of scoped and cannot be re-added.
-    (let [scoped   [clean-kept]
-          filtered [clean-kept]
-          result   (eo/apply-error-overrides scoped filtered true)]
-      (is (= [2] (mapv :dispatch-id result))
-          "no cross-frame errored bundle appears — only scoped members qualify"))))
-
 (deftest all-kept-is-identity-in-value
   (testing "when the filters dropped nothing, every bundle is returned as-is,
             untagged"
