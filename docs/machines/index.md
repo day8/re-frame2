@@ -37,14 +37,15 @@ submit, and actions can describe a request or update the machine's private
 <a id="deeply-integrated"></a>
 
 A registered machine is an event handler. Dispatch an ordinary event with
-the machine id and an inner **trigger** vector:
+the machine id and an inner **trigger** vector. At the REPL, use the
+[demo frame from First machine](tutorial.md#step-1--your-first-machine):
 
 ```clojure
-(rf/dispatch [:auth.login/flow [:auth.login/submit]])
-@(rf/subscribe [:rf/machine :auth.login/flow])
+(rf/dispatch-sync [:auth.login/flow [:auth.login/submit]] {:frame login-frame})
+(rf/subscribe-once [:rf/machine :auth.login/flow] {:frame login-frame})
 ```
 
-The live snapshot belongs to the current frame. It stores the active state
+The live snapshot belongs to that frame. It stores the active state
 and private data in [runtime-db](../core/glossary.md#runtime-db). Views read
 it through subscriptions; actions send application changes through ordinary
 events and effects.
