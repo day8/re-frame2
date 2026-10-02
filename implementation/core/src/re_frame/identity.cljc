@@ -285,6 +285,43 @@
   [xs]
   (str/join " " (map encode xs)))
 
+(defn- code-unit-rank
+  "Rank a UTF-16 code unit so that, at the FIRST unit where two strings
+  differ, comparing ranks gives their code-point order. A surrogate (half of
+  a code point at or above U+10000) ranks above every unit in U+E000-U+FFFF;
+  everything else keeps its relative order."
+  [c]
+  (cond
+    (< c 0xD800) c
+    (< c 0xE000) (+ c 0x2000)
+    :else        (- c 0x800)))
+
+(defn compare-canonical-bytes
+  "Compare two `canonical-bytes` token strings by their UTF-8 bytes — the
+  order CEDN-1 sorts map keys and set elements by (Conventions §Canonical
+  byte encoding). Returns a negative number, zero, or a positive number,
+  like `compare`.
+
+  UTF-8 byte order is code-point order, so nothing is encoded. The host
+  string comparators order UTF-16 code units instead, and the two orders
+  disagree in exactly one place: a supplementary character (a surrogate
+  pair) against a BMP character at or above U+E000. `compare` puts U+10000
+  (D800 DC00) before U+E000; UTF-8 (F0 90 80 80 against EE 80 80) puts it
+  after. So this scans to the first differing code unit — the work `compare`
+  does anyway — and ranks that one pair by code point."
+  [a b]
+  (let [la #?(:clj (.length ^String a) :cljs (.-length a))
+        lb #?(:clj (.length ^String b) :cljs (.-length b))
+        n  (min la lb)]
+    (loop [i 0]
+      (if (< i n)
+        (let [ca #?(:clj (int (.charAt ^String a i)) :cljs (.charCodeAt a i))
+              cb #?(:clj (int (.charAt ^String b i)) :cljs (.charCodeAt b i))]
+          (if (== ca cb)
+            (recur (inc i))
+            (- (code-unit-rank ca) (code-unit-rank cb))))
+        (- la lb)))))
+
 (defn- encode-map [m]
   ;; Order entries by their keys' CEDN-1 bytes; each key token is separated
   ;; from its value token, and entries from each other, by a single space.
@@ -300,7 +337,7 @@
   ;; rather than silently serialize colliding key tokens.
   (let [entries (->> m
                      (map (fn [[k v]] [(encode k) (encode v)]))
-                     (sort-by first))
+                     (sort-by first compare-canonical-bytes))
         ks      (map first entries)]
     (when-not (= (count ks) (count (distinct ks)))
       (reject! m :duplicate-canonical-map-key))
@@ -309,8 +346,8 @@
          "}")))
 
 (defn- encode-set [s]
-  ;; Sort elements by their canonical element encoding.
-  (let [sorted (sort (map encode s))]
+  ;; Sort elements by their canonical element encoding's bytes.
+  (let [sorted (sort compare-canonical-bytes (map encode s))]
     (str "q#{" (str/join " " sorted) "}")))
 
 (defn- encode
