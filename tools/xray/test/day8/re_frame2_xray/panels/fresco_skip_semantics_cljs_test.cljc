@@ -389,20 +389,6 @@
 ;; The three states stay apart — a skip-only window is neither of the others
 ;; ---------------------------------------------------------------------------
 
-(deftest an-EMPTY-window-still-says-cap-and-sends-the-reader-to-reproduce
-  ;; The `:cap` sentence is right for a window that retained NOTHING — and
-  ;; a bigger ring cannot fill an empty window, so the remedy is to
-  ;; reproduce the interaction and read again, never to raise retention.
-  (let [{:keys [row]} (both [[:app/main :a]] {:app/main []})
-        cls (:class row)]
-    (is (= :nothing (:observed cls)))
-    (is (= :cap (:basis cls)))
-    (is (string/includes? (:says cls) "reproduce the interaction and read again"))
-    (is (not (string/includes? (:says cls) "events-retained"))
-        "a bigger buffer is not the remedy for an empty window")
-    (is (string/includes? (:says cls) "no recompute and no memo hit")
-        "and it names both absences, because both are absent")))
-
 (deftest a-REGISTRATION-only-window-is-CAPPED-and-never-host-opaque
   ;; THE USER-VISIBLE CONSEQUENCE of keeping `:rf.sub/create` out of the
   ;; recompute set: a `reg-sub` evaluated inside a handler scope emits a

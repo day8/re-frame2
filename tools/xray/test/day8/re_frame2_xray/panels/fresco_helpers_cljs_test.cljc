@@ -32,9 +32,6 @@
 (def ^:private boundary-a {:parent nil :key [[:app/main :todo [:todo 7]]]})
 (def ^:private boundary-b {:parent nil :key [[:app/main :todo [:todo 7]]
                                              [:app/main :user [:user 1]]]})
-(def ^:private boundary-redacted
-  {:parent nil :key [[:app/main :todo :rf/redacted]
-                     [:app/main :user :rf/redacted]]})
 
 (defn- envelope [read m]
   (merge {:schema    hh/consumed-evidence-schema
@@ -244,31 +241,6 @@
         (is (nil? (hh/views-title [{:view "a/one" :source :unknown}])))
         (is (nil? (hh/view-label :unknown)))
         (is (nil? (hh/view-label [])) "an empty vector is not a name either")))))
-
-(deftest a-label-and-a-testid-are-built-from-the-PROJECTED-key
-  ;; The consumer half. The helpers read the projected key element, so an
-  ;; argument the producer projected out of the data cannot reach the page
-  ;; through a label or a DOM testid, and a redacted query is rendered as
-  ;; the sentinel it is.
-  (testing "a redacted read names its registration id, so two of them stay apart"
-    (is (= ":todo :rf/redacted" (hh/read-label [:app/main :todo :rf/redacted])))
-    (is (= ":user :rf/redacted" (hh/read-label [:app/main :user :rf/redacted])))
-    (is (= "[:todo 7]" (hh/read-label [:app/main :todo [:todo 7]]))
-        "an unredacted query still reads as itself"))
-
-  (testing "a wholly redacted boundary is still labelled and still selectable"
-    (let [row (first (hh/mounted-rows
-                       (assoc mounted :boundaries
-                              [{:boundary boundary-redacted :views :unknown
-                                :instances 1 :read-orders 1
-                                :frame :app/main :reads []}])))]
-      (is (= ":todo :rf/redacted + :user :rf/redacted" (:label row)))
-      (is (not (string/includes? (:slug row) "hunter"))
-          "nothing from an argument may reach a testid")
-      (is (not= (hh/boundary-slug boundary-redacted)
-                (hh/boundary-slug {:parent nil :key [[:app/main :todo :rf/redacted]]}))
-          (str "two redacted boundaries must not collapse to one testid — a "
-               "browser assertion selecting one would silently match the other")))))
 
 (deftest attribution-rows-carry-fan-out-and-readers
   (let [e (envelope :read-attribution

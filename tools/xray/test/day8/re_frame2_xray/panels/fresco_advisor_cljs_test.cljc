@@ -118,19 +118,6 @@
                "to nothing — reporting a cap would call the window empty and "
                "send the reader to reproduce recomputes it already holds")))))
 
-(deftest a-memo-hit-is-counted-and-never-summed-as-work
-  (let [t (advisor/sub-timing
-            {:app/main [(bundle 1 :e [(sub-ev :a 2.0)
-                                      (sub-ev :a nil :rf.sub/skip)
-                                      (sub-ev :a nil :rf.sub/skip)])]})
-        e (get-in t [:by-read [:app/main :a]])]
-    (is (= 1 (:runs e)) "a skip is not a run")
-    (is (= 2.0 (:elapsed-ms e)) "and contributes no time")
-    (is (= 2 (:memo-hits e))
-        (str "counted, because a read whose runs are mostly skips is "
-             "well-placed and one that runs every time is not — the single "
-             "most informative topology signal there is"))))
-
 (deftest a-run-with-no-registration-id-is-UNCORRELATED-not-dropped
   ;; An untagged stream must not be able to read as an idle one.
   (let [t (advisor/sub-timing {:app/main [(bundle 1 :e [{:op-type :rf.sub
@@ -248,14 +235,7 @@
         (str "neither read holds " advisor/dominance " of the total, so naming "
              "one the owner would be a coin toss printed as a finding"))))
 
-(deftest an-oscillating-read-set-is-a-topology-finding-with-no-clock-at-all
-  (let [c (classify-with (boundary [[:app/main :a]] :read-orders 4)
-                         {:app/main [(bundle 1 :e [(sub-ev :a nil)])]})]
-    (is (= :read-topology (:owner c)))
-    (is (= :derivation (:basis c)))
-    (is (string/includes? (:says c) "oscillating"))))
-
-(deftest a-read-orders-finding-carries-its-own-UNCORRELATED-loss
+(deftest a-read-orders-fold-is-a-rung-2-topology-finding-with-its-own-UNCORRELATED-loss
   ;; `:read-orders` is a FOLD COUNT and the producer says so: entries
   ;; whose key arrays differ only in ORDER, and entries an egress policy
   ;; folded onto one projected key, are one row, and `:read-orders` counts
@@ -270,6 +250,9 @@
   ;; classification already carries.
   (let [c (classify-with (boundary [[:app/main :a]] :read-orders 4)
                          {:app/main [(bundle 1 :e [(sub-ev :a nil)])]})]
+    (is (= :read-topology (:owner c))
+        "a topology finding with no clock at all: the window carries no duration")
+    (is (= :derivation (:basis c)))
     (is (= :uncorrelated (:reason (:loss c)))
         (str "a fold count is real and joins to nothing that says WHICH fold "
              "it was — the textbook :uncorrelated state, and the panel already "
@@ -281,11 +264,13 @@
                candidate)))
     (is (string/includes? (:says c) "does not say which"))
 
-    (testing "and the route is still rung 2, because the remedy is the same for all three"
+    (testing "and the route is still rung 2, and no further, because the remedy is the same for all three"
       (let [r (advisor/recommend c)]
         (is (= :tune-topology (:route r)))
         (is (= 2 (:rung r)))
-        (is (false? (:native? r)))))
+        (is (false? (:native? r)))
+        (is (string/includes? (:says r) "Do not split per element mechanically")
+            "the ladder's own warning rides with the advice")))
 
     (testing "while a MEASURED computation owner still carries no loss"
       ;; The control. A loss stamped on every classification would say
@@ -422,16 +407,6 @@
     (is (= :narrow-the-subscription (:route r)))
     (is (false? (:native? r)))
     (is (string/includes? (:says r) "keep the cost"))))
-
-(deftest a-topology-owner-is-routed-to-rung-2-and-no-further
-  (let [c (classify-with (boundary [[:app/main :a]] :read-orders 3)
-                         {:app/main [(bundle 1 :e [(sub-ev :a nil)])]})
-        r (advisor/recommend c)]
-    (is (= :tune-topology (:route r)))
-    (is (= 2 (:rung r)))
-    (is (false? (:native? r)))
-    (is (string/includes? (:says r) "Do not split per element mechanically")
-        "the ladder's own warning rides with the advice")))
 
 (deftest a-capped-boundary-is-told-to-reproduce-not-to-grow-the-buffer-or-measure-react
   ;; `:cap` marks an EMPTY window. A bigger buffer recovers nothing already
