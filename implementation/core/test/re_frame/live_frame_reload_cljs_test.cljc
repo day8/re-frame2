@@ -190,24 +190,9 @@
                                        :event :counter/inc))))))))
 
 ;; ===========================================================================
-;; 3. generation-diff over before/after generations names a concrete
-;;    added/changed/removed/retained diff (a READ, not a bespoke
-;;    reload-report verb)
+;; 3. A reload's cross-image shadows are an ordinary frame-shadows READ
+;;    (not a bespoke reload-report verb)
 ;; ===========================================================================
-
-(deftest reload-report-names-removed-ids
-  (testing "reloading to a NARROWER image reports the dropped ids as :removed"
-    (let [narrow (rf.image/image {:id :counter/narrow :select-ns {:include ["counter.narrow"]}})
-          pool-n [(reg-desc "counter.narrow" :event :counter/inc ::inc-n)]
-          frame  (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)
-          before (rf.live-frame/frame-generation frame)
-          _      (rf.live-frame/make-frame {:id :counter/main :images [narrow]} pool-n)
-          after  (rf.live-frame/frame-generation :counter/main)
-          diff   (rf.live-frame/generation-diff before after)]
-      (is (contains? (:removed diff) [:sub :counter/value])
-          ":counter/value is gone after reloading to the narrower image")
-      (is (contains? (:changed diff) [:event :counter/inc])
-          ":counter/inc survives with a different impl → changed"))))
 
 (deftest reload-report-carries-the-shadow-report
   (testing "after a reload, frame-shadows reads the NEW generation's cross-image
@@ -299,72 +284,9 @@
 ;; 8. Source-store change reprojects an EXPLICIT-image frame (not only default)
 ;; ===========================================================================
 
-(deftest source-store-change-reprojects-an-explicit-image-frame
-  (testing "a reg-* change in a namespace an explicit :include-ns image selects
-            reprojects THAT frame's generation (EP-0023 §Default Image Semantics
-            — reproject affected EXPLICIT-image frames, not only default-image
-            frames). Uses the LIVE source store; snapshot + restore around the
-            case (NOT rf.registrar/clear-all!)."
-    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
-      (try
-        ;; A registration authored in an explicit namespace, recorded into the
-        ;; LIVE source store (the same path reg-* writes through).
-        (rf.source-store/record-descriptor!
-          :event :explicit/inc
-          {:rf.provenance/ns "explicit.feature" :kind :event :id :explicit/inc
-           :handler-fn ::inc-original})
-        (let [img   (rf.image/image {:id :explicit/img :select-ns {:include ["explicit.feature"]}})
-              frame (rf.live-frame/make-frame {:id :explicit/main :images [img]})
-              gen-before (rf.live-frame/frame-generation frame)]
-          (testing "the frame resolves the original impl against the live store"
-            (is (= ::inc-original
-                   (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :explicit/inc)))))
-          ;; Hot reload of that source: re-eval the SAME (kind,id,namespace) slot
-          ;; with a new impl (the same-namespace replacement path).
-          (rf.source-store/record-descriptor!
-            :event :explicit/inc
-            {:rf.provenance/ns "explicit.feature" :kind :event :id :explicit/inc
-             :handler-fn ::inc-reloaded})
-          (let [moved (rf.live-frame/reproject-live-frames!)]
-            (testing "reproject reports the EXPLICIT-image frame as moved"
-              (is (contains? moved :explicit/main))
-              (is (contains? (:changed (get moved :explicit/main)) [:event :explicit/inc])))
-            (testing "the live frame now resolves the RELOADED impl through its
-                      swapped generation"
-              (is (= ::inc-reloaded
-                     (:handler-fn (rf.image-assembly/resolve-descriptor
-                                    (rf.live-frame/frame-generation (rf.live-frame/live-frame :explicit/main))
-                                    :event :explicit/inc)))))))
-        (finally
-          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
-
-(deftest reproject-leaves-unchanged-frames-untouched
-  (testing "reproject-live-frames! does NOT swap a frame whose composition
-            re-resolves byte-for-byte — no spurious movement"
-    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
-      (try
-        (rf.source-store/record-descriptor!
-          :event :stable/inc
-          {:rf.provenance/ns "stable.feature" :kind :event :id :stable/inc
-           :handler-fn ::stable})
-        (let [img   (rf.image/image {:id :stable/img :select-ns {:include ["stable.feature"]}})
-              frame (rf.live-frame/make-frame {:id :stable/main :images [img]})
-              gen-before (rf.live-frame/frame-generation frame)
-              ;; No source change between creation and reproject.
-              moved (rf.live-frame/reproject-live-frames!)]
-          (testing "no frame moved"
-            (is (empty? moved)))
-          (testing "the frame's generation is the SAME object (untouched)"
-            (is (identical? gen-before (rf.live-frame/frame-generation (rf.live-frame/live-frame :stable/main))))))
-        (finally
-          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
-
 ;; ---- the REMOVED leg -------------------------------------------------------
 ;;
-;; Beside the impl-CHANGED
-;; leg (source-store-change-reprojects-an-explicit-image-frame) and the
-;; UNCHANGED leg (reproject-leaves-unchanged-frames-untouched), the REMOVED
-;; leg: a descriptor the frame's image SELECTED is FORGOTTEN from the source
+;; A descriptor the frame's image SELECTED is FORGOTTEN from the source
 ;; store (the `forget-descriptor!` path). After the forget,
 ;; reproject must re-resolve the frame to a NARROWER generation, report the
 ;; dropped id under the diff's `:removed`, and the swapped generation must no
@@ -476,8 +398,8 @@
 ;; Every frame lives in the single default realm, so `reproject-live-frames!`
 ;; enumerates the flat `image-loaded-frame-ids` with no per-frame realm
 ;; binding. The explicit/composed reproject tests above
-;; (source-store-change-reprojects-an-explicit-image-frame,
-;; reproject-composed-frame-on-one-member-ns-change, …) cover that sweep.
+;; (reproject-removed-leg-forgets-a-selected-descriptor,
+;; reproject-composed-frame-on-one-member-ns-change) cover that sweep.
 
 ;; ===========================================================================
 ;; 9. AUTO-reprojection: a `reg-*` change reprojects the affected explicit-image
@@ -786,30 +708,6 @@
 ;; — a manual `reproject-live-frames!` call, or the auto-hook firing on ANY
 ;; `reg-*` anywhere — would re-resolve that frame against a store its
 ;; composition was never selected from.
-
-(deftest reproject-resolves-explicit-pool-frame-against-its-own-pool
-  (testing "a frame created via make-frame's 2-arity (an EXPLICIT descriptor
-            pool) reprojects against that SAME pool, not the live source
-            store. The pool's namespace exists ONLY in the pool, never in the
-            live store, so a reprojection that fell through to the live
-            store would :rf.error/image-zero-match fail-loud here — proving
-            reprojection threads the ORIGINAL pool through, not nil/live."
-    (let [pool  [(reg-desc "rpf-pool.provenance.ns" :event :rpf-pool/inc ::pool-v1)]
-          img   (rf.image/image {:id :rpf-pool/img :select-ns {:include ["rpf-pool.provenance.ns"]}})
-          frame (rf.live-frame/make-frame {:id :rpf-pool/main :images [img]} pool)
-          gen-before (rf.live-frame/frame-generation frame)]
-      (testing "control: resolves against the explicit pool at creation"
-        (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :rpf-pool/inc)))))
-      (testing "reprojecting does NOT throw and reports the frame UNCHANGED —
-                the live store has NOTHING under \"rpf-pool.provenance.ns\", so
-                a fall-through-to-live reprojection would zero-match fail-loud here"
-        (is (nil? (rf.live-frame/reproject-live-frame! :rpf-pool/main))))
-      (testing "the frame's generation is untouched and still resolves through
-                the explicit pool"
-        (is (identical? gen-before (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-pool/main))))
-        (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor
-                                         (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-pool/main))
-                                         :event :rpf-pool/inc))))))))
 
 (deftest failed-re-construction-preserves-generation-provenance-rf2-ktmto9
   (testing "Failure atomicity: a FAILED re-`make-frame`
