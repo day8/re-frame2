@@ -13,7 +13,7 @@ This skill carries the recipes, decision rules, and canonical declarations Claud
 | Writing new re-frame2 code (`.cljs` / `.cljc`) | Greenfield project bootstrap → `re-frame2-setup` |
 | Choosing between slice / region / machine | Inspecting a running app → `re-frame2-pair` |
 | Picking a canonical pattern | Migrating a v1 app → [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) |
-| Composing patterns | Full API reference / EP rationale → `SKILL-REDIRECT.md` |
+| Composing patterns | Full API reference / EP rationale → [canonical reading index](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) |
 
 ## Layout
 

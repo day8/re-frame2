@@ -126,7 +126,7 @@ The `description` is "pushy" per Anthropic best practice — it lists every re-f
 ## 7. Anti-patterns the skill explicitly resists
 
 - **Re-deriving canonical shapes from first principles.** Cardinal rule "recipes over explanations" + Pillar 1.
-- **Loading three or more leaves for one task.** SKILL.md's loading-map rule: at most two leaves; if a task seems to need three, the request likely spans patterns and should be broken up.
+- **Loading unrelated leaves.** Start with the relevant fundamental or pattern, then load cross-cutting guidance as the task needs it. Feature composition can require several leaves; a reference-count limit must not narrow the user's requested work.
 - **Quoting spec text for API surface.** L1 — the spec is *why*, not *what*.
 - **Using `:rf.*` for application keywords.** Cardinal rule L6.
 - **Schema-fencing every internal key.** Cardinal rule L9.
