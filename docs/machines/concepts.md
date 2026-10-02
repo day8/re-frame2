@@ -286,6 +286,50 @@ registration. Read the `:rf.error/id` in the exception's `ex-data` and fix the
 named part. The [API reference](../api/re-frame.machines.md#registration-errors)
 lists the grammar and registration errors.
 
+## Self-transitions and wildcards
+
+<a id="self-transitions-and-wildcards"></a>
+<a id="self-transitions-internal-by-default-external-on-demand"></a>
+<a id="wildcard-transitions-handle-a-whole-class-of-events"></a>
+
+A leaf self-transition runs its action without re-entering the state by
+default. In the [optional turnstile exercise](#see-one-run), pushing a
+locked turnstile counts a push without leaving `:locked`.
+
+| Shape | Effect |
+| --- | --- |
+| No `:target` (targetless) | Action only — no exit/entry; timers and spawns undisturbed |
+| `:target` the same state, no `:reenter?` | Same on a leaf (action only). A compound re-resolves descendants to `:initial` |
+| `:reenter? true` | Full exit → action → entry (timers reset, spawns restart) |
+
+A self-rescheduling poll uses the external form so `:entry` re-fires:
+
+```clojure
+:polling
+{:entry :start-fetch
+ :after {30000 {:target :polling :reenter? true}}
+ :on    {:got-data {:action :merge}
+         :stop     :idle}}
+```
+
+A self-target without `:reenter? true` does **not** re-run `:entry`. If you
+meant to re-arm a timer, say so.
+
+**Wildcards** on `:on` keys, most-specific first: exact id → `:ns/*` → `:*`.
+
+```clojure
+:tracking
+{:on {:mouse/down {:action :begin-drag}
+      :mouse/*    {:action :note-move}
+      :*          {:action :log-unknown}}}
+```
+
+A **forbidden** handler — `{:on {:E {}}}` or `{:on {:E nil}}` — **consumes**
+the event and stops the search (how a child opts out of a parent
+transition). A **missing** key is a silent no-op. A bare id like `:go` has
+no `:ns/*` tier — only exact or `:*`. A guard-blocked exact match can fall
+through to a wildcard.
+
 ## Testing
 
 <a id="testing-transitions-are-pure-function-calls"></a>
@@ -310,6 +354,7 @@ shows how to test an accepted submit and a guard-blocked one.
 A missing artefact (`:rf.error/machines-artefact-missing`, or
 `:rf.error/no-such-fx` on `:rf.http/managed`) is covered in
 [First machine → Troubleshooting](tutorial.md#troubleshooting).
+
 ## Advanced
 
 ### Registration and hot reload
@@ -347,50 +392,6 @@ an undeclared key is not ensured, so it can read `nil`, and `reg-machine` warns
   :fn (fn [{:keys [data] {:keys [rf/time-ms]} :rf.cofx}]
         (< (- time-ms (:first-attempt-at data)) 60000))}}
 ```
-
-### Self-transitions and wildcards
-
-<a id="self-transitions-and-wildcards"></a>
-<a id="self-transitions-internal-by-default-external-on-demand"></a>
-<a id="wildcard-transitions-handle-a-whole-class-of-events"></a>
-
-A leaf self-transition runs its action without re-entering the state by
-default. In the exercise below, pushing a locked turnstile counts a push
-without leaving `:locked`.
-
-| Shape | Effect |
-| --- | --- |
-| No `:target` (targetless) | Action only — no exit/entry; timers and spawns undisturbed |
-| `:target` the same state, no `:reenter?` | Same on a leaf (action only). A compound re-resolves descendants to `:initial` |
-| `:reenter? true` | Full exit → action → entry (timers reset, spawns restart) |
-
-A self-rescheduling poll uses the external form so `:entry` re-fires:
-
-```clojure
-:polling
-{:entry :start-fetch
- :after {30000 {:target :polling :reenter? true}}
- :on    {:got-data {:action :merge}
-         :stop     :idle}}
-```
-
-A self-target without `:reenter? true` does **not** re-run `:entry`. If you
-meant to re-arm a timer, say so.
-
-**Wildcards** on `:on` keys, most-specific first: exact id → `:ns/*` → `:*`.
-
-```clojure
-:tracking
-{:on {:mouse/down {:action :begin-drag}
-      :mouse/*    {:action :note-move}
-      :*          {:action :log-unknown}}}
-```
-
-A **forbidden** handler — `{:on {:E {}}}` or `{:on {:E nil}}` — **consumes**
-the event and stops the search (how a child opts out of a parent
-transition). A **missing** key is a silent no-op. A bare id like `:go` has
-no `:ns/*` tier — only exact or `:*`. A guard-blocked exact match can fall
-through to a wildcard.
 
 ### See one run
 
