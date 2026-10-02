@@ -238,9 +238,9 @@
     (let [out (rf/project-egress {:secret big-string}
                 {:frame :proj/both
                  :rf.egress/profile :rf.egress/off-box-observability})]
-      (is (redacted? (:secret out)) "the both-marked path is :rf/redacted")
-      (is (not (large-marker? (:secret out)))
-          "NO large marker is emitted — no path/size/digest can leak"))))
+      (is (redacted? (:secret out))
+          "the both-marked path is :rf/redacted, NOT a large marker — no
+           path/size/digest can leak"))))
 
 ;; ---------------------------------------------------------------------------
 ;; NESTED-AXIS SUPPRESSION on the PATH walker
@@ -260,9 +260,8 @@
                    [[:a :b]]   ;; sensitive
                    [[:a]])]    ;; large (ancestor)
       (is (redacted? (get-in out [:a :b]))
-          "the sensitive descendant is redacted")
-      (is (not (large-marker? (get out :a)))
-          "NO large marker over the large subtree")
+          "the sensitive descendant is redacted, so NO large marker replaced the
+           large subtree")
       (is (= "public" (get-in out [:a :c]))
           "the unmarked sibling rides verbatim")
       (is (not (string/includes? (pr-str out) secret))
@@ -278,9 +277,8 @@
                    [[:b]]   ;; sensitive descendant
                    [[]])]   ;; whole-value large
       (is (redacted? (get out :b))
-          "the sensitive descendant under whole-value large is redacted")
-      (is (not (large-marker? out))
-          "NO whole-value large marker is emitted (it would carry the digest)")
+          "the sensitive descendant under whole-value large is redacted, so NO
+           whole-value large marker (which would carry the digest) was emitted")
       (is (= "ok" (get out :other)) "the unmarked sibling rides verbatim")
       (is (not (string/includes? (pr-str out) secret)) "the raw secret does not leak"))))
 
@@ -345,9 +343,9 @@
     (let [out (rf/project-egress (handled-event-record :proj/he2)
                 {:frame :proj/he2
                  :rf.egress/profile :rf.egress/local-raw})]
-      (is (contains? out :event) "trusted-local retains the :event slot")
       (is (= [:auth/login {:password "secret"}] (:event out))
-          "local-raw projects the event verbatim (sensitive opted in)"))))
+          "trusted-local retains the :event slot, projected verbatim under
+           local-raw (sensitive opted in)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; public-error never includes raw internal values.
@@ -527,11 +525,10 @@
             "the explicit nil overrides the record's own live frame")))
 
     (testing "an ABSENT :frame key falls through to the carried scope —
-              step 3, pinned"
-      (is (redacted? (get-in (rf/project-egress (sample-value) {}) [:auth :token]))
-          "no :frame key ⇒ step 3, the ambient frame")
+              step 3, pinned: the PRECONDITION's redaction, and a real walk"
       (is (= {:count 3} (:public (rf/project-egress (sample-value) {})))
-          "and it is a real walk, not a whole-value redact"))))
+          "no :frame key ⇒ step 3, the ambient frame — a real walk, not a
+           whole-value redact"))))
 
 (deftest a-record-with-an-explicit-nil-frame-slot-fails-closed
   (mk-frame! :proj/ambient2)
@@ -714,10 +711,9 @@
                       :frame frame
                       :tree  tree}
                      {:rf.egress/profile :rf.egress/off-box-tool})]
-          (is (redacted? out) (str label ": the tree fails closed to :rf/redacted"))
-          (is (not= tree out) (str label ": the raw tree is NOT shipped"))
-          (is (not (string/includes? (pr-str out) "super-secret-token"))
-              (str label ": the re-keyed secret does not leak off-box")))))))
+          (is (redacted? out)
+              (str label ": the tree fails closed to :rf/redacted — neither the "
+                   "raw tree nor the re-keyed secret ships off-box")))))))
 
 (deftest derived-tree-slot-keys-no-live-frame-fails-closed
   (testing "case 3 — the MULTI-SLOT (:slot-keys) form also fails closed on no
@@ -736,15 +732,9 @@
         (is (redacted? (:effective-args out))
             "a named slot fails closed to :rf/redacted under no live frame")
         (is (redacted? (:network out))
-            "a second named slot also fails closed")
-        ;; A raw-shipping carve-out would ship each named slot raw.
-        (is (not= {:headers {:auth "super-secret-token"}} (:effective-args out))
-            "the named slot is NOT shipped raw")
+            "a second named slot also fails closed — neither ships raw")
         (is (= [:a :b] (:source-chain out))
-            "a NON-named author-prose slot is left untouched (never walked)")
-        (is (not (string/includes? (pr-str (select-keys out [:effective-args :network]))
-                                   "super-secret-token"))
-            "no re-keyed secret leaks out of a walked named slot")))))
+            "a NON-named author-prose slot is left untouched (never walked)")))))
 
 (deftest derived-tree-no-live-frame-local-raw-opt-out-still-raw
   (testing "case 4 — the explicit trusted-local raw opt-out ships a
@@ -877,10 +867,9 @@
                             (catch #?(:clj clojure.lang.ExceptionInfo
                                       :cljs ExceptionInfo) e e))
                 data   (ex-data thrown)]
-            (is (some? thrown) "it throws rather than returning a payload")
             (is (= :rf.error/epoch-artefact-missing (:rf.error/id data))
-                "with the canonical absent-artefact discriminator every other
-                 epoch surface reports")
+                "it throws rather than returning a payload, with the canonical
+                 absent-artefact discriminator every other epoch surface reports")
             (is (= 'rf/project-egress (:where data))
                 ":where names the door, not an epoch-internal helper")
             (is (= :rf/epoch-record (:kind data))
