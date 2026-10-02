@@ -91,36 +91,13 @@
                          {:kind :frame-setup :teardown [:not-a-vector-of-vectors]})))))
 
 ;; ===========================================================================
-;; FIRES — a single-decorator teardown actually runs at destroy
+;; FIRES — teardown runs at destroy, never before, in declared order
 ;; ===========================================================================
 
-(deftest teardown-events-fire-on-destroy
-  (testing ":teardown events dispatched at destroy reach the variant
-            frame's event handlers"
-    (let [fired (atom [])]
-      (rf/reg-event :feed/close-socket
-        (fn [{:keys [db]} _] (swap! fired conj :feed/close-socket) {:db db}))
-      (rf.story/reg-decorator :feed/live-subscription
-        {:kind     :frame-setup
-         :init     [[:feed/noop-init]]
-         :teardown [[:feed/close-socket]]})
-      (rf/reg-event :feed/noop-init (fn [{:keys [db]} _] {:db db}))
-      (rf.story/reg-variant :story.feed/teardown-fires
-        {:decorators [[:feed/live-subscription]]
-         :setup     []})
-      ;; Allocate + destroy. The single :frame-setup decorator's
-      ;; :teardown event must fire on destroy.
-      (rf.story.async/deref-blocking
-        (rf.story/run-variant :story.feed/teardown-fires) 5000)
-      (is (= [] @fired)
-          "teardown has NOT fired yet — the variant is still live")
-      (rf.story/destroy-variant! :story.feed/teardown-fires)
-      (is (= [:feed/close-socket] @fired)
-          "teardown fired exactly once on destroy"))))
-
 (deftest teardown-events-fire-in-declared-order-within-a-decorator
-  (testing "within a single decorator's :teardown vector, events fire
-            in declared order — symmetric with :init"
+  (testing "a decorator's :teardown events fire at destroy and not before,
+            and within its :teardown vector in declared order — symmetric
+            with :init"
     (let [fired (atom [])]
       (rf/reg-event :step/one
         (fn [{:keys [db]} _] (swap! fired conj :one) {:db db}))
@@ -138,6 +115,8 @@
          :setup     []})
       (rf.story.async/deref-blocking
         (rf.story/run-variant :story.feed/multi-step) 5000)
+      (is (= [] @fired)
+          "teardown has NOT fired yet — the variant is still live")
       (rf.story/destroy-variant! :story.feed/multi-step)
       (is (= [:one :two :three] @fired)
           "within one decorator, teardown events run in declared order"))))
@@ -148,57 +127,39 @@
 ;; ===========================================================================
 
 (deftest teardown-composes-in-reverse-declaration-order
-  (testing "a stack of two :frame-setup decorators (one at story level,
-            one at variant level) tears down innermost-first: the
-            variant-level decorator's :teardown runs BEFORE the story-
-            level decorator's :teardown. Mirrors function-scope cleanup."
+  (testing "a stack of :frame-setup decorators tears down in reverse
+            declaration order: the variant-level decorators (innermost)
+            before the story-level one (outermost), and within the variant
+            level the later-declared first. The resolved :frame-setup vector
+            reversed is the walk order, mirroring function-scope cleanup."
     (let [fired (atom [])]
       (rf/reg-event :outer/cleanup
         (fn [{:keys [db]} _] (swap! fired conj :outer) {:db db}))
-      (rf/reg-event :inner/cleanup
-        (fn [{:keys [db]} _] (swap! fired conj :inner) {:db db}))
-      (rf.story/reg-decorator :outer-dec
-        {:kind :frame-setup :init [[:outer/noop]] :teardown [[:outer/cleanup]]})
-      (rf.story/reg-decorator :inner-dec
-        {:kind :frame-setup :init [[:inner/noop]] :teardown [[:inner/cleanup]]})
-      (rf/reg-event :outer/noop (fn [{:keys [db]} _] {:db db}))
-      (rf/reg-event :inner/noop (fn [{:keys [db]} _] {:db db}))
-      (rf.story/reg-story :story.teardown.order
-        {:decorators [[:outer-dec]]})
-      (rf.story/reg-variant :story.teardown.order/v
-        {:decorators [[:inner-dec]]
-         :setup     []})
-      (rf.story.async/deref-blocking
-        (rf.story/run-variant :story.teardown.order/v) 5000)
-      (rf.story/destroy-variant! :story.teardown.order/v)
-      (is (= [:inner :outer] @fired)
-          "reverse-declaration: innermost (variant-level :inner-dec)
-           tears down BEFORE outermost (story-level :outer-dec).
-           spec/002 §Loader teardown contract step 3."))))
-
-(deftest teardown-composes-reverse-within-a-single-level
-  (testing "two decorators declared at the SAME level (variant) still
-            tear down in reverse-declaration order — the resolved
-            :frame-setup vector reversed is the walk order"
-    (let [fired (atom [])]
       (rf/reg-event :dec-a/cleanup
         (fn [{:keys [db]} _] (swap! fired conj :a) {:db db}))
       (rf/reg-event :dec-b/cleanup
         (fn [{:keys [db]} _] (swap! fired conj :b) {:db db}))
+      (rf.story/reg-decorator :outer-dec
+        {:kind :frame-setup :init [[:outer/noop]] :teardown [[:outer/cleanup]]})
       (rf.story/reg-decorator :dec-a
         {:kind :frame-setup :init [[:dec-a/noop]] :teardown [[:dec-a/cleanup]]})
       (rf.story/reg-decorator :dec-b
         {:kind :frame-setup :init [[:dec-b/noop]] :teardown [[:dec-b/cleanup]]})
+      (rf/reg-event :outer/noop (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :dec-a/noop (fn [{:keys [db]} _] {:db db}))
       (rf/reg-event :dec-b/noop (fn [{:keys [db]} _] {:db db}))
-      (rf.story/reg-variant :story.teardown.same-level/v
+      (rf.story/reg-story :story.teardown.order
+        {:decorators [[:outer-dec]]})
+      (rf.story/reg-variant :story.teardown.order/v
         {:decorators [[:dec-a] [:dec-b]]
          :setup     []})
       (rf.story.async/deref-blocking
-        (rf.story/run-variant :story.teardown.same-level/v) 5000)
-      (rf.story/destroy-variant! :story.teardown.same-level/v)
-      (is (= [:b :a] @fired)
-          "later-declared :dec-b tears down before earlier-declared :dec-a"))))
+        (rf.story/run-variant :story.teardown.order/v) 5000)
+      (rf.story/destroy-variant! :story.teardown.order/v)
+      (is (= [:b :a :outer] @fired)
+          "the later-declared variant-level :dec-b, then :dec-a, then the
+           story-level :outer-dec. spec/002 §Loader teardown contract
+           step 3."))))
 
 ;; ===========================================================================
 ;; HOT-RELOAD ASYMMETRY — teardown uses the ALLOCATE-TIME decorator stack
@@ -312,18 +273,17 @@
       (let [asserts @captured
             err     (first (filter #(= :rf.error/exception (:assertion %))
                                    asserts))]
-        (is (some? err)
-            "an :rf.error/exception record landed in [:rf.story/assertions]
-             before destroy-frame! evicted the variant frame")
         (is (= :phase-teardown (:phase err))
-            ":phase :phase-teardown carried on the record")
+            "an :rf.error/exception record carrying :phase :phase-teardown
+             landed in [:rf.story/assertions] before destroy-frame! evicted
+             the variant frame")
         (is (false? (:passed? err))
             ":passed? false — error records never pass")
         (is (= [:boom/cleanup] (:event err))
             ":event slot carries the throwing event vector")
         (is (= :story.teardown.record/v (:variant-id err))
             ":variant-id carries the variant id")
-        (is (string? (:message (:error err)))
+        (is (= "teardown boom" (:message (:error err)))
             ":error :message is the thrown exception's message")
         (is (= {:why :test} (:data (:error err)))
             ":error :data carries the ex-info data map")))))

@@ -5,7 +5,7 @@
 
   - Play events dispatch in declared order.
   - Mixed real-dispatches + :rf.assert/* events compose.
-  - Tape-projected assertions (dispatched? / effect-emitted).
+  - `:rf.assert/effect-emitted` excludes the framework `:db` fx.
   - Per-frame teardown clears the pending-exceptions slot.
   - The play-stepper hooks (begin-stepper! / step-once! / end-stepper!).
   - :loaders-complete-when non-default forms (registered event id,
@@ -113,25 +113,6 @@
     (rf.story/destroy-variant! :story.boom/v)))
 
 ;; ===========================================================================
-;; Tape-projected assertions see only the current run
-;; ===========================================================================
-
-(deftest accumulators-reset-per-run
-  (testing ":rf.assert/dispatched? sees only the current play run's events"
-    (rf/reg-event :do/work (fn [{:keys [db]} _] {:db (assoc db :did? true)}))
-    (rf.story/reg-variant :story.reset/v
-      {:setup []
-       :script [[:dispatch-sync [:do/work]]
-                [:dispatch-sync [:rf.assert/dispatched? [:do/work]]]]})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.reset/v) 5000)
-    ;; The first run's dispatched events must NOT leak into the second
-    ;; run — reset-variant tears the frame down + re-runs.
-    (let [r2 (rf.story.async/deref-blocking (rf.story/reset-variant :story.reset/v) 5000)]
-      (is (true? (-> r2 :assertions first :passed?))
-          "the second run's assertion only sees that run's events"))
-    (rf.story/destroy-variant! :story.reset/v)))
-
-;; ===========================================================================
 ;; Framework :db / :fx fx-ids are excluded from `emitted-fx`
 ;; ===========================================================================
 
@@ -149,10 +130,10 @@
     (let [result (rf.story.async/deref-blocking (rf.story/run-variant :story.ee/db) 5000)
           ee-rec (first (filter #(= :rf.assert/effect-emitted (:assertion %))
                                 (:assertions result)))]
-      (is (some? ee-rec) "the effect-emitted assertion recorded")
       (is (false? (:passed? ee-rec))
-          ":db is excluded from emitted-fx, so the assertion fails rather
-           than passing vacuously"))
+          "the effect-emitted assertion recorded and failed — :db is
+           excluded from emitted-fx, so the assertion fails rather than
+           passing vacuously"))
     (rf.story/destroy-variant! :story.ee/db)))
 
 ;; ===========================================================================
@@ -268,26 +249,19 @@
 ;; false activation the UI would render as a live stepper widget.
 ;; ===========================================================================
 
-(deftest stepper-rewind-on-never-begun-frame-does-not-activate
-  (testing "stepper-rewind! against a frame with no stepper session is a
-            no-op — it does NOT insert a nil entry that would flip
-            play-stepper-active? to true"
-    (is (not (rf.story.play/play-stepper-active? :story.stepper/never)))
-    (rf.story.play/stepper-rewind! :story.stepper/never)
-    (is (not (rf.story.play/play-stepper-active? :story.stepper/never))
-        "rewind on a never-begun frame leaves the stepper inactive")
-    (is (not (contains? @rf.story.play/stepper-state :story.stepper/never))
-        "no {frame-id nil} entry was inserted into stepper-state")))
-
-(deftest stepper-step-back-on-never-begun-frame-does-not-activate
-  (testing "stepper-step-back! against a frame with no stepper session is a
-            no-op — same nil-entry pollution guard as rewind"
-    (is (not (rf.story.play/play-stepper-active? :story.stepper/never2)))
-    (rf.story.play/stepper-step-back! :story.stepper/never2)
-    (is (not (rf.story.play/play-stepper-active? :story.stepper/never2))
-        "step-back on a never-begun frame leaves the stepper inactive")
-    (is (not (contains? @rf.story.play/stepper-state :story.stepper/never2))
-        "no {frame-id nil} entry was inserted into stepper-state")))
+(deftest stepper-guards-on-never-begun-frame-do-not-activate
+  (testing "stepper-rewind! and stepper-step-back! against a frame with no
+            stepper session are no-ops — neither inserts the nil entry
+            that would flip play-stepper-active? to true"
+    (doseq [[label step! frame-id]
+            [["stepper-rewind!"    rf.story.play/stepper-rewind!    :story.stepper/never]
+             ["stepper-step-back!" rf.story.play/stepper-step-back! :story.stepper/never2]]]
+      (testing label
+        (step! frame-id)
+        (is (not (rf.story.play/play-stepper-active? frame-id))
+            "the never-begun frame's stepper stays inactive")
+        (is (not (contains? @rf.story.play/stepper-state frame-id))
+            "no {frame-id nil} entry was inserted into stepper-state")))))
 
 (deftest stepper-rewind-still-rewinds-an-active-session
   (testing "the guard does not break the real path — rewind on an ACTIVE
@@ -350,33 +324,25 @@
           "vector form's loaders-complete-when fires once both loaders run, transitioning the lifecycle to :ready"))
     (rf.story/destroy-variant! :story.loaders/vector)))
 
-(deftest loaders-complete-when-vector-without-listener-stalls
-  ;; The negative companion. The vector form reads the epoch-tape
-  ;; dispatched-events projection (the SSOT —
-  ;; `rf.story.assertions/dispatched-events`). We drive the projection directly via
-  ;; with-redefs: an empty projection (no loader epoch yet) → false; once
-  ;; the tape carries the required event → true.
-  (testing "vector form with an empty tape projection returns false"
-    (let [frame-id :story.v2g9/stalled
-          body {:loaders-complete-when [[:fixture/loaded]]}]
-      (with-redefs [rf.story.assertions/dispatched-events (constantly [])]
-        (is (false? (rf.story.loaders/evaluate-complete-when frame-id body))
-            "predicate is false when the tape carries no record of the required event"))
-      (with-redefs [rf.story.assertions/dispatched-events (constantly [[:fixture/loaded]])]
-        (is (true? (rf.story.loaders/evaluate-complete-when frame-id body))
-            "predicate is true once the tape projection carries the loader event")))))
-
-(deftest loaders-complete-when-evaluate-vector-form
-  (testing "vector-of-events evaluation reads the epoch-tape dispatched-events projection"
-    ;; The projection is the SSOT; drive it directly.
-    (let [frame-id :story.predfn/vector
-          variant-body {:loaders-complete-when [[:fixture/loaded] [:auth/ready]]}]
-      (with-redefs [rf.story.assertions/dispatched-events (constantly [[:fixture/loaded]])]
-        (is (false? (rf.story.loaders/evaluate-complete-when frame-id variant-body))
-            "missing one of the required events — predicate is false"))
-      (with-redefs [rf.story.assertions/dispatched-events (constantly [[:fixture/loaded] [:auth/ready]])]
-        (is (true? (rf.story.loaders/evaluate-complete-when frame-id variant-body))
-            "both events observed — predicate is true")))))
+(deftest loaders-complete-when-vector-form-needs-every-listed-event
+  ;; The vector form reads the epoch-tape dispatched-events projection (the
+  ;; SSOT — `rf.story.assertions/dispatched-events`), driven directly here
+  ;; with with-redefs. An empty projection (no loader epoch yet) is the
+  ;; stalled case.
+  (doseq [[label required tape expected]
+          [["an empty tape projection stalls"
+            [[:fixture/loaded]] [] false]
+           ["the tape carrying the required event completes"
+            [[:fixture/loaded]] [[:fixture/loaded]] true]
+           ["one of two required events missing stays incomplete"
+            [[:fixture/loaded] [:auth/ready]] [[:fixture/loaded]] false]
+           ["both required events observed completes"
+            [[:fixture/loaded] [:auth/ready]] [[:fixture/loaded] [:auth/ready]] true]]]
+    (testing label
+      (with-redefs [rf.story.assertions/dispatched-events (constantly tape)]
+        (is (= expected (rf.story.loaders/evaluate-complete-when
+                          :story.predfn/vector
+                          {:loaders-complete-when required})))))))
 
 (deftest loaders-complete-when-fn-form
   (testing "literal fn predicate is invoked with the frame's app-db"

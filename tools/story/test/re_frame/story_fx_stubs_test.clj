@@ -72,9 +72,7 @@
        :setup     []})
     (let [r       (rf.story/resolve-decorators :story.fxstub-multi/v)
           stack   (rf.story.decorators/fx-overrides-map (:fx-override r))]
-      (is (= 2 (count (:overrides stack))))
-      (is (contains? (:overrides stack) :http))
-      (is (contains? (:overrides stack) :websocket))
+      (is (= #{:http :websocket} (set (keys (:overrides stack)))))
       (let [http-stub (get-in stack [:overrides :http])
             ws-stub   (get-in stack [:overrides :websocket])]
         (is (not= http-stub ws-stub)

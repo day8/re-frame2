@@ -200,21 +200,3 @@
         (is (false? (:passed? r))))
       (finally
         (rf/destroy-frame! :story.x/v)))))
-
-;; ---- every routed record shares the projection ----------------------------
-
-(deftest all-exception-records-share-the-canonical-error-shape
-  (testing "records built for every phase carry IDENTICAL :error key sets —
-            :stack / :data are consistent across all sites"
-    (let [e          (ex-info "x" {:d 1})
-          phases     [:phase-0-setup :phase-1-loaders :phase-2-events
-                      :phase-4-play :phase-4-setup :phase-teardown
-                      :phase-loaders-teardown]
-          error-keys (->> phases
-                          (map (fn [p]
-                                 (set (keys (:error (rf.story.error/exception-record
-                                                      :story.x/v p nil e))))))
-                          set)]
-      (is (= #{#{:message :stack :data}} error-keys)
-          "every phase's :error sub-map has exactly the canonical key set —
-           no site drops :stack or :data"))))

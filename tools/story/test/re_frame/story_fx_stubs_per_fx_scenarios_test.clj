@@ -160,24 +160,22 @@
 ;; the stub via decorator, then dispatch the fx and assert the real
 ;; handler did NOT run. The proof is in two channels:
 ;;
-;;   1. A side-channel atom that the real handler would write to —
-;;      remains empty after the run.
+;;   1. A side-channel atom that the real handler would flip —
+;;      remains false after the run.
 ;;   2. The stub-call log carries the payload — proving the redirect
 ;;      actually happened.
 ;; ===========================================================================
 
 (deftest stub-overrides-real-handler
   (testing "force-fx-stub takes precedence over a registered real fx handler"
-    (let [real-called?  (atom false)
-          ;; Side-channel atom the real handler would mutate. If the
-          ;; stub didn't intercept, this would flip to true (or, if the
+    (let [;; Side-channel atom the real handler would flip. If the stub
+          ;; didn't intercept, this would flip to true (or, if the
           ;; ex/throw path won the race, the run-variant would surface
           ;; the throw as a record-don't-throw assertion).
-          real-payloads (atom [])]
+          real-called? (atom false)]
       (rf/reg-fx :http
         (fn [payload]
           (reset! real-called? true)
-          (swap! real-payloads conj payload)
           ;; A real :http handler would push a network request here;
           ;; we throw instead so a missing-redirect regression fails
           ;; loudly via the :events-phase exception projection too.
@@ -199,8 +197,6 @@
             "real :http handler must NOT be invoked — the framework
              :fx-overrides redirect routes the call to the stub event before
              reg-fx dispatch")
-        (is (= [] @real-payloads)
-            "real handler's side-channel records zero payloads")
         (let [log (rf.story.frames/stub-call-log-for :story.fxoverride/real)]
           (is (= 1 (count log)))
           (is (= :http (:fx-id (first log)))

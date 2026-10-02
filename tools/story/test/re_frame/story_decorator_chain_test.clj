@@ -273,26 +273,21 @@
       (is (every? :passed? (:assertions rB))
           "all B's assertions pass against B's app-db")
       ;; emitted-fx isolation: the stub-call log keys by frame-id; each
-      ;; frame's log carries only its own emissions. Three per frame:
-      ;; two during :setup phase + one during :script phase. Note the
-      ;; stub-call log accumulates across phases.
-      (is (= 3 (count logA))
-          "frame A's stub log carries exactly three entries — two from
-           :setup + one from :script")
-      (is (= 3 (count logB))
-          "frame B's stub log carries exactly three entries — and ZERO
-           of A's entries leaked across")
-      ;; Belt-and-braces: each log's payload carries the per-frame
-      ;; counter value at emit time — proving the dispatch saw the
-      ;; frame-local app-db, not a shared one.
+      ;; frame's log carries only its own emissions, accumulated across
+      ;; phases (two from :setup + one from :script). Each payload carries
+      ;; the per-frame counter value at emit time — proving the dispatch
+      ;; saw the frame-local app-db, not a shared one.
       (is (= [{:event :inc :from 100}
               {:event :inc :from 101}
               {:event :inc :from 102}]
-             (mapv :payload logA)))
+             (mapv :payload logA))
+          "frame A's stub log carries exactly its own three emissions")
       (is (= [{:event :inc :from 200}
               {:event :inc :from 201}
               {:event :inc :from 202}]
-             (mapv :payload logB))))
+             (mapv :payload logB))
+          "frame B's stub log carries exactly its own three emissions —
+           ZERO of A's entries leaked across"))
     (rf.story/destroy-variant! :story.isolation/A)
     (rf.story/destroy-variant! :story.isolation/B)))
 
