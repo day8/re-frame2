@@ -13,8 +13,9 @@
   - **Serializable work records** live at `[:rf.runtime/work-ledger
     <work-id>]` inside the runtime-db partition (`:rf.db/runtime`). They
     are plain EDN — status, owners, causes, attempts, deadlines, outcomes
-    — with NO host handles, so they ride SSR / hydration / epoch
-    snapshots / Xray projection cleanly.
+    — with NO host handles, so they ride epoch snapshots and the Xray
+    projection cleanly. The SSR hydration payload ships none of them: it
+    carries only the resource cache projection.
   - **Host handles** (the actual abortable request handles — AbortControllers
     / timeout handles / transport promises) live in a module-level side
     table keyed by `[frame-id work-id]`, OUTSIDE durable frame-state, and
@@ -45,9 +46,9 @@
   it, tail and inverse-index bucket alike (`drop-rows-for-key`), and a
   mutation instance's rows are bounded by the same per-key mechanism under
   its `[:rf.mutation <instance-id>]` key. Only NON-terminal rows' summaries ride the
-  hydration / epoch wire. ONE identity per work record — stale
-  suppression keys on `:work/id` (which embeds the generation); there is
-  no separate `:stale-key` synonym.
+  epoch-restore wire; SSR hydration carries no ledger rows. ONE identity
+  per work record — stale suppression keys on `:work/id` (which embeds the
+  generation); there is no separate `:stale-key` synonym.
 
   ## Single-writer artefact (v1)
 
@@ -175,8 +176,9 @@
 
 (def non-terminal-statuses
   "The non-terminal work statuses an attempt moves through while it is
-  still live. ONLY these rows' summaries ride the hydration / epoch /
-  restore wire (terminal rows are local Xray history). Per Spec 016
+  still live. ONLY these rows' summaries ride the epoch-restore wire
+  (terminal rows are local Xray history, and SSR hydration carries no
+  ledger rows at all). Per Spec 016
   §Ledger row retention and identity / [Runtime-Subsystems] clause 4."
   #{:queued :running :abort-requested})
 
@@ -299,7 +301,7 @@
   `re-frame.reply/durable-target`, which strips any ephemeral slot and FAILS
   LOUD (`:rf.reply/non-data-target`) if a host handle hid in a public field —
   asserting the reified continuation is data-only before it could ride a
-  durable row / SSR / hydration / epoch snapshot. Returns the data-only
+  durable row / epoch snapshot. Returns the data-only
   normalized descriptor. Per Spec 016 §Frame work ledger / Managed-Effects
   §Work-ledger integration.
 
@@ -385,8 +387,8 @@
 
 (defn serializable-record?
   "True iff `record` is host-handle-free serializable EDN — the durable
-  invariant a work record MUST satisfy (it rides SSR / hydration / epoch
-  snapshots / Xray projection). Host handles (AbortControllers / promises /
+  invariant a work record MUST satisfy (it rides epoch snapshots and the
+  Xray projection). Host handles (AbortControllers / promises /
   timer handles) live ONLY in the side table, never on the record. Per Spec
   016 §Frame work ledger / [Runtime-Subsystems] clause 4. Reuses the same
   serializable-EDN walker the cache-key boundary uses."
@@ -418,24 +420,24 @@
 ;;
 ;; It is a PURE derived projection of the ledger (a row contributes its
 ;; `work-id-id` to its `(:resource/key row)`'s bucket), so it is rebuilt — never
-;; trusted — wherever the ledger is installed wholesale (hydration / restore):
+;; trusted — wherever the ledger is installed wholesale (an epoch restore):
 ;; `prune-terminal-for-key` self-heals by rebuilding the whole index when it
-;; finds the ledger populated but the index absent (the post-hydration shape),
-;; so no SSR / restore install site has to thread it. Maintained incrementally
+;; finds the ledger populated but the index absent (the post-restore shape),
+;; so no restore install site has to thread it. Maintained incrementally
 ;; on the live path by `put-record` (add) and `prune-terminal-for-key`, which
 ;; drops a whole batch of terminal rows and updates the bucket in bulk (remove).
 
 (def work-ledger-by-key-key
   "Reserved runtime-db key for the work-ledger's resource-key → work-id-id
   inverse index `{<rk-id> #{<work-id-id> …}}`. Recomputable-from-the-ledger
-  (rebuilt on hydration / restore, never trusted from a snapshot — mirrors the
+  (rebuilt on restore, never trusted from a snapshot — mirrors the
   resource `:tag-index`). Per Spec 016 §Ledger row retention."
   :rf.runtime/work-ledger-by-key)
 
 (defn recompute-ledger-index
   "Rebuild the `:rf.runtime/work-ledger-by-key` inverse index
   `{<rk-id> #{<work-id-id> …}}` from the ledger map in `runtime-db`. The single
-  authoritative full rebuild the hydration / restore self-heal uses (a pure
+  authoritative full rebuild the restore self-heal uses (a pure
   projection of the ledger). Returns the updated runtime-db."
   [runtime-db]
   (let [ledger (:rf.runtime/work-ledger runtime-db)
@@ -448,7 +450,7 @@
     (assoc runtime-db work-ledger-by-key-key idx)))
 
 ;; The incremental maintainers act ONLY when the index already EXISTS in the
-;; runtime-db. A wholesale ledger install (epoch restore / SSR hydrate /
+;; runtime-db. A wholesale ledger install (epoch restore /
 ;; replace-frame-state! / router rollback / test fixtures) does NOT carry the
 ;; index (a derived projection never trusted from a snapshot), so leaving it
 ;; absent is the signal `prune-terminal-for-key` rebuilds it from ground truth
@@ -466,7 +468,7 @@
     runtime-db))
 
 (defn- ensure-ledger-index
-  "Self-heal: a wholesale-installed ledger (hydration / restore)
+  "Self-heal: a wholesale-installed ledger (an epoch restore)
   arrives with NO inverse index (it is a derived projection, never trusted from
   the wire). Rebuild it ONCE so a per-key visit is bounded; live operation keeps
   it in step via `put-record` and the per-key row droppers' own bulk bucket
@@ -541,7 +543,7 @@
   "How many terminal work rows to retain per resource-key for Xray's
   recent-races view after a prune (Spec 016 §Ledger row retention and
   identity — \"a small bounded per-resource-key tail\"). Small + bounded:
-  the ledger rides SSR / hydration / every epoch snapshot, so unbounded
+  the ledger rides every epoch snapshot, so unbounded
   terminal-row growth is worse than trace growth."
   3)
 
@@ -559,7 +561,7 @@
   ([runtime-db resource-key] (prune-terminal-for-key runtime-db resource-key default-terminal-tail))
   ([runtime-db resource-key keep-tail]
    ;; Self-heal the inverse index when a wholesale-installed
-   ;; ledger (hydration / restore) arrives without one, so the per-key visit
+   ;; ledger (an epoch restore) arrives without one, so the per-key visit
    ;; below is bounded.
    (let [runtime-db (ensure-ledger-index runtime-db)
          ;; Match by CEDN-1 byte identity, not `=` over the
