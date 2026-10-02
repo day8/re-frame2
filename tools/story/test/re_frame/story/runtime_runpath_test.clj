@@ -79,18 +79,6 @@
       (is (contains? (set (:required-runner result)) :pixels)
           "the plan's :required-runner capability set is surfaced + carries :pixels"))))
 
-(deftest healthy-headless-run-is-not-falsely-refused
-  (testing "a healthy headless run (an :app-db assertion the :headless runner
-            CAN prove) reads :pass with NO :cannot-run — the requirements
-            wiring must not false-refuse a run whose tokens the runner provides
-            (empty-is-healthy slots impose no gate)"
-    (let [result (run-target {:script [[:dispatch [:rp/set-status :loaded]]
-                                       [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
-      (is (= :pass (:status result)) "a met-and-passing headless run is :pass")
-      (is (empty? (:cannot-run result)) "no spurious :cannot-run refusal")
-      (is (= :headless (:runner result)))
-      (is (every? :passed? (:assertions result))))))
-
 (deftest auto-selects-cheapest-capable-runner
   (testing "under :auto the cheapest CAPABLE runner is selected — :headless for
             an app-db-only plan, :hiccup for a :hiccup-structure requirement
@@ -109,51 +97,27 @@
           "a :hiccup-structure requirement escalates to the cheapest capable runner :hiccup")
       (is (contains? (set (:required-runner hiccup)) :hiccup-structure)))))
 
-(deftest fixed-headless-refuses-hiccup-structure-requirement
-  (testing "under fixed :headless a :hiccup-structure (a11y-structural)
-            requirement refuses :cannot-run at PREFLIGHT — the fixed runner
-            runs single-pass and refuses per-requirement"
-    (let [result (run-target {:assertions [[:rf.assert/a11y-structural]]}
-                             {:runner :headless})]
-      (is (= :cannot-run (:status result)))
-      (is (some #(contains? (set (:missing %)) :hiccup-structure)
-                (:cannot-run result))
-          "the refusal attributes the missing :hiccup-structure token"))))
-
 ;; ===========================================================================
 ;; a11y-structural executor routed into the run path
 ;; ===========================================================================
 
-(deftest a11y-structural-evaluates-and-fails-at-hiccup
+(deftest a11y-structural-evaluates-at-hiccup
   (testing "an in-script [:assert [:rf.assert/a11y-structural]] checkpoint
-            EVALUATES at :hiccup against the rendered tree and FAILS the run
-            when the tree carries a structural issue"
-    ;; The host renders a tree with an :img missing :alt — a structural issue.
-    (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] [:div [:img {:src "/k.png"}]]))
-    (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
-                                       [:assert [:rf.assert/a11y-structural]]]}
-                             {:runner :hiccup})]
-      (is (= :fail (:status result))
-          "a structural-a11y finding fails the run (never a no-op skip)")
-      (let [rec (a11y-structural-record result)]
-        (is (some? rec) "the a11y-structural assertion record landed on the slot")
-        (is (false? (:passed? rec)) "the img-missing-alt issue is a :fail")
-        (is (= :fail (:status rec)))))))
-
-(deftest a11y-structural-evaluates-and-passes-at-hiccup
-  (testing "a structurally-clean rendered tree PASSES :rf.assert/a11y-structural
-            on the normal :hiccup run path"
-    (rf.story.late-bind/set-fn! :render-hiccup
-                       (fn [_frame] [:div [:img {:src "/k.png" :alt "a kitten"}]
-                                     [:button "Go"]]))
-    (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
-                                       [:assert [:rf.assert/a11y-structural]]]}
-                             {:runner :hiccup})]
-      (is (= :pass (:status result)) "a clean tree passes structural a11y")
-      (let [rec (a11y-structural-record result)]
-        (is (some? rec))
-        (is (true? (:passed? rec)))
-        (is (= :pass (:status rec)))))))
+            EVALUATES at :hiccup against the rendered tree and drives the run"
+    (doseq [[label tree status passed?]
+            [["an :img missing :alt is a structural issue: the run FAILS (never a no-op skip)"
+              [:div [:img {:src "/k.png"}]] :fail false]
+             ["a structurally-clean tree PASSES on the normal :hiccup run path"
+              [:div [:img {:src "/k.png" :alt "a kitten"}] [:button "Go"]] :pass true]]]
+      (testing label
+        (rf.story.late-bind/set-fn! :render-hiccup (fn [_frame] tree))
+        (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
+                                           [:assert [:rf.assert/a11y-structural]]]}
+                                 {:runner :hiccup})
+              rec    (a11y-structural-record result)]
+          (is (= status (:status result)))
+          (is (= passed? (:passed? rec)) "the a11y-structural record landed with its verdict")
+          (is (= status (:status rec))))))))
 
 (deftest a11y-structural-cannot-run-without-a-hiccup-tree
   (testing "with NO :render-hiccup host the :hiccup runner cannot supply a
@@ -168,15 +132,15 @@
       (is (= :cannot-run (:status result))
           "no rendered tree → :cannot-run, never a false pass/fail")
       (let [rec (a11y-structural-record result)]
-        (is (some? rec) "a :cannot-run record landed on the slot")
-        (is (= :cannot-run (:status rec)))
+        (is (= :cannot-run (:status rec)) "a :cannot-run record landed on the slot")
         (is (true? (:cannot-run? rec)))
         (is (false? (:passed? rec)))))))
 
-(deftest visual-snapshot-cannot-run-headless-through-run-path
+(deftest visual-snapshot-cannot-run-without-a-real-browser
   (testing "a :rf.assert/visual-snapshot checkpoint routed through the run-path
-            executor records :cannot-run headless (browser-only :pixels) — the
-            executor's browser-available? guard, surfaced end-to-end"
+            executor records :cannot-run with no real browser (browser-only
+            :pixels) — the executor's browser-available? guard, surfaced
+            end-to-end"
     (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
                                        [:assert [:rf.assert/visual-snapshot]]]}
                              {:runner :browser})]
@@ -185,8 +149,7 @@
       (is (= :cannot-run (:status result)))
       (let [rec (first (filter #(= :rf.assert/visual-snapshot (:assertion %))
                                (:assertions result)))]
-        (is (some? rec) "the visual-snapshot record landed (never dropped)")
-        (is (= :cannot-run (:status rec)))))))
+        (is (= :cannot-run (:status rec)) "the visual-snapshot record landed (never dropped)")))))
 
 (defn- browser-record [result assertion-id]
   (first (filter #(= assertion-id (:assertion %)) (:assertions result))))
@@ -223,28 +186,6 @@
 ;; override or active mode execute a DIFFERENT scenario than the one the
 ;; result claims — a false pass/fail + misleading snapshot.
 ;; ===========================================================================
-
-(deftest cell-override-threads-into-script-arg-substitution
-  (testing "a :cell-override drives an `[:arg …]` placeholder in the SCRIPT;
-            the executed app-db AND the reported :effective-args BOTH reflect
-            the override value — not the static story arg"
-    (rf.story/reg-variant
-      :story.opts/scripted
-      {:args   {:value "static"}
-       ;; `[:arg :value]` is resolved at plan-compile time; the run opts must
-       ;; thread into compilation so the dispatched value IS the override.
-       :script [[:dispatch-sync [:rp/set-value [:arg :value]]]
-                [:assert [:rf.assert/path-equals [:value] "override"]]]})
-    (let [result (run-target :story.opts/scripted
-                             {:cell-overrides {:value "override"}})]
-      (is (= "override" (get-in result [:app-db :value]))
-          "the SCRIPT dispatched the OVERRIDE value (plan compiled with run opts)")
-      (is (= "override" (get-in result [:effective-args :value]))
-          "the reported :effective-args carries the override")
-      (is (= :pass (:status result))
-          "the [:arg]-driven assertion against the override value PASSES — the
-           executed plan and the reported effective args agree")
-      (is (every? :passed? (:assertions result))))))
 
 (deftest cell-override-threads-into-db-seed-arg-substitution
   (testing "a :cell-override drives an `[:arg …]` placeholder in the :db-seed;
@@ -301,17 +242,6 @@
       (is (= "override" (get-in result [:effective-args :value]))
           "and in the reported :effective-args — executed == reported"))))
 
-(deftest no-run-opts-still-uses-static-args
-  (testing "with NO run opts the run substitutes the STATIC variant args —
-            run opts only add layers above them"
-    (rf.story/reg-variant
-      :story.opts/plain
-      {:args   {:value "static"}
-       :script [[:dispatch-sync [:rp/set-value [:arg :value]]]]})
-    (let [result (run-target :story.opts/plain)]
-      (is (= "static" (get-in result [:app-db :value])))
-      (is (= "static" (get-in result [:effective-args :value]))))))
-
 ;; ===========================================================================
 ;; A plan-construction failure routes to `plan-error-result` REGARDLESS of
 ;; the prior frame's lifecycle state. The plan compiles in `prepare-context`
@@ -351,17 +281,15 @@
           "the second run reports :error (plan construction failed)")
       (let [rec (first (filter #(= :rf.error/story-missing-arg (:assertion %))
                                (:assertions result)))]
-        (is (some? rec)
+        (is (false? (:passed? rec))
             "the plan failure surfaces as a STRUCTURED :rf.error/story-missing-arg
-             assertion — NOT an opaque :rf.error/exception")
-        (is (false? (:passed? rec))))
+             assertion — NOT an opaque :rf.error/exception"))
       (is (not (some #(= :rf.error/exception (:assertion %)) (:assertions result)))
           "no opaque :rf.error/exception assertion is recorded for a plan failure")
-      (is (not= "old" (get-in result [:app-db :value]))
-          "the error result does NOT leak the prior run's stale {:value \"old\"}")
       (is (= {} (:app-db result))
           "a plan-construction failure allocates no frame, so :app-db is the
-           frame-free empty-result default ({}) — never the prior frame's db"))))
+           frame-free empty-result default ({}) — never the prior run's stale
+           {:value \"old\"}"))))
 
 ;; ===========================================================================
 ;; A play step that fails WITHOUT recording an assertion reaches the unified

@@ -150,7 +150,6 @@
       (reg-cumulative! vid)
       (prepare! vid :a)
       ;; frame exists (subs can deref) and lifecycle is renderable
-      (is (some? (rf/app-db-value vid)) "the frame is allocated before any resume")
       (is (= :ready (rf.story.loaders/current-state vid)) "the frame reached :ready in prepare")
       ;; but the script has not run
       (is (= 0 (count-of vid)) "seed 0, no play-script increments yet")

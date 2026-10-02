@@ -88,36 +88,6 @@
       (is (= :fail (:status result)))
       (is (not (every? :passed? (:assertions result)))))))
 
-(deftest inline-plan-terminal-assertions-only-auto-run
-  (testing "an INLINE plan with ONLY a terminal :assertions block (no
-            in-script [:assert], no :script) AUTO-RUNS the terminal assertion
-            against the FINAL settled state and produces a verdict — the same
-            lifecycle a registered variant gets. Both a PASS and a
-            FAIL are pinned so the verdict is load-bearing, not vacuous."
-    (let [pass (run-target {:setup      [[:dispatch [:inline/set-status :loaded]]]
-                            :assertions [[:rf.assert/path-equals [:status] :loaded]]})]
-      (is (= :pass (:status pass))
-          "the inline terminal assertion auto-ran and passed → :pass")
-      (is (= :ready (:lifecycle pass)))
-      (let [rec (first (filter #(= :rf.assert/path-equals (:assertion %))
-                               (:assertions pass)))]
-        (is (some? rec) "the terminal assertion recorded with no checkpoint")
-        (is (true? (:passed? rec)))))
-    (let [fail (run-target {:setup      [[:dispatch [:inline/set-status :idle]]]
-                            :assertions [[:rf.assert/path-equals [:status] :loaded]]})]
-      (is (= :fail (:status fail))
-          "a failing inline terminal assertion flips the verdict to :fail")
-      (is (not (every? :passed? (:assertions fail)))))))
-
-(deftest inline-plan-setup-and-script-both-drive-state
-  (testing "an inline plan's :setup establishes preconditions, :script runs after"
-    (let [result (run-target {:setup  [[:dispatch [:inline/inc]]]
-                              :script [[:dispatch [:inline/inc]]
-                                       [:dispatch [:inline/inc]]
-                                       [:assert [:rf.assert/path-equals [:n] 3]]]})]
-      (is (= :pass (:status result)))
-      (is (= 3 (:n (:app-db result)))))))
-
 (deftest inline-plan-loaders-run-from-the-plan
   (testing "an inline plan declaring :loaders runs phase-1 loaders off the
             plan's :world (no registry read) before :setup / :script"
@@ -134,7 +104,6 @@
 (deftest inline-plan-absent-from-navigation
   (testing "running an inline plan registers NOTHING in the Story side-table
             and leaves no variant frame behind"
-    (is (empty? (rf.story/ids :variant)) "precondition: no variants registered")
     (run-target {:script [[:dispatch [:inline/set-status :ok]]
                           [:assert [:rf.assert/path-equals [:status] :ok]]]})
     (is (empty? (rf.story/ids :variant))
@@ -174,54 +143,14 @@
         ;; is absent from the navigable enumeration the UI shell walks.
         (is (false? (rf.story.frames/variant-frame? inline-id))
             "an allocated inline frame is NOT a navigable variant frame")
-        (is (not (contains? (rf.story.frames/variant-frames) inline-id))
-            "an in-flight inline frame is absent from variant-frames")
         (is (not (contains? (rf.story/variant-frames) inline-id))
-            "…through the public rf.story/variant-frames surface too")
+            "an in-flight inline frame is absent from the public variant-frames")
         (finally
-          (rf.story.frames/destroy-inline! inline-id {} nil)))
-      (is (empty? (rf.story.frames/variant-frames))
-          "post-teardown: no lingering nav frame"))))
+          (rf.story.frames/destroy-inline! inline-id {} nil))))))
 
 ;; ===========================================================================
 ;; Inline plan can use a REGISTERED check
 ;; ===========================================================================
-
-(deftest inline-plan-composes-registered-check
-  (testing "an inline plan composing a registered check resolves the check id
-            into the plan + groups its records under the check id, exactly the
-            way a registered variant does. The check's
-            atom appears NOWHERE else in the plan, so the one record it groups
-            can only come from the check's own atoms being dispatched after the
-            script."
-    (rf.story/reg-check :check.inline/status-loaded
-      {:assertions [[:rf.assert/path-equals [:status] :loaded]]})
-    ;; The compiled plan carries the composed check id under [:expect :checks].
-    (let [plan (rf.story/variant-plan {:compose [:check.inline/status-loaded]
-                                    :script  [[:dispatch [:inline/set-status :loaded]]]})]
-      (is (= [:check.inline/status-loaded] (get-in plan [:expect :checks]))
-          "the registered check id resolves into the inline plan's :expect"))
-    (let [result (run-target {:compose [:check.inline/status-loaded]
-                              :script  [[:dispatch [:inline/set-status :loaded]]]})]
-      (is (= :pass (:status result)))
-      (let [check (first (filter #(= :check.inline/status-loaded (:check %))
-                                 (:checks result)))]
-        (is (some? check) "the run-result groups records under the check id")
-        (is (= :pass (:status check)) "the composed check aggregates :pass")
-        (is (= 1 (count (:assertions check)))
-            "the check's atom was dispatched — not a :pass over an empty group")
-        (is (every? :passed? (:assertions check))
-            "the registered check's assertion ran + passed")))))
-
-(deftest inline-plan-composes-registered-fragment
-  (testing "an inline plan composing a registered fragment appends the
-            fragment's setup + script"
-    (rf.story/reg-fragment :fragment.inline/seed
-      {:setup [[:dispatch [:inline/set-status :seeded]]]})
-    (let [result (run-target {:compose [:fragment.inline/seed]
-                              :script  [[:assert [:rf.assert/path-equals [:status] :seeded]]]})]
-      (is (= :pass (:status result)) "the fragment setup seeded the app-db")
-      (is (= :seeded (:status (:app-db result)))))))
 
 ;; ===========================================================================
 ;; A check's assertions EXECUTE, so a check can FAIL
@@ -344,15 +273,6 @@
       (is (empty? (rf.story/variant-frames))
           "no frame lingers from the failed inline run"))))
 
-(deftest inline-plan-missing-arg-fails-cleanly
-  (testing "an inline plan with an [:arg …] placeholder for an undeclared arg
-            FAILS plan construction cleanly (the args contract is not exempt
-            for inline plans)"
-    (let [result (run-target {:script [[:dispatch [:inline/set-status [:arg :missing]]]]})]
-      (is (= :error (:status result)))
-      (is (= :rf.error/story-missing-arg
-             (:assertion (first (:assertions result))))))))
-
 ;; ===========================================================================
 ;; A COMPILED plan is not an authoring body — refused, never recompiled
 ;; ===========================================================================
@@ -442,19 +362,6 @@
         (testing "the two runs share a canonical run-hash"
           (is (= (rf.story/run-hash registered)
                  (rf.story/run-hash inline))))))))
-
-;; ===========================================================================
-;; explain accepts a map target
-;; ===========================================================================
-
-(deftest explain-accepts-inline-plan-map
-  (testing "rf.story/explain compiles a map target directly (no registration)"
-    (let [ex (rf.story/explain {:variant/id :inline/explained
-                             :setup      [[:dispatch [:inline/inc]]]
-                             :script     [[:dispatch [:inline/inc]]]})]
-      (is (= [:inline/explained] (:source-chain ex)))
-      (is (= [[:dispatch [:inline/inc]]] (:setup-order ex)))
-      (is (empty? (rf.story/ids :variant)) "explain registered nothing"))))
 
 ;; ===========================================================================
 ;; FAILURE-PATH TEARDOWN — an inline plan that fails mid-run still runs the

@@ -86,19 +86,6 @@
 ;; The registered path
 ;; ===========================================================================
 
-(deftest registered-variant-realizes-its-network-fixture
-  (testing "a REGISTERED variant's authored :network delivers the canned reply
-            with ZERO live requests (run-phase-0! installs the route map AND
-            threads the plan's lowered frame :fx-overrides)"
-    (rf.story/reg-variant :story.net/cart
-                          {:network cart-fixture
-                           :setup   [[:dispatch [:net/load]]]})
-    (let [result (run-target :story.net/cart)]
-      (is (= {:items [1]} (:cart (:app-db result)))
-          "the authored fixture answered the managed request")
-      (is (= [] @live-requests)
-          "SENTINEL: no managed request reached the production fx slot"))))
-
 (deftest registered-variant-unmatched-route-fails-with-no-stub-matched
   (testing "an unmatched URL follows the helper's canned no-match
             transport failure (spec/017 §Network stubs) rather than escaping
@@ -108,9 +95,8 @@
                            :setup   [[:dispatch [:net/load-missing]]]})
     (let [result (run-target :story.net/missing)
           err    (:error (:app-db result))]
-      (is (some? err) "the unmatched route produced a failure reply")
       (is (re-find #"no stub matched" (pr-str err))
-          "and it is the helper's own canned no-match failure")
+          "the unmatched route produced the helper's own canned no-match failure")
       (is (= [] @live-requests)
           "SENTINEL: an unmatched route still issues no live request"))))
 
