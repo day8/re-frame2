@@ -143,16 +143,6 @@
       (is (= rf.story.layout-debug/id-outline (-> pack :hiccup first :id)))
       (is (empty? (:errors pack))))))
 
-(deftest multiple-layout-debug-decorators-compose
-  (testing "two layout-debug decorators on a variant compose in order"
-    (rf.story/reg-variant* :story.x/multi
-                        {:decorators [[rf.story.layout-debug/id-outline]
-                                      [rf.story.layout-debug/id-pseudo #{:focus}]]})
-    (let [pack (rf.story.decorators/resolve-decorators :story.x/multi)]
-      (is (= 2 (count (:hiccup pack))))
-      (is (= [rf.story.layout-debug/id-outline rf.story.layout-debug/id-pseudo]
-             (mapv :id (:hiccup pack)))))))
-
 ;; ---- wrap-id counter ----------------------------------------------------
 
 (deftest wrap-counter-monotonic

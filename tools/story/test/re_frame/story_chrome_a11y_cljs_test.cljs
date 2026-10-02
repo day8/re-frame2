@@ -34,7 +34,6 @@
     (let [body (rf.story/handler-meta :story-panel rf.story.ui.chrome-a11y/panel-id)]
       (is (= :right (:placement body)))
       (is (= rf.story.ui.chrome-a11y/panel-render-id (:render body)))
-      (is (string? (:title body)))
       (is (re-find #"(?i)chrome" (or (:title body) ""))))))
 
 (deftest chrome-a11y-render-view-roots-in-dom-element
@@ -51,20 +50,16 @@
           out     (view-fn :story.unknown/y)]
       (is (vector? out)
           "panel-render returns a hiccup vector")
-      (is (keyword? (first out))
-          "hiccup root must be a keyword (DOM element), not a component ref")
       (is (= :div (first out))
-          "hiccup root is specifically `:div` per the source-coord-annotator wrap"))))
+          "hiccup root is the DOM element `:div` per the source-coord-annotator
+           wrap, not a component ref"))))
 
 ;; ---- scope contract -----------------------------------------------------
 
 (deftest chrome-root-selector-targets-chrome-attribute
-  (testing "chrome-root-selector targets [data-rf-story-root]"
-    (is (string? rf.story.ui.chrome-a11y/chrome-root-selector))
-    ;; The chrome root is stamped by shell.cljs as :data-rf-story-root.
-    (is (re-find #"data-rf-story-root" rf.story.ui.chrome-a11y/chrome-root-selector))
-    (is (.startsWith rf.story.ui.chrome-a11y/chrome-root-selector "["))
-    (is (.endsWith   rf.story.ui.chrome-a11y/chrome-root-selector "]"))))
+  (testing "chrome-root-selector is the attribute selector on the
+            :data-rf-story-root flag shell.cljs stamps on the chrome root"
+    (is (= "[data-rf-story-root]" rf.story.ui.chrome-a11y/chrome-root-selector))))
 
 (deftest chrome-frame-id-is-namespaced
   (testing "chrome-frame-id is a story-namespaced keyword distinct from any variant id"

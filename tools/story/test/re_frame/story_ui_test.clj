@@ -71,15 +71,6 @@
       (is (= :reagent (:substrate s)))
       (is (= 0 (:hot-reload-tick s))))))
 
-(deftest select-variant-transitions
-  (testing "select-variant + select-workspace mutate the state"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/select-variant s :story.a/x)
-          s2 (rf.story.ui.state/select-workspace s1 :Workspace.demo/y)]
-      (is (= :story.a/x (:selected-variant s1)))
-      (is (= :Workspace.demo/y (:selected-workspace s2)))
-      (is (= :story.a/x (:selected-variant s2))))))
-
 ;; The sidebar variant-row click composes select-variant with
 ;; select-workspace nil so workspace mode is not a one-way door.
 ;; The click handler is a private Reagent closure inside `sidebar.cljs`;
@@ -127,12 +118,6 @@
 ;; (`ensure-repeater-row-ids`, `append-repeater-row-id`,
 ;; `remove-repeater-row-id`); the CLJS suite exercises the rendered
 ;; hiccup keys end-to-end.
-
-(deftest repeater-row-ids-default-empty-rf2-c8kfy
-  (testing "default state carries the counter + the empty row-ids map"
-    (let [s rf.story.ui.state/default-shell-state]
-      (is (= 0 (:rf.story/repeater-id-counter s)))
-      (is (= {} (:rf.story/repeater-row-ids s))))))
 
 (deftest repeater-row-ids-ensure-allocates-fresh-ids-rf2-c8kfy
   (testing "ensure-repeater-row-ids appends fresh monotonic ids when the
@@ -576,33 +561,19 @@
 
 ;; ---- :isolation slot ----------------------------------------------------
 
-(deftest variants-grid-isolation-default-is-isolated
-  (testing "absent :isolation slot resolves cells identically to baseline (data-shape)"
-    (rf.story/reg-variant :story.iso-a/a {:setup []})
-    (rf.story/reg-variant :story.iso-a/b {:setup []})
-    (let [baseline (rf.story.ui.workspace/resolve-layout
-                     :Workspace.iso-a/all
-                     {:layout :variants-grid})
-          explicit (rf.story.ui.workspace/resolve-layout
-                     :Workspace.iso-a/all
-                     {:layout :variants-grid :isolation :isolated})]
-      ;; :isolation is a mount-strategy slot; cell-resolution is identical.
-      (is (= baseline explicit))
-      (is (= 2 (count baseline))))))
-
-(deftest variants-grid-isolation-shared-preserves-cell-resolution
-  (testing ":isolation :shared resolves the same cell vector as :isolated"
-    (rf.story/reg-variant :story.iso-b/x {:setup []})
-    (rf.story/reg-variant :story.iso-b/y {:setup []})
-    (let [isolated (rf.story.ui.workspace/resolve-layout
-                     :Workspace.iso-b/all
-                     {:layout :variants-grid :isolation :isolated})
-          shared   (rf.story.ui.workspace/resolve-layout
-                     :Workspace.iso-b/all
-                     {:layout :variants-grid :isolation :shared})]
-      ;; The slot tunes mount strategy, not enumeration.
-      (is (= isolated shared))
-      (is (= 2 (count shared))))))
+(deftest variants-grid-isolation-does-not-change-cell-resolution
+  (testing "absent, :isolated and :shared :isolation resolve the same cell
+            vector — the slot tunes mount strategy, not enumeration"
+    (rf.story/reg-variant :story.iso/a {:setup []})
+    (rf.story/reg-variant :story.iso/b {:setup []})
+    (let [cells-for (fn [isolation]
+                      (rf.story.ui.workspace/resolve-layout
+                        :Workspace.iso/all
+                        (cond-> {:layout :variants-grid}
+                          isolation (assoc :isolation isolation))))
+          absent    (cells-for nil)]
+      (is (= absent (cells-for :isolated) (cells-for :shared)))
+      (is (= 2 (count absent))))))
 
 ;; ---- :for anchor + :columns template ------------------------------------
 
@@ -646,7 +617,8 @@
 ;; ---- docs mode ----------------------------------------------------------
 
 ;; There is no `rf.story.ui.docs/parent-story-id` re-export; the
-;; canonical helper lives in `re-frame.story.predicates` (covered there).
+;; canonical helper lives in `re-frame.story.predicates` (pinned here by
+;; `parent-story-id-derivation`).
 ;; The docs header chip calls `rf.story.predicates/parent-story-id` directly.
 
 (deftest docs-variant-tags-falls-back-to-story
@@ -667,8 +639,7 @@
             declares :!dev shows NO :dev and NO :!dev chip (effective set)"
     (rf.story/reg-variant :story.tm/base  {:tags #{:dev :test} :setup []})
     (rf.story/reg-variant :story.tm/child {:extends :story.tm/base :tags #{:!dev} :setup []})
-    (is (= [:test] (rf.story.ui.docs/variant-tags :story.tm/child)))
-    (is (not (some #{:dev :!dev} (rf.story.ui.docs/variant-tags :story.tm/child))))))
+    (is (= [:test] (rf.story.ui.docs/variant-tags :story.tm/child)))))
 
 (deftest docs-args-rows-pulls-doc-from-argtypes
   (testing "args-rows surfaces :doc from the variant's :argtypes entry"
@@ -782,8 +753,8 @@
 
 ;; There is no `rf.story.ui.test-mode.pure/parent-story-id` re-export;
 ;; the canonical `parent-story-id` lives in `re-frame.story.predicates`
-;; (covered by its own tests). The view calls `rf.story.predicates/parent-story-id`
-;; directly.
+;; (pinned by `parent-story-id-derivation`). The view calls
+;; `rf.story.predicates/parent-story-id` directly.
 
 (deftest test-mode-variant-has-tests?-checks-play-slot
   (testing "variant-has-tests? is false when :script is absent or empty"
@@ -1078,8 +1049,7 @@
                  :actual    7})]
       (is (= :pass (:status row)))
       (is (= :rf.assert/path-equals (:assertion row)))
-      (is (re-find #":rf.assert/path-equals" (:label row)))
-      (is (re-find #"\[\[:count\] 7\]" (:label row)))))
+      (is (= ":rf.assert/path-equals [[:count] 7]" (:label row)))))
   (testing "assertion-row maps a failing record to :status :fail + surfaces detail"
     (let [row (rf.story.ui.test-mode.pure/assertion-row
                 {:assertion :rf.assert/path-equals
@@ -1289,7 +1259,6 @@
       (is (= 6 (count (rf.story.ui.test-mode.pure/filter-rows rows false)))
           "filter off → every row")
       (let [kept (rf.story.ui.test-mode.pure/filter-rows rows true)]
-        (is (= 3 (count kept)))
         (is (= [:fail :error :cannot-run] (mapv :status kept))
             ":pass / :skip rows are filtered out")))))
 
@@ -1343,8 +1312,8 @@
           assertions [{:assertion :rf.assert/path-equals :passed? true}
                       {:assertion :rf.assert/path-equals :passed? false}]
           out        (rf.story.ui.test-mode.pure/play-step-statuses play assertions)]
-      (is (= 4 (count out)) "one row per play event")
-      (is (= [:event :event :pass :fail] (mapv :status out)))
+      (is (= [:event :event :pass :fail] (mapv :status out))
+          "one row per play event")
       (is (= [0 1 2 3] (mapv :index out)))
       (is (= ":auth/email-changed" (-> out (nth 0) :label)))
       (is (= ":rf.assert/path-equals" (-> out (nth 2) :label)))

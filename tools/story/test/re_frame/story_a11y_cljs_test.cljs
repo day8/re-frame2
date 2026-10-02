@@ -46,10 +46,9 @@
           out     (view-fn :story.unknown/y)]
       (is (vector? out)
           "panel-render returns a hiccup vector")
-      (is (keyword? (first out))
-          "hiccup root must be a keyword (DOM element), not a component ref")
       (is (= :div (first out))
-          "hiccup root is specifically `:div` per the source-coord-annotator wrap"))))
+          "hiccup root is the DOM element `:div` per the source-coord-annotator
+           wrap, not a component ref"))))
 
 ;; ---- violations stylesheet ----------------------------------------------
 
@@ -61,16 +60,11 @@
 ;; ---- variant-root scoping -----------------------------------------------
 
 (deftest variant-root-selector-targets-data-attribute
-  (testing "variant-root-selector returns a CSS attribute selector keyed on the variant id"
-    (let [sel (rf.story.ui.a11y/variant-root-selector :story.counter/loaded)]
-      (is (string? sel))
-      ;; Must use the data attribute the canvas / workspace stamp.
-      (is (re-find #"data-rf-story-variant-root=" sel))
-      ;; pr-str of a namespaced keyword includes the leading colon.
-      (is (re-find #":story.counter/loaded" sel))
-      ;; Closing-bracket selector form so `querySelector` accepts it.
-      (is (.startsWith sel "[data-rf-story-variant-root="))
-      (is (.endsWith   sel "]")))))
+  (testing "variant-root-selector returns the CSS attribute selector on the
+            data attribute the canvas / workspace stamp, keyed on the
+            pr-str'd variant id in single quotes so `querySelector` accepts it"
+    (is (= "[data-rf-story-variant-root=':story.counter/loaded']"
+           (rf.story.ui.a11y/variant-root-selector :story.counter/loaded)))))
 
 (deftest run-axe-handles-no-variant-root
   (testing "run-axe! sets :no-root state when no variant root resolves
