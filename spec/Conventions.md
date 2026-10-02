@@ -216,7 +216,9 @@ A **bare** leaf alias (`:as routing`, `:as machines`, `:as schemas`) is **reserv
 
 ### The public `rf/image` source keys
 
-`rf/image` is a plain function ([API.md](API.md)) that accepts a **source map** and returns an inert image **value**. The public source map accepts **exactly three** top-level keys ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md) §Image Keys); the normalized value carries the owner-qualified `:rf.image/*` slots above. The source keys are the authoring surface; the `:rf.image/*` namespace names the normalized internal form.
+`rf/image` accepts a **source map** and returns an inert image **value**. The public source map accepts **exactly three** top-level keys ([EP-0026](../docs/EP/EP-0026-image-api-simplification.md) §Image Keys); the normalized value carries the owner-qualified `:rf.image/*` slots above. The source keys are the authoring surface; the `:rf.image/*` namespace names the normalized internal form.
+
+**The value is the contract; the macro is a CLJS authoring ergonomic.** In the CLJS reference the public `rf/image` is a **macro** ([API.md](API.md)) for documentation elision alone: it routes each literal doc-bearing inline `:registrations` metadata map through the production gate so its `:doc` bytes DCE ([001 §Production elision contract](001-Registration.md#production-elision-contract)), then delegates to the runtime constructor `re-frame.image/image`, a plain value function that programmatic callers call directly. Both spellings take the same source map, apply the same normalization and refusals, and return an inert image value; a computed spec passes through the macro unchanged. The macro stamps no source coordinates: inline registrations stay coordinate-less, and coordinate capture for them is an open [EP-0028](../docs/EP/EP-0028-registration-overlays-and-inline-authoring.md#source-coordinates-for-inline-registrations-open) question. A port MAY offer `image` as a plain function, because the `:doc` strip is a CLJS-specific optimisation (same section of 001); what a port owes is the value semantics this section defines.
 
 | Source key | Required? | Meaning |
 |---|---|---|
