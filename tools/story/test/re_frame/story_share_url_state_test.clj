@@ -8,7 +8,7 @@
 
   Pure CLJC — every encoder + parser lives in `re-frame.story.share`,
   no CLJS deps."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [clojure.string :as str]
             [re-frame.story.share :as rf.story.share]))
 
@@ -23,23 +23,14 @@
 
 ;; ---- mode-tab ------------------------------------------------------------
 
-(deftest build-params-mode-tab-non-default
-  (testing "mode-tab encodes when non-default (anything other than :dev)"
-    (let [ps (rf.story.share/build-params {:variant-id :story.foo/bar
-                                  :mode-tab   :docs})]
-      (is (some #(str/starts-with? % "mode-tab=docs") ps)))))
-
-(deftest build-params-mode-tab-default-omitted
-  (testing ":dev (the default) is omitted so the canonical URL stays minimal"
-    (let [ps (rf.story.share/build-params {:variant-id :story.foo/bar
-                                  :mode-tab   :dev})]
-      (is (not (some #(str/starts-with? % "mode-tab=") ps))))))
-
-(deftest build-params-mode-tab-unknown-dropped
-  (testing "unknown mode-tab values are dropped (a stale URL degrades silently)"
-    (let [ps (rf.story.share/build-params {:variant-id :story.foo/bar
-                                  :mode-tab   :bogus})]
-      (is (not (some #(str/starts-with? % "mode-tab=") ps))))))
+(deftest build-params-emits-only-a-known-non-default-mode-tab
+  (testing ":dev is the default and is omitted so the canonical URL stays
+            minimal; an unknown value is dropped, so a stale URL degrades
+            silently"
+    (are [mode-tab expected] (= expected (rf.story.share/build-params {:mode-tab mode-tab}))
+      :docs  ["mode-tab=docs"]
+      :dev   []
+      :bogus [])))
 
 (deftest parse-mode-tab-param
   (testing "parse-mode-tab-param recognises :dev/:docs/:test, drops anything else"
@@ -52,80 +43,54 @@
 
 ;; ---- viewport ------------------------------------------------------------
 
-(deftest build-params-viewport-preset
-  (testing "viewport preset keyword encodes as viewport=<id>"
-    (let [ps (rf.story.share/build-params {:viewport :tablet})]
-      (is (some #(= "viewport=tablet" %) ps)))))
+(deftest build-params-encodes-viewport-as-a-preset-or-wxh
+  (are [viewport expected] (= expected (rf.story.share/build-params {:viewport viewport}))
+    :tablet                  ["viewport=tablet"]
+    {:width 800 :height 600} ["viewport=800x600"]
+    ;; nil is omitted from the canonical URL
+    nil                      []))
 
-(deftest build-params-viewport-custom
-  (testing "viewport custom map encodes as viewport=WxH"
-    (let [ps (rf.story.share/build-params {:viewport {:width 800 :height 600}})]
-      (is (some #(= "viewport=800x600" %) ps)))))
-
-(deftest build-params-viewport-omitted-when-nil
-  (testing "nil viewport is omitted from the canonical URL"
-    (let [ps (rf.story.share/build-params {:viewport nil})]
-      (is (not (some #(str/starts-with? % "viewport=") ps))))))
-
-(deftest parse-viewport-param-preset
-  (is (= :tablet (rf.story.share/parse-viewport-param "tablet"))))
-
-(deftest parse-viewport-param-custom
-  (testing "custom WxH parses into {:width :height}"
-    (is (= {:width 800 :height 600} (rf.story.share/parse-viewport-param "800x600")))
-    (is (= {:width 1024 :height 768} (rf.story.share/parse-viewport-param "1024x768")))))
-
-(deftest parse-viewport-param-malformed
-  (testing "malformed values degrade — empty / nil → nil; zero dim → nil;
-            unknown keywords are returned as-is (the hydrator validates
-            against the preset table via apply-parsed-to-state)"
-    (is (nil? (rf.story.share/parse-viewport-param "0x600")) "zero dim → nil")
-    (is (nil? (rf.story.share/parse-viewport-param "")))
-    (is (nil? (rf.story.share/parse-viewport-param nil)))
-    ;; Bare tokens parse to keywords here; the hydrator's :viewport?
-    ;; validator drops anything that isn't a registered preset / valid custom.
-    (is (= :x (rf.story.share/parse-viewport-param "x")))))
+(deftest parse-viewport-param-reads-a-preset-or-wxh
+  (testing "a preset token reads as a keyword and WxH as {:width :height};
+            empty, nil and zero-dimension values degrade to nil. A bare
+            unknown token still reads as a keyword: the hydrator's :viewport?
+            validator drops anything that isn't a registered preset or a
+            valid custom size"
+    (are [s expected] (= expected (rf.story.share/parse-viewport-param s))
+      "tablet"   :tablet
+      "800x600"  {:width 800 :height 600}
+      "1024x768" {:width 1024 :height 768}
+      "0x600"    nil
+      ""         nil
+      nil        nil
+      "x"        :x)))
 
 ;; ---- background ----------------------------------------------------------
 
-(deftest build-params-background-preset
-  (testing "background preset keyword encodes as background=<id>"
-    (let [ps (rf.story.share/build-params {:background :dark})]
-      (is (some #(= "background=dark" %) ps)))))
+(deftest build-params-encodes-background-as-a-preset-or-hex
+  (are [background expected] (= expected (rf.story.share/build-params {:background background}))
+    :dark     ["background=dark"]
+    ;; # is percent-encoded to %23 so it doesn't collide with hash routes
+    "#abc123" ["background=%23abc123"]))
 
-(deftest build-params-background-hex
-  (testing "hex colour string encodes as background=%23rrggbb"
-    (let [ps (rf.story.share/build-params {:background "#abc123"})]
-      (is (some #(= "background=%23abc123" %) ps)
-          "# is percent-encoded to %23 so it doesn't collide with hash routes"))))
-
-(deftest parse-background-param-preset
-  (is (= :dark (rf.story.share/parse-background-param "dark"))))
-
-(deftest parse-background-param-hex
-  (testing "hex colour parses back to itself"
-    (is (= "#abc123" (rf.story.share/parse-background-param "#abc123")))
-    (is (= "#ABC" (rf.story.share/parse-background-param "#ABC")))
-    (is (= "#aabbccdd" (rf.story.share/parse-background-param "#aabbccdd")))))
-
-(deftest parse-background-param-malformed
-  (testing "malformed values degrade to nil"
-    (is (nil? (rf.story.share/parse-background-param "")))
-    (is (nil? (rf.story.share/parse-background-param nil)))))
+(deftest parse-background-param-reads-a-preset-or-hex
+  (testing "a preset token reads as a keyword, a hex colour reads back as
+            itself, and blank values degrade to nil"
+    (are [s expected] (= expected (rf.story.share/parse-background-param s))
+      "dark"      :dark
+      "#abc123"   "#abc123"
+      "#ABC"      "#ABC"
+      "#aabbccdd" "#aabbccdd"
+      ""          nil
+      nil         nil)))
 
 ;; ---- tag-filter ----------------------------------------------------------
 
 (deftest build-params-tag-filter
-  (testing "tag-filter set encodes as a sorted comma-separated list"
-    (let [ps (rf.story.share/build-params {:tag-filter #{:tag/b :tag/a}})
-          tf (some #(when (str/starts-with? % "tag-filter=") %) ps)]
-      (is (some? tf))
-      ;; The wire form percent-encodes `/` to %2F and `,` to %2C.
-      (is (re-find #"tag%2Fa" tf))
-      (is (re-find #"tag%2Fb" tf))
-      (is (< (str/index-of tf "tag%2Fa")
-             (str/index-of tf "tag%2Fb"))
-          "sorted alphabetically — :a appears before :b"))))
+  (testing "tag-filter set encodes as a sorted comma-separated list; the
+            wire form percent-encodes `/` to %2F and `,` to %2C"
+    (is (= ["tag-filter=tag%2Fa%2Ctag%2Fb"]
+           (rf.story.share/build-params {:tag-filter #{:tag/b :tag/a}})))))
 
 (deftest parse-tag-filter-param
   (testing "tag-filter parses into a set"
@@ -136,60 +101,42 @@
 
 ;; ---- parse-params round-trip --------------------------------------------
 
+(def ^:private all-slots-absent
+  "What parse-params returns for a getter carrying no Story key."
+  {:variant-id nil :workspace-id nil :mode-tab nil :active-modes nil
+   :viewport nil :background nil :tag-filter nil :cell-overrides nil
+   :substrate nil})
+
+(defn- round-trip
+  "build-params `in`, decode each value as URLSearchParams.get would, and
+  parse the resulting getter back."
+  [in]
+  (rf.story.share/parse-params
+    (into {}
+          (for [kv   (rf.story.share/build-params in)
+                :let [[k v] (str/split kv #"=" 2)]]
+            [k (java.net.URLDecoder/decode v "UTF-8")]))))
+
 (deftest parse-params-full-round-trip
-  (testing "full encode → URLSearchParams-shaped getter → parse
-            round-trips every slot"
-    (let [in    {:variant-id     :story.counter/loaded
-                 :workspace-id   nil
-                 :mode-tab       :docs
-                 :active-modes   [:Mode.app/dark :Mode.app/mobile]
-                 :viewport       :tablet
-                 :background     "#abc123"
-                 :tag-filter     #{:tag/a :tag/b}
-                 :cell-overrides {:label "Hi"}
-                 :substrate      :uix}
-          ps    (rf.story.share/build-params in)
-          ;; Simulate URLSearchParams by parsing the param vector back.
-          getter (into {}
-                       (for [kv ps
-                             :let [[k v] (str/split kv #"=" 2)]]
-                         [k (java.net.URLDecoder/decode v "UTF-8")]))
-          out   (rf.story.share/parse-params getter)]
-      (is (= :story.counter/loaded (:variant-id   out)))
-      (is (= :docs                 (:mode-tab     out)))
-      (is (= [:Mode.app/dark :Mode.app/mobile]
-                                   (:active-modes out)))
-      (is (= :tablet               (:viewport     out)))
-      (is (= "#abc123"             (:background   out)))
-      (is (= #{:tag/a :tag/b}      (:tag-filter   out)))
-      (is (= {:label "Hi"}         (:cell-overrides out)))
-      (is (= :uix                  (:substrate    out))))))
+  (testing "encode → URLSearchParams-shaped getter → parse returns exactly
+            the slots that went in, every other slot nil"
+    (are [in] (= (merge all-slots-absent in) (round-trip in))
+      ;; every slot but the workspace
+      {:variant-id     :story.counter/loaded
+       :mode-tab       :docs
+       :active-modes   [:Mode.app/dark :Mode.app/mobile]
+       :viewport       :tablet
+       :background     "#abc123"
+       :tag-filter     #{:tag/a :tag/b}
+       :cell-overrides {:label "Hi"}
+       :substrate      :uix}
+
+      ;; a workspace focus
+      {:workspace-id :story.foo/grid}
+
+      ;; a custom WxH viewport
+      {:viewport {:width 800 :height 600}})))
 
 (deftest parse-params-handles-missing-keys
   (testing "parse-params returns every slot, nil when absent — caller decides defaults"
-    (is (= {:variant-id nil :workspace-id nil :mode-tab nil :active-modes nil
-            :viewport nil :background nil :tag-filter nil :cell-overrides nil
-            :substrate nil}
-           (rf.story.share/parse-params {})))))
-
-(deftest parse-params-with-workspace
-  (testing "workspace round-trips when present"
-    (let [in    {:workspace-id :story.foo/grid}
-          ps    (rf.story.share/build-params in)
-          getter (into {}
-                       (for [kv ps
-                             :let [[k v] (str/split kv #"=" 2)]]
-                         [k (java.net.URLDecoder/decode v "UTF-8")]))
-          out   (rf.story.share/parse-params getter)]
-      (is (= :story.foo/grid (:workspace-id out))))))
-
-(deftest parse-params-with-viewport-custom
-  (testing "viewport custom WxH round-trips"
-    (let [in    {:viewport {:width 800 :height 600}}
-          ps    (rf.story.share/build-params in)
-          getter (into {}
-                       (for [kv ps
-                             :let [[k v] (str/split kv #"=" 2)]]
-                         [k (java.net.URLDecoder/decode v "UTF-8")]))
-          out   (rf.story.share/parse-params getter)]
-      (is (= {:width 800 :height 600} (:viewport out))))))
+    (is (= all-slots-absent (rf.story.share/parse-params {})))))

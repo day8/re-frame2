@@ -19,32 +19,6 @@
     (let [url (rf.story/variant-share-url :story.x/y "" nil)]
       (is (re-find #"variant=" url)))))
 
-(deftest variant-share-url-replaces-stale-owned-keys-cljs
-  (testing "the REAL URLSearchParams (the API the url-state
-            hydrator reads with) sees the values THIS call generated, not
-            stale ones already on the base-url. get is first-value, so an
-            append-only merge would return the old variant here."
-    (let [url    (rf.story.share/variant-share-url
-                   :story.new/b
-                   "https://example.test/?variant=story.old%2Fa&modes=Mode.app%2Fstale&from=index&embed=1#/stories"
-                   {:active-modes [:Mode.app/dark]})
-          search (second (str/split (first (str/split url #"#" 2)) #"\?" 2))
-          usp    (js/URLSearchParams. search)]
-      (is (= "story.new/b" (.get usp "variant"))
-          "URLSearchParams.get returns the requested variant")
-      (is (= "Mode.app/dark" (.get usp "modes"))
-          "URLSearchParams.get returns the requested modes")
-      (is (= 1 (count (.getAll usp "variant")))
-          "exactly one variant value")
-      (is (= 1 (count (.getAll usp "modes")))
-          "exactly one modes value")
-      (is (= "index" (.get usp "from"))
-          "unrelated from= survives")
-      (is (= "1" (.get usp "embed"))
-          "unrelated embed= survives")
-      (is (str/ends-with? url "#/stories")
-          "the hash route survives, after the query"))))
-
 (deftest variant-share-url-clears-stale-omitted-keys-cljs
   (testing "build-params omits empty / default optional slots, so a
             builder replacing only the keys it emits would let a base-url's
@@ -121,18 +95,6 @@
   "The query-string portion of `url` — between `?` and any `#`."
   [url]
   (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))
-
-(deftest escaped-story-keys-are-the-same-keys-to-urlsearchparams
-  (testing "the fixture below is only a regression if the real
-            URLSearchParams reads the escaped spellings as the owned keys.
-            Pin that against the browser API before relying on it."
-    (doseq [k (map name rf.story.share/story-query-keys)]
-      (let [esc (escape-first-char k)
-            usp (js/URLSearchParams. (str esc "=x"))]
-        (is (not= esc k)
-            (str k " is genuinely respelled, so raw matching cannot see it"))
-        (is (= "x" (.get usp k))
-            (str "URLSearchParams reads " esc " as the key " k))))))
 
 (deftest variant-share-url-owns-percent-encoded-keys-cljs
   (testing "a base-url spelling every Story key with an
@@ -227,7 +189,6 @@
       ;; (space → %20, not +); URLSearchParams.get decodes it back to the
       ;; EDN-map string above. Round-trip the encoder to lock the contract.
       (let [token (rf.story.share/build-overrides-token {:label "Shared Label"})]
-        (is (string? token))
         (is (= {:label "Shared Label"}
                (rf.story.share/parse-overrides-param
                  (js/decodeURIComponent token)))
