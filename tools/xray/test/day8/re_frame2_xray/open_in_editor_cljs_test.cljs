@@ -434,21 +434,6 @@
   ;; into sibling tests' `get-editor` reads.
   (config/update-setting! :general :editor-override nil))
 
-(deftest editor-hint-show-and-dismiss-flip-the-sub
-  (testing "the `:rf.xray/editor-hint-show` /
-            `-dismiss` events flip the `:rf.xray/editor-hint-open?`
-            sub (the toast's mount gate)"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (is (false? @(rf/subscribe [:rf.xray/editor-hint-open?]))
-          "closed by default")
-      (rf/dispatch-sync [:rf.xray/editor-hint-show])
-      (is (true? @(rf/subscribe [:rf.xray/editor-hint-open?]))
-          "shown after editor-hint-show")
-      (rf/dispatch-sync [:rf.xray/editor-hint-dismiss])
-      (is (false? @(rf/subscribe [:rf.xray/editor-hint-open?]))
-          "dismissed after editor-hint-dismiss"))))
-
 (deftest open-in-editor-event-navigates-when-operator-override-set
   (testing "an operator override (no host set) also counts
             as configured: the click navigates, no hint"

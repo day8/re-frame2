@@ -162,38 +162,32 @@
 ;; (4) Event — :rf.xray/select-frame
 ;; -------------------------------------------------------------------------
 
-(deftest select-frame-writes-through-spine
+(deftest select-frame-writes-through-spine-and-persists
   (testing "the canonical event-fx dispatches the spine's `:rf.xray/
             set-frame` so every per-frame composite (App-DB Diff,
-            Views, Routing) re-fires off the new frame's slot"
+            Views, Routing) re-fires off the new frame's slot, and fires
+            the `:rf.xray.frame-switcher/persist` fx so the selection
+            survives a reload"
     (setup!)
     ;; Register a frame so the spine's epoch-history lookup doesn't
     ;; throw — the canonical handler queries rf/epoch-history.
     (rf/make-frame {:id :rf/cart-frame})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-frame :rf/cart-frame])
-      (is (= :rf/cart-frame (get-in (xray-db) [:focus :frame]))
-          "the spine's :focus :frame slot lands on the picked frame")
-      (is (= :rf/cart-frame (:target-frame (xray-db)))
-          "the spine's :target-frame slot follows"))))
-
-(deftest select-frame-fires-persistence-fx
-  (testing "the canonical event-fx fires the `:rf.xray.frame-switcher/
-            persist` fx so the user's selection survives a reload"
-    (setup!)
-    (rf/make-frame {:id :rf/cart-frame})
     (let [persisted (atom nil)]
-      ;; Swap the fx with a counting stub so we don't touch
-      ;; localStorage in the test runtime (Node has no jsdom).
-      ;; Route through the frame's :fx-overrides seam (fn-value
-      ;; form) instead of re-registering the xray-owned fx id — a cross-ns
-      ;; re-registration fails the frame's default-image assembly loud.
+      ;; Swap the persist fx with a recording stub so we don't touch
+      ;; localStorage in the test runtime (Node has no jsdom). Route through
+      ;; the frame's :fx-overrides seam (fn-value form) instead of
+      ;; re-registering the xray-owned fx id — a cross-ns re-registration
+      ;; fails the frame's default-image assembly loud.
       (rf/make-frame {:id :rf/xray
                       :fx-overrides {:rf.xray.frame-switcher/persist
                                      (fn [_ctx frame-id]
                                        (reset! persisted frame-id))}})
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/select-frame :rf/cart-frame]))
+      (is (= :rf/cart-frame (get-in (xray-db) [:focus :frame]))
+          "the spine's :focus :frame slot lands on the picked frame")
+      (is (= :rf/cart-frame (:target-frame (xray-db)))
+          "the spine's :target-frame slot follows")
       (is (= :rf/cart-frame @persisted)
           "the persist fx fired with the new frame id"))))
 

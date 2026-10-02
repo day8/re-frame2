@@ -23,7 +23,7 @@
        browser-native corner-grip; the seam is the sole vertical-resize
        affordance.
    10. The seam cursor is `row-resize` — the affordance hover signal."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
@@ -151,7 +151,7 @@
         (is (< seam-idx tabs-idx)
             "seam appears BEFORE the tab-bar in pre-order")))))
 
-(deftest l2-list-no-longer-carries-native-resize
+(deftest l2-list-carries-no-native-resize
   (testing "there is no browser-native `:resize
             \"vertical\"` corner-grip: the L2 list's inline
             style MUST NOT carry `:resize` — the seam handle is the
@@ -176,24 +176,8 @@
        :pointerId      1
        :preventDefault (fn [])})
 
-(deftest seam-drag-down-grows-list
-  (setup!)
-  (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/start-seam-drag! (stub-event 500) 200)
-      ;; Drag DOWN by 100px (pageY 600 > start-y 500) — list grows by
-      ;; 100px → 300px target. The view's `dy = now-y - start-y`,
-      ;; so dy = 100, new-height = 300.
-      (resize-handle/seam-simulate-move! 600)
-      (resize-handle/seam-simulate-up!))
-    (let [height-events (filter #(= :rf.xray/set-events-list-height-px (first %))
-                                @dispatches)]
-      (is (seq height-events)
-          "set-events-list-height-px was dispatched at least once")
-      (is (some #(= 300 (second %)) height-events)
-          "drag down by 100px dispatched 300 (start 200 + 100 delta)"))))
+;; Dragging DOWN grows the list: `seam-drag-binds-the-seams-own-document`
+;; below drives a 500 → 600 move from 200px and reads exactly 300.
 
 (deftest seam-drag-up-shrinks-list
   (setup!)
@@ -325,82 +309,35 @@
                  :preventDefault (fn [] (reset! prevented? true))}
      :prevented? prevented?}))
 
-(deftest seam-keydown-arrow-down-grows
-  (setup!)
+(defn- keydown-dispatches
+  "Every event `handle-seam-keydown!` dispatches for one keypress at a
+  200px list height."
+  [key shift?]
   (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowDown" false)]
+        {:keys [event]} (stub-key-event key shift?)]
     (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-seam-keydown! event 200))
-    (is (some #(= [:rf.xray/set-events-list-height-px 208] %) @dispatches)
-        "ArrowDown adds the 8px fine step to current-height")))
+    @dispatches))
 
-(deftest seam-keydown-arrow-up-shrinks
+(deftest seam-keydown-bindings-dispatch-their-documented-event
   (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowUp" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-seam-keydown! event 200))
-    (is (some #(= [:rf.xray/set-events-list-height-px 192] %) @dispatches)
-        "ArrowUp subtracts the 8px fine step from current-height")))
+  (are [key shift? expected] (some #(= expected %) (keydown-dispatches key shift?))
+    "ArrowDown" false [:rf.xray/set-events-list-height-px 208] ; grow by the 8px fine step
+    "ArrowUp"   false [:rf.xray/set-events-list-height-px 192] ; shrink by the 8px fine step
+    "ArrowDown" true  [:rf.xray/set-events-list-height-px 232] ; Shift: the 32px coarse step (8 × 4)
+    "Enter"     false [:rf.xray/reset-events-list-height]
+    " "         false [:rf.xray/reset-events-list-height]))
 
-(deftest seam-keydown-shift-arrow-uses-coarse-step
+(deftest seam-keydown-home-and-end-overshoot-to-the-clamps
   (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowDown" true)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-seam-keydown! event 200))
-    (is (some #(= [:rf.xray/set-events-list-height-px 232] %) @dispatches)
-        "Shift+ArrowDown uses the 32px coarse step (8 × 4)")))
-
-(deftest seam-keydown-home-overshoots-to-upper-clamp
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "Home" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-seam-keydown! event 200))
-    (is (some #(= :rf.xray/set-events-list-height-px (first %)) @dispatches)
-        "Home dispatched a set-events-list-height-px (registry clamps to ceiling)")))
-
-(deftest seam-keydown-end-undershoots-to-lower-clamp
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "End" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-seam-keydown! event 200))
-    (is (some #(= :rf.xray/set-events-list-height-px (first %)) @dispatches)
-        "End dispatched a set-events-list-height-px (registry clamps to floor)")))
-
-(deftest seam-keydown-enter-dispatches-reset
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "Enter" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-seam-keydown! event 200))
-    (is (some #(= [:rf.xray/reset-events-list-height] %) @dispatches)
-        "Enter dispatched the reset event")))
-
-(deftest seam-keydown-space-dispatches-reset
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event " " false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-seam-keydown! event 200))
-    (is (some #(= [:rf.xray/reset-events-list-height] %) @dispatches)
-        "Space dispatched the reset event")))
+  ;; Home overshoots and End undershoots; the registry clamp snaps the
+  ;; dispatched height to the ceiling and the floor respectively.
+  (are [key] (some #(= :rf.xray/set-events-list-height-px (first %))
+                   (keydown-dispatches key false))
+    "Home"
+    "End"))
 
 (deftest seam-keydown-unrecognised-key-no-op
   (setup!)

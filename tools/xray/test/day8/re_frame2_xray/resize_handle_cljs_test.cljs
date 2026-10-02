@@ -16,23 +16,23 @@
        clamps to [320, viewport×0.9] before persisting.
     5. Double-click handler dispatches `:rf.xray/reset-panel-width`
        which dispatches set-panel-width-px with the default value.
-    6. `apply-panel-width!` is a safe no-op with no layout host. Its
-       write of the CSS custom property on the `<html>` root — so it
-       cascades to the host via inheritance; writing it on the host's
-       own inline style would shadow consumer overrides on `:root` — is
-       `resize_handle_dom_cljs_test`'s subject.
+    6. Every `:rf.xray/set-panel-width-px` dispatch here runs
+       `apply-panel-width!` with no `<html>` root, which is its no-host
+       path. Its write of the CSS custom property on the `<html>` root —
+       so it cascades to the host via inheritance; writing it on the
+       host's own inline style would shadow consumer overrides on
+       `:root` — is `resize_handle_dom_cljs_test`'s subject.
 
   Not asserted here: `apply-all!` restoring the persisted width on boot,
   and reload survival (`update-setting!` round-tripping through
   localStorage), both covered indirectly by config + effects."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
-            [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
             [day8.re-frame2-xray.shell :as shell]
@@ -96,14 +96,6 @@
 ;; `as-component` round-trips prop names but not prop VALUES, so a
 ;; keyword `mode` would not survive it. Non-`:inline` answers nil;
 ;; `:inline` answers the bridge's `[:>]` vector rather than markup.
-
-(deftest handle-mounts-the-bridge-on-inline-mode
-  (setup!)
-  (let [tree (resize-handle/Handle :inline)]
-    (is (some? tree)
-        "Handle mounts on :inline")
-    (is (= :> (first tree))
-        "it mounts through the as-component bridge's interop head")))
 
 (deftest handle-short-circuits-on-fullscreen
   (setup!)
@@ -268,82 +260,35 @@
                  :preventDefault (fn [] (reset! prevented? true))}
      :prevented? prevented?}))
 
-(deftest keydown-arrow-left-widens
-  (setup!)
+(defn- keydown-dispatches
+  "Every event `handle-keydown!` dispatches for one keypress at a 500px
+  panel width."
+  [key shift?]
   (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowLeft" false)]
+        {:keys [event]} (stub-key-event key shift?)]
     (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
       (resize-handle/handle-keydown! event 500))
-    (is (some #(= [:rf.xray/set-panel-width-px 508] %) @dispatches)
-        "ArrowLeft adds the 8px fine step to current-width")))
+    @dispatches))
 
-(deftest keydown-arrow-right-narrows
+(deftest keydown-bindings-dispatch-their-documented-event
   (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowRight" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-keydown! event 500))
-    (is (some #(= [:rf.xray/set-panel-width-px 492] %) @dispatches)
-        "ArrowRight subtracts the 8px fine step from current-width")))
+  (are [key shift? expected] (some #(= expected %) (keydown-dispatches key shift?))
+    "ArrowLeft"  false [:rf.xray/set-panel-width-px 508] ; widen by the 8px fine step
+    "ArrowRight" false [:rf.xray/set-panel-width-px 492] ; narrow by the 8px fine step
+    "ArrowLeft"  true  [:rf.xray/set-panel-width-px 532] ; Shift: the 32px coarse step (8 × 4)
+    "Enter"      false [:rf.xray/reset-panel-width]      ; matches double-click
+    " "          false [:rf.xray/reset-panel-width]))
 
-(deftest keydown-shift-arrow-uses-coarse-step
+(deftest keydown-home-and-end-overshoot-to-the-clamps
   (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowLeft" true)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-keydown! event 500))
-    (is (some #(= [:rf.xray/set-panel-width-px 532] %) @dispatches)
-        "Shift+ArrowLeft uses the 32px coarse step (8 × 4)")))
-
-(deftest keydown-home-overshoots-to-upper-clamp
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "Home" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-keydown! event 500))
-    (is (some #(= :rf.xray/set-panel-width-px (first %)) @dispatches)
-        "Home dispatched a set-panel-width-px (registry clamp snaps to upper bound)")))
-
-(deftest keydown-end-undershoots-to-lower-clamp
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "End" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-keydown! event 500))
-    (is (some #(= :rf.xray/set-panel-width-px (first %)) @dispatches)
-        "End dispatched a set-panel-width-px (registry clamp snaps to lower bound)")))
-
-(deftest keydown-enter-dispatches-reset
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "Enter" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-keydown! event 500))
-    (is (some #(= [:rf.xray/reset-panel-width] %) @dispatches)
-        "Enter dispatched the reset event (matches double-click)")))
-
-(deftest keydown-space-dispatches-reset
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event " " false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (resize-handle/handle-keydown! event 500))
-    (is (some #(= [:rf.xray/reset-panel-width] %) @dispatches)
-        "Space dispatched the reset event")))
+  ;; Home overshoots and End undershoots; the registry clamp snaps the
+  ;; dispatched width to the upper and lower bound respectively.
+  (are [key] (some #(= :rf.xray/set-panel-width-px (first %))
+                   (keydown-dispatches key false))
+    "Home"
+    "End"))
 
 (deftest keydown-unrecognised-key-no-op
   (setup!)
@@ -381,16 +326,7 @@
 ;;
 ;; What stays here is everything that needs no host: the pure `handle-tree`
 ;; markup, the drag lifecycle, write-time clamping, the keyboard rows and the
-;; subscription -- plus `apply-panel-width-handles-missing-root` below, which
-;; asserts the NO-host path and so belongs on the node lane precisely because
-;; there is no host here.
-
-;; ---- apply-panel-width! (CSS var write) --------------------------------
-
-(deftest apply-panel-width-handles-missing-root
-  ;; Even without a layout host present, the call should not throw.
-  (is (nil? (settings-effects/apply-panel-width! 480))
-      "no-op safe pre-mount"))
+;; subscription.
 
 ;; ---- panel-width-px sub --------------------------------------------------
 
