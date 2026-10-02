@@ -26,7 +26,6 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
-            [re-frame.trace :as rf.trace]
             ;; The buffer + listener surface lives in
             ;; `re-frame.trace.tooling`.
             [re-frame.trace.tooling :as rf.trace.tooling]))
