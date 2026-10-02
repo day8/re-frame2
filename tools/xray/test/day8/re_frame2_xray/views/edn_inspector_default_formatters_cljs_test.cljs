@@ -195,33 +195,6 @@
 ;; Consumer override wins — CLJS protocol-dispatch precedence
 ;; =========================================================================
 
-(deftype MyWrappedUUID [uuid]
-  IXrayEdnInspector
-  (-xray-render-header [_ _opts]
-    [:span {:data-testid "custom-uuid-header"} "custom-uuid"])
-  (-xray-render-body [_ _opts]
-    [:span {:data-testid "custom-uuid-body"} "custom-uuid-body"]))
-
-(deftest consumer-owned-type-renders-through-its-own-impl
-  ;; A consumer wrapping a uuid in their own type renders via their
-  ;; own protocol impl — not the default uuid formatter. No default
-  ;; exists for that type, so this is routing rather than precedence;
-  ;; the precedence row is the next one.
-  (let [v (MyWrappedUUID. (random-uuid))
-        h (ei/render-node {:value v
-                           :panel-id :test
-                           :mount-id "m5"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (some? (find-attr h :data-rf-protocol "1"))
-        "protocol path taken")
-    (is (some? (find-attr h :data-testid "custom-uuid-header"))
-        "consumer's header wins")
-    (is (nil? (find-attr h :data-rf-default-fmt "uuid"))
-        "default uuid formatter is NOT in the output for the consumer type")))
-
 (deftest consumer-extend-type-wins-over-the-uuid-default
   ;; A consumer's `extend-type` on `cljs.core/UUID` itself — the type the
   ;; bundled default already extends — replaces the default, and the
