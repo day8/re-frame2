@@ -159,9 +159,9 @@ The skill's description auto-matches when you talk about starting a new re-frame
 
 ### What happens
 
-Claude reads `SKILL.md` and `references/first-counter.md`, writes the thirteen files, points the framework coordinates at the reviewed checkout, runs `npm install` and the terminating compile, starts the watch, and reports the URL. It reads another leaf only when a step needs depth — an overridden pin, an explanation of the build or the boot, the UIx swap.
+Claude reads `SKILL.md` and `references/first-counter.md`, writes the thirteen files, points the framework coordinates at the reviewed checkout, runs `npm install`, the terminating app compile and the starter test, starts the watch, and reports their results and the URL. It reads another leaf only when a step needs depth — an overridden pin, an explanation of the build or the boot, the UIx swap.
 
-When all 6 steps are done and the counter is visible, Claude says so and points you at the main `re-frame2` skill for everything after that.
+The handoff asks you to open the served page, click `+1`, and check hot reload and Story. Those browser checks remain unverified until observed; compilation alone does not prove them. The main `re-frame2` skill covers code-writing after setup.
 
 ## Cross-link
 

@@ -21,6 +21,7 @@ allowed-tools:
   - Bash(clojure -Sdeps * -Tnew create *)
   - Bash(java -version)
   - Bash(npm install)
+  - Bash(npm test)
   - Bash(npm install react@* react-dom@*)
   - Bash(npm view * version)
   - Bash(npx shadow-cljs watch *)
@@ -36,7 +37,7 @@ allowed-tools:
 
 # re-frame2-setup
 
-Bootstraps a fresh re-frame2 ClojureScript project. **Greenfield only** — a brand-new app from nothing, or an empty CLJS project (shadow-cljs / Clojure already present but zero re-frame2 wiring). When done: the project compiles under `shadow-cljs watch`, a counter mounts in the browser, and the author can switch to **`re-frame2`** for code-writing.
+Bootstraps a fresh re-frame2 ClojureScript project. **Greenfield only** — a brand-new app from nothing, or an empty CLJS project (shadow-cljs / Clojure already present but zero re-frame2 wiring). The skill verifies the build, starter test and running dev server, then hands off the browser smoke checks. The author can switch to **`re-frame2`** for code-writing.
 
 **One prompt produces one served SPA — zero-interview, skill-executed.** An unqualified greenfield request ("scaffold a re-frame2 app for me") takes **no clarification round**: the Reagent substrate, the generator template's reviewed baseline as the version pin, the template's reference project identity (`acme/my-app` — namespace `acme.my-app`, build id `:app`, dev port `8280`), and the smallest runnable counter. An author-supplied project name, pin, explicit "latest", or explicit UIx request overrides the matching default; the absence of any of them is never a reason to stop and ask. And the skill is the **executor**: it writes the files, runs `npm install`, runs a terminating `npx shadow-cljs compile app`, starts the watch, and reports the URL — it does not hand the author a to-do list.
 
@@ -86,23 +87,29 @@ Not for: adding re-frame2 to an existing non-trivial app (authoring), writing ap
 2. **Point the framework and Story coordinates at something that resolves.** The leaf's `deps.edn` carries `day8/re-frame2` and `day8/re-frame2-reagent` as `{:mvn/version "…"}` — forward-correct, but re-frame2 is not on Clojars yet, so today those lines fail resolution (`Could not find artifact day8/re-frame2`). Pre-publish, replace the two maps with `:local/root` paths into the reviewed checkout this skill was installed from — `{:local/root "<RE_FRAME2>/implementation/core"}` and `{:local/root "<RE_FRAME2>/implementation/adapters/reagent"}` (UIx: `…/adapters/uix`), and the `:dev` alias's `day8/re-frame2-story` with `{:local/root "<RE_FRAME2>/tools/story"}` — where `<RE_FRAME2>` is the absolute path the skill resolves itself (forward slashes on every OS; `SKILL.md`'s own location is `<RE_FRAME2>/skills/re-frame2-setup/SKILL.md`). The same step follows the generator route. Post-publish, leave framework `:mvn/version` lines only when that version resolves, and check Story separately: its own release may lag the framework, and the scaffold's sibling `:local/root` still needs replacing. An author without a checkout, or who wants a self-contained `deps.edn`, takes the `:git/sha` form for **all three coordinates, including Story in `:dev`** → [`references/deps-versions.md`](references/deps-versions.md) §Choosing the coordinate. Check the complete build classpath with `clojure -Stree -A:shadow:dev`; plain `clojure -Stree` omits both aliases.
    **An explicit framework pin takes precedence over the installed skill's checkout.** Use `:local/root` only if that checkout is at the requested version/tag/commit. Otherwise use the requested revision's full `:git/sha` for core, the adapter and Story, following [`references/deps-versions.md`](references/deps-versions.md#the-gitsha-route-pre-publish-no-checkout-on-disk). Keep the skill's checkout at its reviewed revision; selecting an app dependency does not require changing it.
 3. **`npm install`.** The npm deps are already pinned in `package.json`; nothing to confirm.
-4. **`npx shadow-cljs compile app`** — the terminating check; it must exit 0 (no missing-namespace or classpath errors). Never hand this command to the author: run it.
+4. **`npx shadow-cljs compile app`, then `npm test`** — run both terminating checks for the default scaffold. The skill runs both commands itself. The app must compile with no missing-namespace or classpath errors, and the template's starter test must pass under Node. When merging into an empty project, preserve its test command; report if the author explicitly omitted the starter test. Report each command's result; neither proves a browser mount.
 5. **`npx shadow-cljs watch app`** — start the dev server. **The watch never exits, so run it detached** — the harness's background-run option, or `npx shadow-cljs watch app > watch.log 2>&1 &` — because a foreground run blocks until the tool timeout kills it, and then nothing serves the URL you report; leave it running at hand-off. **Read the URL off the dev-http line in the watch's captured output, never out of `shadow-cljs.edn`.** The scaffold asks for `http://localhost:8280/`, but `:dev-http` binds a fixed port and a second `watch` in another project is the ordinary way for it to be taken: shadow then reports the bind failure and that address serves whoever got there first, so a URL read from config sends the author to someone else's app rather than to an error. If 8280 is bound, change the port, restart the watch, and report the one it actually printed.
-6. **Report and hand off.** The skill runs both commands itself. Compile success proves the build, **not the mount**: hand off with *"compiled and serving at `<the URL the watch printed>` — open it and click `+1`; the counter should advance 0 → 1, and `#/stories` opens Story"* rather than claiming the browser mounted, and say the watch is still running in the background (stop it when finished). **Done.**
+6. **Report and hand off.** Report the compile and starter-test results and the URL the running watch printed. Ask the author to open that URL and click `+1`; the counter should advance 0 → 1, and `#/stories` opens Story. Say the watch is running in the background and how to stop it. Browser mounting and hot reload remain unverified until observed; do not claim them from compilation.
 
 ## Done checklist
 
-You're done when all of these hold:
+Verify and report these results at handoff:
 
 - [ ] The thirteen files exist at their paths, and `clojure -Stree -A:shadow:dev` resolves `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-story` at one VERSION (step 2 pointed them at a checkout or a commit) plus `reagent/reagent` and `thheller/shadow-cljs`; the `:shadow` and `:dev` aliases `shadow-cljs.edn` names via `{:deps {:aliases [:shadow :dev]}}` are defined (omitting `:shadow` is the most common first-`watch` failure).
 - [ ] `npm install` completes and `react` / `react-dom` / `shadow-cljs` / `@xyflow/react` / `elkjs` are present.
+- [ ] The included starter test passes under Node — `npm test` on the default scaffold. An explicitly omitted starter test is reported.
 - [ ] `npx shadow-cljs compile app` exits 0 — the skill ran it; no missing-namespace or classpath errors — and `npx shadow-cljs watch app` is serving the URL it printed (`http://localhost:8280/` unless the port was already taken and you moved it).
-- [ ] The browser shows the heading — the project coordinate verbatim, `acme/my-app` on the default — a `+1` button and `0`, and the button advances the number — the author confirms this in the open page; compile success alone does not prove the mount.
-- [ ] A save to `views.cljs` repaints in place with the count intact, `npm test` passes under Node, and `#/stories` shows the counter's story.
+
+### Browser smoke checks at handoff
+
+Give the author these checks after the server is running, and report them as unverified until observed:
+
+- The browser shows the heading — the project coordinate verbatim, `acme/my-app` on the default — a `+1` button and `0`, and clicking the button advances the number.
+- A save to `views.cljs` repaints in place with the count intact, and `#/stories` shows the counter's story.
 
 On the **UIx route** the same criteria apply with `day8/re-frame2-uix` + `com.pitch/uix.core` in place of the Reagent pair — `com.pitch/uix.dom` is **not** day-one, because the app mounts through the adapter's own `client-root` / `render!` rather than a React Root of its own; npm is the same five packages (cardinal rule 3).
 
-Hand off with the facts first: the files written, the verification command that succeeded (`npx shadow-cljs compile app`), and the URL being served — the one the watch printed, not the one in `shadow-cljs.edn` — asking the author to open it and click `+1` (don't claim the mount from the compile). Then: *"Setup is done. Switch to **`re-frame2`** for events / subs / machines / schemas / frames / fx. `#/stories` opens Story, the component playground, on the counter; the generated `README.md`'s Next steps names Xray, the in-app devtools panel (`re-frame2-xray` tours it once it is in); and for live REPL inspection install **`re-frame2-pair`**."*
+Hand off with the facts first: the files written, the compile and starter-test results (or the omitted-test reason), and the URL being served — the one the watch printed, not the one in `shadow-cljs.edn` — asking the author to open it and click `+1` (don't claim the mount from the compile). Then: *"Setup is done. Switch to **`re-frame2`** for events / subs / machines / schemas / frames / fx. `#/stories` opens Story, the component playground, on the counter; the generated `README.md`'s Next steps names Xray, the in-app devtools panel (`re-frame2-xray` tours it once it is in); and for live REPL inspection install **`re-frame2-pair`**."*
 
 ## Troubleshooting (common build failures)
 
