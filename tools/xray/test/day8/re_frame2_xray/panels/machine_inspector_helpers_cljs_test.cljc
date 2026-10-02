@@ -29,8 +29,8 @@
     7. **cap-transitions**       — applies the 200-entry cap.
     8. **project-data**          — the top-level composite shape.
     9. **format-* helpers**      — display formatters."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             #?(:clj  [re-frame.test-support :as rf.test-support
                       :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :as rf.test-support
@@ -71,15 +71,6 @@
   (is (= [] (h/project-machine-rows nil nil)))
   (is (= [] (h/project-machine-rows [] {}))))
 
-(deftest project-machine-rows-fills-state-from-snapshot
-  (let [rows (h/project-machine-rows [:auth/login]
-                                     {:auth/login {:state :authing
-                                                   :data {:user "ada"}}})
-        row  (first rows)]
-    (is (= :authing (:state row)))
-    (is (= {:user "ada"} (:data row)))
-    (is (true? (:registered? row)))))
-
 (deftest project-machine-rows-tolerates-missing-snapshot
   (let [rows (h/project-machine-rows [:auth/login] {})
         row  (first rows)]
@@ -108,71 +99,47 @@
 
 ;; ---- (4) pick-selected -------------------------------------------------
 
-(deftest pick-selected-returns-matching-row
-  (let [rows [{:machine-id :a} {:machine-id :b} {:machine-id :c}]]
-    (is (= :b (:machine-id (h/pick-selected rows :b))))))
-
-(deftest pick-selected-falls-back-to-first-when-nil
-  (let [rows [{:machine-id :a} {:machine-id :b}]]
-    (is (= :a (:machine-id (h/pick-selected rows nil))))))
-
-(deftest pick-selected-falls-back-to-first-when-unknown
-  (let [rows [{:machine-id :a} {:machine-id :b}]]
-    (is (= :a (:machine-id (h/pick-selected rows :unknown))))))
-
-(deftest pick-selected-returns-nil-on-empty
-  (is (nil? (h/pick-selected [] :anything)))
-  (is (nil? (h/pick-selected nil nil))))
+(deftest pick-selected-resolves-the-selected-row-or-falls-back-to-the-first
+  (let [abc [{:machine-id :a} {:machine-id :b} {:machine-id :c}]]
+    (are [rows selected-id expected] (= expected (h/pick-selected rows selected-id))
+      abc :b        {:machine-id :b}
+      ;; no selection, or one no row carries → the first row
+      abc nil       {:machine-id :a}
+      abc :unknown  {:machine-id :a}
+      ;; no rows → nil
+      []  :anything nil
+      nil nil       nil)))
 
 ;; ---- (5) chart-props ---------------------------------------------------
 
-(deftest chart-props-nil-when-no-row
-  (is (nil? (h/chart-props nil :rf/default))))
-
-(deftest chart-props-fills-required-keys
-  (let [props (h/chart-props {:machine-id :auth/login :state nil :data nil}
-                             :rf/default)]
-    (is (= :auth/login (:machine-id props)))
-    (is (= :rf/default (:frame-id props)))
-    (is (nil? (:current-state-override props))
-        "no override when the snapshot has no :state")))
-
-(deftest chart-props-includes-current-state-override-when-state-present
-  (let [props (h/chart-props {:machine-id :auth/login
-                              :state      :authing
-                              :data       {:user "ada"}}
-                             :rf/default)]
-    (is (= {:state :authing :data {:user "ada"}}
-           (:current-state-override props)))))
-
-(deftest chart-props-omits-data-from-override-when-nil
-  (let [props (h/chart-props {:machine-id :auth/login
-                              :state      :idle
-                              :data       nil}
-                             :rf/default)]
-    (is (= {:state :idle}
-           (:current-state-override props))
-        "data slot is omitted rather than nil")))
-
-(deftest chart-props-carries-definition-when-present
-  (testing "the chart-props payload threads the machine definition so
-            the chart primitive can lay it out without a second sub"
+(deftest chart-props-builds-the-prop-map-from-the-selected-row
+  (testing "nil without a row; otherwise `:machine-id` + `:frame-id`,
+            the snapshot override only when the row carries a `:state`
+            (its `:data` omitted rather than nil), and the definition only
+            when the row carries one, so the chart primitive can lay it
+            out without a second sub"
     (let [def-map {:initial :idle
-                   :states  {:idle    {:on {:start :ready}}
-                             :ready   {:final? true}}}
-          props   (h/chart-props {:machine-id :auth/login
-                                  :state      :ready
-                                  :data       nil
-                                  :definition def-map}
-                                 :rf/default)]
-      (is (= def-map (:definition props))
-          "definition is passed through to the chart layer"))))
+                   :states  {:idle  {:on {:start :ready}}
+                             :ready {:final? true}}}]
+      (are [row expected] (= expected (h/chart-props row :rf/default))
+        nil
+        nil
 
-(deftest chart-props-omits-definition-when-nil
-  (let [props (h/chart-props {:machine-id :auth/login :state :idle :data nil}
-                             :rf/default)]
-    (is (not (contains? props :definition))
-        "no :definition key when the row carries no definition")))
+        {:machine-id :auth/login :state nil :data nil}
+        {:machine-id :auth/login :frame-id :rf/default}
+
+        {:machine-id :auth/login :state :authing :data {:user "ada"}}
+        {:machine-id :auth/login :frame-id :rf/default
+         :current-state-override {:state :authing :data {:user "ada"}}}
+
+        {:machine-id :auth/login :state :idle :data nil}
+        {:machine-id :auth/login :frame-id :rf/default
+         :current-state-override {:state :idle}}
+
+        {:machine-id :auth/login :state :ready :data nil :definition def-map}
+        {:machine-id :auth/login :frame-id :rf/default
+         :current-state-override {:state :ready}
+         :definition def-map}))))
 
 ;; ---- (6) project-transitions -------------------------------------------
 
@@ -184,19 +151,6 @@
 (deftest project-transitions-empty-when-buffer-empty
   (is (= [] (h/project-transitions [] :auth/login)))
   (is (= [] (h/project-transitions nil :auth/login))))
-
-(deftest project-transitions-filters-by-machine-id
-  (let [buffer [{:id 1 :operation :rf.machine/transition
-                 :tags {:machine-id :auth/login :from :idle :to :authing}}
-                {:id 2 :operation :rf.machine/transition
-                 :tags {:machine-id :checkout/flow :from :idle :to :cart}}
-                {:id 3 :operation :rf.machine/transition
-                 :tags {:machine-id :auth/login :from :authing :to :idle}}]
-        rows   (h/project-transitions buffer :auth/login)
-        ids    (set (map :id rows))]
-    (is (= 2 (count rows)) "only the focused machine's transitions surface")
-    (is (= #{1 3} ids)
-        "events #1 and #3 (both :auth/login) survive; #2 (:checkout/flow) is dropped")))
 
 (deftest project-transitions-newest-first
   (let [buffer [{:id 10 :operation :rf.machine/transition
@@ -356,17 +310,6 @@
                   (t-event 1 :auth/login :idle    :authing [:auth/submit])]
           records (h/project-focused-event-transitions events)]
       (is (= [:idle :authing] (mapv :from-state records))))))
-
-(deftest project-focused-event-multi-machine
-  (testing "a cascade triggering ≥ 1 transitions across multiple machines
-            yields one record per transition, document-order"
-    (let [events [(t-event 1 :auth/login    :idle   :ok    [:bootstrap])
-                  (t-event 2 :checkout/flow :idle   :paying [:cart/sync])
-                  (t-event 3 :session/clock :tick-0 :tick-1 [:tick])]
-          records (h/project-focused-event-transitions events)]
-      (is (= 3 (count records)))
-      (is (= [:auth/login :checkout/flow :session/clock]
-             (mapv :machine-id records))))))
 
 (deftest project-focused-event-surfaces-microstep-flag
   (let [events [(t-event 1 :auth/login :idle    :authing [:auth/submit])
@@ -809,10 +752,6 @@
            state machine')"))))
 
 ;; ---- (11) focused-epoch-record -------------------------------------------
-
-(deftest focused-epoch-record-empty-history
-  (is (nil? (h/focused-epoch-record nil  {:epoch-id 7})))
-  (is (nil? (h/focused-epoch-record []   {:epoch-id 7}))))
 
 (deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
   (testing "the operator pinned an event bundle

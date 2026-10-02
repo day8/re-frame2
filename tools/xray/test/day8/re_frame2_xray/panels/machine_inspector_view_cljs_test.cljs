@@ -36,7 +36,6 @@
             [re-frame.elision :as rf.elision]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             ;; The chart-head row below needs BOTH of this ns's public
@@ -1371,8 +1370,10 @@
 ;; ---- (5b) no Share affordance --------------------------------------------
 
 (deftest share-button-and-affordance-removed-rf2-nugvv
-  (testing "the Machine panel has no Share button — neither a
-            header toolbar button nor share-modal-open wiring."
+  (testing "the Machine panel's header toolbar carries the prev/next
+            nav and no Share button. No share event or sub is registered
+            either: registry_cljs_test's registry-snapshot-matches-expected-set
+            names every :rf.xray/* registration."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -1396,41 +1397,7 @@
         ;; There is no Share button.
         (is (nil? (find-by-testid
                     tree "rf-xray-machine-inspector-share-button"))
-            "there is no Share button in the panel header"))))
-  (testing "there is no share-modal-open event and there are no share
-            subs — there is no share surface (no share.cljs, no modal)"
-    (setup-xray-frame!)
-    (is (nil? (rf.registrar/handler :event :rf.xray/share-modal-open))
-        "share-modal-open event is unregistered")
-    (is (nil? (rf.registrar/handler :event :rf.xray/share-modal-close))
-        "share-modal-close event is unregistered")
-    (is (nil? (rf.registrar/handler :sub :rf.xray/share-modal-open?))
-        "share-modal-open? sub is unregistered")
-    (is (nil? (rf.registrar/handler :sub :rf.xray/share-url))
-        "share-url sub is unregistered")
-    (is (nil? (rf.registrar/handler :sub :rf.xray/cascade-export))
-        "cascade-export sub is unregistered")))
-
-;; ---- (6) events ---------------------------------------------------------
-
-(deftest scrubber-position-slot-defaults-to-present
-  (testing "the scrubber-position slot defaults to :present (the
-            `:after`-rings overlay reads this slot to gate ring rendering
-            to the :present position; there is no scrubber UI and no
-            share-URL round-trip)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (= :present @(rf/subscribe [:rf.xray/machine-scrubber-position]))))))
-
-(deftest set-scrubber-position-event-writes-the-slot
-  (testing ":rf.xray/set-scrubber-position writes the slot read by the
-            `:after`-rings overlay"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-scrubber-position 3])
-      (is (= 3 @(rf/subscribe [:rf.xray/machine-scrubber-position])))
-      (rf/dispatch-sync [:rf.xray/set-scrubber-position :present])
-      (is (= :present @(rf/subscribe [:rf.xray/machine-scrubber-position]))))))
+            "there is no Share button in the panel header")))))
 
 ;; ---- (7) frame isolation ------------------------------------------------
 

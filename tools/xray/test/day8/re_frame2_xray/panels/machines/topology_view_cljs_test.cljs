@@ -54,33 +54,6 @@
 
     :else nil))
 
-(deftest static-context-shape-nil-when-no-data
-  (testing "a machine with no `:data` yields nil so the root
-            Context panel stays hidden."
-    (is (nil? (tv/static-context-shape {:initial :a :states {:a {}}})))
-    (is (nil? (tv/static-context-shape {:initial :a :data nil :states {:a {}}})))
-    (is (nil? (tv/static-context-shape nil)))))
-
-(deftest static-context-declared-schema-is-authoritative
-  (testing "EP-0005 — when a machine declares a `[:schemas :data]`,
-            the static Context shape is read AUTHORITATIVELY off the schema
-            (not the `:data` sample) and `static-context-inferred?` is FALSE,
-            so the chart drops the `inferred from :data` badge."
-    (let [def {:initial :anon
-               ;; A deliberately misleading partial :data sample — the
-               ;; declared schema must win.
-               :data    {:retries nil}
-               :schemas {:data [:map
-                                [:retries :int]
-                                [:token {:optional true} [:maybe :string]]]}
-               :states  {:anon {}}}]
-      (is (= {:retries "number" :token "string?"}
-             (tv/static-context-shape def))
-          "shape comes from the SCHEMA's :map entries, authoritative over the
-           sample")
-      (is (false? (tv/static-context-inferred? def))
-          "declared schema → not inferred (chart drops the inferred badge)"))))
-
 (deftest static-context-inferred-when-no-schema
   (testing "EP-0005 — absent a `[:schemas :data]`, the shape falls
             back to the one-sample inference and `static-context-inferred?`

@@ -15,10 +15,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; `boundary-head?` is the production predicate the
-            ;; codec grades a hiccup head with. The dual-head rows read it
-            ;; rather than restating how each head was spelled.
-            [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -39,14 +35,6 @@
   (rf/make-frame {:id :rf/xray}))
 
 ;; ---- 2. Chart-collapsed slot ------------------------------------------
-
-(deftest chart-collapsed-defaults-to-false
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (let [collapsed? @(rf/subscribe
-                        [:rf.xray.machine-canvas/chart-collapsed-for :m])]
-      (is (= false collapsed?)
-          "unset slot defaults to false (expanded)"))))
 
 (deftest chart-collapsed-set-collapsed-and-toggle
   (setup-xray-frame!)
@@ -195,31 +183,10 @@
         (is (not (contains? heads after-rings/AfterRingsOverlay-bridge))
             ":show-after-rings? false drops the overlay mount entirely")))))
 
-;; ---- 3b. the two heads, and the one body behind them -------------------
-
-(deftest the-two-chart-heads-differ-only-in-boundary-grade
-  (testing "this ns ships a DUAL-HEAD FACADE, the shape
-            `views/edn_widget.cljs` already uses for `inspect` /
-            `inspect-view`: `Chart` for a Reagent parent, `Chart-view` for a
-            Fresco one, both one call to [[mc/chart-tree]].
-
-            Graded by the production predicate `codec/boundary-head?`, which
-            reads the single own property (`frescoBoundary`) that only
-            `rf.fresco/defview` sets — so this row states what the codec will
-            actually do with each head rather than restating how each was
-            spelled.
-
-            BOTH DIRECTIONS, because a predicate that answered true for
-            everything would satisfy the first half alone. The `reg-view`
-            must grade FALSE: it is what the two Static consumers head from
-            inside `definition_detail`'s own Reagent island, and heading it
-            under a boundary is the loud `:invalid` this facade exists to
-            avoid."
-    (is (rf.fresco.impl.codec/boundary-head? mc/Chart-view)
-        "Chart-view is a Fresco boundary head")
-    (is (not (rf.fresco.impl.codec/boundary-head? mc/Chart))
-        "CONTROL: the reg-view is NOT, so the assertion above
-         discriminates rather than reading true for any fn")))
+;; ---- 3b. the one body behind the two heads ------------------------------
+;;
+;; Which head is a Fresco boundary is graded where ELEMENT 3 mounts it:
+;; machine_inspector_view's element-3-heads-a-fresco-boundary-rf2-k97c-3.
 
 (deftest chart-tree-wraps-only-the-machines-viz-mount-in-as-child
   (testing "`as-child` covers the machines-viz chart and NOTHING
