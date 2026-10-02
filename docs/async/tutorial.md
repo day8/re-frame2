@@ -153,7 +153,7 @@ trace, `:rf.warning/http-malli-absent`, reports it once.
 
 Decoding runs **only on 2xx responses**. A 404 that answers with an HTML error page arrives as `:rf.http/http-4xx` with the raw HTML at `:body`, never as a decode failure ([how failures are classified](http.md#failures-are-a-closed-set)).
 
-`:decode` also takes a keyword (`:json` / `:text` / `:blob` / …) or a plain function when you need full control — see [the reference](http.md#validating-the-body-with-decode).
+`:decode` also takes a keyword (`:json` / `:text` / `:blob` / …) or a plain function when you need full control — see [HTTP decoding](http.md#validating-the-body-with-decode).
 
 ## Step 4 — retry reads, not writes
 
@@ -263,14 +263,3 @@ covers the shared fixture and effect overrides.
 !!! note "Do, observe"
 
     Run the app with [Xray](../xray/index.md) open. Dispatch `[:article/load "intro"]`: you'll see the issuing event row, the request going out on the [trace stream](../core/glossary.md#trace-stream), and the reply arriving as an ordinary event row of its own — two ledger entries, one round trip. Then re-fire a `:request-id` request before its reply lands and watch the superseded completion get recorded as stale, never dispatched.
-
-## The complete shape
-
-| Piece | Surface | You supply |
-|---|---|---|
-| Artefact | `(:require [re-frame.http.managed])` | Once at boot |
-| Send | `:fx [[:rf.http/managed {…}]]` | `:request` + reply target(s) |
-| Receive | `:on-success` / `:on-failure` (or `:reply-to`) | Ordinary events; reply map **appended** |
-| Failures | `(:kind error)` closed set | Branch with `case`, never message strings |
-| Race | `:request-id` | Same id supersedes / suppresses stale |
-| Test | `with-request-stubs` | `re-frame.http.test-support` + canned reply map |
