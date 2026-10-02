@@ -186,8 +186,6 @@
                "a coordinate the walker still cannot reach"))
       (let [err (-> (record-always-on-errors #(rf/dispatch-sync event))
                     (record-of :rf.error/handler-exception))]
-        (is (some? err)
-            "the always-on error record fired (it is NOT debug-gated)")
         (is (= payload @seen)
             "the handler body received the UNREDACTED payload")
         (is (= :rf/redacted (get-in err [:event 1 :credentials]))
@@ -219,8 +217,8 @@
                "the frame's classification registry"))
       (let [err (-> (record-always-on-errors #(rf/dispatch-sync event))
                     (record-of :rf.error/handler-exception))]
-        (is (some? err) "the always-on error record fired")
-        (is (= :rf/redacted (get-in err [:event 1 :password])))
+        (is (= :rf/redacted (get-in err [:event 1 :password]))
+            "the always-on error record fired, redacted")
         (is (= :rf/redacted (get-in err [:event 1 :token]))
             "BOTH declared paths scrub — the union, not just the first")
         (is (= "ada" (get-in err [:event 1 :username])))
@@ -247,9 +245,9 @@
                       #(try (rf/dispatch-sync event)
                             (catch Throwable _ nil)))
                     (record-of :rf.error/no-such-handler))]
-        (is (some? err) "the always-on record fired for the chainless category")
         (is (= :rf/redacted (get-in err [:event 1 :attempts 0 :token]))
-            "the wire-walker redacted without any interceptor having run")
+            "the always-on record fired for the chainless category, and the
+             wire-walker redacted without any interceptor having run")
         (is (= "ada" (get-in err [:event 1 :username]))
             "an unclassified key is not over-redacted")
         (is (not (leaked? err chainless-secret))

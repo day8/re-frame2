@@ -126,10 +126,9 @@
          :sensitive [[:user :token]]}))
     (rf/dispatch-sync [:auth/login])
     ;; recorded in the registry, tagged :source :effect
-    (is (contains? (sensitive-decls) [:user :token])
-        "the classified path is in the per-frame sensitive registry")
     (is (= #{{:source :effect}} (get (sensitive-decls) [:user :token]))
-        "the effect owner is the sole claimant of the path (a one-owner set)")
+        "the classified path is in the per-frame sensitive registry, and the
+         effect owner is its sole claimant (a one-owner set)")
     ;; the application sees the REAL value in app-db (read-only-at-egress)
     (is (= "Bearer secret-xyz" (get-in (rf.frame/frame-app-db-value :rf/default)
                                        [:user :token]))
@@ -147,14 +146,12 @@
         {:db    (assoc-in db [:docs :csv] (apply str (repeat 500 "X")))
          :large [[:docs :csv]]}))
     (rf/dispatch-sync [:docs/upload])
-    (is (contains? (large-decls) [:docs :csv])
+    (is (= #{{:source :effect}} (get (large-decls) [:docs :csv]))
         "the classified path is in the per-frame large registry")
-    (is (= #{{:source :effect}} (get (large-decls) [:docs :csv])))
     (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))
           slot (get-in wire [:docs :csv])]
-      (is (rf.elision/marker? slot)
-          "the large path elides to an :rf.size/large-elided marker at egress")
-      (is (= [:docs :csv] (get-in slot [:rf.size/large-elided :path]))))))
+      (is (= [:docs :csv] (get-in slot [:rf.size/large-elided :path]))
+          "the large path elides to an :rf.size/large-elided marker at egress"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. value-independence — classify BEFORE a value exists
@@ -242,11 +239,10 @@
     (rf/reg-event :effect-clear-token
       (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
     (rf/dispatch-sync [:effect-clear-token])
-    (is (contains? (sensitive-decls) [:user :token])
-        "the path is STILL classified — the flow's claim survives the effect clear")
     (is (= #{{:source :flow :flow-id :token-watch}}
            (get (sensitive-decls) [:user :token]))
-        "the sole surviving owner is the flow's, not the effect's")
+        "the path is STILL classified — the flow's claim survives the effect
+         clear, and the sole surviving owner is the flow's, not the effect's")
     (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
       (is (= rf.privacy/redacted-sentinel (get-in wire [:user :token]))
           "the value stays REDACTED at egress — the clear did not un-redact it"))))
@@ -258,36 +254,24 @@
 ;;     wrong axis slot, would be a fail-open privacy hazard — pin it.
 ;; ---------------------------------------------------------------------------
 
-(deftest clear-sensitive-over-never-classified-path-is-a-silent-no-op
-  (testing ":clear-sensitive over a path that was NEVER classified is a silent
-            no-op — no throw, no error trace, the registry is unchanged."
-    ;; nothing is classified yet
-    (is (not (contains? (sensitive-decls) [:never :classified]))
-        "precondition: the path is absent from the sensitive registry")
-    (rf/reg-event :clear-absent-sensitive
-      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:never :classified]]}))
-    (let [recorded (record-traces! :clear-absent-sensitive-probe)]
-      (rf/dispatch-sync [:clear-absent-sensitive])
-      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
-          "no classification-effect error — clearing an absent path does not throw")
-      (rf/unregister-listener! :trace :clear-absent-sensitive-probe))
-    (is (not (contains? (sensitive-decls) [:never :classified]))
-        "the registry is unchanged — the clear of an absent path is a no-op")))
-
-(deftest clear-large-over-never-classified-path-is-a-silent-no-op
-  (testing ":clear-large over a path that was NEVER classified is a silent
-            no-op — no throw, no error trace, the large registry is unchanged."
-    (is (not (contains? (large-decls) [:never :large]))
-        "precondition: the path is absent from the large registry")
-    (rf/reg-event :clear-absent-large
-      (fn [{:keys [db]} _] {:db db :clear-large [[:never :large]]}))
-    (let [recorded (record-traces! :clear-absent-large-probe)]
-      (rf/dispatch-sync [:clear-absent-large])
-      (is (empty? (error-events recorded :rf.error/classification-effect-shape))
-          "no classification-effect error — clearing an absent large path does not throw")
-      (rf/unregister-listener! :trace :clear-absent-large-probe))
-    (is (not (contains? (large-decls) [:never :large]))
-        "the large registry is unchanged — the clear of an absent path is a no-op")))
+(deftest clear-over-a-never-classified-path-is-a-silent-no-op
+  (testing "a clear over a path that was NEVER classified is a silent no-op on
+            either axis — no throw, no error trace, the registry is unchanged."
+    (doseq [[clear-key decls path] [[:clear-sensitive sensitive-decls [:never :classified]]
+                                    [:clear-large     large-decls     [:never :large]]]]
+      (is (not (contains? (decls) path))
+          (str "precondition: " path " is absent from the registry " clear-key " prunes"))
+      (rf/reg-event :clear-absent
+        (fn [{:keys [db]} _] {:db db clear-key [path]}))
+      (let [recorded (record-traces! :clear-absent-probe)]
+        (rf/dispatch-sync [:clear-absent])
+        (is (empty? (error-events recorded :rf.error/classification-effect-shape))
+            (str "no classification-effect error — " clear-key
+                 " over an absent path does not throw"))
+        (rf/unregister-listener! :trace :clear-absent-probe))
+      (is (not (contains? (decls) path))
+          (str "the registry is unchanged — " clear-key
+               " over an absent path is a no-op")))))
 
 (deftest clear-sensitive-on-a-large-only-path-leaves-the-large-axis-intact
   (testing ":clear-sensitive over a path classified on the OTHER axis only
@@ -365,10 +349,9 @@
         "CLEAR WINS on the large axis — the path is NOT in the large registry")
     (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))
           slot (get-in wire [:docs :csv])]
-      (is (not (rf.elision/marker? slot))
-          "no large marker — the cleared path ships RAW at egress")
       (is (= (apply str (repeat 500 "Y")) slot)
-          "the raw oversized value is shipped unchanged (clear won)"))))
+          "no large marker — the raw oversized value ships unchanged at egress
+           (clear won)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. axes independent — sensitive vs large clears do not cross

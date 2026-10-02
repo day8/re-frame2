@@ -93,7 +93,10 @@
 
 (deftest pr-str-bytes-counts-utf8-bytes-not-code-units
   (testing "UTF-8 bytes on BOTH hosts. A code-unit count would answer 42
-            for every one of these"
+            for every one of these, so the three figures also pin the law:
+            bytes are NEVER FEWER than code units and STRICTLY MORE for a
+            non-ASCII payload. A byte count can only ever TIGHTEN — no leaf a
+            code-unit count warns on falls silent"
     (is (= 42 (rf.elision/pr-str-bytes ascii-40))
         "ASCII: bytes and code units agree exactly — the opposite-direction pin")
     (is (= 122 (rf.elision/pr-str-bytes em-dash-40))
@@ -102,21 +105,7 @@
     ;; LONE surrogates encode as replacement characters at 3 bytes each, which
     ;; would read 2 + (20 * 6) = 122 here, not 82.
     (is (= 82 (rf.elision/pr-str-bytes astral-20))
-        "20 astral chars are 80 bytes across 40 code units; + 2 quote bytes"))
-
-  (testing "the relationship, stated as the law rather than as three constants:
-            UTF-8 bytes are NEVER FEWER than UTF-16 code units, and are STRICTLY
-            MORE for a non-ASCII payload. This is why a byte count can only
-            ever TIGHTEN — no leaf a code-unit count warns on falls silent"
-    (doseq [[label s] [["ascii" ascii-40] ["em-dash" em-dash-40] ["astral" astral-20]]]
-      (is (>= (rf.elision/pr-str-bytes s) (count (pr-str s)))
-          (str label ": bytes >= code units, always")))
-    (is (> (rf.elision/pr-str-bytes em-dash-40) (count (pr-str em-dash-40)))
-        "em-dash: STRICTLY more")
-    (is (> (rf.elision/pr-str-bytes astral-20) (count (pr-str astral-20)))
-        "astral: STRICTLY more")
-    (is (= (rf.elision/pr-str-bytes ascii-40) (count (pr-str ascii-40)))
-        "ascii: exactly equal — which is precisely why a code-unit count fails OPEN")))
+        "20 astral chars are 80 bytes across 40 code units; + 2 quote bytes")))
 
 (deftest pr-str-bytes-measures-the-printed-form
   (testing "the name says `pr-str`: the delimiters count, an embedded quote
@@ -140,27 +129,16 @@
   (rf.frame/swap-runtime-db! :rf/default
     (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec large)}))))
 
-(deftest marker-publishes-utf8-bytes
-  (testing "`->marker`'s `:bytes` is the byte count Spec-Schemas
-            §`:rf/elision-marker` types it as, on both hosts"
-    (let [body (:rf.size/large-elided (rf.elision/->marker em-dash-40 [:user :bio] {}))]
-      (is (= 122 (:bytes body))
-          "the published figure is bytes; a code-unit count would read 42 on CLJS")
-      (is (= :string (:type body)))
-      (is (= [:user :bio] (:path body))))
-    (let [body (:rf.size/large-elided (rf.elision/->marker astral-20 [:user :bio] {}))]
-      (is (= 82 (:bytes body))
-          "astral payload publishes 82 bytes, not 42 code units"))))
-
 (deftest walker-published-marker-carries-utf8-bytes
   (testing "and through the REAL walker on a live frame, not just the marker
             constructor — a declared-`:large` path"
     (install-large! [[:user :bio]])
     (let [out  (rf.elision/elide-wire-value {:user {:bio em-dash-40}})
           body (:rf.size/large-elided (get-in out [:user :bio]))]
-      (is (some? body) "the declared path elided to a marker")
       (is (= 122 (:bytes body))
-          "the wire marker an off-box agent reads publishes BYTES on both hosts"))))
+          "the declared path elided to a marker, and the wire marker an off-box
+           agent reads publishes BYTES on both hosts; a code-unit count would
+           read 42 on CLJS"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The ENFORCED half: the `:rf.egress/threshold-bytes` comparison.

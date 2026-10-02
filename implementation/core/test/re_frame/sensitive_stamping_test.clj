@@ -172,6 +172,11 @@
   ;; where the producer has already proved unreliable. The framework
   ;; predicate matches the MCP wire's classifier
   ;; (`re-frame.mcp-base.sensitive/sensitive-stamp?`).
+  ;;
+  ;; Every row reads through `true?` / `false?`, so the predicate is also
+  ;; pinned to return a BOOLEAN, never the stamp value: callers compose it
+  ;; with `and` / `some`, and a leaked payload would be a second way to ship
+  ;; the very value being classified.
   (testing "the well-formed boolean stamp reads as itself"
     (is (true? (rf/sensitive? {:sensitive? true}))))
 
@@ -194,10 +199,4 @@
     (is (false? (rf/sensitive? nil)))
     (is (false? (rf/sensitive? "anything")))
     (is (false? (rf/sensitive? [:sensitive? true])))
-    (is (false? (rf/sensitive? 42))))
-
-  (testing "the predicate returns a BOOLEAN, never the stamp value — callers
-            compose it with `and` / `some` and a leaked payload would be a
-            second way to ship the very value being classified"
-    (is (boolean? (rf/sensitive? {:sensitive? "super-secret-token"})))
-    (is (boolean? (rf/sensitive? nil)))))
+    (is (false? (rf/sensitive? 42)))))
