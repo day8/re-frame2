@@ -72,8 +72,8 @@
   (testing "acquire-frame-root! runs make-frame and returns the resolved id"
     (let [id (rf.views.frame-boundary/acquire-frame-root! {:id :root/alpha :images [app-image] :initial-events [[:rf/set-db {:n 1}]]})]
       (is (= :root/alpha id) "returns the frame id off the constructed frame value")
-      (is (some? (rf.frame/frame :root/alpha)) "the frame is live in the registry")
-      (is (= {:n 1} (rf/app-db-value :root/alpha)) ":rf/set-db seeded app-db"))))
+      (is (= {:n 1} (rf/app-db-value :root/alpha))
+          "the frame is live in the registry and :rf/set-db seeded its app-db"))))
 
 (deftest re-acquire-frame-root-reuses-without-reseed
   (testing "re-acquiring the same id REUSES the live frame WITHOUT re-seeding
@@ -137,11 +137,10 @@
            :initial-events [[:rf/set-db {:seeded true}]
                             [:root/needs-missing-cofx]]})
         (catch :default e (reset! thrown e)))
-      (is (some? @thrown)
-          "the setup throw RETHROWS out of acquire-frame-root! (not swallowed)")
       (is (= :rf.error/initial-events-step-failed
              (:rf.error/id (ex-data @thrown)))
-          "the rethrown error is the setup-step failure naming the throwing step")
+          "the setup throw RETHROWS out of acquire-frame-root! (not swallowed) as
+           the setup-step failure naming the throwing step")
       (is (nil? (rf.frame/frame :root/boom))
           "no half-created frame is left registered — the partial frame was torn down"))))
 
