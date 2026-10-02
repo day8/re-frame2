@@ -70,7 +70,7 @@ The ordinary way to cause a read: `[:rf.resource/ensure {:resource … :params �
 
 ### **infinite resource & load-more**
 
-A [resource](#resource) registered with `:infinite true`: one cache entry whose value is an ordered vector of pages, with the next page's cursor derived by `:next-page-param`. `[:rf.resource/load-more {:resource … :params … :cause …}]` appends the next page to that entry, and `:rf.resource/items` reads the merged list. See [Paginate a feed](how-to/paginate-a-feed.md#load-more-an-infinite-resource-is-one-growing-entry).
+A [resource](#resource) registered with `:infinite true`: one cache entry whose value is an ordered vector of pages, with the next page's cursor derived by `:next-page-param`. `[:rf.resource/load-more {:resource … :params … :cause …}]` appends the next page to that entry, and `:rf.resource/items` reads the merged list. See [Load more](how-to/load-more.md).
 
 ### **optimistic update & rollback**
 

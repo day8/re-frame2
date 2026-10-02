@@ -80,15 +80,9 @@ A **[resource](../glossary.md#resource)** is a server read registered once. You 
 
 ### The shape of a `reg-resource` call
 
-`reg-resource` has the same **three-slot** shape as other `reg-*` forms — `(rf/reg-resource id metadata request-fn)`:
-
-```clojure
-(rf/reg-resource <resource-id>     ; 1. the name
-  {:scope :rf.scope/global}         ; 2. the config map (identity, scope, freshness)
-  (fn [params ctx] …))             ; 3. the request fn — the THIRD slot, not a metadata key
-```
-
-Put `:request` inside the metadata map instead and you get `:rf.error/resource-bad-spec` at registration, telling you to move it to the third slot.
+The three arguments are the resource id, metadata, and request function.
+The two registrations above use the normal shape. A `:request` key in metadata
+raises `:rf.error/resource-bad-spec`; the function belongs in the third argument.
 
 ### The three keys that carry the model
 
@@ -102,9 +96,11 @@ Most of the config map is optional. Three keys carry the idea:
 
     A user-scoped read silently registered as global would serve one user's private data to another from a shared cache. So you state the intent once, at registration: a `reg-resource` with no `:scope` raises `:rf.error/resource-missing-scope-policy`. Part 4 introduces the other form, a `{:from-db <id>}` resolver that derives the scope from app-db.
 
-??? note "The rest of the metadata keys"
-
-    The remaining registration keys — `:tags` (which [Part 5](05-mutations-and-invalidation.md#tag-the-reads) adds), `:gc-after-ms`, `:poll-interval-ms`, `:data-schema`, `:transport`, `:doc`, `:sensitive` / `:large`, `:infinite` — are listed in [The resource spec](../../api/re-frame.resources.md#the-resource-spec). The request fn returns a [managed-HTTP](../../async/http.md) args map — `{:request {…} :decode …}` — so the transport's options (`:retry`, `:timeout-ms`, `:accept`, headers) are available. It describes the request only: the runtime decides where the reply goes, so supplying `:request-id`, `:on-success` or `:on-failure` is rejected.
+The request function returns [managed-HTTP args](../../async/http.md), so transport
+options such as `:retry` and `:timeout-ms` go there. Resources addresses the reply;
+do not add `:request-id`, `:on-success` or `:on-failure`. The
+[registration reference](../../api/re-frame.resources.md#the-resource-spec)
+records the remaining metadata options.
 
 Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initialise`, and the three `:articles/*` subs. The resource replaces all of them, so `:app/initialise` shrinks to an empty seed:
 
@@ -114,7 +110,7 @@ Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initi
   (fn [_cofx _event] {:db {}}))
 ```
 
-The article data no longer lives in [app-db](../../core/glossary.md#app-db) at all. It lives in **[runtime-db](../../core/glossary.md#runtime-db)**, the framework-owned partition beside app-db ([the two partitions](../../core/glossary.md#the-two-partitions)). A cache entry has a lifecycle app-db doesn't model — in flight, stale, garbage-collectable when nothing reads it — so the runtime keeps that bookkeeping and exposes the result through a subscription.
+The article data no longer lives in [app-db](../../core/glossary.md#app-db) at all. It lives in **[runtime-db](../../core/glossary.md#runtime-db)**, the framework-owned partition beside app-db ([the two partitions](../../core/glossary.md#the-two-partitions)). A cache entry has a lifecycle app-db doesn't model — in flight, stale, garbage-collectable when no owner keeps it alive — so the runtime keeps that bookkeeping and exposes the result through a subscription.
 
 ## Step 3 — let the routes cause the fetch
 
@@ -139,8 +135,7 @@ Then the routes:
   {:doc       "The home page: the global article feed."
    :resources [{:resource       :conduit/articles
                 :params         (fn [_route] {})
-                :blocking?      false
-                :keep-previous? true}]}
+                :blocking?      false}]}
   "/")
 
 (rf/reg-route :conduit.article/show
@@ -158,9 +153,10 @@ The flags are per-page choices:
 
 - `:blocking? true` on the article keeps the route's `:rf.route/transition` at `:loading` until the first load settles, so a global progress bar can reflect page data. The route itself still commits at once, so the page renders its own placeholder meanwhile. (It's also the wait point for server-side rendering.)
 - `:blocking? false` on the home list leaves `:rf.route/transition` alone; the feed page shows its own skeleton.
-- `:keep-previous? true` matters when the params change: the new key's view-model carries the previous params' data (`:previous? true`, `:previous-data`) until its own arrives, so the old page stays on screen. Home's params are always `{}`, so here it's groundwork for [Paginate a feed](../how-to/paginate-a-feed.md).
 
-Notice what you didn't write: a fetch call. No `http-get`, no `then`, no `dispatch [:articles-loaded ...]`. The route declares what the page needs, so the route table lists every page's data dependencies in one place, and the runtime does the rest.
+The route declares the page's data dependencies and ensures them on entry.
+Numbered pagination adds `:keep-previous?` when the resource params change;
+[Paginate a feed](../how-to/paginate-a-feed.md) shows that case.
 
 !!! note "Routes aren't the only cause"
 
@@ -206,21 +202,11 @@ Each branch of that `cond` handles one state the feed can be in.
 
 ### The view-model: one fixed map
 
-`:rf/resource` returns a map with a fixed set of keys, plus two more while `:keep-previous?` is showing an earlier key's data:
-
-```clojure
-{:status        :idle ;; :idle | :loading | :fetching | :loaded | :error
- :data          <last-known-good-or-nil>     ;; the decoded response
- :error         <first-load-error-or-nil>    ;; only set on a failed FIRST load
- :refresh-error <background-refresh-error-or-nil>
- :loading?      <bool>   ;; first load, nothing to show yet
- :fetching?     <bool>   ;; refreshing over data you already have
- :stale?        <bool>   ;; past its :stale-after-ms window (orthogonal to status)
- :has-data?     <bool>   ;; usable :data is present
- :previous?     <bool>   ;; :keep-previous? is showing the prior key's data
- :previous-data <prior-key's-data>          ;; only while :previous? is true
- :previous-key  <prior-key's-cache-key>}    ;; only while :previous? is true
-```
+`:rf/resource` returns the decoded response as `:data`. The view above uses
+`:loading?` for its first load and `:has-data?` when deciding whether to show
+a full error. A refresh uses `:fetching?` and keeps the cached data.
+The [subscription reference](../../api/re-frame.resources.md#resource-subscriptions-passive)
+records the complete map.
 
 The five `:status` values are the model:
 
@@ -236,9 +222,10 @@ The five `:status` values are the model:
 
 Branch on the derived booleans — `:loading?`, `:fetching?`, `:has-data?` — rather than on the raw `:status`, so the rules live in one place. That's why the `cond` above reads `(:loading? state)`, not `(= :loading (:status state))`.
 
-!!! note "Don't want the whole map?"
-
-    There's a narrower sub for each field, taking the same `{:resource … :params …}` payload: `:rf.resource/data`, `:rf.resource/status`, `:rf.resource/loading?`, `:rf.resource/fetching?`, `:rf.resource/stale?`, `:rf.resource/error`, `:rf.resource/refresh-error`, `:rf.resource/has-data?`, and `:rf.resource/previous-data`. A view that reads `[:rf.resource/data …]` re-renders only when the data changes.
+Use `:rf.resource/data` when a view needs only the decoded value. It accepts the
+same query as `:rf/resource` and re-renders only when the data changes.
+[Focused subscriptions](../../api/re-frame.resources.md#resource-subscriptions-passive)
+cover the other individual fields.
 
 ### Failure: `:error` is for first-load only
 
@@ -268,8 +255,6 @@ and a background-refresh failure keeps the data and tucks the problem into `:ref
 A failed first load stays `:error` until something causes the read again; a request retries on its own only when it declares `:retry`. To offer a Retry button, dispatch the same `:rf.resource/refetch` that [Step 5](#step-5--refresh-on-demand) wires to its Refresh button — an ensure works too, because an entry in `:error` is never fresh. The entry goes back to `:loading`, and when the new load lands it is `:loaded` with `:error` cleared.
 
 On a `:blocking? true` route the failure reaches the route as well: `:rf.route/transition` turns `:error`, and `:rf.route/error` holds a `:rf.error/resource-route-blocking` map carrying the resource's failure under `:error`. A successful retry returns the route to `:idle` ([route readiness](../../routing/concepts.md#when-a-loader-fails)).
-
-A page has more render states than a cache entry does. One useful checklist names nine: *Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct, Done.* The home page covers the first five — Nothing shows the placeholder, Empty shows "No articles", and One and Some share the list — plus the error branch. The rest come later: Too Many is a pagination cap ([Paginate a feed](../how-to/paginate-a-feed.md)), Incorrect and Correct are form states (Part 3), and Done is the page after a successful write (Part 5). Deciding each one before you ship keeps blank screens out of production.
 
 ### The article page
 

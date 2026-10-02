@@ -345,8 +345,9 @@ nav:
     - Glossary: machines/glossary.md
 
   - Resources:
-    # Landing → tutorial (build) → model → recipes / test → examples → migrate.
+    # The resource model first; the tutorial builds a complete application.
     - resources/index.md
+    - "The model": resources/concepts.md
     - "Tutorial: Build RealWorld":
       - resources/tutorial/index.md
       - "1. Pages and state": resources/tutorial/01-pages-and-state.md
@@ -355,11 +356,12 @@ nav:
       - "4. Scopes and guarding a route": resources/tutorial/04-scopes-and-guards.md
       - "5. Mutations and invalidation": resources/tutorial/05-mutations-and-invalidation.md
       - "6. Test and ship": resources/tutorial/06-test-and-ship.md
-    - "The model": resources/concepts.md
     - "Errors and warnings": resources/errors-and-warnings.md
     - "Recipes":
-      - "Paginate a feed": resources/how-to/paginate-a-feed.md
+      - "Numbered pages": resources/how-to/paginate-a-feed.md
+      - "Load more": resources/how-to/load-more.md
       - "Invalidate after a mutation": resources/how-to/invalidate-after-a-mutation.md
+      - "Optimistic updates": resources/how-to/optimistic-updates.md
       - "Testing": resources/testing.md
     - "Examples": resources/examples.md
     - "Coming from TanStack Query": resources/coming-from-tanstack-query.md

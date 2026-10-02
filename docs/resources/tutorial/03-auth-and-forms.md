@@ -158,16 +158,10 @@ Every field renders its error the same way — `(when email-err …)` — and no
     (not= status :submitting)))
 ```
 
-Cross-field errors such as "passwords don't match" belong to the pair, not to either input, so they go under `:_form` and render through `form-errors`, whether or not a field is touched. A register-form validator shows both kinds:
-
-```clojure
-(defn validate-register [{:keys [username email password password-confirm]}]
-  (cond-> {}
-    (str/blank? username)            (assoc :username ["can't be blank"])
-    (not (re-find #".+@.+" email))   (assoc :email ["is invalid"])
-    (< (count password) 8)           (assoc :password ["is too short (minimum is 8 characters)"])
-    (not= password password-confirm) (assoc :_form ["passwords don't match"])))
-```
+The visibility rule also applies to server validation errors. Form-level
+errors use `:_form` and render through `form-errors` whether or not an individual
+field was touched. [Build a form](../../core/how-to/build-a-form.md) covers
+cross-field validation and reusable form conventions.
 
 ## Submit: one managed request, no retry
 
@@ -213,13 +207,10 @@ The `:submit-attempted?` latch flips on every submit click, valid or not — tha
 
 When the round-trip finishes, the framework [dispatches](../../core/glossary.md#dispatch) the event named in `:on-success` or `:on-failure`, with the [reply map](../glossary.md#reply-map) appended as its last argument. A success arrives as `{:status :ok :value <decoded-body> …}`, a failure as `{:status :error :error <failure-map> …}` — the same shape every managed async operation uses ([the uniform reply](../../core/glossary.md#the-uniform-reply)).
 
-The args-map slots in use:
-
-| Slot | What it does here | Worth knowing |
-|---|---|---|
-| `:request` | The wire envelope — `:method`, `:url`, `:body`, `:request-content-type`. | `:request-content-type :json` serialises the clj `:body` and sets `Content-Type: application/json` for you; `:form` URL-encodes instead. `:url` is the only required key. |
-| `:decode` | `:json` parses a 2xx body. | Defaults to `:auto` (sniffs the response `Content-Type`). Decode runs **only on 2xx** — a 4xx/5xx body arrives raw, undecoded. Pass a Malli [schema](../../core/glossary.md#schema) instead of `:json` to validate the reply shape. |
-| `:on-success` / `:on-failure` | Name the reply targets. | `:reply-to` names one target for both outcomes instead. Omitting every reply target raises `:rf.error/http-no-reply-target`; two named handlers keep each one single-purpose. |
+`:request-content-type :json` encodes the request body.
+`:on-success` and `:on-failure` name the two reply events; the
+[HTTP guide](../../async/http.md) covers other transport forms. Decode runs on
+successful responses, so the failure handler below parses a raw 4xx body.
 
 ## The two endings: token in, errors back
 
@@ -323,11 +314,10 @@ The rules already live in subs and handlers, so the view is thin — read, rende
 
 Try it: type a bad email and click *Sign in*. Both errors appear, including the password field you never touched — the latch at work. In [Xray](../../core/glossary.md#xray) the submit's event row shows the validation branch and no request. Fix and resubmit: the [epoch](../../core/glossary.md#epoch) ledger shows the submit, then the reply arriving as its own event.
 
-Creating an account is an optional exercise; the worked path uses an existing account. Add `:username` and `:password-confirm` fields, the `validate-register` function above, and a `[:auth :register-form]` slice. Post only `:username`, `:email` and `:password` to `/users`. Register `/register` with its initialise event, add its page to the root view's route `case`, and link to it from login. The [reference app](../../../examples/real-apps/realworld_http) has the full form.
-
-!!! note "The blur-field upgrade, when you need it"
-
-    For "is this username taken?" when the user leaves the field, use the convention's `blur-field` event: wire `:on-blur #(dispatch [:auth.register-form/blur-field :username])`, have that event fire an async check (a small fx in the shape of [Your own async effect](../../async/custom-effects.md)), and write the result into `:errors` under `:username`. The `field-error` sub renders it unchanged. Carry the draft value on the dispatch and ignore stale replies, so a slow check for an old value can't overwrite a newer one.
+Creating an account is an optional exercise; the worked path uses an existing
+account. The [form recipe](../../core/how-to/build-a-form.md) covers extra fields
+and validation, and the [reference app](../../../examples/real-apps/realworld_http)
+includes the registration form.
 
 ## The session: persist, restore, attach
 

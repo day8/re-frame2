@@ -168,17 +168,12 @@ A resource is a subscription you read and a cause you fire. A mutation is the mi
 
 Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, so clicking hearts on three cards in quick succession can't mix them up.
 
-The view watches its instance through the `[:rf/mutation {:instance …}]` subscription, which returns the instance's facts plus derived booleans:
-
-```clojure
-{:status :idle      ;; :idle | :pending | :success | :error
- :result …          ;; the decoded reply value, on success
- :error  …          ;; the structured error envelope, on failure
- :affected-keys […] ;; the cache keys this write touched
- :pending? … :success? … :error? … :settled? … :optimistic? …}
-```
-
-That's where `:disabled (:pending? fav)` comes from — no `:saving?` flag in app-db. (`:optimistic?` belongs to the optimistic variant under [Advanced](#advanced).) There are narrower subs too, such as `[:rf.mutation/pending? {:instance …}]`, and `:rf.mutation/execute` takes a few more keys than the four used here; [Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md#the-rfmutationexecute-payload-and-the-focused-rfmutation-subs) lists both.
+The view watches `[:rf/mutation {:instance [:favorite slug]}]`. It uses
+`:pending?` to disable the button and `:error?` to show a failed attempt. The
+[mutation subscription reference](../../api/re-frame.resources.md#mutation-subscriptions-passive)
+records the full map and focused subscriptions; the
+[execute reference](../../api/re-frame.resources.md#rfmutationexecute-)
+lists the command's other options.
 
 When a write fails, the instance settles `{:status :error, :error <failure-map>}`. The button above reads `:error?` to display a retry message. Read `:error` when different failures need different messages; it has the same closed `:rf.http/*` shape as a resource's error ([Part 2](02-server-data.md)).
 
@@ -461,64 +456,20 @@ Now re-read `:editor/replied`: on a successful save it re-seeds the editor from 
 
 ### Make the heart flip before the reply
 
-`:populates` runs on success, so the heart flips when the server confirms. For a small, reversible change like a favorite you usually want it to flip *on click*, and flip back if the write fails. That's an [**optimistic mutation**](../glossary.md#optimistic-update--rollback), and it's one more registration key.
+`:populates` confirms the change when the server replies.
+[Optimistic updates](../how-to/optimistic-updates.md) patches a loaded article
+before sending the write and rolls it back on failure. Its
+[tagged-list variant](../how-to/optimistic-updates.md#update-every-read-showing-the-article)
+updates every read showing the same article.
 
-`:optimistic-tags` is the tag-addressed twin of `:invalidates`: where `:invalidates` says "these tags went stale", `:optimistic-tags` says "patch every entry carrying these tags now, before the request". The patch has to cope with both stored shapes — the detail's `{:article …}` and a list's `{:articles […]}`:
-
-```clojure
-;; cf. examples/real-apps/realworld_resources/mutations.cljs
-(defn- toggle-fav [favorited? article]
-  (some-> article
-          (assoc :favorited favorited?)
-          (update :favoritesCount (fn [n] (max 0 (+ (or n 0) (if favorited? 1 -1)))))))
-
-(defn favorite-patch
-  "Flip one article's heart inside any cached entry that shows it."
-  [favorited? slug data]
-  (cond-> data
-    (contains? data :article)  (update :article #(toggle-fav favorited? %))
-    (contains? data :articles) (update :articles
-                                       (fn [as] (mapv #(if (= slug (:slug %)) (toggle-fav favorited? %) %) as)))))
-
-(rf/reg-mutation :conduit/favorite
-  {:doc           "Favorite an article (optimistic). POST /articles/:slug/favorite."
-   :params-schema [:map [:slug :string]]
-   ;; Before the request goes out, flip the heart on every entry tagged
-   ;; [:article slug] (the detail and every list) and in the feed.
-   :optimistic-tags (fn [{:keys [slug]}]
-                      [{:scope {:from-db :conduit/viewer}
-                        :tags  #{[:article slug]}
-                        :patch (fn [data] (favorite-patch true slug data))}
-                       {:scope {:from-db :conduit/session}
-                        :tags  #{[:feed]}
-                        :patch (fn [data] (favorite-patch true slug data))}])
-   ;; On :ok, the server's article overwrites the guess.
-   :populates     (fn [{:keys [slug]} result]
-                    {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
-                     result})
-   :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope {:from-db :conduit/viewer} :tags #{[:article slug] [:article-list]}}
-                     {:scope {:from-db :conduit/session} :tags #{[:feed]}}])
-   :on-conflict   :invalidate}
-  (fn [{:keys [slug]} _ctx]
-    {:request {:method :post :url (str api/api-base "/articles/" slug "/favorite")}
-     :decode  :json}))
-```
-
-You write only the forward patch; the runtime does the rest:
-
-- **It records the inverse.** Before patching, it snapshots each touched entry, so a rollback restores exactly what was there.
-- **The reply settles it.** An `:ok` reply commits: `:populates` overwrites the optimistic value with the server's article, then `:invalidates` refetches the lists. An `:error` reply rolls back, and the heart flips back everywhere.
-- **A contested rollback refetches instead of clobbering.** If another write changed a touched entry in the meantime, restoring your snapshot would overwrite newer data, so `:on-conflict :invalidate` (the default) marks that entry stale and refetches it.
-
-Keep `:disabled (:pending? fav)` while the write is pending: the optimistic value gives immediate feedback, and disabling the control keeps repeated writes ordered. Stale-reply suppression protects the cache, but does not control the order in which a server applies requests. Optionally read `(:optimistic? fav)`, true while the unconfirmed value is showing. When a write touches exactly one known entry, the exact-target sibling key is `:optimistic`.
+Keep `:disabled (:pending? fav)` on the button so one control does not issue
+overlapping writes. The optimistic change gives immediate feedback while the
+server finishes the request.
 
 ### More cache consequences
 
-[Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md) covers what a write can do beyond `:populates` and `:invalidates`:
-
-- [`:patches` and `:removes`](../how-to/invalidate-after-a-mutation.md#4-optional-the-other-cache-consequences) — transform an existing entry in place, or evict one after a delete.
-- [`:invalidate-timing`](../how-to/invalidate-after-a-mutation.md#when-the-invalidation-fires-invalidate-timing) — invalidate before the request, on failure, or on either outcome.
-- [`:refetch-populated?`](../how-to/invalidate-after-a-mutation.md#5-optional-seed-the-cache-from-the-reply) — refetch a populated entry when the reply is only part of the record.
-- [`:cross-scope? true`](../how-to/invalidate-after-a-mutation.md#when-you-cant-name-the-scopes-cross-scope-true) — the audited sweep for scopes you can't name.
-- [Optimistic writes](../how-to/invalidate-after-a-mutation.md#advanced-optimistic-writes) — the full settle contract, including `:optimistic` and `:on-conflict :force`.
+`:patches` transforms an existing entry and `:removes` evicts one after a delete.
+The [mutation reference](../../api/re-frame.resources.md#the-mutation-spec)
+records those exact forms, invalidation timing and partial-reply policy.
+[Scoped invalidation](../how-to/invalidate-after-a-mutation.md#the-scope-footgun-and-how-to-disarm-it)
+matches a write's consequences to the reads it changes.
