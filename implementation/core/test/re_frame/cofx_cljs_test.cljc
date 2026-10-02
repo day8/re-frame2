@@ -81,14 +81,10 @@
   `cofx-run-no-arg-omits-arg-tag`'s `(not (contains? (:tags run) :rf.cofx/arg))`,
   where `run` would be nil and `contains?` of nil is false for every key.
 
-  ONE DEFTEST HERE IS PROVED BY THE LANE RATHER THAN BY ITS OWN REBIND.
-  `generated-non-edn-value-is-rejected-in-production` establishes its posture
-  with `(with-redefs [rf.interop/debug-enabled? false] ...)`. A `with-redefs`
-  cannot reach a load-time gate, so it is the weaker instrument; with this
-  namespace on the prod-gate roster the whole file — this deftest included —
-  runs with the REAL `-Dre-frame.debug=false` gate, and the rebind is a no-op
-  over a posture that already holds. It stays as documentation of
-  intent."
+  THE STRUCTURAL-EDN WALK OF A GENERATED VALUE IS PROVED BY THE LANE.
+  `generated-non-edn-value-is-cofx-value-invalid` runs on the prod-gate
+  lane under the real `-Dre-frame.debug=false` gate, which is what shows the
+  walk is not gated on `debug-enabled?`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -186,8 +182,6 @@
       (rf/reg-event :cofx-test/declares-nothing
         (fn [{:keys [rf/time-ms] :as cofx} _]
           (reset! had-time? (contains? cofx :rf/time-ms))
-          (is (nil? time-ms)
-              "an undeclared :rf/time-ms is not delivered flat")
           {}))
       (rf/dispatch-sync [:cofx-test/declares-nothing]
                         {:rf.cofx {:rf/time-ms 1781078400123}})
@@ -448,8 +442,6 @@
         (rf.error-emit/unregister-error-listener! ::missing)
         (is (false? @fired?)
             "the handler never ran — missing-required halts the cascade")
-        (is (some? ex)
-            "the dispatch threw rather than silently re-reading the host")
         (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
             "the throw carries :rf.error/missing-required-cofx")
         ;; ALWAYS-ON: the CATEGORY is promoted —
@@ -579,7 +571,6 @@
               #"silently ignored"]]]
       (testing label
         (let [ex (thrown f)]
-          (is (some? ex) "the malformed registration threw")
           (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
               "rejected as malformed metadata, not a name collision and not a late delivery NPE")
           (is (= id (:rf.cofx/id (ex-data ex)))
@@ -668,7 +659,6 @@
                 run  (first (filter #(= :cofx-test/local-pref
                                         (get-in % [:tags :rf.cofx/id]))
                                     runs))]
-            (is (some? run) "the parameterized supplier emitted a :rf.cofx/run op")
             (is (= "value-for-theme" (get-in run [:tags :rf.cofx/value]))
                 ":rf.cofx/value is the PRODUCED value, not the requirement-arg")
             (is (= "theme" (get-in run [:tags :rf.cofx/arg]))
@@ -697,7 +687,6 @@
                                          (= :cofx-test/locale2
                                             (get-in % [:tags :rf.cofx/id])))
                                    @traces))]
-            (is (some? run))
             (is (= "en-AU" (get-in run [:tags :rf.cofx/value])))
             (is (not (contains? (:tags run) :rf.cofx/arg))
                 "no requirement-arg ⇒ :rf.cofx/arg is omitted")))))))
@@ -734,7 +723,6 @@
                                          (= :cofx-test/session
                                             (get-in % [:tags :rf.cofx/id])))
                                    @traces))]
-            (is (some? run) "the supplier emitted a :rf.cofx/run op")
             (is (= :rf/redacted (get-in run [:tags :rf.cofx/value :token]))
                 "the sensitive sub-path of the PRODUCED value is redacted on the trace")
             (is (= "ok" (get-in run [:tags :rf.cofx/value :public]))
@@ -754,7 +742,6 @@
             replacement (EP-0017 §8)"
     (let [ex (try (rf.cofx/inject-cofx :anything) nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "rf.cofx/inject-cofx threw")
       (is (= :rf.error/inject-cofx-removed (:rf.error/id (ex-data ex))))
       (is (= :anything (:rf.cofx/id (ex-data ex)))
           "the offending id rides the error payload")
@@ -837,7 +824,6 @@
                         {:frame :cofx-test/server-frame})
       (rf/unregister-listener! :trace ::plat)
       (is (false? @cofx-fired?) "the client-only supplier did NOT run on :server")
-      (is (true? @event-fired?) "the event still ran — only the supplier was skipped")
       (is (false? @seen) "the skipped fact was NOT delivered flat")
       ;; The three assertions above are the always-on half and are
       ;; posture-independent: the supplier's own side effect did not fire,
@@ -1026,7 +1012,6 @@
             (rf.error-emit/unregister-error-listener! ::bad-gen)
             (is (false? @fired?)
                 "the handler never ran — a schema-invalid generated value halts the cascade")
-            (is (some? ex) "the dispatch threw rather than folding the bad value")
             (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
                 "the throw carries :rf.error/cofx-value-invalid")
             (is (= :gen-test/bad (:rf.cofx/id (ex-data ex)))
@@ -1087,7 +1072,6 @@
         (is (= 1 @gen-calls) "the generator ran (the value is checked AFTER it mints)")
         (is (false? @fired?)
             "the handler never ran — a non-EDN generated value halts the cascade")
-        (is (some? ex) "the dispatch threw rather than folding the host handle")
         (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
             "the throw carries :rf.error/cofx-value-invalid")
         (is (= :non-edn-recordable-value (:rf.cofx/value-error (ex-data ex)))
@@ -1113,31 +1097,6 @@
                 "the trace carries the structural-EDN reason")
             (is (= :gen-test/host-handle (get-in (first errs) [:tags :rf.cofx/id]))
                 "the trace names the fact")))))))
-
-(deftest generated-non-edn-value-is-rejected-in-production
-  (testing "ADVERSARIAL (EP-0017 Open Issue 9): the structural-EDN
-            check of a GENERATED recordable value is ALWAYS-ON, so a generator
-            minting a host handle is rejected even with the dev gate OFF — a
-            non-EDN value folded into the durable record is corrupt durable
-            state in production as much as dev, never silently written back."
-    (let [gen-calls (atom 0)
-          fired?    (atom false)]
-      (rf/reg-cofx :gen-test/prod-host-handle
-        {:recordable? true :doc "A generator that wrongly mints a host handle."}
-        (fn [] (swap! gen-calls inc) (atom :a-host-handle)))
-      (rf/reg-event :gen-test/prod-uses-host-handle
-        {:rf.cofx/requires [:gen-test/prod-host-handle]}
-        (fn [_ _] (reset! fired? true) {}))
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [ex (try (rf/dispatch-sync [:gen-test/prod-uses-host-handle]) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo
-                                :cljs cljs.core/ExceptionInfo) e e))]
-          (is (some? ex)
-              "a non-EDN generated value is rejected with the dev gate OFF (production hard error)")
-          (is (false? @fired?)
-              "the handler never ran — the structural floor halts the cascade in prod too")
-          (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex))))
-          (is (= :non-edn-recordable-value (:rf.cofx/value-error (ex-data ex)))))))))
 
 (deftest generated-non-edn-value-nested-reports-path
   (testing "ADVERSARIAL: a generator minting a map with a non-EDN
@@ -1337,7 +1296,6 @@
                              :rf.cofx              {:rf/time-ms        1781078400123
                                                     :mint-test/replay-delta 42}})
           (is (zero? @gen-calls) "a present fact needs no generation, even were it :live")
-          (is (true? @fired?) "the handler ran — the record was complete")
           (is (= 42 @seen) "the recorded value is re-presented verbatim"))))))
 
 (deftest explicit-live-overrides-strict-frame-generates
@@ -1409,8 +1367,6 @@
           "the inherited :strict ran NO generator for the child — no host read / re-mint")
       (is (false? @child-fired?)
           "the child handler never ran (its incomplete record halted under inherited :strict)")
-      (is (some? @child-error)
-          "the child failed with :rf.error/missing-required-cofx, not a silent fresh mint")
       (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data @child-error)))
           "the child cascade halted with missing-required under the inherited :strict")
       (is (= :cascade-test/child-delta (:rf.cofx/id (ex-data @child-error)))

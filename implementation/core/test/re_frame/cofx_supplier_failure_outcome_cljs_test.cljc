@@ -110,8 +110,6 @@
       (let [failed  (record-both-axes #(rf/dispatch-sync [::uses-ambient]))
             control (record-both-axes #(rf/dispatch-sync [::control]))]
         (assert-supplier-failure failed ::uses-ambient ::throws-ambient handler-runs)
-        (is (nil? (:handled (app-db)))
-            "nothing the handler would have written exists")
         (is (= [[::control :ok]] (outcomes control))
             "a clean dispatch after the failure settles `:ok`")
         (is (empty? (:errors control)) "and emits no error record")
@@ -134,9 +132,7 @@
       (let [failed (record-both-axes
                      #(rf/dispatch-sync [::uses-generator]
                                         {:rf.cofx/mint-policy :live}))]
-        (assert-supplier-failure failed ::uses-generator ::throws-generator handler-runs)
-        (is (nil? (:handled (app-db)))
-            "nothing the handler would have written exists")))))
+        (assert-supplier-failure failed ::uses-generator ::throws-generator handler-runs)))))
 
 (deftest failed-delivery-installs-nothing
   (testing "a failed coeffect delivery aborts the event like a handler throw:

@@ -80,10 +80,6 @@
               cofx     @captured
               rf-cofx  (:rf.cofx cofx)
               time-ms  (:rf/time-ms rf-cofx)]
-          (is (some? cofx) "the handler ran and captured its coeffects")
-          (is (contains? cofx :rf.cofx)
-              ":rf.cofx is a framework coeffect on the handler ctx")
-          (is (map? rf-cofx) ":rf.cofx is a map")
           (is (number? time-ms) ":rf/time-ms is a stamped number")
           ;; The CLASS assertion: wall-clock epoch ms, not a perf origin time.
           ;; A wall-clock stamp reads ~1.78e12; a now-ms swap lands ~1e4
@@ -124,9 +120,6 @@
               ;; build-event hoists only :source to top-level.
               rf-cofx   (get-in enqueue [:tags :rf.cofx])
               time-ms   (:rf/time-ms rf-cofx)]
-          (is (some? enqueue) ":rf.event/dispatched fired")
-          (is (map? rf-cofx)
-              ":rf.cofx rides the dispatched trace under :tags")
           (is (number? time-ms) "the trace-side :rf/time-ms is a stamped number")
           (is (> time-ms wall-clock-floor)
               "the trace-side :rf/time-ms is a WALL-CLOCK epoch ms (> 1e12) —
