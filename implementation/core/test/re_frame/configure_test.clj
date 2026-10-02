@@ -191,12 +191,11 @@
         (let [cfg (rf/current-config)]
           (is (not (contains? cfg :epoch-history))
               ":epoch-history is ABSENT, not nil — `contains?` is the assertion
-               that tells the two apart")
+               that tells the two apart, and it means the consumer's get-in
+               reads nil rather than a made-up depth")
           (is (not (contains? cfg :trace-buffer))
               ":trace-buffer is ABSENT under a production bundle that DCEs the
                dev-only trace.tooling sibling")
-          (is (nil? (get-in cfg [:epoch-history :depth]))
-              "so the consumer's get-in reads nil rather than a made-up depth")
           (is (contains? cfg :elision)
               "and the always-loaded subsystem is unaffected — this is an
                omission, not an empty map"))
@@ -539,10 +538,9 @@
       (let [ex (try (rf/configure! bad) nil
                     (catch clojure.lang.ExceptionInfo e e))
             d  (some-> ex ex-data)]
-        (is (some? ex)
-            (str "a non-map arg fails loud: " (pr-str bad)))
         (is (= :rf.error/configure-bad-arg (:rf.error/id d))
-            "the canonical machine discriminator")
+            (str "a non-map arg fails loud with the canonical machine discriminator: "
+                 (pr-str bad)))
         (is (= 'rf/configure! (:where d))
             "the user-facing symbol that threw")
         (is (= :pass-a-config-map (:recovery d))

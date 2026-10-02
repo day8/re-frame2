@@ -20,7 +20,6 @@
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
             [re-frame.machines]
-            [re-frame.image :as rf.image]
             [re-frame.routing :as rf.routing]
             ;; `replace-frame-state!` delegates to the epoch artefact's
             ;; `replace-frame-state!` (synthetic-epoch recording) through the
@@ -75,19 +74,15 @@
 
 (deftest with-new-frame-let-binding-create-use-destroy
   (testing "(with-new-frame [f (make-frame opts)] body) creates, binds, destroys"
-    (let [captured-id (atom nil)
-          observed-current (atom nil)]
+    (let [captured-id (atom nil)]
       (rf/with-new-frame [f (rf.frame/make-anon-frame-record! {:doc "ephemeral"})]
         (reset! captured-id f)
-        (reset! observed-current (rf/current-frame-id))
         (is (= f (rf/current-frame-id))
             "inside the body: *current-frame* is the freshly-made id")
         (is (some? (rf/frame-meta f))
             "the frame is alive during the body"))
       (is (some? @captured-id)
           "the macro yielded a frame id to the body")
-      (is (= @captured-id @observed-current)
-          "the body saw the just-created id as current-frame")
       (is (nil? (rf/frame-meta @captured-id))
           "the frame was destroyed on body exit")
       ;; EP-0002: after the body the dynamic scope has
@@ -121,9 +116,8 @@
     (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-frame)]
       (let [e (try (expand '[f (make-frame {})] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) "vector argument must throw")
         (is (= :rf.error/with-frame-vector-form (:rf.error/id (ex-data e)))
-            ":rf.error/id is the canonical discriminator")
+            "a vector argument must throw; :rf.error/id is the canonical discriminator")
         (is (= :use-with-new-frame (:recovery (ex-data e)))
             ":recovery points the caller at with-new-frame")
         (is (re-find #"did you mean `with-new-frame`"
@@ -131,8 +125,8 @@
             ":reason names the sibling macro"))
       (let [e (try (expand [] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) "empty vector must throw")
-        (is (= :rf.error/with-frame-vector-form (:rf.error/id (ex-data e))))))))
+        (is (= :rf.error/with-frame-vector-form (:rf.error/id (ex-data e)))
+            "an empty vector must throw")))))
 
 (deftest with-new-frame-rejects-keyword-argument
   (testing "(with-new-frame :keyword body) raises at compile time — caller meant with-frame"
@@ -140,9 +134,8 @@
     (let [expand (resolve 're-frame.core-reg-view-macro/expand-with-new-frame)]
       (let [e (try (expand :existing/id '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) "keyword argument must throw")
         (is (= :rf.error/with-new-frame-keyword-form (:rf.error/id (ex-data e)))
-            ":rf.error/id is the canonical discriminator")
+            "a keyword argument must throw; :rf.error/id is the canonical discriminator")
         (is (= :use-with-frame (:recovery (ex-data e)))
             ":recovery points the caller at with-frame")
         (is (re-find #"did you mean `with-frame`"
@@ -156,18 +149,16 @@
       ;; Empty vector — easy typo to omit both sides.
       (let [e (try (expand [] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) "[] must throw")
         (is (= :rf.error/with-new-frame-bad-binding (:rf.error/id (ex-data e)))
-            ":rf.error/id is the canonical discriminator")
+            "[] must throw; :rf.error/id is the canonical discriminator")
         (is (re-find #"binding must be \[sym expr\]"
                      (:reason (ex-data e)))
             ":reason carries the structured explanation"))
       ;; 3-element vector — typo of `[sym expr]` with extra tail.
       (let [e (try (expand '[f g h] '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) "[f g h] must throw")
         (is (= :rf.error/with-new-frame-bad-binding (:rf.error/id (ex-data e)))
-            ":rf.error/id is the canonical discriminator")
+            "[f g h] must throw; :rf.error/id is the canonical discriminator")
         (is (re-find #"binding must be \[sym expr\]"
                      (:reason (ex-data e)))
             ":reason carries the structured explanation"))
@@ -175,9 +166,9 @@
       ;; non-`[sym expr]` throw (one throw for the whole class).
       (let [e (try (expand 'not-a-vector '((do nil))) nil
                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) "a non-vector binding must throw")
         (is (= :rf.error/with-new-frame-bad-binding (:rf.error/id (ex-data e)))
-            ":rf.error/id is the canonical discriminator (shared with the wrong-arity case)")
+            "a non-vector binding must throw; :rf.error/id is the canonical
+             discriminator (shared with the wrong-arity case)")
         (is (= :fix-registration (:recovery (ex-data e)))
             ":recovery is :fix-registration")
         (is (= 'not-a-vector (:got (ex-data e)))
@@ -211,30 +202,16 @@
                            (rf/registrations {:source :store :kind :event}))]
       (is (= #{:hf.alpha/one :hf.alpha/two}
              (set (keys alpha-only)))
-          "only :hf.alpha/* survives the predicate")
-      (is (not (contains? alpha-only :hf.beta/one))
-          ":hf.beta/one is filtered out"))))
+          "only :hf.alpha/* survives the predicate — :hf.beta/one is filtered out"))))
 
 ;; An unknown kind THROWS `:rf.error/unknown-registry-kind` rather than
 ;; answering an authoritative-looking `{}` — pinned on both hosts by
 ;; `registrar_query_source_cljs_test.cljc`'s `unknown-kinds-fail-loud`.
 
 ;; ===========================================================================
-;; (rf/frame-ids ns-prefix) filter arity
+;; (rf/frame-ids ns-prefix) filter arity. The 0-arity full set is pinned by
+;; `frame_lifecycle_test.clj`'s `frame-ids-round-trip`.
 ;; ===========================================================================
-
-(deftest frame-ids-0-arity-returns-full-set
-  (testing "(frame-ids) returns the full set of registered ids"
-    (rf/make-frame {:id :fi/alpha})
-    (rf/make-frame {:id :fi/beta})
-    (let [all (rf/frame-ids)]
-      (is (contains? all :fi/alpha))
-      (is (contains? all :fi/beta))
-      ;; `init!` does not synthesise `:rf/default`;
-      ;; the fixture registers it explicitly, and frame-ids enumerates it
-      ;; like any other ordinary frame.
-      (is (contains? all :rf/default)
-          "the explicitly-registered :rf/default frame is enumerated"))))
 
 (deftest frame-ids-with-a-prefix-returns-the-live-ids-whose-namespace-starts-with-it
   (testing "(frame-ids ns-prefix) keeps exactly the live ids whose keyword
@@ -268,19 +245,6 @@
 ;; contracts (present key replaces, absent key preserves), the frame-state
 ;; projection shape, and the reject-bad-keys contract.
 ;; ===========================================================================
-
-(deftest app-db-value-and-replace-frame-state-app-only-round-trip
-  (testing "replace-frame-state! with an app-only map then app-db-value
-            round-trips the app-db partition"
-    (rf/make-frame {:id :pp/round-trip :doc "round-trip"})
-    (rf/reg-event :pp/seed (fn [{:keys [db]} [_ db]] {:db db}))
-    (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/round-trip})
-    (is (= {:k 1} (rf/app-db-value :pp/round-trip))
-        "app-db-value reads the seeded app-db")
-    (is (true? (rf/replace-frame-state! :pp/round-trip {:rf.db/app {:k 2 :j 9}}))
-        "replace-frame-state! returns true on success (app-db state injection is a one-key partial map)")
-    (is (= {:k 2 :j 9} (rf/app-db-value :pp/round-trip))
-        "app-db-value reads back exactly what replace-frame-state! wrote")))
 
 (deftest replace-frame-state-app-reset-preserves-runtime-via-core-facade
   (testing "rf/replace-frame-state! with {:rf.db/app {}} resets the app-db
@@ -327,8 +291,6 @@
     (rf/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
     (is (= {:a 7} (rf/app-db-value :pp/fsm))
         "app-db partition installed")
-    (is (= {:rf.runtime/routing {:r 1}} (:rf.db/runtime (rf/frame-state-value :pp/fsm)))
-        "runtime-db partition installed")
     (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
            (rf/frame-state-value :pp/fsm))
         "frame-state reads back the coherent both-partition snapshot")))
@@ -481,8 +443,8 @@
 (deftest image-resolves-on-the-facade
   (testing "re-frame.core/image is the public `rf/image` constructor — a MACRO
             that gates literal inline `:doc` bytes at the authoring
-            seam then delegates to the re-frame.image/image value fn, and builds
-            an image value through the facade (EP-0023 §Image, §Public API)"
+            seam then delegates to the re-frame.image/image value fn (EP-0023
+            §Image, §Public API)"
     ;; The facade `rf/image` is a MACRO: `rf/image` is value-oriented,
     ;; but a LITERAL inline `:registrations` metadata map `{:doc "…"}` is built at
     ;; the call site before any runtime normalization runs, and per Spec 001
@@ -492,24 +454,13 @@
     ;; the plain value constructor `re-frame.image/image`.
     (is (:macro (meta #'rf/image))
         "rf/image is a macro (the compile-time :doc-elision authoring seam)")
-    (is (fn? @#'rf.image/image)
-        "re-frame.image/image is a plain value fn (programmatic / computed-spec callers)")
+    ;; The value it builds is the plain constructor's, normalized and INERT —
+    ;; pinned through the facade by `ep0023_conformance_cljs_test`'s
+    ;; `s1-image-is-an-inert-value-with-normalized-shape` and value by value by
+    ;; `image_cljs_test`'s `image-normalizes-the-spec`.
     (is (= 're-frame.image/image
            (first (macroexpand-1 '(re-frame.core/image {:id :x}))))
         "rf/image expands to a re-frame.image/image constructor call")
-    ;; And it actually constructs the normalized, INERT image value through the
-    ;; facade — a `rf/image` call is data, not registration.
-    (let [img (rf/image {:id :docs.counter/v2
-                         :select-ns {:include ["docs.quickstart.counter.v2"]}})]
-      (is (= :docs.counter/v2 (:rf.image/id img))
-          "the :id is normalized to the owner-qualified :rf.image/id slot")
-      (is (= ["docs.quickstart.counter.v2"] (:rf.image/include-ns img))
-          ":select-ns :include is carried as the glob-pattern vector")
-      (is (= [] (:rf.image/inline img))
-          "no :registrations → empty inline-descriptor vector")
-      (is (= img (rf/image {:id :docs.counter/v2
-                            :select-ns {:include ["docs.quickstart.counter.v2"]}}))
-          "PURE: equal spec maps return equal image values"))
     ;; A LITERAL inline `:doc` metadata slot is rewritten at
     ;; expansion time to the `(if interop/debug-enabled? <full> <stripped>)`
     ;; gate Closure constant-folds under :advanced + goog.DEBUG=false, DCEing the

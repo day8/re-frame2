@@ -36,13 +36,12 @@
 
   Reading the profile claims off the live ring would conflate the two, and
   expensively. With the ring empty, `raw` is nil,
-  `large-marker-body` is nil, and SIX assertions would pass for that reason alone:
+  `large-marker-body` is nil, and FIVE assertions would pass for that reason alone:
   `(= default-body obs-body)` (nil = nil), `(not (contains? obs-body :digest))`
   (nil contains nothing), the tool-equals-observability marker check, the raw-
-  bytes-never-egress row over an empty string, `(not-any? ... obs-hist)` over an
-  empty history, and the human-sentence check over a nil message. An egress-
-  PRIVACY suite would certify that no raw bytes escaped, having projected
-  nothing.
+  bytes-never-egress row over an empty string, and `(not-any? ... obs-hist)`
+  over an empty history. An egress-PRIVACY suite would certify that no raw
+  bytes escaped, having projected nothing.
 
   So the profile rows drive a SYNTHETIC record — the same shape the ring
   holds — and run in both postures. The live-ring rows sit inside
@@ -50,7 +49,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.error :as rf.error]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.projection :as rf.projection]
@@ -133,20 +131,17 @@
                          (rf/project-egress
                            synth {:rf.egress/profile :rf.egress/off-box-tool}))]
       (is (some? default-body) "the default boundary elides the large slot")
-      (is (some? obs-body)     "the named observability boundary elides it too")
-      (is (some? tool-body)    "the tool boundary elides the large slot")
       (is (not= 50000 (count (str (get-in (rf/project-egress synth)
                                           [:db-after :blob :payload]))))
           "the raw 50KB string never egresses under either off-box boundary")
       (is (= default-body obs-body)
-          "the bare 1-arity default == :rf.egress/off-box-observability")
+          "the bare 1-arity default == :rf.egress/off-box-observability, which
+           elides it too")
       (is (not (contains? obs-body :digest))
           ":rf.egress/off-box-observability (through the wrapper) omits :digest")
-      (is (not (contains? tool-body :digest))
-          ":rf.egress/off-box-tool (through the wrapper) omits :digest by
-           default")
       (is (= tool-body obs-body)
-          "the tool boundary shares observability's size floor, so the markers are equal")
+          "the tool boundary elides the large slot, sharing observability's size
+           floor — so its marker is equal and omits :digest by default too")
       (is (= 50000 (count (get-in (rf/project-egress
                                     synth {:rf.egress/profile :rf.egress/local-raw})
                                   [:db-after :blob :payload])))
@@ -201,8 +196,6 @@
             is rejected against the shared closed enum (a typo is a loud error,
             never a silent permissive walk)."
     (rf/make-frame {:id :ep/main})
-    (rf/reg-event :store (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
-    (rf/dispatch-sync [:store 1] {:frame :ep/main})
     ;; ALWAYS-ON: a closed-enum rejection is a property of the
     ;; wrapper, not of the ring. Driven on a synthetic record so a typo stays
     ;; loud in the posture that ships — read off the live ring under the gate,
@@ -214,23 +207,15 @@
                     (catch clojure.lang.ExceptionInfo e e))
           data (ex-data ex)
           msg  (ex-message ex)]
-      (is (some? ex) "an unknown profile throws through the wrapper")
       (is (= :rf.error/unknown-egress-profile (:rf.error/id data))
-          "the throw carries the closed-enum rejection id")
+          "an unknown profile throws through the wrapper, carrying the
+           closed-enum rejection id")
       ;; The epoch-boundary guard routes through the SAME shared
       ;; `re-frame.projection/unknown-egress-profile-ex` builder as the in-file
-      ;; guard, so the message carries the [:rf.error/unknown-egress-profile]
-      ;; greppability token and the canonical :where / :recovery slots — only
-      ;; :where differs (it names the epoch boundary helper).
-      (is (rf.error/message-has-id-token? msg)
-          "the message carries the trailing greppability token (rule 4)")
-      (is (not (rf.error/keyword-only-message? msg))
-          "the message is a human sentence, not a bare keyword (rule 1)")
-      (is (= 'rf/project-egress (:where data))
-          ":where names the epoch boundary helper")
-      (is (= :use-a-known-profile (:recovery data)))
-      ;; The epoch site's thrown shape is IDENTICAL (but for :where) to the
-      ;; shared builder's — one reason, two call sites.
+      ;; guard — one reason, two call sites — so its thrown shape is IDENTICAL
+      ;; to the builder's, named with the epoch boundary helper's :where. The
+      ;; builder's greppability token, human sentence, :where and :recovery are
+      ;; pinned by `projection_cljs_test`'s `unknown-profile-throws`.
       (let [canonical (rf.projection/unknown-egress-profile-ex
                         'rf/project-egress :rf.egress/not-real)]
         (is (= (ex-message canonical) msg)
@@ -262,9 +247,9 @@
                              % {:rf.egress/profile :rf.egress/off-box-tool})
                           ring)
           obs-hist  (mapv rf/project-egress ring)]
-      (is (seq tool-hist) "the composition returns the ring")
       (is (seq (filter large-marker-body tool-hist))
-          "the tool-profile history carries at least one large marker")
+          "the composition returns the ring, and the tool-profile history carries
+           at least one large marker")
       (is (not-any? #(contains? (large-marker-body %) :digest)
                     (filter large-marker-body tool-hist))
           "no large marker in the tool-profile history carries a :digest")
