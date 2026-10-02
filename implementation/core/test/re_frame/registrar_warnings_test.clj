@@ -175,9 +175,8 @@
                 ":tags carries the registry :kind")
             (is (= :ev/no-doc (:id t))
                 ":tags carries the registered :id")
-            (is (map? (:source-coords t))
-                ":tags carries the captured :source-coords envelope")
-            (is (= 're-frame.registrar-warnings-test (:ns (:source-coords t))))))))))
+            (is (= 're-frame.registrar-warnings-test (:ns (:source-coords t)))
+                ":tags carries the captured :source-coords envelope")))))))
 
 (deftest missing-doc-fires-when-doc-is-nil-or-empty
   (doseq [[case-label id doc listener-id]
@@ -354,12 +353,10 @@
           (let [t (:tags (first warns))]
             (is (= :event (:kind t)))
             (is (= :collide/id (:id t)))
-            (is (map? (:source-coords t))
+            (is (= 'feature.b (:ns (:source-coords t)))
                 ":source-coords carries the NEW (feature B) registration's coords")
-            (is (= 'feature.b (:ns (:source-coords t))))
-            (is (map? (:previous-coords t))
-                ":previous-coords carries the prior (feature A) registration's coords")
-            (is (= 'feature.a (:ns (:previous-coords t))))))))))
+            (is (= 'feature.a (:ns (:previous-coords t)))
+                ":previous-coords carries the prior (feature A) registration's coords")))))))
 
 (deftest collision-fires-on-same-file-different-line
   (testing "two registrations of the same id at different lines in one file collide"
@@ -390,18 +387,6 @@
       (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "programmatic / REPL path has no provenance — no collision to detect")))))
-
-(deftest collision-suppressed-on-third-re-registration
-  (testing "subsequent cross-provenance re-registrations of the same (kind, id) do NOT re-emit"
-    (let [recorded (record-traces! ::collision-suppressed)]
-      ;; Four registrations, each from a distinct provenance — only the first
-      ;; cross-provenance reassignment warns; warn-once suppresses the rest.
-      (doseq [[ns line] [['feat.a 1] ['feat.b 2] ['feat.c 3] ['feat.d 4]]]
-        (reg-at :churn/id {:ns ns :file (str ns ".cljc") :line line :column 1}))
-      (assert-live-provenance :event :churn/id 'feat.d)
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count (warnings-of recorded :rf.warning/registration-collision)))
-            "warn-once: only the first cross-provenance re-registration emits")))))
 
 ;; The `:rf.registry/handler-replaced` trace fires on
 ;; EVERY re-registration (per Spec 001 §Hot-reload trace surface)
@@ -447,7 +432,9 @@
           (is (= 2 (count replaced))
               "handler-replaced fires on each of the two re-registrations")
           (is (= 1 (count collisions))
-              "collision warning fires once and is then suppressed"))))))
+              "collision warning fires once and is then suppressed — warn-once
+               per (kind, id): only the first cross-provenance re-registration
+               emits"))))))
 
 ;; =============================================================================
 ;; F3 — collision warning is DECOUPLED from the handler-replaced dedup gate

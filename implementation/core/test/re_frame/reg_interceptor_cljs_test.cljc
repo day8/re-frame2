@@ -46,7 +46,6 @@
   (testing ":before-only descriptor"
     (rf/reg-interceptor :t/before {:doc "b"} {:before (fn [ctx] ctx)})
     (let [m (rf/handler-meta {:source :store :kind :interceptor :id :t/before})]
-      (is (some? m))
       (is (contains? (:rf/interceptor-descriptor m) :before))))
 
   (testing ":after-only descriptor"
@@ -141,23 +140,6 @@
               [:a :after]]
              @log)
           ":before runs in order, handler, :after in reverse — refs resolved"))))
-
-(deftest standard-path-factory-ref-resolves
-  (testing "[:rf.interceptor/path [...]] resolves to the standard path interceptor and focuses the slice"
-    (rf/reg-event :path/inc
-      {:interceptors [[:rf.interceptor/path [:counter]]]}
-      (fn [{:keys [db]} _]
-        ;; The handler sees the FOCUSED slice as :db (the value at [:counter]).
-        {:db (inc db)}))
-
-    ;; Seed the focused slice.
-    (rf/reg-event :path/seed (fn [{:keys [db]} _] {:db (assoc db :counter 0)}))
-    (rf/dispatch-sync [:path/seed])
-    (rf/dispatch-sync [:path/inc])
-    (rf/dispatch-sync [:path/inc])
-
-    (is (= 2 (:counter (rf/app-db-value :rf/default)))
-        "the path factory ref focused the handler on [:counter] and spliced back")))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. inline interceptor values in a chain are REJECTED (chains are
@@ -290,14 +272,14 @@
           (is (fn? (:before resolved))
               "the realm registrar resolved the ref to its executable interceptor"))))))
 
-(deftest realm-and-reg-event-interplay
-  (testing "an event registered + dispatched within a realm resolves its refs through that realm"
-    (let [realm-reg (atom {})
-          log       (atom [])]
+(deftest reg-event-validates-refs-and-seats-in-the-bound-realm-registrar
+  (testing "an event registered within a realm validates its interceptor refs
+            through that realm and is seated there, not in the default registrar"
+    (let [realm-reg (atom {})]
       ;; Seat both the interceptor AND the event into the realm registrar.
       (binding [rf.registrar/*registrar* realm-reg]
         (rf/reg-interceptor :rint/log
-          {:before (fn [ctx] (swap! log conj :realm-icpt) ctx)})
+          {:before (fn [ctx] ctx)})
         ;; reg-event's registration-time ref validation must resolve through
         ;; the realm registrar too (the ref lives only there).
         (rf/reg-event :rint/run

@@ -56,12 +56,11 @@
     (rf/reg-event :reg-event-test/shape
       (fn [{:keys [db]} _] {:db (assoc db :marker :v)}))
     (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/shape})]
-      (is (some? meta)
-          "reg-event registers under registry kind :event")
       (is (not (contains? meta :event/kind))
           "there is no :event/kind sub-tag (one form, no kind)")
       (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
-          "the framework wrapper is the one :rf/event-handler interceptor"))))
+          "reg-event registers under registry kind :event, and the framework
+           wrapper is the one :rf/event-handler interceptor"))))
 
 (deftest reg-event-metadata-interceptors-thread-the-chain
   (testing "reg-event honours the metadata-map :interceptors superset slot —
@@ -90,20 +89,9 @@
            (rf/reg-event :reg-event-test/ret (fn [_ _] {}))))))
 
 ;; ===========================================================================
-;; 2. Effect semantics — :db commit, :fx walk, nil/{} no-op
+;; 2. Effect semantics — :db commit, :fx walk, nil/{} no-op. The :fx walk test's
+;;    [:a :b] holds only because each :append saw the previous {:db} commit.
 ;; ===========================================================================
-
-(deftest reg-event-db-effect-commits-via-app-db
-  (testing "a reg-event handler's {:db …} effect commits — read back through a
-            layer-1 subscription"
-    (rf/reg-sub :reg-event-test/count (fn [db _] (:count db 0)))
-    (rf/reg-event :reg-event-test/bump
-      (fn [{:keys [db]} _] {:db (update db :count (fnil inc 0))}))
-    (rf/dispatch-sync [:reg-event-test/bump])
-    (rf/dispatch-sync [:reg-event-test/bump])
-    (rf/dispatch-sync [:reg-event-test/bump])
-    (is (= 3 @(rf/subscribe [:reg-event-test/count]))
-        "three {:db (update … inc)} effects committed cumulatively")))
 
 (deftest reg-event-fx-effect-walks
   (testing "a reg-event handler's :fx vector dispatches its entries (the db
@@ -165,6 +153,8 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:reason (ex-data e)))))
 
+;; That the stubs register NOTHING is read off each would-be registry slot by
+;; `events_test.clj`'s `retired-reg-event-stubs-register-nothing`.
 (deftest retired-reg-event-names-throw-their-removal-stubs
   (testing "EP-0018 Slice Z: there is no additive coexistence —
             reg-event-db / reg-event-fx / reg-event-ctx are retired names,
@@ -178,19 +168,7 @@
         "reg-event-fx raises :rf.error/reg-event-fx-removed")
     (is (= :rf.error/reg-event-ctx-removed
            (stub-throw-id #(rf/reg-event-ctx :reg-event-test/via-ctx (fn [_ _] nil))))
-        "reg-event-ctx raises :rf.error/reg-event-ctx-removed"))
-
-  (testing "the retired-name stubs register NOTHING; only reg-event commits"
-    (rf/reg-sub :reg-event-test/tally (fn [db _] (:tally db [])))
-    (rf/reg-event :reg-event-test/via-reg-event
-      (fn [{:keys [db]} _] {:db (update db :tally (fnil conj []) :reg-event)}))
-    ;; The retired-name calls throw and register nothing.
-    (stub-throw-id #(rf/reg-event-db :reg-event-test/db-noreg (fn [_ _] nil)))
-    (stub-throw-id #(rf/reg-event-fx :reg-event-test/fx-noreg (fn [_ _] nil)))
-    (stub-throw-id #(rf/reg-event-ctx :reg-event-test/ctx-noreg (fn [_ _] nil)))
-    (rf/dispatch-sync [:reg-event-test/via-reg-event])
-    (is (= [:reg-event] @(rf/subscribe [:reg-event-test/tally]))
-        "only the reg-event handler committed; the retired-name stubs registered nothing")))
+        "reg-event-ctx raises :rf.error/reg-event-ctx-removed")))
 
 (deftest reg-event-ctx-removed-names-reg-interceptor-not-arrow-interceptor
   ;; Cross-EP coherence: under EP-0022 `->interceptor*` is a framework-internal
@@ -201,9 +179,8 @@
   (testing "the reg-event-ctx-removed :reason names reg-interceptor"
     (let [reason (stub-throw-reason
                    #(rf/reg-event-ctx :reg-event-test/ctx-reason (fn [_ _] nil)))]
-      (is (string? reason) "the stub raises an ex-info carrying a :reason string")
       (is (re-find #"reg-interceptor" reason)
-          "the recovery names reg-interceptor (the public authoring form)")
+          "the stub's :reason string names reg-interceptor (the public authoring form)")
       (is (not (re-find #"->interceptor" reason))
           "the recovery does NOT name ->interceptor (internal-only post-EP-0022)"))))
 
@@ -284,10 +261,9 @@
     ;; Regular registrar: the runnable descriptor is present with the
     ;; :rf/event-handler wrapper at the tail of its :interceptors chain.
     (let [meta (rf.registrar/handler-meta :event :rf/set-db)]
-      (is (some? meta)
-          ":rf/set-db resolves in the regular registrar")
       (is (= rf.events/set-db-handler (:handler-fn meta))
-          "the regular registrar carries the framework set-db handler-fn")
+          ":rf/set-db resolves in the regular registrar, carrying the framework
+           set-db handler-fn")
       (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
           "the runnable :rf/event-handler wrapper is the chain tail"))
     ;; Image standard registry: the same descriptor is unioned into every
@@ -296,12 +272,11 @@
     (let [std (->> (rf.image-assembly/standard-descriptors)
                    (filter #(and (= :event (:kind %)) (= :rf/set-db (:id %))))
                    first)]
-      (is (some? std)
-          ":rf/set-db resolves in the image standard registry")
       (is (true? (:standard std))
           "the standard descriptor is stamped :standard true")
       (is (= rf.events/set-db-handler (:handler-fn std))
-          "the standard descriptor carries the same framework set-db handler-fn"))))
+          ":rf/set-db resolves in the image standard registry, carrying the same
+           framework set-db handler-fn"))))
 
 (deftest set-db-app-reregistration-is-reserved-id-collision
   (testing "re-registering :rf/set-db in app code via the public reg-event is a
