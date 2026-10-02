@@ -157,10 +157,27 @@ Xray's on-box sensitive-event gate is a **named egress profile**, resolved per `
   ```clojure
   (set-egress-profile! profile) → nil
   ```
-- **Description**: Replace Xray's on-box `:rf.egress/*` profile. `:rf.egress/local-redacted` (the default) makes the trace collector drop `:sensitive? true` events before any buffer push and bump the suppressed-events counter, so the shell can surface a `[● REDACTED N]` indicator. `:rf.egress/local-raw` is the trusted-local operator opt-in: every event flows through unchanged. `nil` resets to the default; an unknown keyword is rejected by `configure!` (the enum is closed). Re-exported from `core`.
+- **Description**: Replace Xray's on-box `:rf.egress/*` profile. `:rf.egress/local-redacted` (the default) makes the trace collector drop `:sensitive? true` events before any buffer push and bump the suppressed-events counter, so the shell can surface a `[● REDACTED N]` indicator. `:rf.egress/local-raw` is the trusted-local operator opt-in: every event flows through unchanged. `nil` resets to the default; an unknown keyword raises `:rf.error/unknown-egress-profile` from `configure!`. Re-exported from `core`.
 - **Narrowing clears the buffer**: moving from `:rf.egress/local-raw` back to a redacting profile clears the trace buffer, so sensitive events shown while raw do not stay on screen. Widening, or moving to another profile of the same kind, does not clear it.
 
 Redaction itself is the framework's job, done by [`project-egress`](../../api/re-frame.core.md#project-egress). Xray's profile decides only whether events marked sensitive reach Xray's trace buffer at all, and it reads that decision from the framework's own profile definitions.
+
+### Egress profile values
+
+The closed enum accepts all six profiles below. For Xray on your own machine,
+choose `local-redacted` or `local-raw`; the others describe export boundaries.
+
+| Value | Intended boundary |
+| --- | --- |
+| `:rf.egress/local-redacted` | Local inspection with classified sensitive values hidden; Xray's default |
+| `:rf.egress/local-raw` | Trusted local inspection including sensitive and large values |
+| `:rf.egress/off-box-observability` | Evidence sent to an observability service |
+| `:rf.egress/off-box-tool` | Evidence sent to an external tool |
+| `:rf.egress/ssr-hydration` | Serialized state used to hydrate a client |
+| `:rf.egress/public-error` | Public error payloads |
+
+The frame's classification and the profile determine value projection.
+Changing Xray's key does not change another tool's profile.
 
 ## Settings cluster
 
@@ -213,11 +230,26 @@ The Settings shape, with its defaults:
  :buffer  {:events-retained 50}}
 ```
 
+The enum-valued settings are:
+
+| Slot | Values | Meaning |
+| --- | --- | --- |
+| `:theme` | `:light`, `:dark` | Shell theme |
+| `[:general :panel-position]` | `:right-rail`, `:fullscreen` | Inline host or page overlay; pop-out is an action, not a position value |
+| `[:general :density]` | `:cosy`, `:compact` | Spacing; changed through the command palette or host config |
+| `[:general :reduced-motion-override]` | `:os`, `:always`, `:never` | Follow the OS, force reduced motion, or force full motion |
+| `[:general :editor-override]` | `nil`, `:vscode`, `:cursor`, `:windsurf`, `:zed`, `:idea`, or `{:custom "..."}` | Local editor choice; `nil` uses the project default |
+
+General's **Epoch history** slider accepts 5–200 in steps of 5. Buffer's
+**Events retained** input has a minimum of 1. The layout is resized by dragging;
+there is no width or density input in General settings. The defaults map also
+contains host-configurable display slots that the popup does not expose.
+
 The settings persist under the localStorage key `re-frame2.xray.settings.v2` (also published as the CLJS constant `day8.re-frame2-xray.config/settings-storage-key`).
 
 ## Filters cluster
 
-The event list's **+ filter** control adds pattern pills that include (IN) or exclude (OUT) events; [Filters](../02-panel-tour.md#filters) in the panel tour describes the patterns. Nothing stores a developer's own pills, so a reload starts unfiltered. A host that wants every load to start from a known set of filters supplies a seed.
+The event list's **+ filter** control adds pattern pills that include (IN) or exclude (OUT) events; [Filters](../manage-evidence.md#filters) in the session guide describes the patterns. Nothing stores a developer's own pills, so a reload starts unfiltered. A host that wants every load to start from a known set of filters supplies a seed.
 
 ### `set-filter-seed!`
 

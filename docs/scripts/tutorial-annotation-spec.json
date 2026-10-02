@@ -152,5 +152,69 @@
       "label": "1  data-rf2-source-coord",
       "labelAt": { "x": 300, "y": 187 }
     }
+  ],
+  "xray-tutorial-filters": [
+    {
+      "selector": "[data-testid=\"rf-xray-filter-add\"]",
+      "colour": "#1976d2",
+      "label": "1  Add a filter",
+      "labelPos": "below"
+    },
+    {
+      "selector": "[data-testid=\"rf-xray-ribbon-filters\"]",
+      "colour": "#7e57c2",
+      "label": "2  Exclude runner events",
+      "labelPos": "below"
+    },
+    {
+      "selector": "[data-testid=\"rf-xray-event-list\"]",
+      "colour": "#43a047",
+      "label": "3  Relevant events",
+      "labelPos": "below"
+    }
+  ],
+  "xray-tutorial-settings": [
+    {
+      "selector": "[data-testid=\"rf-xray-settings-panel-position-right-rail\"]",
+      "groupExtendTo": "[data-testid=\"rf-xray-settings-panel-position-fullscreen\"]",
+      "padding": 4,
+      "colour": "#1976d2",
+      "label": "1  Panel placement",
+      "labelPos": "right"
+    },
+    {
+      "selector": "[data-testid=\"rf-xray-settings-auto-open-on-error\"]",
+      "padding": 4,
+      "colour": "#7e57c2",
+      "label": "2  Open on an issue",
+      "labelPos": "right"
+    },
+    {
+      "selector": "[data-testid=\"rf-xray-settings-epoch-history-input\"]",
+      "padding": 3,
+      "colour": "#43a047",
+      "label": "3  Retained epochs",
+      "labelPos": "below"
+    }
+  ],
+  "xray-tutorial-graph": [
+    {
+      "selector": "[data-testid=\"rf-xray-derivation-graph-mode-toggle\"]",
+      "colour": "#1976d2",
+      "label": "1  Static or live",
+      "labelPos": "below"
+    },
+    {
+      "selector": "[data-testid=\"rf-xray-derivation-graph-counts\"]",
+      "colour": "#7e57c2",
+      "label": "2  What is represented",
+      "labelPos": "below"
+    },
+    {
+      "selector": "[data-testid=\"rf-xray-derivation-graph-family-flows-body\"]",
+      "colour": "#43a047",
+      "label": "3  Registered flow",
+      "labelPos": "below"
+    }
   ]
 }

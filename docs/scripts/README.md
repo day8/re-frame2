@@ -37,7 +37,7 @@ repo root:
 
 ```bash
 cd implementation
-npm install                                   # one-time
+npm ci                                        # one-time
 npx shadow-cljs compile :examples/login-form \
                         :examples/counter-with-stories \
                         :examples/nine-states-with-stories
@@ -90,7 +90,7 @@ root:
 
 ```bash
 cd implementation
-npm install                                   # one-time
+npm ci                                        # one-time
 npx shadow-cljs compile :examples/standard-epochs \
                         :examples/machine-epochs \
                         :testbeds/ssr-hydration-mismatch \
@@ -120,8 +120,7 @@ resolve, is reported and the run exits non-zero.
 - viewport pinned to 1440×900
 - each scene runs in a fresh browser context, so no Xray settings or
   panel width carry over from the previous scene
-- the Xray host is widened to 900px, so all ten Dynamic tabs fit in the
-  tab bar
+- the Xray host is widened to 900px, to keep the current panel and its controls readable
 - each scene waits for the Xray shell, for the event rows its steps
   dispatch, and for the selected tab's panel before shooting
 - a scene's `clipHeight` trims empty panel space below the content, so
@@ -203,3 +202,8 @@ and the prose together.
    ]
    ```
 3. Re-run the generator and commit the new PNG alongside its doc page.
+
+The Xray scenes also capture filters, settings and value dependencies. The
+Story scenes include editing Controls and a recorder export. Each annotation
+is resolved against the actual UI before capture. Missing regions fail the
+generator, so update selectors and captions together when the UI changes.

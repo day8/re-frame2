@@ -1,229 +1,121 @@
-# 1. Your first variant
+# Your first variant
 
-This chapter registers one login-form story and one variant, renders the
-variant in the Story shell, and adds an assertion that proves the variant is
-in the state its name claims.
+Keep a rejected login as a named example, then check that the login machine
+and its error message agree. This exercise uses the shipped testbed, so the
+events, subscriptions and view are already available.
+
+From the repository root:
+
+```powershell
+npm ci --prefix implementation
+cd implementation
+npm run dev -- :examples/login-form
+```
+
+Open `http://localhost:8043/index.html#/stories` and select
+`:story.login-form/error`. The canvas shows a rejected login with the form
+enabled again. The pending and authenticated variants are available without
+editing the application or sending a real request.
+
+[![The Story shell: 1 toolbar, 2 sidebar, 3 selected variant canvas, 4 right rail with inputs and diagnostic panels.](../images/story/story-tutorial-01-first-variant.png)](../images/story/story-tutorial-01-first-variant.png)
+
+The sidebar selects a named state (2). The canvas renders it (3). The
+toolbar controls presentation and replay (1); the right rail edits inputs
+and opens runtime evidence (4).
 
 ## The smallest useful Story file
 
-Start with a stories namespace in `src/my_app/stories.cljc`. Require the app
-namespaces first: their `reg-event-*`, `reg-sub` and `reg-view` calls have to
-run before Story can refer to their ids.
+The testbed's `tools/story/testbeds/login_form/stories.cljc` requires
+`login-form.events`, `login-form.subs` and, in its ClojureScript branch,
+`login-form.views`. Those namespaces register the application code.
+
+The parent groups the view and shared defaults:
 
 ```clojure
-;; src/my_app/stories.cljc
+;; cf. tools/story/testbeds/login_form/stories.cljc
+(rf.story/reg-story :story.login-form
+  {:component :login-form.views/login-card
+   :args {:heading "Sign in"}
+   :tags #{:dev :docs}
+   :substrates #{:reagent}})
+```
+
+`:component` is the registered view id. The variant supplies the state:
+
+```clojure
+;; This namespace requires [re-frame.story :as rf.story].
+(rf.story/reg-variant :story.login-form/error
+  {:doc "A rejected password leaves the form ready to retry."
+   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
+   :setup [[:login/flow
+            [:login/submit {:email "ada@example.com" :password "wrong"}]]
+           [:login/flow
+            [:login/failure {:failure {:status 401}}]]]
+   :script [[:assert [:rf.assert/state-is :login/flow :error]]]
+   :tags #{:dev :docs :test}})
+```
+
+`:setup` dispatches the application's real events in order: submit, then
+failure. The decorator intercepts the HTTP effect, records its call and sends
+no reply, so setup chooses exactly when the failure arrives. The view renders
+the state those events reached. `:script` then checks the machine state.
+
+This is the same shape as the shipped variant; it is not a new mock view.
+The testbed's parent also selects its app image so it can coexist with
+other apps in combined test builds.
+
+## Add a useful expectation
+
+Append this registration to that same testbed namespace, outside its
+`register-all!` function:
+
+```clojure
+(rf.story/reg-variant :story.login-form/error-message
+  {:extends :story.login-form/error
+   :script [[:assert [:rf.assert/state-is :login/flow :error]]
+            [:assert [:rf.assert/sub-equals
+                      [:login/error] "Invalid credentials."]]]
+   :tags #{:dev :docs :test}})
+```
+
+After hot reload, select `error-message` and open **Tests**. Expect two passing
+assertions: the machine is in `:error` and the real subscription returns
+the message. `:extends` keeps the parent's setup and HTTP stub; this child
+runs its own script. The same registration can run under `rf.story/is`
+in a [test namespace](04-the-variant-is-a-test.md#using-story-from-tests).
+
+## Use this shape in your app
+
+Require application registrations before declaring stories. Keep shared
+events and subscriptions in `.cljc` if the same variants should run on the JVM:
+
+```clojure
 (ns my-app.stories
   (:require [re-frame.story :as rf.story]
             [my-app.events]
             [my-app.subs]
-            #?(:cljs [my-app.views])))   ;; only the browser renders the view
-
-(rf.story/reg-story :story.login
-  {:doc        "The login form and its important states."
-   :component  :my-app.views/login-card
-   :args       {:heading "Sign in"}
-   :tags       #{:dev :docs}
-   :substrates #{:reagent}})
-
-(rf.story/reg-variant :story.login/idle
-  {:doc    "Fresh form, no input typed, no request in flight."
-   :setup  [[:login/flow [:login/dismiss]]]
-   :script [[:assert [:rf.assert/state-is :login/flow :idle]]]
-   :tags   #{:dev :docs :test}})
+            #?(:cljs [my-app.views])))
 ```
 
-The file is `.cljc`, and so are `my-app.events` and `my-app.subs`, so a JVM
-test can load the same variants ([chapter 4](04-the-variant-is-a-test.md#using-story-from-tests)).
-Only a host that renders needs the view, so its require sits in a
-`#?(:cljs …)` branch, which the JVM skips.
-
-Open your app's `#/stories` route, the one [Install Story](index.md#install-story)
-mounts the shell on, select `/idle`, and the form appears on the canvas.
-
-To follow along without an app of your own, run the shipped testbed: from
-`implementation/`, `npx shadow-cljs watch :examples/login-form`, then open
-`http://localhost:8043/index.html#/stories`. The browser console may log
-`shadow-cljs watch for build :login-form not running!`; that is a harmless
-shadow-cljs notice, because shadow-cljs names the build without its namespace,
-and hot reload still works. The testbed registers these states as
-`:story.login-form` in `tools/story/testbeds/login_form/stories.cljc`; this
-tutorial uses the shorter `:story.login` your own app would, so
-`:story.login/idle` here is `:story.login-form/idle` there.
-
-![The idle login variant in the Story shell, with the shell's four regions outlined and numbered: 1 the toolbar, 2 the sidebar, 3 the canvas, 4 the right rail.](../images/story/story-tutorial-01-first-variant.png)
-
-The story file does not reimplement the view. The variant names a registered
-view id and supplies the state the view needs.
-
-## The shell
-
-The shell has four regions, numbered in the screenshot above:
-
-| Region | What it holds |
-|---|---|
-| 1 Toolbar | The [toolbar modes](07-modes-and-viewports.md); **Dispatch**, which opens a console in the right rail for sending events to the selected variant; the play status of the variant's `:script`, with **Re-run**; the viewport and background pickers; **Inspect**, which lets you click an element on the canvas to open its view's source; **Share** ([Sharing](08-snapshot-identity-and-sharing.md#sharing)); and **REC**, the recorder (chapter 5). |
-| 2 Sidebar | A search box, a tag filter, the story tree, the workspaces, and the **Tests** widget with its pass and fail counts, **Run all** and **watch** (chapter 4). |
-| 3 Canvas | The selected variant, under the **Canvas**, **Docs** and **Tests** tabs. The title row names the variant and its view, and **open** shows the variant's registration in your editor. |
-| 4 Right rail | Xray (chapter 6), Explain (chapter 4), Evidence, Controls, and the a11y, Chrome a11y, Layout-debug and Schema validation panels. |
-
-Under each variant in the sidebar is a row of chips. The first is the variant's
-test status: Pending until it runs, then Pass, Fail, Error or Can't run. The
-others say how the state was reached (real setup, db seed or sub overrides,
-chapter 3), which world inputs the variant declares (args, route, network, fx
-overrides), the cheapest runner that can prove it (headless, hiccup,
-cljs-reactive, DOM or browser, chapter 5), and whether it runs in a fresh
-frame.
-
-With the focus outside a text field, `f` toggles a full-screen canvas, `s` the
-sidebar, `a` the right rail and `t` the toolbar; Escape leaves full-screen.
-Ctrl-K (Cmd-K on macOS) opens a command palette that searches stories,
-variants, workspaces, modes and decorators. The `?` button in the top-left
-corner reopens the help overlay that the shell shows on your first visit.
-
-## `reg-story` is the parent
-
-The parent story groups variants that share a view and defaults.
-
-```clojure
-(rf.story/reg-story :story.login
-  {:component :my-app.views/login-card
-   :args      {:heading "Sign in"}})
-```
-
-The `:component` value is a view id keyword, not a function. The view stays in
-your app's view registry, and the story body stays data.
-
-The story id is also the navigation structure. `:story.login` is the parent;
-`:story.login/idle` and `:story.login/error` are variants under it. There is no
-separate `title: "Forms/Login/Error"` string to keep in sync with the id.
-
-The id shapes are fixed. A story id is an unqualified keyword whose name starts
-with `story.`, and a variant id takes its story's name as its namespace.
-Workspace ids have a namespace starting with `Workspace.` and mode ids one
-starting with `Mode.`, as in `:Workspace.login/all-states` and
-`:Mode.app/dark`. Registering an id of the wrong shape throws
-`:rf.error/story-id-shape`, `:rf.error/variant-id-shape` and so on, one id per
-kind.
-
-## `reg-variant` is the state
-
-The three fields you will use most are `:setup`, `:script` and `:args`.
-
-`:setup` establishes the precondition. Its event vectors are dispatched
-through the app's real event pipeline. In the login testbed,
-`[:login/flow [:login/dismiss]]` is the first event the login machine sees,
-which starts it in its initial state, `:idle`.
-
-`:script` is the behaviour or expectation Story runs after setup. This
-variant's script is one assertion step:
-
-```clojure
-[:assert [:rf.assert/state-is :login/flow :idle]]
-```
-
-`:assert` is the checkpoint step: it runs the assertion at that point in the
-script and records the result, pass or fail, before the runner continues. You
-may also see it written `[:dispatch-sync [:rf.assert/…]]`, which dispatches
-the same assertion event and records the same row.
-
-`:args` supplies view inputs. A variant can override the parent story's args,
-an active [toolbar mode](07-modes-and-viewports.md) sits between the two, and live Controls
-edits override all of them:
-
-```text
-global < story < mode < variant < live control override
-```
-
-Most variants start with only `:setup` and `:script`; args matter once you
-want to explore presentation inputs.
-
-`:tags` classifies the variant. Story registers seven tags for you: `:dev`,
-`:docs`, `:test`, `:screenshot`, `:experimental`, `:internal` and `:agent`. The
-shell acts on one of them: a `:test` variant joins the sidebar's Tests widget.
-[Tags and shell tools](07-tags-and-tools.md) covers the rest of the tag vocabulary. A variant that declares no
-`:tags` takes its story's; one that declares its own uses those instead.
-
-A variant body is a closed map. A misspelt or unknown key throws
-`:rf.error/variant-shape`, and the message names the key and the nearest valid
-one. The [registration reference](api/registration.md#variant-body) lists every
-key a variant accepts.
+Use your own registered view and event ids in the declarations. A story id
+is an unqualified keyword such as `:story.login-form`; its variants use
+that name as their namespace, such as `:story.login-form/error`.
+The [registration reference](api/registration.md#ids-and-bodies) describes
+the other id forms and body keys.
 
 ## A schema on the view gives you Controls
 
-`:args` are view inputs, so the view is where a valid input is defined. Give the
-view a Malli props schema under `:rf/props` on its registration:
-
-```clojure
-(ns my-app.views
-  (:require [re-frame.core :as rf]))
-
-(rf/reg-view ^{:rf/props [:map [:heading {:optional true} [:string {:min 1}]]]}
-          login-card [{:keys [heading]}]
-  [:section
-   [:h3 (or heading "Sign in")]
-   [login-form]])
-```
-
-The story file does not change. Select `/idle` and look at Controls in the
-right-hand rail: Story reads the schema off the variant's `:component` and
-derives a control for each arg, so `:heading` gets a text field. Clear the field
-and the row shows an inline `schema:` error, with a banner saying the arg
-violates the component's schema: an empty heading is not a valid render of this
-view. Without a schema, Story can only guess a control from the value, and the
-Schema validation panel below Controls reports "no schema registered for the
-variant's :component".
-
-`:rf/props` is the canonical key; a `:schema` key in the same place also works.
-Each schema shape gets its own control, and `:argtypes` picks a different one
-where the derived control is not what you want; [Controls](02-every-state-side-by-side.md#controls)
-in chapter 2 lists both.
-
-## Every variant gets a frame
-
-Each variant runs in its own frame, with its own `app-db`, event queue,
-subscriptions, trace records, interceptors and lifecycle. Selecting `/idle`
-does not touch `/error`, and a grid of five variants is five isolated
-instances of your app: the same registered code, different state.
-
-Because the view runs inside a real frame, it can subscribe, dispatch, read
-machine state and emit effects exactly as it does in the app. That is why
-Story can render application states, not only component states.
-
-## Assertions record results
-
-The `:rf.assert/*` assertions are ordinary events. They record assertion rows
-in the variant's frame instead of throwing on the first failure.
-
-| Assertion | Use it for |
-|---|---|
-| `:rf.assert/path-equals` | checking a path in `app-db`. |
-| `:rf.assert/path-matches` | checking a path against a schema. |
-| `:rf.assert/sub-equals` | checking a real subscription value. |
-| `:rf.assert/dispatched?` | checking that an event was dispatched during the run, in setup or script. |
-| `:rf.assert/state-is` | checking a registered machine's state. |
-| `:rf.assert/no-warnings` | checking the run emitted no warnings. |
-| `:rf.assert/effect-emitted` | checking that an effect id was emitted. |
-
-An eighth id, `:rf.assert/schema-error`, works the other way round. It declares
-a schema violation the run is expected to produce, such as
-`[:rf.assert/schema-error {:where :event :event :login/flow}]`, and fails when
-that violation does not happen. Without such a declaration, any schema
-violation during the run fails the run (chapter 6).
-
-Because assertions record instead of throwing, one run collects every failure,
-the shell stays usable, and you see each failed check rather than the first
-stack trace.
+The login card declares a `:rf/props` schema with a string `:heading`.
+Story derives its heading field in **Controls** from that schema. Change
+the heading and the canvas updates; it is a view input, independent of the
+login machine's state.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| The sidebar is empty | The stories namespace was never required, so its `reg-*` calls did not run | Require it from the dev entry point |
-| Registration throws `:rf.error/variant-shape` (or `:rf.error/story-shape`, `:rf.error/workspace-shape`, and so on) | The body carries a key that kind does not accept, often a typo | Use the key the message suggests; the [registration reference](api/registration.md#variant-body) lists every key |
-| Registration throws `:rf.error/story-id-shape` or `:rf.error/variant-id-shape` | The id does not have the required shape | Name stories `:story.<path>` and variants `:story.<path>/<name>` |
-| Registration throws `:rf.error/unknown-tag` | A tag in `:tags` is neither built in nor registered | Register it with `rf.story/reg-tag` before the variant that uses it |
-| The canvas reads "variant has no :component registered" | Neither the variant nor its story names a view | Add `:component` to the story or the variant |
-| The canvas reads ":component … is not registered as a view" | The view id is misspelt, or its namespace was not required | Require the views namespace and match the id `reg-view` registered |
-| Schema validation reads "no schema registered for the variant's :component" | The view has no `:rf/props` schema | Add one to get derived Controls and arg checks |
-| Test mode reads "No tests registered for this variant" | The variant has no `:script`, `:assertions` or `:checks` | Add a checkpoint such as `[:assert [:rf.assert/state-is :login/flow :idle]]` |
-| The run errors with `:rf.error/story-assert-in-setup` | An `[:assert …]` step sits in `:setup` | Move it to `:script` |
+| --- | --- | --- |
+| The new variant is absent | The form is inside a function that was not called, or its namespace was not loaded | Put the exercise registration at namespace level and confirm hot reload. |
+| `:rf.error/variant-id-shape` | The variant id does not use the Story namespace form | Use `:story.login-form/error-message`. |
+| `:rf.error/variant-shape` | A body key or value has the wrong shape | Read the named field; use `:setup`, `:script` and `:tags` as shown. |
+| The form sends an actual HTTP request | The effect was not stubbed | Include the decorator, or inherit from the testbed's error variant. |
+| Machine assertions cannot find the state in app-db | Machine snapshots live in runtime state | Use `state-is`, or `sub-equals` on the projection subscription. |

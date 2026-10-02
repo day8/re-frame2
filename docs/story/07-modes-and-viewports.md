@@ -54,7 +54,7 @@ second argument, which is where a theme wrapper reads them
 passing it:
 
 ```clojure
-(rf.story/is :story.login/error {:active-modes [:Mode.app/dark]})
+(rf.story/is :story.login-form/error {:active-modes [:Mode.app/dark]})
 ```
 
 ## Viewports and backgrounds
@@ -70,8 +70,8 @@ checkerboard, plus a custom colour.
 A story or variant can fix either one:
 
 ```clojure
-(rf.story/reg-variant :story.login/phone
-  {:extends    :story.login/idle
+(rf.story/reg-variant :story.login-form/phone
+  {:extends    :story.login-form/idle
    :viewport   :mobile-portrait        ; or {:width 390 :height 844}
    :background :paper})                ; or a CSS colour such as "#fafafa"
 ```
@@ -81,3 +81,18 @@ The preset ids are `:full`, `:mobile-portrait`, `:mobile-landscape`, `:tablet`,
 `:paper`, `:midnight` and `:transparent` for the background. A body's value
 beats the toolbar's choice, so the picker has no effect on a variant that fixes
 its own. An id Story does not know falls back to Full, or to Light.
+
+## Try a mode
+
+Select the login error variant and choose **dark** in the toolbar's theme
+axis. The card changes theme while its login state and assertions remain
+the same. Change the viewport to Mobile portrait to inspect the layout at
+375×667. These are independent choices.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A toolbar mode does not change an arg | The variant or live Controls value overrides it | Reset Controls or remove the variant's explicit arg. |
+| Viewport/background picker has no effect | The story or variant fixes that value | Change its declared value or remove that override. |
+| A misspelt preset renders Full/Light | Unknown preset ids fall back | Use an enumerated preset or explicit dimensions/colour. |

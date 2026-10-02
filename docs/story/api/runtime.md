@@ -24,7 +24,7 @@ For every run, in strict order, draining the frame's queue between steps. Before
 
 | Phase | Trigger | Semantics |
 |---|---|---|
-| **1. Loaders** | Variant body's `:loaders` | Dispatch each event into the variant's frame and drain. The phase is complete when `:loaders-complete-when` holds: by default as soon as the queue drains; otherwise a registered event id whose handler sets `:rf.story/loaders-complete?`, a function of `app-db`, or a vector of events that must all have been dispatched. |
+| **1. Loaders** | Variant body's `:loaders` | Dispatch each event into the variant's frame and drain. The phase is complete when `:loaders-complete-when` holds: by default as soon as the queue drains; otherwise a registered event id whose handler sets `:rf.story/loaders-complete?`, or a vector of events that must all have been dispatched. |
 | **2. Setup** | The plan's `:setup` | Dispatch the setup events in order — an `:extends` parent's first, then composed fragments', then the variant's own — draining between events. |
 | **3. Render** | The shell or `render-variant` | The view renders against the post-setup `app-db` with the effective args (the five-layer precedence chain) and the decorator stack (globals, then story, then variant). `run` and `run-variant` do not render. |
 | **4. Script** | The plan's scripts | Walk the steps in order. `:rf.assert/*` records accumulate in `:assertions`; failures don't throw. See [Scripts](script.md). |
@@ -100,6 +100,24 @@ A test namespace that runs variants needs a substrate adapter installed and `re-
   (render-variant target opts) → map
   ```
 - **Description**: Render `target`'s view from its plan without running `:script` or assertions. `opts` takes `:control-overrides`, arg overrides applied on top of the plan's args. The result carries `:status` (`:rendered`, `:invalid-args`, `:cannot-run` or `:error`), `:plan`, `:plan-hash`, `:frame`, `:effective-args`, `:validation` and `:rendered`. An override that breaks the view's `:rf/props` schema stops before the view is called, with `:invalid-args`. On the JVM, with no host renderer, the status is `:cannot-run`.
+
+## Runner capabilities
+
+Each row adds to the preceding row:
+
+| Runner | Added capabilities |
+| --- | --- |
+| `:headless` | `:app-db`, `:effects`, `:schema`, `:trace`, `:pure-subs`. |
+| `:hiccup` | `:hiccup-structure`. |
+| `:cljs-reactive` | `:reactive-counts`. |
+| `:dom` | `:dom`. |
+| `:browser` | `:pixels`, `:a11y-engine`. |
+
+The required-runner set is the union required by the selected program and
+assertions. A selected runner does not create unavailable host evidence:
+DOM requires a document, pixel assertions require captures, and axe
+assertions require an existing scan. `visual-snapshot` currently returns
+`:cannot-run` under every runner. `a11y` can evaluate a stored browser scan.
 
 ## Programmatic runtime
 
@@ -417,6 +435,24 @@ Two keys reach beyond Story:
 
 - **`:rf.story/project-root` is passed on to Xray.** Story copies the value into Xray's `:rf.xray/project-root` through `re-frame.story.xray-preset/propagate-project-root!`, so the source links in the embedded Xray resolve against the same root. The copy runs one way: to point Xray at a different root, call `xray-config/configure!` after `rf.story/configure!`.
 - **`:rf.story/egress-profile` sets what Story's own panels show of sensitive values.** The value is one of the six `:rf.egress/*` profiles; the two meant for your own machine are `:rf.egress/local-redacted`, the default, which hides values at sensitive paths, and `:rf.egress/local-raw`, which shows them. The recorder, the per-variant trace buffer and the assertion listeners all pass values through `re-frame.core/project-egress` under this profile, and show a `[● REDACTED]` hint where they redact. The profile applies to Story and its frames; there is no process-wide switch. An unknown profile raises `:rf.error/unknown-egress-profile`; `nil` resets to the default.
+
+### Egress profile values
+
+`:rf.story/egress-profile` accepts the six framework profiles:
+
+| Profile | Intended output |
+| --- | --- |
+| `:rf.egress/local-redacted` | Local panels with classified sensitive data hidden; default. |
+| `:rf.egress/local-raw` | Trusted local inspection including sensitive and large values. |
+| `:rf.egress/off-box-observability` | Observability output. |
+| `:rf.egress/off-box-tool` | External tool output. |
+| `:rf.egress/ssr-hydration` | Serialized state for client hydration. |
+| `:rf.egress/public-error` | Public error payloads. |
+
+`nil` resets to the default. Unknown values raise
+`:rf.error/unknown-egress-profile`. The recorder still redacts credential
+input text. Share URLs, copied EDN and screenshots carry the values you
+choose to share; the panel profile is not a redactor for those artifacts.
 
 ## Substrate registration (CLJS-only)
 

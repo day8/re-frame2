@@ -1,48 +1,58 @@
-# 6. Schema violations
+# Diagnose a schema violation
 
-A schema check failed while your app ran. Xray shows the failure at the event that caused it, inside the step where it happened, with the raw trace record behind it.
+A handler or derived value failed a schema check. Xray marks the event and
+puts the failure beside the operation that produced it. Check the failure
+before trusting the final state: an invalid candidate write may have been
+rejected, leaving apparently valid state behind.
 
-## Where a violation appears
+## Reproduce an invalid argument
 
-Xray shows a schema violation in three places:
+In the `standard-epochs` example, run **step 18: Bad event args**. It dispatches
+`[:standard-epochs/bad-event-args "not-a-number"]` against a positive-integer
+argument schema. Select that row and open **Epoch**.
 
-- the event's row in the event list is washed pink;
-- the Epoch tab shows the failure inside the step it belongs to;
-- the Trace tab holds the underlying trace record.
+[![An invalid event argument: 1 marks the errored event, 2 explains the schema failure under DISPATCH, and 3 says the event was rejected.](../images/xray/xray-tutorial-schema.png)](../images/xray/xray-tutorial-schema.png)
 
-There is no separate list of violations: each one is shown with the event that produced it. To have Xray open itself when one happens, turn on **Auto-open Xray when an issue is observed** in Settings → General ([Settings and the command palette](02-panel-tour.md#settings-and-the-command-palette)).
+Read the **expected** and **got** values in the block (2), then the recovery
+chip (3). The handler never ran. Follow **schema check** to the registration
+that declared the schema, and fix the argument or the declaration according
+to the intended input.
 
-## A small example
+## Compare an invalid write
 
-The standard-epochs testbed has two steps that fail a schema check on purpose. Click **18. Bad event args**, and the event `[:standard-epochs/bad-event-args "not-a-number"]` fails its `pos-int?` argument schema: the row turns pink (1 in the screenshot), and Epoch shows the failure under DISPATCH (2) with the **rejected** chip (3). Click **19. Bad app-db write** for the `:app-db` case, where the handler's write is aborted and app-db keeps its value from before the event. Open Trace if you need the raw validation record.
+Run **step 19: Bad app-db write**. The handler produces a value that fails
+the app-db schema. This time the failure appears at the state write and
+the candidate is rejected. Open **app-db**: the invalid value did not install.
+The error still matters even though the retained app-db is valid.
 
-![The Epoch tab for an event whose argument failed its schema, numbered: 1 the event's pink row, 2 the Schema Violation Error block under DISPATCH, 3 the rejected chip](../images/xray/xray-tutorial-schema.png)
-
-## What the Epoch tab shows
-
-The failure appears as a **Schema Violation Error** block inside the step it belongs to: under DISPATCH for the event vector, under the `:db` row for app-db, under the effect row for effect arguments, and under the subscription row for a return value. The block carries a chip saying what the runtime did, one sentence explaining it with a **schema check** link to the schema's source, the `expected:` and `got:` values, and the validator's explanation. The chip is red when app-db was rolled back.
-
-## What the runtime does
-
-Every failure is the error `:rf.error/schema-validation-failure`, and its `:where` names what was checked. What happens next depends on it:
-
-| `:where` | Checked | What happens | Chip in Epoch |
-| --- | --- | --- | --- |
-| `:event` | the event vector, before the handler | the handler does not run | rejected |
-| `:app-db` | the new app-db, before it is installed | nothing installs; app-db keeps its value from before the event | Aborted |
-| `:machine-data` | a machine's `:data` after a transition | the whole event is rejected, as for `:app-db` | Aborted |
-| `:fx-args` | an effect's arguments | that effect is skipped; the others run | skipped |
-| `:sub-return` | a subscription's return value | the subscription returns `nil` | returned nil |
-| `:flow-output` | a flow's output | the value is still written | no-recovery |
-
-These checks run in development builds only; an event registered with `:boundary? true` keeps its event check in production. A coeffect whose recorded value fails its schema is a different error, `:rf.error/cofx-value-invalid`, and it stops the event in every build.
+The error id is `:rf.error/schema-validation-failure`. Its `:where` tag
+identifies what was checked; its recovery tells you what actually happened.
+For example, invalid event arguments skip the handler, invalid effect
+arguments skip that effect, and an invalid subscription result becomes `nil`.
+Flow-output and machine-completion checks can report a failure without
+reversing the completed work. The
+[schema recovery table](api/diagnostics.md#schema-validation) lists every
+supported boundary and the machine-data phase differences.
 
 ## Violations in tests
 
-Treat a schema violation as a failure. When the runtime rolls back an invalid write, app-db looks clean afterwards, so a test that only checks the final app-db can pass over the bug. Xray keeps the violation with its epoch, so you can still see it.
+A final-state assertion alone can miss a rejected write. Inspect the run's
+failure evidence too. Story includes schema violations in its verdict;
+an unconsumed violation prevents a pass. Declare
+`:rf.assert/schema-error` only when the scenario is specifically testing
+that rejection, with a matcher narrow enough to identify the intended
+failure. The [Story failure walkthrough](../story/06-xray-earned-at-failure.md#schema-failures)
+shows this pattern.
 
-Story holds a variant to the same rule. It counts a schema failure as part of the run, so the run does not pass unless an `:rf.assert/schema-error` assertion declared that violation as expected. [Schema failures](../story/06-xray-earned-at-failure.md#schema-failures) in the Story guide covers it from that side.
+## Troubleshooting
 
-## Browsing schemas
+| Symptom | Check | Action |
+| --- | --- | --- |
+| The handler appears never to run | `:where :event` and rejected chip | Fix the event arguments |
+| State looks unchanged after a handler ran | App-db or machine-data validation rejected a candidate | Read the invalid candidate in Epoch, not just the installed state |
+| A subscription unexpectedly returns `nil` | `:sub-return` or `:sub-override` failure | Fix the returned value or the test override |
+| A violation disappears in a release build | Most schema checks are development checks | Keep assertions in tests; use `:boundary? true` where event validation must remain in production |
+| A recorded coeffect stops an event | `:rf.error/cofx-value-invalid` | Supply a value matching the coeffect's schema; this check runs in every build |
 
-Static mode's Schemas tab lists what is registered: the app-db schemas for the selected frame, and the event and subscription schemas. Use it to answer "what schemas exist in this app?", and the Dynamic Epoch and Trace tabs to answer "which event violated one just now?"
+Static → **Schemas** browses the declared schemas. It answers what is
+registered; Dynamic → Epoch or Trace answers what failed in a run.

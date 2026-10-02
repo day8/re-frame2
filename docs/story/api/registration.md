@@ -186,6 +186,28 @@ Every body is a closed map. An unknown or misspelt key throws `:rf.error/<kind>-
 | `:images` | `rf/image` values the variants' frames resolve behaviour through. |
 | `:variants` | A map of variant name to variant body, each registered as `:<story-id>/<name>` (the combined form above). |
 
+### Control values
+
+Explicit `:argtypes` descriptors use `:control`:
+
+| Value | Widget | Additional values |
+| --- | --- | --- |
+| `:text` | Single-line text | Optional `:doc`. |
+| `:textarea` | Multiline text | Optional `:doc`. |
+| `:number` | Numeric field | Numeric value; constraints belong in the props schema. |
+| `:boolean` | Checkbox | Boolean value. |
+| `:select` | Dropdown | `:options` collection. |
+| `:radio` | Radio choices | `:options` collection. |
+| `:date` | Date field | Date string. |
+| `:color` | Colour picker | CSS colour value. |
+
+An unknown control displays an unsupported-widget message. Derivation uses
+`:string` → text, `:boolean` → checkbox, `:int`/`:double` → number,
+`:keyword` → text read back as a keyword, and `[:enum …]` → choices.
+`[:maybe X]` uses X's control. Maps group child fields; vectors and sets
+allow adding/removing rows; tuples provide one field per position.
+Explicit variant descriptors win over story descriptors and derivation.
+
 ### Variant body
 
 A variant renders its story's `:component` unless it names its own. Its args, argtypes and decorators layer over the story's, and its tags, substrates, viewport, background and Xray settings fall back to the story's when it declares none.

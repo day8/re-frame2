@@ -1,6 +1,19 @@
-# 8. Machine inspector
+# Machine inspector
 
-A state machine did something you did not expect. A generic logger can tell you that something updated a map; Xray can tell you that this `:door/push` moved `:door/main` from `:closed` to `:open`, ran `:clear-hold` on the way out and `:count-open` on the way in, and what data each one wrote. Dynamic mode shows what one event did to a machine; Static mode shows every machine's definition.
+A state machine did something you did not expect. Select the triggering event to see whether `:door/push` moved `:door/main` from `:closed` to `:open`, and ran `:clear-hold` on the way out and `:count-open` on the way in. Compare the data each action wrote. Dynamic mode shows what one event did to a machine; Static mode shows every machine's definition.
+
+## Try a transition
+
+```powershell
+cd implementation
+npm run dev -- :examples/machine-epochs
+```
+
+Open `http://localhost:8033`, choose the door machine in the example's rail,
+and step until `:door/push` runs. The example gives each machine its own
+frame, so choosing a track also changes the frame Xray observes. Select the
+push event and open **Machine**. Compare the exit action, transition and
+entry action before looking at the chart.
 
 ## Dynamic Machine
 
@@ -18,7 +31,7 @@ If the focused event did not target a machine, the tab reads only "This event do
 
 Below the rows, the machine's chart marks the state it left with a dashed outline and the state it entered in bold, and draws a countdown ring on each state with an `:after` timer running. The chart has its own zoom, pan and fit controls. **◀ Prev** and **Next ▶** (3) step to the previous and next event that touched the same machine. An app that registers no machines reads "No machines registered.", and a machine whose definition cannot be read shows "No introspectable definition — chart cannot render." in place of the chart.
 
-![The Machine tab for a :door/push event, numbered: 1 the header naming the trigger, machine and state, 2 the :closed → :open transition between an exit action and an entry action, 3 the Prev and Next buttons](../images/xray/xray-tutorial-machine.png)
+[![The Machine tab for a :door/push event, numbered: 1 the header naming the trigger, machine and state, 2 the :closed → :open transition between an exit action and an entry action, 3 the Prev and Next buttons](../images/xray/xray-tutorial-machine.png)](../images/xray/xray-tutorial-machine.png)
 
 ## Static machines
 
@@ -42,3 +55,13 @@ When a machine behaves wrongly:
 5. Go back to Epoch or Trace for the exact guard and action records.
 
 Start from the event that moved the machine, not from its current state: the current state tells you where the machine is, and only the event tells you how it got there.
+
+## Troubleshooting
+
+| Symptom | Meaning | Action |
+| --- | --- | --- |
+| “This event does not target a state machine” | The selected event did not run a machine | Select the machine event, not the parent runner event |
+| **NO OP** | No eligible transition was taken | Check the current state and event id, then inspect guards |
+| A guard failed | Its predicate rejected this transition | Read its input data and source; compare the intended condition |
+| “No introspectable definition” | The chart cannot read the definition | Inspect retained action/transition evidence and the machine registration |
+| The simulator reports invalid EDN | The event payload cannot be read | Correct the payload before stepping; keep real app effects out of the simulation |

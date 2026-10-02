@@ -1,41 +1,53 @@
-# 4. Trace stream
+# Read the exact runtime records
 
-Epoch has told you the story of an event, but you need the exact records underneath it. The Trace tab lists the focused epoch's runtime records in the order they were emitted, with nothing summarised.
+Open **Trace** when Epoch leaves an ordering, payload or failure question
+unanswered. Trace lists the selected epoch's records in emission order.
 
-![The Trace tab for :standard-epochs/increment-fx, one row per record from the dispatch through the handler and its effects, numbered: 1 the Stage column, 2 the Area badges, 3 a source link](../images/xray/xray-tutorial-trace.png)
+In the `standard-epochs` example, run **step 3**, select
+`:standard-epochs/increment-fx`, and open Trace. The handler returns a
+`:standard-epochs/ping` effect; the trace lets you check which effect actually
+ran after the handler.
 
-## When to open Trace
+[![Trace for the effect event: 1 groups rows by event-pipeline stage, 2 identifies the runtime area, and 3 opens a known source location.](../images/xray/xray-tutorial-trace.png)](../images/xray/xray-tutorial-trace.png)
 
-Start with Epoch, which groups the event into steps. Open Trace when you need:
+## Read a row
 
-- the exact order of runtime operations, for example whether something happened before or after the handler;
-- the original operation keyword;
-- a precise payload, or whether a value was elided or redacted;
-- a duration;
-- the source coordinate that emitted a record;
-- a record that Epoch or another tab compressed into a summary.
+| Column | Meaning |
+| --- | --- |
+| **Δt** | Milliseconds since the epoch's first record |
+| **Stage** (1) | Where the operation belongs: dispatch, coeffects, interceptors, handler, flows, effects, subscriptions or views |
+| **Area** (2) | The runtime area: EVENT, COEFFECT, DB, FX, FLOW, SUB, VIEW, MACHINE, ROUTING, RESOURCE, EPOCH, ERROR or WARNING |
+| **What** | The exact operation keyword |
+| **Target** | The relevant event, sub, view, path, effect, machine or route |
+| **Duration** | Recorded elapsed time, when available |
 
-## What Trace shows
+Click a row to expand its raw record; click again to collapse it. A state-write
+row includes changed paths. The **↗** source link (3) opens the corresponding
+code when its registration has a coordinate.
 
-Trace shows the focused epoch. If `:standard-epochs/increment-fx` is focused, Trace shows the records from that event. Pick another event and Trace follows.
-
-Each row has six columns:
-
-- **Δt**: milliseconds since the epoch's first record.
-- **Stage** (1 in the screenshot): the Epoch tab's step names, such as DISPATCH, EVENT HANDLER, FLOW, EFFECT HANDLERS, SUBSCRIPTIONS and VIEWS.
-- **Area** (2): a badge naming the runtime area: EVENT, COEFFECT, DB, FX, FLOW, SUB, VIEW, MACHINE, ROUTING, RESOURCE, EPOCH, ERROR or WARNING.
-- **What**: the operation that happened.
-- **Target**: the event id, sub id, view id, path, fx id, machine id, or route id.
-- **Duration**: present where the substrate has timing.
-
-The left edge of each row takes its Epoch step's colour, so you can see where each step starts and ends. An error or warning row takes its severity colour instead.
-
-Click a row to open the raw trace record beneath it, and click again to close it. A row that changed app-db lists the changed paths under it. A **↗** after the target (3) opens the code that emitted the record in your editor.
+Read the operation and tags together. An effect's configured reply target
+does not prove that the reply arrived. Its later reply event and trace do.
+[Managed effects](managed-effects.md) shows how to follow that exchange.
 
 ## Cancellation cascades
 
-When a machine destroys a child actor, the teardown aborts whatever the child had in flight, and those aborts are spread across the list. The row recording the destroy carries a **⟲** button; click it, or right-click the row, to open the cancellation cascade in one view: the decision that triggered the destroy, the teardown, and each request or timer it aborted, in order. Click an entry to jump to its trace row, and press Esc to close the view.
+Destroying a child actor can also abort its requests and timers. The destroy
+row's **⟲** control, or its context menu, groups those records into a
+cancellation cascade: the decision, teardown and aborted work, in order.
+Click an entry to jump to its trace row; **Esc** closes the cascade view.
 
-## Reading the trace from your own code
+If a request vanished, check this evidence before adding a retry. Cancelling
+work owned by a destroyed actor can be the expected outcome.
 
-Xray reads the same trace stream your code can listen to. To log or collect trace records yourself, for example in a test, register a listener; [Write a listener](../core/observability.md#write-a-listener) in the observability guide shows how.
+## Troubleshooting
+
+| Symptom | Meaning | Action |
+| --- | --- | --- |
+| No records for an old row | Its epoch evidence was evicted or never settled | Select a retained completed event and reproduce if needed |
+| An error happened outside an event | It belongs to the ungrouped bundle | Enable **Show :ungrouped pseudo-event-bundle events in L2** in General settings, then select `<no event>` |
+| A payload has a redaction or size marker | Display classification withheld the value | Inspect its surrounding tags; see [local visibility](manage-evidence.md#redacted-and-large-values) |
+| A row has no duration | That operation has no timing evidence | Do not treat the blank as zero |
+
+Your own tests or tools can read the same runtime stream. The
+[observability guide](../core/observability.md#write-a-listener) shows how to
+register and remove a trace listener.

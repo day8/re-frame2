@@ -12,7 +12,7 @@
  * Run after compiling the testbed bundles the scenes use:
  *
  *   cd implementation
- *   npm install
+ *   npm ci
  *   npx shadow-cljs compile :examples/standard-epochs \
  *                           :examples/machine-epochs \
  *                           :testbeds/ssr-hydration-mismatch \
@@ -46,8 +46,8 @@
  *
  * Determinism:
  *   - Viewport pinned to 1440x900, device scale factor 1.
- *   - The Xray host is widened to 900px, so all ten Dynamic tabs fit in
- *     the tab bar.
+ *   - The Xray host is widened to 900px, so panel content and controls
+ *     remain readable.
  *   - Each scene waits for the Xray shell, for the event rows its steps
  *     dispatch, and for the selected tab's panel before shooting.
  *
@@ -606,6 +606,40 @@ const SCENES = [
         .waitFor({ state: 'visible', timeout: WAIT_TIMEOUT_MS });
     },
   },
+
+  {
+    id: 'xray-tutorial-filters',
+    app: '/standard-epochs',
+    clip: 'xray',
+    clipHeight: 520,
+    before: async (page) => {
+      await runSteps(page, SE, FIRST_FIVE);
+      await page.locator('[data-testid="rf-xray-filter-add"]').click();
+      await page.locator('[data-testid="rf-xray-edit-popup-pattern"]').fill(':standard-epochs/run-step');
+      await page.locator('[data-testid="rf-xray-edit-popup-mode-out"] input').check();
+      await page.locator('[data-testid="rf-xray-edit-popup-save"]').click();
+    },
+  },
+  {
+    id: 'xray-tutorial-settings',
+    app: '/standard-epochs',
+    before: async (page) => {
+      await page.locator('[data-testid="rf-xray-icon-settings"]').click();
+      await page.locator('[data-testid="rf-xray-settings-section-general"]').waitFor({state: 'visible'});
+    },
+  },
+  {
+    id: 'xray-tutorial-graph',
+    app: '/standard-epochs',
+    clip: 'xray',
+    clipHeight: 750,
+    before: async (page) => {
+      await runSteps(page, SE, [SE_STEPS.flow]);
+      await selectTab(page, 'derivation-graph');
+      await page.locator('[data-testid="rf-xray-derivation-graph-family-flows-body"]').waitFor({state: 'visible'});
+    },
+  },
+
 ];
 
 // ---------------------------------------------------------------------------

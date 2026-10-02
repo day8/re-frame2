@@ -29,7 +29,7 @@ Register one with `reg-decorator`, in one of three kinds:
 ```
 
 ```clojure
-(rf.story/reg-variant :story.login/signed-in
+(rf.story/reg-variant :story.login-form/signed-in
   {:decorators [[:app/card-frame] [:app/signed-in] [:app/no-analytics]]})
 ```
 
@@ -76,3 +76,21 @@ Docs mode when you want to know what wraps a variant. The
 
 A variant that `:extends` another takes its parent's decorators unless it
 declares its own, which replace them ([Composition](07-composition.md#extends)).
+
+## Try the effect stub
+
+The login error variant already uses
+`[rf.story/force-fx-stub-id :rf.http/managed {}]`. Open its Tests tab:
+the machine reaches the error state from setup without a request leaving
+the browser. The submitting variant keeps the same stub but supplies no
+failure reply, so it stays pending. Use a `:network` stub when the reply
+path itself is part of the behaviour you want to test.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `:rf.error/story-decorator-unresolved` | A decorator reference names no registration | Register it or use the built-in id Var. |
+| `:rf.error/decorator-shape` | Required fields for the decorator kind are absent | Use the matching `:wrap`, frame setup or effect-override form. |
+| A child loses its parent's stub | Its explicit `:decorators` replaces the inherited list | Include the stub in the child's list, or keep the inherited list. |
+| A frame setup dependency remains after closing | It has no teardown event | Declare its cleanup under `:teardown`. |

@@ -6,14 +6,14 @@ The recorder writes the same `:script` shape ([chapter 5](../05-recorder-and-can
 A variant body is closed, so any other key for a script is rejected at
 registration.
 
-## The grammar — tagged step forms
+## The grammar: tagged step forms
 
 Every step is a tagged vector. The runner iterates the script in order, settles each step into the variant's frame, and records the result. Not every step is legal in both `:setup` and `:script`.
 
 | Step | Semantics | Minimum runner |
 |---|---|---|
-| `[:dispatch event-vec]` | dispatch the event and advance when the runner reaches `settled-boundary` (in headless, the run-to-fixed-point drain). | `:headless` |
-| `[:dispatch-sync event-vec]` | low-level synchronous dispatch; the seven event-backed `:rf.assert/*` assertions ride this rail. | `:headless` |
+| `[:dispatch event-vec]` | Dispatch the event and wait for the frame's work to settle. | `:headless` |
+| `[:dispatch-sync event-vec]` | low-level synchronous dispatch; dispatches immediately rather than placing the event on the queue. | `:headless` |
 | `[:wait-until predicate]` | settle on a condition (`[:db path expected]` / `[:db path :pred fn]` / `[:queue-empty]`), checked once the preceding step has settled; a condition that does not hold fails the step with a reason naming it, such as `wait-until [:db [:form :ready?] true] never became true`. | depends on predicate |
 | `[:wait ms]` | wall-clock sleep. `run` and `is` honour it; `assert-deterministic` refuses a program containing one as `:cannot-run`. | runner-dependent |
 | `[:assert assertion-vec]` | checkpoint assertion at this point in the script. **Illegal in `:setup`.** | depends on assertion |
@@ -72,7 +72,36 @@ These ids are evaluated by the runner or against the epoch tape rather than disp
 | `:rf.assert/caused` | `[:rf.assert/caused {:event id :sub sub-id :min n :max n}]`: the event caused at least `:min` (default 1) recomputes of the sub, or renders of a `:view`. | `:reactive-counts` |
 | `:rf.assert/no-cascade-rerender` | The same spec, with `:max` defaulting to 0: the event caused no further recompute or render. | `:reactive-counts` |
 
-Every Story runner today reports `:rf.assert/a11y` and `:rf.assert/visual-snapshot` as `:cannot-run`: no runner produces the `:a11y-engine` or `:pixels` evidence they need, so neither can pass a run. Each one's own row reads `:cannot-run` too, naming the evidence it never received (`:missing-evidence #{:a11y}` or `#{:pixels}`): an a11y row passes only on an axe scan of the variant's frame, and a visual row has no captured pixels to pass on.
+`visual-snapshot` reports `:cannot-run` under every Story runner: no
+runner captures and compares pixels. `a11y` reports `:cannot-run` without
+a browser and a scan for that variant; in a browser it can evaluate the
+a11y panel's stored scan. Selecting a runner does not run that scan.
+
+### Schema-error
+
+`[:rf.assert/schema-error spec]` matches one violation from the epoch tape.
+`spec` is a selector map, not a Malli schema. For example:
+
+```clojure
+[:rf.assert/schema-error {:where :event :event :login/flow}]
+```
+
+The selector must match the violation's identity fields:
+
+| `:where` | Matching fields |
+| --- | --- |
+| `:event` | `:event`, and `:path` when present. |
+| `:cofx` | `:cofx`. |
+| `:fx-args` | `:fx-args`. |
+| `:sub-return` | `:sub-return` and `:query-v`. |
+| `:app-db` | `:registered-path` and `:path`. |
+| `:machine-data` | `:machine-id` and `:phase`. |
+| Other surfaces | `:where` and `:failing-id`. |
+
+Use the violation's recorded fields when writing a precise expectation.
+`[:rf.assert/schema-error]` expects any one violation. Each declaration
+consumes one occurrence; repeated violations require matching declarations.
+Unconsumed violations prevent a pass even when final state is valid.
 
 ## Terminal vs checkpoint
 
@@ -102,7 +131,7 @@ Every assertion records its result and the script continues. A failing assertion
 
 ## `:cannot-run` — the third result state
 
-A step or assertion the chosen runner cannot observe is refused, fail-closed, with the distinct **third** status (not pass, not fail):
+A step or assertion lacking required capability records `:cannot-run`:
 
 ```clojure
 {:status           :cannot-run
@@ -116,7 +145,7 @@ A step or assertion the chosen runner cannot observe is refused, fail-closed, wi
 
 A headless run also records the step itself as `:runner-cannot-attempt-step`, with a `:message` such as `no DOM — cannot click "[data-test=submit]"`.
 
-The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:dom` → `:browser`) each advertise a set of capability tokens; each step/assertion declares the tokens it needs; the plan's `:required-runner` is the union; a runner is valid iff its tokens are a superset. A run uses the runner you pass, `:headless` by default; under `{:runner :auto}` or `{:escalate true}` the cheapest valid runner is chosen. The aggregation rule: a variant whose only unmet assertions are `:cannot-run` is itself `:cannot-run` — never a silent pass. (Full runner model: [tutorial chapter 5](../05-recorder-and-cannot-run.md).)
+The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:dom` → `:browser`) each advertise a set of capability tokens; each step/assertion declares the tokens it needs; the plan's `:required-runner` is the union; a runner is valid iff its tokens are a superset. A run uses the runner you pass, `:headless` by default; under `{:runner :auto}` or `{:escalate true}` the cheapest valid runner is chosen. The aggregation rule: a variant whose only unmet assertions are `:cannot-run` is itself `:cannot-run` — never a silent pass. The [runner guide](../runners.md) shows how to choose a suitable host.
 
 ## Privacy posture
 
@@ -149,29 +178,21 @@ The richer DOM-capture-aware translator (tagged `:click` / `:type` / `:wait` ste
 ## A complete worked example
 
 ```clojure
-;; A variant whose script mixes DOM gestures, dispatches, and assertions.
-(rf.story/reg-variant :story.login/error-then-recovery
-  {:doc    "User enters the wrong password, then corrects it."
-   :setup  [[:auth/initialise]]
-   :script [[:type        "[data-test=username]" "alice"]
-            [:type        "[data-test=password]" "wrong"]
-            [:click       "[data-test=submit]"]
-            [:wait-until  [:db [:auth :status] :error]]
-            [:assert-dom  "[data-test=error]" :visible]
-            [:assert-dom  "[data-test=error]" :text "Incorrect password."]
-            [:type        "[data-test=password]" "correct"]
-            [:click       "[data-test=submit]"]
-            [:assert      [:rf.assert/path-equals [:auth :status] :authenticated]]
-            [:assert      [:rf.assert/no-warnings]]]
-   :tags   #{:dev :test}})
+;; Requires [re-frame.story :as rf.story] and login-form.stories.
+(rf.story/reg-variant :story.login-form/submit-from-form
+  {:extends :story.login-form/idle
+   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
+   :script [[:type "[data-test=login-email]" "ada@example.com"]
+            [:type "[data-test=login-password]" "wrong"]
+            [:click "[data-test=login-submit]"]
+            [:assert [:rf.assert/state-is :login/flow :submitting]]
+            [:assert [:rf.assert/effect-emitted :rf.http/managed]]]
+   :tags #{:dev :test}})
 ```
 
-DOM steps require `:dom`, so this variant is `:cannot-run` under a headless runner and runs under `:dom` / `:browser`. The `[:wait-until …]` is the deterministic alternative to a bare `[:wait ms]`.
+The stub records the HTTP effect without sending a request or a reply.
+DOM gestures require a browser document. Under a headless runner they report
+`:cannot-run`; the browser shell can execute them against the mounted view.
 
-## See also
-
-- [Registration](registration.md) — the `reg-variant` macro the `:script` slot lives on; the `force-fx-stub-id` decorator.
-- [Runtime](runtime.md) — the variant lifecycle; the run-result the script feeds.
-- [MCP surface](mcp-surface.md) — the gated agent-write path that emits a `:script` body.
-- [Tutorial — The recorder, and `:cannot-run`](../05-recorder-and-cannot-run.md) — record a canvas interaction end-to-end.
-- [Tutorial — The reveal: the variant *is* a test](../04-the-variant-is-a-test.md) — the three verbs and the unified run-result.
+The [recorder exercise](../05-recorder-and-cannot-run.md) builds this script
+from interaction. The [runtime reference](runtime.md) describes its result.

@@ -1,127 +1,98 @@
-# 3. The fidelity ladder
+# Choose how a variant reaches its state
 
-A variant can reach its state in three ways: by running real events, by
-seeding app-db directly, or by pinning subscription values. The cheaper ways
-are useful for design work. Story labels every variant with the way it used,
-so a painted state is never mistaken for a proven one.
+Use real setup events when a variant should prove behaviour. Use a db seed
+or subscription pins when you need a state for design work before its event
+path is convenient or available.
 
-## What a screenshot proves
+Story labels these inputs so a reviewer can tell what a visible state proves:
 
-A screenshot of an error state can be useful and still prove almost nothing.
-If you painted it by feeding `"Invalid credentials"` straight into the view,
-the screenshot proves the red text renders. It does not prove the login flow can
-reach the error state, that the machine transitioned correctly, or that the
-subscription computes the right value.
+| State input | What it establishes |
+| --- | --- |
+| `:real-setup` | Application events ran through the real event pipeline. |
+| `:db-seed` | App-db was seeded directly and checked against registered schemas. Event and coeffect validation were bypassed. |
+| `:sub-overrides` | The view received pinned subscription values. The real subscription logic was not exercised by those pins. |
 
-![The login error variant with two places its fidelity shows: 1 the real-setup chip under the variant in the sidebar, and 2 the View State section of Controls, listing the three rungs with real setup in use.](../images/story/story-tutorial-03-controls-and-fidelity.png)
+A variant can use more than one of these inputs. Args and effect or network
+stubs are separate inputs; they do not lower the fidelity of real setup.
 
-## The three rungs
-
-Story works out the rung from the inputs the variant uses; you do not write it
-yourself.
-
-| Rung | Meaning |
-|---|---|
-| `:real-setup` | Real events drove real state through the event pipeline. Highest fidelity. |
-| `:db-seed` | App-db was seeded directly, then schema-checked. Useful, but it bypasses event/cofx validation. |
-| `:sub-overrides` | Subscription values were pinned for render. Fast design-state exploration, not proof of subscription logic. |
-
-Args are not a fidelity rung: they are view inputs. Network stubs and effect
-overrides are world inputs, and the runner a variant needs is a separate
-property again. The sidebar shows each on a chip of its own.
-
-The rung shows in three places: the chip under the variant in the sidebar (1
-in the screenshot above), the View State section of Controls (2), which
-numbers the three rungs and marks each "in use" or "available", and the
-Status & fidelity section of Docs mode.
+[![State inputs in Story: 1 the sidebar's fidelity chip, 2 the View State section showing which input methods are in use.](../images/story/story-tutorial-03-controls-and-fidelity.png)](../images/story/story-tutorial-03-controls-and-fidelity.png)
 
 ## Rung 1: real setup
 
-The login error variant uses real setup:
+The login error variant dispatches submit and failure, with HTTP stubbed:
 
 ```clojure
-:setup [[:login/flow
-         [:login/submit {:email "ada@example.com"
-                         :password "wrong"}]]
-        [:login/flow
-         [:login/failure
-          {:failure {:status 401
-                     :message "Invalid credentials."}}]]]
+;; Requires [re-frame.story :as rf.story] and login-form.stories.
+(rf.story/reg-variant :story.login-form/verified-error
+  {:extends :story.login-form/error
+   :script [[:assert [:rf.assert/state-is :login/flow :error]]
+            [:assert [:rf.assert/sub-equals
+                      [:login/error] "Invalid credentials."]]]})
 ```
 
-The event handler runs. The state machine transitions. Subscriptions compute
-from the resulting `app-db`. The view renders what the app actually reached.
-
-Use real setup when the variant makes a claim about behaviour.
+The application reaches `:error`. The assertions then check the machine
+and the subscription computed from it. The stub controls the outside world;
+the handlers, transitions and subscriptions still run.
 
 ## Rung 2: schema-checked app-db seed
 
-Sometimes a state would take twenty setup events to reach, and those events
-are beside the point of the example. A db seed places the state directly:
+A seed writes app-db before setup and the script. Its keys can be top-level
+keys or path vectors. For example, this inline test demonstrates a login
+help preference stored directly in app-db:
 
 ```clojure
-(rf.story/reg-variant :story.profile/with-avatar
-  {:db-seed {:profile {:name "Ada"
-                       :avatar-url "/avatars/ada.png"}}
-   :tags #{:dev :docs}})
+(rf.story/run
+  {:db-seed {[:login-help :message] "Use your work account."}
+   :script [[:assert-db [:login-help :message] "Use your work account."]]})
 ```
 
-A seed skips the event and coeffect path, so Story schema-checks the seeded
-data instead. If the seeded slice violates the registered app-db schema, the
-run fails with `:rf.error/story-db-seed-invalid`, naming each violating path,
-before the script starts.
+The resolved result is `:pass`. This tests seeded data; it does not prove
+an event can produce that preference. A seed violating a registered app-db
+schema fails with `:rf.error/story-db-seed-invalid` before the script.
 
-Use this when the state is legitimate but tedious to reach.
+Machine snapshots are stored in runtime state, so an app-db seed cannot set
+the login machine's state. Use real setup for this testbed's machine states.
+Use a seed in a view variant when the view's state actually lives in app-db.
 
 ## Rung 3: subscription overrides
 
-The fastest design-state path is to pin the value a subscription returns:
+To try error presentation while leaving the actual machine idle:
 
 ```clojure
-(rf.story/reg-variant :story.login/error-painted
-  {:sub-overrides {[:login/state] :error
+(rf.story/reg-variant :story.login-form/error-painted
+  {:extends :story.login-form/idle
+   :sub-overrides {[:login/state] :error
                    [:login/error] "Invalid credentials."
-                   [:login/attempts] 1}})
+                   [:login/attempts] 1}
+   :tags #{:dev :docs}})
 ```
 
-Use it to design loading, empty, error or permission-denied states before the
-event path that reaches them exists.
+The view displays the pinned error. The machine remains in the idle state
+created by setup. `sub-equals` reads the real subscription against the
+frame's state; it would still see `:idle` for `[:login/state]`.
+This separation lets a picture stay useful without pretending to test logic.
 
-A pin is not proof of the subscription.
-
-```clojure
-[:rf.assert/sub-equals [:login/state] :error]
-```
-
-does not pass because you pinned `[:login/state]`. `sub-equals` computes the
-subscription against the real frame's db, while overrides feed only the render
-path.
-
-A pinned value is still checked against the subscription's output schema, when
-the subscription declares one. A value the real subscription could never
-return fails the variant with `:rf.error/story-sub-override-invalid` before it
-renders. In View State, a subscription with an output schema also gets a typed
-form for editing its pinned value.
-
-Pins are a dev-build feature. A published static build compiles them out, so
-there the variant renders its real subscription values; a state you intend to
-publish should use a `:db-seed` or real setup.
+When a subscription declares an output schema, Story checks the pin against
+it. An invalid pin raises `:rf.error/story-sub-override-invalid`.
+Pins are a development feature: a release/static build renders real
+subscription values instead.
 
 ## Upgrading fidelity
 
-Start cheap, and move up the ladder when the state becomes important:
+Replace the painted variant's `:extends` with the real error scenario,
+remove `:sub-overrides`, and add the two assertions in `verified-error`
+above. Now the same visible state checks the event path and derived message.
 
-1. Use args or sub-overrides to design the shape.
-2. Move important state to a db seed if the app-db shape is the thing you care about.
-3. Replace the seed with real setup events when the behaviour matters.
-4. Add assertions once the state is worth keeping.
+View State's upgrade buttons can generate a starting declaration. Fill in
+its setup or seed and review the resulting state before keeping it.
+Important behaviour should have explicit assertions; a fidelity label alone
+is not a test verdict.
 
-View State helps with steps 2 and 3. While sub-overrides is the lowest rung in
-use, it shows a "Low-fidelity: a picture, not proof" note and a button for each
-stronger rung. A button opens a `reg-variant` form to paste into your stories
-namespace: the same state without the pins, with an empty `:setup` or
-`:db-seed` for you to fill in.
+## Troubleshooting
 
-Not every state needs the top rung. The label says which rung it has, so a
-green variant with pinned subscriptions is never read as proof of the logic
-behind them.
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A pin changes the canvas but `sub-equals` still fails | Pins apply only to rendering | Reach the expected state with setup, or test the real subscription's actual value. |
+| `:rf.error/story-db-seed-invalid` | Seeded app-db violates a registered schema | Read the violating paths and correct the seed. |
+| `:rf.error/story-sub-override-invalid` | A pin violates its subscription output schema | Use a value the subscription can return. |
+| A static catalogue shows a different state | Its variant relied on development-only pins | Use real setup or an app-db seed for published states. |

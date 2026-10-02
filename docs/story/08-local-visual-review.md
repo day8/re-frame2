@@ -178,3 +178,13 @@ nothing turns red until you run it. It depends on:
 - the [share URL](08-snapshot-identity-and-sharing.md#sharing)'s `variant` and `modes` parameters;
 - the help overlay's `re-frame.story/seen-help-v1` localStorage key.
 
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| No cases are discovered | No registered variant has `:test`, or the app was not loaded | Load the stories and tag the variants to review. |
+| JavaScript globals are unavailable | The recipe is running against an advanced release | Use a development build for this introspection recipe. |
+| A missing baseline fails | Review runs never approve new baselines | Inspect the capture, then run with `-u` to approve it. |
+| A CSS change reports an unchanged content hash | Identity hashes declarations, not pixels or stylesheets | Compare every capture; use the pixel diff as the verdict. |
+| A viewport/font/animation difference changes pixels | The capture environment differs | Match viewport, browser, fonts and animation state before approving. |

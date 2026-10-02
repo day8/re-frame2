@@ -11,8 +11,8 @@ pulls in registered fragments and checks. Neither hides behaviour, and
 `:extends` specializes another variant:
 
 ```clojure
-(rf.story/reg-variant :story.login/retrying
-  {:extends    :story.login/error
+(rf.story/reg-variant :story.login-form/retrying
+  {:extends    :story.login-form/error
    :script     [[:dispatch [:login/flow [:login/retry {:email    "ada@example.com"
                                                        :password "correct-horse"}]]]]
    :assertions [[:rf.assert/state-is :login/flow :submitting-retry]]})
@@ -21,7 +21,7 @@ pulls in registered fragments and checks. Neither hides behaviour, and
 The child starts from the error state its parent's setup reaches, keeps the
 parent's stubbed HTTP effect, and runs only its own script and assertions.
 
-The inheritance rule is: **context flows down, verdict is local.**
+A child inherits setup and world inputs; its script and ordinary assertions are local.
 
 | Field | Rule |
 |---|---|
@@ -60,7 +60,7 @@ Use a check for reusable expectations
 Compose them explicitly:
 
 ```clojure
-(rf.story/reg-variant :story.login/rejected
+(rf.story/reg-variant :story.login-form/rejected
   {:compose    [:fragment.login/submitted-wrong-password
                 :check/no-runtime-warnings]
    :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
@@ -91,3 +91,13 @@ When composition is involved, use `rf.story/explain` or the Explain panel
 ([chapter 4](04-the-variant-is-a-test.md#explain)). It shows the source chain,
 merge decisions, setup order, script order, checks, assertion locations,
 runner requirements and source coordinates.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `:rf.error/story-extends-unknown` | A parent variant was not registered | Require its namespace before compiling the child. |
+| `:rf.error/story-compose-unknown` | A composed fragment/check id cannot be resolved | Register it and check the id. |
+| `:rf.error/story-compose-conflict` | Composed fragments disagree on a strict override | State the desired override on the variant itself. |
+| `:rf.error/fragment-shape` for nested composition | Fragment bodies cannot carry `:extends` or `:compose` | List the flat fragments on the variant. |
+| A parent's assertion does not run in a child | Ordinary assertions and scripts are local | Use a check for shared expectations. |
