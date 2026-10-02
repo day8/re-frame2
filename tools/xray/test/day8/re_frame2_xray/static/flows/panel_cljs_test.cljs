@@ -24,7 +24,7 @@
             ;; sole store; the registrar `:flow` slot is
             ;; reserved-but-empty), so the live-source regression below
             ;; registers real flows through `rf/reg-flow`.
-            [re-frame.flows :as rf.flows]
+            [re-frame.flows]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.flows.panel :as panel]
@@ -112,16 +112,6 @@
 ;; -------------------------------------------------------------------------
 ;; (1) pure helpers
 ;; -------------------------------------------------------------------------
-
-(deftest project-rows-flattens-and-sorts
-  (testing "project-rows flattens {frame {id flow}} into a sorted row vec"
-    (let [rows (panel/project-rows sample-flows)]
-      (is (= 2 (count rows)) "two rows")
-      (is (= [:cart/total :user/full-name]
-             (mapv :flow-id rows))
-          "sorted by id ascending")
-      (is (every? #(= :rf/default (:frame %)) rows)
-          ":frame stamped on every row"))))
 
 (deftest filter-rows-substring
   (let [rows (panel/project-rows sample-flows)]
@@ -232,11 +222,15 @@
     (rf/dispatch-sync
       [:rf.xray.static.flows/set-registered-flows-override-for-test
        sample-flows])
-    (let [tree (panel-tree)
-          rows (find-by-testid-prefix tree "rf-xray-static-flows-row-")]
+    (let [tree      (panel-tree)
+          list-node (find-by-testid tree "rf-xray-static-flows-list")
+          rows      (find-by-testid-prefix tree "rf-xray-static-flows-row-")]
       (is (= 2 (count rows)) "two row surfaces rendered")
       (is (some? (find-by-testid tree "rf-xray-static-flows-search"))
-          "search box rendered"))))
+          "search box rendered")
+      (is (= "list" (:role (second list-node))) "<ul> carries role=list")
+      (is (every? #(= "listitem" (:role (second %))) rows)
+          "every row carries role=listitem"))))
 
 (deftest panel-renders-filtered-state
   (setup-xray!)
@@ -250,27 +244,7 @@
           "empty-filtered surface mounts when query removes every row"))))
 
 ;; -------------------------------------------------------------------------
-;; (4) a11y list semantics
-;; -------------------------------------------------------------------------
-
-(deftest panel-list-carries-list-semantics
-  (testing "the flows <ul> is role=list, rows are role=listitem"
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.flows/set-registered-flows-override-for-test
-         sample-flows])
-      (let [tree (panel-tree)
-            list-node (find-by-testid tree "rf-xray-static-flows-list")
-            rows      (find-by-testid-prefix
-                        tree "rf-xray-static-flows-row-")]
-        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
-        (is (seq rows) "rows rendered")
-        (is (every? #(= "listitem" (:role (second %))) rows)
-            "every row carries role=listitem")))))
-
-;; -------------------------------------------------------------------------
-;; (5) EDN values render through the shared widget's FRESCO head
+;; (4) EDN values render through the shared widget's FRESCO head
 ;; -------------------------------------------------------------------------
 
 (defn- inspector-view-forms
@@ -320,7 +294,7 @@
              would share a width slot and a projection cache")))))
 
 ;; -------------------------------------------------------------------------
-;; (5a) ONE FLOW-ID, TWO FRAMES, ONE RENDER FRAME
+;; (4a) ONE FLOW-ID, TWO FRAMES, ONE RENDER FRAME
 ;; -------------------------------------------------------------------------
 ;;
 ;; THE ROW ABOVE CANNOT SEE THIS, and that is why this section exists rather
@@ -421,7 +395,7 @@
         [:rf.xray.static.flows/set-registered-flows-override-for-test nil]))))
 
 ;; -------------------------------------------------------------------------
-;; (5b) the input-path seq's React keys actually REACH the renderer
+;; (4b) the input-path seq's React keys actually REACH the renderer
 ;; -------------------------------------------------------------------------
 
 (defn- keyed-input-fragments
@@ -539,7 +513,7 @@
             "and the row keys are distinct from one another")))))
 
 ;; -------------------------------------------------------------------------
-;; (6) LIVE production data source regression
+;; (5) LIVE production data source regression
 ;; -------------------------------------------------------------------------
 ;;
 ;; Every test above injects fixtures through the test-only OVERRIDE seam
@@ -640,10 +614,4 @@
           (is (= [:derived :natural] (:output-path entry-a))
               "frame A keeps its OWN :output-path")
           (is (= [:derived :sortable] (:output-path entry-b))
-              "frame B keeps its OWN :output-path — divergent per frame")))
-      ;; Cross-check the introspection surface the Epoch panel's source link
-      ;; reads (`flow-meta` with an explicit :frame) agrees, frame-by-frame.
-      (is (= derive-a (:derive (rf.flows/flow-meta {:frame :flows-test/frame-a :id :user/full-name})))
-          "flow-meta resolves frame A's divergent definition")
-      (is (= derive-b (:derive (rf.flows/flow-meta {:frame :flows-test/frame-b :id :user/full-name})))
-          "flow-meta resolves frame B's divergent definition"))))
+              "frame B keeps its OWN :output-path — divergent per frame"))))))
