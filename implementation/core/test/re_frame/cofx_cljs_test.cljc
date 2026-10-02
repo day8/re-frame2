@@ -493,7 +493,9 @@
           (is (empty? (errors-of @recs :rf.error/missing-required-cofx))
               "and NOT a missing-required record — the split survives to production")
           (is (= :cofx-test/has-typo (:event-id (first prod)))
-              ":event-id names the declaring handler on the tight record"))
+              ":event-id names the declaring handler on the tight record")
+          (is (= :rf/default (:frame (first prod)))
+              ":frame names the dispatching frame on the tight record"))
         (when rf.interop/debug-enabled?
           (let [errs (filter #(= :rf.error/unregistered-cofx (:operation %)) @traces)]
             (is (= 1 (count errs)) "exactly one unregistered-cofx trace")

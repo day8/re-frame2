@@ -96,13 +96,6 @@
       (is (= 1 (count @seen))
           "the sibling listener still received the record under prod"))))
 
-;; ---- no handler-meta :sensitive? redaction under prod -------------------
-;;
-;; There is no handler-meta `:sensitive?` annotation. Per-path
-;; elision (the per-frame `[:rf.runtime/elision]` runtime-db registry, populated from app-schema
-;; `:sensitive?` slot meta) is the load-bearing privacy surface on the
-;; error-emit path under prod.
-
 ;; ---- :source-coord rides the prod error-emit substrate -------------------
 
 (deftest source-coord-rides-error-record-under-prod
@@ -122,11 +115,7 @@
                        (fn [{:keys [db]} _]
                          {:db (throw (ex-info "boom" {}))}))
       (rf/dispatch-sync [:rf2-3un2g/prod-coord-throw])
-      (is (some? @listener-saw)
-          "listener fired under :advanced + goog.DEBUG=false")
       (let [sc (:source-coord @listener-saw)]
-        (is (some? sc)
-            ":source-coord present on the prod-mode error-record")
         ;; :ns is a symbol; :line is an integer; :file is a string.
         ;; :column is absent under prod (the prod-coords-form omits it).
         (is (symbol?  (:ns sc))
@@ -157,7 +146,6 @@
                      {:doc "stripped" :tags #{:probe}}
                      (fn [{:keys [db]} _] {:db db}))
     (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-3un2g/prod-meta-strip})]
-      (is (some? meta))
       (is (not (contains? meta :doc))
           "user-supplied :doc is stripped in prod (pure documentation)")
       (is (= #{:probe} (:tags meta))
@@ -256,7 +244,6 @@
                                    (fn [record] (swap! seen conj record)))
       (rf/dispatch-sync [:no/handler-here])
       (let [r (some (fn [x] (when (= :rf.error/no-such-handler (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-handler under prod")
         (is (= :no/handler-here (:event-id r)))
         (is (= :rf/default (:frame r)))))))
 
@@ -269,7 +256,6 @@
                                    (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once [:no/such-sub-here] {:frame :rf/default})))
       (let [r (some (fn [x] (when (= :rf.error/no-such-sub (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-sub under prod")
         (is (= :no/such-sub-here (:event-id r)))
         (is (= :rf/default (:frame r)))))))
 
@@ -289,8 +275,6 @@
       (is (nil? (rf/compute-sub [:kjf3m/throwing] {}))
           "compute-sub still recovers to nil under prod")
       (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
-        (is (some? r)
-            "listener received :rf.error/sub-exception from compute-sub under prod")
         (is (some? (:exception r)))))))
 
 ;; ==========================================================================
@@ -322,7 +306,6 @@
                        (fn [_ _] {:fx [[:goum9x/prod-throwing-fx]]}))
       (rf/dispatch-sync [:goum9x/prod-run-throwing-fx])
       (let [r (some (fn [x] (when (= :rf.error/fx-handler-exception (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/fx-handler-exception under prod")
         (is (= :goum9x/prod-run-throwing-fx (:event-id r)))
         (is (= :rf/default (:frame r)))
         (is (some? (:exception r)))))))
@@ -340,7 +323,6 @@
                        (fn [_ _] {:fx [[:goum9x/prod-never {}]]}))
       (rf/dispatch-sync [:goum9x/prod-unknown-fx])
       (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-fx under prod")
         (is (= :goum9x/prod-unknown-fx (:event-id r)))
         (is (= :rf/default (:frame r)))
         (is (= :goum9x/prod-never (:failing-id r))
@@ -360,7 +342,6 @@
       (rf/dispatch-sync [:goum9x/prod-bad-override]
                         {:fx-overrides {:goum9x/prod-real-fx :goum9x/prod-missing}})
       (let [r (some (fn [x] (when (= :rf.error/override-fallthrough (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/override-fallthrough under prod")
         (is (= :rf/default (:frame r)))))))
 
 (deftest reserved-fx-override-listener-survives-prod
@@ -386,9 +367,6 @@
       (rf/dispatch-sync [:uh5ic5/install-flow]
                         {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
       (let [r (some (fn [x] (when (= :rf.error/reserved-fx-override (:error x)) x)) @seen)]
-        (is (some? r)
-            "listener received :rf.error/reserved-fx-override under prod
-             (the strip-rejected-overrides production producer survives elision)")
         (is (= :uh5ic5/install-flow (:event-id r))
             ":event-id is the dispatched event-vector head")
         (is (= :rf/default (:frame r))
@@ -408,10 +386,4 @@
       (try (rf/dispatch-sync [:goum9x/prod-unknown-cofx])
            (catch :default _ nil))
       (let [r (some (fn [x] (when (= :rf.error/unregistered-cofx (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/unregistered-cofx under prod")
         (is (= :rf/default (:frame r)))))))
-
-;; There is no handler-meta `:sensitive?` annotation. Redaction on
-;; the error-emit substrate is driven exclusively by the per-path elision
-;; wire-walker — see the :source-coord block above for the prod-survivable
-;; substrate contract.

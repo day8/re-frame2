@@ -33,7 +33,7 @@
         (is (= :stale (:status reply)) "still a well-formed stale reply")
         (is (not (contains? reply :value)) "no :value can mutate app state")))))
 
-(deftest observer-may-self-dispatch-under-prod
+(deftest observer-completes-its-own-target-with-the-stale-reply-under-prod
   (testing "a framework/tool observer can self-dispatch the
             stale :reply on its OWN authority under prod — observation is
             ordinary `complete` + dispatch, structurally separate from the

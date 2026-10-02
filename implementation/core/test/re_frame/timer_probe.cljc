@@ -291,15 +291,6 @@
   [generation]
   {:generation generation})
 
-(defn suppress?
-  "True when a completion carrying `carried-gen` is stale relative to the
-  live `current-gen` (a fresh schedule advanced the timer's generation), so
-  its app reply MUST be suppressed. Delegates to the shared
-  `re-frame.reply/stale?` over the `:generation` gate — the probe does NOT
-  re-implement the comparison."
-  [carried-gen current-gen]
-  (rf.reply/stale? (gate carried-gen) (gate current-gen)))
-
 (defn suppress
   "Produce the stale-suppression outcome for a timer completion whose carried
   generation has been superseded — WITHOUT dispatching the app reply target.
