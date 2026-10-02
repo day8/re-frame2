@@ -209,8 +209,6 @@
                 :rf.trace/call-site {:file "src/views.cljs" :line 127}
                 :source :ui :origin :app}]
           [c] (rf.trace.projection/group-by-event evs)]
-      (is (some? (:dispatched c))
-          ":dispatched slot is populated with the trace event")
       (is (= {:file "src/views.cljs" :line 127}
              (:rf.trace/call-site (:dispatched c)))
           "the call-site rides through the projection")

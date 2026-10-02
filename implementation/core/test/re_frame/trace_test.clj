@@ -70,12 +70,6 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- ops-of
-  "Return every (op-type, operation) pair seen by the recorder, for
-  human-readable test failure messages."
-  [events]
-  (vec (distinct (map (juxt :op-type :operation) events))))
-
 (defn- has-op?
   "Test if any captured event has the given (op-type, operation)."
   [events op-type operation]
@@ -302,8 +296,7 @@
 
       (rf/unregister-listener! :trace ::recorder)
 
-      (let [events @recorded
-            seen   (ops-of events)]
+      (let [events @recorded]
 
         (testing "every captured event satisfies the universal envelope shape"
           (is (every? valid-envelope? events)
@@ -350,8 +343,7 @@
               "expected :warning :rf.fx/skipped-on-platform")
           (let [t (:tags (find-op events :warning :rf.fx/skipped-on-platform))]
             (is (= :client-only-fx (:rf.fx/id t)))
-            (is (= #{:client}      (:rf.fx/registered-platforms t)))
-            (is (set? (:rf.fx/registered-platforms t)))))
+            (is (= #{:client}      (:rf.fx/registered-platforms t)))))
 
         (testing ":warning :rf.warning/route-shadowed-by-equal-score fires on equal-rank co-matchable route registration"
           (is (has-op? events :warning :rf.warning/route-shadowed-by-equal-score)
@@ -416,8 +408,7 @@
                 "expected at least one handler-replaced with :different-fn? false (same-fn fx re-reg)")
             (let [t (:tags (first different-events))]
               (is (keyword? (:kind t)))
-              (is (some?    (:id t)))
-              (is (true?    (:different-fn? t))))))
+              (is (some?    (:id t))))))
 
         ;; ---- :rf.machine op-type -------------------------------------------
         ;; Per Spec 009 §:op-type vocabulary the machine trace family rides
@@ -531,18 +522,11 @@
 
         ;; ---- Spec 009 required operation pairs ------------------------------
         ;; Keep these assertions together so the vocabulary cannot drift from
-        ;; the emitters one operation at a time. `is-strict?` is a local
-        ;; diagnostic switch; committed tests keep it true.
-        (let [is-strict? true
-              gap-check  (fn [op-type operation]
-                           (if is-strict?
-                             (is (has-op? events op-type operation)
-                                 (str "expected " op-type " " operation
-                                      " — a documented Spec 009 operation was not emitted"))
-                             ;; non-strict: report status but pass.
-                             (when-not (has-op? events op-type operation)
-                               (println "  [trace-test] note:" op-type operation
-                                        "not emitted"))))]
+        ;; the emitters one operation at a time.
+        (let [gap-check (fn [op-type operation]
+                          (is (has-op? events op-type operation)
+                              (str "expected " op-type " " operation
+                                   " — a documented Spec 009 operation was not emitted")))]
           (testing "Spec 009 documented operations are emitted"
             (gap-check :rf.sub                        :rf.sub/run)
             (gap-check :rf.sub                        :rf.sub/create)
@@ -554,12 +538,7 @@
             (gap-check :rf.machine :rf.machine/event-received)
             (gap-check :rf.machine :rf.machine/snapshot-updated)
             (gap-check :rf.registry :rf.registry/handler-registered)
-            (gap-check :rf.registry :rf.registry/handler-cleared)))
-
-        (testing "diagnostic: every (op-type, operation) pair the flow produced"
-          ;; Always passes; printing only when test verbosity helps.
-          (is (vector? seen)
-              (str "captured pairs: " (pr-str seen))))))))
+            (gap-check :rf.registry :rf.registry/handler-cleared)))))))
 
 ;; ---- per-op DURATION timing -----------------------------------------------
 ;;

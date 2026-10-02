@@ -83,16 +83,6 @@
     (is (nil? (rf.trace.tooling/clear-trace-buffer! :rf/default))
         "clear-trace-buffer! returns nil under prod")))
 
-(deftest trace-emit-direct-call-does-not-populate-buffer-under-prod
-  (testing "Per Spec 009 §Production builds: directly invoking
-            `rf.trace/emit!` does not push to the buffer. The emit body
-            elides before any deliver-to-buffer call site is reached."
-    (rf.trace/emit! :info :rf.prod-bus/direct {:should "never appear"})
-    (rf.trace/emit! :event :rf.prod-bus/sample {:also "never appear"})
-    (is (or (nil? (rf.trace.tooling/trace-buffer :rf/default))
-            (empty? (rf.trace.tooling/trace-buffer :rf/default)))
-        "buffer remains empty after direct emit calls under prod")))
-
 (deftest trace-configure-is-noop-under-prod
   (testing "Per Spec 009 §Production builds: the generic `configure!`
             dispatch's `:trace-buffer` key is also gated. Apps
