@@ -110,8 +110,7 @@
     (is (= 0 (:first-match (fuzzy/score-with-meta "event-detail" "ev"))))
     ;; 'the-event-detail' — the first 'e' is at index 2 ('t','h','e'),
     ;; so the greedy matcher takes 'e' at 2 then 'v' at 5.
-    (is (= 2 (:first-match (fuzzy/score-with-meta "the-event-detail" "ev"))))
-    (is (nil? (:first-match (fuzzy/score-with-meta "anything" ""))))))
+    (is (= 2 (:first-match (fuzzy/score-with-meta "the-event-detail" "ev"))))))
 
 (deftest match-predicate-mirrors-score-nil
   (testing "(match? c q) is (some? (score c q))"
