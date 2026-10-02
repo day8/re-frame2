@@ -90,8 +90,6 @@
       (is (= [[:token]] (:sensitive inline-desc))
           "inline descriptor carries the SAME classification declaration"))))
 
-;; ---- production `:doc` strip parity ---------------------------------------
-
 ;; ---- runtime-owned slots win + extension keys preserved -------------------
 
 (deftest runtime-owned-slots-win-over-metadata

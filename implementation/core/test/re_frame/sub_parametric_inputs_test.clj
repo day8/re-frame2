@@ -100,8 +100,6 @@
 (defn- cache-keys [frame-id]
   (set (keys @(:sub-cache (rf.frame/frame frame-id)))))
 
-;; ---- parse + metadata: :input-kind discriminator -------------------------
-
 ;; ---- normalize-sub-inputs grammar ----------------------------------------
 
 (deftest normalize-accepts-vector-of-query-vectors
@@ -125,8 +123,6 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
             (rf.subs/normalize-sub-inputs bad))
           (str label " is rejected")))))
-
-;; ---- the input-fn receives the full outer query-v ------------------------
 
 ;; ---- vector-of-query-vectors resolves to a vector of values --------------
 
@@ -169,10 +165,6 @@
       (rf/dispatch-sync [:rename "v2"])
       (is (= "v2" @r) "the parametric node recomputed on the upstream change")
       (rf/unsubscribe [:item/title :x]))))
-
-;; ---- static declared-input delivery ---------------------------------------
-
-;; ---- compute-sub ↔ subscribe-once agreement ------------------------------
 
 ;; ---- the realized-inputs cache shape -------------------------------------
 
