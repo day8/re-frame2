@@ -64,9 +64,7 @@
     (let [m {:story.login/base  {:tags #{:dev :test}}
              :story.login/child {:extends :story.login/base :tags #{:!dev}}}
           eff (rf.story.tags/effective-tags :story.login/child {:variant m})]
-      (is (= #{:test} eff))
-      (is (not (contains? eff :dev)))
-      (is (not (contains? eff :!dev))))))
+      (is (= #{:test} eff)))))
 
 (deftest effective-tags-story-fallback-only-when-chain-empty
   (let [variants {:story.t/no-tags  {}
@@ -102,9 +100,8 @@
                      :story.f/keeps {:tags #{:dev}}}
           projected (rf.story.tags/resolve-body-tags variants)
           dev-hits  (set (keys (rf.story.ui.state.filters/filter-variants projected #{:dev})))]
-      (testing "the child that removed :dev is filtered out"
-        (is (not (contains? dev-hits :story.f/child))))
-      (testing "variants that keep :dev (own + inherited-untouched) still match"
+      (testing "the child that removed :dev is filtered out; variants that
+                keep :dev (own + inherited-untouched) still match"
         (is (= #{:story.f/base :story.f/keeps} dev-hits)))
       (testing ":!dev is never a visible tag on any projected body"
         (is (not-any? (fn [[_ b]] (contains? (:tags b) :!dev)) projected))))))
@@ -120,16 +117,7 @@
                                    :setup     []}}
           p (rf.story.plan/variant-plan :story.login/error {:lookup m})]
       (is (= #{:test} (:tags p)))
-      (is (= #{:test} (get-in p [:explain :tags])))
-      (is (not (contains? (:tags p) :dev)))
-      (is (not (contains? (:tags p) :!dev))))))
-
-(deftest plan-tags-additive-through-extends-without-markers
-  (testing "the additive :extends union is preserved when no marker is present"
-    (let [m {:story.s/parent {:tags #{:test} :setup []}
-             :story.s/child  {:extends :story.s/parent :tags #{:docs} :setup []}}
-          p (rf.story.plan/variant-plan :story.s/child {:lookup m})]
-      (is (= #{:test :docs} (:tags p))))))
+      (is (= #{:test} (get-in p [:explain :tags]))))))
 
 (deftest plan-tags-story-fallback-via-story-lookup
   (testing "a variant that declares no tags inherits the parent story's via

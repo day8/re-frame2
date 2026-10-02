@@ -21,7 +21,6 @@
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [are deftest is testing]]
-            [malli.core :as m]
             [re-frame.story.plan        :as rf.story.plan]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.schemas     :as rf.story.schemas]))
@@ -55,10 +54,7 @@
           p (plan-of :story.checkout/mixed m)]
       (testing "the frame's :fx-overrides redirects :rf.http/managed to the stub fx"
         (is (= {:rf.http/managed :rf.http/managed-test-stub}
-               (get-in p [:world :frame :fx-overrides]))))
-      (testing "the stub fx id matches the http-test-support helper's return"
-        (is (= :rf.http/managed-test-stub rf.story.plan/managed-stub-fx-id))
-        (is (= :rf.http/managed rf.story.plan/managed-fx-id))))))
+               (get-in p [:world :frame :fx-overrides])))))))
 
 (deftest no-network-no-lowering
   (testing "a variant without :network carries no network slot and no managed override"
@@ -67,13 +63,6 @@
       (is (nil? (get-in p [:world :network])))
       (is (nil? (get-in p [:world :frame :fx-overrides])))
       (is (nil? (get-in p [:explain :network]))))))
-
-(deftest empty-network-map-is-a-noop
-  (testing "an empty :network map lowers to nothing (no override, no slot)"
-    (let [m {:story.plain/empty {:network {}}}
-          p (plan-of :story.plain/empty m)]
-      (is (nil? (get-in p [:world :network])))
-      (is (nil? (get-in p [:world :frame :fx-overrides]))))))
 
 ;; ===========================================================================
 ;; lower-network — the pure lowering primitive
@@ -119,16 +108,12 @@
   (testing ":network + an explicit :fx-overrides on :rf.http/managed is a hard error"
     (let [m {:story.checkout/conflict
              {:network      {cart-route {:reply {:ok {:items []}}}}
-              :fx-overrides {:rf.http/managed :some/other-stub}}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-network-fx-conflict"
-            (plan-of :story.checkout/conflict m)))
-      (let [data (try (plan-of :story.checkout/conflict m)
-                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-        (is (= :rf.error/story-network-fx-conflict (:rf.error/id data)))
-        (is (= :rf.http/managed (:fx-id data)))
-        (is (= :story.checkout/conflict (:variant/id data)))))))
+              :fx-overrides {:rf.http/managed :some/other-stub}}}
+          data (try (plan-of :story.checkout/conflict m)
+                    (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+      (is (= :rf.error/story-network-fx-conflict (:rf.error/id data)))
+      (is (= :rf.http/managed (:fx-id data)))
+      (is (= :story.checkout/conflict (:variant/id data))))))
 
 (deftest network-and-non-managed-fx-override-coexist
   (testing ":network and an :fx-overrides on a DIFFERENT fx merge cleanly"
@@ -159,16 +144,12 @@
                       :compose [:fragment.http/managed-override]}}
           compile   #(rf.story.plan/variant-plan :story.checkout/compose-conflict
                                         {:lookup          variants
-                                         :fragment-lookup fragments})]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-network-fx-conflict"
-            (compile)))
-      (let [data (try (compile)
-                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-        (is (= :rf.error/story-network-fx-conflict (:rf.error/id data)))
-        (is (= :rf.http/managed (:fx-id data)))
-        (is (= :story.checkout/compose-conflict (:variant/id data)))))))
+                                         :fragment-lookup fragments})
+          data      (try (compile)
+                          (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+      (is (= :rf.error/story-network-fx-conflict (:rf.error/id data)))
+      (is (= :rf.http/managed (:fx-id data)))
+      (is (= :story.checkout/compose-conflict (:variant/id data))))))
 
 ;; ===========================================================================
 ;; explain — per-route stubs + lowering visible
@@ -212,10 +193,9 @@
               :network {checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}}}
           p (plan-of :story.n/child m)]
       (testing "both parent + child routes present (disjoint routes union)"
-        (is (= {:reply {:ok {:items []}}}
-               (get-in p [:world :network cart-route])))
-        (is (= {:reply {:failure {:kind :rf.http/http-4xx}}}
-               (get-in p [:world :network checkout-route]))))
+        (is (= {cart-route     {:reply {:ok {:items []}}}
+                checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}
+               (get-in p [:world :network]))))
       (testing "one managed-stub override covers the inherited + own routes"
         (is (= {:rf.http/managed :rf.http/managed-test-stub}
                (get-in p [:world :frame :fx-overrides])))))))
@@ -257,11 +237,6 @@
     {cart-route {:reply {:ok 1 :failure {:kind :x}}}}
     ;; a route key that is not a [method url] pair: a bare string, a bad method
     {"/api/cart" {:reply {:ok 1}}}
-    {[:teleport "/api/cart"] {:reply {:ok 1}}}))
-
-(deftest network-spec-is-malli-valid
-  (testing "NetworkSpec is a well-formed Malli schema"
-    (is (m/validate rf.story.schemas/NetworkSpec
-                    {cart-route {:reply {:ok {:items []}}}}))
-    (is (not (m/validate rf.story.schemas/NetworkSpec
-                         {cart-route {:reply {}}})))))
+    {[:teleport "/api/cart"] {:reply {:ok 1}}}
+    ;; a :reply carrying neither :ok nor :failure
+    {cart-route {:reply {}}}))

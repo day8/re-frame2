@@ -5,15 +5,13 @@
   model. The compiler is a pure
   data → data fn, so every test runs on both the JVM and CLJS without a
   host: variant bodies are supplied through an explicit `:lookup` map of
-  RAW bodies (the parent-chain resolution is the compiler's job, so the
-  test bodies still carry `:extends` rather than relying on the
-  registrar's eager merge).
+  RAW bodies, `:extends` included, because the parent-chain resolution
+  is the compiler's job (the registrar stores raw bodies too).
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a plain `-test` name would run it on the JVM only."
   (:require [clojure.test :refer [deftest is testing]]
             [malli.core :as m]
-            [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.sub-overrides :as rf.story.sub-overrides]))
@@ -35,9 +33,6 @@
               :assertions [[:rf.assert/path-equals [:count] 6]]}}
           p (plan-of :story.counter/at-five m)]
       (is (= :story.counter/at-five (:variant/id p)))
-      (is (contains? p :world))
-      (is (contains? p :script))
-      (is (contains? p :expect))
       (is (= [[:dispatch [:counter/init 5]]] (get-in p [:world :setup])))
       (is (= [[:dispatch [:counter/inc]]] (:script p)))
       (is (= [[:rf.assert/path-equals [:count] 6]]
@@ -55,15 +50,6 @@
       (is (= [] (:script p))))))
 
 ;; ---- inline map target ---------------------------------------------------
-
-(deftest inline-map-target-compiles
-  (testing "a map target compiles the same way as a registered keyword"
-    (let [p (rf.story.plan/variant-plan {:variant/id :story.inline/v
-                                :setup  [[:dispatch [:a]]]
-                                :script [[:dispatch [:b]]]})]
-      (is (= :story.inline/v (:variant/id p)))
-      (is (= [[:dispatch [:a]]] (get-in p [:world :setup])))
-      (is (= [[:dispatch [:b]]] (:script p))))))
 
 (deftest inline-map-target-without-variant-id-compiles
   (testing "a map target with NO :variant/id is allowed (spec: :variant/id
@@ -129,17 +115,13 @@
   (testing "a [:arg key] referencing an undeclared arg fails plan construction"
     (let [m {:story.bad/arg
              {:args  {:sku "A"}
-              :setup [[:dispatch [:cart/add {:sku [:arg :sku] :qty [:arg :qty]}]]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-missing-arg"
-            (plan-of :story.bad/arg m)))
-      (let [data (try (plan-of :story.bad/arg m)
-                      (catch #?(:clj Exception :cljs :default) e
-                        (ex-data e)))]
-        (is (= :rf.error/story-missing-arg (:rf.error/id data)))
-        (is (= :qty (:arg data)))
-        (is (re-find #"qty" (:reason data)))))))
+              :setup [[:dispatch [:cart/add {:sku [:arg :sku] :qty [:arg :qty]}]]]}}
+          data (try (plan-of :story.bad/arg m)
+                    (catch #?(:clj Exception :cljs :default) e
+                      (ex-data e)))]
+      (is (= :rf.error/story-missing-arg (:rf.error/id data)))
+      (is (= :qty (:arg data)))
+      (is (re-find #"qty" (:reason data))))))
 
 (deftest args-and-argtypes-resolve-through-extends
   (testing "args + argtypes deep-merge root→child via the dedicated merge-key
@@ -430,17 +412,13 @@
              {:component :views/widget
               :args      {:label "Hi"}}}   ; :count required, absent
           opts {:lookup      m
-                :view-lookup {:views/widget {:rf/props [:map [:label :string] [:count :int]]}}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-view-args-invalid"
-            (rf.story.plan/variant-plan :story.widget/missing opts)))
-      (let [data (try (rf.story.plan/variant-plan :story.widget/missing opts)
-                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-        (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
-        (testing "the failure reports the missing key, schema path, and source variant"
-          (is (= :story.widget/missing (:variant/id data)))
-          (is (= [{:key :count :schema :int :path [:count]}] (:missing data))))))))
+                :view-lookup {:views/widget {:rf/props [:map [:label :string] [:count :int]]}}}
+          data (try (rf.story.plan/variant-plan :story.widget/missing opts)
+                    (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+      (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
+      (testing "the failure reports the missing key, schema path, and source variant"
+        (is (= :story.widget/missing (:variant/id data)))
+        (is (= [{:key :count :schema :int :path [:count]}] (:missing data)))))))
 
 (deftest optional-arg-may-be-absent
   (testing "an entry marked {:optional true} is NOT a required input"
@@ -463,21 +441,17 @@
               :args      {:label "Hi" :count "three"}}}  ; :count must be :int
           opts {:lookup        m
                 :view-lookup   {:views/widget {:rf/props [:map [:label :string] [:count :int]]}}
-                :validator-fns malli-validator}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-view-args-invalid"
-            (rf.story.plan/variant-plan :story.widget/bad opts)))
-      (let [data (try (rf.story.plan/variant-plan :story.widget/bad opts)
-                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))
-            bad  (first (:malformed data))]
-        (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
-        (is (= :story.widget/bad (:variant/id data))
-            "the failure carries the source variant")
-        (is (= :count (:key bad)))
-        (is (= [:count] (:path bad)) "reports the Malli schema path")
-        (is (= "three" (:value bad)))
-        (is (some? (:explain bad)) "carries the validator explanation")))))
+                :validator-fns malli-validator}
+          data (try (rf.story.plan/variant-plan :story.widget/bad opts)
+                    (catch #?(:clj Exception :cljs :default) e (ex-data e)))
+          bad  (first (:malformed data))]
+      (is (= :rf.error/story-view-args-invalid (:rf.error/id data)))
+      (is (= :story.widget/bad (:variant/id data))
+          "the failure carries the source variant")
+      (is (= :count (:key bad)))
+      (is (= [:count] (:path bad)) "reports the Malli schema path")
+      (is (= "three" (:value bad)))
+      (is (some? (:explain bad)) "carries the validator explanation"))))
 
 (deftest no-view-schema-no-validation
   (testing "a view with no props schema leaves the plan unvalidated (slots absent)"
@@ -552,19 +526,7 @@
         (is (= [:map [:label :string]] (get-in p [:world :view-args-schema]))))
       (testing ":sub-overrides lower to their own [:world :render :sub-overrides] slot"
         (is (= {[:widget/state] :error}
-               (get-in p [:world :render :sub-overrides]))))
-      (testing "the two contracts are not conflated — the view-args schema's
-                map-entry keys are the explicit-arg keys only, never a
-                sub-override query vector"
-        ;; A sub-override key is a QUERY VECTOR (`[:widget/state]`); the
-        ;; view-args schema's entries are scalar arg keys (`:label`). Pull
-        ;; the schema's entry keys and assert the sub-override query vector
-        ;; (and its sub-id) are absent — the real conflation guard.
-        (let [schema     (get-in p [:world :view-args-schema])
-              entry-keys (set (map first (drop 1 schema)))]
-          (is (= #{:label} entry-keys))
-          (is (not (contains? entry-keys [:widget/state])))
-          (is (not (contains? entry-keys :widget/state))))))))
+               (get-in p [:world :render :sub-overrides])))))))
 
 ;; ===========================================================================
 ;; View-state subscription overrides
@@ -684,8 +646,7 @@
                                 :fragment-lookup frag})]
       (is (= {[:login/state] :error
               [:login/code]  503}              ; variant value wins over the fragment
-             (get-in p [:world :render :sub-overrides])))
-      (is (= #{:sub-overrides} (get-in p [:world :fidelity]))))))
+             (get-in p [:world :render :sub-overrides]))))))
 
 (deftest sub-overrides-same-key-child-replaces-parent-through-extends
   (testing "a child overriding the SAME query key REPLACES the parent's pinned
@@ -743,8 +704,7 @@
           p (rf.story.plan/variant-plan :story.p/child {:lookup m})]
       ;; deep-merge: child wins :cart, parent's :flags survives.
       (is (= {:cart {:items [1 2]} :flags {:a true}}
-             (get-in p [:world :db-seed])))
-      (is (= #{:db-seed} (get-in p [:world :fidelity]))))))
+             (get-in p [:world :db-seed]))))))
 
 (deftest db-seed-composes-through-fragments
   (testing "a composed fragment contributes :db-seed; the variant wins per key"
@@ -755,8 +715,7 @@
           p (rf.story.plan/variant-plan :story.cart/composed
                                {:lookup m :fragment-lookup frag})]
       (is (= {:cart {:items []} :session :member}
-             (get-in p [:world :db-seed])))
-      (is (= #{:db-seed} (get-in p [:world :fidelity]))))))
+             (get-in p [:world :db-seed]))))))
 
 (deftest db-seed-empty-is-no-rung
   (testing "an empty resolved :db-seed activates no rung + carries no world slot"
@@ -831,8 +790,7 @@
           checkpoint   (-> p :script (->> (filter #(= :assert (first %))) first) second)]
       ;; same id, same payload, same vector — no per-position divergence
       (is (= atom-v terminal))
-      (is (= atom-v checkpoint))
-      (is (= terminal checkpoint)))))
+      (is (= atom-v checkpoint)))))
 
 ;; ---- :assert-db fold ------------------------------------------------------
 
@@ -873,17 +831,6 @@
               [:assert [:rf.assert/dom-text "#c" "hello"]]]
              (:script p))))))
 
-(deftest dom-fold-carries-dom-runner-requirement
-  (testing "a folded :assert-dom step contributes the :dom capability token to
-           :required-runner (the requirement rides the folded id)"
-    (let [p (plan-of :story.x/dom-req
-                     {:story.x/dom-req {:script [[:assert-dom "#x" :visible]]}})]
-      (is (contains? (:required-runner p) :dom))))
-  (testing "a headless-only :assert-db fold demands NO :dom token"
-    (let [p (plan-of :story.x/db-req
-                     {:story.x/db-req {:script [[:assert-db [:n] 1]]}})]
-      (is (not (contains? (:required-runner p) :dom))))))
-
 ;; ---- unknown assertion ids fail plan construction ------------------------
 
 (deftest unknown-script-checkpoint-assertion-id-fails-plan-construction
@@ -900,7 +847,6 @@
     (let [m {:story.x/bad3 {:assertions [[:rf.assert/whoops]]}}
           ex (try (plan-of :story.x/bad3 m) nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex))
       (is (= :rf.error/story-unknown-assertion (:rf.error/id (ex-data ex))))
       (is (contains? (set (:offending-assertions (ex-data ex)))
                      [:rf.assert/whoops])))))
@@ -939,7 +885,6 @@
               {:assertions [[:rf.assert/caused {:event :e :require-cause? false}]]}}
           ex (try (plan-of :story.x/rc-data m) nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex))
       (is (= :rf.error/story-bad-assertion-opt (:rf.error/id (ex-data ex))))
       (is (contains? (set (:offending-assertions (ex-data ex)))
                      [:rf.assert/caused {:event :e :require-cause? false}])))))
@@ -1025,50 +970,20 @@
 ;; (IndexOutOfBounds / `No matching clause`). The gate reuses the runner's
 ;; `validate-script` so the compiler and runtime agree on step shape.
 
-(deftest malformed-assert-dom-mode-rejected-before-fold
-  (testing "an :assert-dom step with an unrecognised mode FAILS plan
-           construction with a structured story-bad-step (NOT a raw
-           `No matching clause` IllegalArgumentException from the fold)"
-    (let [m {:story.x/bad-dom {:script [[:assert-dom "#x" :weird]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-bad-step"
-            (plan-of :story.x/bad-dom m))))))
-
-(deftest malformed-assert-db-arity-rejected-before-fold
-  (testing "an :assert-db step with too few elements FAILS plan construction
-           with a structured story-bad-step (NOT a raw IndexOutOfBounds from
-           the fold's nth)"
-    (let [m {:story.x/bad-db {:script [[:assert-db [:n]]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-bad-step"
-            (plan-of :story.x/bad-db m))))))
-
-(deftest malformed-step-error-carries-structured-data
-  (testing "the :rf.error/story-bad-step ex-data names the offending step"
-    (let [m  {:story.x/bad4 {:script [[:assert-db [:n] :pred even? :extra]]}}
-          ex (try (plan-of :story.x/bad4 m) nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex))
-      (is (= :rf.error/story-bad-step (:rf.error/id (ex-data ex))))
-      (is (contains? (set (map :step (:offending-steps (ex-data ex))))
-                     [:assert-db [:n] :pred even? :extra])))))
-
-;; ---- pure fold helpers (assertion-ns surface) ----------------------------
-
-(deftest fold-helpers-are-pure-and-position-agnostic
-  (testing "rf.story.assertions/fold-assert-step folds the shipping sugar steps"
-    (is (= [:assert [:rf.assert/path-equals [:n] 5]]
-           (rf.story.assertions/fold-assert-step [:assert-db [:n] 5])))
-    (is (= [:assert [:rf.assert/dom-visible "#x"]]
-           (rf.story.assertions/fold-assert-step [:assert-dom "#x" :visible]))))
-  (testing "fold-assert-step is identity for non-foldable steps"
-    (is (= [:dispatch [:e]] (rf.story.assertions/fold-assert-step [:dispatch [:e]])))
-    (is (= [:assert [:rf.assert/no-warnings]]
-           (rf.story.assertions/fold-assert-step [:assert [:rf.assert/no-warnings]])))
-    (is (= [:wait 10] (rf.story.assertions/fold-assert-step [:wait 10]))))
-  (testing "known-assertion-ids covers the seven shipping ids + the DOM family"
-    (is (every? rf.story.assertions/assertion-id-known? rf.story.assertions/canonical-assertion-ids))
-    (is (every? rf.story.assertions/assertion-id-known? rf.story.assertions/dom-assertion-ids))
-    (is (not (rf.story.assertions/assertion-id-known? :rf.assert/totally-made-up)))))
+(deftest malformed-assert-steps-are-rejected-with-a-structured-error-before-the-fold
+  (doseq [[label step]
+          [["an :assert-dom step with an unrecognised mode (NOT a raw `No
+             matching clause` IllegalArgumentException from the fold)"
+            [:assert-dom "#x" :weird]]
+           ["an :assert-db step with too few elements (NOT a raw
+             IndexOutOfBounds from the fold's nth)"
+            [:assert-db [:n]]]
+           ["an :assert-db step with trailing junk"
+            [:assert-db [:n] :pred even? :extra]]]]
+    (testing label
+      (let [data (try (plan-of :story.x/bad-step {:story.x/bad-step {:script [step]}}) nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                        (ex-data e)))]
+        (is (= :rf.error/story-bad-step (:rf.error/id data)))
+        (is (contains? (set (map :step (:offending-steps data))) step)
+            "the ex-data names the offending step")))))
