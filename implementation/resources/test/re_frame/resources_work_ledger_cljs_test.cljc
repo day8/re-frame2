@@ -921,7 +921,7 @@
                 "inverse index drift vs full rebuild")))))))
 
 (deftest prune-self-heals-on-wholesale-installed-ledger
-  (testing "a ledger installed wholesale (hydration / restore /
+  (testing "a ledger installed wholesale (epoch restore /
             replace-frame-state!) carries NO inverse index; the first prune
             rebuilds it from ground truth and still matches the full scan"
     (let [ka (rf.resources.state/scoped-resource-key :rf.scope/global :wl/h {:id 1})
