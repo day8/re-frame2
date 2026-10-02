@@ -34,6 +34,7 @@
   on `(browser?)` and no-ops."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react-dom" :as react-dom]
+            [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -70,6 +71,21 @@
     (js/document.body.appendChild node)
     node))
 
+;; `rdc/render` wraps each call's element in a fresh root component, so a
+;; second `rdc/render` would remount the host and never reach
+;; `:component-did-update`. The host is rendered ONCE, reading its
+;; panel-id from a ratom, and `swap-panel!` drives the swap through it.
+(defn- render-host! [root pid]
+  (react-dom/flushSync
+    (fn [] (rdc/render root [(fn [] [panel-host-component @pid])]))))
+
+(defn- swap-panel! [pid new-pid]
+  (reset! pid new-pid)
+  (r/flush))
+
+(defn- host-in [mount-node]
+  (.querySelector mount-node "[data-rf-xray-panel-host]"))
+
 ;; ---- a failed mount leaves no orphan -----------------------------------
 
 (deftest mount-fail-does-not-leak-orphan-container
@@ -80,27 +96,32 @@
             accumulating for the panel-host's lifetime)"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs the real assertion")
-      (with-redefs [rf.story.ui.xray-embed/mount-fn-for
-                    (fn [_pid] (fn [_container] (throw (js/Error. "boom"))))]
-        (let [mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
-          (try
-            (react-dom/flushSync
-              (fn [] (rdc/render root [panel-host-component :epoch])))
-            (let [host (.querySelector mount-node "[data-rf-xray-panel-host]")]
-              (is (some? host) "panel-host div rendered")
-              (is (zero? (.-length (.-children host)))
-                  "no orphaned mount-container child survives a throwing mount-fn"))
-            ;; A second failed mount — a panel-id swap re-triggers
-            ;; `do-mount!` via `:component-did-update` — must not
-            ;; accumulate a second orphan either.
-            (react-dom/flushSync
-              (fn [] (rdc/render root [panel-host-component :app-db])))
-            (let [host (.querySelector mount-node "[data-rf-xray-panel-host]")]
-              (is (zero? (.-length (.-children host)))
-                  "repeated failed mounts still leave zero orphaned children"))
-            (finally
-              (try (.unmount root) (catch :default _ nil)))))))))
+      (let [attempts (atom [])]
+        (with-redefs [rf.story.ui.xray-embed/mount-fn-for
+                      (fn [pid] (fn [_container]
+                                  (swap! attempts conj pid)
+                                  (throw (js/Error. "boom"))))]
+          (let [mount-node (make-mount-node!)
+                root       (rdc/create-root mount-node)
+                pid        (r/atom :epoch)]
+            (try
+              (render-host! root pid)
+              (let [host (host-in mount-node)]
+                (is (some? host) "panel-host div rendered")
+                (is (zero? (.-length (.-children host)))
+                    "no orphaned mount-container child survives a throwing mount-fn")
+                ;; A second failed mount — a panel-id swap re-triggers
+                ;; `do-mount!` via `:component-did-update` — must not
+                ;; accumulate a second orphan either.
+                (swap-panel! pid :app-db)
+                (is (identical? host (host-in mount-node))
+                    "the host survived the swap, so it was an update, not a remount")
+                (is (= [:epoch :app-db] @attempts)
+                    "the swap's :component-did-update attempted the second mount")
+                (is (zero? (.-length (.-children host)))
+                    "repeated failed mounts still leave zero orphaned children"))
+              (finally
+                (try (.unmount root) (catch :default _ nil))))))))))
 
 (deftest mount-success-after-a-prior-failure-still-works
   (testing "after a failed mount, a subsequent panel-id swap to a
@@ -122,18 +143,18 @@
                                     (fn unmount! [] nil)))
                         nil))]
         (let [mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)]
+              root       (rdc/create-root mount-node)
+              pid        (r/atom :epoch)]
           (try
             ;; First mount fails.
-            (react-dom/flushSync
-              (fn [] (rdc/render root [panel-host-component :epoch])))
-            (let [host (.querySelector mount-node "[data-rf-xray-panel-host]")]
+            (render-host! root pid)
+            (let [host (host-in mount-node)]
               (is (zero? (.-length (.-children host)))
-                  "precondition: the failed mount left no child"))
-            ;; Swap to a working panel — should mount cleanly.
-            (react-dom/flushSync
-              (fn [] (rdc/render root [panel-host-component :app-db])))
-            (let [host (.querySelector mount-node "[data-rf-xray-panel-host]")]
+                  "precondition: the failed mount left no child")
+              ;; Swap to a working panel — should mount cleanly.
+              (swap-panel! pid :app-db)
+              (is (identical? host (host-in mount-node))
+                  "the host survived the swap, so it was an update, not a remount")
               (is (= 1 (.-length (.-children host)))
                   "the subsequent successful mount installs exactly one
                    live child container")

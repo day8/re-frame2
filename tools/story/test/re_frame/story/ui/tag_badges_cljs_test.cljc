@@ -107,3 +107,11 @@
          (is (some? container))
          (is (= 3 (count badges)))
          (is (= ["dev" "test" "wip"] attrs))))))
+
+#?(:cljs
+   (deftest tag-badge-names-its-tag-in-text-and-title
+     (testing "a badge's visible text is the tag's `name` and its `title`
+               the full keyword (spec/014 §Rendering contract)"
+       (let [[badge] (find-by-data-test (rf.story.ui.sidebar/tag-badges #{:test})
+                                        "story-sidebar-tag-badge")]
+         (is (= ["test" ":test"] [(nth badge 2) (:title (second badge))]))))))

@@ -444,14 +444,12 @@
           options))
 
 (defn- path-label
-  "Derive an accessible name for an input from its `path`. The path tail
-  is the user-visible label sibling (rendered in the `:label` span at
-  row level); we mirror it as `aria-label` so screen readers announce
-  the input by name. The visible span is purely visual
-  — without this association screen readers announce 'edit, blank'.
-
-  Nested paths produce a slash-joined breadcrumb (`outer/inner`) so a
-  nested input under `:address.street` reads as 'address / street'."
+  "Derive an accessible name for an input from its `path`: each segment
+  printed with `str` and joined with ` / `, so `[:username]` reads
+  \":username\" and a nested input under `[:address :street]` reads
+  \":address / :street\". It becomes the input's `aria-label`, because
+  the row-level `:label` span is purely visual — without it screen
+  readers announce 'edit, blank'."
   [path]
   (let [parts (mapv str path)]
     (str/join " / " parts)))

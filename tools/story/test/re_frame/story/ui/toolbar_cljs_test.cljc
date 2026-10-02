@@ -296,6 +296,14 @@
                          (filter string?))]
          (is (some #(re-find #"no modes registered" %) flat))))))
 
+#?(:cljs
+   (deftest cljs-toolbar-strip-is-a-labelled-toolbar-landmark
+     (testing "the strip renders as a `<header role=\"toolbar\"
+               aria-label=\"Story modes\">` landmark (spec/010)"
+       (let [[tag attrs] (rf.story.ui.toolbar/toolbar-strip)]
+         (is (= [:header "toolbar" "Story modes"]
+                [tag (:role attrs) (:aria-label attrs)]))))))
+
 ;; ---- cofx + sub registration --------------------------------------------
 
 #?(:cljs

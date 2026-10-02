@@ -88,15 +88,25 @@
        (rf.story.ui.recorder-export-dialog/open-dialog!
          {:source-id :story.x/source
           :events    [[:counter/inc] [:counter/dec]]})
-       (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
-         (is (str/includes? flat ":counter/inc")
+       ;; The title prints `:script` and the hint prints the source-id, so
+       ;; the snippet claims read the snippet `<pre>`, not the whole dialog.
+       (let [tree    (rf.story.ui.recorder-export-dialog/export-dialog)
+             flat    (str tree)
+             snippet (str (some (fn [node]
+                                  (when (and (vector? node)
+                                             (= :pre (first node))
+                                             (= "story-recorder-export-snippet"
+                                                (:data-test (second node))))
+                                    (nth node 2)))
+                                (tree-seq coll? seq tree)))]
+         (is (str/includes? snippet ":counter/inc")
              "captured events appear in the snippet")
-         (is (str/includes? flat ":counter/dec"))
-         (is (str/includes? flat ":story.x/source")
+         (is (str/includes? snippet ":counter/dec"))
+         (is (str/includes? snippet ":story.x/source")
              "source-id appears via :extends")
-         (is (str/includes? flat ":script")
+         (is (str/includes? snippet ":script")
              "snippet carries the public :script slot name")
-         (is (not (str/includes? flat ":play-script"))
+         (is (not (str/includes? snippet ":play-script"))
              "snippet emits no :play-script slot")
          (is (str/includes? flat "story-recorder-export-snippet")
              ":data-test for the snippet pre tag")
