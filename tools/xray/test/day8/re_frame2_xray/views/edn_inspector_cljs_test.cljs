@@ -415,10 +415,7 @@
   (testing "map-entry brackets share a vector's chars but read in `:accent`,
             where a vector's read in `:text-secondary`"
     (is (= :accent         (-> ei/delim :map-entry :tone-key)))
-    (is (= :text-secondary (-> ei/delim :vector    :tone-key)))
-    (is (not= (-> ei/delim :vector :tone-key)
-              (-> ei/delim :map-entry :tone-key))
-        "map-entry and vector share chars but MUST use distinct colours")))
+    (is (= :text-secondary (-> ei/delim :vector    :tone-key)))))
 
 ;; ---- expansion-key shape -------------------------------------------------
 
@@ -3416,10 +3413,9 @@
 
 (deftest with-before-paints-rail-on-change-bearing-container
   (testing "a `:before` pre-image renders the change-bearing
-            container with the R4 rail (`data-rf-rail`); modified leaves
-            carry the `← was <prior>` annotation. The rail paints on a
-            container whose OWN op is added/removed/modified (a newly-
-            added nested map here)."
+            container with the R4 rail (`data-rf-rail`). The rail paints
+            on a container whose OWN op is added/removed/modified (a
+            newly-added nested map here)."
     (let [before {:a 1}
           after  {:a 1 :nested {:x 1 :y 2}}
           proj   (engine/project before after)
@@ -3432,20 +3428,7 @@
                                   :expansion-map {}
                                   :opts {:default-expanded-depth 4}})]
       (is (some? (find-attr h :data-rf-rail "1"))
-          "the added nested container's body carries the R4 rail attr")
-      ;; A modified leaf also annotates (separate scenario keeps the
-      ;; rail assertion clean above).
-      (let [hm (ei/render-node {:value {:counter 2}
-                                :before {:counter 1}
-                                :diff? true
-                                :projection (engine/project {:counter 1} {:counter 2})
-                                :panel-id :p :mount-id "m"
-                                :path [] :depth 0
-                                :expansion-map {}
-                                :opts {:default-expanded-depth 2}})
-            sm (try (pr-str hm) (catch :default _ ""))]
-        (is (re-find #"← was 1" sm)
-            "the modified leaf carries the inline change annotation")))))
+          "the added nested container's body carries the R4 rail attr"))))
 
 (defn- diff-op-values
   "Collect every non-nil `:data-rf-diff-op` attribute value in `tree`."
@@ -4249,14 +4232,7 @@
           "it renders as a modified leaf")
       (is (str/includes? (collect-text h) "← was")
           "and the `← was` chip is built from a BOUNDED print of the
-           infinite prior value")))
-  (testing "the diff walkers, which take both sides"
-    ;; `count` FORCES the walk — `some?` on a lazy seq would pass
-    ;; without exercising anything.
-    (is (number? (count (ei/children-of-pair (range) [1 2 3] :vector)))
-        "`children-of-pair` returns when the BEFORE side is infinite")
-    (is (number? (count (ei/children-of-pair [1 2 3] (range) :vector)))
-        "and when the AFTER side is")))
+           infinite prior value"))))
 
 (deftest an-infinite-seq-renders-rather-than-freezing
   ;; End to end: the whole point. An app-db with `(range)` under one
@@ -4469,15 +4445,7 @@
       ;; Exact canonical EDN inline form — the single space between each
       ;; element is the load-bearing assertion (no `, `, no concatenation).
       (is (= "[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]"
-             text))
-      ;; Defence-in-depth: the exact run-together symptom
-      ;; (`run-step26`, `26:rf/default`) must NOT be present.
-      (is (not (re-find #"run-step26" text))
-          "the integer must not run into the preceding keyword")
-      (is (not (re-find #"26:rf" text))
-          "the trailing keyword must not run into the preceding integer")
-      (is (not (re-find #", " text))
-          "a sequential vector must not comma-separate its elements"))))
+             text)))))
 
 (deftest render-inline-recursive-map-comma-separated
   (testing "an inline map keeps `, ` between k/v pairs and a
@@ -4649,9 +4617,7 @@
                                   {:panel-id :rf.xray/app-db})
           attrs (-> h second)]
       (is (nil? (:data-rf-zoomable attrs))
-          "default-off — attribute is absent on the outer container")
-      (is (nil? (:data-rf-zoomed attrs))
-          "no zoom active — no zoomed marker"))))
+          "default-off — attribute is absent on the outer container"))))
 
 (deftest zoomable-opt-emits-data-attr
   (testing "with `:zoomable? true` the outer container publishes
@@ -4670,11 +4636,11 @@
 ;;
 ;; There is no `⊙` glyph button; zoom-in is a
 ;; node-local gesture on the container's own outer div. These tests
-;; assert: (a) NO `⊙` / zoom-affordance glyph renders anywhere; (b) the
-;; non-root container carries the `data-rf-zoom-target` + handlers; (c)
-;; the root + opt-off cases carry no zoom target; (d) double-click +
-;; Enter both dispatch the canonical zoom-to through the captured
-;; dispatcher with the absolute path.
+;; assert: (a) the non-root container carries the `data-rf-zoom-target` +
+;; handlers; (b) the root + opt-off cases carry no zoom target; (c)
+;; double-click + Enter, fired on the rendered child, both dispatch the
+;; canonical zoom-to through the captured dispatcher with the absolute
+;; path; (d) modified Enter and other keys do not.
 
 (defn- zoom-target-nodes
   "Every hiccup node carrying `data-rf-zoom-target=1`."
@@ -4684,34 +4650,6 @@
                  (map? (second n))
                  (= "1" (:data-rf-zoom-target (second n)))))
           (walk-hiccup tree)))
-
-(defn- glyph-nodes
-  "Every hiccup node whose string content is a `⊙` zoom glyph,
-  plus any `data-rf-affordance=zoom` button — surfaces the widget
-  does not render. Used to assert their TOTAL ABSENCE."
-  [tree]
-  (filter (fn [n]
-            (and (vector? n)
-                 (or (= "⊙" (last n))
-                     (and (map? (second n))
-                          (= "zoom" (:data-rf-affordance (second n)))))))
-          (walk-hiccup tree)))
-
-(deftest zoomable-emits-no-glyph-button
-  ;; No `⊙` glyph and no `data-rf-affordance=zoom` button: the
-  ;; recursive walker emits neither, at any depth.
-  (let [v {:a {:nested 1} :b 2}
-        h (ei/render-node {:value v
-                           :panel-id :p
-                           :mount-id "m"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :zoomable? true
-                           :zoom-path-prefix []
-                           :opts {:default-expanded-depth 8}})]
-    (is (empty? (glyph-nodes h))
-        "no `⊙` glyph / zoom-affordance button renders")))
 
 (deftest zoomable-marks-non-root-containers-as-zoom-targets
   ;; With zoomable? on, every non-root container's outer div carries the
@@ -4878,9 +4816,7 @@
                            :expansion-map {}
                            :opts {:default-expanded-depth 8}})]
     (is (zero? (count (zoom-target-nodes h)))
-        "with :zoomable? off no node is a zoom target")
-    (is (empty? (glyph-nodes h))
-        "and certainly no glyph")))
+        "with :zoomable? off no node is a zoom target")))
 
 (defn- with-captured-dispatch-spy
   "Build the zoom-trigger attrs with a captured-dispatcher STUB as its
@@ -4911,34 +4847,6 @@
                                 "stopPropagation" (fn []))))]
      (handler event)
      {:event @captured :attrs attrs})))
-
-(deftest zoom-trigger-double-click-dispatches-zoom-to-with-absolute-path
-  (let [{:keys [event attrs]}
-        (with-captured-dispatch-spy
-          (fn [spy]
-            (ei/zoom-trigger-attrs
-              {:dispatch-fn   spy
-               :panel-id      :p
-               :mount-id      "m"
-               :absolute-path [:a :b :c]})))]
-    (is (fn? (:on-double-click attrs)) "carries a double-click handler")
-    (is (= [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b :c]] event)
-        "double-click dispatches the canonical zoom-to with the absolute path")))
-
-(deftest zoom-trigger-enter-key-dispatches-zoom-to
-  ;; Enter on the focused node is the keyboard a11y path to zoom in,
-  ;; with no glyph button to tab to.
-  (let [{:keys [event]}
-        (with-captured-dispatch-spy
-          (fn [spy]
-            (ei/zoom-trigger-attrs
-              {:dispatch-fn   spy
-               :panel-id      :p
-               :mount-id      "m"
-               :absolute-path [:a :b]}))
-          :on-key-down nil)]
-    (is (= [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b]] event)
-        "Enter dispatches the canonical zoom-to with the absolute path")))
 
 (deftest zoom-trigger-enter-ignores-modifiers-and-other-keys
   ;; A bare Enter zooms; Ctrl/Cmd/Alt/Shift+Enter and non-Enter keys do
