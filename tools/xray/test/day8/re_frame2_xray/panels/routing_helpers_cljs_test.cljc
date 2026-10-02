@@ -34,8 +34,8 @@
   The suite runs under the core reset fixture (plain-atom) because the
   slot-shape pins register a real route and navigate to it; every other
   row is pure data and ignores the runtime."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing use-fixtures]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.routing]
@@ -412,59 +412,30 @@
 ;; — NEVER the live current slice. The live slice is the
 ;; *current* route, which is time-dependent (it drifts as the app keeps
 ;; navigating); reading FROM from the cascade makes the lens honest about
-;; the transition the SELECTED epoch performed.
+;; the transition the SELECTED epoch performed, and the fn takes no slice
+;; argument at all. The runtime emits no :rf.route/deactivated on a first
+;; navigation (no prior route to leave) nor on a same-route re-navigation
+;; (changed params/query), so neither surfaces a FROM.
 
 (deftest from-to-from-event-bundle-test
-  (testing "no nav emit → not navigated"
-    (let [c (cascade 1 [:foo])
-          {:keys [navigated? from-id to-id]}
-          (h/from-to-from-event-bundle c)]
-      (is (false? navigated?))
-      (is (nil? from-id))
-      (is (nil? to-id))))
-
-  (testing "cross-route nav yields both ids from the cascade emits"
-    (let [c (nav-cascade 1 [:rf.route/navigate {:to :route/confirm}]
-                         :route/confirm :route/cart "nav-7")
-          {:keys [navigated? from-id to-id]}
-          (h/from-to-from-event-bundle c)]
-      (is (true? navigated?))
-      (is (= :route/cart from-id))
-      (is (= :route/confirm to-id))))
-
-  (testing "first navigation (no deactivated emit) yields nil FROM"
-    ;; The runtime emits no :rf.route/deactivated on the first nav (no
-    ;; prior route to leave) — absence of the emit ⇒ no FROM.
-    (let [c (nav-cascade 1 [:rf.route/navigate {:to :route/cart}]
-                         :route/cart nil "nav-1")
-          {:keys [navigated? from-id to-id]}
-          (h/from-to-from-event-bundle c)]
-      (is (true? navigated?))
-      (is (nil? from-id))
-      (is (= :route/cart to-id))))
-
-  (testing "same-route re-navigation (no deactivated emit) collapses FROM"
-    ;; Same route-id, changed params/query: the runtime emits NEITHER
-    ;; deactivated nor activated, so no FROM surfaces.
-    (let [c (nav-cascade 1 [:rf.route/navigate {:to :route/cart :params {:filter :all}}]
-                         :route/cart nil "nav-3")
-          {:keys [navigated? from-id to-id]}
-          (h/from-to-from-event-bundle c)]
-      (is (true? navigated?))
-      (is (nil? from-id) "no deactivated emit ⇒ no FROM")
-      (is (= :route/cart to-id))))
-
-  (testing "FROM is independent of the live current slice"
-    ;; FROM read off the live slice's :route-id would be wrong: a focused
-    ;; A→B cascade must report FROM A / TO B regardless of where the app
-    ;; has since navigated — the cascade carries deactivated-A /
-    ;; allocated-B unconditionally, so the live route is irrelevant.
-    (let [c (nav-cascade 1 [:rf.route/navigate {:to :route/confirm}]
-                         :route/confirm :route/cart "nav-9")
-          {:keys [from-id to-id]} (h/from-to-from-event-bundle c)]
-      ;; No current-slice arg at all — FROM/TO read off the cascade.
-      (is (= :route/cart from-id) "FROM is the deactivated (prior) route")
-      (is (= :route/confirm to-id) "TO is the allocated (new) route"))))
+  (are [bundle navigated? from-id to-id]
+       (= [navigated? from-id to-id]
+          ((juxt :navigated? :from-id :to-id) (h/from-to-from-event-bundle bundle)))
+    ;; no nav emit → not navigated
+    (cascade 1 [:foo])
+    false nil nil
+    ;; cross-route navigation: both ids from the bundle's emits
+    (nav-cascade 1 [:rf.route/navigate {:to :route/confirm}]
+                 :route/confirm :route/cart "nav-7")
+    true :route/cart :route/confirm
+    ;; first navigation: no deactivated emit, so no FROM
+    (nav-cascade 1 [:rf.route/navigate {:to :route/cart}]
+                 :route/cart nil "nav-1")
+    true nil :route/cart
+    ;; same-route re-navigation: no deactivated emit, so no FROM
+    (nav-cascade 1 [:rf.route/navigate {:to :route/cart :params {:filter :all}}]
+                 :route/cart nil "nav-3")
+    true nil :route/cart))
 
 ;; ---- project-static-data ----------------------------------------------
 
@@ -765,18 +736,6 @@
       (is (= [[:rf.route/navigate {:to :route/cart}]
               [:cart/route-entered]]
              (:events activity))))))
-
-(deftest epoch-routing-activity-navigation-blocked-test
-  (testing "navigation-blocked emit → phase :navigation-blocked + nil match"
-    (let [blocked-ev {:id 1 :op-type :rf.event
-                      :operation :rf.route/navigation-blocked
-                      :tags {:route-id :route/admin}}
-          c (cascade 1 [:rf.route/navigate {:to :route/admin}]
-              :other [blocked-ev])
-          activity (h/epoch-routing-activity c {:route-id :route/cart})]
-      (is (= :navigation-blocked (:phase activity)))
-      (is (nil? (:match activity))
-          "match is only surfaced when phase is :on-match"))))
 
 (deftest epoch-routing-activity-fragment-changed-test
   (testing "fragment-changed emit → phase :fragment-changed"

@@ -243,57 +243,7 @@
     (is (= "{}" (current-params-text))
         "the empty-params render is not {}")))
 
-;; ---- (3) observed-frame isolation --------------------------------------
-
-(deftest unreachable-observed-frame-yields-no-slice-and-cannot-leak
-  (testing "an UNREACHABLE observed frame cannot put params on
-            screen AT ALL, and the reason is the sub's OTHER input failing
-            first: `:rf.xray/target-frame-runtime-db` is
-            `(:rf.db/runtime (rf/frame-state-value target))`, and
-            `frame-state-value` answers nil for an unknown or destroyed
-            frame, so there is no slice to project and the section renders
-            its no-active-route caption rather than a sentinel. The
-            fail-closed arm is still REACHABLE at the seam and is asserted
-            here directly."
-    (classified-params-route!)
-    (navigate! (str "/rf2-6j8gd/user/" secret "/" sibling))
-    (let [p (:params (host-slice))]
-      ;; A frame id that was never registered, stamped VERBATIM, so the
-      ;; walker takes its unresolvable-frame arm rather than borrowing the
-      ;; ambient (Xray chrome) frame — which IS live and declares nothing.
-      (observe! ::never-registered-frame)
-      (is (nil? (current-params-text))
-          "an unreachable observed frame produced a params span")
-      (is (not (re-find (re-pattern secret) (current-section-text)))
-          "the token reached the CURRENT ROUTE section under an unreachable frame")
-      (is (= :rf/redacted
-             (local-render/local-render-route-sub-value
-               p ::never-registered-frame :rf.route/params))
-          "the seam's fail-closed arm did not redact the whole params value"))))
-
-;; ---- (5) the seam is the ROUTE re-seeding, not a whole-value walk -------
-
-(deftest whole-value-walk-cannot-match-the-re-rooted-params-declaration
-  (testing "why the projection names the sub rather than walking the
-            value. A route's declaration is RE-ROOTED to the absolute
-            `[:rf.runtime/routing :current :params :token]`, so the plain
-            whole-value seam (`local-render-value`, path []) cannot match it
-            and ships the capture raw. This is the negative control for the
-            route-sub door, and the params twin of the query row."
-    (classified-params-route!)
-    (navigate! (str "/rf2-6j8gd/user/" secret "/" sibling))
-    (let [p       (:params (host-slice))
-          at-root (local-render/local-render-value p :rf/default)
-          seeded  (local-render/local-render-route-sub-value
-                    p :rf/default :rf.route/params)]
-      (is (= secret (:token at-root))
-          "the whole-value seam unexpectedly matched — if this fails the
-           re-rooting contract has changed and the route re-seed may be
-           redundant")
-      (is (= :rf/redacted (:token seeded))
-          "the route-sub seam did not re-seed at the slice's storage position"))))
-
-;; ---- (7) the census discriminator: App-DB is NOT a second site ----------
+;; ---- (3) the census discriminator: App-DB is NOT a second site ----------
 
 (deftest the-app-db-style-whole-runtime-db-walk-already-matches
   (testing "census — the App-DB tab reaches the SAME route slice

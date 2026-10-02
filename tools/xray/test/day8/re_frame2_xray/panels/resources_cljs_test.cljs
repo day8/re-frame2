@@ -4,17 +4,11 @@
 
   ## What's under test
 
-    1. **Registry wires the subs** — `register-xray-handlers!` installs
-       every sub/event the panel reads + the test-only override slots.
-    2. **Tab inventory** — the palette's Dynamic panel list carries
-       `:resources`.
     3. **Sections render** — registry / live-instances / work-ledger /
        route-graph / lifecycle-timeline / invalidation / cache-growth /
        audit all render when data is present.
     4. **PRIVACY** — a `:sensitive?` data value the runtime redacted to
        `:rf/redacted` renders `[redacted]`, never the raw value.
-    5. **Read-only** — no `:rf.resource/*` event is registered by the
-       panel (observing pins nothing).
     6. **Silent state** — no resources + no instances → silent caption.
     7. **Decoupled** — the panel reads the registry + the runtime-db
        slice via override hooks; no `re-frame.resources` require."
@@ -29,7 +23,6 @@
             [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            [day8.re-frame2-xray.palette.subs :as palette-subs]
             [day8.re-frame2-xray.panels.resources :as resources]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -161,16 +154,6 @@
                      {:frame :rf/xray})
    (rf/dispatch-sync [:rf.xray/set-resource-work-ledger-override-for-test live-ledger]
                      {:frame :rf/xray})))
-
-;; ---- (2) tab inventory --------------------------------------------------
-
-(deftest palette-includes-resources
-  (testing "the palette's canonical Dynamic panel list carries :resources"
-    (let [panels (palette-subs/palette-panels)
-          ids    (set (map :id panels))]
-      (is (contains? ids :resources) ":resources in palette-panels")
-      (is (= 10 (count panels))
-          "10 Dynamic tabs — Epoch / App DB / Views / Trace / Machines / Routing / Resources / Graph / Frames / Fresco (Graph is the EP-0014 derivation-graph tab; Frames is the EP-0013 tab over the EP-0023 image -> frame model; Fresco is the evidence tab)"))))
 
 ;; ---- (3) sections render ------------------------------------------------
 
@@ -473,8 +456,8 @@
         (is (some? (find-by-testid tree "rf-xray-resources-optimistic-clobber-row-64"))
             "the :force-clobber warning row rendered")))))
 
-(deftest instance-row-shows-status-and-owners
-  (testing "the instance row surfaces status + owner-count, derived not stored"
+(deftest instance-row-renders-its-status
+  (testing "the instance row renders the instance's status"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-overrides!)

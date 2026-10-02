@@ -181,7 +181,7 @@
 ;; 1 + 2. DEFAULT — redact sensitive resource data, KEEP large on-box.
 ;; ---------------------------------------------------------------------------
 
-(deftest resources-local-render-redacts-sensitive-data-keeps-large
+(deftest resources-local-render-redacts-the-sensitive-leaf-and-keeps-metadata
   (let [row (h/instance-row [key-id raw-entry] nil (local-egress-fn secure-frame))
         data-summary (:data row)]
     (testing "(1) the frame-declared sensitive data slot redacts under the
