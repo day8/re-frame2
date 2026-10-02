@@ -1,7 +1,7 @@
 (ns re-frame.story.play.runner-test
   "Pure unit tests for the rich-DSL play runner's step executor +
   state machine. JVM-runnable; no re-frame dependency."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.play.runner :as rf.story.play.runner]))
 
 ;; ---- step-type sniffing ---------------------------------------------------
@@ -54,53 +54,46 @@
 
 ;; ---- step-arity checks ----------------------------------------------------
 
-(deftest step-arity-dispatch
-  (testing ":dispatch and :dispatch-sync require a non-empty event vector"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:dispatch [:foo]])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:dispatch [:foo {:a 1}]])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:dispatch-sync [:foo]])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:dispatch])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:dispatch []])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:dispatch ["not-keyword"]])))))
-
-(deftest step-arity-wait
-  (testing ":wait requires a non-negative number"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait 0])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait 100])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait 1.5])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:wait -1])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:wait "100"])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:wait])))))
-
-(deftest step-arity-assert-db
-  (testing ":assert-db accepts equality and :pred forms"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] 1])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:a :b] nil])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred 'my-ns/pos-int?])))
-    ;; fn-direct is the advanced-CLJS-safe authoring path.
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred pos?])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred (fn [_] true)])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred "not-a-sym-or-fn"])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred 42])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k]])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db "not-a-vec" 1])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-db [:k] :pred])))))
-
-(deftest step-arity-assert-dom
-  (testing ":assert-dom accepts :visible / :hidden / :text"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :visible])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :hidden])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :text "hi"])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-dom "sel" :unknown])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert-dom 1 :visible])))))
-
-(deftest step-arity-click-type
-  (testing ":click and :type accept string selectors"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:click "sel"])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:type "sel" "text"])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:click])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:type "sel"])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:type "sel" 1])))))
+(deftest step-arity-ok?-accepts-each-tags-shape-and-refuses-the-rest
+  (are [step ok?] (= ok? (rf.story.play.runner/step-arity-ok? step))
+    ;; :dispatch and :dispatch-sync take a non-empty event vector
+    [:dispatch [:foo]]                        true
+    [:dispatch [:foo {:a 1}]]                 true
+    [:dispatch-sync [:foo]]                   true
+    [:dispatch]                               false
+    [:dispatch []]                            false
+    [:dispatch ["not-keyword"]]               false
+    ;; :wait takes a non-negative number
+    [:wait 0]                                 true
+    [:wait 100]                               true
+    [:wait 1.5]                               true
+    [:wait -1]                                false
+    [:wait "100"]                             false
+    [:wait]                                   false
+    ;; :assert-db takes an equality or a :pred form; a fn :pred is the
+    ;; advanced-CLJS-safe authoring path
+    [:assert-db [:k] 1]                       true
+    [:assert-db [:a :b] nil]                  true
+    [:assert-db [:k] :pred 'my-ns/pos-int?]   true
+    [:assert-db [:k] :pred pos?]              true
+    [:assert-db [:k] :pred (fn [_] true)]     true
+    [:assert-db [:k] :pred "not-a-sym-or-fn"] false
+    [:assert-db [:k] :pred 42]                false
+    [:assert-db [:k]]                         false
+    [:assert-db "not-a-vec" 1]                false
+    [:assert-db [:k] :pred]                   false
+    ;; :assert-dom takes :visible / :hidden / :text
+    [:assert-dom "sel" :visible]              true
+    [:assert-dom "sel" :hidden]               true
+    [:assert-dom "sel" :text "hi"]            true
+    [:assert-dom "sel" :unknown]              false
+    [:assert-dom 1 :visible]                  false
+    ;; :click and :type take string selectors
+    [:click "sel"]                            true
+    [:type "sel" "text"]                      true
+    [:click]                                  false
+    [:type "sel"]                             false
+    [:type "sel" 1]                           false))
 
 ;; ---- script coercion ------------------------------------------------------
 
@@ -152,14 +145,17 @@
 ;; ---- state-machine driving ----------------------------------------------
 
 (deftest initial-state-shape
-  (let [s (rf.story.play.runner/initial-state {:script [[:dispatch [:a]] [:wait 50]]
-                                  :name "happy"})]
-    (is (= :idle (:status s)))
-    (is (= 0 (:step-idx s)))
-    (is (= 2 (:total s)))
-    (is (= "happy" (:name s)))
-    (is (= [] (:results s)))
-    (is (zero? (:failures s)))))
+  (is (= {:status      :idle
+          :step-idx    0
+          :total       2
+          :results     []
+          :failures    0
+          :started-ms  nil
+          :finished-ms nil
+          :script      [[:dispatch [:a]] [:wait 50]]
+          :name        "happy"}
+         (rf.story.play.runner/initial-state {:script [[:dispatch [:a]] [:wait 50]]
+                                              :name   "happy"}))))
 
 (deftest start-transitions-to-running
   (let [s (-> {:script [[:dispatch [:a]]]}
@@ -190,51 +186,6 @@
         s1 (rf.story.play.runner/record-step-result s0 (rf.story.play.runner/step-skip 0 [:dispatch [:a]]))]
     (is (= 1 (:step-idx s1)))
     (is (zero? (:failures s1)))))
-
-(deftest record-step-result-cannot-run-refusal-does-not-bump-failures
-  ;; A :cannot-run / :skipped? refusal sets :passed? false but is
-  ;; the distinct THIRD status, NOT a genuine fail. record-step-result must NOT
-  ;; count it toward :failures, else the emitted run-state's :failures and
-  ;; finish's :status :cannot-run verdict disagree and a CI consumer keying off
-  ;; :failures > 0 would flag a cannot-run-only run as red.
-  (testing "a no-DOM :skipped? refusal does NOT bump :failures"
-    (let [step  [:assert-dom "[data-test=x]" :visible]
-          s0    (-> {:script [step]}
-                    rf.story.play.runner/parse-spec
-                    rf.story.play.runner/initial-state
-                    (rf.story.play.runner/start 0))
-          s1    (rf.story.play.runner/record-step-result
-                  s0 (rf.story.play.runner/step-fail 0 step {:skipped? true :message "no DOM"}))]
-      (is (= 1 (:step-idx s1)))
-      (is (zero? (:failures s1))
-          "a :skipped? refusal is not a genuine failure")))
-  (testing "a boundary :cannot-run? refusal does NOT bump :failures"
-    (let [step  [:assert-dom "[data-test=x]" :visible]
-          s0    (-> {:script [step]}
-                    rf.story.play.runner/parse-spec
-                    rf.story.play.runner/initial-state
-                    (rf.story.play.runner/start 0))
-          s1    (rf.story.play.runner/record-step-result
-                  s0 (rf.story.play.runner/step-fail 0 step {:cannot-run? true :message "refused"}))]
-      (is (zero? (:failures s1))
-          "a :cannot-run? refusal is not a genuine failure"))))
-
-(deftest cannot-run-only-run-has-zero-failures-and-cannot-run-status
-  ;; The report-shape invariant end to end: a run whose ONLY
-  ;; non-pass step is a refusal must emit BOTH :status :cannot-run AND
-  ;; :failures 0 so the two fields cannot disagree in the CI/JSON report.
-  (let [step  [:assert-dom "[data-test=x]" :visible]
-        state (-> {:script [[:dispatch [:a]] step]}
-                  rf.story.play.runner/parse-spec
-                  rf.story.play.runner/initial-state
-                  (rf.story.play.runner/start 0)
-                  (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 [:dispatch [:a]]))
-                  (rf.story.play.runner/record-step-result
-                    (rf.story.play.runner/step-fail 1 step {:skipped? true :message "no DOM"}))
-                  (rf.story.play.runner/finish 100))]
-    (is (= :cannot-run (:status state)))
-    (is (zero? (:failures state))
-        ":failures and :status must agree — a cannot-run-only run is NOT red")))
 
 (deftest finish-transitions-by-failure-count
   (let [base (-> {:script [[:assert-db [:k] 1]]}
@@ -270,16 +221,26 @@
 ;;   (step-fail idx step {:skipped? true :message "no DOM — …"})  → :passed? false + :skipped?
 ;;   (step-fail idx step {:cannot-run? true :message "…"})        → :passed? false + :cannot-run?
 
-(deftest finish-cannot-run-refusal-only-is-cannot-run
-  (testing "a boundary :cannot-run? refusal (no skip) also terminates :cannot-run"
-    (let [step  [:assert-dom "[data-test=x]" :visible]
-          state (-> {:script [step]}
-                    rf.story.play.runner/parse-spec
-                    rf.story.play.runner/initial-state
-                    (rf.story.play.runner/start 0)
-                    (rf.story.play.runner/record-step-result
-                      (rf.story.play.runner/step-fail 0 step {:cannot-run? true :message "capability refused"})))]
-      (is (= :cannot-run (:status (rf.story.play.runner/finish state 100)))))))
+(deftest a-refusal-only-run-finishes-cannot-run-with-zero-failures
+  ;; record-step-result must not count a refusal toward :failures, and finish
+  ;; must read the same predicate: if the two disagreed, the CI/JSON report
+  ;; would carry :status :cannot-run beside :failures > 0, and a consumer
+  ;; keying off :failures would flag a cannot-run-only run as red.
+  (doseq [[label refusal] [[":skipped? (no DOM)"      {:skipped? true :message "no DOM"}]
+                           [":cannot-run? (boundary)" {:cannot-run? true :message "capability refused"}]]]
+    (testing label
+      (let [step  [:assert-dom "[data-test=x]" :visible]
+            state (-> {:script [[:dispatch [:a]] step]}
+                      rf.story.play.runner/parse-spec
+                      rf.story.play.runner/initial-state
+                      (rf.story.play.runner/start 0)
+                      (rf.story.play.runner/record-step-result
+                        (rf.story.play.runner/step-pass 0 [:dispatch [:a]]))
+                      (rf.story.play.runner/record-step-result
+                        (rf.story.play.runner/step-fail 1 step refusal)))]
+        (is (zero? (:failures state)) "a refusal is not a genuine failure")
+        (is (= :cannot-run (:status (rf.story.play.runner/finish state 100)))
+            "and a refusal-only run is :cannot-run, never a silent :pass")))))
 
 (deftest finish-fail-outranks-refusal
   (testing ":fail wins over :cannot-run — a genuine failing assertion
@@ -316,14 +277,13 @@
                         (rf.story.play.runner/record-step-result
                           (rf.story.play.runner/step-fail 2 cr-step {:cannot-run? true :message "capability refused"})))
           refusals  (rf.story.play.runner/run-state-refusals state)]
-      (is (= 2 (count refusals)) "one refusal record per refusing step (skip + cannot-run?)")
       (is (= [{:status :cannot-run :unit skip-step
                :reason :runner-cannot-attempt-step :message "no DOM — cannot prove"}
               {:status :cannot-run :unit cr-step
                :reason :runner-cannot-attempt-step :message "capability refused"}]
              refusals)
-          "each refusal projects the :status/:unit/:reason/:message shape, in step order")
-      (is (every? #(= :cannot-run (:status %)) refusals)))))
+          "one record per refusing step, each projecting the
+           :status/:unit/:reason/:message shape, in step order"))))
 
 (deftest run-state-refusals-empty-when-none-refused
   (testing "run-state-refusals is empty for a clean pass run (no step refused)"
@@ -438,20 +398,19 @@
 
 ;; ---- script validation --------------------------------------------------
 
-(deftest validate-script-clean
+(deftest validate-script-reports-only-the-malformed-steps
   (is (= [] (rf.story.play.runner/validate-script
-              [[:dispatch [:a]] [:wait 10] [:assert-db [:k] 1]]))))
-
-(deftest validate-script-flags-unknown-and-bad-arity
-  (let [results (rf.story.play.runner/validate-script
-                  [[:dispatch [:a]]
-                   [:totally-unknown-step]
-                   [:wait -5]
-                   [:assert-db]])]
-    (is (= 3 (count results)))
-    (is (= :unknown-step (:reason (nth results 0))))
-    (is (= :bad-arity    (:reason (nth results 1))))
-    (is (= :bad-arity    (:reason (nth results 2))))))
+              [[:dispatch [:a]] [:wait 10] [:assert-db [:k] 1]]))
+      "a clean script reports nothing")
+  (is (= [{:idx 1 :step [:totally-unknown-step] :reason :unknown-step}
+          {:idx 2 :step [:wait -5]              :reason :bad-arity}
+          {:idx 3 :step [:assert-db]            :reason :bad-arity}]
+         (rf.story.play.runner/validate-script
+           [[:dispatch [:a]]
+            [:totally-unknown-step]
+            [:wait -5]
+            [:assert-db]]))
+      "one record per malformed step, at its index, naming the reason"))
 
 ;; ---- summary helpers ------------------------------------------------------
 

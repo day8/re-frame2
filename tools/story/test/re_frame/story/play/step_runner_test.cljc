@@ -2,14 +2,14 @@
   "The tagged setup/script step runner
   (spec/017-Testing-Story.md §Script step grammar + §Setup and script).
 
-  Three layers, all under `clojure -M:test` (JVM) + the node-runtime CLJS
-  build:
+  Three layers, all under `clojure -M:test` (JVM):
 
   - PURE grammar — `rf.story.play.runner/step-types` / `step-arity-ok?` / `coerce-script`
     / `step-assertion` / `step-wait-until` recognise the tagged steps
-    (`[:dispatch]` / `[:wait-until]` / `[:wait]` / `[:assert]` / `[:focus]`)
-    and lift bare event-vector shorthand to `[:dispatch …]` during
-    migration. No re-frame dep.
+    (`[:dispatch]` / `[:wait-until]` / `[:wait]` / `[:assert]` / `[:focus]`),
+    and `coerce-script` never mistakes one for the bare event-vector
+    shorthand it lifts to `[:dispatch …]` (the lift itself is
+    `runner-test`'s). No re-frame dep.
   - PLAN-COMPILE rejection — an `[:assert …]` checkpoint in `:setup` FAILS
     plan construction (`re-frame.story.plan`) with
     `:rf.error/story-assert-in-setup`.
@@ -22,7 +22,7 @@
   The headless execution layer drives `exec-step!` directly (a private
   var reached via var-quote — the established Story-test seam) so a single
   step's behaviour is observable without standing up the async run loop."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core              :as rf]
             [re-frame.router            :as rf.router]
             [re-frame.frame             :as rf.frame]
@@ -40,9 +40,6 @@
 
 (deftest step-types-include-new-tags
   (testing "the one tagged grammar recognises :assert / :wait-until / :focus"
-    (is (contains? rf.story.play.runner/step-types :assert))
-    (is (contains? rf.story.play.runner/step-types :wait-until))
-    (is (contains? rf.story.play.runner/step-types :focus))
     (is (= :assert     (rf.story.play.runner/step-type [:assert [:rf.assert/path-equals [:k] 1]])))
     (is (= :wait-until (rf.story.play.runner/step-type [:wait-until [:db [:k] 1]])))
     (is (= :focus      (rf.story.play.runner/step-type [:focus "[data-test=in]"])))
@@ -52,35 +49,31 @@
 
 (deftest assert-step-is-an-assertion-class-step
   (testing ":assert contributes to pass/fail (it is an assertion-class step)"
-    (is (contains? rf.story.play.runner/assertion-step-types :assert))
     (is (true? (rf.story.play.runner/assertion? [:assert [:rf.assert/path-equals [:k] 1]])))))
 
-(deftest assert-arity
-  (testing "[:assert assertion-vector] requires a tagged assertion atom"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert [:rf.assert/path-equals [:k] 1]])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:assert [:rf.assert/no-warnings]])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert "not-a-vec"])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert []])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:assert ["not-keyword"]])))))
-
-(deftest wait-until-arity
-  (testing "[:wait-until predicate-spec] accepts :db equals / :db :pred /
-            :queue-empty forms"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait-until [:db [:k] 1]])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait-until [:db [:a :b] :pred even?]])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait-until [:db [:a :b] :pred 'my/pred?]])))
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:wait-until [:queue-empty]])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:wait-until])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:wait-until [:unknown-pred]])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:wait-until [:db "not-a-vec" 1]])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:wait-until [:queue-empty :extra]])))))
-
-(deftest focus-arity
-  (testing "[:focus selector] requires a string selector"
-    (is (true?  (rf.story.play.runner/step-arity-ok? [:focus "sel"])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:focus])))
-    (is (false? (rf.story.play.runner/step-arity-ok? [:focus 42])))))
+(deftest assert-wait-until-and-focus-arity
+  (are [step ok?] (= ok? (rf.story.play.runner/step-arity-ok? step))
+    ;; [:assert assertion-vector] takes a tagged assertion atom
+    [:assert [:rf.assert/path-equals [:k] 1]]   true
+    [:assert [:rf.assert/no-warnings]]          true
+    [:assert]                                   false
+    [:assert "not-a-vec"]                       false
+    [:assert []]                                false
+    [:assert ["not-keyword"]]                   false
+    ;; [:wait-until predicate-spec] takes the :db equals, :db :pred and
+    ;; :queue-empty forms
+    [:wait-until [:db [:k] 1]]                  true
+    [:wait-until [:db [:a :b] :pred even?]]     true
+    [:wait-until [:db [:a :b] :pred 'my/pred?]] true
+    [:wait-until [:queue-empty]]                true
+    [:wait-until]                               false
+    [:wait-until [:unknown-pred]]               false
+    [:wait-until [:db "not-a-vec" 1]]           false
+    [:wait-until [:queue-empty :extra]]         false
+    ;; [:focus selector] takes a string selector
+    [:focus "sel"]                              true
+    [:focus]                                    false
+    [:focus 42]                                 false))
 
 (deftest step-accessors
   (testing "step-assertion unwraps the [:assert …] atom"
@@ -105,17 +98,13 @@
          (rf.story.play.runner/step-summary [:assert [:rf.assert/path-equals [:k] 1]])))
   (is (= "focus \"sel\"" (rf.story.play.runner/step-summary [:focus "sel"]))))
 
-;; ---- migration: bare event vectors normalize, tagged steps round-trip ----
+;; ---- tagged steps round-trip coerce-script unchanged ----------------------
 
-(deftest bare-event-vectors-normalize-during-migration
-  (testing "coerce-script lifts a bare event vector to [:dispatch …] — the
-            migration shorthand, NOT the P1 public form (spec/017 §Script
-            step grammar)"
-    (is (= [[:dispatch [:counter/inc]]
-            [:dispatch [:counter/dec]]]
-           (rf.story.play.runner/coerce-script [[:counter/inc] [:counter/dec]]))))
-  (testing "the tagged steps are NEVER mistaken for bare event vectors —
-            they round-trip unchanged"
+(deftest tagged-steps-are-never-lifted-as-bare-event-vectors
+  (testing "coerce-script never mistakes a tagged step for the bare
+            event-vector shorthand it lifts to [:dispatch …] (the migration
+            shorthand, NOT the P1 public form — spec/017 §Script step
+            grammar): tagged steps round-trip unchanged"
     (let [tagged [[:dispatch [:e]]
                   [:wait-until [:db [:k] 1]]
                   [:assert [:rf.assert/path-equals [:k] 1]]
