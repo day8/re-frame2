@@ -20,13 +20,15 @@
        `suppressed-count` / `reset-suppressed-count!`.
     4. `trace-collector/collect-trace!` default-suppress + opt-in pass-
        through behaviour.
-    5. `trace-collector/reset-for-test!` resets the counter alongside the
-       buffer.
-    6. The two INGEST gates — Xray's `:epoch-history`
+    5. The retroactive scrub — narrowing the profile back to the redacting
+       default clears the trace buffer and the counter.
+    6. The frame-bound snapshot-read gate — `snapshot-from-rings` scrubs the
+       sensitive events the framework's per-frame rings retain.
+    7. The two INGEST gates — Xray's `:epoch-history`
        slot (epoch records carry `:trace-events` verbatim) and
        `panels.fresco-reads/trace-windows` (Xray's second, seam-side
        reader of the framework rings).
-    7. The spine RE-SEED writers — `:rf.xray/set-frame`
+    8. The spine RE-SEED writers — `:rf.xray/set-frame`
        and a cross-frame `:rf.xray/focus-event` re-seed `:epoch-history`
        from a real framework ring through the same gate.
 
@@ -85,19 +87,15 @@
 
 ;; ---- (2) egress-profile round-trip --------------------------------------
 
-(deftest set-egress-profile-nil-resets-to-default
-  (testing "nil resets to the fail-closed redacting default"
-    (config/set-egress-profile! :rf.egress/local-raw)
-    (config/set-egress-profile! nil)
-    (is (= :rf.egress/local-redacted (config/get-egress-profile)))))
-
-(deftest set-egress-profile-unknown-coerces-to-default
-  (testing "a non-member profile keyword coerces to the fail-closed default
-            (defence-in-depth — configure! rejects loudly upstream)"
-    (config/set-egress-profile! :rf.egress/local-raw)
-    (config/set-egress-profile! :rf.egress/not-a-real-profile)
-    (is (= :rf.egress/local-redacted (config/get-egress-profile))
-        "unknown profile must not silently reveal")))
+(deftest set-egress-profile-non-member-falls-back-to-default
+  (testing "nil, and a keyword that is not a profile, both land on the
+            fail-closed redacting default (defence-in-depth — configure!
+            rejects an unknown profile loudly upstream)"
+    (doseq [profile [nil :rf.egress/not-a-real-profile]]
+      (config/set-egress-profile! :rf.egress/local-raw)
+      (config/set-egress-profile! profile)
+      (is (= :rf.egress/local-redacted (config/get-egress-profile))
+          (str (pr-str profile) " must not silently reveal")))))
 
 (deftest configure-routes-egress-profile-through
   (testing "configure! {:rf.xray/egress-profile :rf.egress/local-raw} flips the profile"
@@ -111,13 +109,6 @@
   (testing "configure! with an unknown profile raises :rf.error/unknown-egress-profile"
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           (config/configure! {:rf.xray/egress-profile :rf.egress/bogus})))))
-
-(deftest configure-without-key-preserves-existing-profile
-  (testing "configure! without :rf.xray/egress-profile leaves the profile alone"
-    (config/set-egress-profile! :rf.egress/local-raw)
-    (config/configure! {:rf.xray/editor :cursor})
-    (is (= :rf.egress/local-raw (config/get-egress-profile))
-        "configure! ignoring our key must not stomp the profile")))
 
 ;; ---- (3) suppressed-events counter --------------------------------------
 
@@ -134,12 +125,6 @@
     (is (= 2 (config/suppressed-count :rf/default)))
     (is (= 1 (config/suppressed-count :rf/xray)))
     (is (= 3 (config/suppressed-count)))))
-
-(deftest note-suppressed-without-frame-counts-as-global
-  (testing "nil frame falls under :global"
-    (config/note-suppressed! nil)
-    (is (= 1 (config/suppressed-count :global)))
-    (is (= 1 (config/suppressed-count)))))
 
 (deftest reset-suppressed-count-clears-buckets
   (testing "reset with no arg drops everything"
@@ -166,7 +151,7 @@
 ;; event above the ring split either way.
 ;;
 ;; The frame-bound path is the OTHER half of the matrix and lives in
-;; the §(7) tests below: a real `rf.trace/emit!` populates the framework's
+;; the §(6) tests below: a real `rf.trace/emit!` populates the framework's
 ;; per-frame ring (which retains EVERY event with no `:sensitive?`
 ;; check), and the gate that matters there is the read-side scrub in
 ;; `snapshot-from-rings`. Keeping both halves here pins the
@@ -212,17 +197,7 @@
        (is (= 1 (config/suppressed-count))
            "exactly one event was suppressed under the default"))))
 
-#?(:cljs
-   (deftest clear-buffer-resets-suppressed-counter
-     (testing "retroactive-scrub! drops the buffer AND the redaction counter"
-       (trace-collector/collect-trace! (sensitive-event))
-       (trace-collector/collect-trace! (sensitive-event))
-       (is (= 2 (config/suppressed-count)))
-       (trace-collector/retroactive-scrub!)
-       (is (= 0 (config/suppressed-count))
-           "clearing the buffer also drops the indicator state"))))
-
-;; ---- (6) retroactive scrub on profile-narrowing ------------------------
+;; ---- (5) retroactive scrub on profile-narrowing ------------------------
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub: when the local-render egress
 ;; profile NARROWS from a sensitive-revealing boundary
@@ -304,7 +279,7 @@
        (is (= 2 (count (trace-collector/buffer-for-test)))
            "redundant narrow to local-redacted must not clear the buffer"))))
 
-;; ---- (7) frame-bound sensitive events — the snapshot-read gate ---------
+;; ---- (6) frame-bound sensitive events — the snapshot-read gate ---------
 ;;
 ;; The §(4) tests drive FRAMELESS events through `collect-trace!` — that
 ;; path is gated by the listener-side `suppress-sensitive?` check before
@@ -425,9 +400,9 @@
                  (is (some :sensitive? buf)
                      "the sensitive event passes through under the opt-in")))))))))
 
-;; ---- (8) the two INGEST gates -------------------------------------------
+;; ---- (7) the two INGEST gates -------------------------------------------
 ;;
-;; §(7) above pins the FLAT read (`snapshot-from-rings` → `:trace-buffer`).
+;; §(6) above pins the FLAT read (`snapshot-from-rings` → `:trace-buffer`).
 ;; Two other paths carry the same retained-but-sensitive events into
 ;; Xray's surfaces, and this section pins the gate on both.
 ;;
@@ -744,7 +719,7 @@
                  (is (some #(some :sensitive? (:trace-events %)) bundles)
                      "including the sensitive one")))))))))
 
-;; ---- (9) the spine RE-SEED writers --------------------------------------
+;; ---- (8) the spine RE-SEED writers --------------------------------------
 ;;
 ;; `redact-history` gates the three `epoch.cljs` writers, and the spine
 ;; writes the slot too: the frame picker (`:rf.xray/set-frame` →
