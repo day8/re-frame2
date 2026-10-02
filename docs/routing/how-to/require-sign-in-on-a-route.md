@@ -34,8 +34,30 @@ exact page they asked for once they have.
                         (assoc (or return-to {:to :app/articles}) :replace? true)]]]})))
 ```
 
-The [tutorial](../tutorial.md#step-10--keep-signed-out-readers-out) introduces the
-guard and a plain redirect to login; this version adds the return trip.
+These registrations extend the [articles reader](../tutorial.md#the-complete-app).
+Keep them in its `app.core` namespace, before the frame is created. The sample
+sign-in event accepts a user directly; a real app dispatches it after the server
+authenticates the user.
+
+## Render the sign-in and settings pages
+
+```clojure
+(rf/reg-view login-page []
+  [:div
+   [:h1 "Sign in"]
+   [:button {:on-click #(dispatch [:auth/sign-in {:name "Ada"}])}
+    "Sign in as Ada"]])
+
+(rf/reg-view settings-page []
+  [:h1 (str "Settings for " (:name @(subscribe [:auth/user])))])
+```
+
+Add `:app/login [login-page]` and `:app/settings [settings-page]` to `page-for`.
+Render `[rf/route-link {:to :app/settings} "Settings"]` in the root header.
+
+Signed out, click **Settings**: login opens. Click **Sign in as Ada**: settings
+opens for Ada. Repeat with a pasted `/settings#privacy` URL; the return trip
+keeps the fragment too.
 
 ## How the guard works
 

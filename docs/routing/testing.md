@@ -32,10 +32,9 @@ without a browser (see [Set up the test runner](../core/testing/index.md#set-up-
 `re-frame.schemas` ships in `day8/re-frame2-schemas`, so the test classpath needs that
 artefact beside `day8/re-frame2-routing`.
 
-The tests below use the [tutorial](tutorial.md#the-complete-app)'s articles app, with
-the `:rf.route/entry-denied` and `:auth/sign-in` handlers from
-[Require sign-in on a route](how-to/require-sign-in-on-a-route.md) in place of the
-tutorial's, so a refused entry stores where the reader was going.
+The URL and navigation tests use the [tutorial](tutorial.md#the-complete-app)'s
+articles reader. They assert on routes and subscriptions directly, without
+mounting its views.
 
 ## URLs
 
@@ -144,6 +143,11 @@ entry point, and do not install a listener of your own to get it. Without it, a 
 named for a link click checks the `:restore` scroll default instead of `:top`.
 
 ## Guards
+
+The guard examples extend `app.core` with the editor events from
+[Guard against unsaved changes](how-to/guard-unsaved-changes.md#set-up-the-article-editor)
+and the sign-in handlers from [Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
+Loading that namespace registers them before any test creates a frame.
 
 A `:can-leave` block is state you can read, and the reader's answer is a dispatch.
 The frame below starts on the editor with unsaved changes, set up through

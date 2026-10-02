@@ -382,10 +382,11 @@ nav:
     - "Tutorial: build a routed app": routing/tutorial.md
     - "The model": routing/concepts.md
     - "How-to":
-      - "Guard against unsaved changes": routing/how-to/guard-unsaved-changes.md
-      - "Require sign-in on a route": routing/how-to/require-sign-in-on-a-route.md
-      - "Redirect an old URL": routing/how-to/redirect-an-old-url.md
+      - "Load data for a route": routing/how-to/load-page-data.md
       - "Configure browser URLs": routing/how-to/configure-browser-urls.md
+      - "Require sign-in on a route": routing/how-to/require-sign-in-on-a-route.md
+      - "Guard against unsaved changes": routing/how-to/guard-unsaved-changes.md
+      - "Redirect an old URL": routing/how-to/redirect-an-old-url.md
     - "Operating":
       - "Testing": routing/testing.md
       - "Examples": routing/examples.md

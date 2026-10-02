@@ -147,8 +147,8 @@ client, which hydrates without fetching again — see
 no slot: a route names its `:parent`, `@(subscribe [:rf.route/chain])` returns the
 chain, and the root view folds the chain into layout shells with ordinary Clojure.
 That is more code than `<Outlet/>`, in exchange for no routing-specific rendering.
-[The tutorial](tutorial.md#step-7--a-shared-layout) builds it, and
-[nested layouts](concepts.md#nested-layouts) has the code.
+[The tutorial](tutorial.md#step-7--a-shared-layout) builds the fold; the
+[model](concepts.md#nested-layouts) explains what the parent relation shares.
 
 ### Smaller differences
 

@@ -4,25 +4,21 @@ The [tutorial](tutorial.md) builds an articles app one step at a time. This page
 explains the rules that app relies on, and what else they let you do. Exact
 signatures are in the [re-frame.routing API](../api/re-frame.routing.md).
 
-The examples use the tutorial's route registrations and its `:app` frame. Routes
-are registered process-wide; each frame has its own active route:
+Routes are registered process-wide; each frame has its own active route.
+These are the reader app's routes:
 
 ```clojure
+(ns app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.routing :as rf.routing]))
+
 (rf/reg-route :app/home {} "/")
 (rf/reg-route :app/articles {:query [:map [:tag {:optional true} :string]]} "/articles")
 (rf/reg-route :app/article
-  {:parent   :app/articles
-   :params   [:map [:slug :string]]
+  {:parent :app/articles
+   :params [:map [:slug :string]]
    :on-match [[:app/load-article]]}
   "/articles/:slug")
-(rf/reg-route :app/article-editor
-  {:params    [:map [:slug :string]]
-   :on-match  [[:editor/open]]
-   :can-leave [:editor/can-leave?]}
-  "/articles/:slug/edit")
-(rf/reg-route :app/settings {:can-enter [:auth/signed-in?]} "/settings")
-(rf/reg-route :app/login {} "/login")
-(rf/reg-route :rf.route/not-found {} "/_404")
 ```
 
 ## Three ideas
@@ -100,23 +96,12 @@ A slot type must survive the trip URL → value → URL. `reg-route` throws
 `:rf.error/route-keyword-unbounded-unsupported` for a bare `:keyword` slot. For a
 keyword value, list the allowed ones in an `[:enum …]`, as `:sort` does above.
 
-### Metadata keys
-
+<a id="metadata-keys"></a>
 <a id="the-metadata-map-in-full"></a>
 
-| Group | Keys | Controls |
-|---|---|---|
-| Shape | `:params`, `:query`, `:query-defaults` | URL ↔ maps |
-| Lifecycle | `:on-match`, `:can-leave`, `:can-enter` | Activation work and guards |
-| Layout | `:doc`, `:parent`, `:tags`, `:scroll` | Nesting (and `:resources` composition), grouping, scroll |
-| Classification | `:sensitive`, `:large` | Redaction of the route slice at egress |
-| From other artefacts | `:resources` (Resources), `:head` ([SSR head](../ssr/head.md)) | Server state, head model |
-
-An unknown unqualified key throws `:rf.error/route-bad-metadata` at registration.
-Namespaced keys (`:myapp/…`) are yours. The registered map is data you can query —
-`(rf/handler-meta {:source :store :kind :route :id :app/settings})` returns it,
-`:tags` included. The per-key reference is under
-[`reg-route`](../api/re-frame.routing.md#reg-route).
+The metadata map also declares activation work, layout and guards as described
+below. Namespaced keys (`:myapp/…`) are yours. For all keys and registration
+rules, use the [`reg-route` reference](../api/re-frame.routing.md#reg-route).
 
 ## Navigation is an event
 
@@ -134,16 +119,11 @@ view's injected `dispatch`, or from an event handler's `:fx`
 [:rf.route/navigate {:url "/articles/intro"}]          ;; a raw URL, matched like a typed one
 ```
 
-| Key | Effect |
-|---|---|
-| `:to` | Destination route id (`:url` is the raw-URL alternative) |
-| `:params` | Path params for `:to` |
-| `:query` | Replace the query |
-| `:query-merge` | In-place only: edit the current query with a **map** of changes (a `nil` value removes that key; a non-map value is rejected) |
-| `:fragment` | `#fragment` |
-| `:replace?` | Replace the current history entry instead of pushing one |
-| `:scroll` | `:top`, `:restore`, `:preserve` or `false`, overriding the route's |
-| `:bypass-leave?` | `true` skips the current route's `:can-leave` check for this navigation |
+A navigation normally pushes a history entry. `:replace? true` replaces it
+instead, useful when redirecting after sign-in so Back skips the login form.
+`:fragment` names an element to scroll to. The
+[request reference](../api/re-frame.routing.md#navigate-request-rules) lists
+the policy keys and the valid combinations.
 
 <a id="navigating-to-a-raw-url-string"></a>
 
@@ -155,7 +135,7 @@ Link to other sites with a plain `[:a {:href …}]`.
 
 `:to` and `:url` are alternatives, and a `:url` carries its own path and query, so it
 takes no `:params`, `:query` or `:query-merge`. A request that breaks a rule like that,
-or names a key outside the table, is rejected with `:rf.error/navigate-bad-request`, and
+or names an unknown key, is rejected with `:rf.error/navigate-bad-request`, and
 the error's `:reason` names the rule. The
 [full rules](../api/re-frame.routing.md#navigate-request-rules) are in the API reference.
 
@@ -217,11 +197,8 @@ dispatches `:rf.route/url-requested`, the event the router listens for. Links wi
 `:target "_blank"` or `:download` are left to the browser. An `:on-click` of your own
 runs first, and calling `.preventDefault` in it cancels the navigation.
 
-A hand-written `[:a {:href …}]` dispatches nothing, so the browser does a full page
-load. To keep such clicks in the app without `route-link`, install one document-level
-click listener that checks eligibility itself (primary button, no modifier keys, no
-`:target` or `:download`, a same-origin in-app `href`) and dispatches
-`:rf.route/url-requested` for the clicks it accepts.
+A hand-written `[:a {:href …}]` dispatches nothing, so the browser does a full
+page load. Use it for external links; use `route-link` for navigation in the app.
 
 Every prop `route-link` doesn't use is passed through to the `<a>`, so classes,
 `:data-*` and ARIA attributes work as usual. It uses the address keys to build the
@@ -305,161 +282,104 @@ in [Step 7](tutorial.md#step-7--a-shared-layout).
 
 <a id="loaders-declaring-a-pages-data"></a>
 
-Two different jobs can sit on a route: work to start when it activates, and data the
-page can't render without.
+A route can start work when it activates and declare the data its page needs.
+These have different lifetimes:
 
-`:on-match` is the first. It is a vector of event vectors that the runtime dispatches
-whenever the route becomes active, including the same route with changed params or
-query. An identical navigation, or one that only changes the `#fragment`, doesn't
-re-fire it. The tutorial's `:app/article` uses it to load the article:
+- `:on-match` dispatches a vector of events on entry. The tutorial uses
+  `[[:app/load-article]]` to copy an article from its local map into app-db.
+  A page-visit event is another use. The runtime does not wait for work those
+  events start; failures use the ordinary [event error channel](../core/errors.md).
+- `:resources` declares reads managed by the Resources package. Entry loads
+  them; leaving releases their route ownership. Late replies cannot overwrite
+  the new page. Blocking reads drive the route's loading and error state.
 
-```clojure
-{:on-match [[:app/load-article]]}
-```
-
-It runs on the client and on the server, after the route slice is written and the
-URL pushed. If the route's resource plan fails, none of its events run. It is not a
-readiness signal: `:on-match` never moves `:rf.route/transition`, never waits for
-the async work its events start, and never turns a handler's failure into a route
-error. A handler that throws reports on the ordinary
-[event error channel](../core/errors.md).
+Both run on the client and server. `:on-match` fires when params or query change,
+but not for an identical or fragment-only navigation. If the resource plan
+cannot be built, no `:on-match` events run.
 
 ### Declaring the data a page needs
 
 <a id="declaring-resources-instead"></a>
 
-Data the page needs before it is ready is declared with `:resources`, from the
-Resources artefact, rather than fetched from `:on-match`:
+Use `:resources` for server data the page needs. A requirement names a registered
+read and converts the resolved route to that read's params:
 
 ```clojure
-(rf/reg-route :app/article
-  {:parent    :app/articles
-   :params    [:map [:slug :string]]
-   :resources [{:resource       :article/detail
-                :params         (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking?      true}
-               {:resource       :article/comments
-                :params         (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking?      false
-                :keep-previous? true}]}
-  "/articles/:slug")
+{:resources [{:resource :article/detail
+              :params (fn [route] {:slug (get-in route [:params :slug])})
+              :blocking? true}]}
 ```
 
-Entering the route fetches both with the route as owner; leaving or navigating
-elsewhere releases them, and a reply that arrives after that is dropped. Per-user data
-uses a scope resolver (`{:from-db …}`), which fails closed when nobody is signed in.
-The [Resources model](../resources/concepts.md) covers the rest.
-
-<a id="when-a-loader-fails"></a>
+[Load data for a route](how-to/load-page-data.md) shows the resource registration,
+route declaration and article view together.
 
 ### Readiness comes from the blocking resources
 
-`:rf.route/transition` and `:rf.route/error` report whether the route's blocking
-reads have data, are still on their first load, or failed:
+<a id="when-a-loader-fails"></a>
 
-| Plan state | `:transition` | `:error` |
+`:rf.route/transition` reports readiness, and `:rf.route/error` holds a structured
+failure. The route can render a skeleton while the client is loading:
+
+| Plan state | Transition | Error |
 |---|---|---|
-| A blocking first load failed | `:error` | the first failure (`:rf.error/resource-route-blocking`) |
+| A blocking first load failed | `:error` | `:rf.error/resource-route-blocking` |
 | The plan could not be built | `:error` | `:rf.error/resource-route-plan` |
-| A blocking first load is still pending, with no failures | `:loading` | `nil` |
+| A blocking first load is pending, with no failures | `:loading` | `nil` |
 | Every blocking read has data, or there are none | `:idle` | `nil` |
 
-A background refresh of data already on screen is not `:loading`, and a failed
-refresh stays on the resource rather than on the route. Non-blocking reads,
-[prefetches](#warming-a-destination-before-the-click) and `:on-match` never change
-either value. Without the Resources artefact the route is always `:idle`.
+Background refreshes and non-blocking reads keep their state on the resource.
+`:on-match` and [prefetches](#warming-a-destination-before-the-click) never change
+route readiness. Without the Resources package, a committed route is `:idle`.
 
 ### Parent resources compose to the child
 
-A child route gets its ancestors' `:resources` as well as its own, so data the shell
-needs is declared once on the parent:
+Naming a `:parent` includes its `:resources` in the child's plan. A shared
+article-section shell can declare its tag list once on `:app/articles`; the
+article page receives that read along with its own detail read. Identical
+requirements are fetched once. The [parent-data example](how-to/load-page-data.md#share-a-parents-data)
+shows the registrations.
 
-```clojure
-(rf/reg-route :app/articles
-  {:query     [:map [:tag {:optional true} :string]]
-   :resources [{:resource :article/tags :blocking? true}]}   ;; the section's tag list
-  "/articles")
-
-(rf/reg-route :app/article
-  {:parent    :app/articles                                   ;; also plans :article/tags
-   :params    [:map [:slug :string]]
-   :resources [{:resource  :article/detail
-                :params    (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking? true}]}
-  "/articles/:slug")
-```
-
-Naming the `:parent` is the opt-in. Only `:resources` are inherited; `:on-match`,
-`:scroll`, `:head`, `:tags` and the guards stay per route. A requirement contributed
-by more than one route in the chain is fetched once, and a child that repeats its
-parent's requirement gets an advisory rather than a second fetch. Rendering is not
-composed for you: the [layout fold](#nested-layouts) is still yours.
+Only `:resources` are inherited. `:on-match`, `:scroll`, `:head`, `:tags` and
+guards remain specific to each route. The root view still
+[composes the layout](#nested-layouts).
 
 ## Guards
 
 ### Blocking a navigation
 
-`:can-leave` names a subscription on the route being left. `true` lets the navigation
-go; `false` stops it. The URL and the route slice stay where they were, the attempt
-is parked in `[:rf/pending-navigation]`, and the runtime dispatches
-`:rf.route/navigation-blocked`. Answer with `[:rf.route/continue id]` or
-`[:rf.route/cancel id]`, passing the pending value's `:id` — the tutorial's editor
-does this in [Step 11](tutorial.md#step-11--warn-before-losing-unsaved-changes).
+`:can-leave` names a subscription on the route being left. `true` allows the
+navigation; `false` keeps the route and URL in place and stores the attempt in
+`[:rf/pending-navigation]`. A view can render a prompt from it and dispatch
+`[:rf.route/continue id]` or `[:rf.route/cancel id]` using the pending value's `:id`.
+[Guard against unsaved changes](how-to/guard-unsaved-changes.md) adds this to an
+article editor.
 
-```clojure
-@(subscribe [:rf/pending-navigation])
-;; => {:id              "pn-1"
-;;     :destination     {:to :app/home}
-;;     :target          {:route-id :app/home :params {} :query {} :fragment nil :url "/"}
-;;     :cause           :navigate     ;; or :link, :popstate
-;;     :policy          {}            ;; the request's :replace? and :scroll
-;;     :requested-url   "/"
-;;     :rejecting-route :app/article-editor
-;;     :rejecting-guard :editor/can-leave?}
-```
-
-A blocked Back or Forward also carries `:url-restored? true`: the address bar had
-already moved, and the runtime put it back. `:rf.route/continue` replays the
-`:destination` with its `:policy`, so the navigation that happens is the one that was
-asked for, and it re-checks the destination's `:can-enter`. To leave without
-asking, as a "save and close" button does, navigate with `:bypass-leave? true`; it
-skips the current route's `:can-leave` for that one navigation. Recipe: [Guard against unsaved changes](how-to/guard-unsaved-changes.md).
+Continuing replays the destination and its navigation policy, including a
+destination's `:can-enter` check. Back/Forward works too: the runtime restores
+the old URL while the prompt waits. `:bypass-leave? true` skips the current
+route's leave guard for one navigation, useful after a successful save.
 
 ### Guarding entry — `:can-enter`
 
-`:can-enter` names a subscription checked before entering a route, which makes it the
-usual sign-in gate. It runs on every way in: navigate, link, typed URL, Back/Forward,
-first load and SSR.
+`:can-enter` names a subscription checked before entering a route, including
+links, navigate events, typed URLs, Back/Forward, first load and SSR. A refusal
+commits nothing and parks no pending navigation. It dispatches
+`:rf.route/entry-denied`; the built-in handler does nothing, so a refused click
+keeps the reader where they are. Under SSR, a refused entry answers `403`.
 
-An identical navigation is a no-op: neither guard runs. Changing app-db does not
-itself check guards or remove the current page. For example, signing out should
-also navigate to a public route.
+[Require sign-in on a route](how-to/require-sign-in-on-a-route.md) handles the
+denial, stores its `:destination`, and returns there after sign-in. The return
+is a new navigation and checks the guard again. There is no bypass for entry.
 
-A refusal is final. Nothing commits, no pending value is created, and the runtime
-dispatches `:rf.route/entry-denied` once. The built-in handler does nothing, so an
-unhandled refusal keeps the reader where they are (and returns a `403` under
-SSR). The tutorial's handler sends the reader to `/login`; this one also remembers
-where they were going:
+Both guards must return `true` or `false`; other values refuse and raise
+`:rf.error/can-leave-non-boolean` or `:rf.error/can-enter-non-boolean`.
+Subscriptions receive the resolved target as the last item of the query vector,
+so the decision can depend on the destination.
 
-```clojure
-(rf/reg-event :rf.route/entry-denied
-  (fn [{:keys [db]} [_ {:keys [destination]}]]
-    {:db (assoc db :auth/return-to destination)
-     :fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
-```
-
-After sign-in, navigate to the stored `destination`. That is a new navigation, so the
-guard runs again. Recipe: [Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
-
-Both guards must return `true` or `false`. Anything else refuses the navigation and
-raises `:rf.error/can-leave-non-boolean` or `:rf.error/can-enter-non-boolean`. Both
-subscriptions receive the resolved target as the last element of their query vector,
-`(fn [db [_ target]] …)`, with `target` shaped like the pending value's `:target`, so
-one guard can answer differently for each destination.
-
-Use `:can-enter` for a route's own auth rule, as
-[realworld_http](../../examples/real-apps/realworld_http) does. An interceptor suits
-one policy shared by many routes; the sign-in recipe shows both.
+An identical navigation checks neither guard. Changing app-db alone does not
+recheck guards or remove the current page: signing out should also navigate to
+a public route. For one policy shared across many routes, the sign-in recipe
+also shows a [frame interceptor](how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).
 
 ## Not found is a route you register
 
@@ -508,32 +428,18 @@ nothing on the server.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| First `reg-route` throws `:rf.error/routing-artefact-missing` | `re-frame.routing` is not required | Require it once at boot |
-| `reg-route` throws `:rf.error/route-bad-metadata` | `:path` inside the map, an unknown unqualified key, or a single event as `:on-match` | The path is the third argument; `:on-match` takes a vector of events, `[[:app/load]]` |
-| `reg-route` throws `:rf.error/invalid-route-pattern` | The pattern breaks the grammar (no leading `/`, an empty `//` segment, …) | The error names the character position |
-| `reg-route` throws `:rf.error/route-decimal-unsupported` or `:rf.error/route-keyword-unbounded-unsupported` | A `:double` or bare `:keyword` slot can't round-trip through a URL | Use `:string`, `:int` or `[:enum …]` |
-| `reg-route` throws `:rf.error/invalid-route-classification` | A `:sensitive` / `:large` path is malformed | Fix the path |
-| `:rf.warning/route-shadowed-by-equal-score` at registration | Same shape as an existing route that matches the same URLs | The earlier route wins; make one pattern more specific |
-| `:rf.warning/route-classification-query-key-unpromoted` | A `[:query k]` classification names an undeclared key, which stays a string and is never redacted | Declare `k` in `:query` or `:query-defaults` |
-| `route-link` or `route-url` throws `:rf.error/no-such-route` | The route id isn't registered (often a typo) | Fix the id |
-| `route-url` throws `:rf.error/missing-route-param` | A path param is `""`, or is missing or `nil` with no `:params` schema to reject it first | Supply it (a `nil` query value is simply left out) |
-| `route-url` throws `:rf.error/route-url-validation` | Params or query fail the schema (a missing path param included), name a param the path doesn't capture, or the address carries a key that isn't an address key, such as `:replace?` | Fix the address |
-| `route-url` throws `:rf.error/route-url-non-edn-value` | A float, `Date` or other value with no URL form | Encode it as a string first |
-| `route-link` throws `:rf.error/route-link-bad-prefetch` | `:prefetch` is something other than `:intent` | Use `:intent`, or leave the key off |
-| Navigation rejected with `:rf.error/navigate-bad-request` | The payload is not one request map, or the map breaks a [request rule](../api/re-frame.routing.md#navigate-request-rules) | Write `[:rf.route/navigate {:to …}]`; the error's `:reason` names the rule |
-| A navigate does nothing; `:rf.error/schema-validation-failure` in traces | Unknown route id, a missing path param, or params that fail the schema | Fix the address; the route slice is unchanged |
-| A navigate from a callback throws `:rf.error/no-frame-context` | Bare `rf/dispatch` in a timeout or promise | Navigate from an event handler's `:fx` |
-| `[:rf.route/prefetch …]` does nothing; `:rf.error/prefetch-bad-address` | Malformed address or unknown destination | Fix the address |
-| A guard always refuses, with `:rf.error/can-leave-non-boolean` / `:rf.error/can-enter-non-boolean` | The guard sub returned something other than `true` / `false` | Wrap it in `boolean`, `some?` or `not` |
-| Guards are ignored; `:rf.warning/can-leave-subs-artefact-missing` | The subscription runtime isn't available to evaluate them | Load it |
-| A plain `[:a {:href …}]` reloads the page | It doesn't go through `route-link` | Use `route-link`, or a document-level listener that dispatches `:rf.route/url-requested` |
-| The page doesn't scroll; `:rf.error/unsupported-scroll-strategy` | `:scroll` isn't `:top`, `:restore`, `:preserve` or `false` | Use one of those |
-| `:rf.warning/no-not-found-route` on an unmatched URL | `:rf.route/not-found` isn't registered | Register it |
-| `:rf.error/duplicate-url-binding` | Two frames have `:url-bound? true` | Keep one; the first keeps the URL |
-| `make-frame` throws `:rf.error/invalid-url-strategy` | `:url-strategy` isn't a strategy map | Use `rf.routing/history-url-strategy`, `hash-url-strategy` or `with-base-path` |
-| First page shows `:rf.error/resource-route-plan` | A resource the route declares was registered after the URL-bound frame was created | Register first, or dispatch `:rf.route/replan-resources` ([details](#several-frames-one-address-bar)) |
-| A route reads `:error` with `:rf.error/resource-route-plan` and `:recovery :fix-parent` | Its `:parent` names a route that isn't registered, often a typo | Fix the `:parent` id |
-| `[:rf.route/replan-resources …]` does nothing; `:rf.error/replan-bad-request` | `:cause` is missing or `nil` (`:reason :missing-cause`), or no route is active yet (`:no-active-route`) | Pass `{:cause …}`, after the first navigation |
+| First `reg-route` throws `:rf.error/routing-artefact-missing` | Routing is not loaded | Require `re-frame.routing` once at boot |
+| A link reloads the page | A plain anchor is used for an app route | Use `route-link` |
+| A declared query value is missing | The key is not in the route's schema, so it remains a string key | Declare the keys the view reads in `:query` |
+| A navigation from a callback raises `:rf.error/no-frame-context` | A bare `rf/dispatch` has no frame | Return navigation from a handler's `:fx` |
+| Entry or leave always fails with a non-boolean guard error | The guard returns a user map or `nil` | Return `true` or `false`, for example `(some? user)` |
+| Back and the address bar do not follow the route | No frame owns the URL | Set `:url-bound? true` on the app frame |
+| `:rf.error/duplicate-url-binding` is reported | Two frames request the address bar | Keep one URL-bound frame |
+
+The [routing reference](../api/re-frame.routing.md) documents registration and
+request failures. Loader failures are covered with their
+[data-loading task](how-to/load-page-data.md#troubleshooting), and host failures
+with [browser URL configuration](how-to/configure-browser-urls.md#troubleshooting).
 
 ## Advanced
 
@@ -541,83 +447,29 @@ nothing on the server.
 
 <a id="a-hand-rolled-async-loader"></a>
 
-`:resources` handles page loads for you. If you fetch from `:on-match` yourself, you
-own a race: open article A, go to B before A's reply lands, and A's late reply
-overwrites B. Capture the **navigation token** when the load starts and deliver the
-reply only if it still matches.
-
-The `:rf.route/nav-token` coeffect gives an `:on-match` handler the live token. The
-`:rf.route/with-nav-token` effect delivers a reply only while that token is still
-current; otherwise it drops it and emits `:rf.route.nav-token/stale-suppressed`.
-
-```clojure
-;; Capture the live token, start your fetch, and carry the token into the reply.
-(rf/reg-event :app/load-article
-  {:rf.cofx/requires [:rf.route/nav-token]}
-  (fn [{:rf.route/keys [nav-token] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
-      ;; :app/fetch-article is your async effect; on reply it dispatches
-      ;; :app/article-arrived with the captured token and the payload.
-      {:fx [[:app/fetch-article {:slug slug :on-reply [:app/article-arrived nav-token slug]}]]})))
-
-;; Still current → the :rf/reply-to event is dispatched with a reply map appended as
-;; its last argument, the payload under :value. Stale → nothing is dispatched.
-(rf/reg-event :app/article-arrived
-  (fn [_ [_ captured-token slug payload]]
-    {:fx [[:rf.route/with-nav-token
-           {:rf/reply-to [:app/article-loaded slug]
-            :nav-token   captured-token
-            :value       payload}]]}))
-
-(rf/reg-event :app/article-loaded
-  (fn [{:keys [db]} [_ _slug {:keys [value]}]]    ;; reply = {:status :ok :value …}
-    {:db (assoc db :article/current value)}))
-```
+Prefer resources for page loads. If an `:on-match` handler starts its own request,
+capture the current navigation's token with `:rf.route/nav-token` and deliver
+the reply through `:rf.route/with-nav-token`. A reply from an earlier navigation
+is dropped instead of overwriting the current page. The
+[token effect reference](../api/re-frame.routing.md#effects-fx) shows the complete
+reply shape.
 
 ### Warming a destination before the click
 
-A link can start loading its destination's data on hover, focus or touch, so the
-click lands on a fetch already in flight:
-
-```clojure
-[rf/route-link {:to :app/article :params {:slug "intro"} :prefetch :intent}
- "Read intro"]
-```
-
-`:intent` is the only accepted value; a passive render dispatches nothing. To turn it
-off, leave `:prefetch` out. Any other value throws at render, so a typo can't
-silently give you a link that never warms. The link dispatches
-`[:rf.route/prefetch {:to :app/article :params {:slug "intro"}}]`, which you can also
-dispatch yourself.
-
-A prefetch plans the same resources a real navigation would, without an owner:
-`:blocking?` has no effect, and nothing about the route changes — no slice write, URL,
-scroll, guards or `:on-match`. If the click follows, the navigation reuses the warmed
-data; if it doesn't, the data can be garbage-collected. A prefetch is not an
-authorization check: warming a route whose `:can-enter` would refuse is allowed,
-because entering still runs the guard.
+`:prefetch :intent` on a `route-link` starts the destination's resources on hover,
+focus or touch. It changes no active route state and runs no guards or
+`:on-match`. A later click reuses the data or request; the real navigation still
+checks entry. The [prefetch example](how-to/load-page-data.md#warm-the-destination-before-a-click)
+shows the link.
 
 ### Replanning the active route's resources
 
-Sometimes the identity behind a route's reads changes while the route doesn't: a saved
-session is restored after the page opened, or an admin switches tenant. A
-`{:from-db …}` resource re-keys to the new identity, but the newly selected entry just
-sits `:idle`, and navigating to the same address is a no-op. Dispatch:
-
-```clojure
-[:rf.route/replan-resources {:cause [:session-restore]}]
-```
-
-This reruns the active route's plan, parents included, against the current app-db,
-under the same nav-token and route owner. Requirements with reusable data or an
-in-flight request are kept; new requirements and retained entries with neither data
-nor a live request are ensured with your `:cause`. Dropped requirements are
-released. Readiness is recomputed, so a route whose plan failed while the identity was
-unknown is repaired in place. If the replan itself fails to plan, the route releases
-everything it held, so data from the old identity can't keep arriving. `:cause` is
-required. For an identity switch: clear the old scope, commit the new identity, then
-replan. Reusable data is not refetched, and no guards, `:on-match`, URL or scroll
-work runs. See the [Resources model](../resources/concepts.md).
+When a restored session changes a resource's identity but keeps the same route,
+`[:rf.route/replan-resources {:cause …}]` loads the newly selected reads. It
+keeps reusable data and in-flight reads and releases requirements no longer in
+the plan. It does not navigate or recheck guards. The
+[identity-change recipe](how-to/load-page-data.md#reload-the-plan-after-an-identity-change)
+shows when to dispatch it.
 
 ### Several frames, one address bar
 

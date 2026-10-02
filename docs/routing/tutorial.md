@@ -1,8 +1,8 @@
 # Tutorial: build a routed app
 
-This tutorial builds a small articles app: a home page, an articles list and an
-article page. Then it adds shared layouts, URL filters, sign-in and an editor that
-warns before discarding changes. Each step adds one idea to the same app.
+Build an articles reader with a home page, a list and a page for each article.
+Add links, URL filters and a shared layout to the same app, checking the result
+after each change.
 
 Throughout, the URL is application state: you read the active route with a
 subscription and change it by dispatching an event.
@@ -14,6 +14,7 @@ shareable URLs doesn't carry it. Add the dependency, then require the namespace 
 
 ```clojure
 ;; src/app/core.cljc
+;; cf. examples/capabilities/routing/routing/core.cljs
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing]                              ;; turns routing on
@@ -108,10 +109,9 @@ The article page needs the article's slug in the URL. A colon segment captures i
 ```
 
 The matcher fills `:slug` from the URL. The `:params`
-[schema](../core/how-to/validate-with-schemas.md) always coerces — declare
-`[:id :int]` on an `/items/:id` route and `/items/42` arrives as the number `42`, not
-`"42"`. It also validates, but only in an app that requires `re-frame.schemas`;
-without that require, a value the schema rejects passes through unchecked.
+[schema](../core/how-to/validate-with-schemas.md) declares the value's type: here,
+`"intro"` is a string. Schemas coerce URL values and, when `re-frame.schemas` is
+loaded, validate them too. Without that require, values are not validated.
 
 Read the captured params with a subscription:
 
@@ -162,7 +162,9 @@ partition beside app-db. Handlers receive it under `:rf.db/runtime`:
 (rf/reg-event :app/load-article
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
-      {:db (assoc db :article/current (get sample-articles slug))})))
+      {:db (assoc db
+                  :article/current (get sample-articles slug)
+                  :article/last-read slug)})))
 
 (rf/reg-sub :article/current (fn [db _] (:article/current db)))
 
@@ -183,8 +185,8 @@ article; the page handles that missing data separately from an unmatched URL.
 The runtime dispatches `:on-match` events and moves on: it does not wait for work they
 start, and an exception in the handler is reported like any other event error. The
 sample map returns immediately, so there is no loading state to wait for. For
-server data, [Loading real data](#loading-real-data) explains route resources and
-when to keep an `:on-match` handler.
+server data, declare [the route's resources](how-to/load-page-data.md) so the
+runtime manages loading and late replies.
 
 **What you see:** open `/articles/intro` and the title appears. Open another article
 and `:on-match` fires again; open the same one again and it doesn't.
@@ -312,42 +314,37 @@ nav, and `/` shows Home.
 
 ## Step 8 — navigate from an event
 
-When navigation follows from something the user did — signing in, saving, deleting —
-dispatch `:rf.route/navigate` from the event handler. Add a login page that signs the
-reader in and opens the articles:
+The reader can return to the article they last opened. Step 4's load event
+stores its slug in `:article/last-read`. Read that state from an event handler and
+return the navigation as a `:dispatch` effect:
 
 ```clojure
-(rf/reg-route :app/login {} "/login")
+(rf/reg-event :article/resume
+  (fn [{:keys [db]} _]
+    {:fx [[:dispatch [:rf.route/navigate
+                     {:to :app/article
+                      :params {:slug (or (:article/last-read db) "intro")}}]]]}))
 
-(rf/reg-sub :auth/user (fn [db _] (:auth/user db)))
-
-(rf/reg-event :auth/sign-in
-  (fn [{:keys [db]} [_ user]]
-    {:db (assoc db :auth/user user)
-     :fx [[:dispatch [:rf.route/navigate {:to       :app/articles
-                                          :replace? true}]]]}))
-
-(rf/reg-view login-page []
+(rf/reg-view home-page []
   [:div
-   [:h1 "Sign in"]
-   [:button {:on-click #(dispatch [:auth/sign-in {:name "Ada"}])}
-    "Sign in as Ada"]])
+   [:h1 "Home"]
+   [rf/route-link {:to :app/articles} "See the articles →"]
+   [:button {:on-click #(dispatch [:article/resume])} "Continue reading"]])
 ```
 
-Add `:app/login [login-page]` to `page-for`, and
-`[rf/route-link {:to :app/login} "Sign in"]` to the header.
+`:rf.route/navigate` takes one request map. `:to` and `:params` name the destination
+as they do for `route-link`. The `:dispatch` effect sends the navigation to the
+same frame as the handler. A view can also dispatch it directly:
+`#(dispatch [:rf.route/navigate {:to :app/home}])`.
 
-`:rf.route/navigate` takes one request map. `:to` and `:params` name the destination as
-they do for `route-link`, `:query` sets the query string, and `:replace? true` replaces
-the current history entry instead of adding one, so Back from the articles list skips
-the login form. Any other payload shape, such as `[:rf.route/navigate :app/articles]`,
-is rejected with `:rf.error/navigate-bad-request`.
+Use `route-link` when the destination is known while rendering: it gives the
+reader a real link they can copy or open in a new tab. Navigate from an event when
+an app action determines the destination, as with this resume action or after a
+successful save.
 
-The `:dispatch` effect sends the navigation to the same frame as the handler. A view can
-also dispatch it directly: `#(dispatch [:rf.route/navigate {:to :app/home}])`.
-
-**What you see:** click **Sign in as Ada** and the app opens `/articles`. Back returns
-to the page before the login form.
+**What you see:** open an article, go Home and click **Continue reading**. That
+article opens again. Before any article has been opened, the button opens
+`/articles/intro`.
 
 ## Step 9 — query strings: filter the list
 
@@ -395,210 +392,52 @@ To change the query without leaving the page, navigate in place: omit `:to` and 
 **What you see:** click **#ssr** and the address bar reads `/articles?tag=ssr`, with one
 article listed. Refresh, and the filter stays.
 
-## Step 10 — keep signed-out readers out
-
-Settings is for signed-in readers only. Give the route a `:can-enter` guard: a
-subscription that returns `true` to allow entry and `false` to refuse it.
-
-```clojure
-(rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
-  (fn [[user] _] (some? user)))
-
-(rf/reg-route :app/settings
-  {:can-enter [:auth/signed-in?]}
-  "/settings")
-
-(rf/reg-view settings-page []
-  [:h1 (str "Settings for " (:name @(subscribe [:auth/user])))])
-```
-
-Add `:app/settings [settings-page]` to `page-for`, and a link to it in the header.
-
-The runtime checks the guard on every way into the route: a link, a navigate, a typed
-URL, a refresh, Back or Forward. An identical navigation is a no-op and checks no
-guards. A refused entry changes nothing — the current page and
-URL stay, and `:on-match` does not run. The guard must return `true` or `false`;
-anything else refuses and raises `:rf.error/can-enter-non-boolean`, which is why the
-sub wraps the user in `some?`.
-
-A refusal dispatches `:rf.route/entry-denied`. The built-in handler does nothing, so the
-click is ignored. Register your own handler to send the reader to the login page:
-
-```clojure
-(rf/reg-event :rf.route/entry-denied
-  (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
-```
-
-**What you see:** signed out, clicking **Settings** opens `/login`. After signing in,
-**Settings** opens the settings page. To return the reader to the page they asked for
-after signing in, see [Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
-
-## Step 11 — warn before losing unsaved changes
-
-Add an article editor that asks before the reader leaves with unsaved edits. Give its
-route a `:can-leave` guard, which the runtime checks on the route being left:
-
-```clojure
-(rf/reg-route :app/article-editor
-  {:params    [:map [:slug :string]]
-   :on-match  [[:editor/open]]
-   :can-leave [:editor/can-leave?]}
-  "/articles/:slug/edit")
-
-(rf/reg-event :editor/open
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
-          title          (get-in sample-articles [slug :title])]
-      {:db (assoc db :editor {:slug slug :draft title :saved title})})))
-
-(rf/reg-event :editor/edit
-  (fn [{:keys [db]} [_ text]]
-    {:db (assoc-in db [:editor :draft] text)}))
-
-(rf/reg-event :editor/save          ;; a real app would also send it to the server
-  (fn [{:keys [db]} _]
-    {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))}))
-
-(rf/reg-sub :editor/draft (fn [db _] (get-in db [:editor :draft])))
-
-(rf/reg-sub :editor/can-leave?     ;; true when there is nothing to lose
-  (fn [db _]
-    (= (get-in db [:editor :draft]) (get-in db [:editor :saved]))))
-
-(rf/reg-view editor-page []
-  [:div
-   [:h1 "Edit title"]
-   [:input {:value     (or @(subscribe [:editor/draft]) "")
-            :on-change #(dispatch [:editor/edit (.. % -target -value)])}]
-   [:button {:on-click #(dispatch [:editor/save])} "Save"]])
-```
-
-When `:editor/can-leave?` returns `false`, the navigation waits in
-`:rf/pending-navigation`, a subscription that is `nil` when nothing is waiting. Render a
-prompt from it, and answer with `:rf.route/continue` or `:rf.route/cancel`, passing the
-pending navigation's `:id`:
-
-```clojure
-(rf/reg-view leave-prompt []
-  (when-let [pending @(subscribe [:rf/pending-navigation])]
-    [:div.modal
-     [:p "You have unsaved changes. Leave anyway?"]
-     [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])} "Stay"]
-     [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
-```
-
-Add `:app/article-editor [editor-page]` to `page-for`, render `[leave-prompt]` once in
-the root view, and give the article page an **Edit** link:
-`[rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]`, with `slug`
-read from `:rf.route/params` as in Step 3.
-
-`:rf.route/continue` resumes the waiting navigation; `:rf.route/cancel` drops it. As
-with `:can-enter`, the guard must return a boolean — anything else blocks and raises
-`:rf.error/can-leave-non-boolean`.
-
-**What you see:** open **Edit**, change the title and click **Home**: the prompt
-appears and the URL doesn't change. **Stay** keeps your draft; **Leave** goes home.
-After **Save**, **Home** navigates straight away.
-
-The guard covers navigation inside the app, not closing the tab or reloading. For
-those, and for a "save and leave" button, see
-[Guard against unsaved changes](how-to/guard-unsaved-changes.md).
-
 ## The complete app
 
 ??? example "All the steps in one namespace"
 
     ```clojure
     ;; src/app/core.cljc
+    ;; cf. examples/capabilities/routing/routing/core.cljs
     (ns app.core
       (:require [re-frame.core :as rf]
                 [re-frame.routing]
                 #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
-    ;; ---- data ------------------------------------------------------------------
-
     (def sample-articles
       {"intro" {:title "Intro to re-frame2" :tags #{"basics"}}
        "ssr"   {:title "Server rendering"   :tags #{"ssr"}}})
 
-    ;; ---- routes ----------------------------------------------------------------
-
     (rf/reg-route :app/home {} "/")
-
     (rf/reg-route :app/articles
       {:query [:map [:tag {:optional true} :string]]}
       "/articles")
-
     (rf/reg-route :app/article
       {:parent   :app/articles
        :params   [:map [:slug :string]]
        :on-match [[:app/load-article]]}
       "/articles/:slug")
-
-    (rf/reg-route :app/article-editor
-      {:params    [:map [:slug :string]]
-       :on-match  [[:editor/open]]
-       :can-leave [:editor/can-leave?]}
-      "/articles/:slug/edit")
-
-    (rf/reg-route :app/settings
-      {:can-enter [:auth/signed-in?]}
-      "/settings")
-
-    (rf/reg-route :app/login {} "/login")
-
     (rf/reg-route :rf.route/not-found {} "/_404")
-
-    ;; ---- events and subs -------------------------------------------------------
 
     (rf/reg-event :app/load-article
       (fn [{:keys [db] rt :rf.db/runtime} _]
         (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
-          {:db (assoc db :article/current (get sample-articles slug))})))
-
+          {:db (assoc db
+                      :article/current (get sample-articles slug)
+                      :article/last-read slug)})))
     (rf/reg-sub :article/current (fn [db _] (:article/current db)))
 
-    (rf/reg-sub :auth/user (fn [db _] (:auth/user db)))
-
-    (rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
-      (fn [[user] _] (some? user)))
-
-    (rf/reg-event :auth/sign-in
-      (fn [{:keys [db]} [_ user]]
-        {:db (assoc db :auth/user user)
-         :fx [[:dispatch [:rf.route/navigate {:to :app/articles :replace? true}]]]}))
-
-    (rf/reg-event :rf.route/entry-denied
-      (fn [_ _]
-        {:fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
-
-    (rf/reg-event :editor/open
-      (fn [{:keys [db] rt :rf.db/runtime} _]
-        (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
-              title          (get-in sample-articles [slug :title])]
-          {:db (assoc db :editor {:slug slug :draft title :saved title})})))
-
-    (rf/reg-event :editor/edit
-      (fn [{:keys [db]} [_ text]]
-        {:db (assoc-in db [:editor :draft] text)}))
-
-    (rf/reg-event :editor/save
+    (rf/reg-event :article/resume
       (fn [{:keys [db]} _]
-        {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))}))
-
-    (rf/reg-sub :editor/draft (fn [db _] (get-in db [:editor :draft])))
-
-    (rf/reg-sub :editor/can-leave?
-      (fn [db _]
-        (= (get-in db [:editor :draft]) (get-in db [:editor :saved]))))
-
-    ;; ---- pages -----------------------------------------------------------------
+        {:fx [[:dispatch [:rf.route/navigate
+                         {:to :app/article
+                          :params {:slug (or (:article/last-read db) "intro")}}]]]}))
 
     (rf/reg-view home-page []
       [:div
        [:h1 "Home"]
-       [rf/route-link {:to :app/articles} "See the articles →"]])
+       [rf/route-link {:to :app/articles} "See the articles →"]
+       [:button {:on-click #(dispatch [:article/resume])} "Continue reading"]])
 
     (rf/reg-view articles-page []
       (let [{:keys [tag]} @(subscribe [:rf.route/query])
@@ -616,30 +455,11 @@ those, and for a "save and leave" button, see
             [:li [rf/route-link {:to :app/article :params {:slug slug}} title]])]]))
 
     (rf/reg-view article-page []
-      (let [{:keys [slug]} @(subscribe [:rf.route/params])]
-        (if-let [article @(subscribe [:article/current])]
-          [:div
-           [:h1 (:title article)]
-           [rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]]
-          [:div
-           [:h1 "Article not found"]
-           [rf/route-link {:to :app/articles} "All articles"]])))
-
-    (rf/reg-view editor-page []
-      [:div
-       [:h1 "Edit title"]
-       [:input {:value     (or @(subscribe [:editor/draft]) "")
-                :on-change #(dispatch [:editor/edit (.. % -target -value)])}]
-       [:button {:on-click #(dispatch [:editor/save])} "Save"]])
-
-    (rf/reg-view settings-page []
-      [:h1 (str "Settings for " (:name @(subscribe [:auth/user])))])
-
-    (rf/reg-view login-page []
-      [:div
-       [:h1 "Sign in"]
-       [:button {:on-click #(dispatch [:auth/sign-in {:name "Ada"}])}
-        "Sign in as Ada"]])
+      (if-let [article @(subscribe [:article/current])]
+        [:h1 (:title article)]
+        [:div
+         [:h1 "Article not found"]
+         [rf/route-link {:to :app/articles} "All articles"]]))
 
     (rf/reg-view not-found-page []
       (let [url (:url @(subscribe [:rf.route/params]))]
@@ -648,23 +468,11 @@ those, and for a "save and leave" button, see
          [:p (str "No page at " url)]
          [rf/route-link {:to :app/home} "Home"]]))
 
-    (rf/reg-view leave-prompt []
-      (when-let [pending @(subscribe [:rf/pending-navigation])]
-        [:div.modal
-         [:p "You have unsaved changes. Leave anyway?"]
-         [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])} "Stay"]
-         [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
-
-    ;; ---- layout ----------------------------------------------------------------
-
     (defn page-for [route-id]
       (case route-id
         :app/home           [home-page]
         :app/articles       [articles-page]
         :app/article        [article-page]
-        :app/article-editor [editor-page]
-        :app/settings       [settings-page]
-        :app/login          [login-page]
         :rf.route/not-found [not-found-page]
         nil                nil))
 
@@ -677,17 +485,11 @@ those, and for a "save and leave" button, see
 
     (rf/reg-view root-view []
       [:div.site
-       [:header "My Site "
-        [rf/route-link {:to :app/home} "Home"] " "
-        [rf/route-link {:to :app/settings} "Settings"] " "
-        [rf/route-link {:to :app/login} "Sign in"]]
-       [leave-prompt]
+       [:header "My Site " [rf/route-link {:to :app/home} "Home"]]
        (let [chain @(subscribe [:rf.route/chain])]
          (reduce (fn [inner ancestor] (ancestor-shell ancestor inner))
                  (page-for (last chain))
                  (reverse (butlast chain))))])
-
-    ;; ---- mount (browser only) --------------------------------------------------
 
     #?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
@@ -713,24 +515,29 @@ those, and for a "save and leave" button, see
 | `:on-match` stopped firing after adding `:parent` | `reg-route` replaces the whole metadata map | Re-register with every key you still want (Step 7) |
 | `(:tag query)` is `nil` although the URL has `?tag=` | The route does not declare `:tag` in `:query` | Declare it in the `:query` schema (Step 9) |
 | Navigation is refused with `:rf.error/navigate-bad-request` | The payload is not one request map, or the map breaks a [request rule](../api/re-frame.routing.md#navigate-request-rules) | Write `[:rf.route/navigate {:to …}]`; the error's `:reason` names the rule |
-| A guarded route can never be entered or left, with `:rf.error/can-enter-non-boolean` or `:rf.error/can-leave-non-boolean` | The guard sub returned something other than `true` / `false` | Wrap the value in `boolean`, `some?` or `not` |
-| Nothing happens when a signed-out reader clicks a guarded link | The built-in `:rf.route/entry-denied` handler does nothing | Register your own (Step 10) |
 
 ## Advanced
 
 ### Loading real data
 
-`:on-match` suits work the page can render without, because the runtime doesn't wait
-for it. For data the page needs before it can render, declare `:resources` on the
-route instead: the runtime waits for those reads and reports progress on
-`:rf.route/transition`. A child route also receives the `:resources` declared on its
-`:parent` routes, so a read the section shell needs is declared once. See
-[Declaring the data a page needs](concepts.md#declaring-resources-instead) and
-[Parent resources compose to the child](concepts.md#parent-resources-compose-to-the-child).
+`:on-match` starts work when a route activates; the runtime does not wait for it.
+For server data, [load data for a route](how-to/load-page-data.md) with `:resources`.
+That page shows the registration, loading/error view and parent resources together.
+The same declarations also run during [server rendering](../ssr/concepts.md).
 
-If you start your own async request from an `:on-match` handler, a slow reply can
-arrive after the reader has moved to another page and overwrite it. Capture the
-navigation token when the request starts and check it when the reply arrives; see
-[A hand-rolled async loader](concepts.md#a-hand-rolled-async-loader).
+<a id="step-10--keep-signed-out-readers-out"></a>
 
-`:on-match` events also run during [server rendering](../ssr/concepts.md).
+### Requiring sign-in
+
+A route's `:can-enter` subscription decides whether the current app state allows
+entry. [Require sign-in on a route](how-to/require-sign-in-on-a-route.md) adds
+settings and login pages to this app, including returning to the requested page
+after sign-in.
+
+<a id="step-11--warn-before-losing-unsaved-changes"></a>
+
+### Protecting an editor's draft
+
+A route's `:can-leave` subscription can pause navigation while the reader decides
+whether to discard edits. [Guard against unsaved changes](how-to/guard-unsaved-changes.md)
+adds the editor, its draft events and the confirmation prompt to this app.
