@@ -454,8 +454,9 @@
          (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
          (is (false? @fired?)
              "the handler never ran — missing-required halts the cascade")
-         (is (some? (get-in @rf.story.ui.dispatch-console/input-state [vid :error]))
-             "the failure is surfaced visibly as the panel error")
+         (is (re-find #":rf[.]error/missing-required-cofx"
+                      (str (get-in @rf.story.ui.dispatch-console/input-state [vid :error])))
+             "the panel error names :rf.error/missing-required-cofx")
          (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid)))
              "a failed dispatch records no history entry")))))
 
