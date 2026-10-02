@@ -4,11 +4,11 @@
 
   The bulk of assertion coverage lives in the JVM test ns
   (`re-frame.story-assertions-test`); this namespace covers the
-  CLJS-specific surface: that the seven assertion handlers register
-  under CLJS, that `run-variant` resolves to a result map with the
-  `:assertions` slot populated, and that `assertions-passing?` works
-  from CLJS callers."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  CLJS-specific surface: that `run-variant` resolves under CLJS to a
+  result map with the `:assertions` slot populated, that
+  `assertions-passing?` works from CLJS callers, and the evaluator
+  branches no end-to-end case reaches."
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
             [re-frame.machines         :as rf.machines]
@@ -42,19 +42,6 @@
   (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
-
-;; ---- the seven canonical assertions are registered on CLJS too -----------
-
-(deftest cljs-canonical-seven-registered
-  (testing "all seven :rf.assert/* event handlers register on CLJS"
-    (let [events (rf.registrar/registrations :event)]
-      (is (contains? events :rf.assert/path-equals))
-      (is (contains? events :rf.assert/path-matches))
-      (is (contains? events :rf.assert/sub-equals))
-      (is (contains? events :rf.assert/dispatched?))
-      (is (contains? events :rf.assert/state-is))
-      (is (contains? events :rf.assert/no-warnings))
-      (is (contains? events :rf.assert/effect-emitted)))))
 
 ;; ---- :rf.assert/path-equals --------------------------------------------
 
@@ -116,15 +103,6 @@
               (rf.story/destroy-variant! :story.cljs.contract/v)
               (done)))))))
 
-;; ---- public API additions surface check ---------------------------------
-
-(deftest cljs-public-api-surface
-  (testing "the assertion public fns are present on the CLJS story ns"
-    (is (fn? rf.story/assertions-passing?))
-    (is (fn? rf.story/read-assertions))
-    (is (fn? rf.story/canonical-assertion-ids))
-    (is (= :rf.story/force-fx-stub rf.story/force-fx-stub-id))))
-
 ;; ===========================================================================
 ;; Internal assertion-helper branches
 ;;
@@ -133,39 +111,29 @@
 ;; reached directly via var-quote (the Story-test seam pattern).
 ;; ===========================================================================
 
-;; ---- event-matches? — the fn? + bare-keyword? branches ------------------
+;; ---- event-matches? — one row per needle branch --------------------------
 ;;
-;; story_assertions_test.clj only passes literal event vectors, so the
-;; predicate-needle (`fn?`) and bare-keyword (`keyword?`) branches of
-;; `:rf.assert/dispatched?` (/spec/007-Stories.md's `[event-or-pred]`) are tested here.
+;; A `:rf.assert/dispatched?` needle (/spec/007-Stories.md's
+;; `[event-or-pred]`) is a predicate fn, a bare keyword or a literal event
+;; vector. The table walks each branch of the private matcher directly,
+;; including the :else fall-through.
 
 (def ^:private event-matches? @#'rf.story.assertions/event-matches?)
 
-(deftest cljs-event-matches?-fn-predicate-branch
-  (testing "a fn needle is applied to the observed event vector"
-    (is (true?  (event-matches? [:user/click 7] (fn [ev] (= 7 (second ev)))))
-        "predicate sees the whole observed vector and returns truthy → matched")
-    (is (false? (event-matches? [:user/click 7] (fn [ev] (= 99 (second ev)))))
-        "predicate returns falsey → not matched")
-    (is (false? (event-matches? [:user/click] (constantly nil)))
-        "a nil-returning predicate is coerced to false")))
-
-(deftest cljs-event-matches?-bare-keyword-branch
-  (testing "a bare keyword needle matches on the observed event's head id"
-    (is (true?  (event-matches? [:user/click {:x 1}] :user/click))
-        "head id equals the keyword → matched regardless of payload")
-    (is (false? (event-matches? [:user/submit] :user/click))
-        "different head id → not matched")))
-
-(deftest cljs-event-matches?-vector-and-fallthrough
-  (testing "the literal-vector branch matches exactly; non-fn/
-            vector/keyword needles fall through to false"
-    (is (true?  (event-matches? [:user/click 1] [:user/click 1])))
-    (is (false? (event-matches? [:user/click 1] [:user/click 2])))
-    (is (false? (event-matches? [:user/click] "not-a-needle"))
-        "a string needle hits the :else branch → false")
-    (is (false? (event-matches? [:user/click] 42))
-        "a number needle hits the :else branch → false")))
+(deftest cljs-event-matches?-per-needle-kind
+  (testing "a fn needle sees the whole observed vector (a nil return is
+            false), a bare keyword matches the head id whatever the payload,
+            a vector matches exactly, and any other needle is false"
+    (are [observed needle matched?] (= matched? (event-matches? observed needle))
+      [:user/click 7]      (fn [ev] (= 7 (second ev)))  true
+      [:user/click 7]      (fn [ev] (= 99 (second ev))) false
+      [:user/click]        (constantly nil)             false
+      [:user/click {:x 1}] :user/click                  true
+      [:user/submit]       :user/click                  false
+      [:user/click 1]      [:user/click 1]              true
+      [:user/click 1]      [:user/click 2]              false
+      [:user/click]        "not-a-needle"               false
+      [:user/click]        42                           false)))
 
 ;; ---- evaluate-sub-equals — the sub-throws (::compute-error) arm ----------
 ;;

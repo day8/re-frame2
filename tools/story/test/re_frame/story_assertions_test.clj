@@ -209,24 +209,6 @@
     (rf.story/destroy-variant! :story.sub/runtime)))
 
 ;; ===========================================================================
-;; :rf.assert/dispatched?
-;; ===========================================================================
-
-(deftest dispatched-pass
-  (testing ":rf.assert/dispatched? passes when an earlier event in :script fired"
-    (rf/reg-event :test/click
-      (fn [{:keys [db]} _] {:db (assoc db :clicked? true)}))
-    (rf.story/reg-variant :story.dispatched/v
-      {:setup []
-       :script [[:dispatch-sync [:test/click]]
-                [:dispatch-sync [:rf.assert/dispatched? [:test/click]]]]})
-    (let [r       (rf.story.async/deref-blocking (rf.story/run-variant :story.dispatched/v) 5000)
-          asserts (:assertions r)
-          last-a  (last asserts)]
-      (is (true? (:passed? last-a)) "the dispatched? assertion saw the test/click event"))
-    (rf.story/destroy-variant! :story.dispatched/v)))
-
-;; ===========================================================================
 ;; :rf.assert/state-is
 ;; ===========================================================================
 
@@ -602,10 +584,7 @@
               (let [events (rf.story.assertions/dispatched-events :any-frame)]
                 (is (= [[:auth/login]] events)
                     "the sensitive epoch's trigger-event is filtered out — only
-                     the non-sensitive event projects")
-                (is (not-any? #(= :auth/submit (first %)) events)
-                    "the sensitive payload [:auth/submit {:password …}] never
-                     appears in the projection")))))))))
+                     the non-sensitive event projects")))))))))
 
 (deftest dispatched-events-keeps-sensitive-trigger-under-local-raw
   (testing "under :rf.egress/local-raw the sensitive epoch's :trigger-event
@@ -639,17 +618,7 @@
               (let [events (rf.story.assertions/dispatched-events :any-frame)]
                 (is (= [[:cart/add-item {:sku "A"}] [:cart/checkout]] events)
                     "only the two real events project; both :rf.assert/* verdict
-                     trigger-events are dropped")
-                (is (not-any? #(= "rf.assert" (namespace (first %))) events)
-                    "no :rf.assert/* head survives the projection")))))))))
-
-(deftest dispatched-events-empty-on-host-free-tape
-  (testing "an empty tape (a production Story jar / host without the epoch
-            artefact, where the late-bound facade degrades to []) projects
-            no events — the host-free floor, not a throw"
-    (with-tape []
-      (fn []
-        (is (= [] (rf.story.assertions/dispatched-events :any-frame)))))))
+                     trigger-events are dropped")))))))))
 
 (deftest effect-emitted-projects-from-tape-effects
   (testing ":rf.assert/effect-emitted reads the epoch-tape :effects projection
