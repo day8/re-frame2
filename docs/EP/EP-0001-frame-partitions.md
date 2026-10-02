@@ -644,6 +644,14 @@ with `:large?` or `:sensitive?`. The extracted declaration records are runtime
 bookkeeping and should be written under `:rf.runtime/elision` in runtime-db,
 not under an app-db path the app can accidentally replace.
 
+> **Follow-up — 2026-10-02.** [EP-0025](EP-0025-data-classification.md)
+> replaced schema-derived durable classification with declarations at the fact's
+> definition site. App-db classification accompanies the handler's write;
+> runtime subsystems declare their own projection-relative paths and lower them
+> into the per-frame elision registry. Schema props still govern validation-failure
+> redaction. The registry's runtime-db home is unchanged; the current contract is
+> [Spec 015](../../spec/015-Data-Classification.md).
+
 ### Mental Model
 
 The explanatory analogy is:
@@ -1192,6 +1200,15 @@ ruling here is the binding form.
    illustrative names in §Full-Frame Operations and §Reference Implementation step 2
    are adopted verbatim as the public names.
 
+    > **Follow-up — 2026-10-02.** The current public read surface is
+    > `app-db-value` and `frame-state-value`; read runtime-db from the latter's
+    > `:rf.db/runtime` slot. The partition-specific replacement helpers are internal.
+    > Tooling uses one partial `replace-frame-state!` operation, while application
+    > persistence installs through `:rf/install-frame-state`. See
+    > [Spec 002 §Frame-state value accessors and mutators](../../spec/002-Frames.md#frame-state-value-accessors-and-mutators)
+    > and the [API reference](../../spec/API.md). The original names above record
+    > this EP's ruling; partition ownership is unchanged.
+
 2. **Epoch record shape — frame-state canonical, app-db projections optional.**
     `:frame-state-before` / `:frame-state-after` are the canonical snapshot fields;
     the optional app-db projections kept for tool diff ergonomics are
@@ -1263,6 +1280,13 @@ ruling here is the binding form.
     replacement no longer silently replaces runtime-db — the concern §Full-Frame
     Operations raises.
 
+    > **Follow-up — 2026-10-02.** Decisions 9 and 10 retain the original reset
+    > surface. The current lifecycle composition is `destroy-frame!` followed by
+    > `make-frame` with the caller's config, including its images; `reset-frame!`
+    > is a removed-API stub. Public state installation uses the surfaces recorded
+    > under Decision 1's follow-up above. See
+    > [Spec 002 §Resetting a frame](../../spec/002-Frames.md#resetting-a-frame--destroy--make-frame).
+
 11. **App schemas — keep `reg-app-schema` and "app-db schema"; clarify scope.** The
     public API name `reg-app-schema` and the term "app-db schema" are kept. The docs
     clarify that an app-db schema validates **only the app partition**, not the whole
@@ -1294,6 +1318,13 @@ ruling here is the binding form.
     fences only the framework's slice. This is a decision, not a default — a future
     `scoped-event-handlers` EP may reopen it, but the partition was built knowing what
     it does not fix.
+
+    > **Follow-up — 2026-10-02.** [EP-0018](EP-0018-one-event-registration.md)
+    > subsequently retired `reg-event-db` and `reg-event-fx` in favour of one
+    > `reg-event` shape: a handler receives coeffects and returns an effects map.
+    > Returning `:db` still replaces the whole app-db partition. That preserves
+    > this ownership decision while superseding its registration spelling and
+    > db-first function signature; see [Spec 002](../../spec/002-Frames.md).
 
 ## Bead Plan
 

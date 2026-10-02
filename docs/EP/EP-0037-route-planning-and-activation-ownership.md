@@ -675,6 +675,19 @@ resource settle must reconcile the cache through the same projector. Acceptance
 must lock this shape before R0/R1 beads are cut; Open Issue 2 records the
 alternative, not permission to discover the schema mid-implementation.
 
+> **Implementation follow-up — 2026-10-02.** The shipping shape is two checked
+> halves of one readiness law: `routing.readiness/project-at-commit` seeds the
+> route slice, and `resources.route/reconcile-readiness` reconciles live resource
+> facts. Resources keeps routing optional and cannot require its projector;
+> the small projection is repeated to preserve that package boundary. The
+> `readiness-projector-conformance-cljs-test` suite checks both halves against
+> the same table. The cached slice remains reconstructible, as required above.
+>
+> [Spec 012's pending-first-load rule](../../spec/012-Routing.md#route-readiness-is-a-resource-projection)
+> also distinguishes an idle identity awaiting its first attempt from one whose
+> first load was aborted. An aborted load with no data, no error, and no work
+> left to settle it stops blocking; the shared conformance suite covers this case.
+
 #### Supersession, cancellation, and SSR
 
 A committed full activation still allocates a monotonic nav-token. Plan
@@ -1051,6 +1064,14 @@ general-purpose public plan debugger.
 > yet deliver both. Closing that moves a documented cross-feature slot shape and
 > is tracked separately (**rf2-btdl1**); it is a dispatch question rather than a
 > trace-contract one, and it does not reopen this erratum.
+
+> **Implementation follow-up — 2026-10-02.** The two remaining carriers named
+> in the August erratum now preserve byte identity. Occurrence grouping uses the
+> canonical `key-id`, and both handoff slots are `{<key-id> <scoped-key>}` maps,
+> as recorded in [Spec 016's plan-diff contract](../../spec/016-Resources.md#plan-diff-and-owner-handoff).
+> The `resources_route_cljs_test` twin-identity fixture requires both equal-valued,
+> byte-distinct keys in one plan and checks that each is ensured, blocks, and
+> settles independently. The dispatch limitation recorded above is repaired.
 
 `:rf.resource/route-plan` is the existing Spec 016 route/resource graph
 operation and is extended rather than replaced by a parallel trace. Prefetch

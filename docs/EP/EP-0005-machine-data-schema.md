@@ -6,6 +6,11 @@ Status: final
 
 > **Redaction-bridge half SUPERSEDED by [EP-0025](EP-0025-data-classification.md) (ruled 2026-06-20; refined 2026-06-21).** The `:data-schema`→marks **redaction bridge** this EP introduced (the "Redaction marking" section — extracting `:sensitive?` / `:large?` per-slot props from a machine's `:data-schema` and feeding them into snapshot-egress redaction) is **reversed**. Durable machine `:data` classification is now declared on the **machine definition** itself, as projection-relative `:sensitive` / `:large` paths rooted at one actor snapshot's `:data` (e.g. `{:sensitive [[:data :payment :token]]}`); the runtime lowers each per actor instance at spawn / first-boot into the per-frame elision registry (`:source :machine`) and drops it on destroy. (The initial disposition routed durable machine `:data` through the frame-owned `reg-frame` `:sensitive {:app-db …}` annotation; EP-0025 §subsystems then **retired that frame annotation entirely** and made the machine-declared, per-instance-lowered surface the sole mechanism — see [`spec/005-StateMachines.md` §Privacy — redacting machine `:data` at trace egress](../../spec/005-StateMachines.md#privacy--redacting-machine-data-at-trace-egress).) **The rest of EP-0005 STANDS:** the `:schema`→`:data-schema` **rename**, the **validation** semantics (the `:where :machine-data` boundary), the machines-viz declared-over-inferred Context shape, and the XState-v5 parity all remain in force, and the `:data-schema`'s `:sensitive?` props still drive validation-FAILURE-trace redaction (a different axis from durable `:data` classification). The historical prose below is retained for the record; read "Redaction marking" as superseded.
 
+> **Chronology clarification — 2026-10-02.** The EP-0025 note's "rest of
+> EP-0005 stands" records the June 20–21 disposition. EP-0029's June 23 follow-up
+> subsequently superseded the `:data-schema` spelling and XState-v5 parity frame.
+> Validation and declared-over-inferred inspection survived both follow-ups.
+
 > **`final` means the decisions are settled.** The five deferred calls were ruled
 > by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)); the later
 > 2026-06-09 errata ruling reaffirmed the same schema-first public

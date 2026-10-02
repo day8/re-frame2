@@ -211,6 +211,14 @@ scope; the call-site is enough to navigate back.) This is the one place `:initia
 does slightly more than the manual loop, whose dispatches carry no such tag — a small
 `:source` addition, not a schema/conformance overhaul.
 
+> **Constructor and provenance follow-up — 2026-10-02.** `make-frame` is
+> now the sole programmatic constructor; `frame-root` is the view-tree ENSURE
+> boundary. The former `reg-frame` spelling has been removed. Frame construction
+> captures no call-site coordinates, so the automatic `:ns` / `:line` / `:file`
+> claim above no longer applies. Setup dispatches still carry
+> `:source :frame-init` and `:rf.frame/init-step-index`. See
+> [Spec 002's construction contract](../../spec/002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar).
+
 ### Reset
 
 `:initial-events` is **durable frame config** — stored on the frame the way `:on-create`
@@ -232,6 +240,14 @@ destroy would succeed — there is no handler-scope guard on `destroy-frame!` �
 re-construction would then hit the construction-in-handler guard, leaving the frame
 destroyed-and-not-recreated and signalled by an error naming the wrong cause. The up-front
 rejection is atomic: the frame is left untouched.)
+
+> **Reset follow-up — 2026-10-02.** The dedicated `reset-frame!` verb has
+> been retired. For a full reset, call `destroy-frame!`, then `make-frame` with
+> the config you already hold, including `:id`, `:images` when supplied, and
+> `:initial-events`. This creates and seeds a fresh frame; it is two lifecycle
+> calls rather than one atomic reset. A stale `reset-frame!` call raises
+> `:rf.error/reset-frame-removed`. See
+> [Spec 002's reset composition](../../spec/002-Frames.md#resetting-a-frame--destroy--make-frame).
 
 ### Frame root — the view-tree ENSURE boundary
 
@@ -400,6 +416,8 @@ in new lifecycle machinery.
 
 - [EP-0023 — Images And Frame-Loaded Instruction Sets](EP-0023-image-loaded-frames.md),
   whose original `:initial-db` construction surface this EP supersedes.
+- [EP-0024 — Unified Frame Identity And Lifecycle](EP-0024-unified-frame-identity-and-lifecycle.md),
+  whose `:initial-db` and `:on-create` constructor options this EP supersedes.
 - [EP-0018 — One Event Registration Surface](EP-0018-one-event-registration.md),
   which supplies the single event contract used during setup.
 - [`spec/002-Frames.md`](../../spec/002-Frames.md) — live frame construction

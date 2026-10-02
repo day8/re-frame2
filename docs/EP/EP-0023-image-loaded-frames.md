@@ -33,6 +33,15 @@ Type: standards-track
 >
 > **Supersession addendum 2026-07-09:** two APIs shown live in the body below were subsequently retired — `reload-images!` folded into `re-make-frame` (generation-diff reload) per rf2-lxwpob, and `:initial-db` retired by EP-0027 in favour of a `{}` start plus `:rf/set-db` via `:initial-events`; the historical body is left as authored (retro-stamp only).
 >
+> **Public-surface follow-up — 2026-10-02.** The current image hot-reload
+> spelling is `make-frame` with the same `:id` and a new `:images` vector. Read
+> `frame-generation` before and after, then call `generation-diff` to inspect
+> the change. This replaces the `re-make-frame` migration target recorded on
+> 2026-07-09. The remaining default-realm substrate has also been retired;
+> frame resolution now uses the process frame registry directly. See
+> [Spec 002's image composition contract](../../spec/002-Frames.md#image-resolution-and-composition)
+> and the [current public composition surface](../../spec/API.md#public-registrar-query-api).
+>
 > **Successor record — 2026-08-31.** Three final successor EPs refine this
 > public surface: [EP-0024](EP-0024-unified-frame-identity-and-lifecycle.md)
 > collapses frame identity/lifecycle to one live frame value and registry;

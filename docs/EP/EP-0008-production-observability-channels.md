@@ -201,6 +201,18 @@ always-on axis carry structured data only (error id, ids/keys, frame) — never
 raw values; the axis is subject to the same egress redaction posture as all
 off-box surfaces.
 
+> **Follow-up — 2026-10-02.** [Spec 009 §The promotion criterion](../../spec/009-Instrumentation.md#the-promotion-criterion)
+> now includes silent, fail-closed refusals in leg 2: a no-op gives the caller no
+> value distinguishing refusal from an action never requested. Observable throws
+> or failure returns remain outside that limb. The raw host `:exception` is also
+> a documented exception to the structured-only rule.
+> [EP-0015](EP-0015-frame-owned-egress-policy.md) places public production delivery
+> behind frame-owned observability sinks, projected under the chosen egress
+> profile. The default off-box profile retains the throwable; `:rf.egress/public-error`
+> drops its top-level slot, while nested throwables remain opaque. See
+> [Spec 015 §Frame-owned observability sink policy](../../spec/015-Data-Classification.md#frame-owned-observability-sink-policy)
+> and [Spec 009](../../spec/009-Instrumentation.md).
+
 **Category kind follows the channel.** The always-on axis is contractually
 `:rf.error/*`-only (Ownership: "one tight record per promoted
 `:rf.error/*`"; Spec 009 §What is available in production builds). This EP does

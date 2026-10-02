@@ -355,6 +355,18 @@ inverse a rollback replays is **the recorded entry-before for *that* apply**;
 the conflict check (revision moved) is what catches "someone else committed in
 between" — see Decision 3.
 
+> **Implementation clarification — 2026-10-02.** Each inverse records both
+> `:revision`, observed before its own apply, and `:applied-revision`, observed
+> after that apply. Settle compares the current revision with
+> `:applied-revision`; the apply's own revision bump therefore does not count as
+> a conflict. Inverses live on mutation instance rows. The implementation uses
+> those records and entry revisions for concurrent applies; it does not store
+> the proposed entry-level `:optimistic-applies` list. Read the comparison and
+> ledger descriptions above through this implemented shape in
+> [mutation_runtime.cljc](https://github.com/day8/re-frame2/blob/0221aef3e50eac5f3df8e230a6ca0c7b922e68c9/implementation/resources/src/re_frame/resources/mutation_runtime.cljc#L471).
+> Clarifying Spec 016's pre-apply and post-apply revision wording is tracked in
+> **rf2-6yo0q.20**.
+
 ### Decision 3: the settle protocol — commit / rollback / reconcile
 
 The landed phase order (Spec 016 §Phase order) gains an apply phase and a
@@ -604,6 +616,11 @@ The reserved slots are filled and three trace ops are added:
 | `:rf.mutation/optimistic-applied` | phase 1.5 | `:snapshot-id`, the touched `:affected-keys`, per-key `:revision`, `:tag-matched-keys` (for `:optimistic-tags`), elided `:before`-summary |
 | `:rf.mutation/rolled-back` | phase 4 (error/cancel) | `:snapshot-id`, per-key `:restored` vs `:conflict` (`:invalidate`/`:force`), `:refetched` keys |
 | `:rf.mutation/reconciled` | phase 4 (ok) | `:snapshot-id`, which optimistic keys the authoritative populate/patch overwrote, `:reconciliation-refetches` |
+
+> **Trace-name follow-up — 2026-10-02.** The shipped settle operations are
+> `:rf.mutation/optimistic-rolled-back` and
+> `:rf.mutation/optimistic-reconciled`. These are the names to use for the last
+> two rows above, as recorded in [Spec 016](../../spec/016-Resources.md).
 
 These ride the existing `:rf.mutation/*` family (the success trace already
 reserves `:patch-summary`). The mutation instance row's `:patch-summary`

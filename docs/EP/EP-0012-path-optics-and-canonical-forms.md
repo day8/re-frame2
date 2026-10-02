@@ -702,6 +702,15 @@ allowed within the supported domain: the sort key is the complete key byte
 sequence, including the type tag. If a value is outside the supported domain,
 the whole identity fails closed rather than falling back to host comparison.
 
+> **Implementation erratum recorded 2026-10-02.** The reference encoder
+> currently sorts map keys and set elements as host strings, using UTF-16
+> ordering, rather than by the UTF-8 bytes required by CEDN-1. These orders
+> differ for some Unicode values, so a port following the byte contract can
+> produce a different token order. Bead `rf2-6yo0q.22` tracks the encoder
+> correction and conformance fixture. The normative
+> [byte contract](../../spec/Conventions.md#canonical-byte-encoding-cedn-1)
+> remains unchanged.
+
 ### Map Key Canonicalization
 
 Map entries MUST be ordered deterministically by the canonical encoding of
@@ -1521,6 +1530,13 @@ dispositions and riders are inline.
     grammar so a later generalization is a relocation, not a redesign. The home
     is decided by **whichever of EP-0013/EP-0014 is accepted first, or a
     dedicated ruling if neither** — no dependency on unaccepted proposals.
+
+    > **Follow-up recorded 2026-10-02.** The compatibility reference above
+    > names EP-0016's original fused-map registration. Its
+    > [dated registrar follow-up](EP-0016-resource-mutation-completion.md#decision-3-named-resource-scope-resolvers)
+    > records the current `(reg-resource-scope id metadata resolve-fn)` form
+    > with required declared `:inputs` in metadata. The declaration pattern
+    > remains the precedent; the earlier syntax is historical.
 
 4. Should route data-form path patterns graduate with this EP or remain a later
     additive front end to the same route prism laws?

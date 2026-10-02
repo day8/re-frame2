@@ -133,12 +133,12 @@ The `Status:` line is machine-readable. Its value MUST be one of:
    all-or-nothing rulings; prefer narrow EPs and cross-references.
 5. **Graduation includes a guide-impact assessment:** the graduating EP names
    which `docs/core` chapters change and which payoffs become newly teachable;
-   the docs bead of the EP's wave carries those edits (e.g. EP-0010 upgrades
-   guide ch.07's clock section from the cofx idiom to the envelope stamp;
-   EP-0011 rewrites ch.10's no-await box around the reply envelope; EP-0008
-   extends ch.16's production section with the always-on error axis; EP-0013
-   eventually warrants a realms chapter). An EP may conclude "no human-facing
-   guide change yet" and record why.
+   the docs bead of the EP's wave carries those edits. For example, recorded
+   inputs affect [Coeffects](../core/coeffects.md), normalized replies affect
+   [Effects](../core/effects.md), and production error reporting affects
+   [Observability](../core/observability.md). Image selection and frame setup
+   affect [Images](../core/images.md) and [Frames](../core/frames.md). An EP may
+   conclude "no human-facing guide change yet" and record why.
 
 ### Document conventions
 

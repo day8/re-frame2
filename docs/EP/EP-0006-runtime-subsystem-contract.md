@@ -14,9 +14,9 @@ Type: standards-track
 > five-clause contract, the grading table, and (under this graduation) the **two
 > derived rules** now live in [`spec/Runtime-Subsystems.md`](../../spec/Runtime-Subsystems.md);
 > where this EP and the spec differ, the spec governs. The decision surface is
-> closed. One implementation item — the conformance drift test — remains unbuilt
-> and is tracked in [Implementation errata](#implementation-errata) (the EP-0005
-> final-with-errata pattern: decisions-final does not assert build-complete). The
+> closed. The conformance drift test is now built and gated; its original open
+> entry and dated closed disposition are retained in
+> [Implementation errata](#implementation-errata). The
 > single deferred *implementation* question (the work-ledger multi-writer
 > authority of [Open Issues](#open-issues) — a future-EP question, not a live
 > decision blocking the contract) is recorded honestly as one on which the
@@ -26,12 +26,14 @@ Type: standards-track
 ## Implementation errata
 
 The EP decisions are final and the contract's normative output has shipped to
-`spec/Runtime-Subsystems.md`. **One tracked erratum remains open** — the
-conformance drift test the [Conformance](#conformance) section specifies was not
-built with the spec doc. The errata ledger tracks build-completion separately from
-the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
+`spec/Runtime-Subsystems.md`. **The tracked conformance-drift erratum is closed.**
+The ledger retains the original open entry and its disposition, keeping
+build-completion separate from the decision-freeze; no ruling is reopened.
 
-### Open errata
+### Resolved errata
+
+The following entry records the original open state; the dated disposition below
+closes it.
 
 - **Open — drift test unbuilt** — the [Conformance](#conformance)
   section specifies a drift test that pins the grading table's subsystem list
@@ -44,6 +46,13 @@ the decision-freeze (the EP-0005 pattern), and none of it reopens any ruling.
   gate**. Until it lands, a new subsystem child without a grading row is caught
   only by review, not CI. *(Decision-settled, build-incomplete: the test's shape
   is fully specified above; only the wiring is outstanding.)*
+
+> **Closed — 2026-10-02.** `scripts/check_runtime_subsystem_grading.py` compares
+> the reserved runtime-db keys in Conventions with the Runtime-Subsystems grading
+> table and checks all five clauses. Its validator and self-test are wired into
+> `.github/workflows/docs.yml` and `scripts/test-fast-pr.sh`. A missing subsystem
+> row or incomplete grading now fails those gates; the former "review, not CI"
+> limitation is resolved.
 
 ## Abstract
 

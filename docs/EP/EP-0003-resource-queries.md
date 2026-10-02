@@ -113,6 +113,12 @@ the surrounding work still in flight:
   index simply need to catch up to the landed surface. A dedicated spec-coherence
   wave (sequenced after this graduation) actions them.
 
+> **Ledger update — 2026-10-02.** This list records the follow-ups identified
+> at graduation. Its runtime-subsystem conformance-drift item is now complete:
+> `scripts/check_runtime_subsystem_grading.py` and its self-test are wired into
+> the docs workflow and the fast-PR spine. See
+> [EP-0006's closed disposition](EP-0006-runtime-subsystem-contract.md#implementation-errata).
+
 ## Abstract
 
 This enhancement proposes an optional `day8/re-frame2-resources` artifact for
@@ -1144,6 +1150,15 @@ design risk; it is now part of the landed HTTP public-beta surface.
 
 ### Public API
 
+> **Follow-up — 2026-10-02.** The landed registrars use three slots:
+> `(rf/reg-resource resource-id metadata request-fn)` and
+> `(rf/reg-mutation mutation-id metadata request-fn)`. The request function is
+> supplied separately from metadata. The canonical passive full-state query is
+> `[:rf/resource payload]`; the `:rf.resource/state` examples below retain the
+> original proposed spelling. Current signatures and query families live in
+> [Spec 016](../../spec/016-Resources.md#public-api) and the
+> [API reference](../../spec/API.md#resources-spec-016).
+
 Registration:
 
 ```clojure
@@ -1335,6 +1350,15 @@ Optional v1 keys:
 - `:gc-after-ms`;
 - `:tags`;
 - `:sensitive?` / `:large?` / schema-based classification.
+
+> **Classification follow-up — 2026-10-02.**
+> [EP-0025](EP-0025-data-classification.md) replaced schema-prop classification
+> of durable resource facts with resource-definition `:sensitive` / `:large`
+> paths rooted at the projected `:params`, `:scope`, or `:data` value. The runtime
+> lowers those declarations into the frame's elision registry. Coarse
+> `:sensitive?` / `:large?` declarations remain supported; schema props govern
+> validation-failure redaction. See [Spec 015](../../spec/015-Data-Classification.md)
+> and [Spec 016](../../spec/016-Resources.md).
 
 (`:scope` is **not** optional — it is a required key above. A resource that is
 genuinely process-independent declares `:scope :rf.scope/global` explicitly;
@@ -1885,6 +1909,15 @@ summaries**; terminal rows are local Xray history, not durable wire payload. A
 restored snapshot therefore installs at most the bounded set of non-terminal
 rows, all of which part 2 immediately reconciles to dangling.
 
+> **Follow-up — 2026-10-02.** The current retention rule prunes on every
+> terminal transition, including failure, and drops a key's rows when its entry
+> leaves the cache; mutation rows are bounded per instance. This closes the growth
+> case where repeated failures never reach the successful transition described
+> above. Epoch restore carries non-terminal summaries for reconciliation, while
+> SSR hydration carries only the resource cache projection and no work-ledger
+> rows. See [Spec 016 §Ledger row retention and identity](../../spec/016-Resources.md#ledger-row-retention-and-identity)
+> and [Runtime-Subsystems §Work ledger](../../spec/Runtime-Subsystems.md).
+
 **One identity per work record.** The work record must not carry both a
 `:work/id` `[:rf.work/resource resource-key generation]` and a near-duplicate
 `:stale-key` `[:resource resource-key generation]` that differ only in their head
@@ -1948,6 +1981,16 @@ resource metadata should still carry the intended frame id for assertion,
 stale-suppression diagnostics, and trace rows. Success and failure events must
 verify frame, work id, and generation before writing. Cancellation is an
 optimization; stale suppression is the correctness boundary.
+
+> **Transport follow-up — 2026-10-02.** The landed verification payload uses
+> `:work/id` and `:resource/key`. Managed HTTP's process-wide correlation token is
+> frame-qualified as `[:rf.req frame-id work-id]`; stale suppression within a frame
+> still checks the work identity and generation. [EP-0011](EP-0011-uniform-async-reply-envelope.md)
+> added the uniform managed-async reply envelope. The resource handlers lift the
+> transport outcome into that envelope before applying it; the success/failure
+> addressing shown above remains transport sugar. Current shapes live in
+> [Spec 016](../../spec/016-Resources.md#transport) and
+> [Managed-Effects](../../spec/Managed-Effects.md).
 
 The deferred GraphQL phase adds a `:rf.graphql/query` transport that lowers
 ensure/refetch into a GraphQL query operation while preserving these same
@@ -3430,5 +3473,5 @@ query-language transport, not merely after the HTTP core lands):
 - [SWR: Automatic Revalidation](https://swr.vercel.app/docs/revalidation)
 - [SWR: Mutation and Revalidation](https://swr.vercel.app/docs/mutation)
 - [Apollo Client: Caching](https://www.apollographql.com/docs/react/caching/overview)
-- [Relay: Staleness of Data](https://relay.dev/docs/cored-tour/reusing-cached-data/staleness-of-data/)
+- [Relay: Staleness of Data](https://relay.dev/docs/guided-tour/reusing-cached-data/staleness-of-data/)
 - [shipclojure/re-frame-query](https://github.com/shipclojure/re-frame-query)

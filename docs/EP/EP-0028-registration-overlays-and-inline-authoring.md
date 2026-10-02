@@ -19,6 +19,17 @@ Type: standards-track
 > ruled jointly with **rf2-70h9wn** (payload serialisability). Status is
 > unchanged: the open issues remain open.
 
+> **Replay-baseline follow-up — 2026-10-02.** Epoch records now capture the
+> envelope's own per-call override keys, plus lexical `:fx-overrides`, and strict
+> replay re-supplies their serialisable values. Function-valued fx overrides are
+> recorded with a `:rf/fn-override` marker and strict replay refuses them with
+> `:rf.epoch/replay-unreplayable-fx-override`. The per-frame tier remains target
+> frame config. This replaces the historical capture-gap premise above and in
+> Open Issue 6; it does not settle replay for a new registration-overlay tier.
+> The EP stays `deferred` until its overlay vocabulary, authoring, inheritance,
+> and replay choices are ruled. See
+> [Spec 002's current override contract](../../spec/002-Frames.md#per-frame-and-per-call-overrides).
+
 > This EP carries the override/overlay vocabulary and the inline-authoring
 > source-coordinates question that were split out of EP-0026 on 2026-06-22.
 > EP-0026 retains the determinate image-surface simplification (`:select-ns`,
@@ -273,6 +284,13 @@ nothing so far motivates that. The live options are therefore:
 - **accept provenance-only** as the documented posture for the inline path
   (tests, teaching, generated code), revisiting when a named tooling consumer
   demonstrates need.
+
+> **Authoring-baseline follow-up — 2026-10-02.** Public `rf/image` now has
+> a macro wrapper for literal `:doc` production elision, as recorded in
+> [EP-0026](EP-0026-image-api-simplification.md#abstract). It delegates to the
+> plain runtime constructor and does not stamp inline source coordinates. That
+> implements a separate requirement; the source-coordinate options above and
+> the proposed overlay tiers remain deferred.
 
 Whatever form ships must: capture namespace/file/line where available; preserve
 production elision for source-heavy metadata; preserve image provenance; and
