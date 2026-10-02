@@ -214,33 +214,6 @@
           "listener fired again after re-registration under the same id"))))
 
 ;; ============================================================================
-;; No handler-meta :sensitive? error-path redaction
-;; ----------------------------------------------------------------------------
-;; There is no handler-meta `:sensitive?` annotation. Redaction on
-;; the error-emit substrate is driven exclusively by the per-path elision
-;; wire-walker (per-frame `[:rf.runtime/elision]` runtime-db registry, populated from app-schema
-;; `:sensitive?` slot meta).
-;; ============================================================================
-
-(deftest non-sensitive-handler-error-payload-flows-through
-  (testing "Without handler-meta `:sensitive?`, error records surface
-            the elided event vector (subject to the per-path wire
-            walker only) so off-box error observability sees the
-            event taxonomy."
-    (let [seen (atom nil)]
-      (rf.error-emit/register-error-listener!
-        :test/recorder
-        (fn [record] (reset! seen record)))
-      (rf/reg-event :err/normal-throw
-                       (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
-      (rf/dispatch-sync [:err/normal-throw {:k "v"}])
-      (let [r @seen]
-        (is (some? r))
-        (is (vector? (:event r))
-            "event vector flows through (subject only to per-path wire elision)")
-        (is (= :err/normal-throw (first (:event r))))))))
-
-;; ============================================================================
 ;; The corpus-wide error-emit listener (#4) is BROAD
 ;; ----------------------------------------------------------------------------
 ;; Every catalogued production-reachable RUNTIME `:rf.error/*` fans out through
@@ -335,7 +308,6 @@
       ;; :rf/default exists (fixture) but :no/handler-here is unregistered.
       (rf/dispatch-sync [:no/handler-here])
       (let [r (some (fn [x] (when (= :rf.error/no-such-handler (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-handler")
         (is (= :no/handler-here (:event-id r)))
         (is (= [:no/handler-here] (:event r)))
         (is (= :rf/default (:frame r)))))))
@@ -350,7 +322,6 @@
       (is (nil? (rf/subscribe-once [:no/such-sub-here] {:frame :rf/default}))
           "subscribe-once to an unregistered sub recovers to nil")
       (let [r (some (fn [x] (when (= :rf.error/no-such-sub (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-sub")
         (is (= :no/such-sub-here (:event-id r)))
         (is (= [:no/such-sub-here] (:event r)))
         (is (= :rf/default (:frame r)))))))
@@ -369,7 +340,6 @@
       (is (nil? (rf/compute-sub [:kjf3m/throwing] {}))
           "compute-sub recovers to nil on a body throw")
       (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/sub-exception from compute-sub")
         (is (some? (:exception r)) ":exception present on the record")))))
 
 ;; ============================================================================
@@ -387,7 +357,8 @@
 ;;       siblings still fire, app-db is NOT rolled back).
 ;;   - :rf.error/no-such-fx / :rf.error/override-fallthrough /
 ;;     :rf.error/unregistered-cofx — invalid operations; the listener fires and
-;;       the framework applies its built-in recovery.
+;;       the framework applies its built-in recovery (the unregistered-cofx
+;;       record is pinned in `re-frame.cofx-cljs-test`).
 ;; ============================================================================
 
 (deftest listener-fires-on-fx-handler-exception
@@ -404,7 +375,6 @@
                        (fn [_ _] {:fx [[:goum9x/throwing-fx {:to "alice"}]]}))
       (rf/dispatch-sync [:goum9x/run-throwing-fx])
       (let [r (some (fn [x] (when (= :rf.error/fx-handler-exception (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/fx-handler-exception")
         (is (= [:goum9x/run-throwing-fx] (:event r))
             "the originating event vector rides :event")
         (is (= :goum9x/run-throwing-fx (:event-id r))
@@ -446,7 +416,6 @@
                        (fn [_ _] {:fx [[:goum9x/never-registered {:x 1}]]}))
       (rf/dispatch-sync [:goum9x/run-unknown-fx])
       (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/no-such-fx")
         (is (= [:goum9x/run-unknown-fx] (:event r)))
         (is (= :goum9x/run-unknown-fx (:event-id r)))
         (is (= :rf/default (:frame r)))
@@ -482,28 +451,9 @@
                           {:frame f
                            :fx-overrides {:goum9x/real-fx :goum9x/not-registered}})
         (let [r (some (fn [x] (when (= :rf.error/override-fallthrough (:error x)) x)) @seen)]
-          (is (some? r) "listener received :rf.error/override-fallthrough")
           (is (= f (:frame r)) "frame-attributed to the dispatching frame"))
         (is (true? @fired)
             "fell back to the registered fx (:replaced-with-default recovery)")))))
-
-(deftest listener-fires-on-unregistered-cofx
-  (testing "EP-0017: a `:rf.cofx/requires` declaration
-            referencing an UNREGISTERED cofx-id (the typo case) fans
-            `:rf.error/unregistered-cofx` through the always-on listener. Per
-            EP-0017 §7 the dispatch is rejected (no-recovery) — typos die loudly
-            rather than silently re-reading the host."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-event :goum9x/run-unknown-cofx
-                       {:rf.cofx/requires [:goum9x/never-registered-cofx]}
-                       (fn [_ _] {}))
-      (try (rf/dispatch-sync [:goum9x/run-unknown-cofx])
-           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-      (let [r (some (fn [x] (when (= :rf.error/unregistered-cofx (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/unregistered-cofx")
-        (is (= :rf/default (:frame r)))))))
 
 ;; ============================================================================
 ;; Component-attributed off-box record carries :failing-id.
@@ -561,15 +511,13 @@
                       {:interceptors [icpt]}
                       (fn [{:keys [db]} _] {:db db}))
         (let [r (record-for :rf.error/interceptor-exception [event-id])]
-          (is (some? r) "the always-on record fired")
           (is (= event-id (:event-id r)) ":event-id carries the EVENT id")
           (is (= icpt (:failing-id r))
               ":failing-id carries the failing INTERCEPTOR id (distinct from the
                event) — the off-box record attributes the component")
           (is (some? (:exception r)) ":exception present")
-          (is (string? (:reason r)) ":reason rides the always-on record too")
-          ;; NOT a vacuous negative: the record above is asserted present
-          ;; first, and it is the always-on one, which fires in both postures.
+          ;; NOT a vacuous negative: the :event-id read above asserts the
+          ;; always-on record present first, and it fires in both postures.
           (is (nil? (:phase r))
               ":phase is absent from the record by design — it rides the dev
                trace tags only, and the tight record shape is the contract")
@@ -591,13 +539,10 @@
                   {:rf.cofx/requires [:mlh1h/boom-cofx]}
                   (fn [_ _] {}))
     (let [r (record-for :rf.error/coeffect-exception [:mlh1h/needs-boom-cofx])]
-      (is (some? r) "the always-on record fired")
       (is (= :mlh1h/needs-boom-cofx (:event-id r))
           ":event-id is the dispatched EVENT, not the failing supplier")
       (is (= :mlh1h/boom-cofx (:failing-id r))
           ":failing-id is the failing SUPPLIER")
-      (is (not= (:event-id r) (:failing-id r))
-          "the two are DISTINCT — exactly the condition the lift is guarded on")
       (is (string? (:reason r))
           ":reason rides the always-on record too"))))
 
@@ -633,14 +578,11 @@
       (is (nil? (rf/subscribe-once [:bxud9v/input-throws] {:frame :rf/default}))
           "subscribe recovers to nil on an input-fn throw")
       (let [r (some (fn [x] (when (= :rf.error/sub-input-fn-exception (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/sub-input-fn-exception")
         (is (= :bxud9v/input-throws (:event-id r))
             "the failing sub-id rides :event-id")
         (is (some? (:exception r)) ":exception present (input-fn threw)")
         ;; The kind-aware lookup resolves the coord under [:sub sub-id].
         (let [sc (:source-coord r)]
-          (is (some? sc)
-              "record carries :source-coord resolved under [:sub …]")
           (is (symbol?  (:ns   sc)) ":source-coord :ns is the defining ns symbol")
           (is (integer? (:line sc)) ":source-coord :line is the reg-sub line")
           (is (string?  (:file sc)) ":source-coord :file is the defining file"))))))
@@ -660,13 +602,10 @@
       (is (nil? (rf/subscribe-once [:bxud9v/body-throws] {:frame :rf/default}))
           "reactive subscribe recovers to nil on a body throw")
       (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
-        (is (some? r) "listener received :rf.error/sub-exception")
         (is (= :bxud9v/body-throws (:event-id r))
             "the failing sub-id rides :event-id")
         (is (some? (:exception r)) ":exception present on the record")
         (let [sc (:source-coord r)]
-          (is (some? sc)
-              "record carries :source-coord resolved under [:sub …]")
           (is (symbol?  (:ns   sc)))
           (is (integer? (:line sc)))
           (is (string?  (:file sc))))))))

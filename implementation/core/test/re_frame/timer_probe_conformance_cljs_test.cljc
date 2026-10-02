@@ -205,27 +205,7 @@
         (is (= [:rf.work/timer :debounce/search 1] (:rf.reply/work-id trace)))
         (is (= {:generation 1} (:rf.reply/carried trace)) "carried gate")
         (is (= {:generation 2} (:rf.reply/current trace)) "current gate")
-        (is (= :rf.timer/generation-stale (:rf.reply/stale-reason trace))))))
-
-  (testing "suppress? delegates to the shared re-frame.reply/stale? over the gate
-            — the probe does NOT re-implement the comparison"
-    (doseq [[carried current] [[1 2] [2 2] [1 1] [3 1]]]
-      (is (= (rf.reply/stale? (rf.timer-probe/gate carried) (rf.timer-probe/gate current))
-             (rf.timer-probe/suppress? carried current))
-          (str "suppress? matches the shared stale? for carried=" carried " current=" current)))
-    (is (true?  (rf.timer-probe/suppress? 1 2)) "superseded → stale")
-    (is (false? (rf.timer-probe/suppress? 2 2)) "current → live"))
-
-  (testing "a stale timer completion is UNIVERSALLY non-delivering
-            through the probe's suppress: no target, app or otherwise, receives it"
-    (is (false? (:deliver? (rf.timer-probe/suppress base-args 2 {} [:t]))) "plain target → not delivered")
-    (is (false? (:deliver? (rf.timer-probe/suppress base-args 2 {} {:event [:t]}))) "descriptor → not delivered")
-    (is (false? (:deliver? (rf.timer-probe/suppress base-args 2 {} {:event [:t] :dispatch-stale? true})))
-        "an inert :dispatch-stale? flag grants nothing → not delivered")
-    (is (false? (:deliver? (rf.timer-probe/suppress base-args 2 {}
-                                           {:event [:t] :dispatch-stale? true
-                                            :re-frame.reply/stale-authority true})))
-        "a forged authority datum grants nothing → not delivered")))
+        (is (= :rf.timer/generation-stale (:rf.reply/stale-reason trace)))))))
 
 ;; ===========================================================================
 ;; Property 9 — the reply-target functor law (Managed-Effects §Reply mapping

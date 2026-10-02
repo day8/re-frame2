@@ -110,9 +110,6 @@
   (testing "a fn anywhere in the reply is a host handle"
     (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
               (rf.reply/validate-reply {:status :ok :value (fn [] 1)})))
-    (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :ok :value {:a {:b (fn [] 1)}}}))
-        "host handles are found at any depth")
     (let [probs (rf.reply/validate-reply {:status :ok :value {:a {:cb (fn [] 1)}}})
           path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
       (is (= [:value :a :cb] path) "the problem reports the exact path to the handle")))
@@ -138,17 +135,11 @@
   ;; epoch-millisecond long (EP-0010), never a host Date.
   (testing "a host Date in the reply is a host handle (CLJS js/Date, JVM java.util.Date)"
     (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
-      (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
-                (rf.reply/validate-reply {:status :ok :value {:settled-at d}}))
-          "a host Date must not ride a data-only reply — use an epoch-ms long")
       (let [probs (rf.reply/validate-reply {:status :ok :value {:settled-at d}})
             path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
         (is (= [:value :settled-at] path) "the problem reports the exact path to the Date"))))
   (testing "a host RegExp in the reply is a host handle (CLJS js/RegExp, JVM java.util.regex.Pattern)"
     (let [re #?(:cljs (js/RegExp. "x") :clj (java.util.regex.Pattern/compile "x"))]
-      (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
-                (rf.reply/validate-reply {:status :error :error {:kind :x :re re}}))
-          "a host RegExp must not ride a data-only reply")
       (let [probs (rf.reply/validate-reply {:status :error :error {:kind :x :re re}})
             path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
         (is (= [:error :re] path) "the problem reports the exact path to the RegExp"))))
@@ -244,7 +235,6 @@
         "and completing that mapped-nil target yields nil (no delivery)"))
   (testing "mapping a well-formed target still relocates it (the nil guard does not weaken mapping)"
     (let [mapped (rf.reply/map-completed-event (fn [e] [:parent e]) [:x {:id 1}])]
-      (is (some? mapped))
       (is (= [:parent [:x {:id 1} {:status :ok :value 7}]]
              (rf.reply/complete mapped {:status :ok :value 7}))))))
 
@@ -557,27 +547,20 @@
               #(rf.reply/complete {:event [:x] :delivery :weird} {:status :ok})
               :rf.reply/unknown-delivery :rf.error/reply-unknown-delivery]]]
       (let [e    (catch-ex-info thunk)
-            data (ex-data e)]
-        (is (some? e) (str label " throws"))
+            data (ex-data e)
+            msg  (ex-message e)]
         (is (= error-id (:rf.error/id data))
             (str label " exposes the canonical :rf.error/* discriminator"))
         (is (= category (:rf.error/kind data))
             (str label " preserves the reply-specific :rf.error/kind"))
         (is (= :rf/reply-to (:where data))
-            (str label " names the public :rf/reply-to surface"))))))
-
-(deftest reply-throw-message-is-actionable-not-a-bare-keyword
-  ;; one actionable message path: a non-map reply's message LEADS with the
-  ;; human sentence and TRAILS with the [:rf.error/<id>] token.
-  (let [e   (catch-ex-info #(rf.reply/validate-reply 42))
-        msg (ex-message e)]
-    (is (some? e))
-    (is (not (rf.error/keyword-only-message? msg))
-        "the message is a human sentence, never a bare keyword (Spec 009 rule 1)")
-    (is (rf.error/message-has-id-token? msg)
-        "the message carries the [:rf.error/<id>] greppability token (rule 4)")
-    (is (string? (:reason (ex-data e)))
-        ":reason is the required human sentence")))
+            (str label " names the public :rf/reply-to surface"))
+        (is (not (rf.error/keyword-only-message? msg))
+            (str label "'s message is a human sentence, never a bare keyword (Spec 009 rule 1)"))
+        (is (rf.error/message-has-id-token? msg)
+            (str label "'s message carries the [:rf.error/<id>] greppability token (rule 4)"))
+        (is (string? (:reason data))
+            (str label "'s :reason is the required human sentence"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `walk-find-host-handle-bounded`, the budget-bounded sibling

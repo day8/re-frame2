@@ -80,12 +80,12 @@
       ;; Teardown MUST NOT propagate the throw.
       (is (nil? (rf/destroy-frame! :ondestroy/worker))
           "destroy-frame! returns nil even though :on-destroy threw")
+      (is (nil? (rf.frame/frame :ondestroy/worker))
+          "the frame is fully torn down (teardown continued past the throw)")
       (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
         (is (= 1 (count reports))
             "exactly ONE always-on record for the dedicated category")
         (let [r (first reports)]
-          (is (= :rf.error/on-destroy-handler-exception (:error r))
-              "the dedicated discriminable teardown category")
           (is (= :ondestroy/worker (:frame r))
               ":frame names the frame being torn down")
           (is (= [:ondestroy/blow-up] (:event r))
@@ -94,21 +94,7 @@
               ":event-id is the event-vector head")
           (is (some? (:exception r))
               ":exception carries the thrown object")
-          (is (number? (:time r)) ":time is a wall-clock millis number")))))
-
-  (testing "The teardown still completes end-to-end despite
-            the throw — the frame is fully removed from the registry."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-event :ondestroy/blow-up-2
-                       (fn [{:keys [db]} _] {:db (throw (ex-info "again" {}))}))
-      (rf/make-frame {:id :ondestroy/teardown :on-destroy [:ondestroy/blow-up-2]})
-      (rf/destroy-frame! :ondestroy/teardown)
-      (is (nil? (rf.frame/frame :ondestroy/teardown))
-          "the frame is fully torn down (teardown continued past the throw)")
-      (is (seq (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
-          "the always-on record still fired"))))
+          (is (number? (:time r)) ":time is a wall-clock millis number"))))))
 
 (deftest clean-on-destroy-emits-no-record
   (testing "A non-throwing `:on-destroy` emits NO
