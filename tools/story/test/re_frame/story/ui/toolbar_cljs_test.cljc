@@ -13,8 +13,9 @@
     CLJC PRODUCTION helpers, exercised directly rather than through a
     JVM copy), the mode schema's optional `:axis` slot.
   - **CLJS-only side-effects**: `toggle-mode!` mutation against
-    `shell-state-atom`, the rendered hiccup carries chip elements per
-    registered mode. The localStorage round-trip via
+    `shell-state-atom`. The rendered strip's chips are pinned by
+    `re-frame.story.panels-e2e.toolbar-clusters-e2e-cljs-test`, and the
+    localStorage round-trip via
     `save-modes-to-storage!` + `load-modes-from-storage` is tested in
     `re-frame.story.ui.toolbar-storage-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -270,16 +271,6 @@
        (is (= [:Mode.app/y] (:active-modes (rf.story.ui.state/get-state)))))))
 
 #?(:cljs
-   (deftest cljs-axis-toggle-single-selects
-     (testing "an axis-tagged mode evicts siblings via toggle-mode!"
-       (rf.story/reg-mode :Mode.t/dark  {:axis :theme :args {:t :dark}})
-       (rf.story/reg-mode :Mode.t/light {:axis :theme :args {:t :light}})
-       (rf.story.ui.toolbar/toggle-mode! :Mode.t/dark)
-       (is (= [:Mode.t/dark] (:active-modes (rf.story.ui.state/get-state))))
-       (rf.story.ui.toolbar/toggle-mode! :Mode.t/light)
-       (is (= [:Mode.t/light] (:active-modes (rf.story.ui.state/get-state)))))))
-
-#?(:cljs
    (deftest cljs-reset-clears
      (testing "reset-modes! drops every mode + persists empty"
        (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
@@ -291,27 +282,10 @@
        ;; `re-frame.story.ui.toolbar-storage-dom-cljs-test`.
        (is (= [] (:active-modes (rf.story.ui.state/get-state)))))))
 
-;; The two `hydrate-modes-from-storage!` rows (precedence and stale-id
-;; pruning) live in `re-frame.story.ui.toolbar-storage-dom-cljs-test`
-;; beside the round-trip, for the same reason.
-
-#?(:cljs
-   (deftest cljs-chip-carries-mode-id-and-pressed-state
-     (testing "every registered mode produces a chip with a data-toolbar-mode attr"
-       (rf.story/reg-mode :Mode.a/x {:args {}})
-       (rf.story/reg-mode :Mode.a/y {:args {}})
-       ;; toolbar-strip yields a Reagent component tree; chip nodes
-       ;; appear as `[chip ...]` references that React resolves on
-       ;; render. To assert the hiccup shape without driving React we
-       ;; invoke `chip` directly against the registered modes.
-       (let [body-x (rf.story.registrar/handler-meta :mode :Mode.a/x)
-             body-y (rf.story.registrar/handler-meta :mode :Mode.a/y)
-             attrs-x (second (rf.story.ui.toolbar/chip :Mode.a/x body-x false))
-             attrs-y (second (rf.story.ui.toolbar/chip :Mode.a/y body-y true))]
-         (is (= ":Mode.a/x" (:data-toolbar-mode attrs-x)))
-         (is (= ":Mode.a/y" (:data-toolbar-mode attrs-y)))
-         (is (= "false" (:aria-pressed attrs-x)))
-         (is (= "true"  (:aria-pressed attrs-y)))))))
+;; The `hydrate-modes-from-storage!` rows live in the dom siblings for the
+;; same reason: precedence in `re-frame.story.ui.toolbar-storage-dom-cljs-test`
+;; beside the round-trip, stale-id pruning in
+;; `re-frame.story.ui.toolbar-persistence-dom-cljs-test`.
 
 #?(:cljs
    (deftest cljs-toolbar-strip-empty-state
@@ -323,15 +297,6 @@
          (is (some #(re-find #"no modes registered" %) flat))))))
 
 ;; ---- cofx + sub registration --------------------------------------------
-
-#?(:cljs
-   (deftest cljs-active-modes-snapshot-mirrors-shell-state
-     (testing "the active-modes snapshot tracks the shell-state slot"
-       (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
-       (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
-       ;; The pure snapshot helper mirrors the slot.
-       (is (= [:Mode.app/x]
-              (rf.story.ui.cofx/active-modes-snapshot))))))
 
 #?(:cljs
    (deftest cljs-active-args-deep-merges

@@ -24,7 +24,7 @@
   reload, assert rehydration, plus URL-beats-storage ordering. What lives
   HERE is the narrower contract its docstring names as its pair and does
   not itself cover — the bare save/load round-trip, and hydrate's
-  precedence and pruning rules. Keeping them apart keeps each file's
+  precedence rule. Keeping them apart keeps each file's
   narrative intact.
 
   ## THE GUARD IS NEEDED, BECAUSE THIS FILE RUNS ON BOTH LANES
@@ -119,15 +119,3 @@
         (rf.story.ui.toolbar/hydrate-modes-from-storage!)
         (is (= [:Mode.app/y] (:active-modes (rf.story.ui.state/get-state)))
             "non-empty slot is preserved")))))
-
-(deftest hydrate-from-storage-prunes-stale
-  (testing "hydrate drops mode ids that are not in the registrar"
-    (if-not (browser?)
-      (is true skip-msg)
-      (do
-        (rf.story/reg-mode :Mode.app/x {:args {}})
-        (rf.story.ui.toolbar/save-modes-to-storage!
-          [:Mode.app/x :Mode.app/zzz])
-        (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-        (is (= [:Mode.app/x] (:active-modes (rf.story.ui.state/get-state)))
-            "the unregistered id was pruned at hydrate")))))
