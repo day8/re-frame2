@@ -237,6 +237,16 @@ handler; only the name and the removal of the db-only sibling change. Legacy v1
 top-level effect shortcuts — `{:dispatch …}`, `{:http-xhrio …}` — remain
 invalid as today; the shape is `{:fx [[:dispatch …] …]}`.
 
+> **Follow-up recorded 2026-10-02.**
+> [EP-0025](EP-0025-data-classification.md), graduated 2026-06-24, extended
+> the closed effects map with four commit-plane classification effects:
+> `:sensitive`, `:large`, `:clear-sensitive`, and `:clear-large`. The current
+> set therefore has seven keys, including the original `:db`, `:fx`, and
+> `:rf.db/runtime`. Classification changes commit with the db write; the
+> `reg-event` handler shape and the separation from the open `:fx` plane are
+> unchanged. The three-key account above records this EP's original scope;
+> see [Spec 002's current commit contract](../../spec/002-Frames.md#commit-plane-data-classification-effects-ep-0025).
+
 ### 4a. Commit / no-op family (documented here, implemented elsewhere)
 
 Because the collapse makes `{:db db}` the natural way to say "I didn't change

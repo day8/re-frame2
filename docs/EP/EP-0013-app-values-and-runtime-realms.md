@@ -59,6 +59,19 @@ Type: standards-track
 >   image fragments. See EP-0023 §"Backwards Compatibility And EP-0013 Partial
 >   Supersession" for the full surface-disposition table.
 
+> **Implementation follow-up recorded 2026-10-02.** The retained substrate
+> described in the 2026-06-16 note above was subsequently narrowed by
+> [EP-0023's 2026-06-19 amendment](EP-0023-image-loaded-frames.md#backwards-compatibility-and-ep-0013-partial-supersession).
+> Non-default realm construction, realm routing and addressing, and the
+> `install!` / `reinstall!` path were removed. Image assembly and frame
+> isolation now provide the isolation boundary: the targeted frame's resolved
+> image generation determines its registrations, assembled from the process
+> source stores. The remaining default-realm substrate has also been retired;
+> frame resolution now uses the process frame registry directly. The earlier
+> retention note and shipment ledger below record the intermediate design.
+> The current ownership contract lives in
+> [Runtime-Subsystems](../../spec/Runtime-Subsystems.md#the-operational-environment--process--frame-ownership).
+
 ## Implementation errata
 
 The EP decisions are final. The EP-0013 wave shipped **D1 (the realm container)**

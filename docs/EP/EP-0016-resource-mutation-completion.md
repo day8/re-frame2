@@ -617,6 +617,17 @@ The runtime records trace evidence for:
 
 ### Decision 3: named resource-scope resolvers
 
+> **Implementation follow-up recorded 2026-10-02.** Resolver registration
+> adopted the shared three-slot grammar on 2026-07-04:
+> `(reg-resource-scope id metadata resolve-fn)`. The resolver function is the
+> third argument; `:inputs` belongs in metadata. The whole-db function sugar
+> was removed on 2026-09-08: declared inputs are now required, and a whole-db
+> read is an ordinary root-path input, `{:inputs {:db [:db []]}}`. The resolver
+> always receives the named input map. The earlier forms below are retained
+> as the original design record; the current
+> [named-resolver contract](../../spec/016-Resources.md#named-resource-scope-resolvers-reg-resource-scope)
+> governs authoring.
+
 Add a registry for named resource-scope resolvers:
 
 ```clojure
@@ -985,6 +996,15 @@ record on traces and epoch history, rejected under EP-0015 (issue 7). A
 single use-time resolution rule applies); a reference that resolves nil at a
 clear-scope site emits a loud diagnostic, never a silent no-op.
 
+> **Implementation correction recorded 2026-10-02.** The helper was made
+> trace-free on 2026-06-12. `resolve-resource-scope` is a pure read over the
+> resolver registry and the supplied db value; it does not emit
+> `:rf.resource/scope-resolved`. Resource events, route entry, and mutation
+> settlement emit that evidence at their causal resolution boundaries.
+> This corrects the side-effect description above and in Open Issue 7;
+> the coeffect-db logout idiom is unchanged. See
+> [Spec 016's resolver helper](../../spec/016-Resources.md#registration).
+
 ## Reference Implementation Plan
 
 This is a proposed implementation sequence, not a requirement that all work
@@ -1282,6 +1302,15 @@ as the record of what was ruled; dispositions and riders are inline.
    derived-sensitivity graph — whole-db sugar degrades both narrow
    re-resolution and sensitivity-inheritance precision, so tooling marks the
    whole-db cost on both axes.
+
+   > **Follow-up recorded 2026-10-02.**
+   > [EP-0025](EP-0025-data-classification.md), graduated 2026-06-24, removed
+   > sensitivity propagation, including this named-resolver arm. Declared
+   > inputs still describe scope dependencies and the cost of whole-db reads;
+   > a resource classifies its derived scope through its own `:sensitive` /
+   > `:large` declarations. The inheritance rider above remains the record of
+   > the earlier decision. See
+   > [Spec 016's current rule](../../spec/016-Resources.md#no-derived-sensitivity-propagation).
 
 3. Should `:cross-scope?` remain after descriptors exist?
    **Recommendation:** keep it as an explicit broad operation with dev warnings

@@ -262,6 +262,13 @@ internals. Prefer loading secret-bearing state through an **init event** (which
 classifies it) rather than raw `:initial-db`. (Per the scope, a guideline — not
 machinery.)
 
+> **Construction follow-up — 2026-10-02.**
+> [EP-0027](EP-0027-frame-initial-events.md) retired `:initial-db`.
+> Newly created frames now start with `{}` and seed app-db through
+> `:initial-events`, using `[:rf/set-db {…}]` or an app init event that returns
+> both the data and its classification. The paragraph above records the earlier
+> construction baseline.
+
 **Failure posture.** Three rules, so the helper stays humble without weakening egress
 correctness:
 

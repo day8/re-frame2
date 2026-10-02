@@ -45,6 +45,20 @@ Type: standards-track
 > completions may keep their public conveniences, but those conveniences lower
 > to the same causal continuation shape.
 
+> **Implementation follow-up recorded 2026-10-02.** Applications now use the
+> call-site key `:reply-to`; `:rf/reply-to` names the normalized internal
+> descriptor. The reply fields were qualified on 2026-07-09:
+> `:rf.reply/work-id`, `:rf.reply/work-kind`, `:rf.reply/work-status`,
+> `:rf.reply/stale-reason`, and `:rf.reply/cancel-reason`. The durable ledger
+> and verification payload still use `:work/id` for the same attempt identity.
+> On 2026-07-11 stale suppression became universally non-delivering:
+> `:dispatch-stale?` does not authorize delivery. Tests and tools inspect the
+> stale reply returned by `suppress` and may dispatch it explicitly in their
+> own code. These refinements preserve the causal-continuation model; the
+> original spellings and opt-in proposal below remain as its design history.
+> See the current [reply target](../../spec/Managed-Effects.md#the-reply-target)
+> and [reply map](../../spec/Managed-Effects.md#the-reply-map) contracts.
+
 ## Implementation errata
 
 The EP decisions are **final** and the lowering chain has shipped: all four
@@ -848,6 +862,14 @@ For route resources:
 - stale or superseded replies are suppressed by work id/generation/nav-token;
 - hydration serializes the allowed resource projection and non-terminal work
   summaries, not host handles.
+
+> **Hydration follow-up recorded 2026-10-02.** SSR waits for the current
+> plan's blocking resource identities to settle and ships the allowed resource
+> cache projection, without work-ledger rows. Non-terminal work summaries belong
+> to epoch snapshots and are reconciled on restore. The hydration claim above
+> describes the earlier proposal; see
+> [Spec 016's ledger retention rule](../../spec/016-Resources.md#ledger-row-retention-and-identity)
+> and [SSR projection](../../spec/016-Resources.md#ssr-and-hydration).
 
 Hydration and epoch restore must not revive host work. Non-terminal restored
 rows are reconciled as dangling/superseded unless a spec explicitly defines a

@@ -256,6 +256,17 @@ introduced** — the page context rides the already-reserved context slot (see
    :gc-after-ms    300000})
 ```
 
+> **Worked-example correction — 2026-10-02.** Use the current
+> `(reg-resource id metadata request-fn)` grammar: move the function under
+> `:request` above into the third slot, and put `:page->items :items` beside
+> `:infinite true` in the metadata map. Its page is an envelope containing
+> `:items`, so the `:rf.resource/infinite-state` subscription needs that accessor
+> to build the merged items vector. Omitting the accessor is valid for vector
+> pages, but fails loudly for this envelope. See
+> [Resolved Decision R3](#resolved-decisions),
+> [Spec 016's registration grammar](../../spec/016-Resources.md#registration),
+> and the [current API](../../spec/API.md#resources-spec-016).
+
 Rules (proposed, MUST):
 
 - `:infinite true` makes `:next-page-param` **required**. The `:request` fn keeps

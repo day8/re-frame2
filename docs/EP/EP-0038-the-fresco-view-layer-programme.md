@@ -479,9 +479,37 @@ into Fresco's contract, and the disposition of `spec/004`, `spec/004C` and the
 S3/S4/S5 conformance profiles is an open operator question (`rf2-h89ri`). This
 EP therefore stays `accepted`.
 
+### Addendum, 2026-10-02 — current contract homes and the SSR crossing
+
+The spec disposition left open on 2026-08-16 has since been recorded:
+`spec/004-Views.md` and the S3 compiled-view profile were deleted on 2026-08-18
+(`rf2-h89ri`; see [EP-0036](EP-0036-the-freehand-view-substrate-programme.md#references)
+and [EP-0035](EP-0035-component-library-readiness.md#abstract)). Fresco now uses
+[004B](../../spec/004B-UI-Tree-and-Conversion.md) for its structural tree and DOM
+conversion, [004C](../../spec/004C-Roots-and-Mount.md) for root descriptors and
+manifests, and [006](../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)
+for the client-root and ownership laws. Its public surface and authoring guidance
+are in the [Fresco guide](../core/fresco/index.md).
+
+The SSR start gates 3 and 5 were discharged on 2026-09-02 in the
+[production-server-arm follow-up](https://github.com/day8/re-frame2/blob/main/docs/design/fresco/production-server-arm.md).
+Ring now has the `:renderer` seam, and `re-frame.ssr.ring.node/renderer` uses the
+JVM's `re-frame.ssr.render-state` projector before crossing to Node. The
+renderer-seam and login-host-crossing suites witness the JVM response and real
+socket crossing; Fresco's login-server-crossing suite witnesses the real views
+and published entry table. These are complementary witnesses: the JVM test uses
+a fixture render module, with the Fresco render tested separately.
+
+This records the implemented contracts and the later SSR gate ruling. This EP
+retains its recorded `accepted` status; its terminal disposition still needs to
+be recorded against the Graduation conditions.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
+   **Resolved 2026-07-31:** the delegated ruling found that the written donor
+   gate was not met; continuation was an operator override. The outcome is
+   recorded in the [validation record](https://github.com/day8/re-frame2/blob/main/docs/design/fresco/validation.md).
 2. The P2 fork ruling (operator; end of the tournament). **Narrowed 2026-07-31**
    by the addendum above: the choice between the two Fresco arms is settled, so
    what remains is the surviving arm against the null. **Amended 2026-08-04** by
@@ -497,6 +525,12 @@ EP therefore stays `accepted`.
    surface, and grouped `use-subs` is not a viable fallback. The cost/
    correctness half is unaffected and still runs under the unwaived tripwire
    and the four adjudication clauses.
+   **Follow-up 2026-10-02:** the
+   [collector judgement](https://github.com/day8/re-frame2/blob/main/docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md)
+   records the ownership and edge-diff witnesses and the refused allocation
+   series; the [product substrate decision](https://github.com/day8/re-frame2/blob/main/docs/design/fresco/product/substrate-decision.md)
+   records the later subscription-spine choice. Each retains its measurement
+   limits.
 4. The residual W1 dominance-attribution bead (does not gate the baseline).
 
 ## Graduation

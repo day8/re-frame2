@@ -313,6 +313,15 @@ In particular:
 
 ### Public API Shape
 
+> **Follow-up — 2026-10-02.** [EP-0024](EP-0024-unified-frame-identity-and-lifecycle.md)
+> preserved the carried-frame invariant and narrowed the operation-target grammar.
+> The current explicit subscription form is `(rf/subscribe [:todo/items] {:frame :app/main})`;
+> `:frame` accepts a frame id or a live frame object. The frame-first subscription
+> example below is historical. Async callers carry the operations returned by
+> `capture-frame`; the former `frame-bound-fn` family is no longer public. The
+> current targeting, scope, and lifecycle surfaces live in
+> [Spec 002](../../spec/002-Frames.md).
+
 There are two acceptable call styles:
 
 ```clojure
@@ -1187,6 +1196,14 @@ The contract is authored as the appendix argues — *one carried invariant*, the
   per-call `{:frame …}`). The six sources are instances of these three. The triad
   collapses at a boundary to the only distinction that matters: **carried as a
   value** (hold + override) vs **ambient in an established scope** (scope).
+
+    > **Follow-up — 2026-10-02.** The scope/hold/override distinction survives
+    > [EP-0024](EP-0024-unified-frame-identity-and-lifecycle.md), but its concrete
+    > surfaces have contracted. `capture-frame` is the one public carry primitive;
+    > its operation bundle replaces `frame-bound-fn` and `frame-bound-fn*`. Scope is
+    > established by `with-frame` or `frame-provider`; lifecycle construction belongs
+    > to `make-frame` / `frame-root`. See [Spec 002](../../spec/002-Frames.md).
+
 - **R3 — One canonical frame stamp (appendix C).** `:frame`, `:rf.frame/id`,
   `:rf/frame-id`, `url-owner-frame-id`, `:target-frame`, `:own-frame`, and
   `default-target-frame` are unified into **one inspectable carried shape** — the

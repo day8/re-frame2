@@ -52,6 +52,14 @@ between images; a cross-image shadow never fails assembly, while malformed image
 and framework-standard collisions do. `rf/image` stays a plain function, and
 image-level capabilities are removed end-to-end.
 
+> **Authoring follow-up — 2026-10-02.** Public `rf/image` is now a macro
+> that gates literal inline `:doc` metadata for production elision. It delegates
+> to `re-frame.image/image`, which remains a plain value function for
+> programmatic construction; computed image specs are still accepted. This is
+> a later exception to the plain-function decision below. Inline source-coordinate
+> capture remains an open proposal in
+> [EP-0028](EP-0028-registration-overlays-and-inline-authoring.md#source-coordinates-for-inline-registrations-open).
+
 ## Motivation
 
 The old `:replace` and `:replace-standard` maps are precise, but they force
@@ -353,6 +361,12 @@ it. Each entry says exactly one thing: the registration `[kind id]`, the image i
 was defined in, and the image that shadowed it. The report is exposed on the
 frame's generation as `:rf.gen/shadows` and via the `rf/frame-shadows` accessor:
 
+> **Public-read follow-up — 2026-10-02.** Read the report with
+> `(:rf.gen/shadows (rf/frame-generation frame))`. The planned
+> `rf/frame-shadows` accessor has been retired; the three-field report below
+> is exposed through `frame-generation` in the
+> [current API](../../spec/API.md#public-registrar-query-api).
+
 ```clojure
 (let [frame (rf/make-frame {:images [app-image test-doubles]})]
   (rf/frame-shadows frame))
@@ -408,6 +422,15 @@ registration. The no-shadowing rule binds **public app images**; the framework, 
 the standard's owner, keeps an internal path to define and revise its own
 standards. A public app-facing standard-extension or standard-replacement hook, if
 ever wanted, is a separate standards-track decision. This EP does not add one.
+
+> **Framework-base follow-up — 2026-10-02.** Explicit image compositions
+> also inherit the loaded, unprovenanced framework registrations under the
+> reserved `:rf` root, plus `:route/link`. These form an implicit base beneath
+> the selected images. Ordinary base registrations can be overridden; a named
+> image's shadow report identifies the loser as `:rf/framework`. A single
+> anonymous image can override the base without adding an unnamed shadow
+> entry. The protected standards described above remain outside this
+> overridable base. See [Spec 002](../../spec/002-Frames.md#image-resolution-and-composition).
 
 ### Generation Provenance
 

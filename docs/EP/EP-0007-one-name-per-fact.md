@@ -157,6 +157,14 @@ class that dominated this review cycle.
 | 5 | `reg-*` vs `register-*` families | **Done** — no stragglers; rule recorded in [Conventions §Naming: when does a surface carry `!`?](../../spec/Conventions.md#naming-when-does-a-surface-carry-) (bucket 1 `reg-*` registrars vs bucket 2 `register-*!` listeners) + the lifecycle-verb law roster. A verification pass swept the API surface (`spec/API.md` + the `re-frame.core` facade exports): every `reg-*` is a registrar entry and every `register-*!` a listener/side-table attachment (`register-event-listener!`, `register-error-listener!`, `register-listener!`, `register-epoch-listener!`, `register-marks!`). Route removal was the lone inverse verb `unregister-route!`; it was renamed to **`clear-route`** so declarative-registration removal uses `clear-*` (like `clear-event` / `clear-sub` / `clear-flow`) and `unregister-*` is reserved for listener/sink callbacks — closing the last `reg`/`clear` vs `register`/`unregister` mismatch |
 | 6 | The `:schema` family | **Done** — schema-family table recorded in [Conventions §The naming rules](../../spec/Conventions.md#the-naming-rules-one-name-per-fact): `reg-event-*` `:schema` validates *event args*; machine `:data-schema` validates machine `:data` (the EP-0005 qualify-where-a-sibling-makes-`:schema`-ambiguous precedent); `reg-app-schema` validates app-db paths; runtime-db schemas are framework-owned. No renames beyond EP-0005's |
 
+> **Follow-up — 2026-10-02.** The sweep records the names settled in that
+> review cycle. [EP-0018](EP-0018-one-event-registration.md) later consolidated
+> event registration to `reg-event`, and [EP-0029](EP-0029-xstate-v6-machine-parity.md)
+> moved the machine data schema to `[:schemas :data]`. Row 6's `reg-event-*` and
+> `:data-schema` spellings are historical; the one-name-per-fact rule is unchanged.
+> [Conventions](../../spec/Conventions.md#the-naming-rules-one-name-per-fact) records
+> the current schema vocabulary.
+
 ### Enforcement
 
 - The synonym-rejection rule (rule 2) gets the no-floor-lint treatment where

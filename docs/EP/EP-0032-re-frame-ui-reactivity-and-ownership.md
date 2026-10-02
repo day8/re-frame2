@@ -18,6 +18,12 @@ Resolution: final 2026-07-16
 > unaffected and still governs — the 2026-07-30 ruling measured invariant 5's
 > tear check and retained it.
 
+> **Correction — 2026-10-02.** The retained contract is Spec 006's
+> [six frozen invariants](../../spec/006-ReactiveSubstrate.md#the-six-frozen-invariants),
+> including the ownership and tear laws. The donor's six-operation observation
+> API retired with its consumers. Fresco's collector acquires committed reads
+> through `re-frame.subs/subscribe`; the port described below is historical.
+
 ## Abstract
 
 This EP records the reactive substrate under compiled views: how a

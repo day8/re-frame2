@@ -614,6 +614,18 @@ requirements live on the machine's *named* guard/action entries, extending
 the entry-map shape Spec 005's source-coords work established. A bare fn
 remains the normal spelling and has the empty diet.
 
+> **Implementation follow-up recorded 2026-10-02.** The machine-only
+> subscription source shipped on 2026-07-08: a named guard or action may
+> declare `{:rf/sub query-v :as fact-id}` in `:rf.cofx/requires`. The runtime
+> samples the subscription once against committed pre-cascade frame-state at
+> processing-start, records the value under the owner-qualified `fact-id`,
+> and re-presents it verbatim in strict replay. The source needs no `reg-cofx`
+> supplier and is unavailable to ordinary `reg-event` handlers. This records
+> the extension called the "Option A rider" in the graduated specs; the
+> original registered-supplier grammar below remains historical. See
+> [Spec 001's declaration grammar](../../spec/001-Registration.md#rfcofxrequires--the-declaration-key)
+> and [Spec 002's sampling and replay rule](../../spec/002-Frames.md#declaration-and-delivery--rfcofxrequires).
+
 ```clojure
 :guards
 {;; normal case — no facts consumed → bare fn, no nesting

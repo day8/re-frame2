@@ -242,6 +242,13 @@ Illustrative shape:
                   :fx-overrides {...}}))
 ```
 
+> **Constructor follow-up — 2026-10-02.**
+> [EP-0027](EP-0027-frame-initial-events.md) subsequently retired
+> `:initial-db` and `:on-create`. A newly created frame starts with `{}`;
+> declare ordered setup in `:initial-events`, using a leading
+> `[:rf/set-db {…}]` when app-db needs a seed. Read the historical example and
+> record-config list below through that events-only construction rule.
+
 The constructor returns the frame value. The frame id is readable from that
 value through the public accessor chosen during implementation; callers should
 not depend on the representation.
