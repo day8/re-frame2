@@ -21,9 +21,9 @@
 ;; ---- has-play-script? ----------------------------------------------------
 
 (deftest has-play-script-empty
-  (testing "has-play-script? is false for empty vectors / maps"
-    (is (false? (rf.story.play.ci-runner/has-play-script? {:script []})))
-    (is (false? (rf.story.play.ci-runner/has-play-script? {:script {:script []}})))
+  (testing "has-play-script? is false for a map body with no :script at all
+            (the empty-vector bodies are discovery-from-injected-registrations'
+            rows)"
     (is (false? (rf.story.play.ci-runner/has-play-script? {:script {}})))))
 
 ;; ---- variants-with-play-scripts ------------------------------------------
@@ -97,20 +97,20 @@
                                                   :message  "msg"})
                                (rf.story.play.runner/step-exception 2 [:dispatch [:b]] "boom")]}
           out   (rf.story.play.ci-runner/project-state state)]
-      (is (= :fail (:status out)))
-      (is (= 2     (:step-idx out)))
-      (is (= 3     (:total out)))
-      (is (= 1     (:failures out)))
-      (is (= "n"   (:name out)))
-      (is (= 100   (:started-ms out)))
-      (is (= 200   (:finished-ms out)))
-      (is (nil? (:script out)) "script slot is stripped")
-      (is (= 3 (count (:results out))))
-      (let [r1 (nth (:results out) 1)]
-        (is (false? (:passed? r1)))
-        (is (= "2" (:expected r1)) "expected is pr-str'd for JSON safety")
-        (is (= "1" (:actual   r1)))
-        (is (= "msg" (:message r1)))))))
+      (is (= {:status      :fail
+              :step-idx    2
+              :total       3
+              :failures    1
+              :name        "n"
+              :started-ms  100
+              :finished-ms 200
+              ;; no :script slot; :expected / :actual are pr-str'd
+              :results     [{:idx 0 :type :dispatch :passed? true}
+                            {:idx 1 :type :assert-db :passed? false
+                             :message "msg" :expected "2" :actual "1"}
+                            {:idx 2 :type :dispatch :passed? false
+                             :message "boom" :exception true}]}
+             out)))))
 
 (deftest project-state-nil-yields-nil
   (is (nil? (rf.story.play.ci-runner/project-state nil))))
@@ -144,26 +144,21 @@
 
                 :story.c/no-play {:setup []}}
           rows (rf.story.play.ci-runner/ci-rows regs)]
-      (is (= 3 (count rows))
-          "single + multi(2) = 3 rows total")
       (is (= [[:story.a/single "single-named"]
               [:story.b/multi  "happy"]
               [:story.b/multi  "error"]]
              (mapv (fn [r] [(:variant-id r) (:play-key r)]) rows))
-          "rows preserve declaration order within a variant")
-      (let [error-row (last rows)]
-        (is (= "error" (:play-key error-row)))
-        (is (true? (:auto-run? error-row))
-            "row carries the per-play auto-run? flag")))))
+          "single + multi(2) = 3 rows, in declaration order within a variant")
+      (is (true? (:auto-run? (last rows)))
+          "the error row carries its per-play auto-run? flag"))))
 
 (deftest ci-rows-handles-bare-play-script
   (testing "a bare :script (no :name) yields a row with :play-key nil"
     (let [regs {:story.x/bare {:script [[:dispatch [:a]]]}}
           rows (rf.story.play.ci-runner/ci-rows regs)]
-      (is (= 1 (count rows)))
-      (is (nil? (:play-key (first rows))))
-      (is (= 1   (:script-len (first rows))))
-      (is (true? (:auto-run? (first rows)))
+      (is (= [{:variant-id :story.x/bare :play-key nil :name nil
+               :script-len 1 :auto-run? true}]
+             rows)
           "bare scripts default :auto-run? to true"))))
 
 (deftest ci-context-includes-rows
@@ -178,7 +173,6 @@
     (let [ctx (rf.story.play.ci-runner/ci-context)]
       (is (= [:story.ctx/multi :story.ctx/single] (:variants ctx)))
       ;; rows are per-PLAY — multi(2) + single(1) = 3 rows.
-      (is (= 3 (count (:rows ctx))))
       (is (= [[:story.ctx/multi  "a"]
               [:story.ctx/multi  "b"]
               [:story.ctx/single "lone"]]
