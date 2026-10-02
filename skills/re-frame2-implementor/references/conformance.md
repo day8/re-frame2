@@ -43,7 +43,7 @@ The middle three are one rule at three depths — capability, operator, key. REA
 
 Handler bodies are data: a small DSL (`[:set path value]`, `[:update path [:fn op]]`, `[:get path]`, `[:dispatch event]`, …) realised into host closures — ~50 lines, the complete op table in the README. The CLJS reference's interpreter (`implementation/core/src/re_frame/conformance.cljc`) is one worked example, not a contract.
 
-Wire the harness into the port's CI; every commit should report the score. **The harness is tooling**, so the tooling-security file-path obligation applies to any scratch-dir/env-var write path it accepts ([`phase-2-impl-order.md` §Cross-cutting obligations](phase-2-impl-order.md#cross-cutting-obligations-spec-owned-read-dont-restate)).
+Wire the harness into the port's CI and report the score from each full claimed-capability run. There is no per-commit score ceremony; a result from an earlier revision is identified as stale. **The harness is tooling**, so the tooling-security file-path obligation applies to any scratch-dir/env-var write path it accepts ([`phase-2-impl-order.md` §Cross-cutting obligations](phase-2-impl-order.md#cross-cutting-obligations-spec-owned-read-dont-restate)).
 
 ## Capability tagging
 

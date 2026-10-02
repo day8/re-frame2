@@ -63,6 +63,8 @@ The agent runs the port's **discovered noninteractive gates** itself when it has
 
 ## Checkpoints
 
+On resume, read the existing port profile, re-verify its spec checkout, and continue the first unfinished slice. Preserve recorded choices; minimum-port defaults fill missing choices rather than replacing an existing claim. Keep the last measured score tied to its run and scope.
+
 Report at whatever granularity fits the work — no fresh-session, one-EP-per-session, per-EP-commit, or report-template mandate. A checkpoint carries: changed profile lines, what was built and what it showed, the exact test command + outcome, the conformance delta, and genuine blockers / spec gaps.
 
 ## Kickoff (optional paste-ready prompt)

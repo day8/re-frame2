@@ -53,7 +53,7 @@ It lives in the port's repo (as `PORT-PROFILE.md`, or a section of the README). 
 - Score: <passed> / <claimed-applicable> @ corpus <pin>
 ```
 
-The claim and score lines change as the port grows; edit them in place.
+The claim and score lines change as the port grows; edit them in place. Before the first harness run, write `not run` for the score rather than inventing a fraction. After a full claimed-capability run, record its actual result and command. A narrow EP run is slice evidence, not a replacement for the aggregate score; label the previous aggregate stale when the code, claim or pin changes.
 
 ## What is NOT in the profile
 
