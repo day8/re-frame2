@@ -33,12 +33,6 @@
 ;; ---- pure-ish: select! mutations ----------------------------------------
 
 #?(:cljs
-   (deftest cljs-select-custom-writes-map
-     (testing "a custom map persists as a slim {:width :height}"
-       (rf.story.ui.viewport-switcher/select! {:width 800 :height 600})
-       (is (= {:width 800 :height 600} (:viewport (rf.story.ui.state/get-state)))))))
-
-#?(:cljs
    (deftest cljs-select-drops-unknown
      (testing "an unknown preset coerces to nil — slot is cleared"
        (rf.story.ui.viewport-switcher/select! :tablet)

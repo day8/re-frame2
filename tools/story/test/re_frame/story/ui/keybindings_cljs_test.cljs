@@ -40,37 +40,19 @@
 (defn- visibility []
   (rf.story.ui.state/chrome-visibility (rf.story.ui.state/get-state)))
 
-(deftest full-screen-toggle-round-trip
-  (testing "default off → on → off"
-    (is (false? (:full-screen? (visibility))))
-    (rf.story.ui.keybindings/full-screen-toggle!)
-    (is (true?  (:full-screen? (visibility))))
-    (rf.story.ui.keybindings/full-screen-toggle!)
-    (is (false? (:full-screen? (visibility))))))
-
-(deftest sidebar-toggle-round-trip
-  (testing "default on → off → on"
-    (is (true?  (:sidebar? (visibility))))
-    (rf.story.ui.keybindings/sidebar-toggle!)
-    (is (false? (:sidebar? (visibility))))
-    (rf.story.ui.keybindings/sidebar-toggle!)
-    (is (true?  (:sidebar? (visibility))))))
-
-(deftest rhs-toggle-round-trip
-  (testing "default on → off → on"
-    (is (true?  (:rhs? (visibility))))
-    (rf.story.ui.keybindings/rhs-toggle!)
-    (is (false? (:rhs? (visibility))))
-    (rf.story.ui.keybindings/rhs-toggle!)
-    (is (true?  (:rhs? (visibility))))))
-
-(deftest toolbar-toggle-round-trip
-  (testing "default on → off → on"
-    (is (true?  (:toolbar? (visibility))))
-    (rf.story.ui.keybindings/toolbar-toggle!)
-    (is (false? (:toolbar? (visibility))))
-    (rf.story.ui.keybindings/toolbar-toggle!)
-    (is (true?  (:toolbar? (visibility))))))
+(deftest each-handler-round-trips-its-chrome-slot
+  (doseq [[label toggle! slot default]
+          [["full-screen" rf.story.ui.keybindings/full-screen-toggle! :full-screen? false]
+           ["sidebar"     rf.story.ui.keybindings/sidebar-toggle!     :sidebar?     true]
+           ["rhs"         rf.story.ui.keybindings/rhs-toggle!         :rhs?         true]
+           ["toolbar"     rf.story.ui.keybindings/toolbar-toggle!     :toolbar?     true]]]
+    (testing (str label ": default → flipped → default")
+      (rf.story.ui.state/reset-shell-state!)
+      (is (= default (slot (visibility))))
+      (toggle!)
+      (is (= (not default) (slot (visibility))))
+      (toggle!)
+      (is (= default (slot (visibility)))))))
 
 (deftest exit-full-screen-clears
   (testing "exit handler always clears full-screen regardless of prior"

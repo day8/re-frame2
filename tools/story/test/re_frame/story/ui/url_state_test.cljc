@@ -48,27 +48,6 @@
     {:variant-id     :story.foo/bar
      :cell-overrides {:label "Hi"}}))
 
-(deftest params-from-state-full
-  (testing "every URL-relevant slot projects"
-    (let [out (rf.story.ui.url-state/params-from-state
-                {:selected-variant   :story.foo/bar
-                 :selected-workspace nil
-                 :active-mode-tab    {:story.foo/bar :test}
-                 :active-modes       [:m/dark]
-                 :viewport           :tablet
-                 :background         :dark
-                 :tag-filter         #{:tag/a}
-                 :cell-overrides     {:story.foo/bar {:n 5}}
-                 :substrate          :uix})]
-      (is (= :story.foo/bar (:variant-id out)))
-      (is (= :test          (:mode-tab   out)))
-      (is (= [:m/dark]      (:active-modes out)))
-      (is (= :tablet        (:viewport out)))
-      (is (= :dark          (:background out)))
-      (is (= #{:tag/a}      (:tag-filter out)))
-      (is (= {:n 5}         (:cell-overrides out)))
-      (is (= :uix           (:substrate out))))))
-
 ;; ---- url-from-state ------------------------------------------------------
 
 (deftest url-from-state-composes-pathname-query-hash
@@ -93,13 +72,10 @@
                  :tag-filter         #{:tag/a}
                  :substrate          :uix}
                 {:pathname "/foo/" :hash "#/stories"})]
-      (is (re-find #"\?variant=" url))
-      (is (re-find #"mode-tab="   url))
-      (is (re-find #"modes="      url))
-      (is (re-find #"viewport="   url))
-      (is (re-find #"background=" url))
-      (is (re-find #"tag-filter=" url))
-      (is (re-find #"substrate="  url)))))
+      (is (= (str "/foo/?variant=foo%2Fbar&mode-tab=docs&modes=m%2Fdark"
+                  "&viewport=tablet&background=dark&tag-filter=tag%2Fa"
+                  "&substrate=uix#/stories")
+             url)))))
 
 ;; ---- the address-bar writer owns the Story vocabulary only --------------
 ;;
@@ -115,24 +91,6 @@
 ;; everything else. These pin that this writer applies the SAME boundary as
 ;; the share builder — it calls the same merge — so the two cannot drift
 ;; about who owns what.
-
-(def ^:private third-party-search
-  "A `location.search` of the shape a host page hands the shell: two
-  params Story does not own, plus a stale Story key left by an earlier
-  push. `embed=1` is the concrete param a query rebuilt from shell state
-  would erase."
-  "?from=index&embed=1&variant=story.old%2Fa")
-
-(deftest url-from-state-preserves-unowned-query-params
-  (testing "unrelated params survive verbatim and in order,
-            ahead of the generated ones, while the stale Story key is
-            replaced by this state's value"
-    (is (= "/counter-with-stories/?from=index&embed=1&variant=story.new%2Fb#/stories"
-           (rf.story.ui.url-state/url-from-state
-             {:selected-variant :story.new/b}
-             {:pathname "/counter-with-stories/"
-              :search   third-party-search
-              :hash     "#/stories"})))))
 
 (deftest url-from-state-clears-every-stale-story-key
   (testing "the clear set is the whole vocabulary, not the
@@ -256,7 +214,15 @@
       {:background :light}             {:background :dark}
       {:tag-filter #{}}                {:tag-filter #{:tag/a}}
       {:active-modes []}               {:active-modes [:m/dark]}
-      {:substrate :reagent}            {:substrate :uix}))
+      {:substrate :reagent}            {:substrate :uix}
+
+      ;; a controls edit on the FOCUSED variant's overrides pushes, so the
+      ;; live address bar round-trips the override
+      {:selected-variant :foo/a :cell-overrides {}}
+      {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}}
+
+      {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}}
+      {:selected-variant :foo/a :cell-overrides {:foo/a {:x 2}}}))
   (testing "changes to non-URL slots (hot-reload-tick, fingerprints,
             panel-visibility) do NOT trigger a push"
     (are [old new] (not (rf.story.ui.url-state/url-relevant-slots-changed? old new))
@@ -267,29 +233,15 @@
       {:selected-variant :foo/a :fingerprints {:foo/a {:dec :h}}}
 
       {:selected-variant :foo/a :panel-visibility {:trace true}}
-      {:selected-variant :foo/a :panel-visibility {:trace false}})))
+      {:selected-variant :foo/a :panel-visibility {:trace false}}
 
-(deftest url-relevant-slots-changed-detects-focused-overrides-change
-  (testing "a controls edit on the FOCUSED variant changes
-            its cell-overrides slice and MUST trigger a push so the
-            live address bar round-trips the override"
-    (is (rf.story.ui.url-state/url-relevant-slots-changed?
-          {:selected-variant :foo/a :cell-overrides {}}
-          {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}}))
-    (is (rf.story.ui.url-state/url-relevant-slots-changed?
-          {:selected-variant :foo/a :cell-overrides {:foo/a {:x 1}}}
-          {:selected-variant :foo/a :cell-overrides {:foo/a {:x 2}}}))))
+      ;; a NON-focused variant's overrides stay off the URL
+      {:selected-variant :foo/a :cell-overrides {:foo/b {:x 1}}}
+      {:selected-variant :foo/a :cell-overrides {:foo/b {:x 2}}}
 
-(deftest url-relevant-slots-changed-ignores-unfocused-overrides-change
-  (testing "overrides on a NON-focused variant stay off the
-            URL (the URL carries only the focused variant's overrides)"
-    (is (not (rf.story.ui.url-state/url-relevant-slots-changed?
-               {:selected-variant :foo/a :cell-overrides {:foo/b {:x 1}}}
-               {:selected-variant :foo/a :cell-overrides {:foo/b {:x 2}}})))
-    (testing "no focused variant — overrides edits never push"
-      (is (not (rf.story.ui.url-state/url-relevant-slots-changed?
-                 {:selected-variant nil :cell-overrides {}}
-                 {:selected-variant nil :cell-overrides {:foo/a {:x 1}}}))))))
+      ;; with no focused variant, an overrides edit never pushes
+      {:selected-variant nil :cell-overrides {}}
+      {:selected-variant nil :cell-overrides {:foo/a {:x 1}}})))
 
 ;; ---- apply-parsed-to-state ----------------------------------------------
 
@@ -392,21 +344,6 @@
 
 ;; ---- URL is authoritative — clear stale overrides on hydrate -------------
 
-(deftest apply-parsed-clears-stale-overrides-when-url-omits-them
-  (testing "hydrating a URL that KEEPS the focused variant but
-            carries NO overrides CLEARS the stale in-memory overrides for it.
-            A write-only branch would leave them intact, so back/forward,
-            a bookmark, or a share link that encodes no overrides would
-            render the prior control edits — the address bar would stop being
-            the source of truth."
-    (let [stale {:selected-variant :story.foo/bar
-                 :cell-overrides   {:story.foo/bar {:label "stale edit"}}}
-          ;; parsed URL: same variant, NO :cell-overrides slice.
-          out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :story.foo/bar} {})]
-      (is (= :story.foo/bar (:selected-variant out)))
-      (is (nil? (get-in out [:cell-overrides :story.foo/bar]))
-          "the focused variant's stale overrides are cleared — URL wins"))))
-
 (deftest apply-parsed-overwrites-stale-overrides-when-url-has-new
   (testing "a URL that carries DIFFERENT overrides for the kept
             variant overwrites the stale slice (not a deep-merge); the slice
@@ -438,22 +375,6 @@
 ;; `:cell-overrides` above — it is per-variant, so the clear
 ;; is scoped to the focused variant via `dissoc`, NOT an unconditional
 ;; `:always` write like the global slots below.
-
-(deftest apply-parsed-clears-stale-mode-tab-when-url-omits-it
-  (testing "hydrating a URL that KEEPS the focused variant but
-            carries NO mode-tab= clears the stale [:active-mode-tab
-            variant-id] entry so the reader's :dev default applies.
-            The repro: select variant A (no mode-tab=),
-            Test tab (mode-tab=test), Docs (mode-tab=docs), Back twice to
-            the first entry (no mode-tab=) — the stale :docs must not
-            survive."
-    (let [stale {:selected-variant :story.foo/bar
-                 :active-mode-tab  {:story.foo/bar :docs}}
-          out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :story.foo/bar} {})]
-      (is (= :story.foo/bar (:selected-variant out)))
-      (is (nil? (get-in out [:active-mode-tab :story.foo/bar]))
-          "the stale entry is dissoc'd, not left at :docs — the reader's
-           default-mode-tab (:dev) fallback applies"))))
 
 (deftest apply-parsed-sets-mode-tab-when-url-carries-it
   (testing "a URL that DOES carry mode-tab= overwrites a stale

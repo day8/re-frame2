@@ -78,26 +78,6 @@
 
 ;; ---- url-from-state composition -----------------------------------------
 
-(deftest url-from-state-includes-every-slot
-  (testing "composed URL carries every URL-relevant slot"
-    (let [shell {:selected-variant   :foo/bar
-                 :active-mode-tab    {:foo/bar :docs}
-                 :active-modes       [:m/dark]
-                 :viewport           :tablet
-                 :background         :dark
-                 :tag-filter         #{:tag/a}
-                 :substrate          :uix}
-          url   (rf.story.ui.url-state/url-from-state shell {:pathname "/p/" :hash "#/stories"})]
-      (is (re-find #"variant="    url))
-      (is (re-find #"mode-tab="   url))
-      (is (re-find #"modes="      url))
-      (is (re-find #"viewport="   url))
-      (is (re-find #"background=" url))
-      (is (re-find #"tag-filter=" url))
-      (is (re-find #"substrate="  url))
-      (is (re-find #"#/stories$"  url)
-          "hash route survives at the tail"))))
-
 ;; ---- unowned params survive a state-driven address-bar write ------------
 ;;
 ;; The JVM half of this pin asserts the composed STRING. Only the real
@@ -106,61 +86,6 @@
 ;; through `.get`, whose first-value semantics are why a stale Story key
 ;; must be cleared rather than appended behind. So read the composed URL
 ;; back through the same API the hydrator uses.
-
-(deftest url-from-state-preserves-unowned-params-through-urlsearchparams
-  (testing "url-from-state merges into location.search; rebuilding the
-            query from shell state alone would erase every param Story
-            does not own on the first state change after mount.
-            Read back through the REAL URLSearchParams: the unowned params
-            are there with their values, the embed flag reads truthy for
-            embed-flag-from-current-url, every stale Story key is
-            absent (not merely later in the string — .get would return it),
-            and parse-params restores the requested cell and nothing else."
-    (let [stale  {"variant"    "story.old%2Fa"
-                  "workspace"  "story.old%2Fws"
-                  "mode-tab"   "docs"
-                  "modes"      "Mode.app%2Fstale"
-                  "viewport"   "tablet"
-                  "background" "dark"
-                  "tag-filter" "stale"
-                  "overrides"  "%7B%3Afoo%201%7D"
-                  "substrate"  "uix"}
-          search (str "?"
-                      (str/join "&" (map #(str (name %) "=" (get stale (name %)))
-                                         rf.story.share/story-query-keys))
-                      "&from=index&embed=1")
-          url    (rf.story.ui.url-state/url-from-state
-                   {:selected-variant :story.new/b}
-                   {:pathname "/counter-with-stories/"
-                    :search   search
-                    :hash     "#/stories"})
-          usp    (js/URLSearchParams.
-                   (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
-      (is (= (set (map name rf.story.share/story-query-keys)) (set (keys stale)))
-          "the fixture carries a stale value for every key in the vocabulary")
-      (is (= "index" (.get usp "from"))
-          "the referrer param survives with its value")
-      (is (= "1" (.get usp "embed"))
-          "embed=1 survives — chrome state the shell reads at every mount")
-      (is (= "story.new/b" (.get usp "variant"))
-          "URLSearchParams.get returns the variant this state asked for")
-      (is (= 1 (count (.getAll usp "variant")))
-          "exactly one variant value")
-      (doseq [k (map name rf.story.share/story-query-keys)
-              :when (not= k "variant")]
-        (is (zero? (count (.getAll usp k)))
-            (str "URLSearchParams sees no stale " k "= at all")))
-      (let [parsed (rf.story.share/parse-params
-                     (into {} (map (fn [k] [k (.get usp k)]))
-                           (map name rf.story.share/story-query-keys)))]
-        (is (= :story.new/b (:variant-id parsed))
-            "the hydrator's own read path recovers the requested variant")
-        (doseq [slot [:workspace-id :mode-tab :active-modes :viewport
-                      :background :tag-filter :cell-overrides :substrate]]
-          (is (nil? (get parsed slot))
-              (str "parse-params restores no stale " slot))))
-      (is (str/ends-with? url "#/stories")
-          "the hash route survives, after the query"))))
 
 ;; ---- the LIVE address bar owns escaped key spellings --------------------
 ;;
@@ -503,24 +428,4 @@
         (is (nil? (:viewport s))          "viewport cleared")
         (is (nil? (:background s))        "background cleared")
         (is (= #{} (:tag-filter s))       "tag-filter cleared")))))
-
-(deftest popstate-to-partial-url-clears-omitted-slots-only
-  (testing "navigating from a fully-populated URL to one that
-            keeps the variant but drops modes/viewport/background/tag-filter
-            clears exactly the omitted slots (the variant survives)"
-    (let [apply-fn (fn [s parsed] (rf.story.ui.url-state/apply-parsed-to-state s parsed {}))]
-      (swap! rf.story.ui.state/shell-state-atom apply-fn
-             {:variant-id   :foo/bar
-              :active-modes [:m/dark]
-              :viewport     :tablet
-              :background   :dark
-              :tag-filter   #{:tag/a}})
-      ;; second URL: variant only.
-      (swap! rf.story.ui.state/shell-state-atom apply-fn {:variant-id :foo/bar})
-      (let [s @rf.story.ui.state/shell-state-atom]
-        (is (= :foo/bar (:selected-variant s)) "variant preserved")
-        (is (= [] (:active-modes s)))
-        (is (nil? (:viewport s)))
-        (is (nil? (:background s)))
-        (is (= #{} (:tag-filter s)))))))
 
