@@ -12,7 +12,7 @@
     re-frame frame, input state mutations, replay-from-history. The
     localStorage round-trip via `save-history!` / `load-history!` lives
     in `re-frame.story.ui.dispatch-console-dom-cljs-test`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.story.ui.dispatch-console :as rf.story.ui.dispatch-console]
             [re-frame.story.ui.dispatch-console-events :as rf.story.ui.dispatch-console-events]
             #?@(:cljs [[re-frame.core :as rf]
@@ -144,21 +144,14 @@
 
 ;; ---- pure: format-history-entry ------------------------------------------
 
-(deftest format-history-entry-renders-id-only
-  (testing "an entry with no payload renders just the id"
-    (is (= ":counter/inc"
-           (rf.story.ui.dispatch-console/format-history-entry {:event-id :counter/inc :payload nil})))))
-
-(deftest format-history-entry-renders-id-and-payload
-  (testing "an entry with a payload renders both"
-    (is (= ":user/login {:id 7}"
-           (rf.story.ui.dispatch-console/format-history-entry {:event-id :user/login
-                                     :payload  {:id 7}})))))
-
-(deftest format-history-entry-handles-missing-id
-  (testing "no event-id is tolerated (display em-dash)"
-    (is (= "—"
-           (rf.story.ui.dispatch-console/format-history-entry {:event-id nil :payload nil})))))
+(deftest format-history-entry-renders-id-and-optional-payload
+  (are [entry text] (= text (rf.story.ui.dispatch-console/format-history-entry entry))
+    ;; no payload: just the id
+    {:event-id :counter/inc :payload nil}     ":counter/inc"
+    ;; a payload renders after the id
+    {:event-id :user/login :payload {:id 7}}  ":user/login {:id 7}"
+    ;; no event-id is tolerated and displays an em-dash
+    {:event-id nil :payload nil}              "—"))
 
 ;; ---- pure: format-timestamp ----------------------------------------------
 
@@ -171,8 +164,6 @@
 (deftest format-timestamp-shapes-hh-mm-ss
   (testing "a real epoch produces an HH:MM:SS-shaped string"
     (let [out (rf.story.ui.dispatch-console/format-timestamp 1700000000000)]
-      (is (string? out))
-      (is (= 8 (count out)))
       (is (re-matches #"\d\d:\d\d:\d\d" out)))))
 
 ;; ---- pure: autocomplete --------------------------------------------------
@@ -181,7 +172,6 @@
   (testing "an empty prefix returns the full id set sorted"
     (let [ids #{:counter/inc :counter/dec :user/login}
           out (rf.story.ui.dispatch-console/autocomplete-event-ids ids "")]
-      (is (= 3 (count out)))
       ;; Sorted by pr-str.
       (is (= [:counter/dec :counter/inc :user/login] out)))))
 
@@ -257,23 +247,17 @@
 
 ;; ---- pure: build-dispatch-opts (EP-0017) ---------------------------------
 
-(deftest build-dispatch-opts-frame-only
-  (testing "no cofx + not strict ⇒ just the frame opt"
-    (is (= {:frame :v} (rf.story.ui.dispatch-console/build-dispatch-opts :v nil false)))
-    (is (= {:frame :v} (rf.story.ui.dispatch-console/build-dispatch-opts :v {} false)))))
-
-(deftest build-dispatch-opts-threads-cofx
-  (testing "a non-empty cofx rides under :rf.cofx"
-    (is (= {:frame :v :rf.cofx {:rf/time-ms 1700000000000}}
-           (rf.story.ui.dispatch-console/build-dispatch-opts :v {:rf/time-ms 1700000000000} false)))))
-
-(deftest build-dispatch-opts-strict-replay
-  (testing "strict? adds :rf.cofx/mint-policy :strict (replay path)"
-    (is (= {:frame :v :rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict}
-           (rf.story.ui.dispatch-console/build-dispatch-opts :v {:rf/time-ms 1} true)))
-    ;; strict even with no cofx token
-    (is (= {:frame :v :rf.cofx/mint-policy :strict}
-           (rf.story.ui.dispatch-console/build-dispatch-opts :v nil true)))))
+(deftest build-dispatch-opts-shapes
+  (are [cofx strict? opts] (= opts (rf.story.ui.dispatch-console/build-dispatch-opts :v cofx strict?))
+    ;; no cofx and not strict: just the frame opt
+    nil                       false {:frame :v}
+    {}                        false {:frame :v}
+    ;; a non-empty cofx rides under :rf.cofx
+    {:rf/time-ms 1700000000000} false {:frame :v :rf.cofx {:rf/time-ms 1700000000000}}
+    ;; strict? adds :rf.cofx/mint-policy :strict (the replay path)...
+    {:rf/time-ms 1}           true  {:frame :v :rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict}
+    ;; ...even with no cofx token
+    nil                       true  {:frame :v :rf.cofx/mint-policy :strict}))
 
 ;; ---- pure: build-history-entry carries cofx ------------------------------
 
@@ -322,8 +306,8 @@
 ;; `(when (browser?) ...)` here would execute in neither lane.
 
 #?(:cljs
-   (deftest cljs-clear-history-drops-storage
-     (testing "clear-history! removes both ratom and localStorage state"
+   (deftest cljs-clear-history-empties-the-ratom
+     (testing "clear-history! empties the variant's history ratom"
        (let [vid :story.clear/v
              entry (rf.story.ui.dispatch-console/build-history-entry :ev/x nil :dispatch 1)]
          (rf.story.ui.dispatch-console/append-history! vid entry)

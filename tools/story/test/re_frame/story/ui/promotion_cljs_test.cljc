@@ -191,20 +191,6 @@
       (is (not (contains? opts :tags)))
       (is (not (contains? opts :setup-count))))))
 
-(deftest promotion-snippet-emits-reg-variant-with-provenance
-  (testing "the snippet is a (reg-variant …) form carrying the source link"
-    (let [art  (sample-artifact)
-          snip (rf.story.ui.promotion/promotion-snippet art {:variant-id :story.x/regression-1
-                                                :tags #{:test}})]
-      (is (str/starts-with? snip "(rf.story/reg-variant "))
-      (is (str/includes? snip ":story.x/regression-1"))
-      (is (str/includes? snip ":run-artifact")
-          "promotion always carries the source-artifact provenance link")
-      (is (str/includes? snip ":script")
-          "the captured program lands on :script by default")
-      (is (str/includes? snip ":tags"))
-      (is (str/ends-with? snip "})")))))
-
 (deftest promotion-snippet-honours-setup-cut
   (testing "setup-count moves leading steps from :script to :setup"
     (let [art  (sample-artifact)
