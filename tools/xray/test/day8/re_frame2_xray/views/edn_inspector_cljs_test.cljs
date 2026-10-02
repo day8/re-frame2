@@ -566,7 +566,7 @@
     ;; First two levels should be visible.
     (is (re-find #":level1" text))))
 
-(deftest render-node-collapsed-shows-preview-not-body
+(deftest render-node-closed-override-hides-the-subtree
   (let [v {:level1 {:level2 {:level3 {:deep 1}}}}
         k0 (ei/expansion-key :p "m" [:level1 :level2])
         ;; Force the nested map at [:level1 :level2] CLOSED.
@@ -712,58 +712,37 @@
             the inspector chrome"
     (is (= "22px" (:font-size ei/triangle-style)))))
 
-(deftest collapsed-triangle-uses-shared-triangle-style
-  ;; Force a default-collapsed render (large map at depth past
-  ;; default-expanded-depth) and verify the ▸ toggle span carries
-  ;; the shared `triangle-style`.
-  (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-        h   (ei/render-node {:value v
-                             :panel-id :test :mount-id "m"
-                             :path [] :depth 5
-                             :expansion-map {}
-                             :opts {:default-expanded-depth 1}})
-        tog (find-attr h :data-testid
-                       "rf-xray-edn-inspector-test-m--toggle")]
-    (is (some? tog) "collapsed renders carry a toggle span")
-    (let [s (-> tog second :style)]
-      (is (= ei/triangle-style s)
-          "collapsed ▸ uses the shared triangle-style verbatim"))))
-
-(deftest expanded-triangle-uses-shared-triangle-style
-  (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}
-        k0  (ei/expansion-key :test "m" [])
-        h   (ei/render-node {:value v
-                             :panel-id :test :mount-id "m"
-                             :path [] :depth 0
-                             :expansion-map {k0 {:expanded? true}}
-                             :opts {:default-expanded-depth 0}})
-        tog (find-attr h :data-testid
-                       "rf-xray-edn-inspector-test-m--toggle")]
-    (is (some? tog) "expanded renders carry a toggle span")
-    (let [s (-> tog second :style)]
-      (is (= ei/triangle-style s)
-          "expanded ▾ uses the shared triangle-style verbatim"))))
-
-(deftest depth-capped-triangle-uses-shared-triangle-style
-  ;; A node past :max-depth renders as `▸ {…}` with the same triangle.
-  (let [;; nesting depth past max-depth=1 → depth-capped path.
-        v   {:a {:b {:c {:d 1}}}}
-        h   (ei/render-node {:value v
-                             :panel-id :test :mount-id "m"
-                             :path [] :depth 0
-                             :expansion-map {}
-                             :opts {:default-expanded-depth 5 :max-depth 1}})
-        ;; `[:a]`, the node AT the cap. The root's `…-m--toggle` sits at
-        ;; depth 0 and is not capped, so addressing it would never reach
-        ;; the branch this test is named for.
-        tog (find-attr h :data-testid
-                       "rf-xray-edn-inspector-test-m-:a-toggle")]
-    (is (some? tog) "depth-capped renders still carry a toggle span")
-    (is (str/includes? (collect-text h) "…")
-        "and it is the capped `▸ {…}` placeholder")
-    (let [s (-> tog second :style)]
-      (is (= ei/triangle-style s)
-          "depth-capped triangle uses the shared triangle-style"))))
+(deftest every-toggle-triangle-uses-the-shared-triangle-style
+  ;; Three branches of the container header each draw a toggle, and each
+  ;; must carry the shared `triangle-style` verbatim: the default-collapsed
+  ;; ▸ (a large map at depth past default-expanded-depth), the expanded ▾
+  ;; (the root under an expanded override) and the depth-capped `▸ {…}`
+  ;; (a node past :max-depth). The capped row addresses `[:a]`, the node AT
+  ;; the cap: the root's `…-m--toggle` sits at depth 0 and is not capped,
+  ;; so addressing it would never reach that branch.
+  (doseq [[label v depth expansion-map opts toggle-testid placeholder]
+          [["collapsed ▸" {:a 1 :b 2 :c 3 :d 4 :e 5} 5 {}
+            {:default-expanded-depth 1}
+            "rf-xray-edn-inspector-test-m--toggle" nil]
+           ["expanded ▾" {:a 1 :b 2 :c 3 :d 4 :e 5} 0
+            {(ei/expansion-key :test "m" []) {:expanded? true}}
+            {:default-expanded-depth 0}
+            "rf-xray-edn-inspector-test-m--toggle" nil]
+           ["depth-capped ▸ {…}" {:a {:b {:c {:d 1}}}} 0 {}
+            {:default-expanded-depth 5 :max-depth 1}
+            "rf-xray-edn-inspector-test-m-:a-toggle" "…"]]]
+    (let [h   (ei/render-node {:value v
+                               :panel-id :test :mount-id "m"
+                               :path [] :depth depth
+                               :expansion-map expansion-map
+                               :opts opts})
+          tog (find-attr h :data-testid toggle-testid)]
+      (is (some? tog) (str label " renders carry a toggle span"))
+      (when placeholder
+        (is (str/includes? (collect-text h) placeholder)
+            (str label " is the capped placeholder")))
+      (is (= ei/triangle-style (-> tog second :style))
+          (str label " uses the shared triangle-style verbatim")))))
 
 (deftest depth-capped-toggle-expands-one-level-rf2-3x7nj-25-4
   ;; The capped `▸ {…}` is a real control — `role=button`, focusable, an
@@ -1428,119 +1407,45 @@
                    ;; expands and the body walk runs.
                    :opts {:default-expanded-depth 4}}))
 
-(deftest diff-vector-scattered-removal-strikes-removed-not-survivors
-  ;; Canonical repro: `[:a :b :c :d] -> [:a :c]` removes :b@1
-  ;; and :d@3; :c survives (shifted from index 2 → 1).
-  (let [before [:a :b :c :d]
-        after  [:a :c]
-        h      (render-vec-diff before after)
-        all    (collect-text h)
-        struck (struck-members h)]
-    (testing "the genuinely-removed members ARE struck"
-      (is (contains? struck ":b") ":b (removed@1) is struck")
-      (is (contains? struck ":d") ":d (removed@3) is struck"))
-    (testing "the surviving-shifted member is NOT struck"
-      (is (not (contains? struck ":c"))
-          ":c SURVIVES at after-index 1 — must not be struck")
-      (is (not (contains? struck ":a"))
-          ":a survives at index 0 — must not be struck"))
-    (testing "every member is still visible somewhere in the tree"
-      (is (re-find #":a" all))
-      (is (re-find #":b" all))
-      (is (re-find #":c" all))
-      (is (re-find #":d" all)))
-    (testing "the surviving-shifted :c carries a `(was N)` shift suffix"
-      ;; The engine's R6 shift detector reports :c's before-index for
-      ;; this edit script; the renderer surfaces it verbatim as `(was N)`.
-      ;; We only assert that SOME shift suffix renders for the survivor,
-      ;; not the exact N (that's the engine's contract, tested in the
-      ;; engine suite) — the renderer's job is to PAINT it.
-      (is (re-find #"\(was \d+\)" all)
-          ":c is surviving-shifted → carries a (was N) shift suffix"))))
-
-(deftest diff-vector-tail-removal-still-correct-with-projection
-  ;; The contiguous-tail case under the projection path (the ONE case
-  ;; index alignment gets right; the projection walk must get it right
-  ;; too). `[:x :y :z] -> [:x]` removes :y@1 + :z@2.
-  (let [before [:x :y :z]
-        after  [:x]
-        h      (render-vec-diff before after)
-        struck (struck-members h)]
-    (is (contains? struck ":y") ":y (tail) is struck")
-    (is (contains? struck ":z") ":z (tail) is struck")
-    (is (not (contains? struck ":x")) ":x survives at index 0 — not struck")))
-
-;; =========================================================================
-;; MIXED insert+delete edit scripts render the genuinely-
-;; removed member struck and the survivors un-morphed. Mirrors
-;; `diff-removed-vector-element-no-sentinel-leak` (the delete-only render
-;; guard) for the mixed-edit case.
-;; =========================================================================
-;;
-;; These exercise the SAME render path as the scattered-removal
-;; tests above (`render-vec-diff` threads the real `engine/project`), so a
-;; regression in the engine's unified replay surfaces here as the WRONG
-;; member struck (or a survivor morphed).
-
-(deftest diff-vector-insert-before-delete-strikes-removed-not-survivor
-  ;; Repro 1: `[:a :b :c] -> [:X :a :c]` ⇒ `[[0] :+ :X] [[2] :-]`.
-  ;; :b (before-idx 1) is removed; :X added; :a/:c survive. A misaligned
-  ;; replay strikes :c (a SURVIVOR) and never surfaces :b.
-  (let [before [:a :b :c]
-        after  [:X :a :c]
-        h      (render-vec-diff before after)
-        all    (collect-text h)
-        struck (struck-members h)]
-    (testing "the genuinely-removed member :b is struck"
-      (is (contains? struck ":b") ":b (removed@1) is struck"))
-    (testing "the surviving members are NOT struck (not morphed)"
-      (is (not (contains? struck ":c"))
-          ":c SURVIVES (unmoved at after-idx 2) — must not be struck")
-      (is (not (contains? struck ":a"))
-          ":a SURVIVES (shifted 0→1) — must not be struck")
-      (is (not (contains? struck ":X"))
-          ":X is the inserted element — added, not struck"))
-    (testing "every member still visible somewhere in the tree"
-      (is (re-find #":a" all))
-      (is (re-find #":b" all))
-      (is (re-find #":c" all))
-      (is (re-find #":X" all)))))
-
-(deftest diff-vector-insert-before-double-delete-survivor-not-struck
-  ;; Repro 2: `[:a :b :c :d] -> [:X :a :d]` ⇒
-  ;; `[[0] :+ :X] [[2] :-] [[2] :-]`. :b + :c removed; :d SURVIVES.
-  ;; A misaligned replay strikes :d (a survivor) and drops :c.
-  (let [before [:a :b :c :d]
-        after  [:X :a :d]
-        h      (render-vec-diff before after)
-        struck (struck-members h)]
-    (testing "the two genuinely-removed members are struck"
-      (is (contains? struck ":b") ":b (removed) is struck")
-      (is (contains? struck ":c") ":c (removed) is struck"))
-    (testing "the surviving :d is NOT struck"
-      (is (not (contains? struck ":d"))
-          ":d SURVIVES at after-idx 2 — must not be struck"))))
-
-(deftest diff-vector-insert-then-tail-delete-shows-dropped-removal
-  ;; Repro 3: `[:a :b :c :d] -> [:a :X :b :c]` ⇒
-  ;; `[[1] :+ :X] [[4] :-]`. :d (before-idx 3) removed. Replaying
-  ;; edit-index 4 against the pristine `(range 4)` would be out of range
-  ;; and DROP the removal entirely, so :d would never render struck; the
-  ;; renderer must surface it.
-  (let [before [:a :b :c :d]
-        after  [:a :X :b :c]
-        h      (render-vec-diff before after)
-        all    (collect-text h)
-        struck (struck-members h)]
-    (testing "the removed :d is struck (not silently dropped)"
-      (is (contains? struck ":d") ":d (removed@3) is struck"))
-    (testing "the survivors are not struck"
-      (is (not (contains? struck ":a")) ":a survives in place — not struck")
-      (is (not (contains? struck ":b")) ":b survives (shifted) — not struck")
-      (is (not (contains? struck ":c")) ":c survives (shifted) — not struck")
-      (is (not (contains? struck ":X")) ":X is inserted — added, not struck"))
-    (testing ":d still visible in the tree"
-      (is (re-find #":d" all) "the dropped element :d appears struck-through"))))
+(deftest projection-vector-diff-strikes-removed-members-not-survivors
+  ;; Each row is an edit script rendered through the real projection
+  ;; (`render-vec-diff` threads `engine/project`): every genuinely-removed
+  ;; member is struck, and every survivor renders and is NOT struck. A
+  ;; misaligned replay of the engine's unified edit script surfaces here as
+  ;; the WRONG member struck (a survivor morphed) or a removal dropped. The
+  ;; mixed insert+delete rows mirror `diff-removed-vector-element-no-sentinel-leak`
+  ;; (the delete-only render guard) for the mixed-edit case. A removed
+  ;; member's text is in the tree whenever it is struck, so only the
+  ;; survivors' visibility is asserted separately.
+  (doseq [[label before after removed survivors]
+          [["scattered `[:a :b :c :d] -> [:a :c]`: :b@1 and :d@3 removed, :c survives shifted 2 → 1"
+            [:a :b :c :d] [:a :c] [":b" ":d"] [":a" ":c"]]
+           ["contiguous tail `[:x :y :z] -> [:x]`, the one case index alignment also gets right"
+            [:x :y :z] [:x] [":y" ":z"] [":x"]]
+           ["insert before a delete, `[[0] :+ :X] [[2] :-]`: a misaligned replay strikes :c and never surfaces :b"
+            [:a :b :c] [:X :a :c] [":b"] [":a" ":c" ":X"]]
+           ["insert before a double delete, `[[0] :+ :X] [[2] :-] [[2] :-]`: a misaligned replay strikes :d and drops :c"
+            [:a :b :c :d] [:X :a :d] [":b" ":c"] [":d"]]
+           ["insert then a tail delete, `[[1] :+ :X] [[4] :-]`: replaying edit-index 4 against `(range 4)` would DROP the removal"
+            [:a :b :c :d] [:a :X :b :c] [":d"] [":a" ":b" ":c" ":X"]]]]
+    (let [h      (render-vec-diff before after)
+          all    (collect-text h)
+          struck (struck-members h)]
+      (doseq [m removed]
+        (is (contains? struck m)
+            (str label " — the removed " m " is struck")))
+      (doseq [m survivors]
+        (is (not (contains? struck m))
+            (str label " — the survivor " m " is not struck"))
+        (is (str/includes? all m)
+            (str label " — the survivor " m " still renders")))))
+  (testing "the scattered script's surviving-shifted :c carries a `(was N)`
+            shift suffix. The engine's R6 shift detector reports :c's
+            before-index and the renderer surfaces it verbatim; only SOME
+            suffix is asserted, since the exact N is the engine's contract,
+            tested in the engine suite"
+    (is (re-find #"\(was \d+\)" (collect-text (render-vec-diff [:a :b :c :d] [:a :c])))
+        ":c is surviving-shifted → carries a (was N) shift suffix")))
 
 (deftest sequential-diff-children-scattered-removal-shape
   ;; The pure projection-aware child walk directly: for `[:a :b :c :d] ->
@@ -3344,38 +3249,21 @@
         (is (re-find #"line-through" s)
             (str "the dropped " label " member is struck-through"))
         (is (re-find member-pat (collect-text h))
-            (str "the dropped " label " member text still renders"))))))
-
-(deftest c0c6a3-emptied-reads-distinct-from-dissoc
-  ;; The CONTRAST the testbed wires: an emptied collection
-  ;; (key intact) MUST read DISTINCT from a `dissoc` of a sibling key (the
-  ;; struck-through removed ghost). The discriminator: an emptied key's
-  ;; cell is intact; a dissoc'd key's cell is struck + `−` glyph + the node
-  ;; is a removed ghost.
-  (let [;; emptied: :one-set #{:only} → #{} (key intact)
-        h-empty (emptied-render :one-set #{:only} #{})
-        ;; dissoc: :doomed {:goodbye true} → (absent)
-        before  {:doomed {:goodbye true}}
-        after   {}
-        proj    (engine/project before after)
-        h-diss  (ei/render-node {:value after :before before :diff? true
-                                 :projection proj :panel-id :p :mount-id "m"
-                                 :path [] :depth 0 :expansion-map {} :opts {}})
-        s-diss  (try (pr-str h-diss) (catch :default _ ""))]
-    ;; Emptied: key intact, NOT a ghost.
-    (is (key-intact? h-empty #":one-set")
-        "emptied :one-set renders key-intact")
-    (is (not (re-find #":data-rf-removed-ghost \"1\"" (pr-str h-empty)))
-        "emptied :one-set is not a removed ghost")
-    ;; Dissoc: key STRUCK + removed ghost — the distinct rendering.
-    (is (not (key-intact? h-diss #":doomed"))
-        "dissoc'd :doomed renders the key struck-through (removed)")
-    (is (re-find #":data-rf-removed-ghost \"1\"" s-diss)
-        "dissoc'd :doomed renders as a removed ghost")
-    ;; The two renders are structurally distinct: only the dissoc is a ghost.
-    (is (not= (boolean (re-find #":data-rf-removed-ghost \"1\"" (pr-str h-empty)))
-              (boolean (re-find #":data-rf-removed-ghost \"1\"" s-diss)))
-        "emptied vs dissoc render DISTINCTLY (ghost present only for dissoc)")))
+            (str "the dropped " label " member text still renders")))))
+  (testing "CONTRAST, the one the testbed wires — the emptied set above (key
+            intact, NOT a ghost) reads distinct from a `dissoc` of a key,
+            which renders the key struck-through as a removed ghost"
+    (let [before {:doomed {:goodbye true}}
+          after  {}
+          h-diss (ei/render-node {:value after :before before :diff? true
+                                  :projection (engine/project before after)
+                                  :panel-id :p :mount-id "m"
+                                  :path [] :depth 0 :expansion-map {} :opts {}})]
+      (is (not (key-intact? h-diss #":doomed"))
+          "dissoc'd :doomed renders the key struck-through (removed)")
+      (is (re-find #":data-rf-removed-ghost \"1\""
+                   (try (pr-str h-diss) (catch :default _ "")))
+          "dissoc'd :doomed renders as a removed ghost"))))
 
 (deftest c0c6a3-diff-emptied-predicate
   ;; The render-side discriminator. True for a populated→empty
@@ -3511,7 +3399,18 @@
       (let [bg (-> cell second :style :background)]
         (is (some? bg)
             (str "slot cell " (get (second cell) :data-rf-cell)
-                 " paints :background wash"))))))
+                 " paints :background wash"))))
+    ;; The inner gutter-row inside the slot-anchored value cell suppresses
+    ;; its own wash (no `data-rf-diff-wash`), so the cell-level wash is not
+    ;; painted twice over the value half.
+    (let [value-cell (first (filter #(= "value" (get (second %) :data-rf-cell))
+                                    slot-cells))]
+      (is (not-any? (fn [n]
+                      (and (vector? n)
+                           (map? (second n))
+                           (= "1" (get (second n) :data-rf-diff-wash))))
+                    (walk-hiccup value-cell))
+          "the slot-anchored value cell suppresses its inner gutter-row wash"))))
 
 (deftest slot-anchored-removed-key-paints-whole-row-and-strikes-key
   ;; R2 removed map-key — both cells get the wash AND the key cell
@@ -3552,46 +3451,6 @@
       (is (some? (:background val-style))
           "value cell paints the per-op wash background"))))
 
-(deftest slot-anchored-leaf-wash-suppressed-no-double-paint
-  ;; The inner gutter-row inside a slot-anchored value cell MUST
-  ;; suppress its own wash; otherwise the wash double-paints over the
-  ;; cell-level wash. We assert via the `data-rf-diff-wash` attribute
-  ;; (set by gutter-row when it paints a wash) being absent inside an
-  ;; `:added` / `:removed` slot row.
-  (let [before {:a 1}
-        after  {:a 1 :b 2}
-        proj   (projection-for before after)
-        h      (ei/render-node {:value after
-                                :before before
-                                :diff? true
-                                :projection proj
-                                :panel-id :p :mount-id "m"
-                                :path [] :depth 0
-                                :expansion-map {}
-                                :opts {:default-expanded-depth 2}})
-        nodes  (walk-hiccup h)
-        ;; Find the value cell for the added :b key — it carries
-        ;; `data-rf-cell value` and `data-rf-row-anchor slot`.
-        value-cell (->> nodes
-                        (filter (fn [n]
-                                  (and (vector? n)
-                                       (map? (second n))
-                                       (= "value" (get (second n) :data-rf-cell))
-                                       (= "slot" (get (second n) :data-rf-row-anchor)))))
-                        first)
-        ;; Walk inside the slot-anchored value cell looking for any
-        ;; descendant with `data-rf-diff-wash` set — that would mean a
-        ;; gutter-row inside the cell painted its own wash.
-        inner-washes (->> (walk-hiccup value-cell)
-                          (filter (fn [n]
-                                    (and (vector? n)
-                                         (map? (second n))
-                                         (= "1" (get (second n) :data-rf-diff-wash))))))]
-    (is (some? value-cell)
-        "added-key slot-anchored value cell is present")
-    (is (zero? (count inner-washes))
-        "slot-anchored value cell suppresses inner gutter-row wash")))
-
 (deftest value-anchored-modified-row-does-not-paint-key-cell-wash
   ;; R1 (value mutated, slot identity unchanged) MUST stay value-
   ;; anchored. No `data-rf-row-anchor=slot` markers on the key/value
@@ -3631,31 +3490,25 @@
         (is (not= "line-through" (:text-decoration style))
             "modified-key cell paints NO key-text strike")))
     (is (re-find #"← was 5" s)
-        "value-side R1 annotation still present")))
-
-(deftest value-anchored-redaction-row-stays-value-anchored
-  ;; R8 (redaction transition) keeps value-anchored chrome — the slot
-  ;; identity didn't change, only the visibility of the value did.
-  (let [before {:secret :rf/redacted}
-        after  {:secret "now-visible"}
-        proj   (projection-for before after)
-        h      (ei/render-node {:value after
-                                :before before
-                                :diff? true
-                                :projection proj
-                                :panel-id :p :mount-id "m"
-                                :path [] :depth 0
-                                :expansion-map {}
-                                :opts {:default-expanded-depth 2}})
-        nodes  (walk-hiccup h)
-        slot-cells (->> nodes
-                        (filter (fn [n]
-                                  (and (vector? n)
-                                       (map? (second n))
-                                       (= "slot"
-                                          (get (second n) :data-rf-row-anchor))))))]
-    (is (zero? (count slot-cells))
-        "R8 row stays value-anchored — no slot-anchor markers")))
+        "value-side R1 annotation still present")
+    (testing "R8 (a redaction transition) stays value-anchored too — the slot
+              identity didn't change, only the visibility of the value did"
+      (let [before8 {:secret :rf/redacted}
+            after8  {:secret "now-visible"}
+            h8      (ei/render-node {:value after8
+                                     :before before8
+                                     :diff? true
+                                     :projection (projection-for before8 after8)
+                                     :panel-id :p :mount-id "m"
+                                     :path [] :depth 0
+                                     :expansion-map {}
+                                     :opts {:default-expanded-depth 2}})]
+        (is (not-any? (fn [n]
+                        (and (vector? n)
+                             (map? (second n))
+                             (= "slot" (get (second n) :data-rf-row-anchor))))
+                      (walk-hiccup h8))
+            "R8 row stays value-anchored — no slot-anchor markers")))))
 
 ;; ---- inspector card chrome on top-level mounts ---------------------------
 ;;
@@ -3674,14 +3527,18 @@
 (deftest card-opt-off-by-default
   (testing "without `:card?` (or with `false`) the outer
             container carries NO card chrome (background, border,
-            radius, padding, margin all absent)"
+            radius, padding, margin all absent) and no `:data-rf-card`
+            attribute"
     (let [h-default (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})
           style-default (-> h-default second :style)
           h-false   (invoke-edn-inspector {:a 1}
                                           {:panel-id :rf.xray/app-db
                                            :card? false})
           style-false (-> h-false second :style)]
-      (doseq [[label style] [["default" style-default] ["explicit false" style-false]]]
+      (doseq [[label h style] [["default" h-default style-default]
+                               ["explicit false" h-false style-false]]]
+        (is (nil? (:data-rf-card (second h)))
+            (str label ": no :data-rf-card attribute"))
         (is (nil? (:background-color style))
             (str label ": no background"))
         (is (nil? (:border style))
@@ -3705,18 +3562,9 @@
       (is (= "8px" (:border-radius style)) "radius 8px")
       (is (= "8px 10px" (:padding style)) "padding 8px 10px")
       (is (= "8px" (:margin-bottom style))
-          "margin-bottom 8px gaps adjacent cards"))))
-
-(deftest card-opt-carries-data-attr
-  (testing "the outer container publishes `:data-rf-card`
-            when card chrome is on; absent when off"
-    (let [h-on  (invoke-edn-inspector {:a 1}
-                                      {:panel-id :rf.xray/app-db :card? true})
-          h-off (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})]
-      (is (= "1" (:data-rf-card (second h-on)))
-          "card-on publishes :data-rf-card=1 for testbed assertion")
-      (is (nil? (:data-rf-card (second h-off)))
-          "card-off omits the attribute"))))
+          "margin-bottom 8px gaps adjacent cards")
+      (is (= "1" (:data-rf-card (second h)))
+          "and publishes :data-rf-card=1 for testbed assertion"))))
 
 ;; ---- map column alignment (triangle / line / keys / close) --------------
 ;;
@@ -3836,23 +3684,17 @@
        first))
 
 (deftest header-opt-omitted-renders-no-section-wrapper
-  (testing "without `:header` the widget emits a single
-            `<div>` root, with no `<section>` wrapper and no
-            `<header>` ribbon (the plain single-div mount)"
-    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db})]
-      (is (= :div (first h)) "root tag is `<div>`, not `<section>`")
-      (is (nil? (find-tag h :section)) "no `<section>` anywhere in tree")
-      (is (nil? (find-tag h :header)) "no `<header>` ribbon")
-      (is (nil? (:data-rf-header (second h)))
-          "outer div omits the `data-rf-header` flag"))))
-
-(deftest header-opt-explicit-nil-renders-no-section-wrapper
-  (testing "`:header nil` is equivalent to omitting the opt
-            (no section wrapper)"
-    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
-                                          :header nil})]
-      (is (= :div (first h)) "root tag is `<div>`")
-      (is (nil? (find-tag h :section)) "no `<section>` wrapper"))))
+  (testing "without `:header` (or with `:header nil`, which is equivalent)
+            the widget emits a single `<div>` root, with no `<section>`
+            wrapper and no `<header>` ribbon (the plain single-div mount)"
+    (doseq [[label opts] [["omitted" {:panel-id :rf.xray/app-db}]
+                          [":header nil" {:panel-id :rf.xray/app-db :header nil}]]]
+      (let [h (invoke-edn-inspector {:a 1} opts)]
+        (is (= :div (first h)) (str label ": root tag is `<div>`, not `<section>`"))
+        (is (nil? (find-tag h :section)) (str label ": no `<section>` anywhere in tree"))
+        (is (nil? (find-tag h :header)) (str label ": no `<header>` ribbon"))
+        (is (nil? (:data-rf-header (second h)))
+            (str label ": outer div omits the `data-rf-header` flag"))))))
 
 (deftest header-opt-string-renders-section-and-ribbon
   (testing "`:header \"label\"` wraps the render in a
@@ -4008,7 +3850,7 @@
 ;;   - the recursive inline renderer paints nested containers in one
 ;;     line with full syntax-palette colour.
 
-(deftest mono-char-width-and-safety-margin-are-stable
+(deftest width-estimate-constants-and-default-ceiling-are-stable
   (testing "width-estimation constants exposed for tests"
     (is (= 7 ei/mono-char-width-px)
         "7px M-advance is the conservative pick for JetBrains Mono 12px")
@@ -4471,7 +4313,7 @@
       (is (nil? (get after-clear "m"))
           "clear-width removes the entry"))))
 
-(deftest widget-emits-ref-callback-and-available-width-attr
+(deftest widget-emits-a-ref-callback-and-no-width-attr-until-measured
   (testing "the outer container carries a `:ref` callback
             (function) for the ResizeObserver lifecycle, plus a data-
             attribute carrying the current measurement (or absent when
