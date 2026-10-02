@@ -62,11 +62,6 @@
           (fn []
             (is (= [:sync-before :sync-after :microtask :next-tick] @log)
                 (str "expected order sync → microtask checkpoint → next-tick macrotask; got " @log))
-            ;; The load-bearing distinctions, asserted directly:
-            (is (< (.indexOf @log :sync-after) (.indexOf @log :microtask))
-                "all synchronous work precedes the microtask checkpoint")
-            (is (< (.indexOf @log :microtask) (.indexOf @log :next-tick))
-                "a true queueMicrotask boundary precedes rf.interop/next-tick — so next-tick is NOT a microtask")
             (done)))))))
 
 ;; ---- 2. the ROUTER drain lands on that macrotask boundary -----------------

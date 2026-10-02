@@ -45,22 +45,17 @@
                                 (= :dispatch-later (:failing-id %)))
                           @errors)}))
 
-(deftest missing-ms-is-refused
-  (testing "a :dispatch-later with no :ms queues nothing and reports the refusal"
-    (let [{:keys [target-ran refusals]} (run-dispatch-later {:event [::target]})]
-      (is (zero? target-ran) "the event is not queued at once in place of a delay")
-      (is (= 1 (count refusals)) "one always-on refusal names the :dispatch-later fx")
-      (is (contains? (ex-data (:exception (first refusals))) :ms)
-          "the refusal carries the offending :ms, here absent (nil)")
-      (is (nil? (:ms (ex-data (:exception (first refusals)))))))))
-
-(deftest non-numeric-ms-is-refused
-  (testing "a :dispatch-later whose :ms is a string queues nothing and reports it"
-    (let [{:keys [target-ran refusals]} (run-dispatch-later {:ms "100" :event [::target]})]
-      (is (zero? target-ran))
-      (is (= 1 (count refusals)))
-      (is (= "100" (:ms (ex-data (:exception (first refusals)))))
-          "the refusal carries the offending value"))))
+(deftest bad-ms-is-refused
+  (doseq [[label spec expected-ms]
+          [["no :ms"       {:event [::target]}             nil]
+           ["a string :ms" {:ms "100" :event [::target]}   "100"]]]
+    (testing (str "a :dispatch-later with " label " queues nothing and reports the refusal")
+      (let [{:keys [target-ran refusals]} (run-dispatch-later spec)
+            data (ex-data (:exception (first refusals)))]
+        (is (zero? target-ran) "the event is not queued at once in place of a delay")
+        (is (= 1 (count refusals)) "one always-on refusal names the :dispatch-later fx")
+        (is (contains? data :ms) "the refusal carries the offending :ms slot")
+        (is (= expected-ms (:ms data)) "the refusal carries the offending value")))))
 
 (deftest numeric-ms-still-fires
   (testing "control: a numeric :ms arms the timer and the event runs once, unrefused"

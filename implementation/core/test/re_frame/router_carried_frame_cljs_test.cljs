@@ -85,7 +85,6 @@
       (binding [rf.frame/*current-frame* nil]
         (let [ex (try (rf/dispatch-sync [:app/noop]) nil
                       (catch :default e e))]
-          (is (some? ex) "bare dispatch with no provider raised")
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
               "the throw carries :rf.error/no-frame-context")))
       (rf/unregister-listener! :trace ::no-provider)

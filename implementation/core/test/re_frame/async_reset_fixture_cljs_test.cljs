@@ -22,8 +22,9 @@
 
   These tests prove: (1) a bare dispatch-sync drains in an async body; (2) the
   map fixture also serves synchronous bodies; (4) the fn-form drains a bare
-  dispatch-sync; (5) the fn/map mixing hazard the async `:before`'s per-test
-  re-ensure guards against. (3) The two return shapes are pinned per host by
+  dispatch-sync, and (5) its teardown leaves the fn/map mixing hazard the async
+  `:before`'s per-test re-ensure guards against, both in one manually driven
+  fn-form run. (3) The two return shapes are pinned per host by
   `re-frame.async-fixture-platform-shape-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
@@ -77,24 +78,7 @@
     (is (= 7 (:n (rf/app-db-value :rf/default)))
         "a synchronous bare dispatch-sync landed under the :async? map fixture")))
 
-;; ---- 4. the fn-form drains a bare dispatch-sync ---------------------------
-;;
-;; Belt-and-braces alongside the dozens of fn-form users in the suite: drive a
-;; fn-form fixture MANUALLY (not via use-fixtures) and prove a bare
-;; dispatch-sync inside its synchronous body drains.
-
-(deftest fn-form-still-drains-a-bare-dispatch-sync
-  (testing "the fn-form fixture establishes an ambient scope for a sync body"
-    (let [fix (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
-      (fix (fn []
-             (rf/reg-event :ar/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-             (rf/dispatch-sync [:ar/inc])
-             (rf/dispatch-sync [:ar/inc])
-             (rf/dispatch-sync [:ar/inc])
-             (is (= 3 (:n (rf/app-db-value :rf/default)))
-                 "three bare dispatch-syncs landed under the fn-form's binding scope"))))))
-
-;; ---- 5. the fn/map mixing teardown hazard ---------------------------------
+;; ---- 4 + 5. the fn-form drains, and its teardown is the fn/map mixing hazard
 ;;
 ;; A fn-form fixture's teardown resets frames to {}. In a shared cljs.test
 ;; bundle that destroys :rf/default for whatever ns runs next. The :async?
@@ -111,8 +95,6 @@
       (fix (fn []
              (rf/reg-event :ar/seed (fn [_ _] {:db {:n 1}}))
              (rf/dispatch-sync [:ar/seed])
-             (is (some? (rf.frame/frame :rf/default))
-                 "inside the fn-form: the :rf/default frame is live")
              (is (= 1 (:n (rf/app-db-value :rf/default)))
                  "inside the fn-form: the bare dispatch-sync drained"))))
     ;; The fn-form fixture's `finally` reset frames to {} — :rf/default is gone.

@@ -72,27 +72,6 @@
   [id]
   (rf/reg-event id (fn [_ _] (log! id) {})))
 
-;; ---- (1) flagged dispatch leap-frogs a pending external event -------------
-
-(deftest machine-internal-dispatch-leapfrogs-external
-  (testing "an :rf.machine/internal? dispatch jumps ahead of an external
-   event already queued before it"
-    (reset! run-log [])
-    (reg-marker :ext)
-    (reg-marker :cont)
-    ;; Seed handler enqueues an EXTERNAL event first, THEN a machine-
-    ;; internal continuation. Arrival order is [:ext :cont]; FIFO would
-    ;; run :ext before :cont, but front-of-queue must run :cont first.
-    (rf/reg-event :seed
-      (fn [_ _]
-        (log! :seed)
-        (rf.router/dispatch! [:ext] {})
-        (rf.router/dispatch! [:cont] {:rf.machine/internal? true})
-        {}))
-    (rf/dispatch-sync [:seed] {:frame :rf/default})
-    (is (= [:seed :cont :ext] @run-log)
-        ":cont (machine-internal) leap-frogged the earlier-queued :ext")))
-
 ;; ---- (2) unflagged dispatch stays FIFO (origin, not target) ---------------
 
 (deftest external-dispatch-stays-fifo
@@ -111,9 +90,9 @@
     (is (= [:seed :ext :plain] @run-log)
         "both unflagged dispatches ran in arrival order (no leap-frog)")))
 
-;; ---- (3) + (4) sibling machine-internal dispatches keep source order, and
-;;          each leap-frogged event runs its own full handler cascade (its
-;;          own :run-start), not collapsed ----------------------------------
+;; ---- (1), (3) + (4) sibling machine-internal dispatches leap-frog the queued
+;;          external event in source order, and each runs its own full handler
+;;          cascade (its own :run-start), not collapsed ---------------------
 
 (defn- run-starts-of
   "Filter recorded trace events down to per-event :rf.event/run-start

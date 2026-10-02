@@ -113,7 +113,6 @@
           errs     (record-errors! ::bare-errors)]
       (binding [rf.frame/*current-frame* nil]
         (let [ex (no-frame-context-ex #(rf/dispatch [:app/noop]))]
-          (is (some? ex) "frameless dispatch raised")
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
               "the throw carries :rf.error/no-frame-context")
           (is (= :dispatch (:operation (ex-data ex)))

@@ -317,75 +317,47 @@
 (def ^:private authority-frame :rf2-j538f72/race)
 (def ^:private authority-event [:rf2-j538f72/target])
 
-(deftest dispatch-later-release-during-arming-suppresses-callback-dispatch
-  (testing "release-frame! wins DURING arming (removes the reservation) and the
+(deftest dispatch-later-cleanup-during-arming-suppresses-callback-dispatch
+  (doseq [[label cleanup!]
+          [["release-frame! (frame destroy)"
+            #(rf.fx/release-frame! authority-frame)]
+           ["reset-dispatch-later-timers! (a test-isolation reset)"
+            rf.fx/reset-dispatch-later-timers!]]]
+    (testing (str label " wins DURING arming (removes the reservation) and the
             host callback STILL fires before set-timeout! returns: the callback
             has LOST its dispatch authority and dispatches NOTHING; the returned
-            handle is cancelled once and the side table is empty"
-    (let [dispatched (atom [])
-          cleared    (atom [])
-          the-handle ::handle
-          opts       {:source :fx-dispatch-later :source-detail {:ms 600000}
-                      :frame  authority-frame}]
-      (with-dispatch-stub
-        (fn [ev op] (swap! dispatched conj [ev op]))
-        (fn []
-          (with-redefs [rf.interop/set-timeout!
-                        (fn [f _ms]
-                          ;; Cleanup wins DURING arming: destroy removes the
-                          ;; reservation while the timer is still mid-schedule …
-                          (rf.fx/release-frame! authority-frame)
-                          ;; … yet the host executor STILL runs the captured
-                          ;; callback before set-timeout! returns (a legal JVM
-                          ;; ordering the two-phase publish alone cannot suppress).
-                          (f)
-                          the-handle)
-                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'rf.fx/arm-dispatch-later! authority-frame 600000 authority-event opts))))
-      (is (empty? @dispatched)
-          "the callback fired AFTER cleanup removed its reservation, so it had NO
-           dispatch authority and dispatched NOTHING into the torn-down frame")
-      (is (= [the-handle] @cleared)
-          "the publish phase found the reservation gone and CANCELLED the returned
-           handle exactly once (the arming sentinel was never passed to
-           clear-timeout!)")
-      (is (empty? (timers-for-frame authority-frame))
-          "no side-table entry survives — neither the callback nor the publish
-           phase reinstated a slot"))))
-
-(deftest dispatch-later-reset-during-arming-suppresses-callback-dispatch
-  (testing "the same composed interleaving through reset-dispatch-later-timers!
-            (a test-isolation reset winning DURING arming): the callback cannot
-            leak a dispatch into the next test/runtime generation, and the arming
-            SENTINEL is never passed to clear-timeout!"
-    (let [dispatched (atom [])
-          cleared    (atom [])
-          the-handle ::handle
-          opts       {:source :fx-dispatch-later :source-detail {:ms 600000}
-                      :frame  authority-frame}]
-      (with-dispatch-stub
-        (fn [ev op] (swap! dispatched conj [ev op]))
-        (fn []
-          (with-redefs [rf.interop/set-timeout!
-                        (fn [f _ms]
-                          ;; A test-isolation reset fires DURING arming — the
-                          ;; reset-hooks table clears every frame's timers between
-                          ;; tests, dropping the arming sentinel …
-                          (rf.fx/reset-dispatch-later-timers!)
-                          ;; … but the captured callback still runs before
-                          ;; set-timeout! returns.
-                          (f)
-                          the-handle)
-                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'rf.fx/arm-dispatch-later! authority-frame 600000 authority-event opts))))
-      (is (empty? @dispatched)
-          "the reset removed the reservation, so the callback had no authority and
-           could NOT leak a dispatch into the next test/runtime generation")
-      (is (= [the-handle] @cleared)
-          "the publish phase cancelled the returned handle; the arming SENTINEL was
-           NEVER passed to clear-timeout! (reset skips it)")
-      (is (empty? (timers-for-frame authority-frame))
-          "no residue in the side table"))))
+            handle is cancelled once and the side table is empty")
+      (let [dispatched (atom [])
+            cleared    (atom [])
+            the-handle ::handle
+            opts       {:source :fx-dispatch-later :source-detail {:ms 600000}
+                        :frame  authority-frame}]
+        (with-dispatch-stub
+          (fn [ev op] (swap! dispatched conj [ev op]))
+          (fn []
+            (with-redefs [rf.interop/set-timeout!
+                          (fn [f _ms]
+                            ;; Cleanup wins DURING arming: it removes the
+                            ;; reservation while the timer is still mid-schedule …
+                            (cleanup!)
+                            ;; … yet the host executor STILL runs the captured
+                            ;; callback before set-timeout! returns (a legal JVM
+                            ;; ordering the two-phase publish alone cannot suppress).
+                            (f)
+                            the-handle)
+                          rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+              (#'rf.fx/arm-dispatch-later! authority-frame 600000 authority-event opts))))
+        (is (empty? @dispatched)
+            "the callback fired AFTER cleanup removed its reservation, so it had NO
+             dispatch authority and dispatched NOTHING — not into the torn-down
+             frame, nor into the next test/runtime generation")
+        (is (= [the-handle] @cleared)
+            "the publish phase found the reservation gone and CANCELLED the returned
+             handle exactly once (the arming SENTINEL was never passed to
+             clear-timeout!)")
+        (is (empty? (timers-for-frame authority-frame))
+            "no side-table entry survives — neither the callback nor the publish
+             phase reinstated a slot")))))
 
 (deftest dispatch-later-armed-handle-destroy-then-late-callback-suppressed
   (testing "an ORDINARY armed :dispatch-later (handle already PUBLISHED) that is
