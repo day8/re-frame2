@@ -17,9 +17,10 @@
   `goog.DEBUG=false`. Under the gate the framework emits none of it BY DESIGN,
   so the assertions are correct dev-posture coverage; they declare the posture
   they are about, so the semantics beside them run in the production lane.
-  Where a trace assertion has no natural semantic sibling — the machine
-  spawn/destroy fx — a production-visible witness sits beside it, so the trace
-  is never the only evidence."
+  Where a trace assertion has no natural semantic sibling — the
+  `dispatch-sync`-in-handler ban, the machine spawn/destroy fx — a
+  production-visible witness sits beside it, so the trace is never the only
+  evidence."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -191,6 +192,34 @@
 ;; sub-cache-ref-counting and sub-hot-reload-invalidates-cache live in
 ;; sub_cache_test.clj; flow-hot-reload-invalidates-last-inputs and the
 ;; per-frame flow-store tests live in the flows artefact's flows_test.clj.
+
+(deftest dispatch-sync-in-handler-errors
+  (testing "calling dispatch-sync from inside a handler raises a structured error"
+    (let [traces (atom [])]
+      (rf/register-listener! :trace ::dsih (fn [ev] (swap! traces conj ev)))
+      (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
+      (rf/reg-event :nested
+        (fn [_ _]
+          ;; Calling dispatch-sync from inside a handler should NOT silently
+          ;; interleave; it must raise :rf.error/dispatch-sync-in-handler.
+          (rf/dispatch-sync [:outer])
+          {}))
+      (rf/dispatch-sync [:nested])
+      (rf/unregister-listener! :trace ::dsih)
+      ;; SEMANTIC, posture-independent: the ban is enforcement,
+      ;; not advice — the nested event is REJECTED, so `:outer`'s handler
+      ;; never runs and its `:db` write never lands. That is the half a
+      ;; production build carries.
+      (is (nil? (:ran? (rf/app-db-value :rf/default)))
+          "the nested event was rejected — :outer's handler never ran")
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
+      (when rf.interop/debug-enabled?
+        (is (some (fn [ev]
+                    (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
+                         (= :error (:op-type ev))
+                         (= :no-recovery (:recovery ev))))
+                  @traces)
+            "expected :rf.error/dispatch-sync-in-handler trace event")))))
 
 (deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
   ;; The router binds `rf.frame/*current-frame*` to the
