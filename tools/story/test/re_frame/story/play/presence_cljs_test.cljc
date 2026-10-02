@@ -62,7 +62,6 @@
 
 (deftest flush-presence-is-a-known-step
   (testing "the one tagged grammar recognises :flush-presence"
-    (is (contains? rf.story.play.runner/step-types :flush-presence))
     (is (= :flush-presence (rf.story.play.runner/step-type [:flush-presence])))
     (is (= :flush-presence (rf.story.play.runner/step-type [:flush-presence 300])))
     (is (true? (rf.story.play.runner/known-step? [:flush-presence])))
@@ -93,7 +92,6 @@
   (testing "the framework verb is Promise-backed on CLJS — the driver yields
             one tick so the retained subtree's removal COMMIT lands before
             the next step reads it"
-    (is (contains? rf.story.play.runner/async-yield-step-types :flush-presence))
     (is (true? (rf.story.play.runner/async-yield? [:flush-presence])))))
 
 ;; ===========================================================================
@@ -286,7 +284,6 @@
       (is (true? (:cannot-run? res)) "the distinct THIRD status, not a skip")
       (is (false? (:passed? res)))
       (is (nil? (:exception res)) "an absent host is a refusal, not a throw")
-      (is (string? (:message res)))
       (is (re-find #"install-presence-flush!" (:message res))
           "the refusal NAMES the install path — an actionable refusal, and
            the only install path there is")
@@ -388,9 +385,7 @@
                             #(reset! done %))
              state @done]
          (is (= :cannot-run (:status state))
-             "an uninstalled presence host fails CLOSED")
-         (is (not= :pass (:status state))
-             "no silent false green")))))
+             "an uninstalled presence host fails CLOSED, never a false green")))))
 
 ;; A host's OWN clock is not proven here, nor anywhere in Story: no supported
 ;; substrate publishes a presence-advance verb. If a substrate publishes one

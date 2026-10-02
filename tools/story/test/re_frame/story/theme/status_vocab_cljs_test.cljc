@@ -49,11 +49,6 @@
 (def expected-statuses
   #{:pending :running :pass :fail :error :cannot-run :blocked :dirty :redacted})
 
-;; The four discriminators §12.6 mandates ("distinguishable in colour,
-;; icon, text, and shape") + the one presentation hint.
-(def discriminator-keys #{:fg :bg :border :glyph :shape :label})
-(def required-keys (conj discriminator-keys :emphasis))
-
 (def valid-shapes #{:solid :outline :dashed :ring :half})
 (def valid-emphasis #{:high :normal :low})
 
@@ -65,7 +60,6 @@
     (is (= expected-statuses (set (keys rf.story.theme.status/descriptors)))))
   (testing "`order` is exactly the nine statuses, each listed once"
     (is (= expected-statuses (set rf.story.theme.status/order)))
-    (is (= (count rf.story.theme.status/order) (count (set rf.story.theme.status/order))))
     (is (= 9 (count rf.story.theme.status/order)))))
 
 (deftest every-descriptor-carries-all-four-discriminators
@@ -75,8 +69,6 @@
     (doseq [s expected-statuses]
       (let [d (rf.story.theme.status/descriptor s)]
         (testing (str s)
-          (is (every? #(contains? d %) required-keys)
-              (str s " is missing one of " required-keys))
           ;; colour channel — three non-blank strings
           (is (every? (fn [k] (and (string? (get d k))
                                    (not (str/blank? (get d k)))))

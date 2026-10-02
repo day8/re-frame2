@@ -114,11 +114,11 @@
                                    :expected :loaded :actual :idle :message "boom"}
                                   {:passed? true  :id :rf.assert/path-equals}])
           out  (failed-since bridge-frame prev)]
-      (is (= 1 (count out))
+      (is (= [{:passed? false :id :rf.assert/path-equals
+               :expected :loaded :actual :idle :message "boom"}]
+             out)
           "only the one new failing record is returned — the earlier pass
-           (before prev-count) and the trailing pass are excluded")
-      (is (= :loaded (:expected (first out))))
-      (is (= :idle   (:actual   (first out)))))))
+           (before prev-count) and the trailing pass are excluded"))))
 
 (deftest failed-since-empty-when-no-new-failures
   (testing "failed-since is empty when nothing failed since prev-count"
@@ -145,13 +145,17 @@
                                    :expected :loaded :actual :idle
                                    :reason   "expected :loaded, got :idle"}])
           out  (dispatch-step-result bridge-frame prev 3 step)]
-      (is (false? (:passed? out)) "the step result flips to fail")
-      (is (= :dispatch-sync (:type out)) "step-type is preserved")
-      (is (= 3 (:idx out)))
-      (is (= step (:step out)))
-      (is (= :loaded (:expected out)))
-      (is (= :idle   (:actual out)))
-      (is (= "expected :loaded, got :idle" (:message out))))))
+      (is (= {:idx       3
+              :step      step
+              :type      :dispatch-sync
+              :passed?   false
+              :expected  :loaded
+              :actual    :idle
+              :message   "expected :loaded, got :idle"
+              ;; the record is already on the accumulator, so the unified
+              ;; result must not count it twice
+              :recorded? true}
+             out)))))
 
 (deftest dispatch-step-result-synthesizes-message-when-record-has-none
   (testing "when the failing record carries no :reason, the bridge
@@ -174,11 +178,9 @@
           prev (seed-assertions! [{:passed? true :id :rf.assert/path-equals}])]
       ;; A clean pass lands after prev — no failures contributed.
       (seed-assertions! [{:passed? true :id :rf.assert/path-equals}])
-      (let [out (dispatch-step-result bridge-frame prev 1 step)]
-        (is (nil? (:passed? out)) "step-skip leaves :passed? nil")
-        (is (= :dispatch-sync (:type out)))
-        (is (= 1 (:idx out)))
-        (is (= step (:step out)))))))
+      (is (= {:idx 1 :step step :type :dispatch-sync :passed? nil}
+             (dispatch-step-result bridge-frame prev 1 step))
+          "step-skip leaves :passed? nil"))))
 
 ;; ---- CLJS+JVM: terminal assertions auto-run -----------------------------
 ;;
@@ -288,13 +290,11 @@
       (is (nil? (rf.story.play.runner-events/current-state-for-play frame-id nil))
           "precondition: no run-state for the torn-down frame")
       (run-loop! frame-id nil "tok-A" (fn [final] (reset! settled final)))
-      (is (not= :unset @settled)
-          "done-cb fired on the torn-down-frame abort — the continuation is
-           released, so the play-promise (and the outer run-variant promise)
-           cannot hang")
       (is (nil? @settled)
-          "the aborted continuation settles with the last-known state — nil
-           when the slot is gone"))))
+          "done-cb fired on the torn-down-frame abort with the last-known
+           state — nil when the slot is gone — so the continuation is
+           released and the play-promise (and the outer run-variant promise)
+           cannot hang"))))
 
 (deftest run-loop-aborts-on-token-mismatch-still-settles-done-cb
   (testing "the token-mismatch abort branch (a newer run! took
@@ -356,10 +356,9 @@
              settled  (atom :unset)]
          (set-state! frame-id nil started)
          (run-loop! frame-id nil "tok-WAIT" (fn [final] (reset! settled final)))
-         (is (not= :unset @settled)
-             "done-cb fired — the loop ran to completion through every wait")
          (is (= n (:step-idx @settled))
-             "every wait step was consumed (step-idx reached :total)")
+             "done-cb fired with every wait step consumed (step-idx reached
+              :total)")
          (is (= :pass (:status @settled))
              "an all-:wait run has no failures/refusals → terminal :pass")))))
 
@@ -618,21 +617,13 @@
          (is (= :pass (:status result)))
          ;; The two authored steps committed THREE script epochs (a, c, c's
          ;; re-dispatch d) — the rest of the tape is the leading setup phase.
-         (let [script-beats (concat (get by [:dispatch-sync [:rkd/a]])
-                                    (get by [:dispatch-sync [:rkd/c]]))]
-           (is (= [[:rkd/a] [:rkd/c] [:rkd/d]] (vec script-beats))
-               "the three script epochs land under the two authored steps"))
          ;; EXACT: step 0 owns ONLY :rkd/a; step 1 owns :rkd/c AND its
-         ;; re-dispatched :rkd/d (the fan-out attaches to the producing step).
+         ;; re-dispatched :rkd/d (the fan-out attaches to the producing step),
+         ;; where any forward EVEN split would front-load :rkd/c onto step 0.
          (is (= [[:rkd/a]] (get by [:dispatch-sync [:rkd/a]]))
              "step 0's span holds ONLY its own leaf epoch")
          (is (= [[:rkd/c] [:rkd/d]] (get by [:dispatch-sync [:rkd/c]]))
              "step 1's span holds its dispatch AND its re-dispatch — EXACT")
-         ;; Contrast pin: the EVEN partition (5 script-attributable epochs
-         ;; split [3 2] front-loaded, or any forward split) would front-load
-         ;; :rkd/c onto step 0; EXACT keeps :rkd/c under step 1.
-         (is (not= [[:rkd/a] [:rkd/c]] (get by [:dispatch-sync [:rkd/a]]))
-             "step 0 does NOT swallow step 1's epoch (the EVEN mis-grouping)")
          ;; The leading setup epochs are NOT mis-attributed to step 0 — they
          ;; lead under the nil span (the EXACT model's leading-setup behaviour;
          ;; the EVEN partition would have front-loaded them onto step 0).
@@ -699,6 +690,9 @@
                                    (update m step (fnil conj []) trigger-event))
                                  {}))]
          (is (= :pass (:status result)))
+         ;; Per-play clearing would keep only beta's single boundary, which
+         ;; the concatenated script (3 dispatch steps) would zip onto alpha's
+         ;; :ml/a, so :ml/c and :ml/d would land under it. EXACT attribution:
          ;; alpha's two steps own exactly their own leaf epochs…
          (is (= [[:ml/a]] (get by [:dispatch-sync [:ml/a]]))
              "play alpha step 0 owns ONLY :ml/a")
@@ -706,34 +700,7 @@
              "play alpha step 1 owns ONLY :ml/b — NOT lost to the setup span")
          ;; …and beta's re-dispatching step owns its dispatch AND its fan-out.
          (is (= [[:ml/c] [:ml/d]] (get by [:dispatch-sync [:ml/c]]))
-             "play beta's step owns its dispatch AND its re-dispatch — EXACT")
-         ;; Contrast pin: per-play clearing would keep only beta's single
-         ;; boundary, which the concatenated script (3 dispatch steps) would
-         ;; zip onto step 0 (alpha's :ml/a) — so :ml/c/:ml/d effects would land
-         ;; under :ml/a and the later steps hold nothing. Assert that
-         ;; mis-grouping is absent.
-         (is (not (contains? (set (get by [:dispatch-sync [:ml/a]])) [:ml/c]))
-             "beta's :ml/c is NOT mis-attributed to alpha's first step")
-         (is (not (contains? (set (get by [:dispatch-sync [:ml/a]])) [:ml/d]))
-             "beta's re-dispatched :ml/d is NOT mis-attributed to alpha's step")))))
-
-#?(:clj
-   (deftest assert-dom-skipped-on-jvm-is-cannot-run
-     (testing "a no-DOM :assert-dom step (JVM) records NO slot pass — it
-              folds to :rf.assert/dom-visible, is evaluated by the DOM
-              executor (no DOM → skipped), and the run is :cannot-run, not a
-              false-green pass (spec/017 §`:cannot-run`)"
-       (rf.story/reg-variant :story.bridge/dom-skip
-         {:setup      []
-          :script {:auto-run? false
-                        :script    [[:assert-dom "div.foo" :visible]]}})
-       (rf.story.async/deref-blocking (rf.story/run-variant :story.bridge/dom-skip) 5000)
-       (let [final (run-blocking :story.bridge/dom-skip)
-             slot  (rf.story/read-assertions :story.bridge/dom-skip)]
-         (is (= :cannot-run (:status final))
-             "a DOM-skip-only run is :cannot-run, not :pass or :fail")
-         (is (empty? (filterv #(true? (:passed? %)) slot))
-             "a skipped (no-DOM) :assert-dom contributes no passing record")))))
+             "play beta's step owns its dispatch AND its re-dispatch — EXACT")))))
 
 #?(:clj
    (deftest assert-dom-skipped-unified-result-is-cannot-run
@@ -744,10 +711,10 @@
               :rf.story/assertions entry, so a record-result-map that dropped
               the run-state's :cannot-run refusals would aggregate zero
               records + a clean tape to :pass (vacuous green) while run-state
-              read :cannot-run — a consumer-disagreement false-GREEN. This
-              exercises the unified-result PATH (the
-              assert-dom-skipped-on-jvm-is-cannot-run test discards the
-              result and checks only run-blocking's run-state)."
+              read :cannot-run — a consumer-disagreement false-GREEN. A
+              no-DOM :assert-dom folds to :rf.assert/dom-visible and the DOM
+              executor skips it; `dom-step-skipped-on-jvm` reads the same
+              refusal off run-blocking's run-state."
        (rf.story/reg-variant :story.bridge/dom-skip-unified
          {:setup      []
           :script {:script [[:assert-dom "div.foo" :visible]]}})
@@ -1387,9 +1354,11 @@
 ;; `:rf.error/no-such-handler` error trace on the tape (which can trip
 ;; `rf.story.play.evidence/tape-shows-failure?` into a false `:fail`).
 ;;
-;; These tests drive the in-script checkpoint end-to-end and assert (a) NO
+;; Every tape-evaluated family takes that one branch, so the end-to-end
+;; test drives a schema-error checkpoint and asserts (a) NO
 ;; `:rf.error/no-such-handler` trace lands, and (b) the checkpoint records a
-;; no-assertion step-skip (`:passed? nil`) — never a dispatch.
+;; no-assertion step-skip (`:passed? nil`) — never a dispatch. Which ids the
+;; branch admits is the classifier test's below.
 
 #?(:clj
    (defn- run-capturing-no-handler-errors
@@ -1440,34 +1409,6 @@
          (is (empty? (filterv #(= :rf.assert/schema-error (:assertion %))
                               (rf.story/read-assertions :story.tape/schema-error)))
              "no :rf.assert/schema-error slot record was minted by a dispatch")))))
-
-#?(:clj
-   (deftest in-script-no-cascade-rerender-checkpoint-is-tape-evaluated-not-dispatched
-     (testing "an in-script [:assert [:rf.assert/no-cascade-rerender …]]
-              checkpoint (the causal family) is a no-op step-skip — NOT
-              dispatched — so no :rf.error/no-such-handler trace lands"
-       (rf/reg-event :rt/touch
-         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (rf.story/reg-variant :story.tape/no-cascade
-         {:setup      []
-          :script {:auto-run? false
-                        :script    [[:dispatch-sync [:rt/touch]]
-                                    [:assert [:rf.assert/no-cascade-rerender
-                                              {:event :rt/touch :sub :some/sub}]]]}})
-       (let [[final no-handler] (run-capturing-no-handler-errors
-                                  :story.tape/no-cascade)
-             checkpoint (->> (:results final)
-                             (filter #(= :assert (:type %)))
-                             first)]
-         (is (empty? no-handler)
-             "NO :rf.error/no-such-handler trace fired — the causal atom was
-              NOT dispatched into the frame")
-         (is (some? checkpoint) "the [:assert …] checkpoint produced a result")
-         (is (nil? (:passed? checkpoint))
-             "the tape-evaluated causal checkpoint is a no-op step-skip")
-         (is (empty? (filterv #(= :rf.assert/no-cascade-rerender (:assertion %))
-                              (rf.story/read-assertions :story.tape/no-cascade)))
-             "no causal slot record was minted by a dispatch")))))
 
 ;; ---- unit: the tape-evaluated-assertion? classifier -----------------------
 ;;
