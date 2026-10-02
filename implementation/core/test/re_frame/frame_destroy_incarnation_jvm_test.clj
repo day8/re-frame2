@@ -1163,7 +1163,8 @@
         ;; over an empty stream.
         (when rf.interop/debug-enabled?
           (is (= 1 @new-received)
-              "the NEW cb generation received B's settled record")
+              "the NEW cb generation received B's settled record, and A never
+               invoked it — only B's settle reached it")
           (is (empty? (filter #(= cb (:cb-id (:tags %))) @silencings))
               "A's stale snapshot never silences the reused id after a gap re-register")
           ;; A delivers its HISTORICAL halted record to its OWN snapshot generation
@@ -1171,9 +1172,7 @@
           ;; callback saw A-settle + A's halted record; the new generation was
           ;; invoked only by B — A never invokes the new generation.
           (is (= 2 @old-received)
-              "the old cb generation received A's settle + A's historical halted record")
-          (is (= 1 @new-received)
-              "A never invoked the new cb generation — only B's settle reached it"))
+              "the old cb generation received A's settle + A's historical halted record"))
         ;; B destroys → exactly one truthful silencing for the live new generation.
         (rf/destroy-frame! id)
         (is (nil? (rf.frame/frame-incarnation-token id))

@@ -106,12 +106,8 @@
         "the colliding EVENT registration WOULD redact :token — machinery live")
     ;; THE GUARD: the subscribe realm skips bare-event projection.
     (is (= query-v (project-event :subscribe query-v))
-        "frame-destroyed :subscribe dev-trace :event is the RAW query vector, VERBATIM")
-    (is (not= redacted (project-event :subscribe query-v))
-        "the query vector is NOT mutated to the redaction the registration would apply")
-    ;; Non-destructive: projection is egress-only — the raw vector is untouched.
-    (is (= secret (get-in query-v [1 :token]))
-        "projection did not mutate the raw query vector")))
+        "frame-destroyed :subscribe dev-trace :event is the RAW query vector,
+         VERBATIM — NOT the redaction the registration would apply")))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Dispatch counterpath — the dispatch realms STILL project (WHAT-STAYS): a

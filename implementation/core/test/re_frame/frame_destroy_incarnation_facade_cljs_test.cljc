@@ -75,43 +75,29 @@
       (testing "(3) make-frame a same-id SUCCESSOR B, seeded distinctly — this is
                 a FRESH construction (A was fully destroyed first), so B is a new
                 incarnation, facade-identified by its own seeded db"
-        (seed {:who :b})
-        (is (= {:who :b} (rf/app-db-value id))
-            "the successor B exposes ITS seeded app-db (a distinct value from A)"))
+        (let [b (seed {:who :b})]
+          (is (= {:who :b} (rf/app-db-value id))
+              "the successor B exposes ITS seeded app-db (a distinct value from A)")
 
-      (testing "(4) destroy-frame! the STALE value A — it carries A's
-                exact-incarnation authority, which no longer names the live
-                incarnation, so it is a silent NO-OP: B survives UNCHANGED"
-        (is (nil? (rf/destroy-frame! a))
-            "destroy-frame! keeps its nil return whether it acts or no-ops")
-        (is (= {:who :b} (rf/app-db-value id))
-            "the stale value A did NOT tear down the same-id successor B")
-        (testing "and B is a fully LIVE incarnation, not a half-torn-down husk —
-                  it still accepts a public dispatch that rewrites its app-db"
-          (rf/dispatch-sync [:rf/set-db {:who :b-live}] {:frame id})
-          (is (= {:who :b-live} (rf/app-db-value id))
-              "B remained writable through the facade after the stale teardown")))
+          (testing "(4) destroy-frame! the STALE value A — it carries A's
+                    exact-incarnation authority, which no longer names the live
+                    incarnation, so it is a silent NO-OP: B survives UNCHANGED"
+            (is (nil? (rf/destroy-frame! a))
+                "destroy-frame! keeps its nil return whether it acts or no-ops")
+            (is (= {:who :b} (rf/app-db-value id))
+                "the stale value A did NOT tear down the same-id successor B")
+            (testing "and B is a fully LIVE incarnation, not a half-torn-down husk —
+                      it still accepts a public dispatch that rewrites its app-db"
+              (rf/dispatch-sync [:rf/set-db {:who :b-live}] {:frame id})
+              (is (= {:who :b-live} (rf/app-db-value id))
+                  "B remained writable through the facade after the stale teardown")))
 
-      (testing "(5) destroy B by its id (address-directed) — this DOES tear down
-                whatever incarnation is live under the id, so B is removed"
-        (rf/destroy-frame! id)
-        (is (nil? (rf/app-db-value id))
-            "the keyword teardown removed the live successor B (nil app-db-value)")))))
-
-;; ===========================================================================
-;; Positive control — a NON-stale frame value DOES tear down its own live
-;; incarnation. Isolates the variable: step (4)'s no-op above is attributable to
-;; the value being STALE, not to value-directed teardown being generally inert.
-;; ===========================================================================
-
-(deftest a-live-frame-values-teardown-removes-its-own-incarnation-through-the-facade
-  (testing "a frame VALUE whose incarnation is still live tears its OWN
-            incarnation down — the exact-incarnation authority is live, so the
-            frame is facade-observably removed"
-    (let [f (seed {:who :only})]
-      (is (= {:who :only} (rf/app-db-value id))
-          "the frame is live before its owning value tears it down")
-      (is (nil? (rf/destroy-frame! f))
-          "destroy-frame! by a LIVE value returns nil like any teardown")
-      (is (nil? (rf/app-db-value id))
-          "the value tore down its own live incarnation (nil app-db-value)"))))
+          (testing "(5) destroy B by its own LIVE value — the positive control for
+                    (4): B's exact-incarnation authority is live, so the value
+                    tears its own incarnation down. (4)'s no-op is therefore
+                    attributable to the value being STALE, not to value-directed
+                    teardown being inert"
+            (is (nil? (rf/destroy-frame! b))
+                "destroy-frame! by a LIVE value returns nil like any teardown")
+            (is (nil? (rf/app-db-value id))
+                "the live value tore down its own incarnation B (nil app-db-value)")))))))

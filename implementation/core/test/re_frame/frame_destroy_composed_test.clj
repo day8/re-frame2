@@ -159,8 +159,6 @@
 
         ;; The surviving listener saw the canonical cascade events.
         (let [ops (set (map :operation @survivor))]
-          (is (contains? ops :rf.machine.lifecycle/destroyed)
-              "survivor saw :rf.machine.lifecycle/destroyed")
           (is (contains? ops :rf.frame/destroyed)
               "survivor saw :rf.frame/destroyed"))
         (is (= 2 (count (filter #(= :rf.machine.lifecycle/destroyed
@@ -171,8 +169,6 @@
       ;; The frame is fully gone from the frames store (the ONE store a
       ;; seated frame lives in) — proves no destroy step was
       ;; skipped by the listener throw.
-      (is (nil? (rf.frame/frame :composed/scoped))
-          "frame is dissoc'd from the frames atom")
       (is (nil? (get @rf.frame/frames :composed/scoped))
           "frame entry is gone from the underlying atom (no soft-destroy)")
       (is (nil? (rf.frame/frame-meta :composed/scoped))
@@ -230,12 +226,9 @@
 
         (is (nil? (rf.frame/destroy-frame! :composed/hook-diag))
             "destroy completes; the hook throw was swallowed")
-        (is (contains? @hooks-ran :schemas-throwing)
-            "the throwing hook itself was invoked")
-        (is (contains? @hooks-ran :flows-ran)
-            "best-effort: the downstream hook still ran after the throw")
-        (is (contains? @hooks-ran :epoch-ran)
-            "and so did the post-dissoc :epoch/on-frame-destroyed hook")
+        (is (= #{:schemas-throwing :flows-ran :epoch-ran} @hooks-ran)
+            "the throwing hook ran, and best-effort teardown still ran the
+             downstream :flows hook and the post-dissoc :epoch/on-frame-destroyed hook")
 
         ;; ALWAYS-ON: best-effort teardown finished — the
         ;; frame is gone despite the hook throw. Only the DIAGNOSTIC that makes
@@ -352,10 +345,8 @@
 
           (is (nil? (rf.frame/destroy-frame! :composed/dispose-emit)))
 
-          (is (= #{[:composed/da] [:composed/db]} (set @disposed))
-              "every cached slot was really disposed on frame destroy")
-          (is (= 2 (count @disposed))
-              "exactly one disposal per cached slot")
+          (is (= {[:composed/da] 1 [:composed/db] 1} (frequencies @disposed))
+              "every cached slot was really disposed on frame destroy, exactly once")
 
           (when rf.interop/debug-enabled?
             (let [evs   @disposes
@@ -424,19 +415,14 @@
 
           (is (nil? (rf.frame/destroy-frame! :composed/layered-destroy)))
 
-          (is (= 3 (count @disposed))
-              "exactly THREE disposals — one per cached slot, no double-dispose
-               from the input-release cascade")
-          (is (= #{[:composed/layered-sum] [:composed/layered-a] [:composed/layered-b]}
-                 (set @disposed))
-              "every cached slot (sum + both inputs) was disposed exactly once")
+          (is (= {[:composed/layered-sum] 1 [:composed/layered-a] 1 [:composed/layered-b] 1}
+                 (frequencies @disposed))
+              "every cached slot (sum + both inputs) was disposed exactly once — no
+               double-dispose from the input-release cascade")
 
           (when rf.interop/debug-enabled?
             (let [evs      @disposes
                   by-query (group-by #(-> % :tags :rf.sub/query-v) evs)]
-              (is (= 3 (count evs))
-                  "exactly THREE :rf.sub/dispose emits — one per cached slot, no
-                   double-emit from the input-release cascade")
               (is (= #{[:composed/layered-sum] [:composed/layered-a] [:composed/layered-b]}
                      (set (keys by-query)))
                   "every cached query-vector (sum + both inputs) surfaced exactly
@@ -591,8 +577,6 @@
     (rf.frame/destroy-frame! :composed/leak-audit)
 
     ;; --- composed post-condition: NOTHING per-frame remains -------------
-    (is (nil? (rf.frame/frame :composed/leak-audit))
-        "post: frame is dissoc'd from frames atom")
     (is (nil? (get @rf.frame/frames :composed/leak-audit))
         "post: frame entry is gone from the underlying atom")
     (is (nil? (rf.frame/frame-meta :composed/leak-audit))
