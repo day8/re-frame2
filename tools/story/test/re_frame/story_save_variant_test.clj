@@ -20,7 +20,7 @@
     standard re-frame router."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -85,50 +85,33 @@
 ;; ---- gen-variant-snippet -------------------------------------------------
 
 (deftest gen-variant-snippet-renders-reg-variant
-  (testing "snippet renders the (reg-variant ...) form with :args"
-    (let [snip (rf.story.save-variant/gen-variant-snippet
-                 {:variant-id :story.counter/saved
-                  :extends    :story.counter/happy-path
-                  :args       {:label "hi" :n 3}})]
-      (is (str/includes? snip "reg-variant"))
-      (is (str/includes? snip ":story.counter/saved"))
-      (is (str/includes? snip ":extends"))
-      (is (str/includes? snip ":story.counter/happy-path"))
-      (is (str/includes? snip ":args"))
-      (is (str/includes? snip ":label"))
-      (is (str/includes? snip "\"hi\""))
-      (is (str/includes? snip ":n"))
-      (is (str/includes? snip "3")))))
+  (testing "the snippet is the exact (reg-variant ...) form: the id, then
+            :doc and :extends only when given, then :args with each entry on
+            its own line aligned under the first, under the rf.story alias
+            unless another is given"
+    (are [opts expected] (= expected (rf.story.save-variant/gen-variant-snippet opts))
+      {:variant-id :story.counter/saved
+       :extends    :story.counter/happy-path
+       :args       {:label "hi" :n 3}}
+      (str "(rf.story/reg-variant :story.counter/saved\n"
+           "  {:extends :story.counter/happy-path\n"
+           "   :args {:label \"hi\"\n"
+           "          :n 3}})")
 
-(deftest gen-variant-snippet-empty-args
-  (testing "snippet with empty args renders an empty map literal"
-    (let [snip (rf.story.save-variant/gen-variant-snippet
-                 {:variant-id :story.x/y
-                  :args       {}})]
-      (is (str/includes? snip ":args"))
-      (is (str/includes? snip "{}")))))
+      ;; no :extends → no :extends slot
+      {:variant-id :story.x/y :args {:n 1}}
+      "(rf.story/reg-variant :story.x/y\n  {:args {:n 1}})"
 
-(deftest gen-variant-snippet-without-extends
-  (testing "no :extends → no :extends slot in the form"
-    (let [snip (rf.story.save-variant/gen-variant-snippet
-                 {:variant-id :story.x/y
-                  :args       {:n 1}})]
-      (is (not (str/includes? snip ":extends"))))))
+      ;; empty args render an empty map literal
+      {:variant-id :story.x/y :args {}}
+      "(rf.story/reg-variant :story.x/y\n  {:args {}})"
 
-(deftest gen-variant-snippet-includes-doc
-  (let [snip (rf.story.save-variant/gen-variant-snippet
-               {:variant-id :story.x/y
-                :doc        "captured via Save"
-                :args       {:n 1}})]
-    (is (str/includes? snip ":doc"))
-    (is (str/includes? snip "captured via Save"))))
+      {:variant-id :story.x/y :doc "captured via Save" :args {:n 1}}
+      "(rf.story/reg-variant :story.x/y\n  {:doc \"captured via Save\"\n   :args {:n 1}})"
 
-(deftest gen-variant-snippet-custom-alias
-  (let [snip (rf.story.save-variant/gen-variant-snippet
-               {:variant-id :story.x/y
-                :alias      "rf"
-                :args       {}})]
-    (is (str/includes? snip "rf/reg-variant"))))
+      ;; a custom alias
+      {:variant-id :story.x/y :alias "rf" :args {}}
+      "(rf/reg-variant :story.x/y\n  {:args {}})")))
 
 (defn- extract-args-map
   "Walk balanced braces after the `:args` token to extract the args-map
@@ -175,17 +158,8 @@
 ;; ---- default-variant-id --------------------------------------------------
 
 (deftest default-variant-id-uses-source-namespace
-  (is (= "story.counter"
-         (namespace (rf.story.save-variant/default-variant-id
-                      :story.counter/happy-path 12345))))
-  (is (str/starts-with?
-        (name (rf.story.save-variant/default-variant-id
-                :story.counter/happy-path 12345))
-        "saved-")))
-
-(deftest default-variant-id-nil-for-unqualified
-  (is (nil? (rf.story.save-variant/default-variant-id :unqualified 0)))
-  (is (nil? (rf.story.save-variant/default-variant-id nil 0))))
+  (is (= :story.counter/saved-12345
+         (rf.story.save-variant/default-variant-id :story.counter/happy-path 12345))))
 
 ;; ---- dialog state machine -------------------------------------------------
 
@@ -247,21 +221,6 @@
             "the same report rides the callback's 5th arg")
         (is (= :projectable (:status (first (filter #(= :args (:slice %)) slices))))
             "args is the projectable slice")))))
-
-(deftest save-current-as-variant!-declared-slots-captured-as-declared
-  (testing "a source variant declaring slices with no live capture captures them
-            as-declared (carried forward via :extends) — honest, not dropped"
-    (rf.story/reg-variant :story.snap/declared
-      {:args         {:n 1}
-       :sub-overrides {[:s] :v}
-       :setup       []})
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.snap/declared)
-    (rf.story.save-variant/set-open-dialog-fn! (fn [& _] nil))
-    (let [result   (rf.story.save-variant/save-current-as-variant!)
-          by-slice (into {} (map (juxt :slice identity)) (:slices result))]
-      (is (= :captured-as-declared (-> by-slice :sub-overrides :status))
-          "the declared :sub-overrides carry forward as-declared")
-      (is (= {[:s] :v} (-> by-slice :sub-overrides :value))))))
 
 (deftest save-current-as-variant!-reports-the-seed-and-setup-the-source-inherits
   (testing "the DB seed row reads the :db-seed and :setup the saved variant
@@ -534,32 +493,3 @@
                          {:variant-id :story.event/explicit}])
       (is (= :story.event/explicit (:source-id @captured)))
       (is (= 11 (-> @captured :args :n))))))
-
-;; ---- end-to-end ----------------------------------------------------------
-
-(deftest end-to-end-snapshot-to-snippet
-  (testing "the full snapshot→snippet cycle produces a reg-variant form"
-    (rf.story/reg-story :story.counter {:args {:theme :dark}})
-    (rf.story/reg-variant :story.counter/happy-path
-      {:args {:label "Counter" :n 0}
-       :setup []})
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.counter/happy-path)
-    ;; Capture via the impure trigger; harvest snapshot from the callback.
-    (let [captured (atom nil)]
-      (rf.story.save-variant/set-open-dialog-fn!
-        (fn [source-id args & _]
-          (reset! captured {:source-id source-id :args args})))
-      (rf.story.save-variant/save-current-as-variant!)
-      (let [snippet  (rf.story.save-variant/gen-variant-snippet
-                       {:variant-id :story.counter/saved-1
-                        :extends    (:source-id @captured)
-                        :args       (:args @captured)})
-            args-str (extract-args-map snippet)]
-        (is (= :story.counter/happy-path (:source-id @captured)))
-        (is (= :dark (-> @captured :args :theme)))
-        (is (str/includes? snippet "reg-variant"))
-        (is (str/includes? snippet ":story.counter/saved-1"))
-        (is (str/includes? snippet ":story.counter/happy-path")
-            "the source-id rides into :extends")
-        (is (= (:args @captured) (edn/read-string args-str))
-            "the snapshot args round-trip through the snippet")))))

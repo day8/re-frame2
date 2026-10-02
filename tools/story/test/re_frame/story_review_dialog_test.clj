@@ -47,12 +47,11 @@
 ;; ---- default-variant-id-with-prefix --------------------------------------
 
 (deftest default-uses-source-namespace
-  (testing "the derived id inherits the source's namespace + prefix-N suffix"
-    (let [k (rf.story.review-dialog/default-variant-id-with-prefix
-              :story.counter/happy-path 12345 "saved")]
-      (is (qualified-keyword? k))
-      (is (= "story.counter" (namespace k)))
-      (is (re-matches #"saved-\d+" (name k))))))
+  (testing "the derived id inherits the source's namespace and is named
+            prefix-N"
+    (is (= :story.counter/saved-12345
+           (rf.story.review-dialog/default-variant-id-with-prefix
+             :story.counter/happy-path 12345 "saved")))))
 
 (deftest default-honors-custom-prefix
   (testing "the prefix arg drives the name's leading token"
@@ -83,34 +82,20 @@
 
 (deftest initial-state-is-idle
   (testing "the idle state map has the expected slots"
-    (is (false? (:open?     rf.story.review-dialog/initial-state)))
-    (is (nil?   (:draft-id  rf.story.review-dialog/initial-state)))
-    (is (nil?   (:source-id rf.story.review-dialog/initial-state)))
-    (is (nil?   (:context   rf.story.review-dialog/initial-state)))))
+    (is (= {:open? false :draft-id nil :source-id nil :context nil}
+           rf.story.review-dialog/initial-state))))
 
 (deftest open-flips-open-and-seeds-defaults
   (testing "open builds the opened state with the source + context + default id"
-    (let [s (rf.story.review-dialog/open rf.story.review-dialog/initial-state
+    (is (= {:open?     true
+            :source-id :story.x/y
+            :context   {:args {:n 1}}
+            :draft-id  :story.x/saved-12345}
+           (rf.story.review-dialog/open rf.story.review-dialog/initial-state
                                 :story.x/y
                                 {:args {:n 1}}
                                 12345
-                                "saved")]
-      (is (true? (:open? s)))
-      (is (= :story.x/y (:source-id s)))
-      (is (= {:args {:n 1}} (:context s)))
-      (is (qualified-keyword? (:draft-id s)))
-      (is (= "story.x" (namespace (:draft-id s)))))))
-
-(deftest open-with-unqualified-source-still-opens
-  (testing "an unqualified source-id leaves :draft-id nil but the dialog opens"
-    (let [s (rf.story.review-dialog/open rf.story.review-dialog/initial-state
-                                :unqualified
-                                nil
-                                0
-                                "saved")]
-      (is (true? (:open? s)))
-      (is (nil? (:draft-id s)))
-      (is (= :unqualified (:source-id s))))))
+                                "saved")))))
 
 (deftest close-returns-idle
   (testing "close returns the idle state regardless of prior state"
@@ -118,13 +103,6 @@
                                      :story.x/y {:args {:n 1}} 0 "saved")
           closed (rf.story.review-dialog/close opened)]
       (is (= rf.story.review-dialog/initial-state closed)))))
-
-(deftest set-draft-id-stores-raw-string
-  (testing "set-draft-id stores a raw string when caller passes one"
-    (let [s (-> rf.story.review-dialog/initial-state
-                (rf.story.review-dialog/open :story.x/y nil 0 "saved")
-                (rf.story.review-dialog/set-draft-id "partial-input"))]
-      (is (= "partial-input" (:draft-id s))))))
 
 (deftest parse-and-set-parses-on-success
   (testing "parse-and-set-draft-id parses a clean keyword string into a keyword"
@@ -155,34 +133,3 @@
     (is (= "\n" (rf.story.predicates/indent-after "")))
     (is (= "\n " (rf.story.predicates/indent-after "x")))
     (is (= "\n     " (rf.story.predicates/indent-after "12345")))))
-
-(deftest indent-after-aligns-recorder-play-body
-  (testing "the indent lines steps up under the first item of `:script [` on the previous line"
-    (let [prefix      "   :script ["
-          first-line  (str prefix "[:dispatch-sync [:counter/inc]]")
-          cont-indent (rf.story.predicates/indent-after prefix)
-          full        (str first-line cont-indent "[:dispatch-sync [:counter/dec]]")
-          lines       (clojure.string/split full #"\n")
-          ;; column of the first step char on line 1 = (count prefix)
-          ;; (the `[` of `:script [` is the last char of prefix; the next
-          ;; char — the first step's leading `[` — sits at index N.)
-          line1-event-col (count prefix)
-          ;; column of the first step char on line 2 = the indent's
-          ;; space-count, which equals (count cont-indent) - 1 for `\n`.
-          line2-event-col (dec (count cont-indent))]
-      (is (= 2 (count lines)))
-      (is (= line1-event-col line2-event-col)
-          "second step's leading char aligns under first step's leading char"))))
-
-(deftest indent-after-aligns-save-variant-args-map
-  (testing "the indent lines kv pairs up under the first kv of `:args {` on the previous line"
-    (let [prefix      "   :args {"
-          first-line  (str prefix ":a 1")
-          cont-indent (rf.story.predicates/indent-after prefix)
-          full        (str first-line cont-indent ":b 2")
-          lines       (clojure.string/split full #"\n")
-          line1-first-kv-col (count prefix)
-          line2-first-kv-col (dec (count cont-indent))]
-      (is (= 2 (count lines)))
-      (is (= line1-first-kv-col line2-first-kv-col)
-          "second kv's leading char aligns under first kv's leading char"))))

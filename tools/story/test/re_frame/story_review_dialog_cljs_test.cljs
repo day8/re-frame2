@@ -16,18 +16,15 @@
 ;; ---- default-variant-id-with-prefix --------------------------------------
 
 (deftest default-uses-source-namespace
-  (let [k (rf.story.review-dialog/default-variant-id-with-prefix
-            :story.counter/happy-path 12345 "saved")]
-    (is (qualified-keyword? k))
-    (is (= "story.counter" (namespace k)))
-    (is (str/starts-with? (name k) "saved-"))))
+  (is (= :story.counter/saved-12345
+         (rf.story.review-dialog/default-variant-id-with-prefix
+           :story.counter/happy-path 12345 "saved"))))
 
 ;; ---- dialog state machine ------------------------------------------------
 
 (deftest initial-state-is-idle
-  (is (false? (:open?     rf.story.review-dialog/initial-state)))
-  (is (nil?   (:draft-id  rf.story.review-dialog/initial-state)))
-  (is (nil?   (:source-id rf.story.review-dialog/initial-state))))
+  (is (= {:open? false :draft-id nil :source-id nil :context nil}
+         rf.story.review-dialog/initial-state)))
 
 (deftest close-returns-idle
   (let [opened (rf.story.review-dialog/open rf.story.review-dialog/initial-state
@@ -165,10 +162,7 @@
   (testing "indent-after returns \\n + N spaces equal to the prefix length"
     (is (= "\n" (rf.story.predicates/indent-after "")))
     (is (= "\n          " (rf.story.predicates/indent-after "   :name {")))
-    (is (= "\n          " (rf.story.predicates/indent-after "   :args {")))
-    (is (= (rf.story.predicates/indent-after "   :name {")
-           (rf.story.predicates/indent-after "   :args {"))
-        "both flows' prefixes collapse to the same indent")))
+    (is (= "\n          " (rf.story.predicates/indent-after "   :args {")))))
 
 ;; ---- ARIA: modal a11y posture --------------------------------------------
 ;;

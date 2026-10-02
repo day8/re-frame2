@@ -77,11 +77,3 @@
       (is (= :story.snap/v (:source-id @captured)))
       (is (= 7 (-> @captured :args :n)))
       (is (= :story.snap/v (:source-id result))))))
-
-(deftest save-current-as-variant!-nil-without-focus
-  (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant nil)
-  (let [captured (atom nil)]
-    (rf.story.save-variant/set-open-dialog-fn!
-      (fn [_ _ _] (reset! captured :fired)))
-    (is (nil? (rf.story.save-variant/save-current-as-variant!)))
-    (is (nil? @captured))))

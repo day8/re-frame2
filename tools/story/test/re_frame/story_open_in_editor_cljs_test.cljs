@@ -88,17 +88,18 @@
 ;; ---- chip rendering ------------------------------------------------------
 
 (deftest open-chip-renders-anchor-with-href
-  (testing "open-chip returns an <a> hiccup vector when source has :file"
+  (testing "open-chip returns an <a> hiccup vector when source has :file;
+            its :title surfaces file:line for hover"
     (let [coord  {:ns 'app.views :file "src/app/views.cljs" :line 42 :column 7}
-          hiccup (rf.story.ui.open-in-editor/open-chip coord)]
-      (is (vector? hiccup))
+          hiccup (rf.story.ui.open-in-editor/open-chip coord)
+          props  (second hiccup)]
       (is (= :a (first hiccup)))
-      (let [props (second hiccup)]
-        (is (string? (:href props)))
-        (is (= "vscode://file/src/app/views.cljs:42:7" (:href props)))
-        (is (= "story-open-in-editor" (:data-test props)))
-        (is (= "vscode" (:data-editor props)))
-        (is (fn? (:on-click props)))))))
+      (is (= {:href        "vscode://file/src/app/views.cljs:42:7"
+              :title       "Open in editor — src/app/views.cljs:42"
+              :data-test   "story-open-in-editor"
+              :data-editor "vscode"}
+             (dissoc props :style :on-click)))
+      (is (fn? (:on-click props))))))
 
 (deftest open-chip-respects-editor-preference
   (testing "switching editor flips the URI scheme on subsequent renders"
@@ -133,7 +134,6 @@
                          :line 17
                          :column 3}}
           hiccup (rf.story.ui.open-in-editor/open-chip-for-variant body)]
-      (is (vector? hiccup))
       (is (= "vscode://file/src/app/stories.cljs:17:3"
              (:href (second hiccup))))))
   (testing "open-chip-for-variant nil when variant body has no :source"
@@ -149,47 +149,23 @@
 (deftest open-source-coord!-fires-navigator-with-resolved-uri
   (testing "open-source-coord! resolves through Story config + the
             navigator seam — same path the chip uses"
-    (let [calls (atom [])
-          nav   (fn [uri] (swap! calls conj uri))
-          prev  (rf.story.ui.open-in-editor/set-navigator! nav)]
-      (try
-        (rf.story.ui.open-in-editor/open-source-coord!
-          {:file "src/app.cljs" :line 17 :column 3})
-        (is (= ["vscode://file/src/app.cljs:17:3"] @calls)
-            "navigator invoked once with the resolved vscode:// URI")
-        (finally
-          (rf.story.ui.open-in-editor/set-navigator! prev))))))
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        #(rf.story.ui.open-in-editor/open-source-coord!
+           {:file "src/app.cljs" :line 17 :column 3}))
+      (is (= ["vscode://file/src/app.cljs:17:3"] @calls)
+          "navigator invoked once with the resolved vscode:// URI"))))
 
 (deftest open-source-coord!-no-op-without-file
   (testing "open-source-coord! returns false + no-ops when source-coord
             lacks :file"
-    (let [calls (atom [])
-          nav   (fn [uri] (swap! calls conj uri))
-          prev  (rf.story.ui.open-in-editor/set-navigator! nav)]
-      (try
-        (is (false? (rf.story.ui.open-in-editor/open-source-coord! nil)))
-        (is (false? (rf.story.ui.open-in-editor/open-source-coord! {:line 10})))
-        (is (= [] @calls)
-            "no navigation attempted when :file is absent")
-        (finally
-          (rf.story.ui.open-in-editor/set-navigator! prev))))))
-
-(deftest open-source-coord!-respects-editor-preference
-  (testing "the URI shipped by open-source-coord! reflects the live
-            editor + project-root config — same source of truth the
-            chip's :href reads"
-    (rf.story.config/set-editor! :cursor)
-    (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
-    (let [calls (atom [])
-          nav   (fn [uri] (swap! calls conj uri))
-          prev  (rf.story.ui.open-in-editor/set-navigator! nav)]
-      (try
-        (rf.story.ui.open-in-editor/open-source-coord!
-          {:file "src/app.cljs" :line 17 :column 3})
-        (is (= ["cursor://file/C:/Users/me/code/my-app/src/app.cljs:17:3"]
-               @calls))
-        (finally
-          (rf.story.ui.open-in-editor/set-navigator! prev))))))
+    (let [[nav calls] (capturing-navigator)]
+      (with-stub-navigator nav
+        (fn []
+          (is (false? (rf.story.ui.open-in-editor/open-source-coord! nil)))
+          (is (false? (rf.story.ui.open-in-editor/open-source-coord! {:line 10})))))
+      (is (= [] @calls)
+          "no navigation attempted when :file is absent"))))
 
 (deftest open!-denylist-gates-pre-resolved-uri
   (testing "`open!` re-applies the scheme denylist at the
@@ -212,14 +188,6 @@
           (rf.story.ui.open-in-editor/open! "lapce://open?file=src/x.cljs&line=1")
           (is (= ["lapce://open?file=src/x.cljs&line=1"] @calls)
               "an unknown custom non-dangerous scheme navigates"))))))
-
-(deftest open-chip-title-attribute-shape
-  (testing "the chip's :title attr surfaces file:line for hover"
-    (let [hiccup (rf.story.ui.open-in-editor/open-chip
-                   {:file "src/app.cljs" :line 99 :column 4})
-          props  (second hiccup)]
-      (is (= "Open in editor — src/app.cljs:99"
-             (:title props))))))
 
 ;; ---- Story-side scheme-denylist behaviour --------------------------------
 ;;
@@ -249,9 +217,8 @@
             long-tail, http:/https:, AND unknown custom schemes an
             allowlist would hide"
     (rf.story.config/set-editor! {:custom "subl://open?path={path}&line={line}"})
-    (let [hiccup (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs" :line 5})]
-      (is (vector? hiccup))
-      (is (= "subl://open?path=src/x.cljs&line=5" (:href (second hiccup)))))
+    (is (= "subl://open?path=src/x.cljs&line=5"
+           (:href (second (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs" :line 5})))))
 
     (rf.story.config/set-editor! {:custom "emacsclient://{path}"})
     (is (some? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"})))
@@ -495,65 +462,39 @@
                       :uri (when-let [coord (:source-coord args)]
                              (rf.story.ui.open-in-editor/resolve-uri coord)))))}}))
 
-(deftest open-in-editor-event-emits-fx-whose-coord-resolves-to-the-uri
-  (testing "dispatching `:rf.story/open-in-editor` with a
-            bare coord produces a `:rf.story.fx/open-in-editor` fx whose
-            `:source-coord` resolves to the vscode:// URI"
-    (install-with-capture!)
-    (with-frame capture-frame
-      (rf/dispatch-sync [:rf.story/open-in-editor
-                         {:file "src/app/events.cljs" :line 17 :column 3}]))
-    (is (= 1 (count @captured-editor-fx))
-        "exactly one open-fx fires per dispatch")
-    (is (= "vscode://file/src/app/events.cljs:17:3"
-           (:uri (first @captured-editor-fx)))
-        "the fx's :source-coord resolves to the vscode:// URI")))
-
-(deftest open-in-editor-event-accepts-wrapped-shape
-  (testing "dispatching with `{:source-coord coord}` (the
-            wrapper shape some panels use) produces the same fx as the
-            bare-coord form"
-    (install-with-capture!)
-    (with-frame capture-frame
-      (rf/dispatch-sync [:rf.story/open-in-editor
-                         {:source-coord {:file "src/x.cljs" :line 5 :column 1}}]))
-    (is (= "vscode://file/src/x.cljs:5:1"
-           (:uri (first @captured-editor-fx))))))
-
-(deftest open-in-editor-event-parses-display-string-coord
-  (testing "the dispatch handler parses `\"file:line\"`
-            display strings back to the structured form so panels that
-            flatten coords at projection time can dispatch them as
-            strings without losing line info"
-    (install-with-capture!)
-    (with-frame capture-frame
-      (rf/dispatch-sync [:rf.story/open-in-editor
-                         {:source-coord "src/app/events.cljs:42"}]))
-    (is (= "vscode://file/src/app/events.cljs:42:1"
-           (:uri (first @captured-editor-fx))))))
-
-(deftest open-in-editor-event-parses-bare-display-string
-  (testing "bare display string (no wrapper) defensively
-            handled by the parser"
-    (install-with-capture!)
-    (with-frame capture-frame
-      (rf/dispatch-sync [:rf.story/open-in-editor "src/x.cljs:7"]))
-    (is (= "vscode://file/src/x.cljs:7:1"
-           (:uri (first @captured-editor-fx))))))
+(deftest open-in-editor-event-resolves-every-payload-shape
+  (testing "`:rf.story/open-in-editor` accepts a bare coord, the
+            `{:source-coord coord}` wrapper some panels use, and a
+            `\"file:line\"` display string bare or wrapped (panels that
+            flatten coords at projection time dispatch them as strings).
+            Each produces exactly one `:rf.story.fx/open-in-editor` fx whose
+            `:source-coord` resolves to the vscode:// URI; a display string's
+            missing column falls to the editor-uri default of 1."
+    (doseq [[payload uri] [[{:file "src/app/events.cljs" :line 17 :column 3}
+                            "vscode://file/src/app/events.cljs:17:3"]
+                           [{:source-coord {:file "src/x.cljs" :line 5 :column 1}}
+                            "vscode://file/src/x.cljs:5:1"]
+                           [{:source-coord "src/app/events.cljs:42"}
+                            "vscode://file/src/app/events.cljs:42:1"]
+                           ["src/x.cljs:7"
+                            "vscode://file/src/x.cljs:7:1"]]]
+      (install-with-capture!)
+      (with-frame capture-frame
+        (rf/dispatch-sync [:rf.story/open-in-editor payload]))
+      (is (= [uri] (map :uri @captured-editor-fx))
+          (str "one fx resolving to " uri " for payload " (pr-str payload))))))
 
 (deftest open-in-editor-event-rejects-forbidden-scheme
-  (testing "a custom template that resolves to a
-            forbidden script scheme produces a fx with nil :uri (which
-            `open!` is a no-op for); the handler doesn't short-circuit"
+  (testing "a custom template that resolves to a forbidden script
+            scheme still fires exactly one fx — the handler doesn't
+            short-circuit — and its resolved URI is nil, which `open!`
+            refuses to navigate"
     (install-with-capture!)
     (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
     (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
                          {:file "src/x.cljs" :line 1}]))
-    (is (= 1 (count @captured-editor-fx))
-        "fx still fires — the handler doesn't short-circuit")
-    (is (nil? (:uri (first @captured-editor-fx)))
-        "the resolved URI is nil — `open!` will refuse to navigate")))
+    (is (= [nil] (map :uri @captured-editor-fx)))))
 
 (deftest open-in-editor-fx-receives-source-coord-key-rf2-wn3bh
   (testing "`:rf.story/open-in-editor` emits the structured

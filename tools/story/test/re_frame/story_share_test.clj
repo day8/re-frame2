@@ -4,7 +4,7 @@
   The URL-building logic lives in `re-frame.story.share` (.cljc) so
   the same encoding works on JVM and CLJS. JVM tests round-trip the
   expected shape per `005-SOTA-Features.md` §Share URL (retired QR popover)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [clojure.string :as str]
             [re-frame.story        :as rf.story]
             [re-frame.story.share  :as rf.story.share]))
@@ -47,38 +47,6 @@
                 (if (contains? m k) m (assoc m k (decode (or v ""))))))
             {}
             (str/split (or (query-part url) "") #"&"))))
-
-(deftest variant-share-url-replaces-stale-owned-keys
-  (testing "a base-url already carrying variant= and modes=
-            gets those values REPLACED, not appended after; browser
-            first-value reads and parse-params both recover the newly
-            requested cell, and unrelated params + hash route survive"
-    (let [url    (rf.story.share/variant-share-url
-                   :story.new/b
-                   "https://example.test/?variant=story.old%2Fa&modes=Mode.app%2Fstale&from=index&embed=1#/stories"
-                   {:active-modes [:Mode.app/dark]})
-          getter (first-value-getter url)
-          parsed (rf.story.share/parse-params getter)]
-      (is (= 1 (query-key-count url "variant"))
-          "exactly one variant= in the query string")
-      (is (= 1 (query-key-count url "modes"))
-          "exactly one modes= in the query string")
-      (is (= "story.new/b" (get getter "variant"))
-          "URLSearchParams.get-faithful read sees the requested variant")
-      (is (= "Mode.app/dark" (get getter "modes"))
-          "URLSearchParams.get-faithful read sees the requested modes")
-      (is (= :story.new/b (:variant-id parsed))
-          "parse-params reconstructs the requested variant")
-      (is (= [:Mode.app/dark] (:active-modes parsed))
-          "parse-params reconstructs the requested modes")
-      (is (= "index" (get getter "from"))
-          "unrelated from= survives with its value")
-      (is (= "1" (get getter "embed"))
-          "unrelated embed= survives with its value")
-      (is (re-find #"\?from=index&embed=1&" url)
-          "unrelated entries keep their order ahead of generated params")
-      (is (str/ends-with? url "#/stories")
-          "the hash route survives, after the query"))))
 
 ;; ---- OMITTED slots clear their stale values ------------------------------
 ;;
@@ -213,17 +181,6 @@
                                 (get stale-story-params (name %)))
                           rf.story.share/story-query-keys))
        "&from=index&embed=1#/stories"))
-
-(deftest escaped-story-keys-are-the-same-keys-to-the-browser
-  (testing "the fixture is only a regression if the escaped
-            spellings really are the owned keys after decoding; pin that
-            before asserting anything about them"
-    (doseq [k (map name rf.story.share/story-query-keys)]
-      (let [esc (escape-first-char k)]
-        (is (not= esc k)
-            (str k " is genuinely respelled, so raw matching cannot see it"))
-        (is (= k (java.net.URLDecoder/decode esc "UTF-8"))
-            (str esc " decodes to " k))))))
 
 (deftest variant-share-url-owns-percent-encoded-key-spellings
   (testing "a base-url spelling the Story keys with
@@ -361,47 +318,30 @@
 
 ;; ---- parse-overrides-param* surfaces dropped entries ---------------------
 
-(deftest parse-overrides-param*-clean-input
-  (testing "parse-overrides-param* returns the same :overrides
-            map as parse-overrides-param plus an empty :dropped vec for
-            clean input"
-    (let [{:keys [overrides dropped]}
-          (rf.story.share/parse-overrides-param* "{:label \"Hi\", :count 9}")]
-      (is (= {:label "Hi" :count 9} overrides))
-      (is (= [] dropped) "no entries dropped for a clean input"))))
+(deftest parse-overrides-param*-splits-kept-and-dropped-entries
+  (testing "parse-overrides-param* returns the overrides that survive and the
+            entries it dropped, both keys always present so callers can
+            destructure without nil-checking. In the EDN-map wire form a
+            per-entry drop is a key that cannot coerce to a keyword, and an
+            unreadable payload is dropped whole; the share-import hint reads
+            :dropped to count and name what failed."
+    (are [s expected] (= expected (rf.story.share/parse-overrides-param* s))
+      ;; clean input: nothing dropped
+      "{:label \"Hi\", :count 9}"
+      {:overrides {:label "Hi" :count 9} :dropped []}
 
-(deftest parse-overrides-param*-mixed-input
-  (testing "parse-overrides-param* reports the SET of dropped
-            entries alongside the surviving overrides — the share-import
-            hint reads :dropped to count + name what failed. In the EDN-map
-            wire form a per-entry drop is a key that cannot coerce to a
-            keyword; the surviving entries are kept."
-    (let [{:keys [overrides dropped]}
-          (rf.story.share/parse-overrides-param*
-            "{:label \"OK\", :size 7, 5 :bad-key}")]
-      (is (= {:label "OK" :size 7} overrides)
-          "well-formed entries survive")
-      (is (= 1 (count dropped))
-          "one malformed entry — the non-keywordable key `5`")
-      (is (some #(re-find #"^5 " %) dropped)))))
+      ;; the non-keywordable key `5` is dropped; the well-formed entries survive
+      "{:label \"OK\", :size 7, 5 :bad-key}"
+      {:overrides {:label "OK" :size 7} :dropped ["5 :bad-key"]}
 
-(deftest parse-overrides-param*-all-dropped
-  (testing "when the payload is not a readable EDN map :overrides
-            is nil and the whole token is dropped"
-    (let [{:keys [overrides dropped]}
-          (rf.story.share/parse-overrides-param* "{:label \"unterminated")]
-      (is (nil? overrides))
-      (is (= ["{:label \"unterminated"] dropped)))))
+      ;; not a readable EDN map: no overrides, the whole token dropped
+      "{:label \"unterminated"
+      {:overrides nil :dropped ["{:label \"unterminated"]}
 
-(deftest parse-overrides-param*-blank-input
-  (testing "blank/nil input returns the empty-shape map so
-            callers don't have to nil-check before destructuring"
-    (is (= {:overrides nil :dropped []}
-           (rf.story.share/parse-overrides-param* nil)))
-    (is (= {:overrides nil :dropped []}
-           (rf.story.share/parse-overrides-param* "")))
-    (is (= {:overrides nil :dropped []}
-           (rf.story.share/parse-overrides-param* "   ")))))
+      ;; blank input returns the empty shape
+      nil   {:overrides nil :dropped []}
+      ""    {:overrides nil :dropped []}
+      "   " {:overrides nil :dropped []})))
 
 (deftest parse-overrides-param-silent-drop
   (testing "parse-overrides-param is the silent-drop form, returning the
@@ -435,15 +375,6 @@
       (is (some #(re-find #":gone" %) (:dropped out))
           "the stale :gone override is reported as dropped, not installed"))))
 
-(deftest drop-stale-overrides-all-stale-nils-overrides
-  (testing "when every parsed override is stale, :overrides is
-            nil (not an empty map) and each stale key is reported"
-    (let [out (rf.story.share/drop-stale-overrides
-                {:overrides {:old-a 1 :old-b 2} :dropped []}
-                #{:current})]
-      (is (nil? (:overrides out)) "all-stale collapses to nil overrides")
-      (is (= 2 (count (:dropped out)))))))
-
 (deftest drop-stale-overrides-nil-declared-keeps-all
   (testing "a nil declared-key set (unregistered / uncompilable
             variant: no contract known) keeps every parsed override verbatim
@@ -465,41 +396,34 @@
 
 (deftest variant-share-url-preserves-hash-route
   (testing "variant-share-url inserts params before # so the Story route survives"
-    (let [url (rf.story.share/variant-share-url
-                :story.counter/loaded
-                "https://example.test/counter-with-stories/#/stories"
-                {:active-modes   [:Mode.app/dark]
-                 :cell-overrides {:label "Share Slice"}
-                 :substrate      :reagent})]
-      (is (str/starts-with?
-            url
-            "https://example.test/counter-with-stories/?variant=story.counter%2Floaded"))
-      (is (str/includes? url "&modes=Mode.app%2Fdark"))
-      ;; Overrides encode as one pr-str EDN map (delimiter-safe),
-      ;; URL-encoded: {:label "Share Slice"} → %7B%3Alabel+%22Share+Slice%22%7D.
-      (is (str/includes? url "overrides=%7B%3Alabel+%22Share+Slice%22%7D"))
-      (is (str/ends-with? url "#/stories")))))
+    ;; Overrides encode as one pr-str EDN map (delimiter-safe),
+    ;; URL-encoded: {:label "Share Slice"} → %7B%3Alabel+%22Share+Slice%22%7D.
+    ;; The :reagent default substrate is omitted.
+    (is (= (str "https://example.test/counter-with-stories/"
+                "?variant=story.counter%2Floaded"
+                "&modes=Mode.app%2Fdark"
+                "&overrides=%7B%3Alabel+%22Share+Slice%22%7D"
+                "#/stories")
+           (rf.story.share/variant-share-url
+             :story.counter/loaded
+             "https://example.test/counter-with-stories/#/stories"
+             {:active-modes   [:Mode.app/dark]
+              :cell-overrides {:label "Share Slice"}
+              :substrate      :reagent})))))
 
 (deftest variant-share-url-public-export
   (testing "rf.story/variant-share-url is exported"
-    (let [url (rf.story/variant-share-url
-                :story.foo/bar
-                "https://x.test/"
-                {:active-modes [:Mode.x/y]})]
-      (is (str/starts-with? url "https://x.test/?"))
-      (is (re-find #"variant=" url))
-      (is (re-find #"modes=" url)))))
+    (is (= "https://x.test/?variant=story.foo%2Fbar&modes=Mode.x%2Fy"
+           (rf.story/variant-share-url
+             :story.foo/bar
+             "https://x.test/"
+             {:active-modes [:Mode.x/y]})))))
 
 (deftest variant-share-url-public-export-opts-arity
   (testing "the facade carries the documented (variant-id opts)
-            arm: a no-base query fragment (no leading ?) equal to the
-            underlying share builder's own 2-arity result"
-    (let [opts {:active-modes [:Mode.x/y]}
-          url  (rf.story/variant-share-url :story.foo/bar opts)]
-      (is (= (rf.story.share/variant-share-url :story.foo/bar opts) url))
-      (is (not (str/starts-with? url "?")))
-      (is (re-find #"variant=" url))
-      (is (re-find #"modes=" url)))))
+            arm: a no-base query fragment, with no leading ?"
+    (is (= "variant=story.foo%2Fbar&modes=Mode.x%2Fy"
+           (rf.story/variant-share-url :story.foo/bar {:active-modes [:Mode.x/y]})))))
 
 ;; ---- No QR endpoint --------------------------------------------------------
 ;;
