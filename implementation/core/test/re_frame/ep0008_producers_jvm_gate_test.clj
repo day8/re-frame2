@@ -30,22 +30,21 @@
   ## Why this suite exists
 
   EP-0008 says the always-on axis survives BOTH CLJS production elision AND
-  JVM `re-frame.debug` / `RE_FRAME_DEBUG` gating. The generic rebind suite
-  (`re-frame.jvm-prod-gate-integration-test`) proves a generic handler
-  exception reaches `register-error-listener!` with debug disabled — but the
-  REAL EP-0008 producers (`:rf.error/frame-teardown-failed`,
-  `:rf.error/write-after-destroy`, `:rf.error/on-destroy-handler-exception`)
-  are otherwise pinned mainly through the CLJS production-elision probe. This suite
-  exercises each REAL producer end-to-end with `debug-enabled?` REBOUND to
-  `false` — a model of the SSR-production JVM posture, not the posture itself
-  — and asserts:
-
-    (a) each promoted producer's always-on record STILL fires with the dev
-        gate off (the producer survives the JVM prod gate);
-    (b) the dev-only companion trace (the per-hook
-        `:rf.warning/teardown-hook-exception`, the dev error trace) is ELIDED
-        under the same gate (the diagnostic channel is gated; the always-on
-        axis is not).
+  JVM `re-frame.debug` / `RE_FRAME_DEBUG` gating. That each REAL promoted
+  producer's always-on record still fires with the gate off
+  (`:rf.error/frame-teardown-failed`, `:rf.error/write-after-destroy`,
+  `:rf.error/on-destroy-handler-exception`) is pinned under the REAL gate by
+  the producers' own `.cljc` always-on suites
+  (`re-frame.frame-teardown-report-cljs-test`,
+  `re-frame.write-after-destroy-always-on-cljs-test`,
+  `re-frame.on-destroy-handler-exception-always-on-cljs-test`), which the
+  production-gate lane runs with `-Dre-frame.debug=false` on the JVM command
+  line. This suite exercises the REAL producers end-to-end with
+  `debug-enabled?` REBOUND to `false` — a model of the SSR-production JVM
+  posture, not the posture itself — and asserts that the dev-only companion
+  trace (the per-hook `:rf.warning/teardown-hook-exception`) is ELIDED under
+  that gate while the always-on report SURVIVES (the diagnostic channel is
+  gated; the always-on axis is not).
 
   ## Why JVM-only (`.clj`, not `.cljc`)
 
@@ -71,7 +70,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.observability :as rf.observability]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -87,74 +85,9 @@
   (filter #(= error-kw (:error %)) @seen))
 
 ;; ===========================================================================
-;; (a) Each promoted producer's always-on record survives debug-enabled? = false
-;; ===========================================================================
-
-(deftest frame-teardown-failed-survives-jvm-prod-gate
-  (testing "with the JVM debug gate OFF (the SSR production
-            posture), a frame destroy whose cleanup hooks throw STILL fans the
-            always-on `:rf.error/frame-teardown-failed` report out through
-            `register-error-listener!` (the axis is not debug-gated)."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [seen (atom [])]
-        (rf.error-emit/register-error-listener! :test/recorder
-                                     (fn [r] (swap! seen conj r)))
-        (rf/make-frame {:id :gate/teardown})
-        ;; Install a throwing cleanup hook for the duration of the destroy.
-        (let [orig (rf.late-bind/get-fn :ssr/on-frame-destroyed)]
-          (try
-            (rf.late-bind/set-fn! :ssr/on-frame-destroyed
-                                        (fn [& _] (throw (ex-info "hook threw" {}))))
-            (rf/destroy-frame! :gate/teardown)
-            (finally
-              (rf.late-bind/set-fn! :ssr/on-frame-destroyed orig))))
-        (let [reports (records-of seen :rf.error/frame-teardown-failed)]
-          (is (= 1 (count reports))
-              "the teardown report survived the debug-off JVM gate")
-          (is (= :gate/teardown (:frame (first reports))))
-          (is (= 1 (count (:hook-failures (first reports))))))))))
-
-(deftest write-after-destroy-survives-jvm-prod-gate
-  (testing "with the JVM debug gate OFF, a nil-container
-            `replace-container!` (the scheduled-drain-vs-destroy race) STILL
-            fans the always-on `:rf.error/write-after-destroy` record out."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [seen (atom [])]
-        (rf.error-emit/register-error-listener! :test/recorder
-                                     (fn [r] (swap! seen conj r)))
-        (rf.substrate.adapter/replace-container! nil {:dropped :write})
-        (let [reports (records-of seen :rf.error/write-after-destroy)]
-          (is (= 1 (count reports))
-              "the suppressed-write record survived the debug-off JVM gate")
-          (let [r (first reports)]
-            ;; The always-on suppressed-write record is structured-only (no
-            ;; event, no frame — the frame is gone; no exception — a dropped
-            ;; write, not a throw), mirroring the cljc producer test's shape.
-            (is (nil? (:event r)) "no event vector on the dropped-write record")
-            (is (nil? (:frame r)) "no frame — it was destroyed")
-            (is (nil? (:exception r)) "no exception — a suppressed write")))))))
-
-(deftest on-destroy-handler-exception-survives-jvm-prod-gate
-  (testing "with the JVM debug gate OFF, a throwing
-            `:on-destroy` STILL fans the dedicated always-on
-            `:rf.error/on-destroy-handler-exception` discriminator out (the
-            production source of the teardown discriminator that the dev trace
-            elides here)."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [seen (atom [])]
-        (rf.error-emit/register-error-listener! :test/recorder
-                                     (fn [r] (swap! seen conj r)))
-        (rf/reg-event :gate/blow-up (fn [{:keys [db]} _] {:db (throw (ex-info "boom" {}))}))
-        (rf/make-frame {:id :gate/ondestroy :on-destroy [:gate/blow-up]})
-        (rf/destroy-frame! :gate/ondestroy)
-        (let [reports (records-of seen :rf.error/on-destroy-handler-exception)]
-          (is (= 1 (count reports))
-              "the dedicated discriminator survived the debug-off JVM gate")
-          (is (= :gate/ondestroy (:frame (first reports)))))))))
-
-;; ===========================================================================
-;; (b) The dev-only companion trace is ELIDED under the same gate (the
-;; diagnostic channel is debug-gated; the always-on axis is not).
+;; The dev-only companion trace is ELIDED under the gate while the
+;; always-on report survives (the diagnostic channel is debug-gated; the
+;; always-on axis is not).
 ;; ===========================================================================
 
 (deftest dev-per-hook-teardown-warning-elided-while-report-survives
