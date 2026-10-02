@@ -5,7 +5,7 @@ it dispatches another event. That reply handler receives the current app-db, and
 its state change passes through the same [event pipeline](../core/events.md) as a
 button click.
 
-## Start with the one move
+## Name the receiving event
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -101,7 +101,7 @@ superseded request never reaches it. The [HTTP reference](../api/re-frame.http.m
 lists the identity and timing fields of a live reply; stubs omit those fields.
 
 This common runtime model does not make every public completion payload identical.
-A [managed HTTP child machine](http.md#from-a-state-machine) sends its parent
+A [managed HTTP child machine](http-machines.md) sends its parent
 `[:succeeded value]` or `[:failed failure]`. A machine's `:on-done` callback receives
 its declared result. Use the documented completion form of the surface you call.
 
@@ -117,7 +117,7 @@ reading a new clock value during replay.
 | `.catch(onRejected)` | HTTP `:on-failure [:load-error]`, or the `:error` branch. |
 | `.finally(onFinally)` | Shared code in the reply handler, for every outcome actually delivered. |
 | `AbortController` | `:abort-signal` in the browser, or `:rf.http/managed-abort` by request id on either host. |
-| `Promise.all` | HTTP child machines under [`:spawn-all` with `:join :all`](http.md#from-a-state-machine). |
+| `Promise.all` | HTTP child machines under [`:spawn-all` with `:join :all`](http-machines.md). |
 
 ### The `.finally` job
 

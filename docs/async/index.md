@@ -3,13 +3,14 @@
 Sooner or later the app talks to a server — and inherits errors, timeouts, retries,
 loading states, and stale replies racing each other.
 
-re-frame2's answer is the **managed request**. Describe it as data, return it from a
-pure [event handler](../core/effects.md), and finish. The runtime performs it. The
-reply arrives later as an **ordinary [event](../core/events.md)**:
+Use a **managed request** when your [event handler](../core/effects.md) should
+receive the result as another [event](../core/events.md). Describe the request
+as data; the runtime sends it, decodes the response and delivers the reply:
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.http.managed])   ;; day8/re-frame2-http — forget this → :rf.error/no-such-fx
+(ns app.article-http
+  (:require [re-frame.core :as rf]
+            [re-frame.http.managed]))   ;; day8/re-frame2-http
 
 {:fx [[:rf.http/managed
        {:request    {:url "/api/articles/intro"}
@@ -22,7 +23,9 @@ named, handled like any other event.
 
 <a id="in-this-section"></a>
 
-The [tutorial](tutorial.md) builds this request step by step.
+The [article tutorial](tutorial.md) adds a view, error messages, validation and
+cancellation to this request. This page helps you choose whether managed HTTP
+is the right mechanism for your app.
 
 Managed HTTP plugs into the event pipeline. It does not replace events or app-db.
 
