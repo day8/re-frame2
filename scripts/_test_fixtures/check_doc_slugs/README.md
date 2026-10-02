@@ -24,6 +24,7 @@ Fixtures:
 | `same_file_anchor_broken`          | 1               | `[text](#anchor)` not in same file                                                 |
 | `absolute_path_ok`                 | 0               | `[text](/docs/foo.md)` repo-root-absolute                                          |
 | `relative_dotdot_ok`               | 0               | `[text](../foo.md)` from a subdirectory                                            |
+| `relative_source_target`           | 1               | A link from `docs/core/testing/` out to `../../../implementation/…` is existence-checked whatever its kind: a renamed source file is flagged, while a live source file and a live directory are not |
 | `inline_code_placeholder_ignored`  | 0               | Backticked link-syntax placeholders are masked; real link still validates (rf2-mqv8s) |
 | `inline_code_negative_control`     | 1               | Same-line broken link OUTSIDE an inline-code span is still flagged (rf2-mqv8s)     |
 | `ai_findings_link_flagged`         | 1               | Link into the gitignored `ai/findings/<file>.md` tree is flagged (rf2-l7yj8)       |
