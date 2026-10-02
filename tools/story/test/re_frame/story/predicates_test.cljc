@@ -9,12 +9,8 @@
             [re-frame.story.predicates :as rf.story.predicates]))
 
 (deftest resolve-sym-pred-resolves-a-jvm-var
-  (testing "a fully-qualified symbol resolves to the var's value (JVM path)"
-    (let [f (rf.story.predicates/resolve-sym-pred 'clojure.core/pos?)]
-      (is (fn? f) "resolves to a callable")
-      (is (true?  (f 1)))
-      (is (false? (f -1)))))
-  (testing "the resolved fn IS the var's value (identity, not a copy)"
+  (testing "a fully-qualified symbol resolves to the var's value (JVM path)
+            — the identical fn, not a copy"
     (is (identical? clojure.core/pos? (rf.story.predicates/resolve-sym-pred 'clojure.core/pos?)))))
 
 (deftest resolve-sym-pred-returns-nil-on-miss

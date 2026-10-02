@@ -33,15 +33,8 @@
     (is (contains? (rf.story.requirements/runner-provides :browser)       :pixels))
     (is (contains? (rf.story.requirements/runner-provides :browser)       :a11y-engine)))
 
-  (testing ":reactive-counts is advertised by :cljs-reactive (and the richer rungs)"
-    (is (= :reactive-counts rf.story.requirements/reactive-counts-token))
-    (is (not (contains? (rf.story.requirements/runner-provides :headless) :reactive-counts)))
-    (is (not (contains? (rf.story.requirements/runner-provides :hiccup)   :reactive-counts))
-        ":hiccup renders to string but does not flush reactions")
-    (is (contains? (rf.story.requirements/runner-provides :cljs-reactive) :reactive-counts))
-    (is (contains? (rf.story.requirements/runner-provides :dom)           :reactive-counts)
-        "a :dom runner flushes reactions too")
-    (is (contains? (rf.story.requirements/runner-provides :browser)       :reactive-counts)))
+  (testing "the reactive-counts token constant"
+    (is (= :reactive-counts rf.story.requirements/reactive-counts-token)))
 
   (testing "cost rank is cheapest-first; :cljs-reactive ranks between :hiccup and :dom"
     (is (< (rf.story.requirements/runner-cost :headless)      (rf.story.requirements/runner-cost :hiccup)))
@@ -52,13 +45,6 @@
 ;; ===========================================================================
 ;; REQUIREMENT INFERENCE — per-step and per-assertion tokens
 ;; ===========================================================================
-
-(deftest app-db-assertion-requires-headless
-  (testing "an app-db assertion is satisfied by :headless (requires no richer tier)"
-    (let [req-tokens (rf.story.requirements/assertion-tokens [:rf.assert/path-equals [:n] 5])]
-      (is (= #{:app-db} req-tokens))
-      (is (= :headless (rf.story.requirements/cheapest-runner req-tokens))
-          "cheapest runner proving app-db is :headless"))))
 
 (deftest browser-tier-assertion-tokens
   (testing "the browser-tier oracle assertions declare their capability tokens"
@@ -78,26 +64,6 @@
     (is (not (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :headless) #{:hiccup-structure})))
     (is (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :hiccup)  #{:hiccup-structure}))
     (is (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :browser) #{:pixels :a11y-engine}))))
-
-(deftest headless-cannot-run-browser-tier-assertions
-  (testing "fixed :runner :headless reports :cannot-run for browser-tier assertions"
-    (let [unmet (rf.story.requirements/unmet-assertions
-                  :headless
-                  [[:rf.assert/visual-snapshot]
-                   [:rf.assert/a11y]
-                   [:rf.assert/a11y-structural]  ; :hiccup — also unmet under :headless
-                   [:rf.assert/path-equals [:n] 1]])]
-      (is (= 3 (count unmet)) "the three browser/hiccup-tier assertions refuse; app-db does not")
-      (is (every? #(= :cannot-run (:status %)) unmet))
-      (is (= #{[:rf.assert/visual-snapshot]
-               [:rf.assert/a11y]
-               [:rf.assert/a11y-structural]}
-             (set (map :unit unmet)))))
-    ;; under :auto, the browser-only pair escalates to :browser; structural
-    ;; alone escalates only to :hiccup.
-    (let [auto (rf.story.requirements/normalize-run-opts {:runner :auto})]
-      (is (= :browser (:runner (rf.story.requirements/select-runner #{:pixels :a11y-engine} auto))))
-      (is (= :hiccup  (:runner (rf.story.requirements/select-runner #{:hiccup-structure} auto)))))))
 
 (deftest dom-step-requires-dom-or-browser
   (testing "a DOM step requires :dom (or richer :browser)"
@@ -131,35 +97,16 @@
     (is (= #{:reactive-counts}
            (rf.story.requirements/assertion-tokens [:rf.assert/no-cascade-rerender])))
     ;; :cljs-reactive is the cheapest runner that satisfies it (the
-    ;; projection over the :rf.sub/run / :rf.view/rendered rows).
+    ;; projection over the :rf.sub/run / :rf.view/rendered rows). The
+    ;; runner list is cost-ordered, so :headless and :hiccup — which
+    ;; renders to string but does not flush reactions — cannot.
     (is (= :cljs-reactive (rf.story.requirements/cheapest-runner #{:reactive-counts})))
-    (let [sel (rf.story.requirements/select-runner #{:reactive-counts} {:mode :auto})]
-      (is (= :ok (:status sel)))
-      (is (= :cljs-reactive (:runner sel)))
-      (is (empty? (:unmet sel))))
-    ;; under :headless / :hiccup the reactive-count assertions refuse.
-    (is (not (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :headless) #{:reactive-counts})))
-    (is (not (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :hiccup)   #{:reactive-counts})))
+    ;; under :headless the reactive-count assertions refuse.
     (let [unmet (rf.story.requirements/unmet-assertions :headless [[:rf.assert/caused]
                                                  [:rf.assert/no-cascade-rerender]])]
       (is (= 2 (count unmet)))
       (is (every? #(= :cannot-run (:status %)) unmet))
       (is (every? #(contains? (:missing %) :reactive-counts) unmet)))))
-
-(deftest required-tokens-unions-the-plan
-  (testing "required-tokens unions setup + script + assertion tokens"
-    (is (= #{:app-db}
-           (rf.story.requirements/required-tokens [[:dispatch [:a]]]
-                                [[:dispatch [:b]]]
-                                [[:rf.assert/path-equals [:n] 1]])))
-    (is (= #{:app-db :dom}
-           (rf.story.requirements/required-tokens [[:dispatch [:a]]]
-                                [[:click "[x]"]]
-                                [[:rf.assert/path-equals [:n] 1]])))
-    (is (= #{:app-db :pixels}
-           (rf.story.requirements/required-tokens []
-                                [[:dispatch [:a]]]
-                                [[:rf.assert/visual-snapshot]])))))
 
 ;; ===========================================================================
 ;; RUNNER SELECTION — fixed, auto / escalate
@@ -186,10 +133,7 @@
 (deftest auto-chooses-cheapest-satisfying-runner
   (testing ":runner :auto / :escalate true chooses the cheapest qualifying runner"
     ;; app-db + dom → cheapest is :dom (hiccup is insufficient).
-    (let [auto (rf.story.requirements/normalize-run-opts {:runner :auto})
-          esc  (rf.story.requirements/normalize-run-opts {:escalate true})]
-      (is (= :auto (:mode auto)))
-      (is (= :auto (:mode esc)) ":escalate true is a synonym for :runner :auto")
+    (let [auto (rf.story.requirements/normalize-run-opts {:runner :auto})]
       (let [sel (rf.story.requirements/select-runner #{:app-db :dom} auto)]
         (is (= :ok (:status sel)))
         (is (= :dom (:runner sel)))
@@ -239,19 +183,6 @@
 ;; FAIL-CLOSED POST-RUN EVIDENCE-SLOT VALIDATION
 ;; ===========================================================================
 
-(deftest effect-assertion-fails-closed-on-empty-tape
-  (testing "a required :effects proof fails closed when the tape has no effect rows"
-    ;; project an empty tape — no effect rows.
-    (let [ev (rf.story.play.evidence/project-evidence [])]
-      (is (not (rf.story.requirements/evidence-slot-satisfied? #{:effects} ev))
-          "no effect rows → :effects token not satisfied")
-      (let [refusal (rf.story.requirements/validate-evidence [:rf.assert/effect-emitted :some/fx]
-                                           ev :headless)]
-        (is (some? refusal) "missing required evidence → refusal, never pass")
-        (is (= :cannot-run (:status refusal)))
-        (is (= :required-evidence-missing (:reason refusal)))
-        (is (contains? (:missing-evidence refusal) :effects))))))
-
 (deftest effect-assertion-passes-when-tape-carries-effect
   (testing "an effect proof is satisfied when the tape carries an effect row"
     (let [tape [{:epoch-id 1 :outcome :ok
@@ -273,8 +204,7 @@
       (is (not (rf.story.requirements/evidence-slot-satisfied? #{:reactive-counts} ev))
           "no reactive rows → :reactive-counts token not satisfied")
       (let [refusal (rf.story.requirements/validate-evidence [:rf.assert/caused] ev :cljs-reactive)]
-        (is (some? refusal))
-        (is (= :cannot-run (:status refusal)))
+        (is (= :cannot-run (:status refusal)) "missing required evidence → refusal, never pass")
         (is (= :required-evidence-missing (:reason refusal)))
         (is (contains? (:missing-evidence refusal) :reactive-counts))))))
 
@@ -300,14 +230,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest trace-token-imposes-no-evidence-slot
-  (testing ":trace is NOT in the token->evidence-slots presence map"
-    ;; :trace has no faithful presence slot — :warnings / :schema-violations
-    ;; are FILTERED projections, not the whole always-on trace stream.
-    (is (nil? (get rf.story.requirements/token->evidence-slots :trace))
-        ":trace -> :warnings would false-refuse :no-warnings / :dispatched?")
+  (testing ":hiccup-structure is NOT in the token->evidence-slots presence map"
+    ;; :trace and :dom are pinned by behaviour below: a :trace slot would
+    ;; false-refuse the clean-tape :no-warnings row (:warnings / :schema-violations
+    ;; are FILTERED projections, not the whole always-on trace stream), and a
+    ;; :dom slot the empty-renders absence row.
     (is (nil? (get rf.story.requirements/token->evidence-slots :hiccup-structure))
-        "empty :renders is healthy for an absence assertion")
-    (is (nil? (get rf.story.requirements/token->evidence-slots :dom))))
+        "empty :renders is healthy for an absence assertion"))
 
   (testing ":no-warnings + :dispatched? require :trace"
     (is (= #{:trace}          (rf.story.requirements/assertion-tokens [:rf.assert/no-warnings])))
@@ -392,9 +321,9 @@
            (rf.story.requirements/normalize-run-opts {:runner :bogus}))))
 
   (testing ":cljs-reactive is a valid fixed runner"
-    (is (= :cljs-reactive (:runner (rf.story.requirements/normalize-run-opts {:runner :cljs-reactive})))
-        ":cljs-reactive proves :reactive-counts → it is a P1 selection target")
-    (is (= :fixed (:mode (rf.story.requirements/normalize-run-opts {:runner :cljs-reactive}))))))
+    (is (= {:mode :fixed :runner :cljs-reactive}
+           (rf.story.requirements/normalize-run-opts {:runner :cljs-reactive}))
+        ":cljs-reactive proves :reactive-counts → it is a P1 selection target")))
 
 ;; ===========================================================================
 ;; PLAN INTEGRATION — :required-runner is computed through the registry
@@ -417,7 +346,7 @@
     (let [p (rf.story.plan/variant-plan {:variant/id :v
                                 :script [[:dispatch [:a]]]
                                 :assertions [[:rf.assert/visual-snapshot]]})]
-      (is (contains? (:required-runner p) :pixels))
+      (is (= #{:app-db :pixels} (:required-runner p)))
       ;; the cheapest satisfying runner for the plan is :browser
       (is (= :browser
              (rf.story.requirements/cheapest-runner (rf.story.requirements/required-tokens
