@@ -128,7 +128,6 @@
       (let [tree  (machines-tree/panel-tree)
             btn   (find-copy-button tree)
             attrs (rf.test-helpers/attrs btn)]
-        (is (some? btn) "the Copy Mermaid control renders")
         (is (= :button (first btn))
             "a real <button> — keyboard-reachable by default")
         (is (= "button" (:type attrs))
@@ -138,37 +137,26 @@
         (is (nil? (find-status-span tree))
             "no feedback span before any copy gesture")))))
 
-(deftest copy-button-omitted-when-no-definition
-  (testing "A machine with NO registered definition renders a stable
-            header with no copy control"
+(deftest copy-button-omitted-without-a-valid-definition
+  (testing "A machine with NO registered definition, or with a malformed one
+            (it fails grammar/valid-definition?), renders a stable header
+            with no copy control"
+    ;; The malformed row has no :initial — it fails the shared grammar
+    ;; predicate, the same shape `mermaid/emit` would reject with
+    ;; :mermaid/invalid-definition.
     (xray-setup!)
     (seed-machines! [:m/a])
-    (seed-definitions! {})
-    (frame-dispatch [:rf.xray.static.machines/select :m/a])
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)]
-        (is (some? (rf.test-helpers/find-by-testid
-                     tree "rf-xray-static-machines-detail-header"))
-            "header still renders")
-        (is (nil? (find-copy-button tree))
-            "no actionable copy control without a definition")))))
-
-(deftest copy-button-omitted-when-definition-invalid
-  (testing "A malformed definition (fails grammar/valid-definition?)
-            renders a stable header with no copy control"
-    (xray-setup!)
-    (seed-machines! [:m/a])
-    ;; No :initial — fails the shared grammar predicate; the same shape
-    ;; `mermaid/emit` would reject with :mermaid/invalid-definition.
-    (seed-definitions! {:m/a {:states {:idle {}}}})
-    (frame-dispatch [:rf.xray.static.machines/select :m/a])
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)]
-        (is (some? (rf.test-helpers/find-by-testid
-                     tree "rf-xray-static-machines-detail-header"))
-            "header still renders")
-        (is (nil? (find-copy-button tree))
-            "no actionable copy control for an unprojectable definition")))))
+    (doseq [[label definitions] [["no definition" {}]
+                                 ["a malformed definition" {:m/a {:states {:idle {}}}}]]]
+      (seed-definitions! definitions)
+      (frame-dispatch [:rf.xray.static.machines/select :m/a])
+      (rf/with-frame :rf/xray
+        (let [tree (machines-tree/panel-tree)]
+          (is (some? (rf.test-helpers/find-by-testid
+                       tree "rf-xray-static-machines-detail-header"))
+              (str "header still renders with " label))
+          (is (nil? (find-copy-button tree))
+              (str "no actionable copy control with " label)))))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) The real control writes exactly (mermaid/emit definition) — once
@@ -248,8 +236,7 @@
           "rejection lands as :failed")
       (rf/with-frame :rf/xray
         (let [span (find-status-span (machines-tree/panel-tree))]
-          (is (= "Copy failed" (rf.test-helpers/text-content span)))
-          (is (not= "Copied" (rf.test-helpers/text-content span))
+          (is (= "Copy failed" (rf.test-helpers/text-content span))
               "a failed write is never reported as copied"))))))
 
 (deftest unavailable-clipboard-real-fx-lands-failure

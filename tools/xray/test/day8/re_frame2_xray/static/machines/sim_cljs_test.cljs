@@ -5,8 +5,10 @@
   ## What's under test (in addition to the pure-data tests in
   `sim_helpers_cljs_test.cljc`)
 
-    1. **Registry** wires the `:rf.xray.static.machines/sim-*` sub +
-       event family under `:rf/xray`.
+    1. **Registry** — the `:rf.xray.static.machines/sim-*` sub + event
+       family registers under `:rf/xray`; `registry_cljs_test`'s
+       `registry-snapshot-matches-expected-set` pins the registration
+       itself, and the rows below drive the handlers.
 
     2. **Sim start** clones the machine definition into Xray state +
        seeds the initial snapshot (production registry untouched).
@@ -39,7 +41,6 @@
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.machines :as rf.machines]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.machines.sim :as sim]
@@ -185,23 +186,6 @@
     (is (= :rf.error/machine-action-exception (get-in fail-result [:error :kind])))
     (is (nil? (get-in fail-result [:error :reason]))
         "the engine's :error map carries no :reason")))
-
-;; ---- (1) registry wiring ------------------------------------------------
-
-(deftest registry-installs-sim-handlers
-  (testing "register-xray-handlers! installs every Sim handler"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-by-machine)))
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-state)))
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-active?)))
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-available-transitions)))
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-event-suggestions)))
-    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-start)))
-    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-step)))
-    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-reset)))
-    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-stop)))
-    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-set-pending-event)))
-    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-set-pending-data)))))
 
 ;; ---- (2) sim-start ------------------------------------------------------
 
@@ -392,28 +376,6 @@
         (is (= :idle (get-in sim [:snapshot :state]))
             "snapshot unchanged on an inert-edge click")
         (is (= 0 (count (:audit-trail sim))))))))
-
-(deftest sim-current-state-and-last-transition-subs
-  (testing "the chart-binding subs derive the active state +
-            the taken transition off sim-state"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition fixture-definition}])
-      ;; Before any step: current = initial, last-transition = nil.
-      (is (= :idle @(rf/subscribe [:rf.xray.static.machines/sim-current-state])))
-      (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])))
-      ;; After a step the chart subs reflect the advance.
-      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
-        (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
-                           {:machine-id :auth/login :event-id :start}]))
-      (is (= :authing @(rf/subscribe [:rf.xray.static.machines/sim-current-state])))
-      (let [lt @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])]
-        (is (= :idle (:from lt)))
-        (is (= :authing (:to lt)))
-        (is (= [:start] (:event lt)))))))
 
 ;; ---- (5) sim-reset ------------------------------------------------------
 
@@ -663,10 +625,12 @@
 
 ;; ---- (8b) on-chart sim surface ------------------------------------------
 
-(deftest sim-chart-passes-sim-bindings-to-canvas
-  (testing "SimChart hands the canvas the amber sim palette,
-            the current snapshot state, the focused-edge lens off the last
-            transition, and an on-edge-click callback"
+(deftest sim-chart-edge-click-steps-the-sim-and-rebinds-the-canvas
+  (testing "the chart-binding subs derive the active state and the taken
+            transition off sim-state, and after an edge click SimChart
+            hands the canvas the amber sim palette, the advanced snapshot
+            state, the focused-edge lens off the last transition, and an
+            on-edge-click callback"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -675,9 +639,15 @@
       (rf/dispatch-sync [:rf.xray.static.machines/sim-start
                          {:machine-id :auth/login
                           :definition fixture-definition}])
+      ;; Before any step: current = initial, last-transition = nil.
+      (is (= :idle @(rf/subscribe [:rf.xray.static.machines/sim-current-state])))
+      (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])))
       (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
         (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
                            {:machine-id :auth/login :event-id :start}]))
+      (is (= [:start]
+             (:event @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])))
+          "the click stepped the sim with the edge's event")
       (let [tree        (sim/SimChart rf/dispatch
                                       (merge {:machine-id :auth/login
                                               :definition fixture-definition}
@@ -965,8 +935,6 @@
         (is (>= (count li-rows) 1) "at least one available-transition row")
         (is (= (count li-rows) (count siblings))
             "one keyed sibling per rendered row")
-        (doseq [row li-rows]
-          (is (vector? row) "available-transition row is a hiccup vector"))
         (doseq [sib siblings]
           (is (some? (fresco-key sib))
               (str "available-transition key reaches a Fresco boundary — got "
@@ -1031,8 +999,6 @@
         (is (>= (count li-rows) 2) "two audit rows after two steps")
         (is (= (count li-rows) (count siblings))
             "one keyed sibling per rendered row")
-        (doseq [row li-rows]
-          (is (vector? row) "audit row is a hiccup vector"))
         (doseq [sib siblings]
           (is (some? (fresco-key sib))
               (str "audit row key reaches a Fresco boundary — got "
