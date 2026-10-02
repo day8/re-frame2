@@ -82,22 +82,14 @@
       (is (= "Dark"    (:label r)))
       (is (= "#1a1a1a" (:color r))))))
 
-(deftest resolve-story-override-beats-toolbar
-  (testing "precedence: story-override wins"
-    (let [r (rf.story.backgrounds/resolve :midnight :dark)]
-      (is (= "Midnight" (:label r))))))
-
-(deftest resolve-custom-override-beats-toolbar
-  (testing "a custom hex as the story-override is honoured"
-    (let [r (rf.story.backgrounds/resolve "#abc123" :dark)]
-      (is (= "#abc123" (:color r)))
-      (is (re-find #"abc123" (:label r))))))
-
-(deftest resolve-bad-override-falls-through-to-toolbar
-  (testing "an unrecognised override does NOT block the toolbar fallback"
-    (let [r (rf.story.backgrounds/resolve :neon :dark)]
-      (is (= "Dark" (:label r))
-          "unknown override fell through to the live toolbar selection"))))
+(deftest resolve-prefers-a-usable-override-else-the-toolbar
+  (testing "a usable story-override beats the toolbar selection; an unusable one falls through"
+    (are [override resolved] (= resolved (rf.story.backgrounds/resolve override :dark))
+      :midnight {:label "Midnight" :color "#0a0a0a"}
+      ;; a custom hex override renders under its synthetic label
+      "#abc123" {:label "Custom #abc123" :color "#abc123"}
+      ;; an unrecognised override does not block the live toolbar selection
+      :neon     {:label "Dark" :color "#1a1a1a"})))
 
 (deftest resolve-id-returns-keyword-or-custom
   (is (= :light (rf.story.backgrounds/resolve-id nil nil)))
@@ -115,12 +107,10 @@
 (deftest wrap-style-checkerboard
   (testing "the :checkerboard sentinel produces a CSS gradient set"
     (let [s (rf.story.backgrounds/wrap-style {:color :checkerboard})]
-      (is (string? (:background-image s))
-          "checkerboard uses background-image gradients")
       (is (= "#ffffff" (:background-color s))
           "white base for the checkerboard")
-      (is (re-find #"linear-gradient"
-                   (:background-image s))))))
+      (is (re-find #"linear-gradient" (:background-image s))
+          "checkerboard uses background-image gradients"))))
 
 (deftest wrap-style-nil-for-unknown
   (testing "unknown colour shape → nil (caller falls back)"
