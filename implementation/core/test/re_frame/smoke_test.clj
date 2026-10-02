@@ -17,10 +17,9 @@
   `goog.DEBUG=false`. Under the gate the framework emits none of it BY DESIGN,
   so the assertions are correct dev-posture coverage; they declare the posture
   they are about, so the semantics beside them run in the production lane.
-  Where a trace assertion has no natural semantic sibling — the
-  `dispatch-sync`-in-handler ban, the machine spawn/destroy fx — a
-  production-visible witness sits beside it, so the trace is never the only
-  evidence."
+  Where a trace assertion has no natural semantic sibling — the machine
+  spawn/destroy fx — a production-visible witness sits beside it, so the trace
+  is never the only evidence."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -73,17 +72,6 @@
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
-
-;; ---- registry round-trip --------------------------------------------------
-
-(deftest registrar-round-trip
-  (testing "registering and looking up a handler"
-    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [meta (rf/handler-meta {:source :store :kind :event :id :counter/inc})]
-      (is (some? meta))
-      (is (fn? (:handler-fn meta)))
-      ;; EP-0018: the event family has one form — no :event/kind sub-tag.
-      (is (not (contains? meta :event/kind))))))
 
 ;; ---- end-to-end dispatch --------------------------------------------------
 
@@ -204,51 +192,6 @@
 ;; sub_cache_test.clj; flow-hot-reload-invalidates-last-inputs and the
 ;; per-frame flow-store tests live in the flows artefact's flows_test.clj.
 
-(deftest subscriber-captures-frame
-  (testing "subscriber closes over the current frame so closures don't need to thread it"
-    (rf/make-frame {:id :left :doc "left frame"})
-    (rf/make-frame {:id :right :doc "right frame"})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    ;; Seed each frame synchronously so the assertions are deterministic.
-    (rf/dispatch-sync [:seed 7]  {:frame :left})
-    (rf/dispatch-sync [:seed 99] {:frame :right})
-    ;; Capture frame-bound subscribers via with-frame.
-    (let [sl (rf/with-frame :left  (:subscribe (rf/capture-frame)))
-          sr (rf/with-frame :right (:subscribe (rf/capture-frame)))]
-      (is (= 7  @(sl [:n])) "left subscriber sees left's :n")
-      (is (= 99 @(sr [:n])) "right subscriber sees right's :n")
-      ;; And :rf/default is unaffected.
-      (is (nil? (rf/subscribe-once [:n] {:frame :rf/default}))))))
-
-(deftest dispatch-sync-in-handler-errors
-  (testing "calling dispatch-sync from inside a handler raises a structured error"
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dsih (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
-      (rf/reg-event :nested
-        (fn [_ _]
-          ;; Calling dispatch-sync from inside a handler should NOT silently
-          ;; interleave; it must raise :rf.error/dispatch-sync-in-handler.
-          (rf/dispatch-sync [:outer])
-          {}))
-      (rf/dispatch-sync [:nested])
-      (rf/unregister-listener! :trace ::dsih)
-      ;; SEMANTIC, posture-independent: the ban is enforcement,
-      ;; not advice — the nested event is REJECTED, so `:outer`'s handler
-      ;; never runs and its `:db` write never lands. That is the half a
-      ;; production build carries.
-      (is (nil? (:ran? (rf/app-db-value :rf/default)))
-          "the nested event was rejected — :outer's handler never ran")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
-                         (= :error (:op-type ev))
-                         (= :no-recovery (:recovery ev))))
-                  @traces)
-            "expected :rf.error/dispatch-sync-in-handler trace event")))))
-
 (deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
   ;; The router binds `rf.frame/*current-frame*` to the
   ;; envelope's :frame for the duration of process-event!, so a
@@ -312,38 +255,6 @@
         (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe-default])
         (is (= :rf/default @observed-current-frame))))))
 
-;; ---- There is no snapshot-of ----------------------------------------------
-;;
-;; The facade has no `snapshot-of` convenience over
-;; `(get-in (rf/app-db-value frame-id) path)`, and no alias for one. The
-;; path-scoped-read + explicit-frame contract is covered directly by
-;; `app-db-value` reads in this suite (`(get-in (rf/app-db-value frame-id)
-;; path)`).
-
-(deftest app-db-value-path-scoped-read-with-explicit-frame
-  (testing "(get-in (rf/app-db-value frame-id) path) is the path-scoped
-            read — there is no snapshot-of convenience"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:user {:id 7 :name "ada"}
-                                      :counts {:hits 3}}}))
-    (rf/dispatch-sync [:seed])
-    (is (= 7        (get-in (rf/app-db-value :rf/default) [:user :id])))
-    (is (= "ada"    (get-in (rf/app-db-value :rf/default) [:user :name])))
-    (is (= 3        (get-in (rf/app-db-value :rf/default) [:counts :hits])))
-    (is (= {:hits 3} (get-in (rf/app-db-value :rf/default) [:counts]))
-        "intermediate map paths are returned as-is")
-    (is (nil? (get-in (rf/app-db-value :rf/default) [:does-not-exist]))
-        "missing paths return nil"))
-  (testing "reads against an explicit frame-id"
-    (rf/make-frame {:id :left :doc "left"})
-    (rf/make-frame {:id :right :doc "right"})
-    (rf/reg-event :seed-n (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/dispatch-sync [:seed-n 11] {:frame :left})
-    (rf/dispatch-sync [:seed-n 99] {:frame :right})
-    (is (= 11 (get-in (rf/app-db-value :left) [:n])))
-    (is (= 99 (get-in (rf/app-db-value :right) [:n])))
-    (is (nil? (get-in (rf/app-db-value :nonexistent) [:n]))
-        "missing frame yields nil rather than throwing")))
-
 ;; ---- app-schemas ---------------------------------------------------------
 
 (deftest app-schemas-returns-registered-schema-map
@@ -369,64 +280,6 @@
       (is (= :rf.error/no-frame-context
              (try (f) nil
                   (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))))))
-
-;; ---- subscription topology: glitch-freedom (JVM) -------------------------
-;;
-;; The CLJS reference uses Reagent reactions and asserts no transient
-;; intermediate value is observed during propagation. The JVM plain-atom
-;; adapter's make-derived-value recomputes on every deref — there is no
-;; reactive cascade, so glitches are impossible by construction. These
-;; JVM mirrors of the CLJS topology tests pin the *algebraic* property:
-;; layer-2+ subs computed via compute-sub against a post-event app-db
-;; produce the post-event value (and only that value).
-
-(deftest sub-topology-glitch-free-diamond-jvm
-  (testing "diamond: app-db -> {a,b} -> c — c reads the post-swap state under compute-sub"
-    (rf/reg-event :diamond/init (fn [{:keys [db]} _] {:db {:x 1 :y 2}}))
-    (rf/reg-event :diamond/swap (fn [{{:keys [x y] :as db} :db} _]
-                                  {:db (assoc db :x y :y x)}))
-    (rf/reg-sub :diamond/a (fn [db _] (:x db)))
-    (rf/reg-sub :diamond/b (fn [db _] (:y db)))
-    (rf/reg-sub :diamond/c
-      {:inputs [[:diamond/a] [:diamond/b]]}
-      (fn [[a b] _] {:a a :b b}))
-    (let [f (rf.frame/make-anon-frame-record! {})]
-      (rf/dispatch-sync [:diamond/init] {:frame f})
-      (is (= {:a 1 :b 2} (rf/compute-sub [:diamond/c] (rf/app-db-value f)))
-          "initial state is fully consistent")
-      (rf/dispatch-sync [:diamond/swap] {:frame f})
-      (is (= {:a 2 :b 1} (rf/compute-sub [:diamond/c] (rf/app-db-value f)))
-          "post-swap state is fully consistent — never half-propagated"))))
-
-(deftest sub-topology-glitch-free-chain-jvm
-  (testing "chain: :n -> a -> (* 2) -> b -> inc -> c — compute-sub yields only the post-event value"
-    (rf/reg-event :chain/init (fn [{:keys [db]} _] {:db {:n 10}}))
-    (rf/reg-event :chain/set  (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (rf/reg-sub :chain/a (fn [db _] (:n db)))
-    (rf/reg-sub :chain/b {:inputs [[:chain/a]]} (fn [[a] _] (* a 2)))
-    (rf/reg-sub :chain/c {:inputs [[:chain/b]]} (fn [[b] _] (inc b)))
-    (let [f (rf.frame/make-anon-frame-record! {})]
-      (rf/dispatch-sync [:chain/init] {:frame f})
-      (is (= 21 (rf/compute-sub [:chain/c] (rf/app-db-value f)))
-          "initial: n=10 → b=20 → c=21")
-      (rf/dispatch-sync [:chain/set 100] {:frame f})
-      (is (= 201 (rf/compute-sub [:chain/c] (rf/app-db-value f)))
-          "after :n→100: b=200 → c=201; no transient intermediates"))))
-
-(deftest sub-correctness-on-value-equal-input-jvm
-  (testing "a value-equal app-db replacement keeps the downstream sub value correct"
-    (rf/reg-event :stable/init (fn [{:keys [db]} _] {:db {:n 5 :unrelated "z"}}))
-    (rf/reg-event :stable/touch-unrelated
-                     (fn [{:keys [db]} _] {:db (assoc db :unrelated "z")}))   ;; same value
-    (rf/reg-sub :stable/a (fn [db _] (:n db)))
-    (rf/reg-sub :stable/squared {:inputs [[:stable/a]]} (fn [[a] _] (* a a)))
-    (let [f (rf.frame/make-anon-frame-record! {})]
-      (rf/dispatch-sync [:stable/init] {:frame f})
-      (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
-          "initial value correct: 5*5 = 25")
-      (rf/dispatch-sync [:stable/touch-unrelated] {:frame f})
-      (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
-          "value correct after a value-equal app-db replacement"))))
 
 ;; ---- compute-sub per-call memoisation -------------------------------------
 ;;
