@@ -29,7 +29,7 @@ Canonical idiom: [`remote-data.md`](https://github.com/day8/re-frame2/blob/main/
 
 When one of those holds, the shape of the fix does not change — it is still **one selector sub, one `case`** — it just reads the machine's `:tags` instead of the slice's `:status`: declare a `reg-machine` whose states carry `:tags` and resolve the render through one selector sub over a data-shaped render-priority table ([`tags.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/state-machines/tags.md)). For full page-level rendering with cardinality buckets across several axes, [`nine-states.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/patterns/nine-states.md) is the canonical pattern.
 
-**Report the two as different findings with different patch sizes.** The one-sub correction is the immediate repair; the machine is the optional broader redesign, and only when a tell fires.
+**Keep the immediate repair and optional redesign distinct within the finding.** State the one-sub correction first; offer the machine in the optional broader-redesign sentence only when a tell fires. Do not count that alternative as another defect.
 
 Spec sources: [`spec/Pattern-RemoteData.md`](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md) (the status slice) and [`spec/005-StateMachines.md`](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md) §Tags (the machine).
 
