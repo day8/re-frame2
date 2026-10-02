@@ -47,7 +47,7 @@ All evidence the skill reads — transcripts, recaps, stack traces, anything the
 
 ### L6 — `known-frictions.md` is an on-demand pattern check
 
-When a session resembles a recurring class of pain, the skill consults [`references/known-frictions.md`](../references/known-frictions.md) to tell a one-off from a product gap; a match raises the finding's priority. It is the skill's **only** reference leaf, loaded on demand — not a mandatory step of every retro. There is no root-cause taxonomy leaf and no issue-template leaf; a draft's shape is natural prose carrying evidence, missing behaviour, one implementable desired outcome, and a completion signal.
+When a session resembles a recurring class of pain, the skill consults [`references/known-frictions.md`](../references/known-frictions.md) as a lead, confirms the match against that session and its recovery, and ranks it by observed consequence and repeated effort. It is the skill's **only** reference leaf, loaded on demand — not a mandatory step of every retro. Adequate evidence with no material friction produces a concise clean retrospective, not an evidence request or an invented issue. There is no root-cause taxonomy leaf and no issue-template leaf; a draft's shape is natural prose carrying evidence, missing behaviour, one implementable desired outcome, and a completion signal.
 
 ### L7 — Self-contained package
 

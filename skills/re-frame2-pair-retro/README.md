@@ -19,6 +19,8 @@ The skill is **read-only**. On request it includes one focused, copy-pasteable G
 
 It is intentionally diagnosis-first: the default outcome is a better understanding of what went wrong and which improvements would matter most, not pressure to contribute code or file issues.
 
+An adequately evidenced session with no material friction gets a concise clean retrospective. The skill says what worked and finishes; it asks for more evidence only when the evidence is insufficient, and never invents an issue draft to meet a quota.
+
 ## Directory contents
 
 - `SKILL.md` — the skill itself: entry modes, guard rails, the session-evidence invariants, the retrospective and issue-draft contract

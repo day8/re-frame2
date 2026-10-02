@@ -40,7 +40,7 @@ Each of these is someone else's job, not a retro subject:
 
 - **Mid-session pair work** stays in `re-frame2-pair`; this skill enters only on an explicit retro request or the post-error offer above.
 - **App-bug help** belongs to `re-frame2-pair` (live) or ordinary debugging; the retro's subject is workflow friction, never the application bug.
-- **Story recorder retros** ("retro on my recorded play sequence") belong in `re-frame2-pair`'s Stories leaf (`references/stories.md`, on capturing a live interaction back into a `:script`) — the recorder output is a `:script` snippet to refine against a frame, not a pair-session friction trace. Decline and route there.
+- **Story recorder retros** ("retro on my recorded play sequence") belong in [`re-frame2-pair`'s Stories leaf](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md), on capturing a live interaction back into a `:script` — the recorder output is a `:script` snippet to refine against a frame, not a pair-session friction trace. Decline and route there.
 - **Static code critique** of re-frame2 source is `re-frame2-improver`; **app-authoring** (writing events, subs, views, schemas) is the `re-frame2` authoring skill.
 - **Framework / spec feedback** with no pair session behind it (API-reference reading, architecture or design discussion) is not this skill's input — it turns *session evidence* into framework feedback, never free-floating opinion.
 - **Vocabulary-only matches** ("retro", "what went wrong", "any improvements?") never activate this skill on their own.
@@ -83,7 +83,9 @@ Deliver the findings that matter, ordered by leverage, in compact prose. For eac
 
 There is no required section set, finding count, taxonomy code, or bolder-ideas quota: one dominant finding gets one thorough treatment; several independent findings get a short ordered list. A genuinely higher-upside redesign is welcome after the diagnosis when it is concrete — label it as speculative so the user can triage it differently. If the evidence is too thin for findings, say so plainly and ask for a recap; friction is recognised, not invented.
 
-When a session smells like a recurring class rather than a one-off, check [`references/known-frictions.md`](references/known-frictions.md) — the on-demand catalogue of recurring re-frame2-pair friction patterns; a match raises the finding's priority.
+When a session smells like a recurring class rather than a one-off, check [`references/known-frictions.md`](references/known-frictions.md). A catalogue match is a lead, not proof: confirm it against the session, including any successful recovery, and rank it by observed consequence and repeated effort.
+
+If the session evidence is adequate but shows no material friction, give a concise clean retrospective naming the goal and what worked. That is a complete result, distinct from insufficient evidence; do not request more material or invent an issue to fill the response. If a draft was requested, explain that this session supports no actionable issue.
 
 ## Issue drafts
 
