@@ -220,8 +220,8 @@ test('Story spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f
 
 test('Xray spec-only .md still does NOT fan out to mcp_conformance / template_expensive (rf2-f79t8, rf2-6ng7)', () => {
   // The Xray spec's arms are on the PATH axis, not a blanket: markdown cannot
-  // change an MCP wire surface or the generated app's compile, and no suite in
-  // either lane reads these files.
+  // change an MCP wire surface or the generated app's compile. The one page an
+  // MCP suite reads, 024-Resources-Panel.md, arms by name (the prose roster).
   const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
   assert.equal(result.mcp_conformance, 'false');
   assert.equal(result.template_expensive, 'false');
@@ -6040,11 +6040,22 @@ pinnedRoster(
 // The roster's readers whose job gates on an output OTHER than the JVM tier:
 // path -> the suite that reads it -> the job that runs it -> the output that
 // job's `if:` reads. A page arms its reader's output, and `implementation_jvm`
-// schedules neither job.
+// schedules none of these jobs. The `examples/` and `tools/` rows are nested
+// inside their own tree's arm rather than the prose block, so they also carry
+// whatever that arm sets.
 const PROSE_PINS_ARMING_OTHER_LANES = [
   ['docs/core/testing/views.md', 'uix_component_recipe_docs_pin_test.clj', 'jvm-uix', 'adapter_diagnostic'],
   ['docs/core/how-to/use-uix-or-slim.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
   ['docs/skills/re-frame2-setup.md', 'setup_drift_test.clj', 'skills-structural', 'skills_structural'],
+  ['spec/Conventions.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['spec/009-Instrumentation.md', 'infinite_trace_ops_test.clj', 'mcp-conformance-wire-vocab', 'mcp_conformance'],
+  ['examples/substrates/uix/counter/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/login/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/dashboard/core.cljs', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/counter/README.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/login/README.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['examples/substrates/uix/dashboard/README.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['tools/xray/spec/024-Resources-Panel.md', 'infinite_trace_ops_test.clj', 'mcp-conformance-wire-vocab', 'mcp_conformance'],
 ];
 
 pinnedRoster(
@@ -6113,10 +6124,14 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
 
 test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', () => {
   // Markdown cannot change what React puts on a page — held here for every
-  // prose arm, `spec/Spec-Schemas.md` included (its own case below).
+  // prose arm, `spec/Spec-Schemas.md` included (its own case below). The
+  // `examples/` and `tools/` rows are not prose arms: each is nested in its
+  // tree's own arm, which sets the CLJS tiers for the whole tree.
   const forbidden = ['cljs_browser', 'cljs_prod', 'bundle_isolation',
     'adapter_testbed_smokes', 'story_xray_browser', 'fresco_controlled', 'playground'];
-  for (const [file] of [...PROSE_PINS_ARMING_JVM, ...PROSE_PINS_ARMING_OTHER_LANES]) {
+  const proseArms = [...PROSE_PINS_ARMING_JVM, ...PROSE_PINS_ARMING_OTHER_LANES]
+    .filter(([file]) => !/^(examples|tools)\//.test(file));
+  for (const [file] of proseArms) {
     const result = classify(file);
     for (const key of forbidden) {
       assert.equal(result[key], 'false', `${file} must not arm ${key}`);

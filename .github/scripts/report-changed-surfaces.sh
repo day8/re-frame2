@@ -1598,6 +1598,8 @@ else
       #   spec/013-Flows.md                          "                → jvm-core
       #   spec/Tool-Pair.md                  spec_elision_registry_tense_
       #   spec/Security.md                     conformance_test.clj   → jvm-core
+      #   spec/Conventions.md                uix_consumer_deps_recipe_test.clj
+      #                                                              → jvm-uix
       #   spec/009-Instrumentation.md        error_catalogue_channel_conformance
       #                                        _test.clj (core), scope_ensure_
       #                                        authority_test.clj (core),
@@ -1607,6 +1609,8 @@ else
       #                                        spawn_all_authority_catalogue_
       #                                        test.clj (machines)
       #                                              → jvm-core + jvm-machines
+      #                                        infinite_trace_ops_test.clj
+      #                                              → mcp-conformance-wire-vocab
       #   spec/005-StateMachines.md          transition_geometry_terminology_jvm_
       #                                        test.clj, destroyed_reason_channel
       #                                        _conformance_test.clj → jvm-machines
@@ -1616,6 +1620,16 @@ else
       #                                                              → jvm-ssr
       #   spec/Spec-Schemas.md               FOUR suites in THREE artefacts — see
       #                                        its own arm below.
+      #   examples/substrates/uix/{counter,  uix_consumer_deps_recipe_test.clj
+      #     login,dashboard}/{core.cljs,                             → jvm-uix
+      #     README.md}
+      #   tools/xray/spec/024-Resources-     infinite_trace_ops_test.clj
+      #     Panel.md                                 → mcp-conformance-wire-vocab
+      #
+      # The last two rows live in their own tree's arm, nested inside the
+      # `examples/*` and `tools/xray/spec/*.md` arms further down, because a
+      # `case` takes the first match: a row here would precede that arm and
+      # drop every output it sets.
       #
       # WHY `implementation_jvm` AND NOT SOMETHING NARROWER. There is nothing
       # narrower. `implementation_jvm` is the single output every
@@ -1626,11 +1640,12 @@ else
       # on the PATH axis instead: prose a suite reads arms the JVM tier, and
       # prose nothing reads arms nothing.
       #
-      # Two readers in the roster run OUTSIDE that tier, and their pages arm
+      # Three readers in the roster run OUTSIDE that tier, and their pages arm
       # their own job's output instead: `jvm-uix` gates on
-      # `adapter_diagnostic` and `skills-structural` on `skills_structural`.
-      # A page arms the output its reader's job reads — `implementation_jvm`
-      # reaches neither.
+      # `adapter_diagnostic`, `skills-structural` on `skills_structural` and
+      # `mcp-conformance-wire-vocab` on `mcp_conformance`. A page arms the
+      # output its reader's job reads — `implementation_jvm` reaches none of
+      # them.
       #
       # NONE of these arms `cljs_browser`, `cljs_prod` or any Playwright
       # output. Markdown cannot change what React puts on a page.
@@ -1722,6 +1737,29 @@ else
         # and no JVM tier. The other ten pages in the tree have no reader.
         skills_structural=true
         ;;
+      spec/Conventions.md)
+        # One named page, keeping the `implementation_jvm` the `spec/*`
+        # catch-all below would have given it, since this row takes the first
+        # match from that arm. It adds `adapter_diagnostic`:
+        # `uix_consumer_deps_recipe_test.clj` holds the UIx dependency recipe
+        # this page publishes to the `uix.*` namespaces the UIx examples
+        # require, and it runs in `jvm-uix`, which gates on that output alone.
+        implementation_jvm=true
+        adapter_diagnostic=true
+        ;;
+      spec/009-Instrumentation.md)
+        # Read by the JVM-tier suites in the roster above, so it keeps
+        # `implementation_jvm`, and by `infinite_trace_ops_test.clj`, which
+        # holds the four `:infinite`-feed `:rf.resource/*` trace ops and their
+        # loud-merge error to this page's catalogue. That suite runs in
+        # `mcp-conformance-wire-vocab`, gated on `mcp_conformance`, which the
+        # catch-all never sets. Four jobs ride that output — the wire-vocab and
+        # story conformance lanes and the two MCP Node lanes, 28s, 1m16s, 28s
+        # and 2m54s in one measured run — and they run in parallel beside the
+        # JVM tier this page queues anyway.
+        implementation_jvm=true
+        mcp_conformance=true
+        ;;
       spec/Spec-Schemas.md)
         # The widest single miss in the roster.
         #
@@ -1762,9 +1800,10 @@ else
         # It is a CATCH-ALL, so its POSITION is load-bearing twice over. A
         # POSIX `case` takes the first match and `*` spans `/`, so this arm
         # would swallow every narrower `spec/` case if it preceded them. The
-        # three that must stay ahead of it, and do:
+        # ones that must stay ahead of it, and do:
         #   spec/api-manifest{,-metadata}.edn + spec/API.md  (cljs_node_test)
         #   spec/conformance/fixtures/*
+        #   spec/Conventions.md, spec/009-Instrumentation.md (above)
         #   spec/Spec-Schemas.md                             (immediately above)
         # A new narrower `spec/` arm goes ABOVE this one or it is dead code.
         implementation_jvm=true
@@ -2113,6 +2152,18 @@ else
         cljs_node_test=true
         cljs_prod=true
         bundle_isolation=true
+        # The three UIx substrate examples also have a JVM reader:
+        # `uix_consumer_deps_recipe_test.clj` scans each `core.cljs` for the
+        # `uix.*` namespaces it requires and holds each README's dependency
+        # recipe to them. It runs in `jvm-uix`, gated on `adapter_diagnostic`,
+        # so these six files arm that output. The row sits here, not in the
+        # prose block above, because that block precedes this arm and a row
+        # there would take the first match and drop the four outputs above.
+        # Add a file when that suite names one.
+        case "$file" in
+          examples/substrates/uix/counter/core.cljs|examples/substrates/uix/login/core.cljs|examples/substrates/uix/dashboard/core.cljs|examples/substrates/uix/counter/README.md|examples/substrates/uix/login/README.md|examples/substrates/uix/dashboard/README.md)
+            adapter_diagnostic=true ;;
+        esac
         ;;
       testbeds/tenant_switcher/*)
         # The tenant-switcher testbed is the ONE top-level
@@ -2235,12 +2286,20 @@ else
           # would be a second copy of a roster that lives in the two
           # suites, free to drift the moment a fifth spec file is read or
           # content moves between files. `mcp_conformance` and
-          # `template_expensive` stay OFF — markdown cannot change an MCP wire
-          # surface or the generated app's compile, and no suite in either
-          # lane reads these files.
+          # `template_expensive` stay OFF for the tree — markdown cannot change
+          # an MCP wire surface or the generated app's compile — and the one
+          # page an MCP suite reads arms `mcp_conformance` by name below.
           tools/xray/spec/*.md)
             tools_jvm=true
             cljs_node_test=true
+            # `infinite_trace_ops_test.clj` holds the `:infinite`-feed trace
+            # ops to this page's `:rf.resource/*` trace family. It runs in
+            # `mcp-conformance-wire-vocab`, gated on `mcp_conformance`. The
+            # page, not the tree: no other Xray spec page has an MCP reader.
+            case "$file" in
+              tools/xray/spec/024-Resources-Panel.md)
+                mcp_conformance=true ;;
+            esac
             ;;
           tools/story/spec/*.md)
             : # spec doc only — no runtime/JVM/MCP/CLJS/template fan-out.
