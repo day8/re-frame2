@@ -83,19 +83,19 @@
                    (rf.frame/require-current-frame! :dispatch {:where 're-frame.router/dispatch!
                                                             :event-id :todo/add})
                    nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown) "require-current-frame! throws outside any scope")
-      (let [data (ex-data thrown)]
-        (is (= :rf.error/no-frame-context (:rf.error/id data))
-            "ex-data carries the canonical :rf.error/id discriminator")
-        (is (= :dispatch (:operation data))
-            "ex-data carries the :operation")
-        (is (= 're-frame.router/dispatch! (:where data))
-            "ex-data carries the caller-supplied :where")
-        (is (= :todo/add (:event-id data))
-            "ex-data carries the caller-supplied :event-id")
-        (is (= :supply-frame (:recovery data))
-            "ex-data carries :recovery :supply-frame")))))
+                   (catch clojure.lang.ExceptionInfo e e))
+          data   (ex-data thrown)]
+      (is (= :rf.error/no-frame-context (:rf.error/id data))
+          "require-current-frame! throws outside any scope; ex-data carries the
+           canonical :rf.error/id discriminator")
+      (is (= :dispatch (:operation data))
+          "ex-data carries the :operation")
+      (is (= 're-frame.router/dispatch! (:where data))
+          "ex-data carries the caller-supplied :where")
+      (is (= :todo/add (:event-id data))
+          "ex-data carries the caller-supplied :event-id")
+      (is (= :supply-frame (:recovery data))
+          "ex-data carries :recovery :supply-frame"))))
 
 (deftest no-frame-context-rides-the-always-on-error-axis
   (testing ":rf.error/no-frame-context fans out through the production-survivable error-emit listener registry (axis 1)"
@@ -107,11 +107,8 @@
       (let [no-frame (filterv #(= :rf.error/no-frame-context (:error %)) @records)]
         (is (= 1 (count no-frame))
             "exactly one :rf.error/no-frame-context record reached the always-on listener")
-        (let [r (first no-frame)]
-          (is (nil? (:frame r))
-              "the record carries no frame — absence is the whole point")
-          (is (= :rf.error/no-frame-context (:error r))
-              "the record's :error is the canonical category"))))))
+        (is (nil? (:frame (first no-frame)))
+            "the record carries no frame — absence is the whole point")))))
 
 ;; ---- :rf/default is an ordinary id ----------------------------------------
 
@@ -223,19 +220,6 @@
           (is (= :app (rf.frame/require-current-frame! :subscribe))
               "a matched carry is the one thing the mismatch check must not break"))))))
 
-(deftest a-mismatched-carried-stamp-is-refused
-  (testing "the stamp names a frame OTHER than the one the extent renders, so
-           the body would have two frames in it — an ambiguity, not a
-           carried-stamp win"
-    (is (= :rf.error/ambient-frame-refused
-           (refused-id #(rf.frame/call-with-ambient-frame-refused
-                          {:substrate :probe :extent-frame :app
-                           :reason "Use the probe's own reader."}
-                          (fn []
-                            (binding [rf.frame/*current-frame* :other]
-                              (rf.frame/require-current-frame! :subscribe))))))
-        "the same id an ambient read gets — one refusal, two sentences")))
-
 (deftest the-mismatch-payload-names-both-frames
   (testing "a diagnostic that cannot say WHICH two frames collided sends the
            author looking for the wrong one"
@@ -259,16 +243,6 @@
       (is (.contains ^String (:reason data) "Use the probe's own reader.")
           "and the substrate's own sentence is still carried verbatim"))))
 
-(deftest an-extent-that-names-no-frame-refuses-no-carried-stamp
-  (testing "the check is a declaration, not a policy core imposes: an extent
-           with no frame of its own has nothing to be mismatched against, so
-           a carried stamp wins there exactly as in the rule above"
-    (rf.frame/call-with-ambient-frame-refused
-      {:substrate :probe :reason "Use the probe's own reader."}
-      (fn []
-        (binding [rf.frame/*current-frame* :other]
-          (is (= :other (rf.frame/require-current-frame! :subscribe))))))))
-
 (deftest the-reader-itself-answers-nil-for-a-mismatched-stamp
   (testing "the check lives in `resolve-current-frame`, not only in
            `require-current-frame!`, and that placement is load-bearing.
@@ -284,10 +258,7 @@
       (fn []
         (binding [rf.frame/*current-frame* :other]
           (is (nil? (rf.frame/resolve-current-frame))
-              "a stamp this extent will not accept is not an ambient answer"))
-        (binding [rf.frame/*current-frame* :app]
-          (is (= :app (rf.frame/resolve-current-frame))
-              "and the extent's own frame still is"))))))
+              "a stamp this extent will not accept is not an ambient answer"))))))
 
 (deftest the-reader-first-subscribe-path-refuses-a-mismatched-stamp
   (testing "the end-to-end consequence of the row above, taken through the

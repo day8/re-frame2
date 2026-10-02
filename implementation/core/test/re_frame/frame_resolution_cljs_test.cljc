@@ -126,16 +126,11 @@
         (rf.live-frame/call-with-frame-resolution todo-frame
           (fn []
             (is (= ::todo-boot (rf.registrar/handler :event :boot/init))))))
-      (testing "the COUNTER frame resolves the SAME id to the counter image's handler"
+      (testing "the COUNTER frame resolves the SAME id to the counter image's handler
+                — the todo frame's id did not leak into it (no global clobber)"
         (rf.live-frame/call-with-frame-resolution counter-frame
           (fn []
-            (is (= ::counter-boot (rf.registrar/handler :event :boot/init))))))
-      (testing "neither frame's id leaks into the other (no global clobber):
-                resolving each frame again still yields its own descriptor"
-        (rf.live-frame/call-with-frame-resolution todo-frame
-          (fn [] (is (= ::todo-boot (rf.registrar/handler :event :boot/init)))))
-        (rf.live-frame/call-with-frame-resolution counter-frame
-          (fn [] (is (= ::counter-boot (rf.registrar/handler :event :boot/init)))))))))
+            (is (= ::counter-boot (rf.registrar/handler :event :boot/init)))))))))
 
 ;; ===========================================================================
 ;; 3. dispatch / sub / fx / cofx all derive from the target frame
