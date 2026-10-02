@@ -16,7 +16,7 @@
     6. The reset event restores the column's default width.
 
   The drag-simulation pattern mirrors `resize_handle_cljs_test`."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [cljs.reader]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -164,30 +164,9 @@
 ;; cursor. Shrinking `col-id` on a rightward drag makes the
 ;; divider's rendered position track the pointer 1:1 (and matches
 ;; standard split-pane semantics: dragging the boundary TOWARD a
-;; column shrinks it).
-
-(deftest drag-right-narrows-col-and-tracks-cursor
-  (setup!)
-  (let [dispatches (atom [])]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (shell/col-divider-start-drag! (stub-event 1000) :source 52)
-      ;; Divider sits to the LEFT of `source`. Dragging RIGHT
-      ;; (pageX 1080 > 1000, dx +80) NARROWS source by 80 → -28,
-      ;; which clamps to the 40px floor at write-time (`set-event-
-      ;; list-col-width` applies the clamp; this test only asserts
-      ;; the DISPATCHED delta, not the clamped persisted value —
-      ;; see `set-event-list-col-width-clamps-to-floor` below).
-      (shell/col-divider-simulate-move! 1080)
-      (shell/col-divider-simulate-up!))
-    (let [width-events (filter #(= :rf.xray/set-event-list-col-width (first %))
-                               @dispatches)]
-      (is (seq width-events)
-          "set-event-list-col-width was dispatched at least once")
-      (is (some #(= [:rf.xray/set-event-list-col-width :source -28] %)
-                width-events)
-          "drag right by 80px dispatched 52 - 80 = -28 (pre-clamp delta) — the divider's OWN position tracks the pointer because `event id` absorbs the +80 this column gives up"))))
+;; column shrinks it). `col-divider-drag-binds-the-dividers-own-document`
+;; below pins the rightward drag (52px source, +80 → -28 pre-clamp); the
+;; row here pins the leftward one.
 
 (deftest drag-left-widens-col-and-tracks-cursor
   (setup!)
@@ -324,53 +303,26 @@
                  :preventDefault (fn [] (reset! prevented? true))}
      :prevented? prevented?}))
 
-(deftest keydown-arrow-right-widens
-  (setup!)
+(defn- keydown-dispatches
+  "Every event `col-divider-handle-keydown!` dispatches for one keypress on
+  column `col` at `width`."
+  [key shift? col width]
   (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowRight" false)]
+        {:keys [event]} (stub-key-event key shift?)]
     (with-redefs [rf/dispatch (fn
                                  ([ev]       (swap! dispatches conj ev) nil)
                                  ([ev _opts] (swap! dispatches conj ev) nil))]
-      (shell/col-divider-handle-keydown! event :source 60))
-    (is (some #(= [:rf.xray/set-event-list-col-width :source 70] %)
-              @dispatches)
-        "ArrowRight adds the 10px fine step (60 + 10 = 70)")))
+      (shell/col-divider-handle-keydown! event col width))
+    @dispatches))
 
-(deftest keydown-arrow-left-narrows
+(deftest keydown-bindings-dispatch-their-documented-event
   (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowLeft" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (shell/col-divider-handle-keydown! event :timestamp 100))
-    (is (some #(= [:rf.xray/set-event-list-col-width :timestamp 90] %)
-              @dispatches)
-        "ArrowLeft subtracts the 10px fine step (100 - 10 = 90)")))
-
-(deftest keydown-shift-arrow-uses-coarse-step
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "ArrowRight" true)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (shell/col-divider-handle-keydown! event :duration 60))
-    (is (some #(= [:rf.xray/set-event-list-col-width :duration 90] %)
-              @dispatches)
-        "Shift+ArrowRight uses the 30px coarse step (10 × 3)")))
-
-(deftest keydown-enter-resets
-  (setup!)
-  (let [dispatches (atom [])
-        {:keys [event]} (stub-key-event "Enter" false)]
-    (with-redefs [rf/dispatch (fn
-                                 ([ev]       (swap! dispatches conj ev) nil)
-                                 ([ev _opts] (swap! dispatches conj ev) nil))]
-      (shell/col-divider-handle-keydown! event :source 200))
-    (is (some #(= [:rf.xray/reset-event-list-col-width :source] %)
-              @dispatches)
-        "Enter dispatched the reset event for the source column")))
+  (are [key shift? col width expected]
+       (some #(= expected %) (keydown-dispatches key shift? col width))
+    "ArrowRight" false :source    60  [:rf.xray/set-event-list-col-width :source 70]    ; +10px fine step
+    "ArrowLeft"  false :timestamp 100 [:rf.xray/set-event-list-col-width :timestamp 90] ; -10px fine step
+    "ArrowRight" true  :duration  60  [:rf.xray/set-event-list-col-width :duration 90]  ; Shift: 30px coarse step (10 × 3)
+    "Enter"      false :source    200 [:rf.xray/reset-event-list-col-width :source]))
 
 (deftest keydown-other-keys-return-false
   (setup!)
