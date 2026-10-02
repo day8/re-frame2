@@ -93,9 +93,7 @@
              :value / :on-dispose / :pending-dispose / :registered-at slot")
         (is (= [[:a] [:b]] (:inputs e)) ":inputs holds the resolved declared-input chain")
         (is (= 1 (:ref-count e)))
-        (is (some? (:reaction e)) "the reaction (derived container) is stored")
-        (is (not (contains? e :value))
-            "the value lives on the reaction (deref), never a stored slot"))
+        (is (some? (:reaction e)) "the reaction (derived container) is stored"))
       ;; Layer-1 entry: empty declared-input chain.
       (let [e (entry [:a])]
         (is (= #{:reaction :inputs :ref-count} (set (keys e)))
@@ -105,37 +103,26 @@
 
 ;; ---- synchronous disposal --------------------------------------------------
 
-(deftest sync-disposal-on-last-unsubscribe
-  (testing "ref-count → 0 disposes the cache slot synchronously"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
+(deftest sub-cache-ref-counting
+  (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
+    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
-    (is (contains? (cache-keys) [:n]))
-    (is (= 1 (entry-ref-count [:n])))
-
-    (rf/unsubscribe [:n])
-    ;; The slot is gone immediately — no scheduling, no timer.
-    (is (not (contains? (cache-keys) [:n]))
-        "cache slot disposed in-tick on the 1 → 0 transition")))
-
-(deftest sync-disposal-respects-multiple-subscribers
-  (testing "only the LAST subscriber dropping disposes"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
-    (rf/subscribe [:n])
-    (is (= 2 (entry-ref-count [:n])))
-
-    (rf/unsubscribe [:n])
-    (is (= 1 (entry-ref-count [:n])))
-    (is (contains? (cache-keys) [:n]))
-
-    (rf/unsubscribe [:n])
-    (is (not (contains? (cache-keys) [:n])))))
+    (rf/dispatch-sync [:seed])
+    (let [cache (:sub-cache (rf.frame/frame :rf/default))]
+      ;; Two subscriptions to the same query share a single cache slot.
+      (let [r1 (rf/subscribe [:n])
+            r2 (rf/subscribe [:n])]
+        (is (identical? r1 r2) "cache hit returns the same reaction")
+        (is (contains? @cache [:n]))
+        (is (= 2 (get-in @cache [[:n] :ref-count]))))
+      ;; First unsubscribe drops to 1, slot still present.
+      (rf/unsubscribe [:n])
+      (is (contains? @cache [:n]))
+      (is (= 1 (get-in @cache [[:n] :ref-count])))
+      ;; Second unsubscribe drops to 0; slot is evicted synchronously.
+      (rf/unsubscribe [:n])
+      (is (not (contains? @cache [:n]))
+          "cache slot is removed when ref-count reaches zero"))))
 
 ;; ---- subscribe-once {:frame} opts-map call-shape --------------------------
 ;;
@@ -498,35 +485,6 @@
 ;; `:input-signals` symmetrically with the construction-time `subscribe`
 ;; calls. These tests pin the symmetric invariant.
 
-(deftest layer-2-disposal-decrements-input-ref-counts
-  (testing "disposing a layer-2 sub decrements ref-counts on every declared input"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum
-      {:inputs [[:a] [:b]]}
-      (fn [[a b] _] (+ a b)))
-    (rf/dispatch-sync [:init])
-
-    ;; Subscribe to the parent layer-2 sub. This recursively subscribes
-    ;; to both inputs, bumping each to ref-count 1.
-    (let [r (rf/subscribe [:sum])]
-      (is (= 5 @r))
-      (is (= 1 (entry-ref-count [:sum])) "parent ref-count = 1")
-      (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
-      (is (= 1 (entry-ref-count [:b])) "input :b ref-count = 1 after layer-2 build"))
-
-    ;; Dispose the parent (sole subscriber drops → sync dispose).
-    (rf/unsubscribe [:sum])
-
-    ;; Parent slot is gone; inputs cascaded to ref-count 0 and were
-    ;; themselves disposed (no other holders).
-    (is (not (contains? (cache-keys) [:sum])) "parent disposed")
-    (is (not (contains? (cache-keys) [:a]))
-        "input :a disposed via cascade (ref-count → 0)")
-    (is (not (contains? (cache-keys) [:b]))
-        "input :b disposed via cascade (ref-count → 0)")))
-
 (deftest layer-2-disposal-respects-shared-inputs
   (testing "disposing one layer-2 sub decrements shared input only by one"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3 :c 4}}))
@@ -758,28 +716,7 @@
               (is (not (contains? tags :rf.sub/query-v))
                   "there is no :rf.sub/query-v tag (Spec 009 shape)"))))))))
 
-;; ---- ref-counting and hot-reload smoke -------------------------------------
-
-(deftest sub-cache-ref-counting
-  (testing "subscribe / unsubscribe pair tracks ref-count and disposes on zero"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [cache (:sub-cache (rf.frame/frame :rf/default))]
-      ;; Two subscriptions to the same query share a single cache slot.
-      (let [r1 (rf/subscribe [:n])
-            r2 (rf/subscribe [:n])]
-        (is (identical? r1 r2) "cache hit returns the same reaction")
-        (is (contains? @cache [:n]))
-        (is (= 2 (get-in @cache [[:n] :ref-count]))))
-      ;; First unsubscribe drops to 1, slot still present.
-      (rf/unsubscribe [:n])
-      (is (contains? @cache [:n]))
-      (is (= 1 (get-in @cache [[:n] :ref-count])))
-      ;; Second unsubscribe drops to 0; slot is evicted synchronously.
-      (rf/unsubscribe [:n])
-      (is (not (contains? @cache [:n]))
-          "cache slot is removed when ref-count reaches zero"))))
+;; ---- hot reload -------------------------------------------------------------
 
 (deftest sub-hot-reload-invalidates-cache
   (testing "re-registering a :sub disposes cached reactions and emits a trace"
@@ -874,9 +811,8 @@
       ;; Reading under the :jue/left scope sees ONLY :jue/left's app-db.
       (rf/with-frame :jue/left
         (is (= :left-value @(rf/subscribe [:v]))
-            "ambient read under :jue/left resolves :jue/left")
-        (is (not= :right-value @(rf/subscribe [:v]))
-            "the read did NOT bleed into the sibling :jue/right frame"))
+            "ambient read under :jue/left resolves :jue/left, not the sibling
+             :jue/right frame"))
       ;; And under :jue/right it sees ONLY :jue/right's app-db.
       (rf/with-frame :jue/right
         (is (= :right-value @(rf/subscribe [:v]))

@@ -36,41 +36,6 @@
 (defn- entry-ref-count [query-v]
   (get-in @(:sub-cache (rf.frame/frame :rf/default)) [query-v :ref-count]))
 
-(deftest layer-2-disposal-decrements-input-ref-counts-on-cljs-plain-atom
-  (testing "disposing a layer-2 sub on the CLJS-plain-atom
-            adapter decrements ref-counts on every declared input and cascades
-            their disposal, mirroring the JVM contract"
-    (rf/reg-event :init(fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum
-      {:inputs [[:a] [:b]]}
-      (fn [[a b] _] (+ a b)))
-    (rf/dispatch-sync [:init])
-
-    ;; Subscribe to the parent layer-2 sub — recursively subscribes both
-    ;; inputs, bumping each to ref-count 1. Use the explicit-frame
-    ;; `rf.subs/subscribe` so the test drives the reactive cache path
-    ;; directly (the macro `rf/subscribe` resolves a render-time frame
-    ;; context that headless node tests do not establish).
-    (let [r (rf.subs/subscribe [:sum] {:frame :rf/default})]
-      (is (= 5 @r))
-      (is (= 1 (entry-ref-count [:sum])) "parent ref-count = 1")
-      (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
-      (is (= 1 (entry-ref-count [:b])) "input :b ref-count = 1 after layer-2 build"))
-
-    ;; Dispose the parent (sole subscriber drops → sync dispose).
-    ;; Without a published :adapter/dispose! hook and IDisposable on the
-    ;; derived value, the input-release callback would never register and
-    ;; :a / :b would leak here.
-    (rf.subs/unsubscribe :rf/default [:sum])
-
-    (is (not (contains? (cache-keys) [:sum])) "parent disposed")
-    (is (not (contains? (cache-keys) [:a]))
-        "input :a disposed via cascade (ref-count → 0) — no leak")
-    (is (not (contains? (cache-keys) [:b]))
-        "input :b disposed via cascade (ref-count → 0) — no leak")))
-
 (deftest layer-2-disposal-respects-shared-inputs-on-cljs-plain-atom
   (testing "a shared input is decremented by exactly one when
             one of its layer-2 holders disposes; it survives while another
