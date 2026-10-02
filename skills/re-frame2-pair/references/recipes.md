@@ -199,6 +199,8 @@ When the user mentions a state machine (Spec 005), chain:
 
 ## Experiment loop
 
+Use this loop for a requested live experiment or fix. For a read-only diagnosis or proposal, inspect the existing state and evaluate the candidate against captured inputs without replacing registrations or dispatching it. A throwaway registration changes the live registry even when its event is later dry-run.
+
 **Reach for `dispatch-dry-run` first for hypothesis-testing of a registered event.** It suppresses declared effects and restores the actual pre-call frame-state on success. Check `:ok? true` and `:rolled-back? true`; the [dry-run recipe](#what-would-this-event-do-dry-run) explains its rollback prerequisites and observation limits. Use the manual loop below when you need a committed baseline or real effect execution.
 
 **Probing a *throwaway* handler — register, then dry-run.** `dispatch-dry-run` targets a **registered** event, so to test a hypothesis handler you wrote on the spot: register it with `eval-cljs`, then dry-run it — never drive it with a live `dispatch`:
