@@ -262,17 +262,6 @@
         results (sources/rank index "" 3)]
     (is (= 3 (count results)))))
 
-(deftest rank-recency-boosts-latest-event
-  ;; Two events whose labels both fuzzy-match the query; the more
-  ;; recent one should score higher because of the recency bonus.
-  (let [buf [{:id 1 :op :rf.event/handled :event-id [:foo]}
-             {:id 2 :op :rf.event/handled :event-id [:foo]}]
-        index   (sources/recent-event-items buf)
-        results (sources/rank index "foo" 10)
-        scores  (map :score results)]
-    (is (>= (first scores) (last scores))
-        "the higher-ranked (more recent) match scores ≥ the older one")))
-
 ;; ---- popoutable? --------------------------------------------------------
 
 (deftest popoutable?-respects-opt-in

@@ -133,12 +133,15 @@
 
 (deftest result-rows-carry-option-role-and-aria-selected
   (testing "each result <li> is role=option with
-            aria-selected matching whether the cursor is on it"
+            aria-selected matching whether the cursor is on it, and an id
+            distinct from every other row's, so aria-activedescendant
+            always points at exactly one row"
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/palette-open]))
     (let [tree (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
-          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")]
+          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
+          ids  (mapv (comp :id props) rows)]
       (is (seq rows) "the palette renders at least one row")
       (doseq [row rows]
         (let [attrs (props row)]
@@ -148,36 +151,14 @@
               "every result row carries aria-selected (boolean string)")
           (is (string? (:id attrs))
               "every result row carries a unique id so
-               aria-activedescendant can reference it"))))))
-
-(deftest result-row-ids-are-unique
-  (testing "each row id is distinct so
-            aria-activedescendant always points at exactly one row"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/palette-open]))
-    (let [tree (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
-          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
-          ids  (mapv (comp :id props) rows)]
+               aria-activedescendant can reference it")))
       (is (= (count ids) (count (set ids)))
           "every row id is unique within the rendered list"))))
 
-(deftest active-row-aria-selected-true-matches-cursor
-  (testing "the row at cursor position carries
-            aria-selected=true; siblings carry false"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/palette-open])
-      (rf/dispatch-sync [:rf.xray/palette-cursor-set 0]))
-    (let [tree (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
-          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
-          selected (filter #(= "true" (:aria-selected (props %))) rows)]
-      (is (= 1 (count selected))
-          "exactly one row carries aria-selected=true"))))
-
 (deftest input-aria-activedescendant-points-at-active-row
-  (testing "the input's aria-activedescendant points at
-            the active row's id. Screen readers track the highlight
+  (testing "the row at cursor position is the one row carrying
+            aria-selected=true, and the input's aria-activedescendant
+            points at its id. Screen readers track the highlight
             without focus moving off the input."
     (xray-setup!)
     (rf/with-frame :rf/xray
@@ -186,10 +167,9 @@
     (let [tree     (rf/with-frame :rf/xray (palette-tree/palette-tree rf/dispatch))
           input    (rf.test-helpers/find-by-testid tree "rf-xray-palette-input")
           rows     (rf.test-helpers/find-by-testid-prefix tree "rf-xray-palette-row-")
-          active   (some (fn [row]
-                           (when (= "true" (:aria-selected (props row)))
-                             (:id (props row))))
-                         rows)]
-      (is (some? active) "an active row was found")
-      (is (= active (:aria-activedescendant (props input)))
+          selected (filter #(= "true" (:aria-selected (props %))) rows)]
+      (is (= 1 (count selected))
+          "exactly one row carries aria-selected=true")
+      (is (= (:id (props (first selected)))
+             (:aria-activedescendant (props input)))
           "input's aria-activedescendant matches the active row's id"))))
