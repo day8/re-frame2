@@ -12,20 +12,12 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
-            [re-frame.story.xray-preset :as rf.story.xray-preset]
-            #?@(:cljs [[re-frame.core :as rf]
-                       [re-frame.frame :as rf.frame]
-                       [re-frame.registrar :as rf.registrar]
-                       [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]])))
+            [re-frame.story.xray-preset :as rf.story.xray-preset]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn reset-all! []
   (rf.story/clear-all!)
-  #?(:cljs (do (rf.registrar/clear-all!)
-               (reset! rf.frame/frames {})
-               (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
-               (rf.frame/ensure-default-frame!)))
   (rf.story/install-canonical-vocabulary!))
 
 (use-fixtures :each (fn [t] (reset-all!) (t)))
@@ -61,9 +53,8 @@
        :xray {:open? true :panel :trace}})
     (rf.story/reg-variant :story.story-preset/v
       {:doc "v"})
-    (let [p (rf.story.xray-preset/resolve-preset :story.story-preset/v)]
-      (is (= true     (:open? p)))
-      (is (= :trace   (:panel p))))))
+    (is (= {:open? true :panel :trace}
+           (rf.story.xray-preset/resolve-preset :story.story-preset/v)))))
 
 (deftest resolve-preset-merges-story-and-variant
   (testing "variant :xray overrides story slot, :filters deep-merge"
@@ -77,10 +68,10 @@
       {:doc "v"
        :xray {:panel :trace
                :filters {:out [:drop/y]}}})
-    (let [p (rf.story.xray-preset/resolve-preset :story.both/v)]
-      (is (= true                                (:open? p)))
-      (is (= :trace                              (:panel p)))
-      (is (= {:in [:keep/x] :out [:drop/y]}      (:filters p))))))
+    (is (= {:open?   true
+            :panel   :trace
+            :filters {:in [:keep/x] :out [:drop/y]}}
+           (rf.story.xray-preset/resolve-preset :story.both/v)))))
 
 ;; ---- pure: lower-filters -------------------------------------------------
 ;;
@@ -152,6 +143,5 @@
 ;; dead code that reads as coverage.
 ;;
 ;; Keep this file to the pure `.cljc` surface (merge / resolve / lower /
-;; the closed preset map), which genuinely runs on both hosts. Anything
-;; CLJS-only belongs in the live sibling
-;; `re-frame.story.xray-preset-cljs-test`.
+;; the closed preset map), which the JVM lane runs. Anything CLJS-only
+;; belongs in the live sibling `re-frame.story.xray-preset-cljs-test`.

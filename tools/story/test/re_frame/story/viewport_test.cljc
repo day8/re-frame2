@@ -74,25 +74,14 @@
       (is (= 768 (:width r)))
       (is (= 1024 (:height r))))))
 
-(deftest resolve-story-override-beats-toolbar
-  (testing "precedence: story-override wins over toolbar selection"
-    (let [r (rf.story.viewport/resolve :mobile-portrait :tablet)]
-      (is (= "Mobile portrait" (:label r))
-          "override (:mobile-portrait) beat the toolbar (:tablet)"))))
-
-(deftest resolve-custom-override-beats-toolbar
-  (testing "a custom map as the story-override is honoured"
-    (let [r (rf.story.viewport/resolve {:width 500 :height 300} :tablet)]
-      (is (= 500 (:width r)))
-      (is (= 300 (:height r)))
-      (is (re-find #"500" (:label r)))
-      (is (re-find #"300" (:label r))))))
-
-(deftest resolve-bad-override-falls-through-to-toolbar
-  (testing "an unrecognised override does NOT block the toolbar fallback"
-    (let [r (rf.story.viewport/resolve :phablet :tablet)]
-      (is (= "Tablet" (:label r))
-          "unknown override fell through to the live toolbar selection"))))
+(deftest resolve-prefers-a-usable-override-else-the-toolbar
+  (testing "a usable story-override beats the toolbar selection; an unusable one falls through"
+    (are [override resolved] (= resolved (rf.story.viewport/resolve override :tablet))
+      :mobile-portrait         {:label "Mobile portrait" :width 375 :height 667}
+      ;; a custom {:width :height} override renders under its synthetic label
+      {:width 500 :height 300} {:label "Custom 500x300" :width 500 :height 300}
+      ;; an unrecognised override does not block the live toolbar selection
+      :phablet                 {:label "Tablet" :width 768 :height 1024})))
 
 (deftest resolve-id-returns-keyword-or-custom
   (testing "resolve-id surfaces the resolved id for data-* attributes"

@@ -47,26 +47,14 @@
     (doseq [[_ body] rf.story.modes.standard/backgrounds]
       (is (string? (:background (:args body)))))))
 
-;; ---- schema conformance --------------------------------------------------
-
 ;; ---- installer side-effects ---------------------------------------------
 
-(deftest register-viewports-installs-all
-  (testing "register-viewports! adds every canonical viewport to the registry"
-    (let [ids (rf.story.modes.standard/register-viewports!)]
-      (is (= (set (keys rf.story.modes.standard/viewports)) ids))
-      (doseq [id (keys rf.story.modes.standard/viewports)]
-        (is (rf.story.registrar/registered? :mode id))))))
-
-(deftest register-backgrounds-installs-all
-  (testing "register-backgrounds! adds every canonical background to the registry"
-    (let [ids (rf.story.modes.standard/register-backgrounds!)]
-      (is (= (set (keys rf.story.modes.standard/backgrounds)) ids))
-      (doseq [id (keys rf.story.modes.standard/backgrounds)]
-        (is (rf.story.registrar/registered? :mode id))))))
-
 (deftest register-all-installs-both-axes
-  (testing "register-all! installs every viewport + background"
+  (testing "register-all! installs every viewport + background. It is
+            `register-viewports!` into `register-backgrounds!`, so this
+            reads both axis installers: each returns its own id set and
+            registers every body, which validates against the `Mode`
+            schema on the way in."
     (let [ids (rf.story.modes.standard/register-all!)]
       (is (= (into (set (keys rf.story.modes.standard/viewports))
                    (set (keys rf.story.modes.standard/backgrounds)))
