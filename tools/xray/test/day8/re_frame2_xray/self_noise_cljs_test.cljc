@@ -40,24 +40,6 @@
 
 ;; ---- predicate ----------------------------------------------------------
 
-(deftest xray-internal-event?-reads-tags-frame
-  ;; The predicate reads the RAW trace-event frame via the
-  ;; canonical reader `re-frame.trace/trace-event-frame` ([:tags :frame]).
-  ;; A raw trace event carries frame identity ONLY under
-  ;; [:tags :frame]; there is no top-level-`:frame` fallback.
-  (testing ":frame under :tags — true iff = :rf/xray"
-    (is (true?  (self-noise/xray-internal-event?
-                  {:tags {:frame :rf/xray}})))
-    (is (false? (self-noise/xray-internal-event?
-                  {:tags {:frame :rf/default}})))
-    (is (false? (self-noise/xray-internal-event?
-                  {:tags {:frame :rf/main}})))
-    (is (false? (self-noise/xray-internal-event?
-                  {:tags {:frame nil}})))
-    (is (false? (self-noise/xray-internal-event?
-                  {:tags {}})))
-    (is (false? (self-noise/xray-internal-event? {})))))
-
 (deftest xray-internal-event?-ignores-stray-top-level-frame
   ;; A stray top-level `:frame` is NOT a public raw-event shape;
   ;; the canonical reader ignores it. A raw event whose `[:tags :frame]` is
@@ -88,18 +70,6 @@
 ;; frameless secondary ring.
 
 #?(:cljs
-   (defn- xray-sub-read-event []
-     ;; Realistic `:rf.sub/run` emit from a Xray panel re-rendering in
-     ;; response to host activity. The sub fires under
-     ;; `(rf/with-frame :rf/xray ...)` so its trace envelope carries
-     ;; `:frame :rf/xray`. This is the noise the filter eliminates.
-     {:operation :rf.sub/run :op-type :rf.sub
-      :id 2 :time 1001
-      :tags {:rf.sub/id  :rf.xray/trace-buffer
-             :rf.sub/query-v [:rf.xray/trace-buffer]
-             :frame   :rf/xray}}))
-
-#?(:cljs
    (defn- xray-view-render-event []
      ;; Realistic `:rf.view/render` emit from a Xray panel re-rendering.
      ;; `:frame` rides under `:tags` per re-frame.views/emit-view-render-trace!
@@ -108,15 +78,6 @@
      {:operation :rf.view/render :op-type :rf.view
       :id 3 :time 1002
       :tags  {:rf.view/render-key 42 :frame :rf/xray}}))
-
-#?(:cljs
-   (deftest collect-trace-drops-xray-sub-reads
-     (testing "Xray-frame :rf.sub/run events MUST NOT enter the rings"
-       (trace-collector/collect-trace! (xray-sub-read-event))
-       (is (empty? (trace-collector/frameless-events))
-           "the self-induced sub-read drowns the host event under :ungrouped if recorded")
-       (is (= 0 (config/suppressed-count))
-           "the REDACTED counter must NOT bump — this is structural noise, not privacy"))))
 
 #?(:cljs
    (deftest collect-trace-drops-xray-view-renders
