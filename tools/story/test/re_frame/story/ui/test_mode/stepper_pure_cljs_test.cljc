@@ -5,30 +5,27 @@
   The substantive UI is CLJS but every projection function the view
   consumes is .cljc + pure so the JVM test corpus pins the contract
   without booting Reagent."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.ui.test-mode.stepper-pure :as rf.story.ui.test-mode.stepper-pure]))
 
 ;; ---- step-position -------------------------------------------------------
 
-(deftest step-position-cursor-zero
-  (testing "with cursor 0 the first row is :current; later rows pending"
-    (is (= :current (rf.story.ui.test-mode.stepper-pure/step-position 0 0)))
-    (is (= :pending (rf.story.ui.test-mode.stepper-pure/step-position 1 0)))
-    (is (= :pending (rf.story.ui.test-mode.stepper-pure/step-position 5 0)))))
-
-(deftest step-position-mid-run
-  (testing "with cursor 2 of 5: indices 0/1 are :done, 2 is :current, 3/4 pending"
-    (is (= :done    (rf.story.ui.test-mode.stepper-pure/step-position 0 2)))
-    (is (= :done    (rf.story.ui.test-mode.stepper-pure/step-position 1 2)))
-    (is (= :current (rf.story.ui.test-mode.stepper-pure/step-position 2 2)))
-    (is (= :pending (rf.story.ui.test-mode.stepper-pure/step-position 3 2)))
-    (is (= :pending (rf.story.ui.test-mode.stepper-pure/step-position 4 2)))))
-
-(deftest step-position-parked-at-end
-  (testing "cursor = total ⇒ every row is :done; nothing is :current"
-    (is (= :done (rf.story.ui.test-mode.stepper-pure/step-position 0 3)))
-    (is (= :done (rf.story.ui.test-mode.stepper-pure/step-position 1 3)))
-    (is (= :done (rf.story.ui.test-mode.stepper-pure/step-position 2 3)))))
+(deftest step-position-truth-table
+  (are [i cursor pos] (= pos (rf.story.ui.test-mode.stepper-pure/step-position i cursor))
+    ;; cursor 0: the first row is :current, later rows pending
+    0 0 :current
+    1 0 :pending
+    5 0 :pending
+    ;; cursor 2 of 5: rows before it :done, it :current, after it :pending
+    0 2 :done
+    1 2 :done
+    2 2 :current
+    3 2 :pending
+    4 2 :pending
+    ;; cursor = total: every row :done, nothing :current
+    0 3 :done
+    1 3 :done
+    2 3 :done))
 
 ;; ---- enrich-statuses ----------------------------------------------------
 

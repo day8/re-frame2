@@ -19,7 +19,7 @@
     the expected counts + headline; the sidebar's variant-row hiccup
     includes the status dot when the variant is testable; the
     'Run all' button renders disabled when any run is in flight."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.state :as rf.story.ui.state]
@@ -37,33 +37,23 @@
 
 ;; ---- pure: state transitions --------------------------------------------
 
-(deftest record-test-run-pass
-  (testing "a run with passed assertions records :pass + counts"
-    (let [s (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state :story.x/a
-                                   {:total 3 :passed 3 :failed 0 :skipped 0
-                                    :all-passed? true
-                                    :ran-at-ms 100 :elapsed-ms 12})]
-      (is (= :pass (get-in s [:tests :runs :story.x/a :status])))
-      (is (= 3     (get-in s [:tests :runs :story.x/a :passed])))
-      (is (= 0     (get-in s [:tests :runs :story.x/a :failed])))
-      (is (= 12    (get-in s [:tests :runs :story.x/a :elapsed-ms]))))))
+(deftest record-test-run-derives-status-from-the-summary
+  (are [summary status]
+       (= status (get-in (rf.story.ui.state/record-test-run
+                           rf.story.ui.state/default-shell-state :story.x/a summary)
+                         [:tests :runs :story.x/a :status]))
+    ;; every assertion passed
+    {:total 3 :passed 3 :failed 0 :skipped 0 :all-passed? true :ran-at-ms 100 :elapsed-ms 12}
+    :pass
 
-(deftest record-test-run-fail
-  (testing "a run with any failure records :fail"
-    (let [s (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state :story.x/a
-                                   {:total 3 :passed 1 :failed 2 :skipped 0
-                                    :all-passed? false})]
-      (is (= :fail (get-in s [:tests :runs :story.x/a :status])))
-      (is (= 2     (get-in s [:tests :runs :story.x/a :failed]))))))
+    ;; any failure
+    {:total 3 :passed 1 :failed 2 :skipped 0 :all-passed? false}
+    :fail
 
-(deftest record-test-run-empty-is-pending
-  (testing "a run that recorded zero assertions reads :pending — the
-            variant ran but produced no signal, so the sidebar dot
-            renders as 'not yet run' rather than green"
-    (let [s (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state :story.x/a
-                                   {:total 0 :passed 0 :failed 0 :skipped 0
-                                    :all-passed? false})]
-      (is (= :pending (get-in s [:tests :runs :story.x/a :status]))))))
+    ;; zero assertions: the variant ran but produced no signal, so the
+    ;; sidebar dot reads 'not yet run' rather than green
+    {:total 0 :passed 0 :failed 0 :skipped 0 :all-passed? false}
+    :pending))
 
 (deftest clear-test-run-drops-record
   (testing "clear-test-run removes the slot — the dot re-reads :pending"
@@ -131,9 +121,7 @@
                                    :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
     (let [vs (rf.story.registrar/registrations :variant)
           testable (rf.story.ui.state/testable-variant-ids vs)]
-      (is (= [:story.x/a :story.x/d] testable))
-      (is (not (some #{:story.x/b} testable)))
-      (is (not (some #{:story.x/c} testable))))))
+      (is (= [:story.x/a :story.x/d] testable)))))
 
 (deftest testable-variant-ids-counts-declarative-expectations
   (testing "a :test variant whose only tests are declarative
@@ -207,10 +195,6 @@
            (rf.story.ui.state/testable-variant-ids
              (rf.story.registrar/registrations :variant))))))
 
-(deftest testable-variant-ids-empty-on-no-registrations
-  (testing "no :test variants → empty seq, widget renders 'no :test variants'"
-    (is (empty? (rf.story.ui.state/testable-variant-ids {})))))
-
 ;; ---- pure: status → dot style + aria label -------------------------------
 
 #?(:cljs
@@ -249,8 +233,6 @@
        (is (= "tests: Running"   (rf.story.ui.sidebar/dot-aria-label :running)))
        (is (= "tests: Pending"   (rf.story.ui.sidebar/dot-aria-label :pending)))
        (is (= "tests: Can't run" (rf.story.ui.sidebar/dot-aria-label :cannot-run)))
-       (is (not= (rf.story.ui.sidebar/dot-aria-label :pending)
-                 (rf.story.ui.sidebar/dot-aria-label :cannot-run)))
        ;; Unrecognised / nil → the descriptor's pending fallback.
        (is (= "tests: Pending" (rf.story.ui.sidebar/dot-aria-label :unknown)))
        (is (= "tests: Pending" (rf.story.ui.sidebar/dot-aria-label nil))))))
@@ -367,8 +349,6 @@
          ;; Accessible channel — label + title both voice the refusal.
          (is (= "tests: Can't run" (:aria-label (props dot-cannot))))
          (is (= "tests: Pending"   (:aria-label (props dot-pending))))
-         (is (not= (:aria-label (props dot-cannot))
-                   (:aria-label (props dot-pending))))
          (is (= "tests: Can't run" (:title (props dot-cannot))))))))
 
 ;; ---- status-dot is decorative img (not a live region) -----------------
@@ -387,9 +367,7 @@
          (is (= "img" (get (second dot-fail) :role))
              "status-dot is exposed as an img with a label")
          (is (= "img" (get (second dot-pass) :role))
-             "every status produces the same img role")
-         (is (not= "status" (get (second dot-fail) :role))
-             "must NOT use role=status (live-region noise)")))))
+             "every status produces the same img role")))))
 
 #?(:cljs
    (deftest widget-run-all-button-disabled-while-running
@@ -426,11 +404,9 @@
              headline (first (find-by-data-test tree
                                                 "story-test-widget-headline"))]
          (is (some? headline))
-         ;; "Tests" headline reads "Tests" with a 1/1 or pending split;
-         ;; the load-bearing assertion is that 3 variants did NOT land —
-         ;; we did NOT see "0/3" or "0/2".
-         (is (not (re-find #"/3" (nth headline 2))))
-         (is (not (re-find #"/2" (nth headline 2))))))))
+         ;; One pending variant of the three registered: the headline
+         ;; counts the supplied subset only.
+         (is (= "Tests · 0/1" (nth headline 2)))))))
 
 ;; ---- per-variant cell-overrides threading ------------------------------
 

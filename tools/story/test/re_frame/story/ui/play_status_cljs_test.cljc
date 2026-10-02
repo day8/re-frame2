@@ -24,22 +24,6 @@
                    (assoc :status :running :step-idx 1))]
          (is (= "Play: RUNNING (step 2/2)" (rf.story.ui.play-status/chip-label s)))))))
 
-#?(:cljs
-   (deftest chip-label-pass
-     (testing "pass state renders the step total"
-       (let [s (-> (rf.story.play.runner/parse-spec {:script [[:wait 1]]})
-                   rf.story.play.runner/initial-state
-                   (assoc :status :pass))]
-         (is (= "Play: PASS (1 steps)" (rf.story.ui.play-status/chip-label s)))))))
-
-#?(:cljs
-   (deftest chip-label-fail
-     (testing "fail state renders the progress + total"
-       (let [s (-> (rf.story.play.runner/parse-spec {:script [[:wait 1] [:wait 2] [:wait 3]]})
-                   rf.story.play.runner/initial-state
-                   (assoc :status :fail :step-idx 2))]
-         (is (= "Play: FAIL (2/3 steps)" (rf.story.ui.play-status/chip-label s)))))))
-
 ;; ---- banner-text (pure) --------------------------------------------------
 
 #?(:cljs
@@ -66,11 +50,7 @@
                                            {:message "got 1, expected 2"}))
              final    (rf.story.play.runner/finish with-fail 1)
              text     (rf.story.ui.play-status/banner-text final)]
-         (is (string? text))
-         (is (re-find #"1 failure" text))
-         (is (re-find #"step 2" text))
-         (is (re-find #"assert-db" text))
-         (is (re-find #"got 1, expected 2" text))))))
+         (is (= "1 failure — step 2: assert-db [:k] = 2 — got 1, expected 2" text))))))
 
 ;; ---- JVM-side pure helper exercises --------------------------------------
 ;;

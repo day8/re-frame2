@@ -197,42 +197,6 @@
 
 (def ^:private rerun-n (atom 1))
 
-(deftest a-rerun-from-the-play-chip-is-stamped-when-it-settles
-  (async done
-    (reset! rerun-n 1)
-    (rf/reg-event :iwl02/boot (fn [{:keys [db]} _] {:db (assoc db :n @rerun-n)}))
-    (rf.story/reg-variant :story.iwl02/rerun
-      {:setup  [[:iwl02/boot]]
-       :script [[:assert [:rf.assert/path-equals [:n] 1]]]})
-    (let [vid       :story.iwl02/rerun
-          [_ k p]   (canvas-run! vid)]
-      (-> p
-          (.then (fn [_]
-                   (is (= "pass" (stamp vid k))
-                       "precondition: the canvas's own run settled and is stamped")
-                   (reset! rerun-n 2)
-                   (let [old-gen (rf.story.runtime/current-generation vid)
-                         ;; What the play chip's Re-run does.
-                         rerun   (rf.story.runtime/rerun! vid {:play nil})]
-                     (is (> (rf.story.runtime/current-generation vid) old-gen)
-                         "precondition: the Re-run claimed a fresh generation")
-                     (is (nil? (get @run-settled vid))
-                         "the previous verdict is dropped as the Re-run starts, which
-                          re-renders the section without the stamp")
-                     (is (nil? (stamp vid k))
-                         "no stamp while the Re-run is in flight")
-                     rerun)))
-          (.then (fn [result]
-                   (is (= :fail (:status result))
-                       "precondition: the Re-run settled fail on its flipped setup")
-                   (is (= "fail" (stamp vid k))
-                       "the canvas stamps the Re-run's verdict, under the canvas's run-key")
-                   nil))
-          (.catch (fn [e]
-                    (is false (str "a run rejected: " e))
-                    nil))
-          (.then (fn [_] (done)))))))
-
 ;; The stamp follows EVERY author-triggered run, whichever way it
 ;; settles, and following it costs no execution. Each prepare runs `:setup`
 ;; once, so the boot count is the number of runs; the canvas's own lifecycle

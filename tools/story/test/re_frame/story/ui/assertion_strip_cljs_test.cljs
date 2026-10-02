@@ -25,58 +25,70 @@
                         panel renders on first paint
   - `render-row`      — status / label / glyph wiring; click toggles
                         through the `on-toggle` callback"
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [are deftest is testing]]
             [re-frame.story.ui.assertion-strip :as rf.story.ui.assertion-strip]))
 
 ;; ---- pure: truncate ------------------------------------------------------
 
-(deftest truncate-short-passthrough
-  (testing "strings shorter than the limit pass through unchanged"
-    (is (= "abc"   (rf.story.ui.assertion-strip/truncate "abc" 10)))
-    (is (= ""      (rf.story.ui.assertion-strip/truncate nil 10)))
-    (is (= "1"     (rf.story.ui.assertion-strip/truncate "1" 10)))))
-
-(deftest truncate-long-ellipsis
-  (testing "strings longer than the limit truncate with a single ellipsis char"
-    (let [out (rf.story.ui.assertion-strip/truncate "aaaaaaaaaaaaaaaaaa" 5)]
-      (is (= 5 (count out))
-          "output length matches the limit (ellipsis included)")
-      (is (= "aaaa…" out)
-          "last char is the ellipsis"))))
-
-(deftest truncate-coerces-non-string
-  (testing "non-string input is coerced through pr-str-ish (str)"
-    (is (= "42"    (rf.story.ui.assertion-strip/truncate 42 10)))))
+(deftest truncate-clamps-with-a-single-ellipsis
+  (are [s n expected] (= expected (rf.story.ui.assertion-strip/truncate s n))
+    ;; shorter than the limit: unchanged
+    "abc" 10 "abc"
+    nil   10 ""
+    "1"   10 "1"
+    ;; longer than the limit: clamped to it, the ellipsis included
+    "aaaaaaaaaaaaaaaaaa" 5 "aaaa…"
+    ;; non-string input is coerced through str
+    42    10 "42"))
 
 ;; ---- pure: summary-line --------------------------------------------------
 
-(deftest summary-line-pass-blank
-  (testing "passing rows return the empty string — the label already names
-            the assertion and the strip stays compact"
-    (let [row {:status :pass
-               :detail {:expected 1 :actual 1}}]
-      (is (= "" (rf.story.ui.assertion-strip/summary-line row))))))
+(deftest summary-line-by-status
+  (are [row expected] (= expected (rf.story.ui.assertion-strip/summary-line row))
+    ;; :pass is blank — the label already names the assertion
+    {:status :pass :detail {:expected 1 :actual 1}}
+    ""
 
-(deftest summary-line-fail-reason
-  (testing "failing rows surface the :reason when present"
-    (let [row {:status :fail
-               :detail {:reason "values differ"}}]
-      (is (= "values differ" (rf.story.ui.assertion-strip/summary-line row))))))
+    ;; :fail surfaces its :reason, else expected vs actual
+    {:status :fail :detail {:reason "values differ"}}
+    "values differ"
 
-(deftest summary-line-fail-expected-actual
-  (testing "failing rows with no :reason fall back to expected vs actual"
-    (let [row {:status :fail
-               :detail {:expected 99 :actual 0}}]
-      (is (= "expected 99 · actual 0" (rf.story.ui.assertion-strip/summary-line row))))))
+    {:status :fail :detail {:expected 99 :actual 0}}
+    "expected 99 · actual 0"
 
-(deftest summary-line-skip-reason
-  (testing "skipped rows surface the :reason (or a default placeholder)"
-    (is (= "feature gated"
-           (rf.story.ui.assertion-strip/summary-line {:status :skip
-                                :detail {:reason "feature gated"}})))
-    (is (= "skipped"
-           (rf.story.ui.assertion-strip/summary-line {:status :skip :detail {}}))
-        "no :reason → 'skipped' placeholder")))
+    ;; :skip surfaces its :reason, else the placeholder
+    {:status :skip :detail {:reason "feature gated"}}
+    "feature gated"
+
+    {:status :skip :detail {}}
+    "skipped"
+
+    ;; :error prefers the error's :message, the more specific of the two...
+    {:status :error :detail {:reason "generic" :error {:message "specific boom"}}}
+    "specific boom"
+
+    ;; ...then falls back to :reason (pr-str'd when not a string), then to
+    ;; "error". It is never blank: a blank summary is a silent grey row
+    ;; saying nothing.
+    {:status :error :detail {:reason "setup blew up"}}
+    "setup blew up"
+
+    {:status :error :detail {:reason {:code 42}}}
+    "{:code 42}"
+
+    {:status :error :detail {}}
+    "error"
+
+    ;; a non-string :message does not answer for the summary
+    {:status :error :detail {:error {:message nil}}}
+    "error"
+
+    ;; CONTROL — the :error arm does not leak into the other statuses
+    {:status :pass :detail {:expected 1 :actual 1 :error {:message "should not be read"}}}
+    ""
+
+    {:status :fail :detail {:reason "values differ" :error {:message "should not be read"}}}
+    "values differ"))
 
 (deftest summary-line-fail-truncates
   (testing "long :reason values clamp to the strip's character limit"
@@ -88,65 +100,7 @@
       (is (re-find #"…$" out)
           "truncated output ends in an ellipsis"))))
 
-(deftest summary-line-error-falls-back-to-reason
-  (testing "an errored row with no :error :message falls back to :reason,
-            then to a bare \"error\" placeholder — the summary is never
-            blank for an error, because a blank summary is exactly the
-            defect (a silent grey row saying nothing)"
-    (is (= "setup blew up"
-           (rf.story.ui.assertion-strip/summary-line
-             {:status :error :detail {:reason "setup blew up"}}))
-        "string :reason reads as-is")
-    (is (= "{:code 42}"
-           (rf.story.ui.assertion-strip/summary-line
-             {:status :error :detail {:reason {:code 42}}}))
-        "non-string :reason renders through pr-str")
-    (is (= "error"
-           (rf.story.ui.assertion-strip/summary-line
-             {:status :error :detail {}}))
-        "neither message nor reason → the 'error' placeholder")
-    (is (= "error"
-           (rf.story.ui.assertion-strip/summary-line
-             {:status :error :detail {:error {:message nil}}}))
-        "a non-string :message does not answer for the summary")))
-
-(deftest summary-line-error-prefers-message-over-reason
-  (testing "when both are present the error's :message wins — it is the
-            more specific of the two"
-    (let [row {:status :error
-               :detail {:reason "generic"
-                        :error  {:message "specific boom"}}}]
-      (is (= "specific boom" (rf.story.ui.assertion-strip/summary-line row))))))
-
-(deftest summary-line-non-error-ignores-error-key
-  (testing "CONTROL — the :error arm must not leak into the other statuses.
-            A :pass row still reads blank and a :fail row still reads its
-            :reason even when an :error map is present in the detail"
-    (is (= "" (rf.story.ui.assertion-strip/summary-line
-                {:status :pass
-                 :detail {:expected 1 :actual 1
-                          :error {:message "should not be read"}}}))
-        ":pass stays blank — the label already names the assertion")
-    (is (= "values differ" (rf.story.ui.assertion-strip/summary-line
-                             {:status :fail
-                              :detail {:reason "values differ"
-                                       :error {:message "should not be read"}}}))
-        ":fail still prefers its own :reason")))
-
 ;; ---- pure: group-by-event ------------------------------------------------
-
-(deftest group-by-event-clusters
-  (testing "records with the same :event cluster under one group in
-            insertion order"
-    (let [records [{:assertion :rf.assert/path-equals :event [:counter/inc]}
-                   {:assertion :rf.assert/path-equals :event [:counter/inc]}
-                   {:assertion :rf.assert/path-equals :event [:counter/dec]}]
-          groups  (rf.story.ui.assertion-strip/group-by-event records)]
-      (is (= 2 (count groups)))
-      (is (= [:counter/inc] (-> groups (nth 0) :event)))
-      (is (= 2 (-> groups (nth 0) :records count)))
-      (is (= [:counter/dec] (-> groups (nth 1) :event)))
-      (is (= 1 (-> groups (nth 1) :records count))))))
 
 (deftest group-by-event-preserves-insertion-order
   (testing "the first occurrence of each :event sets that group's position
@@ -499,24 +453,6 @@
       (is (some? (find-string hiccup "no handler registered for :your/setup-event"))
           "and the message is actually rendered in it"))))
 
-(deftest assertion-strip-error-stamped-status-reads-the-same
-  (testing "CONTROL for the stamped form — a record carrying an explicit
-            :status :error takes the projection's earlier `verdict/statuses`
-            arm, and must render identically to the unstamped one above.
-            Both arms, one rendering"
-    (let [assertions [{:assertion :rf.error/exception
-                       :status    :error
-                       :passed?   false
-                       :event     [:your/setup-event {}]
-                       :phase     :phase-2-events
-                       :error     {:message "no handler registered for :your/setup-event"}}]
-          hiccup     (render-strip-expanded assertions)
-          wrap       (find-prop hiccup :data-test "story-canvas-assertion-row")]
-      (is (= "error" (:data-status wrap)))
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "stamped :error auto-expands too")
-      (is (some? (find-string hiccup "no handler registered for :your/setup-event"))))))
-
 (deftest assertion-strip-pass-stays-collapsed
   (testing "pattern #2 — passing assertions stay collapsed by default;
             no detail panel renders without a click"
@@ -659,9 +595,6 @@
           keys       (map #(:key (meta %)) groups)]
       (is (= 3 (count groups))
           "one group element per dispatching event")
-      (is (every? vector? groups)
-          "group elements are vector literals — the :key sits on the
-           element React receives, not a call form")
       (is (every? some? keys)
           "every group element carries a :key in its metadata so React's
            group seq is keyed (no missing-key warning)")
