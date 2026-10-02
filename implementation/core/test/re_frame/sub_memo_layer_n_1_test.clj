@@ -84,26 +84,6 @@
         (is (= 10 @r))
         (is (= 3 @runs))))))
 
-(deftest layer-n-1-memo-suppresses-when-db-changes-but-upstream-equal
-  (testing "the layer-2 body short-circuits when the upstream sub's
-            value is unchanged, even though the underlying db changed.
-            This is the headline value of the no-op-by-equality contract
-            — diamond-shape graphs do not over-compute downstream."
-    (let [runs (atom 0)]
-      (rf/reg-event :seed     (fn [{:keys [db]} _]      {:db {:n 1 :other :a}}))
-      (rf/reg-event :touch    (fn [{:keys [db]} _]     {:db (assoc db :other :b)}))
-      (rf/reg-sub :n   (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (swap! runs inc) (* 2 n)))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:n*2])]
-        (is (= 2 @r))
-        (is (= 1 @runs))
-        ;; Change db on a key the :n sub does NOT read.
-        (rf/dispatch-sync [:touch])
-        (is (= 2 @r))
-        (is (= 1 @runs)
-            "upstream sub yields = value → layer-2 body must not re-run")))))
-
 (deftest layer-n-1-body-receives-upstream-value-and-query-v
   (testing "the body fn receives the canonical (upstream, query-v)
             shape under the specialised wrapper"
@@ -154,8 +134,9 @@
 ;; ---- chain of layer-2 single-input subs -----------------------------------
 ;;
 ;; Stress the memo: B over A, C over B. A change to db that A absorbs but
-;; B/C don't should never re-run B or C; a change that A propagates
-;; should run A, B, C once each.
+;; B/C don't should never re-run B or C — the headline value of the
+;; no-op-by-equality contract, so diamond-shape graphs do not over-compute
+;; downstream; a change that A propagates should run A, B, C once each.
 
 (deftest layer-n-1-chain-propagates-and-suppresses-correctly
   (let [a-runs (atom 0)
