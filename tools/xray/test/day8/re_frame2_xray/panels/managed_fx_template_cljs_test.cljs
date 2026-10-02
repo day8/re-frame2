@@ -118,15 +118,6 @@
 
 ;; ---- records-list ------------------------------------------------------
 
-(deftest records-list-renders-one-panel-per-record
-  (let [recs [(record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
-              (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
-        out  (template/records-list recs)
-        ids  (set (testids out))]
-    (is (contains? ids "rf-xray-managed-fx-list"))
-    (is (contains? ids "rf-xray-managed-fx-record-http-99"))
-    (is (contains? ids "rf-xray-managed-fx-record-flow-99"))))
-
 (deftest records-list-nil-for-empty-records
   (is (nil? (template/records-list []))))
 

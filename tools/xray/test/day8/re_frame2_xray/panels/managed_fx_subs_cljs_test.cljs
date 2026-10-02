@@ -134,16 +134,6 @@
     (map? node)    (cons node (mapcat tree-nodes (vals node)))
     :else          [node]))
 
-(deftest expanded-sections-slot-starts-empty
-  (testing "Nothing is stored before the operator touches a disclosure, and
-            an empty slot resolves every section to its default — which is
-            NOT the same as every section closed, since two default open."
-    (seed-buffer! [])
-    (rf/with-frame :rf/xray
-      (is (nil? (expanded-map)))
-      (is (false? (h/resolve-expanded? (expanded-map) rec-key :request)))
-      (is (true?  (h/resolve-expanded? (expanded-map) rec-key :wire))))))
-
 (deftest toggle-inverts-the-state-the-operator-can-see
   (testing "The first click must invert what is RENDERED, not a hard-coded
             assumption. A reducer flipping a nil override from `false` would

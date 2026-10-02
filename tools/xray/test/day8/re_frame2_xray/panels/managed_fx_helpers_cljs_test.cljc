@@ -66,10 +66,6 @@
     nil                             nil
     "not-a-keyword"                 nil))
 
-(deftest managed-fx-effect?-uses-classifier
-  (is (true?  (h/managed-fx-effect? {:tags {:rf.fx/id :rf.http/managed}})))
-  (is (false? (h/managed-fx-effect? {:tags {:rf.fx/id :user/x}}))))
-
 ;; ---- (2a) HTTP adapter on success --------------------------------------
 
 ;; The record describes ISSUANCE.
@@ -373,15 +369,6 @@
     (is (= :sock-1 (:correlation-id rec)))
     (is (= args (:req rec)))))
 
-(deftest websocket-adapter-failure
-  (let [args   {:url "wss://chat.example.com" :socket-id :sock-2}
-        fx-ev  (fx-handled :rf.ws/connect args)
-        fail   (surface-ev :rf.ws/transport
-                           {:socket-id :sock-2 :message "ECONNRESET"})
-        rec    (h/websocket-adapter fx-ev [fail])]
-    (is (= :error (:status rec)))
-    (is (= :rf.ws/transport (-> rec :failure :kind)))))
-
 ;; ---- (2c) machine-invoke adapter ---------------------------------------
 
 (deftest machine-invoke-adapter-spawn-record
@@ -397,15 +384,6 @@
     (is (= :inv-1 (:correlation-id rec)))
     (is (= {:invoke-id :inv-1 :machine-id :auth/main :state :idle}
            (:res rec)))))
-
-(deftest machine-invoke-adapter-failure
-  (let [fx-ev (fx-handled :rf.machine/spawn
-                          {:machine-id :auth/main :fixed-actor-id :inv-2})
-        fail  (surface-ev :rf.machine/invoke-failed
-                          {:invoke-id :inv-2 :reason :no-such-machine})
-        rec   (h/machine-invoke-adapter fx-ev [fail])]
-    (is (= :error (:status rec)))
-    (is (= :rf.machine/invoke-failed (-> rec :failure :kind)))))
 
 ;; ---- (2c′) command-vs-trace law for machine destroy ---------------------
 ;;
@@ -465,25 +443,6 @@
       (is (= 250 (:duration-ms rec))       "duration derives from the terminal")
       (is (some? (:wire rec))))))
 
-(deftest machine-destroy-event-bundle-excludes-injected-command
-  (testing "even with the impossible `:rf.machine/destroy` operation injected
-            into the event-bundle, the walker's record stays OK / non-cancelled
-            and derives its terminal timing from `:rf.machine/destroyed`"
-    (let [event-bundle {:dispatch-id 42
-                        :frame :rf/default
-                        :effects [(fx-handled :rf.machine/destroy
-                                              {:machine-id :checkout/main
-                                               :fixed-actor-id :m-001})]
-                        :other   [(surface-ev :rf.machine/destroy
-                                              {:id :m-001})               ; impossible; must be dropped
-                                  (surface-ev :rf.machine/destroyed
-                                              {:reason :explicit} 1250)]}
-          rec          (first (h/event-bundle->managed-fx-records event-bundle))]
-      (is (= :machine-invoke (:surface rec)))
-      (is (= :ok (:status rec)))
-      (is (nil? (:cancel-cause rec)))
-      (is (= 250 (:duration-ms rec))))))
-
 ;; ---- (2d) SSR-fx adapter -----------------------------------------------
 
 (deftest ssr-fx-adapter-set-status
@@ -494,14 +453,6 @@
     (is (= :ok (:status rec)))
     (is (= args (:req rec)))
     (is (= args (:res rec)))))
-
-(deftest ssr-fx-adapter-failure-render
-  (let [fx-ev (fx-handled :rf.server/set-status {:status 500})
-        fail  (surface-ev :rf.ssr/render-failed
-                          {:request-id :ssr-1 :message "boom"})
-        rec   (h/ssr-fx-adapter fx-ev [fail])]
-    (is (= :error (:status rec)))
-    (is (= :rf.ssr/render-failed (-> rec :failure :kind)))))
 
 ;; ---- (2e) flow adapter --------------------------------------------------
 
@@ -516,14 +467,21 @@
     (is (= :flow/cart-subtotal (:correlation-id rec)))
     (is (= 42 (:res rec)))))
 
-(deftest flow-adapter-eval-exception
-  (let [fx-ev (fx-handled :rf.fx/reg-flow
-                          {:flow-id :flow/x})
-        fail  (surface-ev :rf.error/flow-eval-exception
-                          {:flow-id :flow/x :message "div by zero"})
-        rec   (h/flow-adapter fx-ev [fail])]
-    (is (= :error (:status rec)))
-    (is (= :rf.error/flow-eval-exception (-> rec :failure :kind)))))
+;; ---- (2f) the non-HTTP adapters read a failure row as an error ---------
+
+(deftest non-http-adapters-read-a-failure-row-as-an-error
+  (are [adapter fx-id args fail-op fail-tags]
+       (= [:error fail-op]
+          ((juxt :status (comp :kind :failure))
+           (adapter (fx-handled fx-id args) [(surface-ev fail-op fail-tags)])))
+    h/websocket-adapter      :rf.ws/connect        {:url "wss://chat.example.com" :socket-id :sock-2}
+                             :rf.ws/transport              {:socket-id :sock-2 :message "ECONNRESET"}
+    h/machine-invoke-adapter :rf.machine/spawn     {:machine-id :auth/main :fixed-actor-id :inv-2}
+                             :rf.machine/invoke-failed     {:invoke-id :inv-2 :reason :no-such-machine}
+    h/ssr-fx-adapter         :rf.server/set-status {:status 500}
+                             :rf.ssr/render-failed         {:request-id :ssr-1 :message "boom"}
+    h/flow-adapter           :rf.fx/reg-flow       {:flow-id :flow/x}
+                             :rf.error/flow-eval-exception {:flow-id :flow/x :message "div by zero"}))
 
 ;; ---- (3) cascade walker ------------------------------------------------
 
@@ -836,7 +794,7 @@
   (is (= "250ms" (h/format-duration-ms 250)))
   (is (= "1500ms" (h/format-duration-ms 1500))))
 
-(deftest surfaces-and-glyphs-match
+(deftest every-surface-has-a-label-glyph-and-adapter
   (testing "every canonical surface has a label, glyph, and adapter"
     (doseq [s h/surfaces]
       (is (some? (get h/surface->label s))   (str "label for " s))

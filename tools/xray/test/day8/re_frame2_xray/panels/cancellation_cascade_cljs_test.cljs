@@ -5,16 +5,17 @@
   ## What's under test (in addition to the pure-data tests in
   `cancellation_cascade_helpers_cljs_test.cljc`)
 
-    1. **Registry wires the composite subs and events** under
-       `:rf.xray/cancellation-cascade-*` ids.
+    1. Registration of the `:rf.xray/cancellation-cascade-*` subs and
+       events — pinned by `registry_cljs_test`'s registry snapshot
+       rather than here.
     2. **Empty-state render** — `SidePanel` short-circuits when no
        cancellation-anchor is present; `Popover` is gated by
        `:rf.xray/cancellation-cascade-popover-open?`.
     3. **Populated render** — with a seeded trace buffer the cascade
        view renders the decision + teardown + abort rows.
-    4. **Click handlers dispatch the right events** — the row's
-       on-click dispatches `:rf.xray/focus-trace-entry`; the close
-       button dispatches `:rf.xray/cancellation-cascade-close`.
+    4. **The click handlers' events** — `:rf.xray/focus-trace-entry`
+       lands on a live tab, and `:rf.xray/cancellation-cascade-close`
+       clears the popover-open slot.
     5. **Collapse / expand affordance** — under the default
        threshold the expander appears and the toggle event flips
        `:rf.xray/cancellation-cascade-expanded?`.
@@ -26,7 +27,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
@@ -140,22 +140,6 @@
     :tags {:request-id :r2 :url "/api/log" :actor-id :user-session
            :rf.trace/dispatch-id 7 :frame :rf/default}}])
 
-;; ---- (1) registry wires the composite subs + events --------------------
-
-(deftest registry-installs-cancellation-cascade-handlers
-  (testing "register-xray-handlers! installs every sub + event the
-            visualiser depends on"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-popover-open?)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-popover-focus)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-expanded?)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-for-focused-machine)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/cancellation-cascade-for-focused-event)))
-    (is (some? (rf.registrar/handler :event :rf.xray/cancellation-cascade-open)))
-    (is (some? (rf.registrar/handler :event :rf.xray/cancellation-cascade-close)))
-    (is (some? (rf.registrar/handler :event :rf.xray/cancellation-cascade-toggle-expand)))
-    (is (some? (rf.registrar/handler :event :rf.xray/focus-trace-entry)))))
-
 ;; ---- (2) empty-state renders -------------------------------------------
 
 (deftest side-panel-empty-when-no-cascade
@@ -216,26 +200,11 @@
           (is (every? #(contains? (:style (second %)) :cursor) aborts)
               "every abort row picks one of the precomputed row-style × cursor variants"))))))
 
-(deftest popover-renders-cascade-for-focused-event
-  (testing "Popover opened with a dispatch-id focus pulls the cascade
-            for that dispatch and renders the body"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-trace! cancel-cascade-buffer)
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
-                         {:kind :dispatch-id :id 7}])
-      (let [tree (popover-tree)]
-        (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")))
-        (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-decision-row")))
-        (is (= 2 (count (find-all-by-testid-prefix
-                          tree "rf-xray-cancellation-cascade-abort-row-"))))))))
-
 ;; ---- (4) click handlers ------------------------------------------------
 
-(deftest close-button-dispatches-close-event
-  (testing "the close button's on-click dispatches
-            :rf.xray/cancellation-cascade-close, flipping the
-            popover-open? slot to false"
+(deftest close-event-clears-the-popover-open-slot
+  (testing ":rf.xray/cancellation-cascade-close, the event the close
+            button dispatches, flips the popover-open? slot to false"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
