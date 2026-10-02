@@ -402,10 +402,10 @@
              survives the frame lifecycle")))))
 
 (deftest reset-run-variant-does-not-accumulate-listeners
-  (testing "running the SAME variant twice (the fresh-run boundary resets
-            the frame in place, and that reset unregisters the prior run's
-            listener) does not leak a second play trace listener; each run
-            installs one, under the frame's own listener id"
+  (testing "running the SAME variant twice leaves ONE play trace listener
+            live: each run registers under the frame's own listener id, so
+            the second run's listener replaces the first rather than sitting
+            beside it, and the final destroy finds and clears it"
     (let [live (atom #{})]
       (with-redefs [rf.trace.tooling/register-listener!
                     (fn [id f]

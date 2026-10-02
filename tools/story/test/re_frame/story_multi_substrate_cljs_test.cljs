@@ -48,7 +48,7 @@
     (are [variant-body story-body expected]
          (= expected (rf.story.ui.multi-substrate/resolve-substrate-set
                        variant-body story-body :reagent))
-      {:substrates #{:reagent :uix}} {}                             #{:reagent :uix}
+      {:substrates #{:reagent :uix}} {:substrates #{:uix}}          #{:reagent :uix}
       {}                             {:substrates #{:reagent :uix}} #{:reagent :uix}
       {}                             {}                             #{:reagent})))
 

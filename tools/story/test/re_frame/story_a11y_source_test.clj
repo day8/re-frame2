@@ -45,5 +45,8 @@
             floating tag (`axe-core@4.10.0/axe.min.js`), and SRI
             prevents tag-rewriting attacks."
     (let [src (a11y-source)]
-      (is (re-find #"axe-core@4\.\d+\.\d+" src)
-          "axe-core URL must include an explicit X.Y.Z version pin"))))
+      (is (re-find #"\"https://cdn\.jsdelivr\.net/npm/axe-core@\d+\.\d+\.\d+/axe\.min\.js\"" src)
+          "the `axe-cdn-url` string literal must carry an explicit X.Y.Z
+           version pin. The pattern includes the literal's quotes, so the
+           comment and the `curl` line that also name the version cannot
+           satisfy it"))))

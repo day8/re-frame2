@@ -381,9 +381,11 @@
   ;; the canvas's loading skeleton never engages for variants that have
   ;; nothing to wait for.
   ;;
-  ;; Pinned by `tools/story/test/re_frame/story_runtime_cljs_test.cljs`
-  ;; (`cljs-events-only-fast-path-to-ready` + `cljs-events-only-
-  ;; classifier`) as the canonical events-only body. NO :script slot,
+  ;; The canonical events-only body: the classification is pinned by
+  ;; `tools/story/test/re_frame/story_runtime_test.clj`
+  ;; (`events-only-variant-classifier`) and the fast-path on CLJS by
+  ;; `story_runtime_cljs_test.cljs` (`cljs-events-only-fast-path-to-ready`).
+  ;; NO :script slot,
   ;; NO :loaders slot, NO :frame-setup decorator — those would break
   ;; the events-only classification and the fast-path it gates. (The
   ;; runtime classifier is named "events-only" after the lowered
