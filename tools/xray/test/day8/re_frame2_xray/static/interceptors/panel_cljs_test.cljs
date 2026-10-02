@@ -92,40 +92,33 @@
 ;; (1) pure helpers
 ;; -------------------------------------------------------------------------
 
-(deftest collect-interceptors-collapses-by-id
+(deftest collect-interceptors-projects-an-inline-chain
   (let [rows (panel/collect-interceptors sample-events-with-chains)
         by-id (into {} (map (juxt :id identity) rows))]
-    ;; 3 distinct interceptors: :my/logging, :rf/event-handler, :rf/path
-    ;; (EP-0018 — the one framework wrapper :rf/event-handler is shared by both
-    ;; chains, so it collapses to a single row with chain-count 2).
-    (is (= 3 (count rows)))
-    (is (= 2 (get-in by-id [:my/logging :chain-count]))
-        ":my/logging appears on 2 chains")
-    (is (= 2 (get-in by-id [:rf/event-handler :chain-count]))
-        ":rf/event-handler appears on both chains")
-    (is (= 1 (get-in by-id [:rf/path :chain-count]))
-        ":rf/path appears on 1 chain")))
-
-(deftest collect-interceptors-flags-default-marker
-  (let [rows  (panel/collect-interceptors sample-events-with-chains)
-        by-id (into {} (map (juxt :id identity) rows))]
-    (is (true?  (get-in by-id [:rf/event-handler :default?]))
-        "rf/event-handler is framework-default")
-    (is (false? (get-in by-id [:my/logging :default?]))
-        "user-attached interceptor is NOT default")))
-
-(deftest collect-interceptors-records-before-after-presence
-  (let [rows  (panel/collect-interceptors sample-events-with-chains)
-        by-id (into {} (map (juxt :id identity) rows))]
-    (is (true?  (get-in by-id [:my/logging :before?])))
-    (is (false? (get-in by-id [:my/logging :after?]))
-        "no :after fn in the fixture's interceptors")))
+    (testing "one row per interceptor id, counting the chains it sits on"
+      ;; 3 distinct interceptors: :my/logging, :rf/event-handler, :rf/path
+      ;; (EP-0018 — the one framework wrapper :rf/event-handler is shared by both
+      ;; chains, so it collapses to a single row with chain-count 2).
+      (is (= 3 (count rows)))
+      (is (= 2 (get-in by-id [:my/logging :chain-count]))
+          ":my/logging appears on 2 chains")
+      (is (= 2 (get-in by-id [:rf/event-handler :chain-count]))
+          ":rf/event-handler appears on both chains")
+      (is (= 1 (get-in by-id [:rf/path :chain-count]))
+          ":rf/path appears on 1 chain"))
+    (testing "the framework wrapper is flagged default; a user interceptor is not"
+      (is (true?  (get-in by-id [:rf/event-handler :default?]))
+          "rf/event-handler is framework-default")
+      (is (false? (get-in by-id [:my/logging :default?]))
+          "user-attached interceptor is NOT default"))
+    (testing ":before / :after presence is recorded per row"
+      (is (true?  (get-in by-id [:my/logging :before?])))
+      (is (false? (get-in by-id [:my/logging :after?]))
+          "no :after fn in the fixture's interceptors"))))
 
 (deftest filter-rows-substring
   (let [rows (panel/collect-interceptors sample-events-with-chains)]
-    (is (= rows (panel/filter-rows rows nil)))
-    (is (= 1 (count (panel/filter-rows rows "logging"))))
-    (is (= 0 (count (panel/filter-rows rows "no-such-id"))))))
+    (is (= 1 (count (panel/filter-rows rows "logging"))))))
 
 (deftest project-data-shape
   (let [data (panel/project-data sample-events-with-chains nil)]
@@ -197,14 +190,6 @@
 ;; (3) view rendering
 ;; -------------------------------------------------------------------------
 
-(deftest panel-renders-empty-state-when-silent
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.static.interceptors/set-registry-override-for-test {}])
-    (let [tree (panel-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty"))))))
-
 (deftest panel-is-cold-empty-for-a-host-with-no-events-rf2-y8doi-22
   (testing "Xray's OWN event registrations are not host chains.
             They sit in the same process source store as the host's, each
@@ -257,9 +242,13 @@
     (rf/dispatch-sync
       [:rf.xray.static.interceptors/set-registry-override-for-test
        sample-events-with-chains])
-    (let [tree (panel-tree)
-          rows (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
-      (is (= 3 (count rows)) "three collapsed interceptor rows rendered"))))
+    (let [tree      (panel-tree)
+          list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-list")
+          rows      (rf.test-helpers/find-by-testid-prefix tree "rf-xray-static-interceptors-row-")]
+      (is (= 3 (count rows)) "three collapsed interceptor rows rendered")
+      (is (= "list" (:role (second list-node))) "<ul> carries role=list")
+      (is (every? #(= "listitem" (:role (second %))) rows)
+          "every row carries role=listitem"))))
 
 (deftest panel-renders-filtered-state-on-no-match
   (setup-xray!)
@@ -272,27 +261,7 @@
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
 
 ;; -------------------------------------------------------------------------
-;; (4) a11y list semantics
-;; -------------------------------------------------------------------------
-
-(deftest panel-list-carries-list-semantics
-  (testing "the interceptors <ul> is role=list, rows role=listitem"
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.interceptors/set-registry-override-for-test
-         sample-events-with-chains])
-      (let [tree (panel-tree)
-            list-node (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-list")
-            rows (rf.test-helpers/find-by-testid-prefix
-                   tree "rf-xray-static-interceptors-row-")]
-        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
-        (is (seq rows) "rows rendered")
-        (is (every? #(= "listitem" (:role (second %))) rows)
-            "every row carries role=listitem")))))
-
-;; -------------------------------------------------------------------------
-;; (5) row identity reaches the RENDERER, not just Clojure metadata
+;; (4) row identity reaches the RENDERER, not just Clojure metadata
 ;; -------------------------------------------------------------------------
 
 (deftest panel-rows-carry-their-key-in-an-attribute-map

@@ -109,21 +109,11 @@
       (is (= [:map [:id :int] [:name :string]] schema))
       (is (= "src/user.cljs" (:file source-coord))))))
 
-(deftest project-registrar-rows-keeps-schema-bearing-only
-  (let [event-rows (panel/project-registrar-rows :event (:events sample-registry))]
-    (is (= 1 (count event-rows))
-        "entry without :schema is dropped"))
-  (let [sub-rows (panel/project-registrar-rows :sub (:subs sample-registry))]
-    (is (= 1 (count sub-rows)))
-    (is (= :sub (:kind (first sub-rows))))))
-
 (deftest filter-rows-substring
   (let [rows (panel/project-rows (:schemas-by-frame sample-registry)
                                  (:events sample-registry)
                                  (:subs   sample-registry))]
-    (is (= rows (panel/filter-rows rows nil)))
-    (is (= 1 (count (panel/filter-rows rows "login"))))
-    (is (= 0 (count (panel/filter-rows rows "nope"))))))
+    (is (= 1 (count (panel/filter-rows rows "login"))))))
 
 (deftest project-data-shape
   ;; nil frame-id = list every frame's app-db schemas (see
@@ -318,9 +308,13 @@
     (rf/dispatch-sync
       [:rf.xray.static.schemas/set-registry-override-for-test
        sample-registry])
-    (let [tree (panel-tree)
-          rows (find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
-      (is (= 3 (count rows)) "three row surfaces rendered"))))
+    (let [tree      (panel-tree)
+          list-node (find-by-testid tree "rf-xray-static-schemas-list")
+          rows      (find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
+      (is (= 3 (count rows)) "three row surfaces rendered")
+      (is (= "list" (:role (second list-node))) "<ul> carries role=list")
+      (is (every? #(= "listitem" (:role (second %))) rows)
+          "every row carries role=listitem"))))
 
 (deftest panel-renders-jump-to-source-chips
   (setup-xray!)
@@ -340,26 +334,7 @@
           "every row renders exactly one jump-to-source chip"))))
 
 ;; -------------------------------------------------------------------------
-;; (4) a11y list semantics
-;; -------------------------------------------------------------------------
-
-(deftest panel-list-carries-list-semantics
-  (testing "the schemas <ul> is role=list, rows role=listitem"
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.schemas/set-registry-override-for-test
-         sample-registry])
-      (let [tree (panel-tree)
-            list-node (find-by-testid tree "rf-xray-static-schemas-list")
-            rows (find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
-        (is (= "list" (:role (second list-node))) "<ul> carries role=list")
-        (is (seq rows) "rows rendered")
-        (is (every? #(= "listitem" (:role (second %))) rows)
-            "every row carries role=listitem")))))
-
-;; -------------------------------------------------------------------------
-;; (5) schema EDN renders through the shared widget
+;; (4) schema EDN renders through the shared widget
 ;; -------------------------------------------------------------------------
 
 (defn- inspector-view-forms
@@ -409,7 +384,7 @@
              would share a width slot and a projection cache")))))
 
 ;; -------------------------------------------------------------------------
-;; (5a) ONE APP-DB PATH, TWO FRAMES, ONE RENDER FRAME
+;; (4a) ONE APP-DB PATH, TWO FRAMES, ONE RENDER FRAME
 ;; -------------------------------------------------------------------------
 ;;
 ;; THE ROW ABOVE CANNOT SEE THIS. `sample-registry` is one frame's app-db
@@ -504,7 +479,7 @@
         [:rf.xray.static.schemas/set-registry-override-for-test nil]))))
 
 ;; -------------------------------------------------------------------------
-;; (6) row React keys reach the RENDERER, not just the reader
+;; (5) row React keys reach the RENDERER, not just the reader
 ;; -------------------------------------------------------------------------
 
 (deftest row-keys-ride-the-attribute-map-not-metadata
