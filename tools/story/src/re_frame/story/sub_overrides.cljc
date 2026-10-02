@@ -127,19 +127,16 @@
   `nil` / empty `overrides` always misses. An override whose value is
   `nil` is a HIT (the sentinel is distinct from `nil`), so a view can be
   pinned to a nil subscription value."
-  ([query-v] (resolve *overrides* query-v))
-  ([overrides query-v]
-   (if (and (map? overrides) (contains? overrides query-v))
-     (get overrides query-v)
-     miss)))
+  [overrides query-v]
+  (if (and (map? overrides) (contains? overrides query-v))
+    (get overrides query-v)
+    miss))
 
 (defn overridden?
-  "True iff `query-v` has an exact-match override in `overrides` (or the
-  bound `*overrides*` in the 1-arity form). Distinct from a `nil`-valued
-  override, which is a genuine hit."
-  ([query-v] (overridden? *overrides* query-v))
-  ([overrides query-v]
-   (and (map? overrides) (contains? overrides query-v))))
+  "True iff `query-v` has an exact-match override in `overrides`. Distinct
+  from a `nil`-valued override, which is a genuine hit."
+  [overrides query-v]
+  (and (map? overrides) (contains? overrides query-v)))
 
 (defn read
   "Render-path read for a subscribed `query-v` against the dynamic-var
@@ -178,7 +175,7 @@
      "Evaluate `body` with `*overrides*` bound to `overrides` for its
      dynamic extent. Sugar over `with-overrides*`. The Story render path
      wraps the variant's view render in this; outside the binding (and in
-     production) `*overrides*` is nil and `resolve` always misses.
+     production) `*overrides*` is nil and `read` always falls through.
 
      This dynamic-var binding is the JVM / pure-test convenience form. The
      live render path surfaces an override via the

@@ -1,4 +1,4 @@
-(ns re-frame.story.canvas-plan-resolution-test
+(ns re-frame.story.canvas-plan-resolution-cljs-test
   "Production-path regression gate: the canvas + `render-variant` resolve
   sub-overrides AND decorators off the ONE compiled variant-plan, not the
   bare registrar body.
@@ -21,14 +21,17 @@
   prove:
 
     1. composed-fragment + `:extends`-chain `:sub-overrides` resolve through
-       the canvas's resolver (the SAME `rf.story.render/resolve-render-sub-overrides`
-       over `rf.story.plan/variant-plan` render-variant uses);
+       the canvas's resolver over `rf.story.plan/variant-plan` (which
+       delegates to the SAME `rf.story.render/resolve-render-sub-overrides`
+       render-variant uses);
     2. the canvas decorator resolution and render-variant's render-inputs
        resolve the SAME `[:world :decorators]` (composed + inherited).
 
-  Runs on the JVM: `plan.cljc` + `render.cljc` + `decorators.cljc` + the
+  Runs on both lanes: `plan.cljc` + `render.cljc` + `decorators.cljc` + the
   registrar are all JVM-runnable, so the DEFAULT lookup works under
-  `clojure -M:test`."
+  `clojure -M:test`; the node lane additionally reaches the canvas's own
+  resolver, which lives in a CLJS-only Reagent namespace the JVM cannot
+  load."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.decorators :as rf.story.decorators]
@@ -36,6 +39,7 @@
             [re-frame.story.plan       :as rf.story.plan]
             [re-frame.story.registrar  :as rf.story.registrar]
             [re-frame.story.render     :as rf.story.render]
+            #?(:cljs [re-frame.story.ui.canvas :as rf.story.ui.canvas])
             [re-frame.registrar        :as rf.registrar]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -68,14 +72,16 @@
 
 (use-fixtures :each reset-fixture)
 
-;; The canvas's resolution: route through the COMPILED plan
-;; via the shared render-variant resolver — NOT the bare registrar body.
-;; This mirrors `re-frame.story.ui.canvas/resolve-sub-overrides` exactly
-;; (canvas is CLJS-only, so the production logic it calls is asserted
-;; here at the CLJC seam both paths share).
+;; The canvas's resolution over the COMPILED plan — NOT the bare registrar
+;; body. The node lane calls the canvas's own `resolve-sub-overrides`, so a
+;; canvas resolver that stops reading the plan's composed overrides goes red
+;; here. The JVM cannot load the canvas, so there it calls the CLJC resolver
+;; the canvas delegates to.
 (defn- canvas-sub-overrides
   [variant-id eff-args]
-  (rf.story.render/resolve-render-sub-overrides (rf.story.plan/variant-plan variant-id) eff-args))
+  (let [plan (rf.story.plan/variant-plan variant-id)]
+    #?(:cljs (@#'rf.story.ui.canvas/resolve-sub-overrides plan eff-args)
+       :clj  (rf.story.render/resolve-render-sub-overrides plan eff-args))))
 
 ;; ===========================================================================
 ;; Composed-fragment + :extends-chain :sub-overrides

@@ -901,19 +901,17 @@
 
 (defn lower-network
   "Lower a resolved `:network` route map into the managed-stub fx override.
-  Pure data → data. Returns
-  `{:network <route-map> :fx-overrides {:rf.http/managed
-  :rf.http/managed-test-stub}}` when `network` is non-empty, or `nil`
-  when there are no routes.
+  Pure data → data. Returns the override map `{:rf.http/managed
+  :rf.http/managed-test-stub}` when `network` is non-empty, or `nil` when
+  there are no routes.
 
   `network` is the per-route reply map already merged + arg-substituted
-  (`{[method url] {:reply …}}`). It is preserved verbatim as the source of
-  truth; the derived `:fx-overrides` entry is the lowering the runner
-  consumes to point the frame's `:rf.http/managed` at the stub fx."
+  (`{[method url] {:reply …}}`). The compiler keeps that map itself at
+  `[:world :network]`; this override is the lowering the runner consumes to
+  point the frame's `:rf.http/managed` at the stub fx."
   [network]
   (when (seq network)
-    {:network      network
-     :fx-overrides {managed-fx-id managed-stub-fx-id}}))
+    {managed-fx-id managed-stub-fx-id}))
 
 (defn- check-network-fx-conflict!
   "FAIL plan construction when `:network` and an explicit author
@@ -1544,8 +1542,7 @@
         ;; non-managed author overrides (the conflict check above rejects
         ;; a managed-targeting author override).
         network-low  (lower-network network)
-        fx-overrides (merge (when network-low (:fx-overrides network-low))
-                            ctx-fx)
+        fx-overrides (merge network-low ctx-fx)
         interceptor-overrides ctx-ic
         ;; ---- composed-fragment loaders / decorators ----
         ;; `ctx` (above) is reduced over the `:extends` chain bodies ONLY —
@@ -1832,7 +1829,7 @@
                       ;; stubs — ":network participates in explain").
                       :network      (when (seq network)
                                       {:routes       network
-                                       :lowered-to   (:fx-overrides network-low)})
+                                       :lowered-to   network-low})
                       ;; View-state subscription overrides +
                       ;; the resolved fidelity ladder. `explain` surfaces
                       ;; the resolved override map (post `[:arg]`
