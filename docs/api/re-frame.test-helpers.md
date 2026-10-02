@@ -3,14 +3,22 @@
 Helpers for testing views without a browser. A view returns [hiccup](../core/glossary.md#hiccup), and these pure functions walk that data: they find nodes by `:data-testid` or any other attribute, read their text, and call the event handlers attached to them. That catches what state assertions miss: a view that reads the wrong path or formats a value wrongly, or a button wired to dispatch into the wrong frame.
 
 ```clojure
-(:require [re-frame.test-helpers :as th])
+(:require [re-frame.core :as rf]
+          [re-frame.test-helpers :as th])
 ```
 
 ```clojure
+(defn counter-view [{:keys [n]}]
+  [:span (th/testid "counter-label") "Count: " n])
+
 (let [tree  (counter-view {:n 5})
       label (th/find-by-testid tree "counter-label")]
-  (is (= "Count: 5" (th/text-content label))))
+  (th/text-content label))
+;; => "Count: 5"
 ```
+
+The view above needs no frame because its value comes from props. In a test,
+assert on the returned string with your test runner's equality assertion.
 
 Everything here, the [connected view test](#a-connected-view-test) included, runs on the JVM with no DOM, no React and no `act()`. It needs a view you can call as a function, as a Reagent view is. A UIx `defui` that calls `use-sub` or `use-frame` only runs inside React's render, so mount it instead, as in [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real). Its companion [`re-frame.test-support`](re-frame.test-support.md) holds the fixtures that reset the runtime between tests; a test that checks both state and views requires both. To assert on rendered HTML markup rather than on structure or handlers, use `render-to-string` from [re-frame.ssr](re-frame.ssr.md). [Test a view](../core/testing/views.md) walks through a complete view test.
 

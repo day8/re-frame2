@@ -5,16 +5,25 @@ Use this namespace to run a re-frame2 app on UIx, a hooks-first React substrate.
 Pick it when your components are React function components written with `defui` and hooks, usually because the code around the app already is; for hiccup views, use [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) or [Fresco](re-frame.fresco.md). It ships in the `day8/re-frame2-uix` artefact, which brings in `com.pitch/uix.core`.
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.adapter.uix :as uix-adapter]
-          [uix.core :refer [$ defui]])
+(ns my-app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.adapter.uix :as uix-adapter]
+            [uix.core :refer [$ defui]]))
 ```
 
 ```clojure
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _]
+    {:db (update db :counter/value (fnil inc 0))}))
+
+(rf/reg-sub :counter/value
+  (fn [db _] (:counter/value db 0)))
+
 (defui counter-app []
   (let [n                  (uix-adapter/use-sub [:counter/value])
         {:keys [dispatch]} (uix-adapter/use-frame)]
-    ($ :button {:on-click #(dispatch [:counter/inc])} n)))
+    ($ :button {:on-click #(dispatch [:counter/inc])}
+       "Clicked " n " times")))
 
 (defonce app-root (uix-adapter/client-root))
 
@@ -22,7 +31,7 @@ Pick it when your components are React function components written with `defui` 
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (uix-adapter/render! app-root
-      ($ uix-adapter/frame-root {:id :rf/default :initial-events [[:counter/initialise]]}
+      ($ uix-adapter/frame-root {:id :app/main}
          ($ counter-app))
       el)))
 
@@ -152,9 +161,8 @@ Components are plain `defui` functions that you mount by referring to their Var,
     - `:rf.error/frame-root-given-frame` on a `:frame` key, naming `frame-provider`
 - **Example**:
   ```clojure
-  ;; create the frame on first mount, seed it once via :initial-events,
-  ;; reuse (no re-seed) on hot-reload re-mount.
-  ($ uix-adapter/frame-root {:id :app :initial-events [[:counter/initialise]]}
+  ;; Create the counter's frame on first mount; reuse it on hot reload.
+  ($ uix-adapter/frame-root {:id :app/main}
      ($ counter-app))
   ```
 
@@ -195,13 +203,16 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
     - Call `rf/init!` before the first `render!`. `render!` does not check for an adapter, but the first frame or subscription the tree creates raises `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` after `rf/destroy-adapter!`. Install an adapter again before rendering afresh.
 - **Example**:
   ```clojure
-  (uix-adapter/render! app-root ($ app-view) el)                   ;; first call: create + render
-  (uix-adapter/render! app-root ($ app-view) el)                   ;; later calls: update the same root
+  (uix-adapter/render! app-root
+    ($ uix-adapter/frame-root {:id :app/main} ($ counter-app)) el)
+  ;; Later calls update the same root and reuse its frame.
 
   ;; Alternative boot for an SSR page: hydrate on this handle's FIRST render.
   (defonce hydrated-root (uix-adapter/client-root))
-  (uix-adapter/render! hydrated-root ($ app-view) el {:hydrate? true})
-  (uix-adapter/render! hydrated-root ($ app-view) el)  ;; later: update
+  (uix-adapter/render! hydrated-root
+    ($ uix-adapter/frame-provider {:frame :app/main} ($ counter-app))
+    el {:hydrate? true})
+  ;; Hydration has already installed :app/main; later renders update this root.
   ```
 
 ### `unmount!`

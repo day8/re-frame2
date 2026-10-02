@@ -292,29 +292,37 @@ nav:
   - API:
     - api/README.md
     - "re-frame.core": api/re-frame.core.md
-    - "re-frame.schemas": api/re-frame.schemas.md
-    - "re-frame.flows": api/re-frame.flows.md
-    - "Managed HTTP reference": api/re-frame.http.md
-    - "re-frame.machines": api/re-frame.machines.md
-    - "re-frame.routing": api/re-frame.routing.md
-    - "re-frame.resources": api/re-frame.resources.md
-    - "re-frame.ssr": api/re-frame.ssr.md
-    - "re-frame.ssr.head": api/re-frame.ssr.head.md
-    - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
-    - "re-frame.ssr.ring.node": api/re-frame.ssr.ring.node.md
-    - "re-frame.epoch": api/re-frame.epoch.md
-    - "re-frame.performance": api/re-frame.performance.md
-    - "re-frame.trace.projection": api/re-frame.trace.projection.md
-    - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
-    - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
-    - "re-frame.fresco": api/re-frame.fresco.md
-    - "re-frame.fresco.substrate": api/re-frame.fresco.substrate.md
-    - "re-frame.fresco.forms": api/re-frame.fresco.forms.md
-    - "re-frame.fresco.overlay": api/re-frame.fresco.overlay.md
-    - "re-frame.fresco.motion": api/re-frame.fresco.motion.md
-    - "re-frame.fresco.native": api/re-frame.fresco.native.md
-    - "re-frame.test-support": api/re-frame.test-support.md
-    - "re-frame.test-helpers": api/re-frame.test-helpers.md
+    # Reference lookup follows the API's role; namespace titles and URLs stay
+    # intact. The landing page explains choices rather than repeating this nav.
+    - "Application features":
+      - "re-frame.schemas": api/re-frame.schemas.md
+      - "re-frame.flows": api/re-frame.flows.md
+      - "Managed HTTP reference": api/re-frame.http.md
+      - "re-frame.resources": api/re-frame.resources.md
+      - "re-frame.machines": api/re-frame.machines.md
+      - "re-frame.routing": api/re-frame.routing.md
+    - "Fresco":
+      - "re-frame.fresco": api/re-frame.fresco.md
+      - "re-frame.fresco.substrate": api/re-frame.fresco.substrate.md
+      - "re-frame.fresco.forms": api/re-frame.fresco.forms.md
+      - "re-frame.fresco.overlay": api/re-frame.fresco.overlay.md
+      - "re-frame.fresco.motion": api/re-frame.fresco.motion.md
+      - "re-frame.fresco.native": api/re-frame.fresco.native.md
+    - "Reagent and UIx adapters":
+      - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
+      - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
+    - "Server rendering":
+      - "re-frame.ssr": api/re-frame.ssr.md
+      - "re-frame.ssr.head": api/re-frame.ssr.head.md
+      - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
+      - "re-frame.ssr.ring.node": api/re-frame.ssr.ring.node.md
+    - "Diagnostics":
+      - "re-frame.epoch": api/re-frame.epoch.md
+      - "re-frame.trace.projection": api/re-frame.trace.projection.md
+      - "re-frame.performance": api/re-frame.performance.md
+    - "Testing":
+      - "re-frame.test-support": api/re-frame.test-support.md
+      - "re-frame.test-helpers": api/re-frame.test-helpers.md
 
   - Machines:
     # Section label IS the landing page (navigation.indexes). Flat list —

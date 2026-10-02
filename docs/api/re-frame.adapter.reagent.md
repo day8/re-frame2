@@ -5,19 +5,31 @@ Use this namespace to run a re-frame2 app on Reagent. It provides the `adapter` 
 Pick it when your views are hiccup; the Core guide uses it. If your components are React function components written with UIx hooks, use [`re-frame.adapter.uix`](re-frame.adapter.uix.md) instead. It ships in two artefacts, `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim), and both publish this namespace; the variants, and when to pick slim, are compared under [Full and slim](#full-and-slim).
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.adapter.reagent :as reagent-adapter])
+(ns my-app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.adapter.reagent :as reagent-adapter]))
 ```
 
 ```clojure
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _]
+    {:db (update db :counter/value (fnil inc 0))}))
+
+(rf/reg-sub :counter/value
+  (fn [db _] (:counter/value db 0)))
+
+(rf/reg-view counter []
+  [:button {:on-click #(dispatch [:counter/inc])}
+   "Clicked " @(subscribe [:counter/value]) " times"])
+
 (defonce app-root (reagent-adapter/client-root))
 
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (reagent-adapter/render! app-root
-      [rf/frame-root {:id :rf/default :initial-events [[:app/initialise]]}
-       [app-view]]
+      [rf/frame-root {:id :app/main}
+       [counter]]
       el)))
 
 (defn run []
@@ -118,13 +130,14 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
     - Call `rf/init!` before the first `render!`. `render!` does not check for an adapter, but the first frame or subscription the tree creates raises `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` after `rf/destroy-adapter!`. Install an adapter again before rendering afresh.
 - **Example**:
   ```clojure
-  (reagent-adapter/render! app-root [app-view] el)                   ;; first call: create + render
-  (reagent-adapter/render! app-root [app-view] el)                   ;; later calls: update the same root
+  (reagent-adapter/render! app-root [rf/frame-root {:id :app/main} [counter]] el)
+  ;; Later calls update the same root and reuse its frame.
 
   ;; Alternative boot for an SSR page: hydrate on this handle's FIRST render.
   (defonce hydrated-root (reagent-adapter/client-root))
-  (reagent-adapter/render! hydrated-root [app-view] el {:hydrate? true})
-  (reagent-adapter/render! hydrated-root [app-view] el)  ;; later: update
+  (reagent-adapter/render! hydrated-root
+    [rf/frame-provider {:frame :app/main} [counter]] el {:hydrate? true})
+  ;; Hydration has already installed :app/main; later renders update this root.
   ```
 
 ### `unmount!`
