@@ -69,11 +69,9 @@
 ;; ===========================================================================
 
 (deftest lower-network-unit
-  (testing "lower-network keeps the routes and derives the managed override"
-    (let [routes {cart-route {:reply {:ok 1}}}]
-      (is (= {:network      routes
-              :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
-             (rf.story.plan/lower-network routes))))
+  (testing "lower-network derives the managed override"
+    (is (= {:rf.http/managed :rf.http/managed-test-stub}
+           (rf.story.plan/lower-network {cart-route {:reply {:ok 1}}})))
     (testing "nil for empty / nil input"
       (is (nil? (rf.story.plan/lower-network {})))
       (is (nil? (rf.story.plan/lower-network nil))))))

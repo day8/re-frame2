@@ -31,16 +31,7 @@
     (is (contains? (rf.story.requirements/runner-provides :cljs-reactive) :reactive-counts))
     (is (contains? (rf.story.requirements/runner-provides :dom)           :dom))
     (is (contains? (rf.story.requirements/runner-provides :browser)       :pixels))
-    (is (contains? (rf.story.requirements/runner-provides :browser)       :a11y-engine)))
-
-  (testing "the reactive-counts token constant"
-    (is (= :reactive-counts rf.story.requirements/reactive-counts-token)))
-
-  (testing "cost rank is cheapest-first; :cljs-reactive ranks between :hiccup and :dom"
-    (is (< (rf.story.requirements/runner-cost :headless)      (rf.story.requirements/runner-cost :hiccup)))
-    (is (< (rf.story.requirements/runner-cost :hiccup)        (rf.story.requirements/runner-cost :cljs-reactive)))
-    (is (< (rf.story.requirements/runner-cost :cljs-reactive) (rf.story.requirements/runner-cost :dom)))
-    (is (< (rf.story.requirements/runner-cost :dom)           (rf.story.requirements/runner-cost :browser)))))
+    (is (contains? (rf.story.requirements/runner-provides :browser)       :a11y-engine))))
 
 ;; ===========================================================================
 ;; REQUIREMENT INFERENCE — per-step and per-assertion tokens

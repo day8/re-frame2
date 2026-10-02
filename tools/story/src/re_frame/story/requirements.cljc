@@ -116,17 +116,6 @@
     :pixels          ; real-browser layout / screenshots / pixel diffs
     :a11y-engine})   ; axe-style accessibility engine
 
-(def reactive-counts-token
-  "The reactive recompute / over-render count token (spec/017 §1a). The
-  `:cljs-reactive` runner advertises it — its proof is the
-  `re-frame.story.play.evidence/reactive-counts` projection over the
-  `:rf.sub/run` / `:rf.view/rendered` rows the framework already retains in
-  the epoch tape. A runner that does not flush reactions cannot prove it,
-  so a requirement on it resolves to `:cannot-run` under those runners.
-  Named so the call site reads explicitly and the projection has one place
-  to anchor."
-  :reactive-counts)
-
 ;; ===========================================================================
 ;; COST-ORDERED CONCRETE RUNNERS  (spec/017 §Runner kinds and capabilities)
 ;; ===========================================================================
@@ -207,16 +196,6 @@
   proves nothing)."
   [runner-kind]
   (:provides (runner-descriptor runner-kind) #{}))
-
-(defn runner-cost
-  "The 0-based cost rank of `runner-kind` on `concrete-runners` (cheapest =
-  0). Returns a large sentinel for a non-selectable kind so it sorts last —
-  it is never preferred."
-  [runner-kind]
-  (let [idx (reduce-kv (fn [_ i d] (when (= runner-kind (:runner d)) (reduced i)))
-                       nil
-                       (vec concrete-runners))]
-    (if (integer? idx) idx 1000000)))
 
 ;; ===========================================================================
 ;; REQUIREMENT INFERENCE  (spec/017 §Runner requirements)

@@ -98,33 +98,34 @@
       (is (= :pass (:status (first recs))) "an empty group is vacuously :pass")
       (is (empty? (:assertions (first recs)))))))
 
-(deftest check-groups-sensitive-path-equals-record-by-redaction-invariant-key
-  (testing "a sensitive :rf.assert/path-equals record — whose :payload was
-            rebuilt from the REDACTED expected value at run time
-            ([path :rf/redacted], per assertions.cljc `evaluate-path-equals`)
+(deftest check-groups-sensitive-record-by-redaction-invariant-key
+  (testing "a sensitive :rf.assert/path-equals or :rf.assert/sub-equals
+            record — whose :payload was rebuilt from the REDACTED expected
+            value at run time ([path-or-sub-vec :rf/redacted], per
+            assertions.cljc `evaluate-path-equals` / `evaluate-sub-equals`)
             — still groups under its check even though the check plan's atom
-            carries the RAW author-declared expected value ([path <secret>]).
-            An exact-payload match would never agree for a sensitive
-            assertion (`:rf/redacted` != the raw secret), so the check's
-            :assertions would read empty and the check would vacuously
-            aggregate to :pass even though the assertion FAILED (the
-            run-level verdict would stay correct via the ungrouped
-            `records` fold — only the check-level grouping would lie)."
-    (let [records [{:assertion :rf.assert/path-equals
-                    :payload   [[:user :ssn] :rf/redacted]
-                    :status    :fail
-                    :expected  :rf/redacted
-                    :actual    :rf/redacted}]
-          check->atoms {:check/no-leak [[:rf.assert/path-equals [:user :ssn] "123-45-6789"]]}
-          recs (rf.story.result/check-records check->atoms records)
-          c    (first recs)]
-      (is (= :check/no-leak (:check c)))
-      (is (= 1 (count (:assertions c)))
-          "the redacted record IS grouped under its check — matched by the
-           redaction-invariant path key, not the (unequal) raw payload")
-      (is (= :fail (:status c))
-          "the check's own status reflects the sensitive assertion's real
-           FAILURE, not a vacuous :pass from an empty group"))))
+            carries the RAW author-declared expected value
+            ([path-or-sub-vec <secret>]). An exact-payload match would never
+            agree for a sensitive assertion (`:rf/redacted` != the raw
+            secret), so the check's :assertions would read empty and the
+            check would vacuously aggregate to :pass even though the
+            assertion FAILED (the run-level verdict would stay correct via
+            the ungrouped `records` fold — only the check-level grouping
+            would lie)."
+    (doseq [[id coord] [[:rf.assert/path-equals [:user :ssn]]
+                        [:rf.assert/sub-equals  [:user/ssn]]]]
+      (let [records [{:assertion id
+                      :payload   [coord :rf/redacted]
+                      :status    :fail
+                      :expected  :rf/redacted
+                      :actual    :rf/redacted}]]
+        (is (= [{:check :check/no-leak :status :fail :assertions records}]
+               (rf.story.result/check-records {:check/no-leak [[id coord "123-45-6789"]]}
+                                              records))
+            (str id ": the redacted record IS grouped under its check — matched
+                 by the redaction-invariant coordinate key, not the (unequal)
+                 raw payload — so the check reports the real FAILURE, not a
+                 vacuous :pass from an empty group"))))))
 
 ;; ===========================================================================
 ;; RUN RESULT — the unified shape + the agreement floor
