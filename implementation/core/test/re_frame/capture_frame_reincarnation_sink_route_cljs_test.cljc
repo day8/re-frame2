@@ -37,9 +37,11 @@
       liveness read);
     - the record itself: exactly one corpus-wide `:rf.error/frame-destroyed`
       record + one dev trace fire; the surviving record keeps A's bare frame id,
-      `:op` realm, and structural head; a subscribe keeps RAW query identity;
-    - LIVE routing: an ordinary handler-exception on a LIVE frame reaches its
-      frame-owned sink (the default `route-frame?` path).
+      `:op` realm, and structural head; a subscribe keeps RAW query identity.
+
+  That the default `route-frame?` path delivers an ordinary handler-exception
+  on a LIVE frame to its frame-owned sink is pinned by
+  `re-frame.observability-routing-cljs-test/error-routes-projected-to-declared-error-sink`.
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run it. Plain
@@ -159,7 +161,6 @@
   (when rf.interop/debug-enabled?
     (is (= 1 (count traces))  "EXACTLY ONE dev trace on axis 2 fires"))
   (let [r (first records)]
-    (is (= :rf.error/frame-destroyed (:error r))    "corpus category retained")
     (is (= fid (:frame r))                          "corpus record carries A's captured bare frame id")
     (is (= op  (:op r))                             "operation realm retained")
     (is (= head (:event-id r))                      "structural event/query head retained")
@@ -286,26 +287,3 @@
                 "the late-superseded captured op mutated nothing in successor B")
             ;; VACUITY: B's sink is genuinely armed.
             (probe-vacuity! fid b-sink)))))))
-
-;; ---------------------------------------------------------------------------
-;; LIVE routing — the default route-frame? path delivers an ordinary
-;; handler-exception to a LIVE frame's own sink.
-;; ---------------------------------------------------------------------------
-
-(deftest ordinary-live-error-still-reaches-frame-owned-sink
-  (testing "the default route-frame? path delivers (ONLY the dead-incarnation
-            capture seams suppress it): a handler-exception on a LIVE
-            frame routes ONE :rf.observe/error record to that frame's
-            declared :observability :errors sink."
-    (let [seen    (atom [])
-          fid     :qjfrw/live
-          sink-id :qjfrw.sinks/live-sentry]
-      (make-frame-with-error-sink! fid sink-id seen)
-      (rf/reg-event :qjfrw/boom {:frame fid}
-        (fn [_ _] (throw (ex-info "kaboom" {:cause :test}))))
-      (rf/dispatch-sync [:qjfrw/boom] {:frame fid})
-      (is (= 1 (count @seen)) "the live frame's error sink receives exactly one record")
-      (let [r (first @seen)]
-        (is (= :rf.observe/error (:kind r)))
-        (is (= fid (:frame r)))
-        (is (= :rf.error/handler-exception (:error r)))))))

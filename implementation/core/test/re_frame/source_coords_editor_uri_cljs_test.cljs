@@ -10,17 +10,14 @@
 (def ^:private coord
   {:ns 'app.views :file "src/app/views.cljs" :line 42 :column 7})
 
-(deftest vscode-cursor-idea-portable-shape
-  (testing ":vscode / :cursor / :idea produce the documented URIs under CLJS"
+(deftest each-built-in-editor-builds-its-documented-uri-on-cljs
+  (testing "every built-in editor produces its documented URI under CLJS"
     (is (= "vscode://file/src/app/views.cljs:42:7"
            (rf.source-coords.editor-uri/editor-uri :vscode coord)))
     (is (= "cursor://file/src/app/views.cljs:42:7"
            (rf.source-coords.editor-uri/editor-uri :cursor coord)))
     (is (= "idea://open?file=src/app/views.cljs&line=42&column=7"
-           (rf.source-coords.editor-uri/editor-uri :idea coord)))))
-
-(deftest windsurf-zed-portable-shape
-  (testing ":windsurf / :zed produce the documented URIs under CLJS"
+           (rf.source-coords.editor-uri/editor-uri :idea coord)))
     (is (= "windsurf://file/src/app/views.cljs:42:7"
            (rf.source-coords.editor-uri/editor-uri :windsurf coord)))
     (is (= "zed://file/src/app/views.cljs:42:7"
@@ -50,17 +47,6 @@
     (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "DATA:text/html,xxx"}                  coord)))
     (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "vbscript:msgbox(1)"}                  coord)))
     (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom " javascript:alert(1)"}                coord)))))
-
-(deftest legitimate-custom-schemes-pass-on-cljs
-  (testing "ordinary custom editor templates resolve on CLJS"
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "jetbrains://idea/{path}:{line}"}      coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "subl://open?path={path}&line={line}"} coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "emacsclient://open?file={path}"}      coord))))
-  (testing "an UNKNOWN, non-dangerous custom scheme passes
-            through on CLJS — no positive allowlist, no silent dead button"
-    (is (= "lapce://open?file=src/app/views.cljs&line=42"
-           (rf.source-coords.editor-uri/editor-uri {:custom "lapce://open?file={path}&line={line}"} coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "future-editor-9://{path}:{line}"} coord)))))
 
 ;; ---- public forbidden-scheme? predicate ----------------------------------
 

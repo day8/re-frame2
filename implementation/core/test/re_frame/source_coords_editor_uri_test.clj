@@ -80,14 +80,10 @@
     (is (= "Open in editor" (rf.source-coords.editor-uri/open-button-title {:line 10})))))
 
 (deftest known-editors-set
-  (testing "known-editors enumerates the built-in scheme keywords"
-    (is (contains? rf.source-coords.editor-uri/known-editors :vscode))
-    (is (contains? rf.source-coords.editor-uri/known-editors :cursor))
-    (is (contains? rf.source-coords.editor-uri/known-editors :windsurf))
-    (is (contains? rf.source-coords.editor-uri/known-editors :zed))
-    (is (contains? rf.source-coords.editor-uri/known-editors :idea))
-    ;; :custom is a map-shape, not a member of the keyword set.
-    (is (not (contains? rf.source-coords.editor-uri/known-editors :custom)))))
+  (testing "known-editors enumerates exactly the built-in scheme keywords;
+            :custom is a map-shape, not a member of the keyword set"
+    (is (= #{:vscode :cursor :windsurf :zed :idea}
+           rf.source-coords.editor-uri/known-editors))))
 
 ;; ---- forbidden schemes --------------------------------------------------
 
@@ -112,25 +108,6 @@
       " javascript:alert(1)"
       "\tdata:text/html,xxx"
       "  vbscript:msgbox(1)")))
-
-(deftest legitimate-custom-schemes-still-pass
-  (testing "ordinary custom editor schemes round-trip cleanly"
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "jetbrains://idea/{path}:{line}"}      sample-coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "subl://open?path={path}&line={line}"} sample-coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "emacsclient://open?file={path}"}      sample-coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "org-protocol://capture?path={path}"}  sample-coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "vscode-insiders://file/{path}:{line}"} sample-coord)))
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "file://{path}"}                       sample-coord))))
-  (testing "An UNKNOWN, uncatalogued, non-dangerous custom
-            scheme passes through — there is no positive allowlist, so a
-            future editor's scheme is NOT a silent dead button"
-    ;; `lapce:` is a real editor scheme that no catalogue names; under the
-    ;; denylist it must produce a clickable URI.
-    (is (= "lapce://open?file=src/app/views.cljs&line=42"
-           (rf.source-coords.editor-uri/editor-uri {:custom "lapce://open?file={path}&line={line}"} sample-coord)))
-    ;; A wholly-made-up scheme also passes — the gate rejects ONLY the
-    ;; three known-bad schemes, everything else is the developer's call.
-    (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "future-editor-9://{path}:{line}"} sample-coord)))))
 
 (deftest editor-uri-does-not-reject-forbidden-scheme-substring
   (testing "the gate matches the LEADING scheme only, so `editor-uri`

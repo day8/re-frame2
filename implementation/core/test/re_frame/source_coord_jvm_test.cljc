@@ -50,8 +50,8 @@
   Q1, has NO effect on that record. Production observability does not depend on
   which spelling the caller reached for; only the dev jump-to-source does.
 
-  FOUR ABSENCE CHECKS ARE DEV-ONLY. The three `…-omits-call-site` deftests and
-  `call-site-rides-at-top-level` each certify an absence with
+  THE ABSENCE CHECKS ARE DEV-ONLY. The three `…-omits-call-site` deftests and
+  `assert-call-site-shape`'s `:tags` negative each certify an absence with
   `(not (contains? … :rf.trace/call-site))`, which against the nil an empty
   trace ring yields would pass vacuously — `(contains? nil k)` is false for
   every k, so under the gate they would certify the fn-form path by never
@@ -165,7 +165,6 @@
           [miss] (errors-of traces :rf.error/no-such-handler)]
       (assert-production-record errors :rf.error/no-such-handler)
       (when rf.interop/debug-enabled?
-        (is (some? miss) "no-such-handler trace fired")
         (assert-call-site-shape miss)
         ;; The line number is not hardcoded (a file edit would break it);
         ;; a positive line plus this file's name is what a jump-to-source
@@ -205,7 +204,6 @@
           [miss] (errors-of traces :rf.error/no-such-sub)]
       (assert-production-record errors :rf.error/no-such-sub)
       (when rf.interop/debug-enabled?
-        (is (some? miss) "no-such-sub trace fired")
         (assert-call-site-shape miss)))))
 
 (deftest subscribe-owning-fn-omits-call-site
@@ -254,7 +252,6 @@
       (is (= (rf.source-coords/error-coords-for :event :rf2-ts1a/throws) (:source-coord rec))
           "the production record carries the registration coord instead")
       (when rf.interop/debug-enabled?
-        (is (some? exc))
         (assert-call-site-shape exc)))))
 
 (deftest dispatch-sync-owning-fn-omits-call-site-on-handler-exception
@@ -280,27 +277,3 @@
             ":rf.trace/call-site omitted on the fn-form path")))))
 
 ;; ---- top-level placement (Q2=A) ------------------------------------------
-
-(deftest call-site-rides-at-top-level
-  (testing ":rf.trace/call-site lives at the top level, sibling of
-   :rf.trace/trigger-handler — NOT nested under :tags"
-    (rf/reg-event :rf2-ts1a/top-level
-                     (fn [_cofx _event]
-                       (throw (ex-info "boom" {}))))
-    (let [{:keys [traces errors]}
-          (record-both
-            (fn []
-              (rf/dispatch-sync [:rf2-ts1a/top-level])))
-          [exc] (errors-of traces :rf.error/handler-exception)]
-      (assert-production-record errors :rf.error/handler-exception)
-      ;; GUARDED. The `:tags` negative would be vacuous under the gate for the
-      ;; usual reason: `exc` is nil, `(contains? nil k)` false.
-      (when rf.interop/debug-enabled?
-        (is (contains? exc :rf.trace/call-site)
-            ":rf.trace/call-site lives at the top level of the event")
-        (is (not (contains? (:tags exc) :rf.trace/call-site))
-            ":rf.trace/call-site does NOT live under :tags")
-        ;; Mirror trigger-handler placement so both pieces sit side-by-side
-        ;; in the event shape.
-        (is (contains? exc :rf.trace/trigger-handler)
-            ":rf.trace/trigger-handler lives alongside :rf.trace/call-site")))))

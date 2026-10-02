@@ -36,10 +36,8 @@
                (fn []
                  (rf/dispatch-sync [:rf2-ts1a/missing])))
           [miss] (errors-of evs :rf.error/no-such-handler)]
-      (is (some? miss))
       (let [cs (:rf.trace/call-site miss)]
-        (is (some? cs) "call-site captured")
-        (is (symbol? (:ns cs)))
+        (is (symbol? (:ns cs)) "call-site captured")
         (is (integer? (:line cs)))
         (is (not (contains? (:tags miss) :rf.trace/call-site))
             ":rf.trace/call-site lives at top level, not under :tags")))))
@@ -60,7 +58,6 @@
                (fn []
                  (rf/subscribe [:rf2-ts1a/missing-sub])))
           [miss] (errors-of evs :rf.error/no-such-sub)]
-      (is (some? miss))
       (is (some? (:rf.trace/call-site miss))))))
 
 (deftest cljs-subscribe-owning-fn-omits-call-site
