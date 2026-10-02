@@ -158,19 +158,19 @@
       "selector": "[data-testid=\"rf-xray-filter-add\"]",
       "colour": "#1976d2",
       "label": "1  Add a filter",
-      "labelPos": "below"
+      "labelAt": {"x": 830, "y": 6}
     },
     {
       "selector": "[data-testid=\"rf-xray-ribbon-filters\"]",
       "colour": "#7e57c2",
       "label": "2  Exclude runner events",
-      "labelPos": "below"
+      "labelAt": {"x": 1030, "y": 40}
     },
     {
       "selector": "[data-testid=\"rf-xray-event-list\"]",
       "colour": "#43a047",
       "label": "3  Relevant events",
-      "labelPos": "below"
+      "labelAt": {"x": 1220, "y": 325}
     }
   ],
   "xray-tutorial-settings": [
@@ -202,19 +202,21 @@
       "selector": "[data-testid=\"rf-xray-derivation-graph-mode-toggle\"]",
       "colour": "#1976d2",
       "label": "1  Static or live",
-      "labelPos": "below"
+      "labelAt": {"x": 1130, "y": 300}
     },
     {
       "selector": "[data-testid=\"rf-xray-derivation-graph-counts\"]",
       "colour": "#7e57c2",
       "label": "2  What is represented",
-      "labelPos": "below"
-    },
+      "labelAt": {"x": 1060, "y": 353}
+    }
+  ],
+  "xray-tutorial-graph-flow": [
     {
       "selector": "[data-testid=\"rf-xray-derivation-graph-family-flows-body\"]",
       "colour": "#43a047",
       "label": "3  Registered flow",
-      "labelPos": "below"
+      "labelAt": {"x": 1120, "y": 295}
     }
   ]
 }

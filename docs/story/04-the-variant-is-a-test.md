@@ -16,9 +16,9 @@ reports the same scenario through your test framework.
 
 ## Test mode
 
-Select the error variant and open **Tests** above the canvas. Its setup and
-script run again. The shipped error variant checks the machine state; the
-`error-message` exercise adds a second check for the message.
+Select `error-message` and open **Tests** above the canvas. Its setup and
+script run again. Expect two passing checks: the machine state and the
+message derived from it.
 
 [![Story Tests: 1 the running canvas, 2 the runner used and capabilities required, 3 the verdict and counts, 4 the step debugger.](../images/story/story-tutorial-04-test-mode.png)](../images/story/story-tutorial-04-test-mode.png)
 
@@ -50,14 +50,13 @@ On the JVM, install the plain-atom adapter with a reset fixture, require
   (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest rejected-login-is-visible
-  (rf.story/is :story.login-form/error))
+  (rf.story/is :story.login-form/error-message))
 ```
 
 `is` blocks until the result is available and reports each assertion to
-`clojure.test`. To run the new two-assertion variant, require the namespace
-where you kept it and change the target to `:story.login-form/error-message`.
-In your app, require your own portable stories namespace instead of the
-testbed. Keep Story on the test classpath too.
+`clojure.test`. This uses the `error-message` registration you added to the
+testbed's stories namespace. In your app, require your own portable stories
+namespace instead of the testbed. Keep Story on the test classpath too.
 
 The JVM loads `.clj` and `.cljc`, not `.cljs`. Put application events,
 subscriptions and story declarations in `.cljc` for shared headless tests;
@@ -80,7 +79,7 @@ In ClojureScript, use an async fixture and await the returned promise:
 
 (deftest rejected-login-is-visible
   (async done
-    (-> (rf.story/is :story.login-form/error)
+    (-> (rf.story/is :story.login-form/error-message)
         (.then (fn [_result] (done))))))
 ```
 

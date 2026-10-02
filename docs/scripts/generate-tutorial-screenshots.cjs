@@ -449,8 +449,8 @@ const SCENES = [
     app: '/standard-epochs',
     clip: 'xray',
     before: async (page) => {
-      await runSteps(page, SE, FIRST_FIVE);
-      await focusRow(page, ':standard-epochs/increment-cascade');
+      await runSteps(page, SE, [SE_STEPS.flow, SE_STEPS.flow]);
+      await eventRow(page, ':standard-epochs/increment-flow').first().click();
       await selectTab(page, 'epoch');
     },
   },
@@ -616,8 +616,13 @@ const SCENES = [
       await runSteps(page, SE, FIRST_FIVE);
       await page.locator('[data-testid="rf-xray-filter-add"]').click();
       await page.locator('[data-testid="rf-xray-edit-popup-pattern"]').fill(':standard-epochs/run-step');
-      await page.locator('[data-testid="rf-xray-edit-popup-mode-out"] input').check();
+      // The controlled input updates after the queued Xray event settles.
+      await page.locator('[data-testid="rf-xray-edit-popup-mode-out"] input').click();
+      await page.waitForFunction(() =>
+        document.querySelector('[data-testid="rf-xray-edit-popup-mode-out"] input')?.checked);
       await page.locator('[data-testid="rf-xray-edit-popup-save"]').click();
+      await page.locator('[data-testid="rf-xray-edit-popup-dialog"]').waitFor({ state: 'detached' });
+      await focusRow(page, ':standard-epochs/increment-flow');
     },
   },
   {
@@ -632,11 +637,23 @@ const SCENES = [
     id: 'xray-tutorial-graph',
     app: '/standard-epochs',
     clip: 'xray',
-    clipHeight: 750,
+    clipHeight: 440,
     before: async (page) => {
       await runSteps(page, SE, [SE_STEPS.flow]);
       await selectTab(page, 'derivation-graph');
       await page.locator('[data-testid="rf-xray-derivation-graph-family-flows-body"]').waitFor({state: 'visible'});
+    },
+  },
+  {
+    id: 'xray-tutorial-graph-flow',
+    app: '/standard-epochs',
+    clip: 'xray',
+    clipHeight: 750,
+    before: async (page) => {
+      await runSteps(page, SE, [SE_STEPS.flow]);
+      await selectTab(page, 'derivation-graph');
+      await page.locator('[data-testid="rf-xray-derivation-graph-family-flows"]').evaluate(node =>
+        node.scrollIntoView({block: 'start'}));
     },
   },
 

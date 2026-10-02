@@ -62,7 +62,10 @@ The [workspace reference](api/registration.md#workspace-body) also describes
 The `nine_states` example compares Nothing, Loading, Empty, One, Some,
 Too Many, Incorrect, Correct and Done for one todos view.
 
-[![Callout 1 surrounds the nine_states matrix of normal, loading and invalid todo states for comparison.](../images/story/story-tutorial-08-nine-states.png)](../images/story/story-tutorial-08-nine-states.png)
+[![Callout 1 surrounds the visible cells of the nine_states workspace, including normal and loading todo states.](../images/story/story-tutorial-08-nine-states.png)](../images/story/story-tutorial-08-nine-states.png)
+
+Scroll the workspace to compare the remaining cells. Each uses the same view
+with a different declared state.
 
 ## Controls
 

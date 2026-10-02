@@ -50,10 +50,9 @@ Read the numbered steps in order:
 
 [![An older event selected in Xray: 1 is the selected row, 2 reports newer events, 3 steps through history or follows the newest event, 4 numbers the event's work, and 5 restores its snapshot.](../images/xray/xray-tutorial-epoch.png)](../images/xray/xray-tutorial-epoch.png)
 
-The screenshot uses the example's cascade step, which also dispatches a
-follow-up event. The controls and numbered steps are the same. A child
-dispatch has its own event row; it is not another handler inside the parent's
-epoch.
+The screenshot selects the first flow event after running step 5 twice.
+Newer events remain in the list while the detail panel shows the selected
+snapshot. A child dispatch has its own event row and epoch.
 
 ## Confirm the result
 

@@ -7,11 +7,20 @@ route and machine nodes and the edges between them.
 ## Inspect the example's flow
 
 Run step 5 in `standard-epochs`, then open **Graph**. The default **static**
-mode lists registered definitions. Find `:standard-epochs/derived` in
-**Flows** and read its inputs and app-db output path. Its value is calculated
-from `[:base]` and materialized at `[:derived]`.
+mode lists registered definitions. The header counts the represented nodes
+and edges (2).
 
-[![The dependency catalogue: 1 chooses static or live mode, 2 counts the graph's nodes and edges, and 3 lists the registered flow and its classification.](../images/xray/xray-tutorial-graph.png)](../images/xray/xray-tutorial-graph.png)
+[![The dependency catalogue: 1 chooses static or live mode; 2 counts the graph's nodes and edges.](../images/xray/xray-tutorial-graph.png)](../images/xray/xray-tutorial-graph.png)
+
+Scroll past **Subscriptions** to **Flows** and find
+`:standard-epochs/derived` (3). Its row says that it stores its result in
+`:app-db`, evaluates `:after-event` and lives as long as its frame.
+
+[![After scrolling to Flows, callout 3 identifies the example's registered flow and its storage, evaluation and lifetime.](../images/xray/xray-tutorial-graph-flow.png)](../images/xray/xray-tutorial-graph-flow.png)
+
+This flow calculates from `[:base]` and writes to `[:derived]`. Read its
+calculation and declared paths in Static → **Flows**; Graph describes its
+classification and relationships.
 
 Switch to **live** (1) to inspect the concrete queries, machine instances,
 route slice and cache entries in the observed frame. Mount Child A with
