@@ -10,10 +10,10 @@
   ## Coverage
 
   - **Pure data** (JVM + CLJS):
-    - `parse-coord` round-trips the `<ns>:<sym>:<line>:<col>` DOM
-      attribute into `{:ns :handler-id :line :col}` with malformed-
-      input safety (mirror of skills/re-frame2-pair's parser tests so
-      format drift surfaces here too).
+    - `parse-coord` reads the `<ns>:<sym>:<line>:<col>` DOM attribute
+      into `{:ns :handler-id :line :col}`. It aliases
+      `re-frame.source-coords/parse-source-coord`, whose own tests pin
+      the degraded and malformed inputs.
     - `coord->handler-keyword` reconstructs the registered view id.
 
   - **CLJS-only side-effects**:
@@ -42,42 +42,6 @@
     (is (= {:ns "counter.core" :handler-id "counter-buttons"
             :line 47 :col 11}
            (rf.story.ui.element-inspector/parse-coord "counter.core:counter-buttons:47:11")))))
-
-(deftest parse-coord-dotted-and-hyphenated
-  (testing "dotted ns + hyphenated handler-id parse cleanly"
-    (is (= {:ns "my-app.cart.view" :handler-id "apply-coupon-button"
-            :line 125 :col 4}
-           (rf.story.ui.element-inspector/parse-coord
-             "my-app.cart.view:apply-coupon-button:125:4")))))
-
-(deftest parse-coord-degraded
-  (testing "programmatic registration emits `?:?` for missing line/col;
-            parser surfaces them as nil"
-    (is (= {:ns "rf.src-coord-test" :handler-id "programmatic"
-            :line nil :col nil}
-           (rf.story.ui.element-inspector/parse-coord "rf.src-coord-test:programmatic:?:?")))))
-
-(deftest parse-coord-malformed-too-few-segments
-  (testing "fewer than 4 segments → nil"
-    (is (nil? (rf.story.ui.element-inspector/parse-coord "ns:view:42")))
-    (is (nil? (rf.story.ui.element-inspector/parse-coord "ns:view")))
-    (is (nil? (rf.story.ui.element-inspector/parse-coord "")))
-    (is (nil? (rf.story.ui.element-inspector/parse-coord nil)))))
-
-(deftest parse-coord-malformed-too-many-segments
-  (testing "more than 4 segments → nil (strict 4-segment contract)"
-    (is (nil? (rf.story.ui.element-inspector/parse-coord "a:b:c:d:e")))))
-
-(deftest parse-coord-empty-segments
-  (testing "empty `<ns>` or `<handler-id>` → nil"
-    (is (nil? (rf.story.ui.element-inspector/parse-coord ":handler:1:2")))
-    (is (nil? (rf.story.ui.element-inspector/parse-coord "ns::1:2")))))
-
-(deftest parse-coord-non-string-input
-  (testing "non-string input → nil (never throws)"
-    (is (nil? (rf.story.ui.element-inspector/parse-coord 42)))
-    (is (nil? (rf.story.ui.element-inspector/parse-coord :keyword)))
-    (is (nil? (rf.story.ui.element-inspector/parse-coord ["v" "e" "c"])))))
 
 (deftest coord->handler-keyword-shape
   (testing "parsed coord round-trips to the registered view-id keyword"
@@ -170,10 +134,10 @@
        (is (nil? (rf.story.ui.element-inspector/overlay))))))
 
 #?(:cljs
-   (deftest resolve-source-coord-pulls-file-from-handler-meta
-     (testing "the DOM attribute carries line+col; `:file` lives on the
-               registered view's meta. `resolve-source-coord` walks the
-               registry to produce the full source-coord shape
+   (deftest resolve-source-coord-file-falls-back-to-error-coords
+     (testing "the DOM attribute carries line+col; with no view meta to
+               read, `:file` comes from the error-coords registry.
+               `resolve-source-coord` assembles the full source-coord shape
                `editor-uri/editor-uri` expects."
        (let [view-id :rf.inspector-test/sample-view]
          ;; Seed the always-on error-coord registry so the resolver finds

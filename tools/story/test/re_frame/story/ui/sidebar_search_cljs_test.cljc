@@ -17,7 +17,7 @@
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a bare `-test` name would run it on the JVM only."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.ui.sidebar-search :as rf.story.ui.sidebar-search]))
 
 ;; ---- tokenise ------------------------------------------------------------
@@ -144,24 +144,16 @@
 
 ;; ---- highlight-segments --------------------------------------------------
 
-(deftest highlight-segments-empty-query
-  (testing "empty query → one non-match segment"
-    (is (= [{:text "/at-five" :match? false}]
-           (rf.story.ui.sidebar-search/highlight-segments "/at-five" "")))))
-
-(deftest highlight-segments-single-match
-  (testing "single token, single match in middle"
-    (let [out (rf.story.ui.sidebar-search/highlight-segments "/at-five" "five")]
-      (is (= [{:text "/at-" :match? false}
-              {:text "five" :match? true}]
-             out)))))
-
-(deftest highlight-segments-case-insensitive-preserves-case
-  (testing "case-insensitive match preserves original label case"
-    (let [out (rf.story.ui.sidebar-search/highlight-segments "AtFive" "five")]
-      (is (= [{:text "At" :match? false}
-              {:text "Five" :match? true}]
-             out)))))
+(deftest highlight-segments-splits-the-label-around-matches
+  (are [label query segments] (= segments (rf.story.ui.sidebar-search/highlight-segments label query))
+    ;; an empty query is one non-match segment
+    "/at-five" ""        [{:text "/at-five" :match? false}]
+    ;; a single token matching mid-label
+    "/at-five" "five"    [{:text "/at-" :match? false} {:text "five" :match? true}]
+    ;; the match is case-insensitive and keeps the label's own case
+    "AtFive"   "five"    [{:text "At" :match? false} {:text "Five" :match? true}]
+    ;; a token that does not hit is one non-match segment
+    "/at-five" "missing" [{:text "/at-five" :match? false}]))
 
 (deftest highlight-segments-multi-token
   (testing "multi-token: first hit becomes the highlighted segment"
@@ -169,8 +161,3 @@
     ;; hits → single highlighted segment
     (let [out (rf.story.ui.sidebar-search/highlight-segments "/at-five" "five at")]
       (is (some :match? out)))))
-
-(deftest highlight-segments-no-match
-  (testing "tokens don't hit → single non-match segment"
-    (let [out (rf.story.ui.sidebar-search/highlight-segments "/at-five" "missing")]
-      (is (= [{:text "/at-five" :match? false}] out)))))

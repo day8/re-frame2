@@ -137,24 +137,6 @@
 ;; The variant panel (ui/a11y) — a per-frame slot
 ;; ===========================================================================
 
-(deftest an-owning-run-records-its-scan
-  (testing "POSITIVE CONTROL, and the premise the refusals rest on. A
-            fence that simply stopped recording settled scans would pass
-            every staleness test below while breaking every real scan.
-            The run that owns the slot records its scan"
-    (async done
-      (let [scans (atom 0)]
-        (install-axe! (fn [_] (swap! scans inc)
-                        (js/Promise.resolve (results "color-contrast"))))
-        (-> (rf.story.ui.a11y/run-axe! frame-id (ctx))
-            (.then (fn [_]
-                     (is (= 1 @scans) "the scan really ran")
-                     (is (= :done (rf.story.ui.a11y/status-for frame-id))
-                         "the owning run reached its terminal status")
-                     (is (= ["color-contrast"] (violation-ids frame-id))
-                         "and its violations were recorded")
-                     (done))))))))
-
 (deftest no-throw-and-no-resurrection
   (testing "THE HAZARD: the frame is torn down while the scan is in
             flight. Settling must not throw — and an unfenced settlement

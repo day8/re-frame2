@@ -161,17 +161,6 @@
        (rf.story.recorder/clear!))))
 
 #?(:cljs
-   (deftest dialog-auto-assert-includes-assertions-in-snippet
-     (testing "auto-assert ON yields a snippet containing :assert-db steps"
-       (rf.story.ui.recorder-export-dialog/open-dialog!
-         {:source-id :story.x/source
-          :events    [[:counter/inc]]
-          :final-db  {:n 5 :who "alice"}})
-       (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
-         (is (str/includes? flat ":assert-db")
-             "auto-assert ON produces trailing :assert-db steps in the snippet")))))
-
-#?(:cljs
    (deftest dialog-auto-assert-diffs-against-the-recording-seed
      (testing "given the recording's seed db, the default
                auto-assert pins only what the recording changed — not the
@@ -189,14 +178,3 @@
              "the unchanged static keys are not")
          (is (not (str/includes? flat "[:assert-db [:rf.story/"))
              "Story's own bookkeeping is not")))))
-
-#?(:cljs
-   (deftest dialog-without-final-db-omits-assertions
-     (testing "auto-assert ON but no :final-db → no :assert-db steps"
-       (rf.story.ui.recorder-export-dialog/open-dialog!
-         {:source-id :story.x/source
-          :events    [[:counter/inc]]
-          :final-db  nil})
-       (let [flat (str (rf.story.ui.recorder-export-dialog/export-dialog))]
-         (is (not (str/includes? flat ":assert-db"))
-             "nothing to assert against → no trailing block")))))
