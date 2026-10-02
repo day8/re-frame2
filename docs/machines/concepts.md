@@ -45,10 +45,11 @@ transition, writes the next snapshot and returns the action effects.
 
 Drive it with `dispatch`, as the [first machine](tutorial.md#step-1--your-first-machine)
 does: the event id is the machine id, and the second element is the trigger
-the table matches. Read it with the framework subscription:
+the table matches. At the REPL, read the framework subscription using the
+[demo frame](tutorial.md#step-1--your-first-machine):
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
+(rf/subscribe-once [:rf/machine :auth.login/flow] {:frame login-frame})
 ;; => {:state :submitting :data {:attempts 0 :error nil} :tags #{:auth/busy}}
 ```
 
@@ -257,7 +258,7 @@ and never write one of those keys yourself.
 `[:rf/machine id]` is `nil` until the first event. A view that renders earlier
 should fall back to the definition's `:initial` and `:data`. To boot a
 singleton eagerly instead, dispatch the reserved start marker at startup:
-`(rf/dispatch [:auth.login/flow [:rf.machine/start]])`. It runs the initial
+`(rf/dispatch [:auth.login/flow [:rf.machine/start]] {:frame login-frame})`. It runs the initial
 entry — `:entry` actions fire, `:after` timers arm — and stops; it never
 matches an `:on` transition. The first ordinary event runs the same initial
 entry before it is handled, and either way those `:entry` actions see `:event`

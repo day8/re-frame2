@@ -21,6 +21,18 @@ version. Require its namespace once from a boot or feature namespace:
 
 Skip this and the first `reg-machine` throws `:rf.error/machines-artefact-missing`.
 
+If you are coming from the [Core tutorial](../core/introduction.md), keep
+its installed view adapter and skip the next block. In a **fresh standalone
+JVM or Node REPL**, install the shipped headless adapter once:
+
+```clojure
+(require '[re-frame.substrate.plain-atom :as plain-atom])
+(rf/init! plain-atom/adapter)
+```
+
+Both paths create the same demo frame in Step 1. Step 5 renders it in a
+browser app using that app's view adapter.
+
 ## Step 1 — write the transition table
 
 <a id="step-1--your-first-machine"></a>
@@ -52,11 +64,22 @@ A machine is a map. It names an initial state, some private `:data`, and the sta
 
 Targets here are bare keywords. The next two steps turn those into maps, then into candidate vectors.
 
-Drive the machine with `dispatch`, as you would any other handler. These
-samples use `dispatch-sync`, so the next read sees the result:
+Create one frame to hold the live snapshot:
 
 ```clojure
-(rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
+(def login-frame (rf/make-frame {:id :auth.login/demo}))
+```
+
+Drive the machine with `dispatch`, as you would any other handler. These
+REPL samples use `dispatch-sync`, so the next read sees the result, and pass
+`{:frame login-frame}` because no view or handler supplies a current frame.
+For detached snippets on later Machines pages, wrap their calls in
+`(rf/with-frame login-frame ...)` to supply that same scope:
+
+```clojure
+(rf/dispatch-sync
+  [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]]
+  {:frame login-frame})
 ```
 
 The outer vector is a re-frame2 **event**. `:auth.login/flow` is the event id.
@@ -69,10 +92,11 @@ runtime-db and is `nil` until this first dispatch.
 `:auth.login/submit` is the `:on` key. The map is payload; a guard or action
 reads it from `:event`.
 
-Read the live [snapshot](glossary.md#snapshot):
+Read the live [snapshot](glossary.md#snapshot) once at the REPL. The examples
+show application fields; the runtime also includes `:rf/*` metadata:
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
+(rf/subscribe-once [:rf/machine :auth.login/flow] {:frame login-frame})
 ;; => {:state :submitting :data {:attempts 0 :error nil}}
 ```
 
@@ -120,16 +144,19 @@ The guard reads credentials from `:event`, not from app-db. Machine callbacks se
 Registering an id again replaces its table and keeps its live snapshot, so the machine is still in `:submitting` from Step 1. The first two lines take it back to `:idle`:
 
 ```clojure
-(rf/dispatch-sync [:auth.login/flow [:auth.login/failure]])   ;; → :error-shown
-(rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]])   ;; → :idle
+(rf/dispatch-sync [:auth.login/flow [:auth.login/failure]] {:frame login-frame}) ;; → :error-shown
+(rf/dispatch-sync [:auth.login/flow [:auth.login/dismiss]] {:frame login-frame}) ;; → :idle
 
-(rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "" :password ""}]])
-(:state @(rf/subscribe [:rf/machine :auth.login/flow]))
+(rf/dispatch-sync
+  [:auth.login/flow [:auth.login/submit {:email "" :password ""}]]
+  {:frame login-frame})
+(:state (rf/subscribe-once [:rf/machine :auth.login/flow] {:frame login-frame}))
 ;; => :idle — the guard refused the submit
 
-(rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "a@b.com"
-                                                         :password "secret"}]])
-(:state @(rf/subscribe [:rf/machine :auth.login/flow]))
+(rf/dispatch-sync
+  [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "secret"}]]
+  {:frame login-frame})
+(:state (rf/subscribe-once [:rf/machine :auth.login/flow] {:frame login-frame}))
 ;; => :submitting
 ```
 
@@ -216,8 +243,10 @@ On failure, the **candidate vector** takes the first guard that passes.
     Details: [The table → effect map](concepts.md#the-effect-map-data-fx).
 
 ```clojure
-(rf/dispatch-sync [:auth.login/flow [:auth.login/failure {:error {:message "nope"}}]])
-@(rf/subscribe [:rf/machine :auth.login/flow])
+(rf/dispatch-sync
+  [:auth.login/flow [:auth.login/failure {:error {:message "nope"}}]]
+  {:frame login-frame})
+(rf/subscribe-once [:rf/machine :auth.login/flow] {:frame login-frame})
 ;; => {:state :error-shown :data {:attempts 1 :error "nope"}}
 ```
 
@@ -225,7 +254,9 @@ On failure, the **candidate vector** takes the first guard that passes.
 
 The machine should issue the login request when it enters `:submitting`. Put that work in an `:entry` action, arm an `:after` deadline if the server stalls, and tag the state so a view can ask "busy?" without naming it.
 
-Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it registers `:rf.http/managed`), or the effect resolves to `:rf.error/no-such-fx`.
+Managed HTTP is its own artefact. Add `day8/re-frame2-http` at the same
+version and require `[re-frame.http.managed]` at boot (it registers
+`:rf.http/managed`), or the effect resolves to `:rf.error/no-such-fx`.
 
 ```clojure
 ;; under :actions
@@ -287,9 +318,18 @@ So `:store-session` reads `:value` and `:record-error` reads `:error`. Deeper ti
 
 ## Step 5 — render the states
 
-Project the snapshot. Ask **tags** for shared intent. The credential draft is ordinary app-db form state. This view assumes the
-form has written `{:email … :password …}` at `[:auth :login-form :draft]`;
-[Build a form](../core/how-to/build-a-form.md) shows the input handlers.
+Project the snapshot. Ask **tags** for shared intent. The credential draft
+is ordinary app-db form state at `[:auth :login :draft]`. Reuse the initializer
+and keystroke handlers from [Build a form](../core/how-to/build-a-form.md),
+then initialise the form in the same frame:
+
+```clojure
+(rf/dispatch-sync [:form.login/initialise] {:frame login-frame})
+```
+
+The view below belongs in a browser app with its view adapter installed
+([Boot and mount an app](../core/how-to/boot-and-mount-an-app.md)). Its local
+`subscribe` and `dispatch` functions use the frame supplied by its parent.
 
 ```clojure
 (rf/reg-sub :auth.login/state {:inputs [[:rf/machine :auth.login/flow]]}
@@ -299,7 +339,7 @@ form has written `{:email … :password …}` at `[:auth :login-form :draft]`;
   (fn [[m] _] (get-in m [:data :error])))
 
 (rf/reg-sub :auth.login/draft
-  (fn [db _] (get-in db [:auth :login-form :draft])))
+  (fn [db _] (get-in db [:auth :login :draft])))
 
 (rf/reg-event :login/submit
   (fn [_ [_ credentials]]
@@ -318,9 +358,28 @@ form has written `{:email … :password …}` at `[:auth :login-form :draft]`;
       :authed      [:h1 "Welcome back"]
       :locked-out  [:h1 "Account locked"]
       ;; nil before the first dispatch, :idle, :submitting
-      [:button {:disabled busy?
-                :on-click #(dispatch [:login/submit draft])}
-       (if busy? "Signing in…" "Sign in")])))
+      [:div
+       [:label "Email"
+        [:input {:type "email" :value (or (:email draft) "")
+                 :disabled busy?
+                 :on-change #(dispatch [:form.login/edit-field :email
+                                        (.. % -target -value)])}]]
+       [:label "Password"
+        [:input {:type "password" :value (or (:password draft) "")
+                 :disabled busy?
+                 :on-change #(dispatch [:form.login/edit-password
+                                        {:value (.. % -target -value)}])}]]
+       [:button {:disabled busy?
+                 :on-click #(dispatch [:login/submit draft])}
+        (if busy? "Signing in…" "Sign in")]])))
+```
+
+Mount this tree with your app's adapter so the view reads the demo snapshot
+and the form's input handlers write into that same frame:
+
+```clojure
+[rf/frame-provider {:frame login-frame}
+ [login-view]]
 ```
 
 The button asks for the `:auth/busy` tag rather than checking for `:submitting`. Add another in-flight state later with the same tag and the view keeps working. Pattern: [Tags](tags.md). The session handler above makes the token available to the rest of the app.
@@ -465,6 +524,7 @@ The table and the event handlers it needs. The view above supplies credentials;
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| REPL dispatch or read throws `:rf.error/no-frame-context` | No view or handler supplies a frame | Pass `{:frame login-frame}` as above |
 | First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
 | `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
 | Success reports `:rf.error/no-such-handler` for `:auth.session/store` | The application session handler was not registered | Register the handler from Step 3 or the complete example |
