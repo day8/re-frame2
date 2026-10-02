@@ -51,50 +51,45 @@
 
 ;; ---- the compiled-plan resolver (PRODUCTION path, DEFAULT lookup) --------
 
-(deftest compiled-resolver-reads-rf-props-off-default-lookup
-  (testing "a REGISTERED :rf/props-declared variant resolves its schema off
-            the compiled plan via the DEFAULT side-table lookup"
-    (let [schema [:map [:label :string] [:count :int]]]
-      (reg-view-meta! :views/widget {:rf/props schema})
-      (rf.story.registrar/reg-variant* :story.prod/ok
-                              {:component :views/widget
-                               :args      {:label "Hi" :count 3}
-                               :setup    []})
-      ;; No :lookup / :view-lookup — the DEFAULT side-table + framework
-      ;; `:view` registrar path the production runtime takes.
-      (is (= schema (rf.story.view-args/compiled-view-args-schema :story.prod/ok))))))
-
-(deftest compiled-resolver-rf-props-wins-over-schema-on-default-lookup
-  (testing ":rf/props wins over :schema on the registered view, end-to-end"
-    (reg-view-meta! :views/dual {:rf/props [:map [:a :string]]
-                                 :schema   [:map [:b :string]]})
-    (rf.story.registrar/reg-variant* :story.prod/dual
-                            {:component :views/dual
-                             :args      {:a "x"}
-                             :setup    []})
-    (is (= [:map [:a :string]]
-           (rf.story.view-args/compiled-view-args-schema :story.prod/dual)))))
-
-(deftest compiled-resolver-schema-fallback-on-default-lookup
-  (testing "a view carrying its schema under :schema (no :rf/props) still
-            resolves — :schema is the fallback location"
-    (reg-view-meta! :views/schemaed {:schema [:map [:title :string]]})
-    (rf.story.registrar/reg-variant* :story.prod/schemaed
-                            {:component :views/schemaed
-                             :args      {:title "T"}
-                             :setup    []})
-    (is (= [:map [:title :string]]
-           (rf.story.view-args/compiled-view-args-schema :story.prod/schemaed)))))
-
-(deftest compiled-resolver-spec-only-view-resolves-nil
-  (testing "a view whose ONLY slot is :spec — not a schema key — resolves
-            no schema on the production path"
-    (reg-view-meta! :views/specced {:spec [:map [:x :string]]})
-    (rf.story.registrar/reg-variant* :story.prod/specced
-                            {:component :views/specced
-                             :args      {:x "v"}
-                             :setup    []})
-    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/specced)))))
+(deftest compiled-resolver-reads-the-registered-views-schema-slot
+  (testing "a REGISTERED variant resolves its view-args schema off the
+            compiled plan via the DEFAULT side-table lookup — no :lookup /
+            :view-lookup, the framework `:view` registrar path the
+            production runtime takes — in [:rf/props :schema] first-match
+            order. Each row has its own view and variant id: registering a
+            view does not bump the Story mutation tick the resolver's memo
+            is keyed on, registering a variant does."
+    (doseq [[label view-id view-meta variant-id args expected]
+            [[":rf/props"
+              :views/widget {:rf/props [:map [:label :string] [:count :int]]}
+              :story.prod/ok {:label "Hi" :count 3}
+              [:map [:label :string] [:count :int]]]
+             [":rf/props wins over :schema"
+              :views/dual {:rf/props [:map [:a :string]] :schema [:map [:b :string]]}
+              :story.prod/dual {:a "x"}
+              [:map [:a :string]]]
+             [":schema is the fallback location when there is no :rf/props"
+              :views/schemaed {:schema [:map [:title :string]]}
+              :story.prod/schemaed {:title "T"}
+              [:map [:title :string]]]
+             [":spec is not a schema key, so a :spec-only view resolves nil"
+              :views/specced {:spec [:map [:x :string]]}
+              :story.prod/specced {:x "v"}
+              nil]
+             ["a view carrying no schema slot resolves nil"
+              :views/bare {}
+              :story.prod/bare {:x 1}
+              nil]
+             ["a variant with no :component resolves nil"
+              nil nil
+              :story.prod/plain {:x 1}
+              nil]]]
+      (testing label
+        (when view-id (reg-view-meta! view-id view-meta))
+        (rf.story.registrar/reg-variant* variant-id
+                                         (cond-> {:args args :setup []}
+                                           view-id (assoc :component view-id)))
+        (is (= expected (rf.story.view-args/compiled-view-args-schema variant-id)))))))
 
 (deftest compiled-resolver-resolves-extends-inherited-component
   (testing "an :extends-INHERITED :component resolves its schema — a
@@ -193,21 +188,6 @@
   (testing "an unregistered variant resolves nil (best-effort tooling read —
             no throw)"
     (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/nope)))))
-
-(deftest compiled-resolver-no-component-is-nil
-  (testing "a registered variant with no :component resolves nil"
-    (rf.story.registrar/reg-variant* :story.prod/plain
-                            {:args {:x 1} :setup []})
-    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/plain)))))
-
-(deftest compiled-resolver-view-without-schema-is-nil
-  (testing "a registered :component view carrying NO schema slot resolves nil"
-    (reg-view-meta! :views/bare {})
-    (rf.story.registrar/reg-variant* :story.prod/bare
-                            {:component :views/bare
-                             :args      {:x 1}
-                             :setup    []})
-    (is (nil? (rf.story.view-args/compiled-view-args-schema :story.prod/bare)))))
 
 ;; ---- memoization invalidates on registrar mutation ----------------------
 

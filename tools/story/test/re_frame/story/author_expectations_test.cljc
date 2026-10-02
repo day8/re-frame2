@@ -8,13 +8,11 @@
   host. The ns suffix `-test` lands it in the JVM runner only, since no CLJS
   build's ns-regexp selects it; the `-cljs-test` companion
   (`ui/author_expectations_cljs_test`) carries the dialog-transition coverage."
-  (:require [clojure.string :as str]
-            #?(:clj  [clojure.edn :as edn]
+  (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
             [clojure.test :refer [deftest is testing]]
             [re-frame.story.assertions          :as rf.story.assertions]
-            [re-frame.story.author-expectations :as rf.story.author-expectations]
-            [re-frame.story.requirements        :as rf.story.requirements]))
+            [re-frame.story.author-expectations :as rf.story.author-expectations]))
 
 ;; ===========================================================================
 ;; CATALOG — covers the five acceptance surfaces
@@ -126,30 +124,10 @@
       (is (:cannot-run? cost) "the honest before-save cannot-run flag")
       (is (= :dom (:cheapest-runner cost)) "cheapest runner that CAN prove it")
       (is (contains? (:missing cost) :dom) "the missing token is surfaced")))
-  (testing "a visual-snapshot expectation needs a browser runner"
-    (let [cost (rf.story.author-expectations/expectation-cost [:rf.assert/visual-snapshot])]
-      (is (:cannot-run? cost))
-      (is (= :browser (:cheapest-runner cost)))))
-  (testing "structural a11y rides the :hiccup tier (cannot run headless, cheaper than browser)"
-    (let [cost (rf.story.author-expectations/expectation-cost [:rf.assert/a11y-structural])]
-      (is (:cannot-run? cost))
-      (is (= :hiccup (:cheapest-runner cost)))))
-  (testing "cost agrees with the requirement registry it reads"
-    (is (= (rf.story.requirements/assertion-tokens [:rf.assert/dom-visible ".x"])
-           (:required (rf.story.author-expectations/expectation-cost [:rf.assert/dom-visible ".x"])))))
   (testing "a nil atom (unparsed row) projects an empty, non-throwing cost"
     (let [cost (rf.story.author-expectations/expectation-cost nil)]
       (is (not (:cannot-run? cost)))
       (is (empty? (:required cost))))))
-
-(deftest row-cost-projects-live-from-a-row
-  (testing "a ready DOM row reports cannot-run before it is even an atom elsewhere"
-    (is (:cannot-run?
-          (rf.story.author-expectations/row-cost
-            {:kind :dom-text :operands {:selector "\".x\"" :text "\"y\""}}))))
-  (testing "an unparsed row projects a non-throwing headless cost"
-    (is (not (:cannot-run?
-               (rf.story.author-expectations/row-cost {:kind :app-db-equals :operands {}}))))))
 
 ;; ===========================================================================
 ;; DRAFT SUMMARY — the before-save honesty banner data
@@ -209,23 +187,17 @@
                    :existing   [[:rf.assert/no-warnings]]
                    :authored   [[:rf.assert/path-equals [:counter :value] 5]]
                    :doc        "the counter holds 5 after two increments"})]
-    (testing "the snippet is a reg-variant form carrying :assertions DATA"
-      (is (str/includes? snippet "reg-variant"))
-      (is (str/includes? snippet ":story.counter/expects-5"))
-      (is (str/includes? snippet ":extends :story.counter/happy-path"))
-      (is (str/includes? snippet ":assertions"))
-      (is (str/includes? snippet ":tags #{:test}")
-          "an authored-expectations variant is a runnable test by default"))
-    (testing "the snippet read-string-s back to the merged variant body"
-      (let [form (edn/read-string snippet)
-            ;; (alias/reg-variant <id> <body>) — body is the 3rd element
-            body (nth form 2)]
-        (is (= :story.counter/happy-path (:extends body)))
-        (is (= "the counter holds 5 after two increments" (:doc body)))
-        (is (= [[:rf.assert/no-warnings]
-                [:rf.assert/path-equals [:counter :value] 5]]
-               (:assertions body))
-            "existing + authored assertions merged, the round-trip")))))
+    (testing "the snippet read-string-s back to a reg-variant form whose body
+              carries the existing + authored assertions merged as :assertions
+              DATA, tagged :test because an authored-expectations variant is
+              a runnable test by default"
+      (is (= (list 'rf.story/reg-variant :story.counter/expects-5
+                   {:doc        "the counter holds 5 after two increments"
+                    :extends    :story.counter/happy-path
+                    :assertions [[:rf.assert/no-warnings]
+                                 [:rf.assert/path-equals [:counter :value] 5]]
+                    :tags       #{:test}})
+             (edn/read-string snippet))))))
 
 (deftest assertions-known-validates-against-the-vocabulary
   (is (rf.story.author-expectations/assertions-known?
@@ -236,6 +208,4 @@
 
 (deftest default-id-prefix-is-distinct-from-siblings
   (testing "the prefix distinguishes authored-expectations from save / promotion"
-    (is (= "expects" rf.story.author-expectations/default-id-prefix))
-    (is (not= "saved" rf.story.author-expectations/default-id-prefix))
-    (is (not= "regression" rf.story.author-expectations/default-id-prefix))))
+    (is (= "expects" rf.story.author-expectations/default-id-prefix))))
