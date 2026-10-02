@@ -164,7 +164,6 @@
                                :select-ns {:include ["cq0yi-explicit.core"]}})
           a      (rf/make-frame {:id id :images [img]} pool-a)]
       (testing "control: A's live row is A's exact pool"
-        (is (row? id))
         (is (identical? pool-a (get (provenance) id))))
       (rf/destroy-frame! a)
       (testing "destroying A releases A's row"

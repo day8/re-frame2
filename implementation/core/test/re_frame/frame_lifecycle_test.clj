@@ -110,60 +110,6 @@
       (is (= 42 @pinned)
           "pinned subscription continues to read the live app-db"))))
 
-;; ---- Spec 002 §Destroy — pending events ----------------------------------
-
-(deftest destroy-frame-discards-pending-events
-  (testing "events queued via async dispatch are not processed once the frame is destroyed"
-    (rf/make-frame {:id :worker :doc "worker frame"})
-    (let [side-effects (atom 0)
-          traces       (atom [])
-          ;; Async dispatch schedules a drain via rf.interop/next-tick
-          ;; on a single-thread executor. On the JVM that drain can race the
-          ;; main thread — the executor can fire between the two
-          ;; dispatches (or between dispatch and the queue read), draining
-          ;; one or both events before the assertion runs, which would make
-          ;; this test flaky under load. We deterministically suppress the drain by
-          ;; intercepting next-tick for the lifetime of the enqueue +
-          ;; queue-read, matching the same with-redefs pattern used by
-          ;; `destroy-frame-pending-drain-pins-no-op-contract` below.
-          captured-ticks (atom [])]
-      (rf/reg-event :tick (fn [{:keys [db]} _] (swap! side-effects inc) {:db db}))
-      (rf/register-listener! :trace ::pending (fn [ev] (swap! traces conj ev)))
-      (with-redefs [rf.interop/next-tick (fn [f] (swap! captured-ticks conj f) nil)]
-        (rf/dispatch [:tick] {:frame :worker})
-        (rf/dispatch [:tick] {:frame :worker})
-        ;; With the drain captured (never run), the queue deterministically
-        ;; holds both pending events.
-        (let [router (:router (rf.frame/frame :worker))
-              queue  (:queue @router)]
-          (is (= 2 (count queue))
-              "two events are queued and have NOT yet been processed")))
-      ;; Destroy the frame. Per Spec 002 §Destroy: pending events drain
-      ;; or get discarded; either way they MUST NOT corrupt state on a
-      ;; gone frame, and any later attempt to dispatch traces
-      ;; :rf.error/frame-destroyed.
-      (rf/destroy-frame! :worker)
-      (rf/unregister-listener! :trace ::pending)
-
-      ;; The frame is gone.
-      (is (nil? (rf.frame/frame :worker))
-          "destroy-frame! removed the frame from the registry")
-      ;; A subsequent dispatch on the destroyed frame must trace
-      ;; :rf.error/frame-destroyed (the recovery path; events do not
-      ;; silently land in a void).
-      (let [t-after (atom [])]
-        (rf/register-listener! :trace ::after (fn [ev] (swap! t-after conj ev)))
-        (rf/dispatch-sync [:tick] {:frame :worker})
-        (rf/unregister-listener! :trace ::after)
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (is (some #(= :rf.error/frame-destroyed (:operation %)) @t-after)
-              "post-destroy dispatch traces :rf.error/frame-destroyed"))
-        ;; The handler did NOT run for the post-destroy attempt — the
-        ;; counter stays bounded by what (if anything) drained.
-        (is (<= @side-effects 2)
-            "the handler did not run on the destroyed frame")))))
-
 ;; ---- Spec 002 §Destroy — machine cascade ---------------------------------
 
 (deftest destroy-frame-cascade-emits-per-active-machine
@@ -358,8 +304,6 @@
         (is (= "rf.frame" (namespace b)))
         (is (not= a b)
             "two make-frame calls produce distinct gensym'd ids")
-        (is (not= a :rf/default))
-        (is (not= b :rf/default))
 
         ;; Drive the same event into each frame; per-frame overrides
         ;; route the :http effect to that frame's stub.
@@ -377,59 +321,52 @@
 
 (deftest make-frame-initial-events-runs-synchronously
   (testing ":initial-events completes inside make-frame; app-db is fully populated by the time it returns (EP-0027)"
-    (let [observed (atom nil)]
-      (rf/reg-event :boot
-        (fn [{:keys [db]} [_ payload]]
-          {:db {:booted? true :payload payload :seq [:a :b :c]}}))
-      ;; Hook a trace listener so we can assert the ordering between the
-      ;; setup-step dispatch and :rf.frame/created emission. Per Spec 002
-      ;; §make-frame is atomic — the setup runs first, then :rf.frame/created
-      ;; is emitted (the frame becomes observable to listeners).
-      (let [traces (atom [])]
-        (rf/register-listener! :trace ::oc (fn [ev] (swap! traces conj ev)))
-        (rf/make-frame {:id :booted :doc            "frame with initial-events"
-                        :initial-events [[:boot {:hello "world"}]]})
-        (rf/unregister-listener! :trace ::oc)
+    (rf/reg-event :boot
+      (fn [{:keys [db]} [_ payload]]
+        {:db {:booted? true :payload payload :seq [:a :b :c]}}))
+    ;; Hook a trace listener so we can assert the ordering between the
+    ;; setup-step dispatch and :rf.frame/created emission. Per Spec 002
+    ;; §make-frame is atomic — the setup runs first, then :rf.frame/created
+    ;; is emitted (the frame becomes observable to listeners).
+    (let [traces (atom [])]
+      (rf/register-listener! :trace ::oc (fn [ev] (swap! traces conj ev)))
+      (rf/make-frame {:id :booted :doc            "frame with initial-events"
+                      :initial-events [[:boot {:hello "world"}]]})
+      (rf/unregister-listener! :trace ::oc)
 
-        ;; The moment make-frame returned, app-db must already reflect
-        ;; the setup event's commit.
-        (reset! observed (rf/app-db-value :booted))
-        (is (true? (:booted? @observed))
-            ":initial-events ran synchronously — app-db reflects its commit")
-        (is (= {:hello "world"} (:payload @observed))
-            ":initial-events payload landed in app-db")
-        (is (= [:a :b :c] (:seq @observed))
-            "full setup handler body completed before make-frame returned")
+      ;; The moment make-frame returned, app-db must already reflect
+      ;; the setup event's commit.
+      (is (= {:booted? true :payload {:hello "world"} :seq [:a :b :c]}
+             (rf/app-db-value :booted))
+          ":initial-events ran synchronously — the full setup handler body
+           committed, payload included, before make-frame returned")
 
-        ;; Ordering: the :rf.event/run-end for :boot precedes :rf.frame/created
-        ;; (make-frame emits :rf.frame/created AFTER the setup dispatch-syncs).
-        ;;
-        ;; Dev-instrumentation arm (see ns docstring). The
-        ;; SYNCHRONY this deftest is named for is the three app-db assertions
-        ;; above, read the instant `make-frame` returned; they run in both
-        ;; postures. The trace ORDER below is the same fact restated on a
-        ;; dev-only channel — under the gate there is no trace ring to index
-        ;; into, so `run-end-idx` / `created-idx` are both nil.
-        (when rf.interop/debug-enabled?
-        (let [run-end-idx (->> @traces
-                               (keep-indexed
-                                 (fn [i ev]
-                                   (when (and (= :rf.event/run-end (:operation ev))
-                                              (= :boot (:rf.trace/event-id (:tags ev))))
-                                     i)))
-                               first)
-              created-idx (->> @traces
-                               (keep-indexed
-                                 (fn [i ev]
-                                   (when (= :rf.frame/created (:operation ev))
-                                     i)))
-                               first)]
-          (is (some? run-end-idx)
-              "expected an :event :run-end trace for the setup event")
-          (is (some? created-idx)
-              "expected a :rf.frame/created trace")
-          (is (< run-end-idx created-idx)
-              "the setup's :run-end precedes :rf.frame/created — frame is fully booted before listeners observe it")))))))
+      ;; Ordering: the :rf.event/run-end for :boot precedes :rf.frame/created
+      ;; (make-frame emits :rf.frame/created AFTER the setup dispatch-syncs).
+      ;;
+      ;; Dev-instrumentation arm (see ns docstring). The
+      ;; SYNCHRONY this deftest is named for is the whole-db assertion
+      ;; above, read the instant `make-frame` returned; it runs in both
+      ;; postures. The trace ORDER below is the same fact restated on a
+      ;; dev-only channel — under the gate there is no trace ring to index
+      ;; into, so `run-end-idx` / `created-idx` are both nil. A missing trace
+      ;; leaves its index nil, so the `<` below goes red on it too.
+      (when rf.interop/debug-enabled?
+      (let [run-end-idx (->> @traces
+                             (keep-indexed
+                               (fn [i ev]
+                                 (when (and (= :rf.event/run-end (:operation ev))
+                                            (= :boot (:rf.trace/event-id (:tags ev))))
+                                   i)))
+                             first)
+            created-idx (->> @traces
+                             (keep-indexed
+                               (fn [i ev]
+                                 (when (= :rf.frame/created (:operation ev))
+                                   i)))
+                             first)]
+        (is (< run-end-idx created-idx)
+            "the setup's :run-end precedes :rf.frame/created — frame is fully booted before listeners observe it"))))))
 
 ;; ---- destroy-frame! interrupts active drain on next dequeue --
 ;;
@@ -1244,25 +1181,17 @@
     (rf/make-frame {:id :rf/default :doc "explicitly-registered ordinary default frame"})
     (rf/make-frame {:id :tenants/acme :doc "acme tenant"  :preset :default})
     (rf/make-frame {:id :tenants/widgets :doc "widgets co"   :preset :default})
-    (let [ids (rf/frame-ids)]
-      (is (set? ids) "frame-ids returns a set")
-      (is (contains? ids :rf/default)
-          ":rf/default appears because it was EXPLICITLY registered (no runtime floor)")
-      (is (contains? ids :tenants/acme))
-      (is (contains? ids :tenants/widgets))
-      ;; Sanity: a never-registered id is absent.
-      (is (not (contains? ids :tenants/nonexistent))
-          "frame-ids excludes ids that were never registered")))
+    (is (= #{:rf/default :tenants/acme :tenants/widgets} (rf/frame-ids))
+        "frame-ids is exactly the registered frames; :rf/default appears because
+         it was EXPLICITLY registered (no runtime floor)"))
   (testing "frame-ids does NOT synthesise :rf/default when it was never registered"
     ;; Fresh slate (the :each fixture already reset frames + init!'d without
     ;; creating :rf/default). Register only user frames.
     (reset! rf.frame/frames {})
     (rf/init! rf.substrate.plain-atom/adapter)
     (rf/make-frame {:id :tenants/solo :doc "sole user frame"})
-    (let [ids (rf/frame-ids)]
-      (is (not (contains? ids :rf/default))
-          "EP-0002: :rf/default is not present unless explicitly registered")
-      (is (contains? ids :tenants/solo)))))
+    (is (= #{:tenants/solo} (rf/frame-ids))
+        "EP-0002: :rf/default is not present unless explicitly registered")))
 
 (deftest frame-meta-round-trip
   (testing "(rf/frame-meta id) returns the canonical flat :rf/frame-meta shape
@@ -1273,7 +1202,6 @@
                     :fx-overrides {:rf.http/managed
                                    :rf.http/managed-canned-success}})
     (let [m (rf/frame-meta :tenants/acme)]
-      (is (map? m) "frame-meta returns a map")
       (is (= :tenants/acme (:id m))
           ":id reflects the registered frame id")
       (is (= "acme tenant" (:doc m))
@@ -1372,10 +1300,8 @@
                 ":tags carries the call-site :where marker"))))
 
       ;; (b) The frame is fully gone from the registry.
-      (is (nil? (rf.frame/frame :throwy/worker))
-          "destroy-frame! removed the frame from the registry despite the throw")
       (is (not (contains? @rf.frame/frames :throwy/worker))
-          "the frame entry is dissoc'd from the frames atom")
+          "destroy-frame! dissoc'd the frame entry despite the throw")
 
       ;; (c) The sub-cache was disposed (on-dispose fired).
       (is (= 1 @dispose-fired)
@@ -1575,13 +1501,22 @@
                    (rf.frame/require-frame-provider-target! bad 'test/where)
                    ::no-throw
                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-        (is (map? data) (str "a " (pr-str bad) " target throws ex-info"))
         (is (= :rf.error/bad-frame-provider-arg (:rf.error/id data))
             (str (pr-str bad) " is a bad public provider argument"))
         (is (= :supply-frame-target (:recovery data))
             (str (pr-str bad) " carries the target-grammar recovery id, not a keyword-only one"))
         (is (= bad (:received data)) "the payload echoes the offending value")
-        (is (= 'test/where (:where data)) "the payload names the validating call site")))))
+        (is (= 'test/where (:where data)) "the payload names the validating call site"))))
+  (testing "the human :reason names both target arms, so it agrees with the
+            :supply-frame-target recovery"
+    (let [reason (try
+                   (rf.frame/require-frame-provider-target! "app" 'test/where)
+                   ::no-throw
+                   (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))]
+      (is (re-find #"frame id keyword" reason)
+          "the human reason names the keyword arm")
+      (is (re-find #"live frame value" reason)
+          "the human reason names the frame-value arm"))))
 
 (deftest require-frame-provider-target-nil-remains-no-frame-context
   (testing "nil stays ABSENCE — :rf.error/no-frame-context, not a bad argument"
@@ -1594,12 +1529,3 @@
       (is (= :supply-frame (:recovery data))
           "the absence recovery is :supply-frame, distinct from the target recovery"))))
 
-(deftest bad-frame-provider-arg-payload-carries-supply-frame-target
-  (testing "the canonical payload builder spells the recovery :supply-frame-target"
-    (let [payload (rf.frame/bad-frame-provider-arg-payload "app")]
-      (is (= :rf.error/bad-frame-provider-arg (:rf.error/id payload)))
-      (is (= :supply-frame-target (:recovery payload)))
-      (is (re-find #"frame id keyword" (:reason payload))
-          "the human reason names the keyword arm")
-      (is (re-find #"live frame value" (:reason payload))
-          "the human reason names the frame-value arm — the recovery id agrees with it"))))

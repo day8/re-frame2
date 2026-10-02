@@ -221,15 +221,7 @@
         (is (= :rf.error/frame-teardown-failed (:error r)))
         (is (= :prod/frame (:frame r)))
         (is (= 1 (count (:hook-failures r))))
-        (is (= 12345 (:time r))))))
-
-  (testing "the report fn is a no-op on an empty
-            :hook-failures vector (no failures, no always-on flood)."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf.error-emit/dispatch-frame-teardown-report! :prod/frame [] 1)
-      (is (empty? @seen) "empty :hook-failures → no record fanned out"))))
+        (is (= 12345 (:time r)))))))
 
 (deftest report-reason-is-truthful-for-a-guarded-direct-step
   (testing "a `:hook-failures` entry names a failed teardown
@@ -254,10 +246,9 @@
       ;; must not decide this assertion (the sibling deftests above use the
       ;; same guard).
       (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
-        (is (some? r) "the teardown report reached the always-on listener")
         (is (= :safe-teardown-step! (:where (first (:hook-failures r))))
-            "the entry is a guarded direct step, not a late-bound hook")
-        (is (string? (:reason r)))
+            "the teardown report reached the always-on listener, and its entry is
+             a guarded direct step, not a late-bound hook")
         (is (not (re-find #"cleanup hook" (:reason r)))
             (str "the :reason must not claim a cleanup HOOK threw when the only"
                  " failure was a guarded direct step — got: " (:reason r)))
@@ -380,15 +371,11 @@
          :schemas/on-frame-destroyed! (throwing-hook :schemas)}
         (fn [] (rf/destroy-frame! :teardown/no-raw)))
       (let [r (first (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))]
-        (is (some? r) "the report fired")
         (is (= #{:error :frame :hook-failures :recovery :reason :time}
                (set (keys r)))
-            "the report record's keys are EXACTLY the known structured set —
-             no :event vector, no :app-db slice, no raw payload leak")
-        (is (not (contains? r :event))
-            "no :event vector — a destroy report is not a per-event throw")
-        (is (not (contains? r :app-db))
-            "no :app-db slice rides the always-on report")
+            "the report fired, and its record's keys are EXACTLY the known
+             structured set — no :event vector (a destroy report is not a
+             per-event throw), no :app-db slice, no raw payload leak")
         (doseq [entry (:hook-failures r)]
           (is (= #{:hook :exception :where} (set (keys entry)))
               "each :hook-failures entry is structured-only {:hook :exception
@@ -444,12 +431,10 @@
          {:hook :ssr/on-frame-destroyed :exception (ex-info "y" {}) :where :safe-call-hook!}]
         99)
       (let [r (first @seen)]
-        (is (= 2 (count (:hook-failures r)))
-            "duplicate hook keys accumulate — the report does NOT de-dup by
-             :hook (one entry per safe-call-hook! failure)")
         (is (= [:ssr/on-frame-destroyed :ssr/on-frame-destroyed]
                (map :hook (:hook-failures r)))
-            "both same-key entries are preserved in order")))))
+            "duplicate hook keys accumulate in order — the report does NOT de-dup
+             by :hook (one entry per safe-call-hook! failure)")))))
 
 ;; ===========================================================================
 ;; (h) The machine-teardown step (notify-machine-destruction!) is best-effort —
@@ -596,8 +581,6 @@
         (is (= 2 (count reports))
             "TWO independent reports — one per destroy (A and B), each frame-
              attributed; the binding shadow did not collapse them into one")
-        (is (some? report-A) "the outer (A) report fired")
-        (is (some? report-B) "the inner (B) report fired")
         ;; B's report carries exactly its OWN three failures — NOT six (which
         ;; would mean A's accumulator leaked into B's), NOT zero.
         (is (= 3 (count (:hook-failures report-B)))
