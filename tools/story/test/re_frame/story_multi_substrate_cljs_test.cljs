@@ -1,7 +1,7 @@
 (ns re-frame.story-multi-substrate-cljs-test
   "CLJS smoke tests for the multi-substrate side-by-side renderer. The
   JVM side has no DOM so the visual / React paths are CLJS-only."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -42,26 +42,15 @@
 
 ;; ---- substrate-set resolution -------------------------------------------
 
-(deftest substrate-set-from-variant
-  (testing "resolve-substrate-set prefers variant :substrates when present"
-    (is (= #{:reagent :uix}
-           (rf.story.ui.multi-substrate/resolve-substrate-set
-             {:substrates #{:reagent :uix}}
-             {}
-             :reagent)))))
-
-(deftest substrate-set-from-story
-  (testing "falls back to story body's :substrates"
-    (is (= #{:reagent :uix}
-           (rf.story.ui.multi-substrate/resolve-substrate-set
-             {}
-             {:substrates #{:reagent :uix}}
-             :reagent)))))
-
-(deftest substrate-set-defaults-host
-  (testing "defaults to {host} when neither body nor story declares :substrates"
-    (is (= #{:reagent}
-           (rf.story.ui.multi-substrate/resolve-substrate-set {} {} :reagent)))))
+(deftest substrate-set-falls-back-variant-then-story-then-host
+  (testing "resolve-substrate-set reads the variant's :substrates, else the
+            story body's, else #{host}"
+    (are [variant-body story-body expected]
+         (= expected (rf.story.ui.multi-substrate/resolve-substrate-set
+                       variant-body story-body :reagent))
+      {:substrates #{:reagent :uix}} {}                             #{:reagent :uix}
+      {}                             {:substrates #{:reagent :uix}} #{:reagent :uix}
+      {}                             {}                             #{:reagent})))
 
 ;; ---- render-view dispatch -----------------------------------------------
 ;;

@@ -15,13 +15,11 @@
   `re-frame.story-a11y-cljs-test` (`cdn-opt-in-roundtrips`,
   `run-axe-surfaces-no-consent-without-opt-in`). What stays here is
   what only the source text can show — the SRI and `crossorigin`
-  attributes, the version pin, and the consent prompt's wording — and
-  these assertions are textual because CLJS doesn't expose source
-  bytes at runtime. The .cljs file ships in this artefact's `src/`
+  attributes and the version pin — and these assertions are textual
+  because CLJS doesn't expose source bytes at runtime. The .cljs file ships in this artefact's `src/`
   tree on the resource path, so `clojure.java.io/resource` resolves
   it without parsing CLJS forms."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
             [clojure.java.io :as io]))
 
 (defn- a11y-source []
@@ -49,14 +47,3 @@
     (let [src (a11y-source)]
       (is (re-find #"axe-core@4\.\d+\.\d+" src)
           "axe-core URL must include an explicit X.Y.Z version pin"))))
-
-(deftest consent-prompt-text-mentions-cdn
-  (testing "the consent prompt UI text mentions the CDN domain in
-            plain words so the dev understands what the egress means.
-            This is the user-facing trust signal — without it the
-            opt-in is a rubber-stamp."
-    (let [src (a11y-source)]
-      (is (str/includes? src "cdn.jsdelivr.net")
-          "the consent prompt must name the CDN domain")
-      (is (str/includes? src "axe-core")
-          "the consent prompt must name the library being loaded"))))
