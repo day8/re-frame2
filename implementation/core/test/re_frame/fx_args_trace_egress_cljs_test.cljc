@@ -37,11 +37,11 @@
   `:reason`.
 
   Consequently both live arms read a channel that emits nothing under
-  `-Dre-frame.debug=false`, and both sit — sweeps included —
-  inside `(when rf.interop/debug-enabled? …)` arms. The whole-stream sweeps are
-  the reason the arm is drawn around the WHOLE body rather than around the
-  failing rows: `(is (not (contains-sentinel? v)))` over an empty stream is a
-  redaction suite certifying itself green having emitted nothing.
+  `-Dre-frame.debug=false`, and every trace read — sweeps included — sits
+  inside a `(when rf.interop/debug-enabled? …)` arm. The whole-stream sweeps
+  are the reason the arm is drawn around every trace read rather than around
+  the failing rows: `(is (not (contains-sentinel? v)))` over an empty stream is
+  a redaction suite certifying itself green having emitted nothing.
 
   What stays ALWAYS-ON is what makes the guarded rows mean something:
 
@@ -126,23 +126,7 @@
 ;; the control fx rides raw.
 ;; ---------------------------------------------------------------------------
 
-(deftest success-arm-bodies-receive-raw-args
-  (testing "ALWAYS-ON control: redaction is EGRESS-ONLY, so both the
-            classified fx and the control fx receive their args RAW — the token
-            IS in flight, which is what makes its absence from the trace slots
-            below a fact rather than a vacuum"
-    (register!)
-    (rf/dispatch-sync [:fx-args/succeed] {:frame frame-id})
-    (is (= {:token sentinel} (:fx-args/store @body-args))
-        "the classified fx body received the RAW token")
-    (is (= {:msg "a benign audit line"} (:fx-args/audit @body-args))
-        "the control fx body received its args unchanged")))
-
 (deftest success-arm-redacts-classified-fx-args-in-every-slot
- ;; Every row below reads the DEV TRACE stream. Under
- ;; -Dre-frame.debug=false nothing is emitted, and the whole-stream sweep at
- ;; the end would then certify "no leak" over an empty stream.
- (when rf.interop/debug-enabled?
   (testing "a classified fx's token is redacted in BOTH the :rf.event/fx
             aggregate (on :rf.fx/do-fx) AND the per-effect :rf.fx/handled slot,
             while the non-sensitive control fx rides raw"
@@ -150,44 +134,54 @@
     (let [acc (collect-traces! ::success)]
       (rf/dispatch-sync [:fx-args/succeed] {:frame frame-id})
       (rf/unregister-listener! :trace ::success)
+      ;; ALWAYS-ON control: redaction is EGRESS-ONLY, so both fx bodies receive
+      ;; their args RAW. The token IS in flight, which is what makes its
+      ;; absence from the trace slots below a fact rather than a vacuum.
+      (is (= {:token sentinel} (:fx-args/store @body-args))
+          "the classified fx body received the RAW token")
+      (is (= {:msg "a benign audit line"} (:fx-args/audit @body-args))
+          "the control fx body received its args unchanged")
+      ;; Every read below is of the DEV TRACE stream. Under
+      ;; -Dre-frame.debug=false nothing is emitted, and the whole-stream sweep
+      ;; at the end would then certify "no leak" over an empty stream.
+      (when rf.interop/debug-enabled?
+        ;; --- :rf.event/fx on :rf.fx/do-fx: the classified entry redacts ---
+        (let [do-fx (->> @acc (filterv #(= :rf.fx/do-fx (:operation %))))]
+          (is (seq do-fx) ":rf.fx/do-fx was emitted with the effect vector")
+          (doseq [ev do-fx]
+            (let [fx-vec (get-in ev [:tags :rf.event/fx])
+                  store  (first (filter #(= :fx-args/store (first %)) fx-vec))
+                  audit  (first (filter #(= :fx-args/audit (first %)) fx-vec))]
+              (is (= rf.privacy/redacted-sentinel (get-in store [1 :token]))
+                  "the classified fx's :token reads :rf/redacted in :rf.event/fx")
+              (is (= :fx-args/store (first store))
+                  "shape retained — the fx-id survives")
+              (is (= {:msg "a benign audit line"} (second audit))
+                  "the NON-sensitive control fx rides RAW (no over-redaction)"))))
 
-      ;; --- :rf.event/fx on :rf.fx/do-fx: the classified entry redacts ---
-      (let [do-fx (->> @acc (filterv #(= :rf.fx/do-fx (:operation %))))]
-        (is (seq do-fx) ":rf.fx/do-fx was emitted with the effect vector")
-        (doseq [ev do-fx]
-          (let [fx-vec (get-in ev [:tags :rf.event/fx])
-                store  (first (filter #(= :fx-args/store (first %)) fx-vec))
-                audit  (first (filter #(= :fx-args/audit (first %)) fx-vec))]
-            (is (= rf.privacy/redacted-sentinel (get-in store [1 :token]))
-                "the classified fx's :token reads :rf/redacted in :rf.event/fx")
-            (is (= :fx-args/store (first store))
-                "shape retained — the fx-id survives")
-            (is (= {:msg "a benign audit line"} (second audit))
-                "the NON-sensitive control fx rides RAW (no over-redaction)"))))
+        ;; --- per-effect :rf.fx/handled redaction (control) ---
+        (let [handled (->> @acc
+                           (filterv #(= :fx-args/store (get-in % [:tags :rf.fx/id]))))]
+          (is (seq handled) "the classified fx emitted a :rf.fx/handled trace")
+          (doseq [ev handled]
+            (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
+                "the :token arg reads :rf/redacted in :rf.fx/handled")))
 
-      ;; --- per-effect :rf.fx/handled redaction (control) ---
-      (let [handled (->> @acc
-                         (filterv #(= :fx-args/store (get-in % [:tags :rf.fx/id]))))]
-        (is (seq handled) "the classified fx emitted a :rf.fx/handled trace")
-        (doseq [ev handled]
-          (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
-              "the :token arg reads :rf/redacted in :rf.fx/handled")))
+        (let [audit-handled (->> @acc
+                                 (filterv #(= :fx-args/audit (get-in % [:tags :rf.fx/id]))))]
+          (is (seq audit-handled) "the control fx also emitted a :rf.fx/handled trace")
+          (doseq [ev audit-handled]
+            (is (= {:msg "a benign audit line"} (get-in ev [:tags :rf.fx/args]))
+                "the control fx's args ride RAW in :rf.fx/handled (no over-redaction)")))
 
-      (let [audit-handled (->> @acc
-                               (filterv #(= :fx-args/audit (get-in % [:tags :rf.fx/id]))))]
-        (is (seq audit-handled) "the control fx also emitted a :rf.fx/handled trace")
-        (doseq [ev audit-handled]
-          (is (= {:msg "a benign audit line"} (get-in ev [:tags :rf.fx/args]))
-              "the control fx's args ride RAW in :rf.fx/handled (no over-redaction)")))
-
-      ;; --- whole-stream sweep: the sentinel appears in NO trace tag ---
-      (let [checked (atom 0)]
-        (doseq [ev @acc
-                [_ v] (:tags ev)]
-          (swap! checked inc)
-          (is (not (contains-sentinel? v))
-              (str "the token must not appear raw in " (:operation ev))))
-        (is (pos? @checked) "the sweep actually inspected trace tags"))))))
+        ;; --- whole-stream sweep: the sentinel appears in NO trace tag ---
+        (let [checked (atom 0)]
+          (doseq [ev @acc
+                  [_ v] (:tags ev)]
+            (swap! checked inc)
+            (is (not (contains-sentinel? v))
+                (str "the token must not appear raw in " (:operation ev))))
+          (is (pos? @checked) "the sweep actually inspected trace tags"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; ERROR arm — :rf.error/fx-handler-exception carries :rf.fx/args; it must
@@ -195,36 +189,31 @@
 ;; SLOT rides the dev trace only (see the ns docstring §Posture split).
 ;; ---------------------------------------------------------------------------
 
-(deftest error-arm-body-receives-raw-args
-  (testing "ALWAYS-ON control: the throwing classified fx also
-            receives its args RAW before it throws"
-    (register!)
-    (rf/dispatch-sync [:fx-args/fail] {:frame frame-id})
-    (is (= {:token sentinel} (:fx-args/store-throwing @body-args))
-        "the throwing fx body received the RAW token")))
-
 (deftest error-arm-redacts-fx-args-on-fx-handler-exception
- ;; Dev-trace stream; the trailing `contains-sentinel?` negative
- ;; would pass over an empty stream, so the body sits inside the arm.
- (when rf.interop/debug-enabled?
   (testing "when a classified fx throws, :rf.error/fx-handler-exception redacts
             its :rf.fx/args :token"
     (register!)
     (let [acc (collect-traces! ::error)]
       (rf/dispatch-sync [:fx-args/fail] {:frame frame-id})
       (rf/unregister-listener! :trace ::error)
-
-      (let [errs (->> @acc
-                      (filterv #(= :rf.error/fx-handler-exception (:operation %))))]
-        (is (seq errs)
-            "the throwing classified fx emitted an :rf.error/fx-handler-exception trace")
-        (doseq [ev errs]
-          (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
-              "the :rf.fx/args :token reads :rf/redacted on the error trace")
-          (is (= :fx-args/store-throwing (get-in ev [:tags :rf.fx/id]))
-              "shape retained — the fx-id survives")
-          (is (not (contains-sentinel? (:tags ev)))
-              "the token appears nowhere raw in the error trace tags")))))))
+      ;; ALWAYS-ON control: the throwing classified fx receives its args RAW
+      ;; before it throws.
+      (is (= {:token sentinel} (:fx-args/store-throwing @body-args))
+          "the throwing fx body received the RAW token")
+      ;; Dev-trace stream; the trailing `contains-sentinel?` negative would
+      ;; pass over an empty stream, so every trace read sits inside the arm.
+      (when rf.interop/debug-enabled?
+        (let [errs (->> @acc
+                        (filterv #(= :rf.error/fx-handler-exception (:operation %))))]
+          (is (seq errs)
+              "the throwing classified fx emitted an :rf.error/fx-handler-exception trace")
+          (doseq [ev errs]
+            (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
+                "the :rf.fx/args :token reads :rf/redacted on the error trace")
+            (is (= :fx-args/store-throwing (get-in ev [:tags :rf.fx/id]))
+                "shape retained — the fx-id survives")
+            (is (not (contains-sentinel? (:tags ev)))
+                "the token appears nowhere raw in the error trace tags")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The registration owns its classification (what the projector consumes).
