@@ -81,7 +81,9 @@ is the default browser substrate and the adapter the reference suite runs
 against. The v1→v2 move *completes* on its own.
 
 So the second step is chosen for what Fresco offers, not required to arrive. The
-skill states the trade in both directions and takes an explicit yes.
+skill states the trade in both directions. An explicit request to use Fresco
+establishes the choice; when the goal is unclear, ask for that choice before
+rewriting. Preserve decisions the author already made.
 **Trust the programmer: state the choice, do not herd.** A migration guide that
 implies the rewrite is necessary is worse than no guide, because it costs its
 reader work they did not have to do.
