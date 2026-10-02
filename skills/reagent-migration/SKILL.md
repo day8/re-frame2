@@ -9,7 +9,7 @@ description: >
   the author, keeps the rest on Reagent. Opt-in: use it only on an app already
   on re-frame2 whose author wants Fresco — "migrate my Reagent views to
   Fresco", "port this component to h/defview", or `r/atom`, `r/with-let`,
-  `r/create-class` or `[:> …]` sites raised in a Fresco context. The Reagent
+  `r/create-class` or React-crossing sites in a Fresco context. The Reagent
   adapter is first-class, so a v1→v2 move keeps its views and is
   re-frame-migration's job. Not for new re-frame2 code (re-frame2), project
   setup (re-frame2-setup) or live-app inspection (re-frame2-pair).
@@ -49,7 +49,7 @@ re-frame2 ships **first-class, actively-supported adapters**. `day8/re-frame2-re
 
 So rewriting views into Fresco is a **separate, optional second step, and it is a rewrite rather than a respelling.** Views change shape: parameters become one props map, handlers become data, view-held state leaves the component. Nobody has to take that step to be on re-frame2, and taking it costs real work.
 
-**Say the trade plainly and let the author decide.** Both columns below are measured against the shipped surface, not the design corpus.
+**Say the trade plainly.** An explicit request to migrate to Fresco establishes the author's choice; briefly state the trade and proceed within that scope. Ask about the choice only when the goal is unclear. Both columns below are measured against the shipped surface, not the design corpus.
 
 | What the rewrite buys | What it costs |
 |---|---|
@@ -122,7 +122,8 @@ Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 3. **Assess the view first (rule 2).** Scan each candidate for D/R hits. An **R** hit → hold the whole view on Reagent. A **D** hit → decide it with the author, then convert the whole view or hold the whole view.
 4. **Apply the M-tier rewrites** to the clean views, atomically per view (a header change and all its call sites in one edit).
 5. **Fix the ns requires and the root last** (MIG-24, MIG-15): add `[re-frame.fresco :as h]`; drop `reagent.*` requires only when nothing in the namespace still needs them.
-6. **Compile + test the subtree (the skill runs the gates); the programmer renders + eyeballs it.** Only then move to the next.
+6. **Compile + test the subtree (the skill runs the gates); the programmer renders + eyeballs it.**
+7. **Finish the prop-dialect fixer on the converted files**, dry-run first, then write and verify the changed subtree again — [procedure Step 6](references/procedure.md#step-6--apply-the-mechanical-codemod-and-re-prove). Only then move to the next.
 
 ## Gotchas
 
@@ -134,7 +135,7 @@ The rest — brackets versus parens, the bare-symbol trap, the `::h/…` keyword
 
 ## Done checklist
 
-- [ ] The author was told they do not have to do this, and chose to anyway; the app is already on re-frame2 and Fresco is reachable from its build.
+- [ ] The author requested or confirmed the optional Fresco rewrite; the app is already on re-frame2 and Fresco is reachable from its build.
 - [ ] The reporter was run and both halves of its report were read.
 - [ ] Each converted view is whole — no half-migrated bodies (rule 2), and no surviving `#(dispatch …)` closure.
 - [ ] Every rewrite cites its `MIG-NN` id so the author can audit it.

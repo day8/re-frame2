@@ -22,7 +22,8 @@ Confirm all three, or stop:
 2. **The author specifically wants Fresco, knowing they do not have to.** They
    are on a supported configuration already. Put the trade in front of them —
    [`../SKILL.md`](../SKILL.md) §Read this first carries it as a table — and
-   take an explicit yes. Don't migrate views because you can.
+   proceed when their request already chooses Fresco. Ask for a choice only
+   when their goal is unclear; do not repeat a decision they already made.
 3. **Fresco is actually reachable from the target project's build.** This is
    the check the project already passed to get onto re-frame2, not a second
    one. `day8/re-frame2-fresco` is in the release set: every re-frame2 release
@@ -294,15 +295,17 @@ that must not change.
 
 ## Step 6 — Apply the mechanical codemod, and re-prove
 
-Re-run Step 0's command with `--rewrite` added: a dry run that prints what
-would change. Then add `--write` after `--rewrite` to apply it — this
+Re-run Step 0's command with `--rewrite` added, using only the converted
+files as its input paths: a dry run that prints what would change. Keep views
+held on Reagent outside this write pass. Then add `--write` after `--rewrite` to apply it — this
 **rewrites the consumer's source files in place**, so run it on a clean
 working tree the author can diff and revert.
 
 Last, not first. It touches only the six decidable `[:> …]` families (W1–W6),
 preserves formatting, comments and line endings, and every output is outside its
-own rewrite's input language so a second run is a no-op. Re-run the shadow
-comparison on the screens the diff touched.
+own rewrite's input language so a second run is a no-op. Re-run the subtree
+compile and tests after the write, and confirm the changed screens render.
+If this pass used a shadow comparison, repeat it on the screens the diff touched.
 
 A completed run exits `0` even when the report carries human decisions — it is a
 migration assistant, not a permanent build lint.
