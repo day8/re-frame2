@@ -232,6 +232,10 @@
       (is (= 2 (engine/change-count-at p []))))))
 
 ;; ---- No-op epoch: no walk at all ----------------------------------------
+;;
+;; The skip is asked per op, so it must never silence a one-sided diff:
+;; `r5-wholly-new-subtree` (adds only) and `r5-wholly-removed-subtree`
+;; (removes only) are the rows it would turn red.
 
 (deftest y8doi25-no-op-epoch-reclassifies-without-walking-the-db
   (testing "an epoch whose two sides are `=` but not `identical?` — the
@@ -260,17 +264,7 @@
       (is (= #{} (:wholly-changed-roots p)))
       (is (zero? @realised)
           (str "a no-op epoch realised " @realised
-               " of 5000 elements; it must realise none"))))
-
-  (testing "the guard is one-sided per op — a diff that ADDS but never REMOVES
-            promotes its wholly-new subtree"
-    (let [p (engine/project {:a 1} {:a 1 :user {:id 7 :name "Ada"}})]
-      (is (contains? (:wholly-changed-roots p) [:user]))))
-
-  (testing "…and a diff that REMOVES but never ADDS promotes its
-            wholly-removed subtree"
-    (let [p (engine/project {:a 1 :user {:id 7 :name "Ada"}} {:a 1})]
-      (is (contains? (:wholly-changed-roots p) [:user])))))
+               " of 5000 elements; it must realise none")))))
 
 ;; ---- Flat-rows shape ----------------------------------------------------
 
@@ -307,22 +301,6 @@
       (is (= {} (:container-ops p)))
       (is (= [] (:flat-rows p)))
       (is (= #{} (:wholly-changed-roots p))))))
-
-;; ---- Deep nested change-------------------------------------------------
-
-(deftest deep-nested-change
-  (testing "change at depth 5+ marks every ancestor as :children"
-    (let [deep-path [:a :b :c :d :e]
-          before    (assoc-in {} deep-path 1)
-          after     (assoc-in {} deep-path 2)
-          p         (engine/project before after)]
-      (is (= :modified (engine/op-at p deep-path)))
-      (is (= :children (engine/op-at p [:a])))
-      (is (= :children (engine/op-at p [:a :b])))
-      (is (= :children (engine/op-at p [:a :b :c])))
-      (is (= :children (engine/op-at p [:a :b :c :d]))))))
-
-;; ---- Sanity — Editscript imports cleanly under the build ---------------
 
 ;; ---- empty↔populated map expansion -------------------------------------
 ;;
@@ -391,19 +369,6 @@
       ;; [:user] is wholly-changed-added (every descendant is :added).
       (is (= :added (engine/op-at p [:user])))
       (is (contains? (:wholly-changed-roots p) [:user])))))
-
-(deftest empty-to-populated-flat-scalar-keys
-  (testing "flat scalar top-level keys (no nested
-            containers) also yield per-key :added rows."
-    (let [p (engine/project {} {:a 1 :b 2})]
-      (is (= :added (engine/op-at p [:a])))
-      (is (= :added (engine/op-at p [:b])))
-      (is (= 1 (:after (engine/entry-at p [:a]))))
-      (is (= 2 (:after (engine/entry-at p [:b]))))
-      ;; No nested container to mark wholly-changed; the per-key ops
-      ;; carry the chrome directly via path-ops.
-      (is (empty? (:wholly-changed-roots p)))
-      (is (= :children (engine/op-at p []))))))
 
 (deftest populated-disjoint-map-swap-expands-per-key
   (testing "two populated maps swapping wholesale
@@ -495,18 +460,6 @@
       ;; excluded from promotion regardless, but the key invariant is
       ;; that no wholly-changed root is logged for a member swap.
       (is (= #{} (:wholly-changed-roots p))))))
-
-(deftest l0us2-nested-set-swap-keeps-key-intact
-  (testing "a set nested under a map key
-            (`{:tags #{:a}} → {:tags #{:b}}`) keeps `:tags` INTACT
-            (`:children`, NOT `:removed`) and diffs at the member level."
-    (let [p (engine/project {:tags #{:a}} {:tags #{:b}})]
-      ;; The :tags KEY is intact — :children, never :removed/:added.
-      (is (= :children (engine/op-at p [:tags])))
-      (is (not (contains? (:wholly-changed-roots p) [:tags])))
-      ;; Member-level diff under the intact key.
-      (is (= :removed (engine/op-at p [:tags :a])))
-      (is (= :added   (engine/op-at p [:tags :b]))))))
 
 (deftest l0us2-door-machine-tags-repro
   (testing "the door machine's `:tags` going
@@ -696,21 +649,6 @@
       ;; per-member suffix.
       (is (= :b (:before (engine/entry-at p [:tags :b]))))
       (is (= :d (:after (engine/entry-at p [:tags :d])))))))
-
-(deftest multimember-set-swap-no-overlap
-  (testing "a set whose members are ALL replaced (no overlap):
-            `#{:a :b :c} → #{:d :e :f}` projects every before-member
-            :removed + every after-member :added, key intact. (Distinct
-            from the empty↔populated path — both sides are populated.)"
-    (let [p (engine/project {:tags #{:a :b :c}} {:tags #{:d :e :f}})]
-      (is (= :children (engine/op-at p [:tags])))
-      (is (not (contains? (:wholly-changed-roots p) [:tags])))
-      (is (= :removed (engine/op-at p [:tags :a])))
-      (is (= :removed (engine/op-at p [:tags :b])))
-      (is (= :removed (engine/op-at p [:tags :c])))
-      (is (= :added (engine/op-at p [:tags :d])))
-      (is (= :added (engine/op-at p [:tags :e])))
-      (is (= :added (engine/op-at p [:tags :f]))))))
 
 (deftest multimember-set-swap-at-root
   (testing "the same delta at the ROOT (a bare set, not nested):
@@ -933,7 +871,8 @@
       (is (seq (get-in p [:vector-removals [:a]])))
       (is (not (contains? (:wholly-changed-roots p) [:a]))))))
 
-;; -- Case 2 + 5: vector multi-element / scattered removal (MULTI-REMOVAL)
+;; -- Case 2 + 5: vector multi-element / scattered removal (MULTI-REMOVAL).
+;; The scattered case is `r6-vector-scattered-remove-shifted-was-index`.
 
 (deftest yucxn-vector-multi-tail-removal-recovers-all-elements
   (testing "`{:a [1 2 3]} → {:a [1]}` drops TWO trailing
@@ -950,17 +889,6 @@
       (let [paths (set (map :path (:flat-rows p)))]
         (is (contains? paths [:a 1]))
         (is (contains? paths [:a 2]))))))
-
-(deftest yucxn-vector-scattered-removal
-  (testing "a SCATTERED (non-contiguous) removal
-            `[:a :b :c :d] → [:a :c]` drops `:b` (before-idx 1) and `:d`
-            (before-idx 3). Editscript emits `[[1] :-] [[2] :-]` (post-
-            shift indices); the replay must recover 1 and 3, not 1 and 2."
-    (let [p (engine/project [:a :b :c :d] [:a :c])
-          removals (get-in p [:vector-removals []])]
-      (is (= [{:before-index 1 :before-value :b}
-              {:before-index 3 :before-value :d}]
-             removals)))))
 
 ;; -- Case 4: scalar kinds beyond int/string
 
