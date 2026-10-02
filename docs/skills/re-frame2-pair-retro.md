@@ -20,6 +20,8 @@ If you are supplying a recap, include the goal, the build/frame involved, the ca
 
 The skill reviews the current or just-finished [re-frame2-pair](re-frame2-pair.md) session (or a recap you give it) and returns a retrospective in the same turn: what you were trying to do, where the workflow dragged or confused you, which problems were one-off environment issues and which are recurring product gaps, and the improvements that would matter most, highest leverage first. It backs each point with concrete moments from the session — retries, clarifications, stale output, manual workarounds. One dominant finding gets one thorough treatment; there is no fixed set of sections or quota of ideas.
 
+When the evidence is adequate and the session shows no material friction, it says what worked and completes the retrospective. That differs from having too little evidence to judge. A catalogue match is checked against the actual session and any recovery; it does not create a finding by itself.
+
 It routes each improvement to the right owner:
 
 - **`re-frame2-pair`** — friction inside the pair tool itself: its instructions and recipes, the preload runtime, the MCP tools and their structured results, attach and discovery, cross-platform handling.
