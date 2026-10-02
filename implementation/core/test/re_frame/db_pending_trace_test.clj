@@ -148,11 +148,6 @@
         (rf/dispatch-sync [:t1/order-probe])
         (let [ops (mapv :operation @acc)
               idx (fn [op] (first (keep-indexed (fn [i x] (when (= x op) i)) ops)))]
-          (is (some? (idx :rf.event/run-start))   ":rf.event/run-start was emitted")
-          (is (some? (idx :rf.event/db-pending))  ":rf.event/db-pending was emitted")
-          (is (some? (idx :rf.event/db-changed))  ":rf.event/db-changed was emitted")
-          (is (some? (idx :rf.fx/do-fx))          ":rf.fx/do-fx was emitted")
-          (is (some? (idx :rf.event/run-end))     ":rf.event/run-end was emitted")
           (is (< (idx :rf.event/run-start) (idx :rf.event/db-pending))
               "run-start precedes db-pending")
           (is (< (idx :rf.event/db-pending) (idx :rf.event/db-changed))

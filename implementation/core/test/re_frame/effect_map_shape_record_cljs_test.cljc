@@ -176,7 +176,6 @@
             an egress decision; this assertion is where it gets reviewed. Read
             `router/emit-effect-map-shape!`'s §Egress before widening it."
     (let [rec (first (refuse! {:acme/foreign 1} :bad/closed))]
-      (is (some? rec) "precondition: the refusal fanned its record")
       (is (= record-keys (set (keys rec)))
           (str "the always-on record's key set is CLOSED. Extra keys are an "
                "unreviewed egress widening; a MISSING `:offending-key` leaves a "

@@ -204,13 +204,11 @@
               ops  (ops-of acc)
               warn (first (filterv #(= :rf.warning/db-nil-coerced (:operation %)) @acc))]
           (is (= {} db) "app-db was coerced to {} (NOT nil)")
-          (is (map? db) "app-db is a map after a {:db nil} return")
           ;; Dev-instrumentation arm (see ns docstring §Posture split). The
           ;; COERCION is production-real and asserted above; the diagnostic
           ;; that announces it is diagnostic-channel, and so is the
           ;; db-changed/db-noop discrimination of its outcome.
           (when rf.interop/debug-enabled?
-            (is (some? warn) ":rf.warning/db-nil-coerced diagnostic fired")
             (is (= :warning (:op-type warn)) "the diagnostic rides the :warning severity")
             (is (some #{:rf.event/db-changed} ops)
                 "the coerced {} differs from the seeded {:counter 7}, so it COMMITS
