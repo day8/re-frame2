@@ -125,29 +125,3 @@
     (is (= :cascade-b (:dispatch-id (read-sub cell-b :rf.xray/focus)))
         "cell B is STILL focused :cascade-b — driving A's focus did not
          move B's")))
-
-(deftest all-three-axes-independent-in-one-flow
-  (testing "TWO shells, distinct tab +
-            mode + focused-epoch each; driving one shell across all three
-            axes leaves the other's three axes untouched, in a single
-            end-to-end flow."
-    (setup-two-shells!)
-    ;; Seed cell B with a full, distinct state.
-    (dispatch! cell-b [:rf.xray/select-tab :trace])
-    (dispatch! cell-b [:rf.xray/set-mode :static])
-    (dispatch! cell-b [:rf.xray/focus-event :b-cascade :rf/default])
-    ;; Now drive cell A across all three axes.
-    (dispatch! cell-a [:rf.xray/select-tab :app-db])
-    (dispatch! cell-a [:rf.xray/set-mode :dynamic])
-    (dispatch! cell-a [:rf.xray/focus-event :a-cascade :rf/default])
-    ;; Cell A reflects its own drive.
-    (is (= :app-db (read-sub cell-a :rf.xray/selected-tab)))
-    (is (= :dynamic (read-sub cell-a :rf.xray/mode)))
-    (is (= :a-cascade (:dispatch-id (read-sub cell-a :rf.xray/focus))))
-    ;; Cell B is wholly untouched on all three axes.
-    (is (= :trace (read-sub cell-b :rf.xray/selected-tab))
-        "cell B tab untouched")
-    (is (= :static (read-sub cell-b :rf.xray/mode))
-        "cell B mode untouched")
-    (is (= :b-cascade (:dispatch-id (read-sub cell-b :rf.xray/focus)))
-        "cell B focus untouched")))

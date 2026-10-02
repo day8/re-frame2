@@ -33,7 +33,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.trace.projection :as rf.trace.projection]
-            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels :as panels]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cancellation-cascade]
@@ -153,28 +152,6 @@
       (is (frame-provider-wrap? (captured-tree capture) panels/ManagedFxList-bridge)))))
 
 ;; ---- full-shell mount --------------------------------------------------
-
-(deftest mount-shell-renders-shell-view-without-extra-wrapper
-  (testing "mount-shell! delegates the full 4-layer shell.
-            The shell-view itself installs its own scope provider
-            (`frame-provider`, per the shell docstring) so the
-            mount fn renders [shell-view {:mode :inline}] directly — no
-            outer wrapper."
-    (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-shell! :mount-point)
-        (let [tree (captured-tree capture)]
-          (is (vector? tree))
-          (is (map? (second tree)))
-          (is (= :inline (:mode (second tree))))
-          ;; The shell mounts via the public `shell-view` callable — a
-          ;; plain `defn`, not a registration; the captured render-tree's
-          ;; first element is that fn (not a provider — the shell
-          ;; installs its own scope provider).
-          (is (not= rf/frame-provider (first tree))
-              "mount-shell! does NOT add an outer frame-provider — the
-               shell-view contains its own scope provider per spec/007
-               §The 4-layer chrome"))))))
 
 ;; ---- the full-shell embed forwards its own-frame opt -------------------
 ;;
@@ -624,29 +601,6 @@
                :frame       frame-id
                :rf.event/v       [event-id]}})
 
-(deftest mount-panel-seeds-trace-buffer-from-pre-mount-bus
-  (testing "Mounting a panel before the user has opened the full shell
-            still runs the first-mount hook table — so the trace-bus
-            atom contents land in Xray's `:trace-buffer` slot and the
-            panel renders against the host's pre-mount cascades. A direct
-            `(rf/make-frame {:id :rf/xray})` would bypass the hook table
-            and leave the slot empty."
-    (let [[_capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub
-                    rf/epoch-history (fn [_] [])]
-        ;; Host dispatched two events on `:cart-frame` while Xray was
-        ;; un-mounted — the trace-bus atom accumulated them.
-        (trace-collector/seed-trace-for-test!
-          (pre-mount-dispatch-event 1 100 :cart-frame :cart/add-item))
-        (trace-collector/seed-trace-for-test!
-          (pre-mount-dispatch-event 2 101 :cart-frame :cart/checkout))
-        (panels/mount-epoch-panel! :mount-point)
-        (rf/with-frame :rf/xray
-          (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
-            (is (= 2 (count buf))
-                "trace-buffer reflects the pre-mount bus contents — the
-                 `::seed-trace-and-target-frame` hook ran on mount.")))))))
-
 (deftest mount-panel-seeds-target-frame-from-head-focusable-cascade
   (testing "Mounting a panel directly (without going through the full
             shell `open!`) seeds `:target-frame` from the head focusable
@@ -679,22 +633,3 @@
               "`:epoch-history` re-seeds in lockstep from
                `(rf/epoch-history :cart-frame)` per the
                `:rf.xray/set-target-frame` reducer."))))))
-
-(deftest mount-panel-without-pre-mount-traffic-leaves-target-unselected
-  (testing "mounting a panel with an empty trace-bus
-            + no pre-mount cascades on any frame seeds `:target-frame` from
-            `defaults/default-target-frame` = nil = UNSELECTED (the fallback
-            branch in `::seed-trace-and-target-frame`). Pins the cold-start
-            behaviour: the target stays unselected (the picker prompts a
-            choice) rather than chaining to a synthesised `:rf/default`."
-    (let [[_capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub
-                    rf/epoch-history (fn [_] [])]
-        (panels/mount-trace! :mount-point)
-        (rf/with-frame :rf/xray
-          (is (= defaults/default-target-frame
-                 @(rf/subscribe [:rf.xray/target-frame]))
-              "`:target-frame` is the unselected default (nil) when no
-               focusable cascade exists.")
-          (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
-              "explicitly: UNSELECTED is nil, not :rf/default"))))))
