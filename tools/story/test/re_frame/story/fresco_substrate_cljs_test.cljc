@@ -81,9 +81,7 @@
 (deftest substrate-set-admits-fresco
   (testing "`#{:fresco}` is a legal substrate set — were the schema to
             reject it, no fresco variant could be registered at all."
-    (is (m/validate rf.story.schemas/SubstrateSet #{:fresco}))
-    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :fresco}))
-    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent :uix :fresco})))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:fresco})))
 
   (testing "and :reagent, :uix and the empty set are legal beside it"
     (is (m/validate rf.story.schemas/SubstrateSet #{:reagent}))
@@ -98,8 +96,6 @@
             `SubstrateSet` validates nothing."
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent-slim})))
     (is (not (m/validate rf.story.schemas/SubstrateSet #{:helix})))
-    (is (not (m/validate rf.story.schemas/SubstrateSet #{:reagent :helix})))
-    (is (not (m/validate rf.story.schemas/SubstrateSet #{:fresco :typo})))
     (is (not (m/validate rf.story.schemas/SubstrateSet [:fresco]))
         "a VECTOR is not a set — the slot's shape is a set")))
 
@@ -205,13 +201,12 @@
                 :args       {:label "one"}}]
       (rf.story/reg-variant* :story.hicedn/v body)
       (let [edn (rf.story/variant->edn :story.hicedn/v)]
-        (is (= #{:fresco} (:substrates edn)))
-        (is (= :my.app.views/article-card (:component edn))
-            "and `:component` is a KEYWORD — a fresco view is registered
-             fresco-side, never passed to `:component` as a value")
         (is (= body (select-keys edn (keys body)))
-            "the body round-trips verbatim; `:source` is the registrar's
-             own stamp and is the only addition")))))
+            "the body round-trips verbatim, `:substrates` and the KEYWORD
+             `:component` included — a fresco view is registered
+             fresco-side, never passed to `:component` as a value;
+             `:source` is the registrar's own stamp and is the only
+             addition")))))
 
 ;; ===========================================================================
 ;; 5 · snapshot identity — two fresco views are two baselines

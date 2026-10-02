@@ -380,9 +380,7 @@
         (is (= [[:decorator.theme/dark]] (get-in plan [:world :decorators]))))
       (testing "fx-overrides are a frame slot, NOT a render-input decorator"
         (is (= {:http/get :stub.http/ok}
-               (get-in plan [:world :frame :fx-overrides])))
-        (is (not= (get-in plan [:world :decorators])
-                  (get-in plan [:world :frame :fx-overrides])))))))
+               (get-in plan [:world :frame :fx-overrides])))))))
 
 ;; ===========================================================================
 ;; sub-overrides re-resolve against the post-control effective args

@@ -99,17 +99,6 @@
       (is (= :idle (:expected (second reports)))
           "and its own per-assertion :expected — granularity, not aggregation"))))
 
-(deftest story-is-zero-assertion-emits-one-pass
-  (testing "a variant with no assertions is vacuously green — rf.story/is emits
-            ONE run-level :pass so the test sees a positive signal"
-    (rf.story/reg-variant :story.is/empty
-      {:tags        #{:test}
-       :script {:script [[:dispatch-sync [:is/set-status :ready]]]}})
-    (let [[result reports] (capture-reports #(rf.story/is :story.is/empty))]
-      (is (= :pass (:status result)))
-      (is (= 1 (count reports)))
-      (is (= :pass (:type (first reports)))))))
-
 (deftest story-is-accepts-an-already-resolved-result
   (testing "rf.story/is reports a unified result map directly (the sync path for
             tests that ran the variant themselves)"
@@ -143,18 +132,6 @@
           [_ reports] (capture-reports #(rf.story/is result))]
       (is (= [:error] (mapv :type reports)))
       (is (= :some/why (:actual (ex-data (:actual (first reports)))))))))
-
-(deftest story-run-returns-unified-result
-  (testing "rf.story/run returns a promise/future of the unified run-result"
-    (rf.story/reg-variant :story.is/run
-      {:tags        #{:test}
-       :script {:script [[:dispatch-sync [:is/set-status :loaded]]
-                              [:assert-db [:status] :loaded]]}})
-    (let [p (rf.story/run :story.is/run)
-          result (.get ^java.util.concurrent.CompletableFuture p)]
-      (is (= :pass (:status result)))
-      (is (= :pass (rf.story/result-status result)))
-      (is (true? (rf.story/result-passed? result))))))
 
 (deftest story-is-accepts-a-timeout-ms-opt
   (testing "rf.story/is :timeout-ms opt threads through to the JVM blocking

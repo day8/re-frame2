@@ -74,30 +74,23 @@
   (testing ":fragment.login/form-base seeds the slice via the example's own
             initialise-form event (no duplicated defaults map in Story)"
     (let [frag (rf.story/handler-meta :fragment :fragment.login/form-base)]
-      (is (some? frag) ":fragment.login/form-base is registered")
       (is (= [raw-seed-step] (:setup frag))
           "the fragment's :setup is exactly the initialise-form event — the
            event stays the single source of defaults"))))
 
-(deftest every-login-variant-seeds-the-slice-before-its-own-setup
+(deftest every-login-variant-seeds-the-slice-first-and-exactly-once
   (testing "every login-example variant's compiled plan LEADS its setup with
             [:auth.login/initialise-form] (composed fragment first, variant
-            setup after) — RED if a variant omits the seed or orders it late"
-    (doseq [vid example-variant-ids]
-      (is (some? (rf.story/handler-meta :variant vid))
-          (str vid " is registered"))
-      (let [setup (get-in (rf.story.plan/variant-plan vid) [:world :setup])]
-        (is (= compiled-seed-step (first setup))
-            (str vid " must seed the login-form slice FIRST; got: "
-                 (pr-str (first setup))))))))
-
-(deftest the-seed-appears-exactly-once-per-variant
-  (testing "no per-variant duplication: after composing the fragment, each
-            variant's compiled setup runs the seed event exactly ONCE (the
-            composed fragment is its only source)"
+            setup after), and runs it exactly ONCE (the composed fragment is
+            its only source) — RED if a variant omits the seed, orders it
+            late or duplicates it. An unregistered id throws out of
+            variant-plan."
     (doseq [vid example-variant-ids]
       (let [setup (get-in (rf.story.plan/variant-plan vid) [:world :setup])
             seeds (filter #(= compiled-seed-step %) setup)]
+        (is (= compiled-seed-step (first setup))
+            (str vid " must seed the login-form slice FIRST; got: "
+                 (pr-str (first setup))))
         (is (= 1 (count seeds))
             (str vid " seeds the slice exactly once (via the composed "
                  "fragment) — no duplicated initialise-form in the setup; got "

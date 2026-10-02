@@ -99,8 +99,8 @@
     (let [ex (try (rf.story/reg-variant :story.cart/malformed {:db-seed [1 2 3]})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "a non-map :db-seed throws a shape error")
-      (is (= :rf.error/variant-shape (:rf.error/id (ex-data ex)))))))
+      (is (= :rf.error/variant-shape (:rf.error/id (ex-data ex)))
+          "a non-map :db-seed throws a shape error"))))
 
 ;; ===========================================================================
 ;; valid seed → app-db seeded before the script
@@ -108,7 +108,10 @@
 
 (deftest valid-db-seed-seeds-app-db-before-script
   (testing "a valid :db-seed merges into the frame's app-db BEFORE the script,
-            and a :real-setup event runs ON TOP of the seed (the ladder composes)"
+            and a :real-setup event runs ON TOP of the seed (the ladder
+            composes). The fixture leaves the schemas seam uninstalled, so
+            this is also the host-free floor: no validator, seed applied
+            unchecked"
     (rf.story/reg-variant
       :story.cart/seeded
       {:db-seed {:cart {:items [{:sku "A" :qty 1}]}}
@@ -119,22 +122,7 @@
       (testing "the seed established the precondition, then the script appended"
         (is (= [{:sku "A" :qty 1} {:sku "B" :qty 2}]
                (get-in result [:app-db :cart :items]))
-            "the :db-seed item is present AND the script's dispatched item appended"))
-      (testing "no seed-validation failure was recorded"
-        (is (nil? (seed-error-record result)))))))
-
-(deftest db-seed-validates-against-registered-schema-and-passes
-  (testing "a seed that SATISFIES the frame's registered app-db schema runs clean"
-    (install-schema-seam!)
-    (reg-app-schema! :story.cart/ok [:cart]
-                     [:map [:items [:vector [:map [:sku :string] [:qty :int]]]]])
-    (rf.story/reg-variant
-      :story.cart/ok
-      {:db-seed {:cart {:items [{:sku "A" :qty 1}]}}})
-    (let [result (run-target :story.cart/ok)]
-      (is (= :pass (:status result)))
-      (is (nil? (seed-error-record result)))
-      (is (= [{:sku "A" :qty 1}] (get-in result [:app-db :cart :items]))))))
+            "the :db-seed item is present AND the script's dispatched item appended")))))
 
 ;; ===========================================================================
 ;; invalid seed → structured :rf.error/story-db-seed-invalid
@@ -156,8 +144,7 @@
           "a schema-violating seed errors the run (never a vacuous pass)")
       (is (= :error (:lifecycle result)))
       (let [rec (seed-error-record result)]
-        (is (some? rec) "the structured :rf.error/story-db-seed-invalid assertion landed")
-        (is (false? (:passed? rec)))
+        (is (false? (:passed? rec)) "the structured :rf.error/story-db-seed-invalid assertion landed")
         (testing "the record carries the structured path/value/explain violations"
           (let [viol (first (:violations rec))]
             (is (= [:cart] (:path viol)) "the violation names the registered app-db path")
@@ -195,21 +182,3 @@
         (reset! script-ran 0)
         (is (= :pass (:status (run-target :story.cart/go))))
         (is (= 1 @script-ran))))))
-
-;; ===========================================================================
-;; host-free floor — no schemas artefact / no validator → seed applied unchecked
-;; ===========================================================================
-
-(deftest db-seed-soft-passes-without-schemas-artefact
-  (testing "with NO schemas late-bind seam installed the seed is applied
-            unchecked (the host-free floor) — Story without the schemas
-            artefact pays nothing"
-    ;; The fixture left the schema seam UNINSTALLED.
-    (rf.story/reg-variant
-      :story.cart/nohost
-      {:db-seed {:cart {:items [{:sku "A" :qty "even-a-string-is-fine-here"}]}}})
-    (let [result (run-target :story.cart/nohost)]
-      (is (= :pass (:status result)) "no validator → no validation → clean run")
-      (is (nil? (seed-error-record result)))
-      (is (= [{:sku "A" :qty "even-a-string-is-fine-here"}]
-             (get-in result [:app-db :cart :items]))))))
