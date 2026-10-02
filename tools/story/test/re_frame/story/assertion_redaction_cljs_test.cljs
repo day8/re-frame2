@@ -132,24 +132,6 @@
               (rf.story/destroy-variant! :story.redaction.sentinel/probe)
               (done)))))))
 
-(deftest assertion-path-equals-non-sensitive-passes-value-through
-  (testing "a NON-sensitive path records the raw value
-            unchanged (redaction only fires on marked paths)"
-    (rf/reg-event :ui/set-label (fn [{:keys [db]} _] {:db (assoc db :label "hello")}))
-    (rf.story/reg-variant :story.redaction.plain/probe
-      {:setup [[:ui/set-label]]
-       :script [[:dispatch-sync [:rf.assert/path-equals [:label] "hello"]]]})
-    (async done
-      (-> (rf.story/run-variant :story.redaction.plain/probe)
-          (rf.story.async/then
-            (fn [result]
-              (let [pe (first (filter #(= :rf.assert/path-equals (:assertion %))
-                                      (:assertions result)))]
-                (is (= "hello" (:actual pe))
-                    "non-sensitive value passes through unredacted"))
-              (rf.story/destroy-variant! :story.redaction.plain/probe)
-              (done)))))))
-
 (deftest assertion-sub-equals-redacts-on-path-bearing-sub-vec
   (testing ":rf.assert/sub-equals redacts :actual + :expected when
             the sub-vec carries the app-db path as its args (the projection

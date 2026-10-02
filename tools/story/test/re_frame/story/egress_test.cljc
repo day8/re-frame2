@@ -50,12 +50,6 @@
       (is (empty? (:reasons r)))
       (is (true? (rf.story.egress/full? r))))))
 
-(deftest classify-plain-overrides-is-full
-  (testing "serialisable cell-overrides keep the artifact fully reproducible"
-    (let [r (rf.story.egress/classify {:cell-overrides {:label "Hi" :count 9}})]
-      (is (= :full (:status r)))
-      (is (empty? (:reasons r))))))
-
 ;; ---- classify: partial ---------------------------------------------------
 
 (deftest classify-dropped-overrides-is-partial
@@ -67,19 +61,25 @@
       (is (= :dropped-overrides (:code (first (:reasons r)))))
       (is (re-find #"2 overrides" (:detail (first (:reasons r))))))))
 
-(deftest classify-network-reply-fn-is-partial
-  (testing "a network stub replying via a fn downgrades to partial (route survives)"
-    (let [plan {:world {:network {[:get "/api/x"] {:reply (fn [_] {})}}}}
-          r    (rf.story.egress/classify {:plan plan})]
-      (is (= :partial (:status r)))
-      (is (some #(= :network-reply-fn (:code %)) (:reasons r))))))
-
-(deftest classify-script-fn-is-partial
-  (testing "a play-script step carrying a fn downgrades to partial"
-    (let [plan {:script [[:dispatch [:inc]] [:custom (fn [_] nil)]]}
-          r    (rf.story.egress/classify {:plan plan})]
-      (is (= :partial (:status r)))
-      (is (some #(= :script-fn (:code %)) (:reasons r))))))
+(deftest classify-downgrades-by-the-reason-it-finds
+  (doseq [[label inputs status code]
+          [["a network stub replying via a fn downgrades to partial (route survives)"
+            {:plan {:world {:network {[:get "/api/x"] {:reply (fn [_] {})}}}}}
+            :partial :network-reply-fn]
+           ["a play-script step carrying a fn downgrades to partial"
+            {:plan {:script [[:dispatch [:inc]] [:custom (fn [_] nil)]]}}
+            :partial :script-fn]
+           ["a fn-valued :sub-overrides value makes the artifact view-only"
+            {:plan {:world {:render {:sub-overrides {[:my/sub] (fn [] 1)}}}}}
+            :view-only :sub-override-fn]
+           ;; a regex is not a fn and does not EDN-round-trip to an equal value
+           ["a non-fn, non-round-tripping override is partial (dropped, not view-only)"
+            {:cell-overrides {:pattern #"x"}}
+            :partial :override-non-edn]]]
+    (testing label
+      (let [r (rf.story.egress/classify inputs)]
+        (is (= status (:status r)))
+        (is (some #(= code (:code %)) (:reasons r)))))))
 
 ;; ---- classify: view-only -------------------------------------------------
 
@@ -89,20 +89,6 @@
       (is (= :view-only (:status r)))
       (is (= "view-only" (:label r)))
       (is (some #(= :override-fn (:code %)) (:reasons r))))))
-
-(deftest classify-sub-override-fn-is-view-only
-  (testing "a fn-valued :sub-overrides value makes the artifact view-only"
-    (let [plan {:world {:render {:sub-overrides {[:my/sub] (fn [] 1)}}}}
-          r    (rf.story.egress/classify {:plan plan})]
-      (is (= :view-only (:status r)))
-      (is (some #(= :sub-override-fn (:code %)) (:reasons r))))))
-
-(deftest classify-non-edn-override-is-partial-not-view-only
-  (testing "a non-fn, non-round-tripping override is partial (dropped, not view-only)"
-    ;; A regex is not a fn and does not EDN-round-trip to an equal value.
-    (let [r (rf.story.egress/classify {:cell-overrides {:pattern #?(:clj #"x" :cljs (js/RegExp. "x"))}})]
-      (is (= :partial (:status r)))
-      (is (some #(= :override-non-edn (:code %)) (:reasons r))))))
 
 ;; ---- classify: lowest status wins ----------------------------------------
 

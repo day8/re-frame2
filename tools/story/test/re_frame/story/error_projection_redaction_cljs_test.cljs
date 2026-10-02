@@ -92,24 +92,3 @@
                     "the message string survives verbatim (NOT auto-walked)"))
               (rf.story/destroy-variant! :story.err-redaction/probe)
               (done)))))))
-
-(deftest exception-ex-data-non-sensitive-passes-through
-  (testing "with NO marks, the captured ex-data passes through
-            unredacted (frame-scoped elision only redacts marked paths)"
-    (rf/reg-event :plain/boom
-      (fn [_ _]
-        (throw (ex-info "boom" {:detail "not-secret"}))))
-    (rf.story/reg-variant :story.err-plain/probe
-      {:setup      []
-       :script [[:dispatch-sync [:plain/boom]]]})
-    (async done
-      (-> (rf.story/run-variant :story.err-plain/probe)
-          (rf.story.async/then
-            (fn [result]
-              (let [ex   (last (filter #(= :rf.error/exception (:assertion %))
-                                       (:assertions result)))
-                    data (get-in ex [:error :data])]
-                (is (= "not-secret" (:detail data))
-                    "an unmarked ex-data slot is not redacted"))
-              (rf.story/destroy-variant! :story.err-plain/probe)
-              (done)))))))

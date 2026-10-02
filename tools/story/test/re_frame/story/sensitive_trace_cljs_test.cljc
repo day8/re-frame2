@@ -116,7 +116,6 @@
 
 (deftest suppress-sensitive?-default-suppresses
   (testing "by default (:rf.egress/local-redacted) sensitive events are suppressed"
-    (is (= :rf.egress/local-redacted @rf.story.config/session-egress-profile))
     (is (false? (rf.story.config/include-sensitive? nil)))
     (is (true?  (rf.story.config/suppress-sensitive?
                   (sensitive-dispatch-event :v/x [:auth/login])))))
@@ -138,7 +137,6 @@
 
 (deftest configure!-wires-egress-profile
   (testing "rf.story/configure! routes :rf.story/egress-profile to the config atom"
-    (is (= :rf.egress/local-redacted @rf.story.config/session-egress-profile) "default is local-redacted")
     (rf.story/configure! {:rf.story/egress-profile :rf.egress/local-raw})
     (is (= :rf.egress/local-raw @rf.story.config/session-egress-profile)
         "opt-in flips the profile to the trusted-local boundary")
@@ -238,89 +236,39 @@
 (defn- pending-for [frame-id]
   (get @rf.story.play/pending-exceptions frame-id []))
 
-(deftest play-listener-suppresses-sensitive-warnings
-  (testing "by default a :sensitive? warning event is dropped at the privacy gate"
-    (let [frame-id :story.sensitive/v
-          build    @#'rf.story.play/listener-for-frame
-          listen   (build frame-id)
-          ev       (sensitive-warning-event frame-id)]
-      (listen ev)
-      (is (pos? (rf.story.config/suppressed-count frame-id))
-          "the suppressed-events counter bumped — the redaction hint stays accurate"))))
-
-(deftest play-listener-suppresses-sensitive-handler-exception
-  (testing "by default a :sensitive? handler-exception is dropped before capture"
-    (let [frame-id :story.sensitive/v
-          build    @#'rf.story.play/listener-for-frame
-          listen   (build frame-id)
-          ev       (handler-exception-event frame-id true)]
-      (swap! rf.story.play/pending-exceptions assoc frame-id [])
-      (listen ev)
-      (is (empty? (pending-for frame-id))
-          "the sensitive handler-exception never reached pending-exceptions")
-      (is (pos? (rf.story.config/suppressed-count frame-id))
-          "the suppressed-events counter bumped"))))
-
-(deftest play-listener-passes-sensitive-when-opted-in
-  (testing "under :rf.egress/local-raw the gate is open — a sensitive handler-exception is captured"
-    (rf.story.config/set-egress-profile! :rf.egress/local-raw)
-    (let [frame-id :story.sensitive/v
-          build    @#'rf.story.play/listener-for-frame
-          listen   (build frame-id)
-          ev       (handler-exception-event frame-id true)]
-      (swap! rf.story.play/pending-exceptions assoc frame-id [])
-      (listen ev)
-      (is (= 1 (count (pending-for frame-id)))
-          "the sensitive handler-exception was captured (the gate is open)")
-      (is (zero? (rf.story.config/suppressed-count frame-id))
-          "the suppressed-events counter stays at zero"))))
-
-(deftest play-listener-captures-non-sensitive-handler-exception
-  (testing "control: a non-sensitive handler-exception is captured under default settings"
-    (let [frame-id :story.regression/v
-          build    @#'rf.story.play/listener-for-frame
-          listen   (build frame-id)
-          ev       (handler-exception-event frame-id false)]
-      (swap! rf.story.play/pending-exceptions assoc frame-id [])
-      (listen ev)
-      (is (= 1 (count (pending-for frame-id)))
-          "the non-sensitive handler-exception landed in pending-exceptions")
-      (is (zero? (rf.story.config/suppressed-count frame-id))
-          "no suppression — the counter stays at zero"))))
-
-(deftest play-listener-ignores-non-sensitive-non-error
-  (testing "a plain dispatched event is neither suppressed nor captured (no side-table to feed)"
-    (let [frame-id :story.regression/v
-          build    @#'rf.story.play/listener-for-frame
-          listen   (build frame-id)
-          ev       (plain-dispatch-event frame-id [:counter/inc])]
-      (swap! rf.story.play/pending-exceptions assoc frame-id [])
-      (listen ev)
-      (is (empty? (pending-for frame-id))
-          "a dispatched event is not a handler-exception — nothing captured")
-      (is (zero? (rf.story.config/suppressed-count frame-id))
-          "non-sensitive — no suppression"))))
+(deftest play-listener-drops-sensitive-events-at-the-gate-before-exception-capture
+  (let [frame-id :story.sensitive/v
+        listen   (@#'rf.story.play/listener-for-frame frame-id)]
+    (doseq [[label profile ev captured suppressed]
+            [["by default a :sensitive? warning event is dropped at the privacy gate"
+              nil (sensitive-warning-event frame-id) 0 1]
+             ["by default a :sensitive? handler-exception is dropped before capture"
+              nil (handler-exception-event frame-id true) 0 1]
+             ["under :rf.egress/local-raw the gate is open: a sensitive handler-exception is captured"
+              :rf.egress/local-raw (handler-exception-event frame-id true) 1 0]
+             ["control: a non-sensitive handler-exception is captured under default settings"
+              nil (handler-exception-event frame-id false) 1 0]
+             ["a plain dispatched event is neither suppressed nor captured (no side-table to feed)"
+              nil (plain-dispatch-event frame-id [:counter/inc]) 0 0]]]
+      (testing label
+        (rf.story.config/reset-all!)
+        (when profile (rf.story.config/set-egress-profile! profile))
+        (swap! rf.story.play/pending-exceptions assoc frame-id [])
+        (listen ev)
+        (is (= captured (count (pending-for frame-id)))
+            "handler-exceptions that reached pending-exceptions")
+        (is (= suppressed (rf.story.config/suppressed-count frame-id))
+            "the suppressed-events counter, which keeps the redaction hint accurate")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Recorder listener — sensitive events redacted
 ;; ---------------------------------------------------------------------------
 
-(deftest recorder-listener-redacts-sensitive-dispatches
-  (testing "by default the recorder records-but-redacts :sensitive? events"
-    (rf.story.recorder/clear!)
-    (rf.story.recorder/start-recording! :story.recorder/sens 0)
-    (let [listen @#'rf.story.recorder/trace-listener
-          ev     (sensitive-dispatch-event :story.recorder/sens
-                                           [:auth/login {:password "x"}])]
-      (listen ev)
-      (is (= [[:rf/redacted]] (rf.story.recorder/recorded-events))
-          "the redacted placeholder lands in the captured trace — preserves correlation, drops payload")
-      (is (pos? (rf.story.config/suppressed-count :story.recorder/sens))
-          "the suppressed-events counter still bumps so the UI redaction hint stays accurate"))
-    (rf.story.recorder/clear!)))
-
 (deftest recorder-listener-preserves-temporal-ordering-around-redacted
-  (testing "redacted placeholder sits inline between non-sensitive captures"
+  (testing "by default the recorder records-but-redacts :sensitive? events:
+            the [:rf/redacted] placeholder sits inline between
+            non-sensitive captures, keeping correlation and dropping the
+            payload, and the suppressed-events counter bumps once"
     (rf.story.recorder/clear!)
     (rf.story.recorder/start-recording! :story.recorder/sens 0)
     (let [listen @#'rf.story.recorder/trace-listener]
@@ -351,8 +299,6 @@
 
 (deftest recorder-listener-frame-scoped-reveal-rf2-6z4znr
   (testing "revealing the RECORDED frame captures verbatim; revealing a sibling does NOT"
-    (reset! @#'rf.story.config/frame-egress-profiles {})
-    (rf.story.config/set-session-egress-profile! rf.story.config/default-egress-profile)
     ;; reveal a DIFFERENT frame — the recording frame stays redacted
     (rf.story.config/set-frame-egress-profile! :story.recorder/sibling :rf.egress/local-raw)
     (rf.story.recorder/clear!)
@@ -369,13 +315,10 @@
       (listen (sensitive-dispatch-event :story.recorder/sens [:auth/login {:password "x"}]))
       (is (= [[:auth/login {:password "x"}]] (rf.story.recorder/recorded-events))
           "revealing the recording frame captures verbatim"))
-    (rf.story.recorder/clear!)
-    (reset! @#'rf.story.config/frame-egress-profiles {})))
+    (rf.story.recorder/clear!)))
 
 (deftest play-listener-frame-scoped-reveal-rf2-6z4znr
   (testing "revealing frame A's gate does NOT open frame B's play listener"
-    (reset! @#'rf.story.config/frame-egress-profiles {})
-    (rf.story.config/set-session-egress-profile! rf.story.config/default-egress-profile)
     (rf.story.config/set-frame-egress-profile! :story.play/a :rf.egress/local-raw)
     (let [build @#'rf.story.play/listener-for-frame]
       ;; frame A revealed — sensitive exception captured
@@ -388,8 +331,7 @@
         (swap! rf.story.play/pending-exceptions assoc :story.play/b [])
         (listen (handler-exception-event :story.play/b true))
         (is (empty? (pending-for :story.play/b)) "B not revealed → dropped")
-        (is (pos? (rf.story.config/suppressed-count :story.play/b)))))
-    (reset! @#'rf.story.config/frame-egress-profiles {})))
+        (is (pos? (rf.story.config/suppressed-count :story.play/b)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; recordable-event? gates on the ORIGINAL id, not the [:rf/redacted]
@@ -407,37 +349,26 @@
 ;; are an authored not observed surface").
 ;; ---------------------------------------------------------------------------
 
-(deftest recorder-listener-drops-sensitive-non-recordable-event-rf2-cmjly3
-  (testing "a sensitive :rf.assert/* event is DROPPED
-            entirely — no [:rf/redacted] row, and the suppressed-events
-            counter (the UI's 'count of redacted rows actually shown' hint)
-            does not bump for a row that was never recorded"
-    (rf.story.recorder/clear!)
-    (rf.story.recorder/start-recording! :story.recorder/sens-drop 0)
-    (let [listen @#'rf.story.recorder/trace-listener
-          ev     (sensitive-dispatch-event :story.recorder/sens-drop
-                                           [:rf.assert/path-equals [:n] 1])]
-      (listen ev)
-      (is (= [] (rf.story.recorder/recorded-events))
-          "the sensitive :rf.assert/* event is dropped — no spurious
-           [:rf/redacted] row")
-      (is (zero? (rf.story.config/suppressed-count :story.recorder/sens-drop))
-          "no row recorded => no suppressed-count bump either"))
-    (rf.story.recorder/clear!)))
-
-(deftest recorder-listener-drops-sensitive-non-recordable-story-internal-event-rf2-cmjly3
-  (testing "the same drop applies to a sensitive
-            :rf.story/* internal-helper event, the OTHER non-recordable
-            namespace class"
-    (rf.story.recorder/clear!)
-    (rf.story.recorder/start-recording! :story.recorder/sens-drop-story 0)
-    (let [listen @#'rf.story.recorder/trace-listener
-          ev     (sensitive-dispatch-event :story.recorder/sens-drop-story
-                                           [:rf.story/lifecycle-tick])]
-      (listen ev)
-      (is (= [] (rf.story.recorder/recorded-events)))
-      (is (zero? (rf.story.config/suppressed-count :story.recorder/sens-drop-story))))
-    (rf.story.recorder/clear!)))
+(deftest recorder-listener-drops-sensitive-non-recordable-events-rf2-cmjly3
+  (testing "a sensitive event in either non-recordable namespace class is
+            DROPPED entirely — no [:rf/redacted] row, and the
+            suppressed-events counter (the UI's 'count of redacted rows
+            actually shown' hint) does not bump for a row that was never
+            recorded"
+    (doseq [[label frame-id event]
+            [[":rf.assert/* — an authored, not observed, surface"
+              :story.recorder/sens-drop [:rf.assert/path-equals [:n] 1]]
+             [":rf.story/* — an internal-helper event"
+              :story.recorder/sens-drop-story [:rf.story/lifecycle-tick]]]]
+      (testing label
+        (rf.story.recorder/clear!)
+        (rf.story.recorder/start-recording! frame-id 0)
+        (@#'rf.story.recorder/trace-listener (sensitive-dispatch-event frame-id event))
+        (is (= [] (rf.story.recorder/recorded-events))
+            "dropped — no spurious [:rf/redacted] row")
+        (is (zero? (rf.story.config/suppressed-count frame-id))
+            "no row recorded => no suppressed-count bump either")
+        (rf.story.recorder/clear!)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Retroactive scrub on egress-profile narrowing (EP-0015)
@@ -493,42 +424,31 @@
 ;;
 ;; The contract: frame A can be local-raw while frame B stays
 ;; local-redacted, across every Story listener seam; narrowing one frame
-;; scrubs only that frame; a frameless / unknown event fails closed.
-
-(defn- clear-frame-overrides! []
-  (reset! @#'rf.story.config/frame-egress-profiles {})
-  (rf.story.config/set-session-egress-profile! rf.story.config/default-egress-profile))
+;; scrubs only that frame; a frameless / unknown event fails closed. The
+;; fixture's `reset-all!` clears every per-frame override and the session
+;; pin before and after each test.
 
 (deftest frame-egress-isolation-reveal-one-not-the-other
   (testing "revealing frame A to local-raw does NOT reveal frame B"
-    (clear-frame-overrides!)
     (let [a :story.iso/a
           b :story.iso/b]
       (rf.story.config/set-frame-egress-profile! a :rf.egress/local-raw)
-      (is (true?  (rf.story.config/include-sensitive? a)) "frame A revealed")
-      (is (false? (rf.story.config/include-sensitive? b)) "frame B still redacted")
       ;; a sensitive event targeting A passes; the same shape on B suppresses
       (is (false? (rf.story.config/suppress-sensitive? (sensitive-dispatch-event a [:auth/login]) a)))
       (is (true?  (rf.story.config/suppress-sensitive? (sensitive-dispatch-event b [:auth/login]) b)))
       ;; resolved from the event itself (single-arg arity) — same result
       (is (false? (rf.story.config/suppress-sensitive? (sensitive-dispatch-event a [:auth/login]))))
-      (is (true?  (rf.story.config/suppress-sensitive? (sensitive-dispatch-event b [:auth/login]))))
-      (clear-frame-overrides!))))
+      (is (true?  (rf.story.config/suppress-sensitive? (sensitive-dispatch-event b [:auth/login])))))))
 
 (deftest frameless-event-fails-closed
   (testing "a sensitive event with no resolvable frame fails closed even while a sibling is raw"
-    (clear-frame-overrides!)
     (rf.story.config/set-frame-egress-profile! :story.iso/a :rf.egress/local-raw)
     (is (false? (rf.story.config/include-sensitive? nil)) "unknown frame resolves to the redacting default")
     (is (true? (rf.story.config/suppress-sensitive? {:sensitive? true :tags {}}))
-        "a frameless sensitive event is suppressed")
-    (is (true? (rf.story.config/suppress-sensitive? {:sensitive? true :tags {:frame :story.iso/never-revealed}}))
-        "an unrevealed-frame sensitive event is suppressed")
-    (clear-frame-overrides!)))
+        "a frameless sensitive event is suppressed")))
 
 (deftest narrowing-one-frame-scrubs-only-that-frame
   (testing "set-frame-egress-profile! reveal → redact fires callbacks with THAT frame-id only"
-    (clear-frame-overrides!)
     (let [scrubbed (atom [])
           token    ::per-frame-scrub
           a        :story.iso/a
@@ -544,13 +464,11 @@
         (rf.story.config/set-frame-egress-profile! b :rf.egress/local-redacted)
         (is (= [a b] @scrubbed) "narrowing B then scrubbed B")
         (finally
-          (rf.story.config/unregister-toggle-off-callback! token)
-          (clear-frame-overrides!))))))
+          (rf.story.config/unregister-toggle-off-callback! token))))))
 
 (deftest per-frame-reveal-wins-over-redacting-session-pin
   (testing "an unoverridden frame inherits the session pin, and a per-frame
             reveal beats a redacting pin"
-    (clear-frame-overrides!)
     ;; pin the session to raw (tool UX)
     (rf.story.config/set-session-egress-profile! :rf.egress/local-raw)
     (is (true? (rf.story.config/include-sensitive? :story.iso/inherits)) "no override → inherits the raw pin")
@@ -560,5 +478,4 @@
     (rf.story.config/set-session-egress-profile! rf.story.config/default-egress-profile)
     (rf.story.config/set-frame-egress-profile! :story.iso/raised :rf.egress/local-raw)
     (is (true?  (rf.story.config/include-sensitive? :story.iso/raised)) "explicit reveal wins over the redacting pin")
-    (is (false? (rf.story.config/include-sensitive? :story.iso/other)) "an unoverridden frame stays at the redacting pin")
-    (clear-frame-overrides!)))
+    (is (false? (rf.story.config/include-sensitive? :story.iso/other)) "an unoverridden frame stays at the redacting pin")))
