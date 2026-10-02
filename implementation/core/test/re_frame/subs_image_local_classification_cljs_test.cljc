@@ -241,8 +241,6 @@
         @(rf/subscribe [:img/read] {:frame :img/frame-b})
         (let [a (last (image-local-sub-runs recorded :img/read :img/frame-a))
               b (last (image-local-sub-runs recorded :img/read :img/frame-b))]
-          (is (some? a) "frame A's sub ran")
-          (is (some? b) "frame B's sub ran")
           (is (= rf.privacy/redacted-sentinel (get-in a [:rf.sub/value :token]))
               "frame A redacts :token (its own declaration)")
           (is (= "A-pub" (get-in a [:rf.sub/value :public]))
@@ -279,7 +277,6 @@
         (reset! recorded [])
         @(rf/subscribe [:img/read] {:frame :img/frame-a})
         (let [g2 (last (image-local-sub-runs recorded :img/read :img/frame-a))]
-          (is (some? g2) "the new generation's sub ran")
           (is (= rf.privacy/redacted-sentinel (get-in g2 [:rf.sub/value :public]))
               "the NEW generation redacts :public")
           (is (= "tok2" (get-in g2 [:rf.sub/value :token]))
