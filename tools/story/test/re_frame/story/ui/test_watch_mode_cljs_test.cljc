@@ -15,7 +15,7 @@
   - **CLJS-only**: the chrome widget renders the eye-icon toggle chip
     with the correct `aria-pressed` state; toggling on flips the chip
     on, off clears the recorded hashes."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.identity :as rf.story.identity]
             [re-frame.story.ui.state :as rf.story.ui.state]
@@ -57,46 +57,39 @@
 
 ;; ---- pure: drift detection ----------------------------------------------
 
-(deftest watch-mode-drift-no-change-empty
-  (testing "current == prev → no drift, empty seq"
-    (let [prev    {:story.x/a "aaaa" :story.x/b "bbbb"}
-          current {:story.x/a "aaaa" :story.x/b "bbbb"}]
-      (is (= [] (rf.story.ui.state/watch-mode-drift prev current))))))
+(deftest watch-mode-drift-table
+  (are [prev current drifted] (= drifted (rf.story.ui.state/watch-mode-drift prev current))
+    ;; current == prev → no drift
+    {:story.x/a "aaaa" :story.x/b "bbbb"}
+    {:story.x/a "aaaa" :story.x/b "bbbb"}
+    []
 
-(deftest watch-mode-drift-changed-variant
-  (testing "one hash changed → that variant drifted"
-    (let [prev    {:story.x/a "aaaa" :story.x/b "bbbb"}
-          current {:story.x/a "aaaa" :story.x/b "cccc"}]
-      (is (= [:story.x/b] (rf.story.ui.state/watch-mode-drift prev current))))))
+    ;; one hash changed → that variant drifted
+    {:story.x/a "aaaa" :story.x/b "bbbb"}
+    {:story.x/a "aaaa" :story.x/b "cccc"}
+    [:story.x/b]
 
-(deftest watch-mode-drift-multiple-changes-sorted
-  (testing "multiple changes → all drifted variants, sorted"
-    (let [prev    {:story.x/a "1" :story.x/b "2" :story.x/c "3"}
-          current {:story.x/a "X" :story.x/b "2" :story.x/c "Y"}]
-      (is (= [:story.x/a :story.x/c]
-             (rf.story.ui.state/watch-mode-drift prev current))))))
+    ;; several changes → every drifted variant, sorted
+    {:story.x/a "1" :story.x/b "2" :story.x/c "3"}
+    {:story.x/a "X" :story.x/b "2" :story.x/c "Y"}
+    [:story.x/a :story.x/c]
 
-(deftest watch-mode-drift-new-variant-treated-as-drifted
-  (testing "a variant present in current but absent from prev counts
-            as drifted (a fresh registration that the user wants
-            exercised)"
-    (let [prev    {:story.x/a "aaaa"}
-          current {:story.x/a "aaaa" :story.x/b "bbbb"}]
-      (is (= [:story.x/b] (rf.story.ui.state/watch-mode-drift prev current))))))
+    ;; a variant absent from prev is a fresh registration the user wants
+    ;; exercised, so it counts as drifted
+    {:story.x/a "aaaa"}
+    {:story.x/a "aaaa" :story.x/b "bbbb"}
+    [:story.x/b]
 
-(deftest watch-mode-drift-deregistered-variant-silent
-  (testing "a variant present in prev but absent from current is
-            silently dropped — there's nothing to re-run"
-    (let [prev    {:story.x/a "aaaa" :story.x/b "bbbb"}
-          current {:story.x/a "aaaa"}]
-      (is (= [] (rf.story.ui.state/watch-mode-drift prev current))))))
+    ;; a variant absent from current is dropped — there is nothing to re-run
+    {:story.x/a "aaaa" :story.x/b "bbbb"}
+    {:story.x/a "aaaa"}
+    []
 
-(deftest watch-mode-drift-nil-prev-seeds-all
-  (testing "a nil prev (toggle-on edge case) treats every current entry
-            as drifted — but the watch-mode wiring seeds the slot on
-            toggle-on so this case is a defensive guard"
-    (let [current {:story.x/a "aaaa" :story.x/b "bbbb"}]
-      (is (= [:story.x/a :story.x/b] (rf.story.ui.state/watch-mode-drift nil current))))))
+    ;; a nil prev treats every current entry as drifted (a defensive guard:
+    ;; the watch-mode wiring seeds the slot on toggle-on)
+    nil
+    {:story.x/a "aaaa" :story.x/b "bbbb"}
+    [:story.x/a :story.x/b]))
 
 ;; ---- pure: record-test-content-hashes ----------------------------------
 
