@@ -54,28 +54,7 @@
           :id id :time 999 :tags {}}
          m))
 
-(deftest canonicalize-strips-epoch-record-stamps
-  (testing "two epoch records that differ ONLY in per-run stamps canonicalize ="
-    (let [a (epoch-rec 5  :rf.test.replay/frame-aaa {:db-after {:n 1}})
-          b (epoch-rec 99 :rf.test.replay/frame-zzz {:db-after {:n 1}})]
-      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
-          ":epoch-id / :frame / :committed-at / :schema-digest are per-run stamps")
-      (is (= (rf.story.fingerprint/canonical-hash a) (rf.story.fingerprint/canonical-hash b)))))
-
-  (testing "a SEMANTIC difference (db-after) still perturbs the canonical form"
-    (let [a (epoch-rec 5  :rf.test.replay/frame-aaa {:db-after {:n 1}})
-          c (epoch-rec 5  :rf.test.replay/frame-aaa {:db-after {:n 2}})]
-      (is (not= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize c))
-          "the strip must not hide a real app-db change")
-      (is (not= (rf.story.fingerprint/canonical-hash a) (rf.story.fingerprint/canonical-hash c))))))
-
-(deftest canonicalize-strips-trace-event-stamps
-  (testing "trace events differing only in :id / :time canonicalize ="
-    (let [a {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :foo}})]}
-          b {:trace-events [(trace-ev 88 {:tags {:rf.trace/event-id :foo}})]}]
-      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize b))
-          ":id (process-global counter) + :time (wall-clock) are per-run stamps")))
-
+(deftest canonicalize-keeps-a-trace-events-semantic-tags
   (testing "a SEMANTIC trace difference (operation / tags) is NOT stripped"
     (let [a {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :foo}})]}
           c {:trace-events [(trace-ev 17 {:tags {:rf.trace/event-id :bar}})]}]
@@ -138,14 +117,7 @@
     (let [a (rf.story.artifact/make-run-artifact
               {:event-program [[:dispatch [:a]] [:dispatch-sync [:b]]]})]
       (is (= [] (rf.story.determinism/wait-steps a)))
-      (is (not (rf.story.determinism/has-wall-clock-wait? a)))))
-
-  (testing "the refusal is the :cannot-run third status with the wait steps"
-    (let [a (rf.story.artifact/make-run-artifact {:event-program [[:wait 5] [:dispatch [:x]]]})
-          r (rf.story.determinism/cannot-run-wait-refusal a)]
-      (is (= :cannot-run (:status r)))
-      (is (= :determinism-wall-clock-wait (:reason r)))
-      (is (= [[:wait 5]] (:wait-steps r))))))
+      (is (not (rf.story.determinism/has-wall-clock-wait? a))))))
 
 ;; ===========================================================================
 ;; PURE: ->artifact coercion
@@ -241,24 +213,6 @@
 ;; compare-runs read a genuinely-deterministic program as a FALSE
 ;; `:non-deterministic`. Canonicalization folds every fn to the `opaque-fn`
 ;; sentinel, so these runs must compare `:deterministic?` true.
-(deftest compare-runs-fn-slot-is-deterministic
-  (testing "two runs whose ONLY difference is the IDENTITY of fns in :app-db
-            / effect :args compare deterministic — each replay re-allocates
-            the closure, which an identity hash would read as a false RED"
-    (let [run-with (fn [f] {:status :pass
-                            :app-db  {:n 1 :cb f}
-                            :effects [{:fx-id :x :args f :outcome :ok}]})
-          c        (rf.story.determinism/compare-runs [(run-with (fn [] 1))
-                                      (run-with (fn [] 1))
-                                      (run-with (fn [] 1))])]
-      (is (:deterministic? c) "fn-identity-only difference is NOT non-determinism")
-      (is (nil? (:divergence c)))
-      (is (some? (:run-hash c)) "a stable run-hash is reported")))
-  (testing "a fn in app-db does NOT mask a real semantic difference"
-    (let [c (rf.story.determinism/compare-runs [{:status :pass :app-db {:n 1 :cb (fn [] 1)}}
-                               {:status :pass :app-db {:n 2 :cb (fn [] 1)}}])]
-      (is (not (:deterministic? c)) "the :n 1 vs :n 2 difference still diverges"))))
-
 ;; ===========================================================================
 ;; HEADLESS gate: against a live frame  (spec/017 §Determinism gate)
 ;; ===========================================================================

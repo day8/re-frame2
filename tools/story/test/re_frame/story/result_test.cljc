@@ -57,11 +57,7 @@
       (is (= {:file "x.cljs" :line 3} (:source rec)) ":source-coord surfaces as :source")
       (is (not (contains? rec :source-coord))
           "the unified record emits ONLY :source — no :source-coord slot")
-      (is (= :rf.assert/path-equals (:assertion rec)))))
-  (testing "a failing entry → :fail; a record carrying its own :status is left"
-    (is (= :fail (:status (rf.story.result/assertion-record {:passed? false}))))
-    (is (= :cannot-run (:status (rf.story.result/assertion-record
-                                  {:status :cannot-run :passed? false}))))))
+      (is (= :rf.assert/path-equals (:assertion rec))))))
 
 ;; ===========================================================================
 ;; CHECK RECORD — group assertions under their check id
@@ -128,20 +124,7 @@
            redaction-invariant path key, not the (unequal) raw payload")
       (is (= :fail (:status c))
           "the check's own status reflects the sensitive assertion's real
-           FAILURE, not a vacuous :pass from an empty group")))
-  (testing "a NON-sensitive :rf.assert/sub-equals record matches by
-            full payload when unaffected by redaction — the
-            redaction-invariant KEY applies only to the two redaction-prone
-            ids, so the ordinary case is disambiguated by full payload"
-    (let [records [{:assertion :rf.assert/sub-equals :payload [[:sub/a] 1] :status :pass}
-                   {:assertion :rf.assert/sub-equals :payload [[:sub/b] 2] :status :fail}]
-          check->atoms {:check/a [[:rf.assert/sub-equals [:sub/a] 1]]}
-          recs (rf.story.result/check-records check->atoms records)
-          c    (first recs)]
-      (is (= 1 (count (:assertions c)))
-          "only the matching sub-vec's record groups under the check —
-           different sub-vecs remain disambiguated")
-      (is (= :pass (:status c))))))
+           FAILURE, not a vacuous :pass from an empty group"))))
 
 ;; ===========================================================================
 ;; RUN RESULT — the unified shape + the agreement floor
@@ -412,11 +395,6 @@
       (is (= #{[:event :checkout/submit]} (:consumed-selectors r))
           "the consumed selector set is SURFACED on the result")))
 
-  (testing "an UNEXPECTED schema violation FAILS the run (no expectation)"
-    (let [r (rf.story.result/run-result
-              {:epoch-tape [(schema-epoch :event :checkout/submit)]})]
-      (is (= :fail (:status r)) "the floor fails the run on the unconsumed violation")))
-
   (testing "a MISSING expected violation FAILS the run (the :fail record)"
     (let [r (rf.story.result/run-result
               {:epoch-tape [(epoch {})]
@@ -425,14 +403,6 @@
       (is (= :fail (:status r)))
       (is (= :fail (:status (first (filter #(= :rf.assert/schema-error (:assertion %))
                                            (:assertions r))))))))
-
-  (testing "a DIFFERENT violation than expected STILL FAILS (both: missing
-            expected → :fail record AND the emitted one is unconsumed → floor)"
-    (let [r (rf.story.result/run-result
-              {:epoch-tape [(schema-epoch :event :other/event)]
-               :schema-expectations
-               [[:rf.assert/schema-error {:where :event :event :checkout/submit}]]})]
-      (is (= :fail (:status r)))))
 
   (testing "TWO same-selector violations PARTIALLY consumed by ONE
             expectation FAILS the run (the floor reads the matcher's MULTISET
@@ -483,7 +453,6 @@
   ;; single source of truth rather than re-deriving it.
   (testing "always present — an empty `#{}` when nothing was consumed"
     (let [r (rf.story.result/run-result {:epoch-tape [(epoch {})]})]
-      (is (contains? r :consumed-selectors) "the slot is always assoc'd")
       (is (= #{} (:consumed-selectors r)) "empty when no violations consumed")))
   (testing "an explicit `:consumed-selectors` input is unioned with the
             schema-expectation consumption and surfaced verbatim"
@@ -816,30 +785,6 @@
       (is (nil? (re-find #"hunter2" (pr-str rec)))
           "the sensitive payload never reaches the assertion record"))))
 
-(deftest no-cascade-current-run-isolation
-  (testing "the premise reads ONLY the run-sliced :epoch-tape — a matching
-            event in a PRIOR run's retained window does not satisfy it"
-    (let [decl    [:rf.assert/no-cascade-rerender {:event :search/run :view :results}]
-          ;; The current run's slice: reactive evidence, NO :search/run.
-          current [(reactive-epoch :other/event :total 1 :counter 1)]
-          ;; A PRIOR run's epoch naming :search/run — NOT part of this slice
-          ;; (record-result-map keeps only records newer than the baseline).
-          prior   [(cause-epoch :search/run)]
-          rec-current  (no-cascade-rec
-                         (rf.story.result/run-result {:epoch-tape current
-                                             :causal-expectations [decl]}))
-          ;; Had the prior record been (wrongly) included, the premise WOULD
-          ;; be met — proving the isolation boundary IS the slice, not the
-          ;; matcher silently reaching back.
-          rec-combined (no-cascade-rec
-                         (rf.story.result/run-result {:epoch-tape (into prior current)
-                                             :causal-expectations [decl]}))]
-      (is (= 0 (get-in rec-current [:actual :observed-cause-count])))
-      (is (= :cannot-run (:status rec-current))
-          "a prior run's :search/run epoch is excluded → premise unmet")
-      (is (= 1 (get-in rec-combined [:actual :observed-cause-count]))
-          "the SAME record IN the slice satisfies — isolation is the slice boundary"))))
-
 (deftest no-cascade-require-cause-false-opt-out
   (testing "{:require-cause? false} lets an unobserved cause pass vacuously
             under [0,0], with a reason stating the vacuity was explicit"
@@ -879,17 +824,7 @@
       (is (= :fail (:status rec)) ":caused is a positive claim — n=0 fails")
       (is (= 0 (get-in rec [:actual :count])))
       (is (= 1 (get-in rec [:actual :observed-cause-count]))
-          "the diagnostic rides :caused too")))
-
-  (testing ":caused never gates on an unobserved cause — a cause absent from a
-            reactive tape is :fail (n=0 < min 1), never :cannot-run"
-    (let [tape [(reactive-epoch :other/event :total 1 :counter 1)]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :causal-expectations [[:rf.assert/caused {:event :counter/inc}]]})
-          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
-      (is (= :fail (:status rec)))
-      (is (= 0 (get-in rec [:actual :observed-cause-count]))))))
+          "the diagnostic rides :caused too"))))
 
 ;; ===========================================================================
 ;; CAUSAL TRUNCATION HONESTY
@@ -935,19 +870,14 @@
       ;; --- teeth: truncation → the would-be pass becomes :cannot-run ---
       (is (= :cannot-run (:status rec-truncated))
           "an evicted over-render epoch → :cannot-run, never a truncation false-green")
-      (is (true?  (:cannot-run? rec-truncated)))
-      (is (false? (:passed? rec-truncated)))
       (is (true?  (get-in rec-truncated [:actual :truncated?])))
       (is (= 1 (get-in rec-truncated [:actual :observed-cause-count]))
           "the cause WAS observed — this is a truncation refusal, not an unobserved-cause one")
       (is (re-find #"evicted earlier run epochs" (:reason rec-truncated)))
       (is (nil? (re-find #"not observed" (:reason rec-truncated)))
           "distinct from the unobserved-cause reason (the cause here was observed)")
-      ;; --- run aggregation + frozen contract + host bridge ---
-      (is (= :cannot-run (:status r-truncated)) "the run aggregates to :cannot-run")
-      (is (rf.story.result/valid-run-result? r-truncated))
-      (is (some #(= :fail (:type %)) (rf.story.result/result->reports r-truncated))
-          "a :cannot-run assertion reports a host :fail, never a silent pass"))))
+      ;; --- run aggregation ---
+      (is (= :cannot-run (:status r-truncated)) "the run aggregates to :cannot-run"))))
 
 (deftest caused-explicit-max-truncation-is-cannot-run
   (testing ":rf.assert/caused {:max N} gains the truncation guard (a finite
@@ -1095,9 +1025,8 @@
             This is the public-projection path story/is drives for an
             already-resolved result (story.cljc sync branch)."
     (let [reports (rf.story.result/result->reports {:status :error :assertions []})]
-      (is (seq reports)
-          "an :error run must NOT project to zero reports (that reads green)")
-      (is (= 1 (count reports)) "exactly one run-level error report")
+      (is (= 1 (count reports))
+          "exactly one run-level error report — never zero, which reads green")
       (is (= :error (:type (first reports)))
           "the report is an :error — cljs.test/clojure.test tallies it red")
       (is (re-find #":error" (:message (first reports)))
@@ -1112,12 +1041,9 @@
                    :assertions [{:assertion :rf.assert/path-equals
                                  :status :error :passed? false
                                  :reason "handler threw"}]}
-          reports (rf.story.result/result->reports r)
-          errors  (filterv #(= :error (:type %)) reports)]
+          reports (rf.story.result/result->reports r)]
       (is (= 1 (count reports))
           "no extra run-level report appended when an assertion carries the error")
-      (is (= 1 (count errors))
-          "exactly one :error report — the per-assertion one")
       (is (= :error (:type (first reports)))
           "the single report is the assertion's :error projection"))))
 

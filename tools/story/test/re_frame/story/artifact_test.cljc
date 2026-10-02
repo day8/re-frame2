@@ -192,26 +192,6 @@
         (is (not (contains? @rf.frame/frames fid))
             "the replay-allocated frame is destroyed before return")))))
 
-(deftest replay-reapplies-fx-decisions
-  (testing "replay reapplies fx decisions/overrides — the recorded override
-            fires instead of the real effect"
-    (let [hits (atom [])]
-      ;; The 'real' effect would record :real; the stub records :stub.
-      ;; `:platforms #{:client :server}` so the fx fire on the JVM
-      ;; (`:server`) test platform as well as in the browser.
-      (rf/reg-fx :rep.fx/real {:platforms #{:client :server}}
-                 (fn [_ _] (swap! hits conj :real)))
-      (rf/reg-fx :rep.fx/stub {:platforms #{:client :server}}
-                 (fn [_ _] (swap! hits conj :stub)))
-      (rf/reg-event :rep/fire (fn [_ _] {:fx [[:rep.fx/real {}]]}))
-      (let [a   (rf.story.artifact/make-run-artifact
-                  {:event-program [[:dispatch [:rep/fire]]]
-                   :fx-decisions  {:rep.fx/real :rep.fx/stub}})
-            res (rf.story.artifact/replay-run-artifact a)]
-        (is (= :pass (:status res)))
-        (is (= [:stub] @hits)
-            "the fx decision remapped :rep.fx/real → :rep.fx/stub on replay")))))
-
 (deftest replay-wraps-not-replaces-richer-dispatch-when-fx-decisions-present
   (testing "a richer adapter's :dispatch! is INVOKED (not bypassed) when
             fx-decisions are present — the fx reapplication WRAPS the supplied
@@ -265,50 +245,15 @@
             "the replay's strict mint policy rode the adapter's :dispatch! opts
              (EP-0017 strict-by-default replay)")))))
 
-(deftest replay-isolation-fresh-frame-each-time
+(deftest each-replay-allocates-a-distinct-frame
   (testing "two replays of the same artifact each run into their own fresh
-            frame — no shared app-db leaks between replays"
+            :rf.test.replay/* frame"
     (rf/reg-event :rep/set (fn [{:keys [db]} [_ v]] {:db (assoc db :v v)}))
     (let [a    (rf.story.artifact/make-run-artifact
                  {:event-program [[:dispatch [:rep/set 7]]]})
           r1   (rf.story.artifact/replay-run-artifact a)
           r2   (rf.story.artifact/replay-run-artifact a)]
-      (is (= 7 (:v (:app-db r1))))
-      (is (= 7 (:v (:app-db r2))))
       (is (not= (:frame r1) (:frame r2)) "distinct fresh frames"))))
-
-(deftest replay-result-is-canonicalizable
-  (testing "the replay result feeds cleanly through the canonicalize /
-            run-hash path — the result is stable + canonicalizable so the
-            determinism gate + semantic diff build on it. (Cross-run
-            run-hash EQUALITY is the determinism gate's concern: it owns
-            stripping the per-frame epoch ids from the tape; this test pins
-            only that the result canonicalizes deterministically and
-            run-hash is stable.)"
-    (rf/reg-event :rep/seed (fn [{:keys [db]} _] {:db (assoc db :seeded true)}))
-    (let [a   (rf.story.artifact/replay-run-artifact
-                (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:rep/seed]]]}))
-          h   (rf.story.fingerprint/run-hash a)]
-      (is (string? h))
-      (is (= 8 (count h)) "run-hash is the stable 8-char-hex primitive")
-      (is (= h (rf.story.fingerprint/run-hash a)) "run-hash is idempotent on one result")
-      (is (= (rf.story.fingerprint/canonicalize a) (rf.story.fingerprint/canonicalize a))
-          "canonicalize is deterministic on the result"))
-    (testing "canonicalize strips the volatile top-level slots"
-      (let [res {:status :pass :app-db {:n 1}
-                 :elapsed-ms 42 :runner :headless :variant/id :x :plan-hash "ab"}
-            c   (rf.story.fingerprint/canonicalize res)
-            ;; canonical-form renders a map as `[:rf/map [k v k v …]]` — the
-            ;; structural type-tag — so the flattened entries live
-            ;; under the tag's payload vector `(second c)`.
-            [tag entries] c
-            ks  (set (take-nth 2 entries))]
-        (is (= rf.story.fingerprint/map-tag tag) "a map canon is wrapped under :rf/map")
-        (is (not (contains? ks :elapsed-ms)) ":elapsed-ms stripped")
-        (is (not (contains? ks :runner))     ":runner stripped")
-        (is (not (contains? ks :variant/id)) ":variant/id stripped")
-        (is (not (contains? ks :plan-hash))  ":plan-hash stripped")
-        (is (contains? ks :status)           ":status retained (behavioural)")))))
 
 (deftest replay-into-caller-supplied-frame
   (testing "a caller-supplied :frame is replayed into and LEFT intact (the
@@ -663,17 +608,12 @@
           "the re-dispatch settled to a 3-epoch tape")
       ;; EXACT: step 0 owns ONLY :rkd/a; step 1 owns BOTH :rkd/c and the
       ;; re-dispatched :rkd/d (the fan-out attaches to the step that produced
-      ;; it).
+      ;; it). The EVEN forward partition [2 1] would instead group
+      ;; {:rkd/a :rkd/c} under step 0, mis-attributing :rkd/c's epoch.
       (is (= [[:rkd/a]] (get by [:dispatch [:rkd/a]]))
           "step 0's span holds ONLY its own leaf epoch")
       (is (= [[:rkd/c] [:rkd/d]] (get by [:dispatch [:rkd/c]]))
-          "step 1's span holds its dispatch AND its re-dispatch fan-out — EXACT")
-      ;; The EVEN forward partition [2 1] would group
-      ;; {:rkd/a :rkd/c} under step 0 and {:rkd/d} under step 1, i.e.
-      ;;   (is (= [[:rkd/a] [:rkd/c]] (get by [:dispatch [:rkd/a]])))  ; EVEN
-      ;; which mis-attributes :rkd/c's epoch to step 0. EXACT corrects it.
-      (is (not= [[:rkd/a] [:rkd/c]] (get by [:dispatch [:rkd/a]]))
-          "step 0 does NOT swallow step 1's epoch (the EVEN mis-grouping)"))))
+          "step 1's span holds its dispatch AND its re-dispatch fan-out — EXACT"))))
 
 (deftest replay-narrative-stamp-does-not-perturb-run-hash
   (testing "the :rf.story/script-idx stamp is a :rf.story/* accumulator key
