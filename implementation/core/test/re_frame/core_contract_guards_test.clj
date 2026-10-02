@@ -73,28 +73,22 @@
     (is (not (rf.registrar/valid-kind? nil)))))
 
 (deftest register!-throws-on-an-unknown-kind
-  (testing "register! rejects a kind outside the closed v1 set with the documented error shape"
-    (let [ex (try
-               (rf.registrar/register! :bogus-kind :some/id {:handler-fn identity})
-               (catch clojure.lang.ExceptionInfo e e))]
-      (is (instance? clojure.lang.ExceptionInfo ex)
-          "an unknown kind throws an ex-info")
+  (testing "register! rejects a kind outside the closed v1 set with the
+            documented error shape, BEFORE writing the slot"
+    (let [before @(deref #'rf.registrar/kind->id->metadata)
+          ex     (try
+                   (rf.registrar/register! :bogus-kind :some/id {:handler-fn identity})
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (= before @(deref #'rf.registrar/kind->id->metadata))
+          "the registry map is untouched — the throw precedes the swap!")
       (let [data (ex-data ex)]
         (is (= :rf.error/unknown-registry-kind (:rf.error/id data))
-            ":rf.error/id is the canonical discriminator")
+            "an unknown kind throws an ex-info; :rf.error/id is the canonical discriminator")
         (is (= 'rf/register-handler (:where data)) ":where names the user-facing seam")
         (is (= :fix-registration (:recovery data)) ":recovery is :fix-registration")
         (is (= :bogus-kind (:kind data)) "ex-data echoes the offending kind")
         (is (= :some/id (:id data)) "ex-data echoes the id")
         (is (string? (:reason data)) ":reason is a human-readable string")))))
-
-(deftest register!-throws-before-writing-the-slot
-  (testing "an unknown-kind register! does not mutate the registry"
-    (let [before @(deref #'rf.registrar/kind->id->metadata)]
-      (try (rf.registrar/register! :bogus-kind :x {:handler-fn identity})
-           (catch clojure.lang.ExceptionInfo _ nil))
-      (is (= before @(deref #'rf.registrar/kind->id->metadata))
-          "the registry map is untouched — the throw precedes the swap!"))))
 
 ;; =============================================================================
 ;; G4 — registration / replacement hook isolation + firing contract
@@ -175,10 +169,9 @@
     (let [ex (try
                (rf.subs/reg-sub :sub/malformed (fn [db _] db) :unexpected-extra)
                (catch clojure.lang.ExceptionInfo e e))]
-      (is (instance? clojure.lang.ExceptionInfo ex)
-          "a malformed reg-sub tail throws an ex-info")
       (let [data (ex-data ex)]
-        (is (= :rf.error/reg-sub-bad-args (:rf.error/id data)))
+        (is (= :rf.error/reg-sub-bad-args (:rf.error/id data))
+            "a malformed reg-sub tail throws an ex-info")
         (is (= 'rf/reg-sub (:where data)))
         (is (= :fix-registration (:recovery data)))
         (is (= :sub/malformed (:id data)) "ex-data echoes the sub id"))

@@ -62,26 +62,25 @@
 
 (deftest throw-policy-raises-structured-ex-info
   (testing ":on-absent :throw raises :rf.error/<artefact>-artefact-missing"
-    (let [e (try (throw-wrapper) nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "the wrapper threw")
-      (let [data (ex-data e)]
-        (is (= :rf.error/test-artefact-missing (:rf.error/id data))
-            ":rf.error/id carries the canonical discriminator (per Spec 009 §The thrown-error shape)")
-        (is (= 'rf/throw-wrapper (:where data))
-            ":where stamps the user-facing fn name (default rf/<name>)")
-        (is (= :no-recovery (:recovery data))
-            ":recovery is :no-recovery for the missing-artefact branch")
-        (is (re-find #"test/artefact" (:reason data))
-            ":reason mentions the Maven artefact coordinates")
-        (is (re-find #"re-frame.test-fake-artefact" (:reason data))
-            ":reason mentions the producing ns name")
-        ;; The message is the human :reason sentence + the
-        ;; trailing [:rf.error/<id>] greppability token, NOT the bare
-        ;; stringified keyword. Assert the token substring, not equality.
-        (is (re-find #"\[:rf\.error/test-artefact-missing\]"
-                     (.getMessage ^Throwable e))
-            "the exception message carries the [:rf.error/test-artefact-missing] token")))))
+    (let [e    (try (throw-wrapper) nil
+                    (catch clojure.lang.ExceptionInfo e e))
+          data (ex-data e)]
+      (is (= :rf.error/test-artefact-missing (:rf.error/id data))
+          ":rf.error/id carries the canonical discriminator (per Spec 009 §The thrown-error shape)")
+      (is (= 'rf/throw-wrapper (:where data))
+          ":where stamps the user-facing fn name (default rf/<name>)")
+      (is (= :no-recovery (:recovery data))
+          ":recovery is :no-recovery for the missing-artefact branch")
+      (is (re-find #"test/artefact" (:reason data))
+          ":reason mentions the Maven artefact coordinates")
+      (is (re-find #"re-frame.test-fake-artefact" (:reason data))
+          ":reason mentions the producing ns name")
+      ;; The message is the human :reason sentence + the
+      ;; trailing [:rf.error/<id>] greppability token, NOT the bare
+      ;; stringified keyword. Assert the token substring, not equality.
+      (is (re-find #"\[:rf\.error/test-artefact-missing\]"
+                   (.getMessage ^Throwable e))
+          "the exception message carries the [:rf.error/test-artefact-missing] token"))))
 
 (deftest throw-policy-delegates-when-hook-registered
   (testing ":throw delegates to the hook fn when registered"
@@ -147,6 +146,5 @@
   (testing ":ex-data symbol values resolve in the arity's local scope"
     (let [e (try (ex-data-wrapper :my-id) nil
                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e))
       (is (= :my-id (:item-id (ex-data e)))
           ":item-id rides the throw's ex-data, sourced from the local"))))

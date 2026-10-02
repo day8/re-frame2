@@ -84,10 +84,9 @@
     (rf/init! rf.substrate.plain-atom/adapter)
     (is (some? (rf.substrate.adapter/current-adapter))
         "init! installs the supplied adapter")
-    (is (zero? (default-frame-count))
-        "init! creates NO :rf/default frame (EP-0002: the runtime never synthesises a default)")
     (is (zero? (count-frames))
-        "init! registers no frames at all")
+        "init! registers no frames at all — no :rf/default either (EP-0002: the
+         runtime never synthesises a default)")
     (let [adapter-after-first (rf.substrate.adapter/current-adapter)
           frames-after-first  @rf.frame/frames]
       ;; Second boot — should be a no-op.
@@ -95,9 +94,8 @@
       (is (identical? adapter-after-first (rf.substrate.adapter/current-adapter))
           "the second init! does NOT re-install the adapter (same identity)")
       (is (= frames-after-first @rf.frame/frames)
-          "the second init! does NOT mutate the frames registry"))
-    (is (zero? (default-frame-count))
-        ":rf/default is still absent after two init! calls")))
+          "the second init! does NOT mutate the frames registry — :rf/default is
+           still absent after two init! calls"))))
 
 (deftest init-rejects-a-different-adapter
   ;; `init!`'s guard asks "is the adapter I was handed the seated one?" via
@@ -120,11 +118,10 @@
                    (rf/init! other)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown)
-          "a second init! with a different adapter throws rather than no-opping")
       (is (re-find #"\[:rf\.error/adapter-already-installed\]"
                    (str (some-> thrown ex-message)))
-          "the thrown message carries the [:rf.error/adapter-already-installed] token")
+          "a second init! with a different adapter throws rather than no-opping;
+           the thrown message carries the [:rf.error/adapter-already-installed] token")
       (let [data (ex-data thrown)]
         (is (= :rf.error/adapter-already-installed (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator")
@@ -193,8 +190,7 @@
                    (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown)
-          "a second install-adapter! call without an intervening dispose throws")
+      ;; A second install-adapter! call without an intervening dispose throws.
       ;; The message is a human sentence carrying the
       ;; trailing [:rf.error/<id>] greppability token (Spec 009 §The
       ;; thrown-error shape); assert the token substring, NOT exact
@@ -298,7 +294,6 @@
       (rf.substrate.adapter/dispose-adapter!)
       (is (identical? replacement (rf.substrate.adapter/current-adapter))
           "the old generation's finally leaves the replacement seated")
-      (is (= ::replacement (:kind (rf.substrate.adapter/current-adapter))))
       (is (false? (rf.substrate.adapter/adapter-disposed?))
           "the replacement generation's successful install owns the breadcrumb"))))
 
@@ -377,9 +372,8 @@
       (is (identical? first-frame (get @rf.frame/frames :rf/default))
           "a second call does NOT replace the :rf/default frame (identity preserved)")
       (is (= frames-snap @rf.frame/frames)
-          "a second call does NOT mutate the frames registry at all"))
-    (is (= 1 (default-frame-count))
-        ":rf/default still appears exactly once after two ensure! calls"))
+          "a second call does NOT mutate the frames registry at all — :rf/default
+           still appears exactly once after two ensure! calls")))
   (testing "ensure-default-frame! does not disturb other frames"
     ;; Register a sibling frame BEFORE the (possibly redundant) ensure!.
     (rf/make-frame {:id :tenant-x :doc "tenant"})
@@ -407,10 +401,9 @@
                    (rf/init!)
                    nil
                    (catch clojure.lang.ArityException e e))]
-      (is (some? thrown)
-          "rf/init! with no args raises ArityException — ArityException is more discoverable than runtime ex-info")
       (is (re-find #"init!" (str (.getMessage ^clojure.lang.ArityException thrown)))
-          "the ArityException message identifies init! as the offending fn"))
+          "rf/init! with no args raises ArityException — more discoverable than a
+           runtime ex-info — whose message identifies init! as the offending fn"))
     (is (nil? (rf.substrate.adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 
@@ -420,11 +413,9 @@
                    (rf/init! nil)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown)
-          "rf/init! with nil raises")
       (is (= :rf.error/no-adapter-specified
              (:rf.error/id (ex-data thrown)))
-          "ex-data carries the :rf.error/no-adapter-specified tag"))
+          "rf/init! with nil raises; ex-data carries the :rf.error/no-adapter-specified tag"))
     (is (nil? (rf.substrate.adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 
@@ -434,11 +425,10 @@
                    (rf/init! :reagent)
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown)
-          "rf/init! with a keyword raises — keyword form is not supported")
       (is (= :rf.error/no-adapter-specified
              (:rf.error/id (ex-data thrown)))
-          "the thrown exception carries the :rf.error/no-adapter-specified tag")
+          "rf/init! with a keyword raises — keyword form is not supported — carrying
+           the :rf.error/no-adapter-specified tag")
       (let [data (ex-data thrown)]
         (is (= :reagent (:received data))
             "ex-data echoes the offending keyword")
@@ -463,23 +453,11 @@
         "no adapter installed → current-adapter is nil")
     (rf/init! rf.substrate.plain-atom/adapter)
     (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
-        "current-adapter returns the exact map identity passed to init!")
-    (is (map? (rf.substrate.adapter/current-adapter))
-        "current-adapter returns a MAP — there is no keyword-returning spelling")
-    (is (fn? (:make-state-container (rf.substrate.adapter/current-adapter)))
-        "the spec map carries the adapter contract fns")
-    (is (fn? (:replace-container! (rf.substrate.adapter/current-adapter)))
-        "the spec map carries the adapter contract fns")
-    (is (fn? (:make-derived-value (rf.substrate.adapter/current-adapter)))
-        "the spec map carries the adapter contract fns")))
-
-(deftest current-adapter-kind-is-a-key-not-a-second-read
+        "current-adapter returns the exact map identity passed to init! — a MAP,
+         there is no keyword-returning spelling"))
   (testing "the discriminator is (:kind (current-adapter)) per Spec 006"
-    (rf/init! rf.substrate.plain-atom/adapter)
     (is (= :rf.adapter/plain-atom (:kind (rf.substrate.adapter/current-adapter)))
-        "branch code reads the :kind key off the one map")
-    (is (= :rf.adapter/plain-atom (:kind rf.substrate.plain-atom/adapter))
-        "which is literally the adapter spec map's own :kind slot")))
+        "branch code reads the :kind key off the one map")))
 
 (deftest current-adapter-synthesises-no-custom-kind-for-a-kindless-map
   (testing "a kind-less adapter is PRESENT with a nil :kind — no :custom is
@@ -487,11 +465,8 @@
     (let [kindless (dissoc rf.substrate.plain-atom/adapter :kind)]
       (rf.substrate.adapter/install-adapter! kindless)
       (is (identical? kindless (rf.substrate.adapter/current-adapter))
-          "current-adapter returns the literal installed map")
-      (is (some? (rf.substrate.adapter/current-adapter))
-          "a presence check sees it — the map is there")
-      (is (nil? (:kind (rf.substrate.adapter/current-adapter)))
-          "and its :kind reads nil rather than a fabricated :custom"))))
+          "current-adapter returns the literal installed map — a presence check
+           sees it, and its :kind reads nil rather than a fabricated :custom"))))
 
 (deftest adapter-swap-resets-substrate-state-keeps-registrar
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
@@ -601,11 +576,10 @@
     (let [cases delegation-calls]
       (doseq [[where-sym thunk] cases]
         (let [thrown (catch-no-adapter thunk)]
-          (is (some? thrown)
-              (str where-sym " throws when called before (rf/init! ...)"))
-          ;; The message is a human sentence + the trailing
-          ;; [:rf.error/<id>] token; assert the token substring, not
-          ;; exact keyword-equality. Canonical discriminator is :rf.error/id.
+          ;; It throws when called before (rf/init! ...). The message is a
+          ;; human sentence + the trailing [:rf.error/<id>] token; assert the
+          ;; token substring, not exact keyword-equality. Canonical
+          ;; discriminator is :rf.error/id.
           (is (re-find #"\[:rf\.error/no-adapter-installed\]"
                        (str (some-> thrown ex-message)))
               (str where-sym " message carries the [:rf.error/no-adapter-installed] token"))
@@ -619,8 +593,6 @@
                 (str where-sym " ex-data :where echoes the offending public surface symbol"))
             (is (= :no-recovery (:recovery data))
                 (str where-sym " ex-data :recovery is :no-recovery"))
-            (is (string? (:reason data))
-                (str where-sym " ex-data :reason is a string pointing at (rf/init! ...)"))
             (is (re-find #"rf/init!" (str (:reason data)))
                 (str where-sym " ex-data :reason names rf/init! as the recovery action"))))))))
 
@@ -649,6 +621,10 @@
   (testing "adapter-disposed? reflects the dispose/install lifecycle"
     (is (false? (rf.substrate.adapter/adapter-disposed?))
         "fresh cold start — no install, no dispose; breadcrumb is false")
+    (rf.substrate.adapter/dispose-adapter!)
+    (is (false? (rf.substrate.adapter/adapter-disposed?))
+        "dispose with no adapter installed is a no-op — it does not pretend a
+         fresh process is post-dispose")
     (rf/init! rf.substrate.plain-atom/adapter)
     (is (false? (rf.substrate.adapter/adapter-disposed?))
         "install clears the breadcrumb (and was already false)")
@@ -658,16 +634,6 @@
     (rf/init! rf.substrate.plain-atom/adapter)
     (is (false? (rf.substrate.adapter/adapter-disposed?))
         "fresh install clears the breadcrumb")))
-
-(deftest dispose-with-no-install-does-not-set-breadcrumb
-  (testing "dispose-adapter! is a no-op when no adapter is installed; the breadcrumb stays false"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: no adapter installed")
-    (is (false? (rf.substrate.adapter/adapter-disposed?))
-        "precondition: breadcrumb is false")
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (false? (rf.substrate.adapter/adapter-disposed?))
-        "dispose with no adapter does not pretend a fresh process is post-dispose")))
 
 (deftest substrate-delegation-after-dispose-throws-adapter-disposed
   (testing "every substrate-delegation fn throws :rf.error/adapter-disposed after dispose-adapter!"
@@ -680,11 +646,10 @@
     (let [cases delegation-calls]
       (doseq [[where-sym thunk] cases]
         (let [thrown (catch-no-adapter thunk)]
-          (is (some? thrown)
-              (str where-sym " throws when called after dispose-adapter!"))
-          ;; The message is a human sentence + the trailing
-          ;; [:rf.error/<id>] token; assert the token substring, not
-          ;; exact keyword-equality. Canonical discriminator is :rf.error/id.
+          ;; It throws when called after dispose-adapter!. The message is a
+          ;; human sentence + the trailing [:rf.error/<id>] token; assert the
+          ;; token substring, not exact keyword-equality. Canonical
+          ;; discriminator is :rf.error/id.
           (is (re-find #"\[:rf\.error/adapter-disposed\]"
                        (str (some-> thrown ex-message)))
               (str where-sym " message carries the [:rf.error/adapter-disposed] token (not :no-adapter-installed)"))
