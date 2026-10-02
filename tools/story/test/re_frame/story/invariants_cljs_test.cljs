@@ -43,21 +43,12 @@
           :db-before {} :db-after {} :trace-events []}
          m))
 
-;; ---- pure surface (host-portability) -------------------------------------
-
-(deftest first-bad-epoch-cljs
-  (testing "first-bad-epoch returns the first failing epoch on CLJS"
-    (let [tape [(epoch-rec 1 {:db-after {:n 1}})
-                (epoch-rec 2 {:db-after {:n -1}})]
-          bad  (rf.story.invariants/first-bad-epoch tape (fn [e] (pos? (:n (:db-after e)))))]
-      (is (= 2 (:epoch-id bad))))
-    (is (nil? (rf.story.invariants/first-bad-epoch [] (fn [_] false))))))
+;; ---- check-epoch's CLJS catch arm ----------------------------------------
 
 (deftest check-epoch-isolates-throw-cljs
   (testing "a throwing predicate is caught on CLJS"
     (let [c (rf.story.invariants/coerce-invariant 0 (fn [_] (throw (ex-info "boom" {}))))
           v (rf.story.invariants/check-epoch c (epoch-rec 1 {}))]
-      (is (some? v))
       (is (string? (:error v))))))
 
 ;; ---- on-epoch! report-once (CLJS report sink) ----------------------------

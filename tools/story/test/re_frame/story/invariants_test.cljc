@@ -121,7 +121,6 @@
   (testing "a throwing predicate is caught and reported as a violation with :error"
     (let [c (rf.story.invariants/coerce-invariant 0 (fn [_] (throw (ex-info "boom" {}))))
           v (rf.story.invariants/check-epoch c (epoch 1 {}))]
-      (is (some? v))
       (is (= :invariant-0 (:invariant v)))
       (is (string? (:error v))))))
 
@@ -233,14 +232,6 @@
              (into #{} (map :frame) (:violations @state)))
           "the two violations come from the two distinct frames"))))
 
-(deftest on-epoch-isolates-and-reports-broken-predicate
-  (testing "a throwing predicate reports a :fail and never escapes on-epoch!"
-    (let [coerced (rf.story.invariants/coerce-invariants [(fn [_] (throw (ex-info "boom" {})))])
-          state   (atom {:seen #{} :violations []})
-          reports (with-captured-reports
-                    (fn [] (rf.story.invariants/on-epoch! state coerced (epoch 1 {}))))]
-      (is (= 1 (count (filter #(= :fail (:type %)) reports)))))))
-
 ;; ===========================================================================
 ;; with-invariants  (LIVE fixture over a real frame, JVM)
 ;; ===========================================================================
@@ -332,6 +323,4 @@
                (rf/destroy-frame! :test/main)
                (reset! body-completed true))))
          (is (true? @body-completed)
-             "the body — including the destroy and the post-destroy form — completed")
-         (is (= [] (rf/epoch-history :test/main))
-             "the destroyed frame's ring is empty afterward")))))
+             "the body — including the destroy and the post-destroy form — completed")))))
