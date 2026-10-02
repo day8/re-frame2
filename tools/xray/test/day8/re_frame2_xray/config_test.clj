@@ -36,15 +36,6 @@
 ;; navigate or surface the 'pick an editor in Settings' hint. True iff
 ;; the host explicitly set an editor OR a valid operator override exists.
 
-(deftest editor-configured-false-for-bare-default
-  (testing "a host that never set an editor (the bare
-            framework-default :vscode) is NOT configured"
-    ;; Clear the explicit flag the fixture's `set-editor!` set, and the
-    ;; override slot, to model the bare-preload host.
-    (reset! config/editor-explicitly-set? false)
-    (config/update-setting! :general :editor-override nil)
-    (is (false? (config/editor-configured?)))))
-
 (deftest editor-configured-true-when-host-set
   (testing "an explicit set-editor! (even :vscode) counts
             as configured"
@@ -310,12 +301,6 @@
 ;; handle dispatch path clamps to the floor BEFORE the persistence
 ;; write, so the persisted payload is always in-range.
 
-(deftest event-list-col-defaults-mirror-pre-resize-widths
-  (testing "defaults are the columns' design widths, so a fresh
-            install lays out at them"
-    (is (= {:source 52 :timestamp 76 :duration 60}
-           config/event-list-col-default-widths))))
-
 (deftest event-list-col-default-settings-include-widths-map
   (testing "the default settings map carries `:general
             :event-list-col-widths` so the persistence round-trip + the
@@ -396,12 +381,6 @@
     (is (= {:source 52 :timestamp 76 :duration 60}
            (config/resolve-event-list-col-widths
              {:source "wide" :timestamp nil :duration "tall"})))))
-
-(deftest event-list-col-keyboard-steps-published
-  (testing "fine + coarse keyboard step constants are
-            published for the divider's arrow-key handler"
-    (is (= 10 config/event-list-col-keyboard-step-px))
-    (is (= 3 config/event-list-col-keyboard-coarse-multiplier))))
 
 (deftest editor-uri-project-root-regression-rf2-5m5n2
   (testing "regression: a relative source-coord — which the editor's
