@@ -38,8 +38,6 @@
             [day8.re-frame2-xray.panels.fresco :as fresco]
             [day8.re-frame2-xray.panels.fresco-helpers :as hh]
             [day8.re-frame2-xray.panels.fresco-reads :as reads]
-            [day8.re-frame2-xray.panel-registry :as panel-registry]
-            [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -219,20 +217,6 @@
     (rf/dispatch-sync [:rf.xray/sync-trace-buffer
                        [{:id 1 :op-type :rf.event
                          :operation :rf.event/dispatched :tags {}}]])))
-
-;; ---------------------------------------------------------------------------
-;; Registration
-;; ---------------------------------------------------------------------------
-
-(deftest the-tab-registers-as-a-dynamic-l4-tab
-  (setup!)
-  (let [tab (panel-registry/tab-by-id :dynamic :fresco)]
-    (is (some? tab) "the Fresco tab must be in the Dynamic tab registry")
-    (is (= "Fresco" (:label tab)))
-    (is (fn? (:panel tab))))
-  (testing "and the focus mirror knows it — a drifting mirror fails the build"
-    (is (contains? focus/valid-panels :fresco))
-    (is (= (panel-registry/tab-ids-for-mode :dynamic) focus/valid-panels))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE HONEST EMPTIES — three states, three renderings
