@@ -72,16 +72,13 @@
   ;; test). The negative assertion pins that, so a re-export would fail
   ;; loudly.
   (is (nil? (ns-resolve 're-frame.core 'redact-interceptor))
-      "EP-0015 §7: redact-interceptor must NOT be published from re-frame.core")
-  (is (fn? rf.privacy/redact-interceptor)
-      "the internal re-frame.privacy/redact-interceptor helper exists"))
+      "EP-0015 §7: redact-interceptor must NOT be published from re-frame.core"))
 
 (deftest redact-interceptor-returns-interceptor-with-paths
   (testing "the returned interceptor map exposes its paths on `:paths` so the
             router can fold them into the pre-chain trace projection"
     (let [paths [[:password] [:token]]
           icpt  (rf.privacy/redact-interceptor paths)]
-      (is (map? icpt))
       (is (= :rf/redact-interceptor (:id icpt)))
       (is (= paths (:paths icpt)))
       (is (fn? (:before icpt))))))
@@ -210,7 +207,6 @@
                (:committed (rf/app-db-value :rf/default)))
             ":db commit landed — the event was NOT aborted")
         ;; (3) The trace surface left the scalar untouched (no-op redaction).
-        (is (some? db-changed) "a db-changed trace was emitted")
         (is (= "a-token-string" (get-in db-changed [:tags :rf.event/v 1 :auth]))
             "the non-associative parent passed through unredacted (no-op)")))))
 
@@ -300,8 +296,8 @@
                                      :password "shh"
                                      :token    "abc"}]))
           [err] (events-of evs :rf.error/handler-exception)]
-      (is (some? err) "the exception path fired")
-      (is (= :rf/redacted (get-in err [:tags :event 1 :password])))
+      (is (= :rf/redacted (get-in err [:tags :event 1 :password]))
+          "the exception path fired with the redacted payload")
       (is (= :rf/redacted (get-in err [:tags :event 1 :token])))
       (is (= "ada" (get-in err [:tags :event 1 :username]))))))
 

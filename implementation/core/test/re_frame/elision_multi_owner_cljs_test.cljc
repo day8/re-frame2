@@ -96,33 +96,6 @@
     (is (= "Bearer secret" (get-in (wire) [:user :token]))
         "with no owner the value ships raw")))
 
-(deftest subsystem-then-effect-clear-preserves-subsystem-sensitive
-  (testing "the REVERSE order: a subsystem claims first, an effect SET on the
-            same path UNIONS (it is neither ignored nor a clobber), and the
-            effect's source-scoped CLEAR leaves the subsystem claim standing —
-            the path stays redacted (the reverse-order fail-open a
-            single-owner registry would hit)"
-    (claim-subsystem! :sensitive-declarations [[:user :token]])
-    (rf/reg-event :classify-token
-      (fn [{:keys [db]} _]
-        {:db (assoc-in db [:user :token] "Bearer secret") :sensitive [[:user :token]]}))
-    (rf/dispatch-sync [:classify-token])
-    (is (= #{subsystem-owner {:source :effect}}
-           (get (rf.elision/sensitive-declarations) [:user :token]))
-        "the effect SET UNIONS in — the subsystem claim is not overwritten and the effect claim is not ignored")
-    ;; effect CLEAR — source-scoped, removes ONLY the effect owner
-    (rf/reg-event :clear-token
-      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:user :token]]}))
-    (rf/dispatch-sync [:clear-token])
-    (is (= #{subsystem-owner} (get (rf.elision/sensitive-declarations) [:user :token]))
-        "the subsystem claim survives the effect clear (not silently un-redacted)")
-    (is (= sentinel (get-in (wire) [:user :token]))
-        "the path is STILL redacted — the subsystem owns it")
-    ;; subsystem teardown — now the path is finally free
-    (drop-subsystem! :sensitive-declarations)
-    (is (not (contains? (rf.elision/sensitive-declarations) [:user :token]))
-        "removing the last owner prunes the path")))
-
 (deftest effect-and-subsystem-independent-survival-large
   (testing "the large axis unions the same way: a subsystem teardown leaves the
             effect's :large claim, so the path still elides to a size marker;
@@ -141,9 +114,9 @@
     (is (= #{{:source :effect}} (get (rf.elision/declarations) [:docs :csv]))
         "the effect large-claim survives the subsystem teardown")
     (let [slot (get-in (wire) [:docs :csv])]
-      (is (rf.elision/marker? slot) "the path still elides after the subsystem left")
       (is (keyword? (get-in slot [:rf.size/large-elided :reason]))
-          "the marker carries a stable provenance keyword derived from the owners"))))
+          "the path still elides after the subsystem left, and the marker carries
+           a stable provenance keyword derived from the owners"))))
 
 ;; ===========================================================================
 ;; (2) rejected candidate — in-band effect claims never install

@@ -184,7 +184,6 @@
             `re-frame.router/emit-classification-effect-shape!`'s §Why the KEY
             egresses and the VALUE does not first."
     (let [rec (first (reject! :sensitive :not-a-vector :bad/closed))]
-      (is (some? rec) "precondition: the rejection fanned its record")
       (is (= record-keys (set (keys rec)))
           (str "the always-on record's key set is CLOSED. Extra keys are an "
                "unreviewed egress widening; a MISSING `:offending-key` is "
@@ -262,20 +261,3 @@
           (str "and the rejected payload's own content appears NOWHERE in the "
                "record, by any route — not stringified into a `:reason` "
                "sentence, not smuggled through an identifier.")))))
-
-(deftest the-reason-lift-stays-shut-for-this-category
-  (testing "`emit-error-both!` lifts `:reason` out of the dev-trace
-            tags ONLY alongside a `:failing-id` that differs from `:event-id`.
-            This category deliberately passes NO `:failing-id`, so that shared
-            rule stays shut here — which matters, because this category's
-            `:reason` is prose built by `pr-str`-ing the rejected payload into
-            it. Adding a `:failing-id` to the tags would ship the value.
-
-            Guarding the mechanism rather than the outcome: the assertion above
-            would still pass if the lift fired with a `:reason` that happened
-            not to quote THIS payload."
-    (let [rec (first (reject! :clear-sensitive :not-a-vector :bad/no-lift))]
-      (is (not (contains? rec :reason))
-          "no `:reason` on the always-on record")
-      (is (not (contains? rec :failing-id))
-          "and no `:failing-id`, which is what keeps the shared lift shut"))))

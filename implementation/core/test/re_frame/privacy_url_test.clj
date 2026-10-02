@@ -107,9 +107,8 @@
     (let [out (rf.privacy.url/redact-url-tag
                 {:url "/cb?code=secret123" :kind :route :reason :malformed-url}
                 :url)]
-      (is (= (str "/cb?code=" sentinel-str) (:url out)))
-      (is (= :route (:kind out)))
-      (is (= :malformed-url (:reason out)))))
+      (is (= {:url (str "/cb?code=" sentinel-str) :kind :route :reason :malformed-url}
+             out))))
   (testing "each caller names its own slot — routing spells it `:url` /
             `:requested-url`, SSR spells it `:location`, and one fn serves all
             three because none of them is a default"

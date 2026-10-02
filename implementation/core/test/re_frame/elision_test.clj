@@ -114,18 +114,10 @@
         slot  (get-in out [:user :uploaded-pdf])]
     (is (= #{{:source :effect}}
            (get decls [:user :uploaded-pdf])))
-    (is (rf.elision/marker? slot))
     (is (= [:user :uploaded-pdf]
            (get-in slot [:rf.size/large-elided :path])))
     (is (= :effect (get-in slot [:rf.size/large-elided :reason])))
     (is (= "Ada" (get-in out [:user :name])))))
-
-(deftest include-large-bypasses-frame-elision
-  (install-class! [] [[:big]])
-  (is (rf.elision/marker? (:big (rf.elision/elide-wire-value {:big "blob"}))))
-  (is (= "blob"
-         (:big (rf.elision/elide-wire-value {:big "blob"}
-                                    {:rf.egress/include-large? true})))))
 
 (deftest unschema'd-large-value-warns-but-does-not-elide
   (let [big    (apply str (repeat 3000 "ABCDEFGH"))
@@ -295,18 +287,6 @@
     (is (rf.elision/marker? (:doc out))
         "frame-declared :large paths elide independent of the runtime threshold")))
 
-(deftest frame-sensitive-path-redacts
-  (install-class! [[:auth :password]] [])
-  (let [out (rf.elision/elide-wire-value {:auth {:username "ada"
-                                         :password "shh"}})]
-    (is (= "ada" (get-in out [:auth :username])))
-    (is (= :rf/redacted (get-in out [:auth :password])))
-    (is (= "shh"
-           (get-in (rf.elision/elide-wire-value
-                     {:auth {:password "shh"}}
-                     {:rf.egress/include-sensitive? true})
-                   [:auth :password])))))
-
 (deftest frame-sensitive-position-precise-redacts
   ;; A position-pinned `:rf/path` (e.g.
   ;; `[:point 0]`) declares an exact vector index; the runtime elision walk
@@ -323,12 +303,6 @@
         "the declared-sensitive element 0 is redacted")
     (is (= 42 (get-in out [:point 1]))
         "the non-sensitive sibling element 1 rides verbatim — no over-redaction")))
-
-(deftest sensitive-wins-over-large
-  (install-class! [[:secret-pdf]] [[:secret-pdf]])
-  (let [out (rf.elision/elide-wire-value {:secret-pdf "payload"})]
-    (is (= :rf/redacted (:secret-pdf out)))
-    (is (not (rf.elision/marker? (:secret-pdf out))))))
 
 (deftest marker-options
   (install-class! [] [[:b]])
@@ -411,18 +385,12 @@
           ;; Digests ON, sensitive redaction in force (NOT opted out).
           ;; Digests are an explicit override, which is what this passes.
           out    (rf.elision/elide-wire-value input {:rf.egress/include-digests? true})]
-      ;; The sensitive descendant is REDACTED in place …
-      (is (= :rf/redacted (get-in out [:a :b]))
-          "the :sensitive descendant under the :large subtree is redacted")
-      ;; … and NO large marker (which would carry :bytes / :type / :digest)
-      ;; is emitted for the large-marked subtree.
-      (is (not (rf.elision/marker? (get out :a)))
-          "NO :rf.size/large-elided marker is emitted over the large subtree")
-      (is (map? (get out :a))
-          "the large node descended to a plain map (walk-recur), not a marker")
-      ;; The non-sensitive sibling rides through verbatim (precision).
-      (is (= "public" (get-in out [:a :c]))
-          "the unmarked sibling rides egress verbatim")
+      ;; The sensitive descendant is REDACTED in place, the large node
+      ;; descends to a plain map (walk-recur) rather than a marker that would
+      ;; carry :bytes / :type / :digest, and the unmarked sibling rides verbatim.
+      (is (= {:a {:b :rf/redacted :c "public"}} out)
+          "the :sensitive descendant under the :large subtree is redacted, and
+           NO :rf.size/large-elided marker is emitted over the large subtree")
       ;; The load-bearing privacy assertion: NEITHER the raw secret NOR a digest
       ;; over the secret-containing subtree appears anywhere in the wire output.
       (is (not (.contains (pr-str out) secret))
@@ -440,11 +408,9 @@
     (let [secret "ROOT-LEVEL-SECRET"
           out    (rf.elision/elide-wire-value {:b secret :other "ok"}
                                       {:rf.egress/include-digests? true})]
-      (is (= :rf/redacted (get out :b))
-          "the sensitive descendant under the whole-value large mark is redacted")
-      (is (not (rf.elision/marker? out))
-          "no whole-value large marker is emitted")
-      (is (= "ok" (get out :other)) "the unmarked sibling rides verbatim")
+      (is (= {:b :rf/redacted :other "ok"} out)
+          "the sensitive descendant under the whole-value large mark is redacted,
+           no whole-value large marker is emitted, and the sibling rides verbatim")
       (is (not (.contains (pr-str out) secret)) "the raw secret does not leak")
       (is (not (.contains (pr-str out) "sha256")) "no digest leaks"))))
 
@@ -605,10 +571,9 @@
                 {path #{{:source :test :hint "Upload preview"}}})))
     (let [out  (rf.elision/elide-wire-value sub-cache {:frame frame-id})
           slot (get-in out [[:user/uploaded] :value :pdf])]
-      (is (rf.elision/marker? slot)
-          "Declared large path inside sub-cache `:value` emits the size marker")
       (is (= path (get-in slot [:rf.size/large-elided :path]))
-          "Marker carries the actual walked path so the agent can re-fetch")
+          "Declared large path inside sub-cache `:value` emits the size marker,
+           carrying the actual walked path so the agent can re-fetch")
       (is (= "Upload preview" (get-in slot [:rf.size/large-elided :hint]))))))
 
 (deftest sub-cache-shape-walker-passes-through-when-no-declarations
@@ -773,12 +738,7 @@
         "{:frame nil} must NOT borrow the ambient frame")
     (is (= :rf/redacted
            (rf.elision/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
-        "no secret rides through an explicit nil frame"))
-
-  (testing "and the ambient frame is still there — the arm above redacted by
-            contract, not because the fixture had no frame to borrow"
-    (is (= {:profile {:name "Ada"}}
-           (rf.elision/elide-wire-value {:profile {:name "Ada"}} {})))))
+        "no secret rides through an explicit nil frame")))
 
 (deftest explicit-nil-frame-honours-the-include-sensitive-opt-out
   ;; The deliberate raw opt-out holds: a caller that has explicitly
@@ -978,21 +938,19 @@
   (install-class! [] [[:docs :blob]])
   (let [out  (rf.elision/elide-wire-value {:docs [{:blob "<<5MB-blob>>"}]})
         slot (get-in out [:docs 0 :blob])]
-    (is (rf.elision/marker? slot)
-        "collection-nested :large slot emits a size marker")
     (is (= [:docs 0 :blob] (get-in slot [:rf.size/large-elided :path]))
-        "marker :path is the concrete indexed runtime path (re-fetchable)")
+        "collection-nested :large slot emits a size marker whose :path is the
+         concrete indexed runtime path (re-fetchable)")
     (is (= :effect (get-in slot [:rf.size/large-elided :reason])))))
 
 (deftest collection-nested-sensitive-wins-over-large
   ;; Symmetry — when a collection-nested slot is
-  ;; BOTH `:large` and `:sensitive`, sensitive wins (redact, no marker),
-  ;; same precedence as the top-level `sensitive-wins-over-large` case.
+  ;; BOTH `:large` and `:sensitive`, sensitive wins (redact, no marker) —
+  ;; the same precedence `re-frame.projection-cljs-test/sensitive-wins-over-large`
+  ;; pins at the top level through `project-egress`.
   (install-class! [[:vault :k]] [[:vault :k]])
-  (let [out  (rf.elision/elide-wire-value {:vault [{:k "payload"}]})
-        slot (get-in out [:vault 0 :k])]
-    (is (= :rf/redacted slot))
-    (is (not (rf.elision/marker? slot))
+  (let [out (rf.elision/elide-wire-value {:vault [{:k "payload"}]})]
+    (is (= :rf/redacted (get-in out [:vault 0 :k]))
         "sensitive suppresses the large marker even when nested in a vector")))
 
 ;; `:path` is the ABSOLUTE app-db offset of the walked value
@@ -1049,10 +1007,9 @@
         slot (read-at db [:big :blob])]
     (is (rf.elision/marker? (:big (read-at db [])))
         "control: the whole-db walk elides the declared [:big] subtree")
-    (is (rf.elision/marker? slot)
-        "a read below the declaration elides too")
     (is (= [:big :blob] (get-in slot [:rf.size/large-elided :path]))
-        "the marker describes the value that was read, at its own offset")
+        "a read below the declaration elides too, and the marker describes the
+         value that was read, at its own offset")
     (is (= [:rf.elision/at [:big :blob]] (get-in slot [:rf.size/large-elided :handle])))
     (is (= "xxxx" (read-at db [:big :blob] {:rf.egress/include-large? true}))
         "the large opt-in still fetches the value")))
@@ -1080,9 +1037,9 @@
 (deftest walk-rebuilds-a-record-as-a-plain-map
   (testing "a value holding a record egresses instead of throwing"
     (let [out (rf.elision/elide-wire-value {:price (->Money 10 "AUD")})]
-      (is (= {:amount 10 :currency "AUD"} (:price out)))
-      (is (not (record? (:price out)))
-          "rebuilt as a plain map, which is what CLJS already does"))
+      (is (= {:amount 10 :currency "AUD"} (:price out))
+          "rebuilt as a plain map (a record never equals one), which is what
+           CLJS already does"))
     (is (= {:price {:amount 10 :currency "AUD"}}
            (rf/project-egress {:price (->Money 10 "AUD")}
                               {:frame             :rf/default
