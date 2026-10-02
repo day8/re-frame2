@@ -25,7 +25,7 @@ A redesign that reaches beyond that scope stays a proposal either way. An instru
 
 ## When to reach for it
 
-Use it when you explicitly ask for a review of re-frame2 code you already have, and that code is in front of the agent: read or edited in the conversation, pasted as a snippet, or named by a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). Asking for a review with no code in scope is not enough, and a path that does not resolve does not count.
+Use it when you explicitly ask for a review of re-frame2 code you already have, and that code is in front of the agent: read or edited in the conversation, pasted as a snippet, or named by a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). An unreadable path is reported without blocking review of a supplied snippet or other readable source. Asking for a review with no available source is not enough; a clean verdict covers only what was inspected.
 
 For related work:
 
