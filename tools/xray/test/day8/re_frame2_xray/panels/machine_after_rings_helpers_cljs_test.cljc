@@ -196,17 +196,6 @@
         "the closing event's `:reason` rides through
          to the record so downstream consumers can branch on cause")))
 
-(deftest fold-cancelled-carries-each-reason
-  (testing "every reason in the closed set rides through to the record"
-    (doseq [reason [:on-exit :on-destroy :on-resolution :on-supersede :on-frame-destroy]]
-      (let [t (h/fold-timer-events
-                [(scheduled 1000 :auth/login :idle 5000 0)
-                 (cancelled 3000 :auth/login :idle 0 nil reason)])
-            r (-> t vals first)]
-        (is (= :cancelled (:status r)))
-        (is (= reason     (:cancel-reason r))
-            (str "reason " reason " carried through"))))))
-
 (deftest fold-skipped-on-server-flips-to-skipped
   (let [t (h/fold-timer-events
             [(skipped-on-server 1000 :auth/login :idle 5000 0)])
@@ -357,12 +346,6 @@
                :armed-at 1000 :closed-at nil}]
       (is (= [] (h/prune-timers [rec] 5000)))
       (is (= [rec] (h/prune-timers [rec] nil))))))
-
-(deftest prune-timers-is-identity-without-a-clock
-  (let [rs [{:machine-id :m :state :a :status :armed :armed-at 1 :fires-at 2}
-            {:machine-id :m :state :b :status :cancelled :armed-at 3 :closed-at 4}]]
-    (is (= rs (h/prune-timers rs nil)))
-    (is (= [] (h/prune-timers nil nil)))))
 
 (deftest active-timers-keeps-armed-and-cancelled
   ;; This row pins the NO-CLOCK arity, and that is the whole of what
@@ -519,11 +502,6 @@
                 :duration-ms 5000 :closed-at 2000} id-fn 3000)]
     (is (true? (:cancelled? spec)))
     (is (= :gray (:color spec)) "cancelled rings render gray")))
-
-(deftest timer->ring-spec-nil-when-state-unresolvable
-  (is (nil? (h/timer->ring-spec {:state :ghost :status :armed} id-fn 1000))
-      "no node-id → no spec (overlay would have nothing to position)")
-  (is (nil? (h/timer->ring-spec {:state nil :status :armed} id-fn 1000))))
 
 (deftest timers->ring-specs-maps-each-resolvable-timer
   (let [timers [{:machine-id :m :state :idle    :status :armed

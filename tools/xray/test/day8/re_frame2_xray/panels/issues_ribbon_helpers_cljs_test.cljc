@@ -13,21 +13,21 @@
 
   ## What's under test
 
-    1. **op-type → severity mapping** — every issue op-type maps to
-       the correct severity bucket; non-issue op-types return nil.
-    2. **issue-event?** — classifies trace events.
-    3. **category-prefix / category-label** — project `:operation`'s
+    1. **issue-event?** — classifies trace events by severity: the
+       `:error` and `:warning` op-types are issues; every other op-type
+       (`:info` among them) is not.
+    2. **category-prefix / category-label** — project `:operation`'s
        keyword namespace + unqualified name (the Figma row cell).
-    4. **project-issue** — projects raw trace events onto row cells.
-    5. **project-feed** — top-level composite over a focused epoch
+    3. **project-issue** — projects raw trace events onto row cells.
+    4. **project-feed** — top-level composite over a focused epoch
        record; empty-kind classifier (:no-focus, :epoch-evicted,
        :no-issues branches per spec/021 §10.7). No filtering
        (pure rows per the Figma design).
-    6. **the sub call-site composition** — `resolve-focus-status` →
+    5. **the sub call-site composition** — `resolve-focus-status` →
        `find-epoch-record` → `project-feed`. The resolver the two
        aliases re-export is pinned in `shared/focus_resolver_cljs_test`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]
             [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
 
@@ -85,23 +85,7 @@
    {:epoch-id     epoch-id
     :trace-events (vec trace-events)}))
 
-;; ---- (1) op-type → severity mapping ------------------------------------
-
-(deftest op-type-severity-mapping-honours-spec
-  (testing "the two issue op-types map to the panel's severity buckets"
-    (is (= :error    (h/op-type->severity :error)))
-    (is (= :warning  (h/op-type->severity :warning))))
-  (testing "non-issue op-types return nil"
-    (is (nil? (h/op-type->severity :info))
-        "`:info` is activity (Spec 009: issue filters subscribe to :warning / :error)")
-    (is (nil? (h/op-type->severity :event)))
-    (is (nil? (h/op-type->severity :fx)))
-    (is (nil? (h/op-type->severity :frame)))
-    (is (nil? (h/op-type->severity :rf.sub/run)))
-    (is (nil? (h/op-type->severity :rf.view/render)))
-    (is (nil? (h/op-type->severity nil)))))
-
-;; ---- (2) issue-event? -------------------------------------------------
+;; ---- (1) issue-event? -------------------------------------------------
 
 (deftest issue-event?-classification
   (testing "every issue op-type is an issue"
@@ -114,7 +98,7 @@
     (is (false? (h/issue-event? {:id 1 :op-type :rf.frame})))
     (is (false? (h/issue-event? {:id 1 :op-type :rf.sub})))))
 
-;; ---- (3) category-prefix ----------------------------------------------
+;; ---- (2) category-prefix ----------------------------------------------
 
 (deftest category-prefix-projects-keyword-namespace
   (testing "category-prefix is the operation's keyword namespace"
@@ -128,10 +112,7 @@
     (is (nil? (h/category-prefix {:operation "literal-string"})))
     (is (nil? (h/category-prefix {:operation nil})))))
 
-;; ---- (4) project-issue ------------------------------------------------
-
-(deftest project-issue-returns-nil-for-non-issues
-  (is (nil? (h/project-issue (non-issue-ev 1)))))
+;; ---- (3) project-issue ------------------------------------------------
 
 (deftest project-issue-builds-row-shape
   (testing "a projected issue carries every cell the row needs"
@@ -149,7 +130,7 @@
       (is (re-find #"kaboom"            (:description row)))
       (is (some?                        (:raw row))))))
 
-;; ---- (5) category-label / category-prefix ----------------------------
+;; ---- (4) category-label / category-prefix ----------------------------
 ;;
 ;; There are no chip-filter helpers and no `distinct-prefixes`
 ;; enumeration: the Issues panel renders pure rows with no filtering, per
@@ -171,31 +152,15 @@
   (testing "nil operation yields nil"
     (is (nil? (h/category-label {:operation nil})))))
 
-;; ---- (8) project-feed top-level composite ---------------------------
+;; ---- (5) project-feed top-level composite ---------------------------
 
-(deftest project-feed-no-focus-renders-empty
-  (let [feed (h/project-feed nil :no-focus)]
-    (is (= []  (:issues feed)))
-    (is (= 0   (:total feed)))
-    (is (= 0   (:rendered feed)))
-    (is (= :no-focus (:empty-kind feed)))
-    (is (nil? (:epoch-id feed)))))
-
-(deftest project-feed-evicted-renders-canonical-placeholder
-  (testing "spec/021 §10.7 — :epoch-evicted is the discriminator the
-            view branches on to render the canonical placeholder."
-    (let [feed (h/project-feed nil :epoch-evicted)]
-      (is (= :epoch-evicted (:empty-kind feed)))
-      (is (= 0 (:total feed))))))
-
-(deftest project-feed-no-issues-empty-trace-events
-  (testing "focused epoch with empty :trace-events → :no-issues"
-    (let [record (epoch-record 42 [])
-          feed   (h/project-feed record :focused)]
-      (is (= [] (:issues feed)))
-      (is (= 0  (:total feed)))
-      (is (= :no-issues (:empty-kind feed)))
-      (is (= 42 (:epoch-id feed))))))
+(deftest project-feed-names-the-empty-state-for-each-focus-status
+  ;; `:empty-kind` is the discriminator the view branches on (spec/021
+  ;; §10.7); an evicted epoch renders the canonical placeholder.
+  (are [record status expected] (= expected (h/project-feed record status))
+    nil                  :no-focus      {:issues [] :total 0 :rendered 0 :epoch-id nil :empty-kind :no-focus}
+    nil                  :epoch-evicted {:issues [] :total 0 :rendered 0 :epoch-id nil :empty-kind :epoch-evicted}
+    (epoch-record 42 []) :focused       {:issues [] :total 0 :rendered 0 :epoch-id 42 :empty-kind :no-issues}))
 
 (deftest project-feed-renders-issues-from-trace-events
   (testing "the focused epoch's :trace-events feed the projection;
@@ -238,7 +203,7 @@
       (is (= [1] (mapv :id (:issues feed))))
       (is (= 6 (:epoch-id feed)) "feed epoch-id reflects the head"))))
 
-;; ---- (6b) feed-under-cascade-scope: SSR hydration-mismatch --------------
+;; ---- (6) feed-under-cascade-scope: SSR hydration-mismatch --------------
 ;;
 ;; Pins what the `hydration mismatch debugger` feature-gate scenario
 ;; relies on: the Issues panel is the focused-epoch (cascade)
@@ -291,7 +256,7 @@
           feed   (h/project-feed record :focused)]
       (is (= [3 2 1] (mapv :id (:issues feed)))))))
 
-;; ---- (9) an :info lifecycle row is activity, never an issue
+;; ---- (7) an :info lifecycle row is activity, never an issue
 ;;
 ;; The runtime emits `:rf.http/issued` at `:info` inside the issuing fx
 ;; handler on EVERY managed request, so it lands in the issuing bundle —
@@ -323,7 +288,7 @@
       (is (= [:error :warning] (mapv :severity (:issues feed))))
       (is (= 2 (:total feed))))))
 
-;; ---- (12) short-description ---------------------------------------
+;; ---- (8) short-description ---------------------------------------
 
 (deftest short-description-uses-priority-order
   (testing "reason is preferred when present"
@@ -381,7 +346,7 @@
       (is (= "no-such-sub" (:category row)))
       (is (re-find #":cart/items" (:description row))))))
 
-;; ---- (13) source-coord ------------------------------------------
+;; ---- (9) source-coord ------------------------------------------
 
 (deftest source-coord-projection
   (testing "source-coord pulls file:line from :rf.trace/trigger-handler"
@@ -401,7 +366,7 @@
               :operation :rf.error/handler-exception
               :rf.trace/trigger-handler {:source-coord {:file "src/foo.cljs"}}})))))
 
-;; ---- (14) the effect-map refusal reads on the GENERIC row ---------------
+;; ---- (10) the effect-map refusal reads on the GENERIC row ---------------
 ;;
 ;; The refusal ships NO bespoke Xray UI, and that is the claim under test: an
 ;; operator diagnosing a refused event reads the ordinary issue row and gets

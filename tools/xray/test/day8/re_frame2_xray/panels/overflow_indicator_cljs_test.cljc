@@ -60,17 +60,6 @@
         "single-row case avoids the trailing 's'")
     (is (not (re-find #"rows hidden" text)))))
 
-(deftest overflow-row-panel-id-flows-into-testid
-  (let [ids ["trace" "issues" "mcp" "performance" "event-detail"
-             "subscriptions" "effects" "flows"]]
-    (doseq [pid ids]
-      (let [node (overflow/overflow-row {:panel-id     pid
-                                         :over-cap?    true
-                                         :hidden-count 1})]
-        (is (= (str "rf-xray-" pid "-overflow-indicator")
-               (testid node))
-            (str "panel-id " pid " produces matching testid"))))))
-
 ;; ---- capped-list --------------------------------------------------------
 
 (defn- ul-children

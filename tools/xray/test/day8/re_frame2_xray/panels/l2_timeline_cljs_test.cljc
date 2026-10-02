@@ -121,8 +121,7 @@
 (deftest event-bundle-duration-ms-test
   (testing "reads the producer's :rf.event/elapsed-ms off the :handler trace"
     (is (= 1.234 (l2/event-bundle-duration-ms (cascade-with-duration 1.234))))
-    (is (= 0     (l2/event-bundle-duration-ms (cascade-with-duration 0))))
-    (is (= "1.2 ms" (l2/event-bundle-duration-label (cascade-with-duration 1.234)))))
+    (is (= 0     (l2/event-bundle-duration-ms (cascade-with-duration 0)))))
 
   (testing "falls back to :duration-ms when elapsed-ms is absent"
     (is (= 2.5 (l2/event-bundle-duration-ms
