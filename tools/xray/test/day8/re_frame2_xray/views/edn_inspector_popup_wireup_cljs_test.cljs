@@ -18,7 +18,8 @@
      boundary, and the stack it renders is the surrounding frame's.
      Its empty-stack gate and per-entry chrome are pinned by the popup
      ns's stack-view row and the browser-lane
-     `edn-inspector-popup-stack-boundary-dom-cljs-test`.
+     `edn-inspector-popup-stack-boundary-dom-cljs-test`, which also pins
+     the frame its reads resolve through.
   4. **Registry install** — `registry.cljs` calls
      `edn-inspector-popup/install!` so the open/close events resolve
      through `rf/dispatch-sync` post-registration.
@@ -78,14 +79,20 @@
 ;; widget-level affordance — pure hiccup shape
 ;; =========================================================================
 
-(deftest popup-affordance-opt-in-renders-button
+(deftest popup-affordance-on-renders-a-labelled-button-anchored-to-the-container
   (testing "`[ei/edn-inspector value {:popup-affordance? true}]`
             renders a top-right ↗ icon button (↗ reads as 'open in new
-            pane')"
-    (let [h (invoke-edn-inspector
-              {:cart [1 2 3]}
-              {:panel-id :rf.xray/app-db :popup-affordance? true})
-          btn (find-affordance h)]
+            pane'). Its testid includes the per-mount popup id
+            (`ddp-<mount-id>`) so panel-level tests can target it, and the
+            outer container carries `position: relative` so the absolute-
+            positioned button anchors correctly"
+    (let [h         (invoke-edn-inspector
+                      {:cart [1 2 3]}
+                      {:panel-id :rf.xray/app-db :popup-affordance? true})
+          btn       (find-affordance h)
+          mount-id  (:data-rf-mount-id (second h))
+          by-testid (find-by-testid
+                      h (str "rf-xray-edn-inspector-popup-affordance-ddp-" mount-id))]
       (is (some? btn)
           "affordance button is present in the rendered hiccup")
       (is (= "Open in popup" (:aria-label (second btn)))
@@ -93,11 +100,19 @@
       (is (fn? (:on-click (second btn)))
           "button carries an on-click handler")
       (is (= "↗" (last btn))
-          "glyph is ↗ (north-east arrow)"))))
+          "glyph is ↗ (north-east arrow)")
+      (is (some? mount-id) "container has a mount-id")
+      (is (some? by-testid) "button found by the expected testid")
+      (is (= (str "ddp-" mount-id)
+             (:data-rf-popup-mount-id (second by-testid)))
+          "button surfaces the popup-mount-id as a data attr too")
+      (is (= "relative" (-> h second :style :position))
+          "affordance-on → outer container is position: relative"))))
 
-(deftest popup-affordance-default-off
+(deftest popup-affordance-off-renders-no-button-and-no-positioning
   (testing "without `:popup-affordance?` (or with `false`)
-            the widget renders NO affordance button"
+            the widget renders NO affordance button, and the outer
+            container carries no positioning"
     (let [h-default (invoke-edn-inspector
                      {:cart [1 2 3]}
                      {:panel-id :rf.xray/app-db})
@@ -108,39 +123,8 @@
       (is (nil? (find-affordance h-default))
           "no affordance when opt is absent")
       (is (nil? (find-affordance h-false))
-          "no affordance when opt is explicitly false"))))
-
-(deftest popup-affordance-button-carries-stable-testid
-  (testing "the button testid includes the per-mount popup
-            id (`ddp-<mount-id>`) so panel-level tests can target it"
-    (let [outer (ei/edn-inspector {:a 1}
-                                 {:panel-id :rf.xray/app-db
-                                  :popup-affordance? true})
-          inner-h (outer {:a 1} {:panel-id :rf.xray/app-db
-                                 :popup-affordance? true})
-          container (second inner-h)
-          mount-id  (:data-rf-mount-id container)
-          expected-testid
-          (str "rf-xray-edn-inspector-popup-affordance-ddp-" mount-id)
-          btn (find-by-testid inner-h expected-testid)]
-      (is (some? mount-id) "container has a mount-id")
-      (is (some? btn) "button found by the expected testid")
-      (is (= (str "ddp-" mount-id)
-             (:data-rf-popup-mount-id (second btn)))
-          "button surfaces the popup-mount-id as a data attr too"))))
-
-(deftest popup-affordance-button-contributes-positioning-context
-  (testing "when the affordance is enabled the outer
-            container carries `position: relative` so the absolute-
-            positioned button anchors correctly"
-    (let [h-on  (invoke-edn-inspector
-                  {:a 1} {:panel-id :rf.xray/app-db
-                          :popup-affordance? true})
-          h-off (invoke-edn-inspector
-                  {:a 1} {:panel-id :rf.xray/app-db})]
-      (is (= "relative" (-> h-on second :style :position))
-          "affordance-on → outer container is position: relative")
-      (is (nil? (-> h-off second :style :position))
+          "no affordance when opt is explicitly false")
+      (is (nil? (-> h-default second :style :position))
           "affordance-off → no positioning (no descendant uses absolute)"))))
 
 ;; =========================================================================
@@ -227,30 +211,6 @@
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
 
-;; `edn-inspector-popup-stack` is an
-;; `rf.fresco/as-component` bridge and answers an interop vector, not a
-;; tree to walk. `popup-stack-tree` below reproduces the boundary's gate
-;; and reads EXACTLY — same gate, same order, same query vectors — so the
-;; rows in this section assert on the hiccup the boundary renders, and a
-;; boundary that stopped reading one of these slots would diverge from
-;; this helper rather than silently agreeing with it.
-;;
-;; Ambient `rf/subscribe` deliberately: these rows run under
-;; `rf/with-frame :rf/xray` in the node lane with no React commit. What
-;; the boundary's own read resolves to — the frame React context names —
-;; is the browser lane's subject.
-
-(defn- popup-stack-tree
-  "The hiccup the stack boundary renders: nil while the stack is
-  empty, the container otherwise."
-  []
-  (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
-    (when (seq stack)
-      (edn-inspector-popup/popup-stack-tree
-        {:stack       stack
-         :entries     @(rf/subscribe [edn-inspector-popup/entries-slot])
-         :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))))
-
 ;; =========================================================================
 ;; registry wiring
 ;; =========================================================================
@@ -316,57 +276,3 @@
                       "m1" {:a 1} {}))))
         "and the Reagent head grades :invalid, so the row above is
          not vacuous")))
-
-(deftest popup-stack-view-subscribes-route-to-surrounding-frame
-  (testing "when the stack view is rendered under `:rf/xray`,
-            its subscribes read `:rf/xray`'s app-db, NOT `:rf/default`.
-            We open a popup in `:rf/xray` and confirm the rendered chrome
-            reflects `:rf/xray`'s stack; a popup written into
-            `:rf/default` MUST NOT leak in.
-            A plain-fn head cannot read the surrounding frame at
-            all: it raises `:rf.error/no-frame-context` and this row's
-            tree never renders."
-    (setup-xray-frame!)
-    ;; `:rf.xray/modal-positioning` is already registered by
-    ;; `register-xray-handlers!` inside `setup-xray-frame!`.
-    ;; Seed contradicting data in :rf/default + :rf/xray. If the
-    ;; subscribes read :rf/default, the test would see the
-    ;; "default-only" mount-id; the correct routing sees "xray-only".
-    (rf/dispatch-sync
-      [:rf.xray.edn-inspector-popup/open
-       "default-only" {:value :default-payload :opts {}}])
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.edn-inspector-popup/open
-         "xray-only" {:value :xray-payload :opts {}}]))
-    ;; Drive the stack under :rf/xray. The view is a
-    ;; Fresco boundary, whose body may only run inside a React render
-    ;; window, so the node lane reads the slots itself and hands them to
-    ;; the pure `popup-stack-tree` — the same slots in the same order the
-    ;; boundary reads. Under `with-frame :rf/xray` those ambient reads
-    ;; resolve through the dynamic-var tier; what the BOUNDARY's own read
-    ;; resolves to is the React-context tier and the browser lane's
-    ;; subject. Either way the property pinned here is the same one: the
-    ;; stack rendered under :rf/xray shows :rf/xray's entries and not
-    ;; :rf/default's.
-    (rf/with-frame :rf/xray
-      (let [tree (popup-stack-tree)]
-        (is (some? tree)
-            "stack view rendered some chrome under :rf/xray (proves :rf/xray's
-             stack slot is non-empty from the view's perspective)")
-        (is (some? (find-by-testid tree
-                                   "rf-xray-edn-inspector-popup-backdrop-xray-only"))
-            "the :rf/xray-frame's mount-id `xray-only` was picked up by the
-             view's subscribe — proves the subscribe routed to :rf/xray,
-             not :rf/default")
-        (is (nil? (find-by-testid tree
-                                  "rf-xray-edn-inspector-popup-backdrop-default-only"))
-            "the :rf/default-frame's mount-id `default-only` was NOT
-             visible to the view — proves the subscribe did not leak across
-             frames"))
-      ;; And the stack's count attribute reflects :rf/xray's stack
-      ;; depth exclusively (one entry), not the combined two.
-      (let [tree (popup-stack-tree)]
-        (is (= 1 (-> tree second :data-rf-popup-count))
-            "popup-count reflects :rf/xray's stack only (one entry), not
-             the two-entry total across frames")))))

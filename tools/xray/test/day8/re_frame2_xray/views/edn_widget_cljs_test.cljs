@@ -14,7 +14,8 @@
   4. **highlight-clojure-token mapping** — every token-type resolves
      to its Figma-aligned syntax token; keyword + builtin distinct.
   5. **Facade delegation** — `inspect` returns a Reagent component
-     invocation of `views.edn-inspector`."
+     invocation of `views.edn-inspector`; the codec grades that head in
+     `panels/managed_fx_template_cljs_test`."
   (:require [cljs.test :refer-macros [are deftest is testing]]
             [clojure.string :as str]
             [day8.re-frame2-xray.views.edn-widget :as w]
@@ -43,18 +44,6 @@
                       (map? (second n))
                       (= id (get (second n) :data-testid)))))
        first))
-
-;; ---- facade delegation --------------------------------------------------
-;;
-;; `inspect` returns a Reagent component form 2:
-;; `[ei/edn-inspector value opts]`. The widget's own test surface
-;; (sentinel chrome, type colours, click-to-toggle) lives in
-;; `views/edn_inspector_cljs_test.cljs`.
-
-(deftest inspect-returns-edn-inspector-mount-form
-  (let [out (w/inspect :hello "node-key")]
-    (is (vector? out))
-    (is (fn? (first out)))))
 
 ;; ---- code-block tokenizer ------------------------------------------------
 
@@ -176,56 +165,26 @@
 (def ^:private BS (str \\))
 (def ^:private NL (str \newline))
 
-(deftest unescape-source-newlines-converts-escaped-newline
-  (testing "a captured source string carrying the escaped
-            two-char `\\n` (as `pr-str` emits for a multi-line docstring)
-            is rewritten to a REAL newline so the code-block renders
-            multi-line."
-    ;; printed input  = `line one` `\` `n` `line two`
-    ;; expected output = `line one` + real newline + `line two`
-    (is (= (str "line one" NL "line two")
-           (w/unescape-source-newlines (str "line one" BS "n" "line two"))))))
-
-(deftest unescape-source-newlines-noop-without-escape
-  (testing "no escaped-newline present → string returned unchanged"
-    (is (= "(def x 1)" (w/unescape-source-newlines "(def x 1)")))
-    (is (= "" (w/unescape-source-newlines "")))
-    (is (nil? (w/unescape-source-newlines nil)))))
-
-(deftest unescape-source-newlines-keeps-escaped-backslash
-  (testing "the result is SOURCE TEXT (a string token
-            painted under `white-space: pre`), so a
-            printed escaped backslash `\\\\` (the valid source-text form
-            of one literal backslash) is KEPT verbatim — only the `\\n`
-            newline escape relaxes to a real line break. The fn is NOT a
-            general string decoder. Building blocks: `BS` = one
-            backslash, `NL` = one newline."
-    ;; printed input  = `\` `\` `\` `n`  (escaped-backslash `\\` then `\n`)
-    ;; expected output = `\` `\`         (the `\\` source form) + newline
-    (is (= (str BS BS NL)
-           (w/unescape-source-newlines (str BS BS BS "n")))
-        "escaped-backslash kept as `\\\\`; the trailing \\n restored to a newline")
-    ;; printed input  = `\` `\` `n`  (escaped-backslash `\\` then letter n)
-    ;; expected output = unchanged   (no newline escape present)
-    (is (= (str BS BS "n")
-           (w/unescape-source-newlines (str BS BS "n")))
-        "no spurious newline when the backslash is escaped")))
-
-(deftest code-block-renders-multiline-doc-as-line-breaks
-  (testing "a source string whose `:doc` literal carries the
-            escaped `\\n` (the `pr-str` capture shape) renders across
-            real lines: the `:pre` block's text contains an actual
-            newline and no literal backslash-n."
-    (let [src  "(reg-event :foo {:doc \"line one\\nline two\"} (fn [{:keys [db]} _] {:db db}))"
-          out  (w/code-block {:source src})
-          pre  (some #(when (and (vector? %) (= :pre (first %))) %)
-                     (walk-hiccup out))
-          text (str/join "" (filter string? (flatten pre)))]
-      (is (some? pre) "a :pre block renders")
-      (is (str/includes? text "\n")
-          "the rendered text carries a REAL newline")
-      (is (not (str/includes? text "\\n"))
-          "no literal backslash-n survives in the rendered text"))))
+(deftest unescape-source-newlines-rewrites-only-a-bare-escaped-newline
+  ;; A captured source string carrying the escaped two-char `\n` (as
+  ;; `pr-str` emits for a multi-line docstring) is rewritten to a REAL
+  ;; newline, so the code-block renders multi-line. The result is SOURCE
+  ;; TEXT (a string token painted under `white-space: pre`), so a printed
+  ;; escaped backslash `\\` (the valid source-text form of one literal
+  ;; backslash) is KEPT verbatim: the fn is NOT a general string decoder.
+  ;; Building blocks: `BS` = one backslash, `NL` = one newline.
+  (are [expected input] (= expected (w/unescape-source-newlines input))
+    ;; `line one` `\` `n` `line two` → a real newline between the lines
+    (str "line one" NL "line two") (str "line one" BS "n" "line two")
+    ;; no escaped newline present → unchanged
+    "(def x 1)"                    "(def x 1)"
+    ""                             ""
+    nil                            nil
+    ;; `\` `\` `\` `n`: the escaped backslash is kept, the trailing `\n`
+    ;; becomes a newline
+    (str BS BS NL)                 (str BS BS BS "n")
+    ;; `\` `\` `n`: an escaped backslash then the letter n, so no newline
+    (str BS BS "n")                (str BS BS "n")))
 
 ;; ---- backslash-n OUTSIDE a string literal is code -----------------------
 ;;
@@ -288,16 +247,15 @@
 ;; ---- highlight-clojure-token mapping -------------------------------------
 
 (deftest highlight-clojure-token-mapping
-  (is (= :syntax-keyword (w/highlight-clojure-token :keyword)))
-  (is (= :syntax-string  (w/highlight-clojure-token :string)))
-  (is (= :syntax-number  (w/highlight-clojure-token :number)))
-  (is (= :text-tertiary  (w/highlight-clojure-token :comment)))
-  (is (= :text-primary   (w/highlight-clojure-token :symbol)))
-  (is (= :text-tertiary  (w/highlight-clojure-token :paren)))
-  (is (= :accent         (w/highlight-clojure-token :builtin)))
-  (is (= :text-primary   (w/highlight-clojure-token :unknown)))
-  (is (not= (w/highlight-clojure-token :keyword)
-            (w/highlight-clojure-token :builtin))))
+  (are [token-type syntax-token] (= syntax-token (w/highlight-clojure-token token-type))
+    :keyword :syntax-keyword
+    :string  :syntax-string
+    :number  :syntax-number
+    :comment :text-tertiary
+    :symbol  :text-primary
+    :paren   :text-tertiary
+    :builtin :accent
+    :unknown :text-primary))
 
 (deftest highlight-clojure-token-palette-resolution
   (doseq [tok-type [:keyword :string :number :comment

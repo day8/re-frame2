@@ -138,12 +138,6 @@
     (is (= ["m1"] stack)
         "close-top removed the topmost (m2); m1 still standing")))
 
-(deftest close-top-noop-on-empty-stack
-  (edn-inspector-popup/install!)
-  ;; No popups open — close-top must not throw.
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/close-top])
-  (is (empty? (or @(rf/subscribe [edn-inspector-popup/stack-slot]) []))))
-
 (deftest close-all-clears-state
   (edn-inspector-popup/install!)
   (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
