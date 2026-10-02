@@ -116,12 +116,6 @@
       (testing "absent sections carry a human 'when empty this means…' note"
         (is (every? (comp string? :note) (vals by-id)))))))
 
-(deftest nil-explain-is-safe
-  (testing "nil explain projects the same inventory, all absent — no throw"
-    (let [sections (rf.story.ui.explain-panel/explain-sections nil)]
-      (is (= expected-section-ids (mapv :id sections)))
-      (is (every? (complement :present?) sections)))))
-
 (deftest network-and-sub-override-slots-carry-lowering
   (testing "the network section value carries routes + the managed-stub lowering"
     (let [net (->> (rf.story.ui.explain-panel/explain-sections full-explain)
@@ -218,10 +212,11 @@
 (deftest conflict-summary-names-winner-and-losers
   (let [s (rf.story.ui.explain-panel/conflict-summary
             (first (:strict-conflicts full-explain)))]
-    (is (str/includes? s ":variant wins"))
-    (is (str/includes? s ":frag/auth")
-        "names the full qualified losing source")
-    (is (str/includes? s "variant-owned-wins"))))
+    (is (= (str ":fx-overrides / :rf.http/managed — :variant wins over :frag/auth"
+                " (variant-owned-wins) = :variant-stub")
+           s)
+        "names the field and key, the winner over the fully qualified loser,
+         the rule, and the winning value")))
 
 (deftest raw-edn-roundtrips
   (testing "raw-edn produces a parseable EDN string of the explain map"

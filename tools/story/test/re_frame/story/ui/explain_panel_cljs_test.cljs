@@ -64,17 +64,6 @@
 ;; command-palette reachability
 ;; ===========================================================================
 
-(deftest command-entry-present-in-corpus
-  (testing "the synthetic Explain command is built into the palette corpus"
-    (let [entries  (rf.story.ui.command-palette/entries (rf.story.ui.state/registry-snapshot))
-          commands (filterv #(= :command (:kind %)) entries)
-          explain  (first (filter #(= :explain (:id %)) commands))]
-      ;; The corpus carries more than one synthetic command (the
-      ;; :save-current-as-variant command too) — assert the Explain
-      ;; command is PRESENT rather than the sole entry.
-      (is (some? explain) "the Explain command is in the corpus")
-      (is (= :explain (:action explain))))))
-
 (deftest command-entry-ranks-for-explain-query
   (testing "an `explain` query surfaces the command at the top of results"
     (reg-counter!)

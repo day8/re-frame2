@@ -139,24 +139,13 @@
 ;; ---- pure: arg-changed? -------------------------------------------------
 
 #?(:cljs
-   (deftest arg-changed?-true-on-diff
-     (testing "an arg whose effective value differs from its saved value
-               is flagged changed"
-       (is (rf.story.ui.controls/arg-changed? {:a 2} {:a 1} :a)))))
-
-#?(:cljs
-   (deftest arg-changed?-false-on-equal
-     (testing "an arg whose effective value equals its saved value is not
-               flagged changed — even with an override present (same-value
-               override)"
-       (is (not (rf.story.ui.controls/arg-changed? {:a 1} {:a 1} :a))))))
-
-#?(:cljs
-   (deftest arg-changed?-handles-missing-keys
-     (testing "a key absent from saved but present in effective is changed;
-               a key absent from both is not"
-       (is (rf.story.ui.controls/arg-changed? {:a 1} {} :a))
-       (is (not (rf.story.ui.controls/arg-changed? {} {} :a))))))
+   (deftest arg-changed?-compares-effective-against-saved
+     (doseq [[eff saved changed? why]
+             [[{:a 2} {:a 1} true  "the effective value differs from the saved one"]
+              [{:a 1} {:a 1} false "equal values are not changed, even with a same-value override present"]
+              [{:a 1} {}     true  "absent from saved but present in effective"]
+              [{}     {}     false "absent from both"]]]
+       (is (= changed? (rf.story.ui.controls/arg-changed? eff saved :a)) why))))
 
 ;; ---- pure: summarize-value ----------------------------------------------
 
@@ -183,7 +172,7 @@
 ;; ---- CLJS render: summarise-before-expand -------------------------------
 
 #?(:cljs
-   (deftest group-collapsed-by-default-renders-summary-not-children
+   (deftest group-collapsed-by-default-hides-its-children
      (testing "a :group widget is collapsed by default — the disclosure
                header is present + collapsed, and the nested child rows
                are NOT in the tree (summarise-before-expand, spec/019 §4)"
