@@ -52,6 +52,16 @@ project's existing dependencies and aliases. The
 [installation guide](https://github.com/day8/re-frame2/blob/main/docs/xray/01-installation.md#add-the-dev-dependency)
 shows the coordinate and layout together.
 
+**Check the npm side too.** Xray's machine chart imports `@xyflow/react`
+and `elkjs` through `day8/re-frame2-machines-viz`. A Clojure `:local/root`
+dependency does not install those JS packages. Ensure both are in the target
+app's `package.json`, using the reviewed pins from the matching checkout's
+[`implementation/package.json`](https://github.com/day8/re-frame2/blob/main/implementation/package.json),
+and install them through the project's normal npm workflow. Preserve
+compatible existing pins. A missing-module compile error naming either
+package is a dependency failure to fix before browser mount diagnostics;
+`status()` cannot diagnose a preload that never compiled.
+
 Then add the preload namespace to shadow-cljs's `:devtools/preloads`:
 
 ```clojure
