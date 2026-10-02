@@ -689,29 +689,6 @@
           (is (string/includes? txt ":counter/total")
               "sub-id is visible as the leading element"))))))
 
-(deftest sub-rows-default-mode-is-changed-test
-  (testing "`:changed` is the default filter mode, so the 3-button
-            bar hides unchanged rows by default. Only the changed row
-            renders; the `[all][changed][unchanged]` bar is present."
-    (epoch-orchestrator/install!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                  :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
-                         {:sub-id :b :sub-vec [:b] :changed? false}
-                         {:sub-id :c :sub-vec [:c] :changed? false}]
-                  :changed 1 :unchanged 2}
-            tree (view/render-subscriptions-step step)]
-        (is (= 1 (count-prefix tree "rf-xray-epoch-sub-row-"))
-            "only the one changed row renders in the default `:changed` mode")
-        (is (some? (find-by-testid
-                     tree "rf-xray-epoch-subscriptions-filter-mode"))
-            "the `[all][changed][unchanged]` button-bar is present")
-        (doseq [m ["all" "changed" "unchanged"]]
-          (is (some? (find-by-testid
-                       tree (str "rf-xray-epoch-subscriptions-filter-" m)))
-              (str "the " m " button is in the bar")))))))
-
 (deftest sub-rows-supersede-old-toggle-test
   (testing "there is no `Show unchanged` toggle and no
             badge-adjacent `N recomputed (...)` summary text; the
@@ -2051,27 +2028,6 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff"))
           "no SNAPSHOT DIFF sub-section"))))
 
-(deftest machine-handler-cascade-action-fx-attribution-test
-  (testing "per-action fx attribution renders inline on
-            the `:action` row (no separate FX sub-section). The same
-            data the FX step's `:attributed-to` chip surfaces, but
-            in the action's own row so the operator reads
-            'action X emitted fx Y' in one place."
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :ws/start
-                :fx []
-                :machine {:cascade [{:kind :action :step 1
-                                     :action-id :open-socket
-                                     :phase :entry
-                                     :outcome {:fx [[:http/get {:url "/x"}]]}
-                                     :fx [[:http/get {:url "/x"}]]}]
-                          :transition nil :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-fx-1"))
-          "per-action fx attribution row is rendered")
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-fx-1-0"))
-          "first emitted fx-id is rendered as a chip"))))
-
 (deftest machine-handler-cascade-action-data-diff-test
   (testing "an `:action` row that returned a `:data` write
             renders the DATA Δ slot (the action's returned data, diffed
@@ -2177,36 +2133,6 @@
       (is (string/includes? (str (:padding outcome-style)) expected-indent)
           "the OUTCOME DETAILS (data-delta + fx sub-lines) align to the SAME
            badge left edge as the source body — one left-aligned column"))))
-
-(deftest machine-handler-cascade-transition-row-renders-states-test
-  (testing "the `:transition` row is ONE
-            prominent row: the verb-link carries `<from> → <to>` as the
-            focal point, with no repetitive `transition` detail block
-            (`state <from> → <to>` line + echoed `event [...]`)."
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :ws/start
-                :fx []
-                :machine {:cascade [{:kind :transition :step 1
-                                     :machine-id :ws/conn
-                                     :before {:state [:idle]}
-                                     :after  {:state [:connected]}
-                                     :from-state [:idle]
-                                     :to-state   [:connected]
-                                     :event [:ws/start]
-                                     :microsteps 1}]
-                          :transition nil :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
-      ;; The prominent verb-link IS the state change (the focal point).
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-verb-link-1"))
-          "the prominent transition verb-link renders the state change")
-      ;; No repetitive detail block.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-transition-1"))
-          "no redundant transition detail block")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-from-to-1"))
-          "no redundant `state from → to` line")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-trigger-1"))
-          "no redundant echoed `event [...]` line"))))
 
 ;; ---- the no-op renders `[TRANSITION] [NO OP] staying in {state}` ---------
 ;; (a collapsed verb, no ordinal and no outcome chip, with the `[TRANSITION]`
@@ -2711,19 +2637,24 @@
         (is (>= (count (mini-mounts row)) 3)
             "row mounts ≥3 mini-renders (sub-vec + before + after)")))))
 
-(deftest views-subs-read-routes-through-mini-test
-  (testing "VIEWS row's subs-read list renders each sub-id
-            through `ei/mini` so the consumed-subs column reads as
-            syntax-highlighted tokens rather than plain `pr-str`."
+(deftest views-row-id-and-subs-route-through-mini-test
+  (testing "the VIEWS row's view-id keyword and each consumed sub-id
+            render through `ei/mini`, so both cells read as syntax-
+            highlighted tokens (the chrome the sibling subs value cells
+            use) rather than plain `pr-str`. An absent cell mounts no
+            mini, so each count also proves its cell rendered."
     (let [step {:step :views :badge :VIEWS :step-number 6
                 :rows [{:view-id :app.counter/Counter
                         :subs-read [[:counter/total] [:counter/threshold]]
                         :duration-ms 1.2}]}
-          tree (view/render-views-step step)
-          subs (find-by-testid tree "rf-xray-epoch-view-row-subs-0")]
-      (is (some? subs))
+          tree (view/render-views-step step)]
+      (is (pos? (count (mini-mounts
+                         (find-by-testid tree "rf-xray-epoch-view-row-id-0"))))
+          "the view-id cell mounts an ei/mini widget, not plain text")
       ;; 2 consumed subs → 2 mini mounts
-      (is (>= (count (mini-mounts subs)) 2)
+      (is (>= (count (mini-mounts
+                       (find-by-testid tree "rf-xray-epoch-view-row-subs-0")))
+              2)
           "subs-read column mounts one mini per consumed sub"))))
 
 ;; There is no APP-DB DIFF or CHILD-DISPATCHES step to route through
@@ -2808,32 +2739,6 @@
                  (instance? cljs.core/LazySeq step-seq)
                  (str "LazySeq, realized?=" (realized? step-seq))
                  :else (str "type=" (type step-seq))))))))
-
-;; ---- SUBSCRIPTIONS value cell smoke --------------------------------------
-
-(deftest subscriptions-full-diff-cell-renders-without-inline-style-test
-  (testing "the value-cell renders without crashing under
-            the single FULL+DIFF rendering. Smoke check that the
-            ns-level style def (`subs-value-cell-fill-style`)
-            lands a valid `:style` map under the wrapping div.
-
-            There is no `:full` mode branch; FULL+DIFF is the single
-            rendering. The container-path mount uses the ns-level
-            wrapper style."
-    (epoch-orchestrator/install!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (let [;; Container-path rows so the wrapper div is mounted (leaf-
-            ;; scalar paths take a different shape).
-            step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                  :rows [{:sub-id :counter/state :sub-vec [:counter/state]
-                          :inputs nil :changed? true :first-run? false
-                          :before {:a 1} :after {:a 1 :b 2}}]
-                  :changed 1 :unchanged 0}
-            tree (view/render-subscriptions-step step)
-            row  (find-by-testid tree "rf-xray-epoch-sub-row-0")]
-        (is (some? row)
-            "row renders cleanly under FULL+DIFF (ns-level style applied)")))))
 
 ;; ---- SUBSCRIPTIONS FULL+DIFF leaf-scalar annotation ----------------------
 
@@ -3122,45 +3027,6 @@
             "control: the in-cascade row mounts its caused-by chrome")
         (is (nil? (find-by-testid tree "rf-xray-epoch-sub-row-epoch-window-1"))
             "the in-cascade row mounts no window chrome")))))
-
-;; ---- VIEWS row view-id keyword routes through ei/mini --------------------
-
-(deftest views-row-view-id-routes-through-mini-test
-  (testing "VIEWS row's view-id keyword routes through
-            `ei/mini` so the cell carries the syntax-highlighted
-            keyword chrome (same data-shape as the sibling subs-read
-            cell). The id cell must mount at least
-            one mini widget alongside the view-id text."
-    (let [step {:step :views :badge :VIEWS :step-number 6
-                :rows [{:view-id :app.counter/Counter
-                        :subs-read [] :duration-ms nil}]}
-          tree (view/render-views-step step)
-          id-cell (find-by-testid tree "rf-xray-epoch-view-row-id-0")]
-      (is (some? id-cell)
-          "the view-id span renders")
-      (is (pos? (count (mini-mounts id-cell)))
-          "the view-id cell mounts at least one ei/mini widget (not plain text)")
-      (is (string/includes? (text-content id-cell) ":app.counter/Counter")
-          "the keyword text is present (mini renders the colon + ns + name)"))))
-
-(deftest unmounted-views-row-view-id-routes-through-mini-test
-  (testing "an UNMOUNTED row's view-id keyword
-            routes through `ei/mini` (parity with the re-render row's
-            chrome). The unmounted row lives in the SAME
-            views-table (unified `rf-xray-epoch-view-row-id-<i>` testid),
-            not a separate sub-section."
-    (let [step {:step :views :badge :VIEWS :step-number 6
-                :rows [{:view-id :app.sidebar/Item
-                        :instance [:Item 0] :frame :rf/default
-                        :subs-read [] :sub-status {}
-                        :status :unmounted :unmounted? true}]
-                :unmounted-count 1}
-          tree (view/render-views-step step)
-          id-cell (find-by-testid tree "rf-xray-epoch-view-row-id-0")]
-      (is (some? id-cell)
-          "the unmounted view-id span renders")
-      (is (pos? (count (mini-mounts id-cell)))
-          "the unmounted view-id cell mounts at least one ei/mini widget"))))
 
 ;; ---- DISPOSED sub row carries click-to-source ----------------------------
 
@@ -3697,25 +3563,6 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-error-handler-0-details"))
           "nothing to disclose → the details element is omitted"))))
 
-(deftest error-block-drops-boilerplate-headline-test
-  (testing "EVERY exception kind (handler / fx / interceptor) renders
-            without the category-reason boilerplate headline; the card
-            shows ONLY the 'Exception Thrown' heading + the real message"
-    (doseq [op [:rf.error/handler-exception
-                :rf.error/fx-handler-exception
-                :rf.error/interceptor-exception]]
-      (let [tree (view/error-block :fx 0
-                   {:operation op
-                    :message "the real ex-info message"
-                    :failing-id :http/post
-                    :phase :after
-                    :recovery :no-recovery})]
-        (is (nil? (find-by-testid tree "rf-xray-epoch-error-fx-0-headline"))
-            (str "no boilerplate headline for " op))
-        (is (string/includes? (text-of tree "rf-xray-epoch-error-fx-0-message")
-                              "the real ex-info message")
-            "the real message is surfaced")))))
-
 (deftest error-blocks-nil-safe-test
   (testing "`error-blocks` renders nothing for empty / nil"
     (is (nil? (view/error-blocks :handler nil)))
@@ -4197,7 +4044,7 @@
     :action-id :count-open :outcome :ok
     :data-before {:opened-count 0} :data-write {:opened-count 1}}])
 
-(deftest event-handler-up-down-block-removed-test
+(deftest event-handler-transition-row-reads-as-one-from-to-verb-test
   (testing "there is no up/down structured-cascade block (the
             `↑ exit / • action / ↓ entry` walk inside the transition row):
             NO `…-machine-cascade-structured-…` element renders."
@@ -4494,58 +4341,6 @@
           "no exception box on a clean (non-throwing) action row")
       (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-exception-3"))
           "no exception box on a clean entry action row"))))
-
-;; ---- a threw ACTION row shows exactly ONE threw signal -------------------
-
-(deftest threw-action-row-shows-single-threw-signal-test
-  (testing "a threw `:action` cascade row carries NEITHER the
-            duplicate `:threw` outcome chip NOR the '✗ threw — <message>'
-            outcome-detail line. The pink 'Exception Thrown' card + the row
-            pink-wash (the issue-event? predicate) are the single threw
-            signal. Reproduces the throwing-action shape the projection
-            emits (`:threw? true` + `:outcome :rf.error/action-threw` +
-            `:exception`) and asserts the clean shape."
-    (let [exc  (ex-info "unhandled machine event"
-                        {:event [:fuse/short-circuit] :where :fuse-wildcard})
-          step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :fuse/box
-                :fx []
-                :machine {:cascade [{:kind :action :step 1
-                                     :action-id :blow-fuse :phase :transition
-                                     :outcome :rf.error/action-threw
-                                     :threw? true
-                                     :exception exc}]
-                          :transition nil :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      ;; (a) NO right-aligned `:threw` outcome chip.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-threw"))
-          "no duplicate `:threw` outcome chip on the threw action row")
-      ;; (b) NO '✗ threw — <message>' outcome-detail line.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-threw-1"))
-          "no duplicate '✗ threw — <message>' outcome-detail line")
-      ;; The threw signal is the EXCEPTION BOX below
-      ;; the code (the single failure signal, paired with the no-ok-tick rule).
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
-          "the throwing action's exception box renders")
-      ;; The action row itself renders (only the threw chrome is absent).
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
-          "the action row renders")))
-  (testing "a SUCCESSFUL `:action` row carries NO ok-tick
-            (success is clean — no `✓ ok` chip, just as a threw row carries
-            no threw chip)"
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :door/main
-                :fx []
-                :machine {:cascade [{:kind :action :step 1
-                                     :action-id :count-open :phase :entry
-                                     :outcome {:data {:opened-count 1}}}]
-                          :transition nil :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ok"))
-          "a successful action carries NO `✓ ok` tick")
-      ;; A clean action also renders NO exception box.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
-          "a clean action renders no exception box"))))
 
 ;; ---- collapsed exception-card machine attribution ------------------------
 

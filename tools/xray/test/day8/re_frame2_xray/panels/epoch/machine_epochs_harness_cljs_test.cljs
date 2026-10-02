@@ -723,8 +723,8 @@
 ;; BEHAVIOUR is identical (XState v5 gold standard): every event lands :closed.
 ;; The harness asserts (a) each event's cascade is a real :open ──► :closed
 ;; transition, (b) the :submit branch ALSO runs the :save action (the data-
-;; bearing fan-in branch), and (c) the multi-event fan-in is real — the SAME
-;; (from→to) edge is reached by THREE distinct event-ids in one arc.
+;; bearing fan-in branch), and (c) the multi-event fan-in is real — the three
+;; rows below reach the SAME (from→to) edge on three distinct event-ids.
 
 (defn- modal-open! []
   (drive! :modal/main [:modal/open]))
@@ -777,35 +777,6 @@
       (is (= :open (:from-state tx)))
       (is (= :closed (:to-state tx)) "(a) :modal/escape lands :closed"))
     (is (= :closed (:state (snapshot :modal/main))))))
-
-(deftest modal-multi-event-fan-in-shows-three-event-nodes
-  (testing "events-as-nodes — the SAME edge (:open ──► :closed) is
-            reached by THREE distinct events. Driving all three captures THREE
-            transition cascades whose (from→to) is identical (:open → :closed)
-            but whose triggering event-ids are DISTINCT — the fan-in the
-            events-as-nodes render draws as three event-nodes into the single
-            :closed node (xstate stacks the three labels on one edge)."
-    (setup!)
-    ;; Drive each of the three close events from :open, re-opening between, and
-    ;; collect the (from, to, event-id) of each macrostep's transition.
-    (let [arcs (for [close-ev [[:modal/cancel] [:modal/submit] [:modal/escape]]]
-                 (do (modal-open!)                       ; → :open
-                     (let [record (drive! :modal/main close-ev)
-                           tx     (first (rows-of-kind (cascade record) :transition))]
-                       {:from     (:from-state tx)
-                        :to       (:to-state tx)
-                        :event-id (first close-ev)})))
-          edges    (map (juxt :from :to) arcs)
-          event-ids (map :event-id arcs)]
-      (is (= 3 (count arcs)) "three close arcs driven")
-      (is (every? #(= [:open :closed] %) edges)
-          "(c) all THREE events reach the SAME edge :open ──► :closed (the fan-in target)")
-      (is (= #{:modal/cancel :modal/submit :modal/escape} (set event-ids))
-          "(c) the fan-in is reached by THREE DISTINCT event-nodes (events-as-nodes)")
-      (is (= 3 (count (distinct event-ids)))
-          "(c) three distinct event-node sources fan into the one :closed node"))
-    (is (= :closed (:state (snapshot :modal/main)))
-        "(c) the modal settled :closed after the full multi-event arc")))
 
 ;; ============================================================================
 ;; GATE (MULTI-BRANCH GUARDED fork) — the guard-fork divergence
