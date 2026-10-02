@@ -148,10 +148,9 @@
 
         ;; --- tooth 1 (cont.): re-ensuring B does not replay the seed ---
         (rf/make-frame {:id a-id :initial-events [[:trace.neutral/seed]]})
-        (is (= 1 (:seed-count (rf/app-db-value a-id)))
-            "re-ensuring the LIVE B re-records but does NOT replay :initial-events")
         (is (= {:seeded :ok :seed-count 1} (rf/app-db-value a-id))
-            "B's db is unchanged by the re-ensure")
+            "re-ensuring the LIVE B re-records but does NOT replay :initial-events,
+             so B's db is unchanged")
         (finally
           (rf.trace.tooling/unregister-listener! ::destroyer)
           (rf.trace.tooling/unregister-listener! ::later-a))))))

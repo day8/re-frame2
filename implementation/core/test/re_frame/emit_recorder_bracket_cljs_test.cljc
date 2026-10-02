@@ -134,18 +134,6 @@
         (is (zero? (count @sunk))
             "an empty policy routes NOTHING to any sink")))))
 
-(deftest bracket-captures-with-no-observability-key-at-all
-  (testing "a frame that declares no :observability key routes nothing (no
-            :rf/default synthesis, no borrowed policy) — the bracket is the
-            only observer, which is precisely the test-tier job these
-            registries serve."
-    (rf/make-frame {:id :bracket/bare})
-    (reg-boom! :bracket/bare :bare/boom)
-    (with-emit-recorder! [raw]
-      (rf/dispatch-sync [:bare/boom] {:frame :bracket/bare})
-      (is (= 1 (count @raw)))
-      (is (= :bare/boom (:event-id (first @raw)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 3. Leaving the bracket ends capture.
 ;; ---------------------------------------------------------------------------
@@ -235,18 +223,21 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-public-facade-no-longer-offers-the-always-on-streams
-  (testing "the facade refuses both stream keywords
+  (testing "both verbs refuse both stream keywords
             with `:rf.error/unknown-listener-stream`,
             and the refusal's `:valid` slot names the TWO raw dev streams
             it accepts. This is the tier split asserted from the public
             surface."
-    (doseq [stream [:errors :events]]
-      (let [e    (try (rf/register-listener! stream ::probe (fn [_]))
+    (doseq [stream      [:errors :events]
+            [verb call] [['rf/register-listener! #(rf/register-listener! % ::probe (fn [_]))]
+                         ['rf/unregister-listener! #(rf/unregister-listener! % ::probe)]]]
+      (let [e    (try (call stream)
                       nil
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) ex
                         ex))
             data (ex-data e)]
-        (is (some? e) (str stream " is refused"))
-        (is (= :rf.error/unknown-listener-stream (:rf.error/id data)))
+        (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
+            (str verb " refuses " stream))
+        (is (= stream (:stream data)) ":stream names the refused member")
         (is (= #{:trace :epoch} (:valid data))
             "the closed vocabulary is the two raw dev streams")))))

@@ -11,8 +11,9 @@
     1. `:register` returns the id and the listener is reachable.
     2. `:unregister` drops a single listener; siblings unaffected.
     3. `:clear` drops every listener.
-    4. `:fan-out` invokes every listener with the record argument, and
-       over an emptied registry (after `:clear`) is a quiet no-op.
+    4. `:fan-out` hands each listener the record (`register-installs-listener`)
+       and walks every listener (`fan-out-listener-exception-isolated`); over
+       an emptied registry (after `:clear`) it is a quiet no-op.
     5. Listener exceptions are caught — the cascade continues, sibling
        listeners still fire, and `:fan-out` returns nil.
     6. An externally-held `:listeners` atom is used as the backing
@@ -58,17 +59,6 @@
       (is (= {} @listeners) ":clear empties the listener atom")
       (fan-out {})
       (is (zero? @seen) "no listener fired after :clear"))))
-
-(deftest fan-out-invokes-every-listener-with-record
-  (testing ":fan-out walks every registered listener with the record argument"
-    (let [{:keys [register fan-out]} (fresh-registry)
-          captured (atom [])]
-      (register :one (fn [r] (swap! captured conj [:one r])))
-      (register :two (fn [r] (swap! captured conj [:two r])))
-      (fan-out {:k :v})
-      (is (= 2 (count @captured)) "both listeners fired")
-      (is (every? #(= {:k :v} (second %)) @captured)
-          "each listener saw the same record"))))
 
 (deftest fan-out-listener-exception-isolated
   (testing "a buggy listener throws — the cascade continues; siblings still fire"
