@@ -35,9 +35,11 @@
   pins. Reading the map off the `:rf.event/dispatched` trace is one way to see
   it, and the one that disappears under `-Dre-frame.debug=false`.
 
-  So the three CONTENT claims — the framework stamps `:rf/time-ms`, a
-  caller-supplied map rides verbatim, a map missing `:rf/time-ms` has it filled
-  — are read off the envelope and hold in both postures. What sits
+  So the two CONTENT claims — the framework stamps `:rf/time-ms`, and a
+  caller-supplied map rides verbatim — are read off the envelope and hold
+  in both postures (filling a missing `:rf/time-ms` into a supplied map is
+  `cofx-envelope-test/preserves-caller-supplied-extra-keys-and-fills-time-ms`'s
+  claim). What sits
   inside the `(when rf.interop/debug-enabled? ...)` arms is the narrower claim the
   trace owns: that the slot is STAMPED on `:rf.event/dispatched`, under
   `:tags` rather than at top level, which is what the Xray Event lens reads."
@@ -105,16 +107,10 @@
           rf-cofx    (get-in enqueue [:tags :rf.cofx])
           env-cofx   (:rf.cofx (:noop @envelopes))]
       ;; ---- ALWAYS-ON: the causal token on the envelope -------------------
-      (is (map? env-cofx) ":rf.cofx is a map on the dispatch envelope")
-      (is (contains? env-cofx :rf/time-ms)
-          "the recordable-coeffect map carries the framework-stamped :rf/time-ms")
       (is (integer? (:rf/time-ms env-cofx))
           ":rf/time-ms is an epoch-ms integer")
       ;; ---- dev arm: the STAMP onto the trace -----------------------------
       (when rf.interop/debug-enabled?
-        (is (some? enqueue) ":rf.event/dispatched fired")
-        (is (contains? (:tags enqueue) :rf.cofx)
-            ":rf.cofx is stamped on the dispatched trace")
         ;; Co-located with the other op-type-specific payload slots under
         ;; :tags — build-event hoists only :source to top level, so the Event
         ;; lens reads the map off (get-in event [:tags :rf.cofx]).
@@ -122,9 +118,6 @@
             ":rf.cofx is NOT a top-level slot (only :source is hoisted)")
         (is (contains? (:tags enqueue) :rf.event/v)
             ":rf.event/v also rides under :tags — same placement")
-        (is (map? rf-cofx) ":rf.cofx is a map")
-        (is (contains? rf-cofx :rf/time-ms)
-            "the recordable-coeffect map carries the framework-stamped :rf/time-ms")
         (is (integer? (:rf/time-ms rf-cofx))
             ":rf/time-ms is an epoch-ms integer")))))
 
@@ -148,31 +141,6 @@
           "the caller-supplied causal :rf.cofx map rides the envelope verbatim")
       ;; ---- dev arm ------------------------------------------------------
       (when rf.interop/debug-enabled?
-        (is (some? enqueue) ":rf.event/dispatched fired")
         (is (= scripted (get-in enqueue [:tags :rf.cofx]))
             "the caller-supplied causal :rf.cofx map is stamped verbatim")))))
 
-(deftest dispatched-trace-fills-missing-time-ms-from-supplied-map
-  (testing "a caller-supplied map WITHOUT :rf/time-ms has it filled by the router;
-   the dispatched trace reflects the filled-and-preserved map"
-    (register-probe!)
-    (rf/reg-event :rf2-jt854w/fill
-      (fn [{:keys [db]} _] {:db db :fx [[:rf2-jt854w/probe [:fill]]]}))
-    (let [evs        (record-traces
-                       (fn []
-                         (rf/dispatch-sync [:rf2-jt854w/fill]
-                                           {:rf.cofx {:todo/score 0.99}})))
-          [enqueue]  (dispatched-of evs)
-          rf-cofx    (get-in enqueue [:tags :rf.cofx])
-          env-cofx   (:rf.cofx (:fill @envelopes))]
-      ;; ---- ALWAYS-ON: the FILL happens at the causal boundary, not at the
-      ;;      trace-stamping site — which is the whole point of the claim.
-      (is (= 0.99 (:todo/score env-cofx)) "caller-supplied fact preserved")
-      (is (integer? (:rf/time-ms env-cofx))
-          ":rf/time-ms filled by the router at the causal boundary")
-      ;; ---- dev arm ------------------------------------------------------
-      (when rf.interop/debug-enabled?
-        (is (some? enqueue) ":rf.event/dispatched fired")
-        (is (= 0.99 (:todo/score rf-cofx)) "caller-supplied fact preserved")
-        (is (integer? (:rf/time-ms rf-cofx))
-            ":rf/time-ms filled by the router at the causal boundary")))))

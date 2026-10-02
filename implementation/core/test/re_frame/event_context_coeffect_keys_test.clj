@@ -73,8 +73,6 @@
       (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source}
              (set (keys cofx)))
           "the coeffect key set is exactly the framework defaults — no bare :frame")
-      (is (not (contains? cofx :frame))
-          "the bare :frame coeffect is absent (one carrier, one name)")
       (is (= :ck/exact (:rf.frame/id cofx))
           ":rf.frame/id carries the running frame's id")
       (is (number? (get-in cofx [:rf.cofx :rf/time-ms]))
@@ -86,9 +84,7 @@
     (let [cofx (capture-coeffects :ck/traced {:trace-id "tid-1"})]
       (is (= #{:db :event :rf.db/runtime :rf.frame/id :rf.cofx :rf.cofx/mint-policy :source :trace-id}
              (set (keys cofx)))
-          ":trace-id appears when threaded; :frame still does not")
-      (is (not (contains? cofx :frame))
-          ":frame is absent regardless of envelope keys"))))
+          ":trace-id appears when threaded; :frame still does not"))))
 
 (deftest user-injected-cofx-do-not-mask-the-absence-of-frame
   (testing "a declared cofx adds its own key but :frame stays absent"
@@ -103,8 +99,6 @@
         (fn [_ _] {}))
       (rf/dispatch-sync [:capture] {:frame :ck/user})
       (let [cofx @captured]
-        (is (contains? cofx :ck/now)
-            "the user-injected coeffect is present")
         (is (= 42 (:ck/now cofx)))
         (is (not (contains? cofx :frame))
             "user cofx do not bring in a bare :frame coeffect")
@@ -117,14 +111,6 @@
 
 (deftest framework-coeffect-keys-excludes-frame
   (testing "rf.fx/framework-coeffect-keys does not codify a bare :frame duplicate"
-    (is (not (contains? rf.fx/framework-coeffect-keys :frame))
-        ":frame is not a framework coeffect key (:rf.frame/id is the one carrier)")
-    (is (contains? rf.fx/framework-coeffect-keys :rf.frame/id)
-        ":rf.frame/id is the frame-stamp coeffect key")
-    (is (contains? rf.fx/framework-coeffect-keys :rf.cofx)
-        ":rf.cofx is a framework coeffect key (EP-0010)")
-    (is (contains? rf.fx/framework-coeffect-keys :rf.cofx/mint-policy)
-        ":rf.cofx/mint-policy is a framework coeffect key")
     (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
              :rf.cofx/mint-policy}
            rf.fx/framework-coeffect-keys)

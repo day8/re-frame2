@@ -5,14 +5,17 @@
   Pins the event-CONTEXT contract:
 
     1. The `:db` coeffect means app-db (NOT the whole frame).
-    2. `:rf.db/runtime` + `:rf.frame/id` are present in the event context
-       (per Spec 002 §Event context threads both partitions). `:rf.db/runtime`
-       reads the frame's runtime-db partition (`{}` on a fresh frame).
+    2. `:rf.db/runtime` is present in the event context (per Spec 002
+       §Event context threads both partitions) and reads the frame's
+       runtime-db partition (`{}` on a fresh frame). The `:rf.frame/id`
+       stamp and the exact coeffect key set are
+       `re-frame.event-context-coeffect-keys-test`'s.
     3. The closed effect-map admits `:rf.db/runtime` (per
        Spec-Schemas §:rf/effect-map, whose closed set is SEVEN keys — `:db`,
        `:rf.db/runtime`, `:fx` and the four EP-0025 commit-plane
        classification effects): a `:rf.db/runtime` effect is NOT a shape
-       error, while a foreign top-level key is.
+       error, while a foreign top-level key is (a handler's own return in
+       `re-frame.fx-test`, an interceptor's in the deftests below).
     4. `:rf.warning/app-handler-runtime-effect` fires when an ORDINARY app
        handler returns a `:rf.db/runtime` effect, and DOES NOT fire for a
        framework-authority handler (`:rf/machine? true`) — reserved BY
@@ -119,14 +122,10 @@
         (is (= {:user/id 42} (:db cofx))
             ":db is the plain app-db map")
         (is (= (rf/app-db-value :ctx/db-is-app-db) (:db cofx))
-            ":db equals app-db-value (NOT the {:rf.db/app … :rf.db/runtime …} frame-state)")
-        (is (not (contains? (:db cofx) :rf.db/app))
-            ":db is NOT the frame-state projection")
-        (is (not (contains? (:db cofx) :rf.db/runtime))
-            ":db carries no runtime partition")))))
+            ":db equals app-db-value (NOT the {:rf.db/app … :rf.db/runtime …} frame-state)")))))
 
-(deftest runtime-and-frame-id-coeffects-present
-  (testing ":rf.db/runtime and :rf.frame/id are threaded into the event context"
+(deftest runtime-db-coeffect-reads-the-runtime-partition
+  (testing ":rf.db/runtime is threaded into the event context and reads the frame's runtime-db partition"
     (rf/make-frame {:id :ctx/partitions :doc "ctx"})
     (let [captured (atom nil)]
       (rf/reg-interceptor :ctx/capture-probe
@@ -136,20 +135,10 @@
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/capture] {:frame :ctx/partitions})
       (let [cofx @captured]
-        (is (contains? cofx :rf.db/runtime)
-            ":rf.db/runtime coeffect is present (runtime-db partition)")
         (is (= {} (:rf.db/runtime cofx))
             ":rf.db/runtime reads the real (fresh {}) runtime-db partition")
         (is (= (:rf.db/runtime (rf/frame-state-value :ctx/partitions)) (:rf.db/runtime cofx))
-            ":rf.db/runtime coeffect equals runtime-db-value")
-        (is (= :ctx/partitions (:rf.frame/id cofx))
-            ":rf.frame/id is the running frame's id (runtime-context spelling)")
-        ;; There is no bare `:frame` coeffect. The frame stamp travels under
-        ;; `:rf.frame/id` only in the event context; `:frame` exists solely
-        ;; as the public dispatch/subscribe opt + the dispatch envelope key
-        ;; (per Spec 002 §Event context).
-        (is (not (contains? cofx :frame))
-            "the bare :frame coeffect is not injected (one carrier, one name)")))))
+            ":rf.db/runtime coeffect equals runtime-db-value")))))
 
 ;; ===========================================================================
 ;; 3 — the effect-map admits :rf.db/runtime (inside the closed set, which is
@@ -186,27 +175,6 @@
         (is (empty? (error-events recorded :rf.error/handler-exception))
             "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")))))
 
-(deftest foreign-top-level-key-refuses-the-event
-  (testing "a foreign top-level key (legacy :http) refuses the event"
-    (rf/make-frame {:id :ctx/foreign-fx :doc "ctx"})
-    (let [recorded (record-traces! ::foreign-err)]
-      (rf/reg-event :ctx/foreign
-        (fn [_ _] {:db {:ok? true} :http {:url "/api"}}))
-      (rf/dispatch-sync [:ctx/foreign] {:frame :ctx/foreign-fx})
-      ;; ALWAYS-ON: the REFUSAL is production behaviour — the event aborts
-      ;; pre-commit, so the legal `:db` does NOT land either. Only the
-      ;; diagnostic that narrates it is dev-only. Committing the `:db` while
-      ;; `:http` vanished would be a partial-success disguise.
-      (is (nil? (:ok? (rf/app-db-value :ctx/foreign-fx)))
-          "no partial commit — the legal :db did NOT land alongside the refusal")
-      (when rf.interop/debug-enabled?
-        (let [errs (error-events recorded :rf.error/effect-map-shape)]
-          (is (= 1 (count errs))
-              "exactly one shape error for the foreign :http key")
-          (is (= :http (:offending-key (:tags (first errs))))
-              "the offending key is :http")
-          (is (= :fix-effect (:recovery (first errs)))))))))
-
 ;; ===========================================================================
 ;; 4 — :rf.warning/app-handler-runtime-effect diagnostic
 ;; ===========================================================================
@@ -234,7 +202,6 @@
             (is (= [:ctx/app-emits-runtime] (:rf.event/v t)))
             (is (= :ctx/app-runtime (:frame t))
                 ":frame tag is the running frame (read from the :rf.frame/id coeffect)")
-            (is (string? (:reason t)))
             (is (re-find #"rf\.db/runtime" (:reason t))))
           (is (= :warned (:recovery (first warns)))
               "recovery is :warned — convention, not enforcement"))))))
@@ -262,8 +229,6 @@
                      [:some/event])
                    ::no-throw
                    (catch clojure.lang.ExceptionInfo e e))]
-      (is (instance? clojure.lang.ExceptionInfo thrown)
-          "reject-legacy-runtime-root! throws on a stray :rf/runtime root")
       (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data thrown)))
           "ex-data carries :rf.error/id :rf.error/legacy-runtime-root")
       (is (= :some/event (:event-id (ex-data thrown)))

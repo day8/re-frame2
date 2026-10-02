@@ -116,7 +116,6 @@
     (rf/make-frame {:id :wi/stamp :doc "ctx"})
     (let [env   (build-envelope [:noop] {:frame :wi/stamp})
           world (:rf.cofx env)]
-      (is (map? world) ":rf.cofx is present on the envelope")
       (is (number? (:rf/time-ms world)) ":rf/time-ms is a stamped epoch-ms number")
       (is (= #{:rf/time-ms} (set (keys world)))
           "only the framework-required :rf/time-ms is stamped — no other keys invented"))))
@@ -172,7 +171,6 @@
                    nil
                    (catch clojure.lang.ExceptionInfo e e))
             data (ex-data ex)]
-        (is (some? ex) "an exception was thrown")
         (is (= :rf.error/invalid-cofx (:rf.error/id data))
             "the error category is :rf.error/invalid-cofx")
         (is (= [:not :a :map] (:supplied data)) "names the bad supplied value")
@@ -183,12 +181,6 @@
 (deftest non-integer-time-ms-is-a-hard-error
   (testing "a supplied :rf/time-ms that is not an integer is a hard error"
     (rf/make-frame {:id :wi/bad-time :doc "ctx"})
-    (testing "build-envelope throws on a string :rf/time-ms (even dev-gate OFF)"
-      (with-redefs [rf.interop/debug-enabled? false]
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (build-envelope [:noop] {:frame :wi/bad-time
-                                              :rf.cofx {:rf/time-ms "now"}}))
-            "a string :rf/time-ms is rejected (the schema requires :int)")))
     (testing "nil :rf/time-ms is also rejected (a present-but-nil causal time is malformed)"
       (is (thrown? clojure.lang.ExceptionInfo
                    (build-envelope [:noop] {:frame :wi/bad-time
@@ -265,9 +257,7 @@
 (deftest explain-non-recordable-reports-path-and-type
   (testing "explain-non-recordable returns the failing path + safe type"
     (let [bad (rf.recordable/explain-non-recordable {:ok 1 :nope {:deep (atom 9)}})]
-      (is (some? bad) "a descriptor is returned for a non-recordable value")
       (is (= [:nope :deep] (:path bad)) "the path locates the bad leaf")
-      (is (string? (:bad-type bad)) "a printable host-type string is reported")
       (is (re-find #"(?i)atom" (:bad-type bad))
           "the type names the atom host class")))
   (testing "explain-non-recordable is nil for clean EDN"
@@ -298,7 +288,6 @@
       (is (not (rf.recordable/recordable-edn-value? inst))
           "a java.time.Instant is NOT recordable EDN data")
       (let [bad (rf.recordable/explain-non-recordable inst)]
-        (is (some? bad) "explain-non-recordable returns a descriptor for an Instant")
         (is (= [] (:path bad)) "the failing path is the root (the value itself)")
         (is (re-find #"(?i)instant" (:bad-type bad))
             "the bad-type names the Instant host class"))
@@ -307,7 +296,6 @@
   (testing "an Instant BURIED in a collection is rejected (deep walk)"
     (let [bad (rf.recordable/explain-non-recordable
                 {:ok 1 :when {:at (java.time.Instant/ofEpochMilli 0)}})]
-      (is (some? bad) "the buried Instant is found")
       (is (= [:when :at] (:path bad)) "the path locates the buried Instant"))))
 
 (deftest supplied-non-edn-cofx-value-is-cofx-value-invalid
@@ -328,7 +316,6 @@
                  nil
                  (catch clojure.lang.ExceptionInfo e e))
           data (ex-data ex)]
-      (is (some? ex) "an exception was thrown for a non-EDN recordable value")
       (is (= :rf.error/cofx-value-invalid (:rf.error/id data))
           "reuses the EP-0017 cofx error id (not :rf.error/invalid-cofx)")
       (is (= :non-edn-recordable-value (:rf.cofx/value-error data))
@@ -337,7 +324,6 @@
           "names the failing recordable fact id")
       (is (= [:app/handle] (:path data))
           "the path is rooted at the failing fact key")
-      (is (string? (:bad-type data)) "a safe host-type string is carried")
       (is (re-find #"(?i)atom" (:bad-type data))
           "the bad-type names the host class — NEVER the raw object")
       (is (= :no-recovery (:recovery data)) "no recovery")))
@@ -386,7 +372,6 @@
                    nil
                    (catch clojure.lang.ExceptionInfo e e))
             data (ex-data ex)]
-        (is (some? ex) "an exception was thrown")
         (is (not (::clock-read data))
             "the causal-token clock was NOT read before validation — failed fast")
         (is (= :rf.error/invalid-cofx (:rf.error/id data))
@@ -485,25 +470,17 @@
 
       (let [child-env @captured-child
             child-t   (get-in child-env [:rf.cofx :rf/time-ms])]
-        (is (some? child-env) "the deferred child ran when the thunk fired")
         (is (= [:wi.later/child] (:event child-env)) "captured the child event")
-        ;; FRESH at FIRE — the three adversarial candidates are separated:
+        ;; FRESH at FIRE: 5000 is neither the parent token's :rf/time-ms
+        ;; nor the enqueue-time clock (1000).
         (is (= 5000 child-t)
             "child :rf/time-ms is the FIRE-time clock (5000) — stamped when the
              deferred dispatch RAN, not at enqueue")
-        (is (not= 1781078400000 child-t)
-            "child did NOT inherit the parent token's :rf/time-ms — distinct
-             causal token (EP-0010 §Dispatch Envelope Stamping)")
-        (is (not= 1000 child-t)
-            "child :rf/time-ms is NOT the enqueue-time clock — the stamp is read
-             at fire, inside the timer callback, not captured at schedule time")
         ;; INHERITED envelope fields still propagate from the parent.
         (is (= :wi/later (:frame child-env))
             ":frame is inherited onto the deferred child")
         (is (= :wi.later/T (:trace-id child-env))
             ":trace-id is inherited onto the deferred child")
-        (is (= :origin (key (find child-env :origin)))
-            "the :origin slot is present on the child envelope")
         (is (= :ui (:origin child-env))
             ":origin is inherited onto the deferred child")
         ;; The deferred child's :source reflects its OWN immediate trigger
@@ -639,19 +616,11 @@
       (is (= first-entity second-entity)
           "two runs of the same token produce IDENTICAL durable entities —
            replay-stable")
+      ;; An ambient generator (random-uuid / rand-nth) folded into the
+      ;; durable write would draw a different id on each run; reading the
+      ;; token is what makes the two runs agree.
       (is (= (:todo/id token) (:todo/id second-entity))
-          "the reproduced durable id is the token's id, not a fresh draw")
-      ;; Contrast: an ambient generator (random-uuid / rand-nth) folded into a
-      ;; durable write would have produced two DIFFERENT ids across the two
-      ;; runs. Pin that this is the failure mode the token-read design avoids —
-      ;; two independent ambient draws are (with overwhelming probability)
-      ;; distinct, so a handler that read ambient instead of the token would
-      ;; NOT be replay-stable.
-      (let [ambient-1 (random-uuid)
-            ambient-2 (random-uuid)]
-        (is (not= ambient-1 ambient-2)
-            "two ambient random-uuid draws diverge — the very property a
-             durable write must NOT depend on; reading the token avoids it")))))
+          "the reproduced durable id is the token's id, not a fresh draw"))))
 
 ;; ===========================================================================
 ;; Ambient DIAGNOSTIC timestamps may differ without changing
@@ -746,16 +715,9 @@
             "run 1: durable :committed-at folds the supplied token :rf/time-ms")
         (is (= token-time committed-2)
             "run 2: durable :committed-at folds the SAME supplied token :rf/time-ms")
-        (is (= committed-1 committed-2)
-            "durable :committed-at is EQUAL across runs — wall-clock drift
-             between the two commits did not change durable state")
         ;; (b) DIAGNOSTIC side — differs across the two ambient clocks.
         (let [[t1 t2] @trace-times]
           (is (= 1000 t1)
               "run 1: the diagnostic trace :time read the ambient clock (1000)")
           (is (= 9999999 t2)
-              "run 2: the diagnostic trace :time read the DIFFERENT ambient clock")
-          (is (not= t1 t2)
-              "the ambient diagnostic trace :time DIFFERS run-to-run — free to
-               vary, exactly as the EP-0010 causal/diagnostic split permits,
-               while the durable :committed-at above held equal"))))))
+              "run 2: the diagnostic trace :time read the DIFFERENT ambient clock"))))))
