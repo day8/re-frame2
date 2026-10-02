@@ -5,45 +5,28 @@
   - Priority tiers (data-test > id > aria-label > nth-of-type).
   - Attribute-value escaping (backslash + double-quote).
   - Nth-of-type fallback geometry."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.recorder.selector :as rf.story.recorder.selector]))
 
 ;; ---- priority tiers ------------------------------------------------------
 
-(deftest data-test-wins
-  (testing "data-test attribute beats id / aria-label / nth-of-type"
-    (is (= "[data-test=\"submit-btn\"]"
-           (rf.story.recorder.selector/pick-selector
-             {:tag "button"
-              :attrs {"data-test"  "submit-btn"
-                      "id"         "btn-1"
-                      "aria-label" "Submit"}
-              :index-of-type 3})))))
+(deftest pick-selector-walks-the-priority-tiers
+  (testing "data-test > id > aria-label > nth-of-type: each tier wins once
+            every tier above it is absent, and the fallback lower-cases the tag"
+    (are [shape selector] (= selector (rf.story.recorder.selector/pick-selector shape))
+      {:tag "button"
+       :attrs {"data-test" "submit-btn" "id" "btn-1" "aria-label" "Submit"}
+       :index-of-type 3}
+      "[data-test=\"submit-btn\"]"
 
-(deftest id-when-no-data-test
-  (testing "id wins when data-test is absent"
-    (is (= "[id=\"counter-input\"]"
-           (rf.story.recorder.selector/pick-selector
-             {:tag "input"
-              :attrs {"id"         "counter-input"
-                      "aria-label" "Counter"}
-              :index-of-type 2})))))
+      {:tag "input" :attrs {"id" "counter-input" "aria-label" "Counter"} :index-of-type 2}
+      "[id=\"counter-input\"]"
 
-(deftest aria-label-when-no-data-test-or-id
-  (testing "aria-label wins when data-test and id are absent"
-    (is (= "[aria-label=\"Close dialog\"]"
-           (rf.story.recorder.selector/pick-selector
-             {:tag "button"
-              :attrs {"aria-label" "Close dialog"}
-              :index-of-type 1})))))
+      {:tag "button" :attrs {"aria-label" "Close dialog"} :index-of-type 1}
+      "[aria-label=\"Close dialog\"]"
 
-(deftest nth-of-type-fallback
-  (testing "nth-of-type fires when no attribute matches"
-    (is (= "button:nth-of-type(3)"
-           (rf.story.recorder.selector/pick-selector
-             {:tag "BUTTON"
-              :attrs {}
-              :index-of-type 3})))))
+      {:tag "BUTTON" :attrs {} :index-of-type 3}
+      "button:nth-of-type(3)")))
 
 (deftest positional-recognises-the-fallback-only
   (testing "`positional?` is true of exactly what the
@@ -88,16 +71,8 @@
 
 ;; ---- escaping ------------------------------------------------------------
 
-(deftest escapes-double-quotes
-  (testing "double-quote inside value is escaped"
-    (is (= "[id=\"he said \\\"hi\\\"\"]"
-           (rf.story.recorder.selector/pick-selector
-             {:tag "div"
-              :attrs {"id" "he said \"hi\""}})))))
-
-(deftest escapes-backslashes
-  (testing "backslash inside value is escaped"
-    (is (= "[id=\"a\\\\b\"]"
-           (rf.story.recorder.selector/pick-selector
-             {:tag "div"
-              :attrs {"id" "a\\b"}})))))
+(deftest attribute-values-escape-quotes-and-backslashes
+  (are [id selector] (= selector (rf.story.recorder.selector/pick-selector
+                                   {:tag "div" :attrs {"id" id}}))
+    "he said \"hi\"" "[id=\"he said \\\"hi\\\"\"]"
+    "a\\b"           "[id=\"a\\\\b\"]"))

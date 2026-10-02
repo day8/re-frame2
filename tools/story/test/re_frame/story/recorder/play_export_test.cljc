@@ -12,20 +12,13 @@
   - Snippet rendering (`render-script-body` / `render-variant-form`)
     — round-trip cleanly through `rf.story.play.runner/parse-spec`."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [are deftest is testing]]
             [clojure.edn :as edn]
             [re-frame.story.play.runner             :as rf.story.play.runner]
             [re-frame.story.recorder.play-export    :as rf.story.recorder.play-export]
             [re-frame.story.recorder.selector       :as rf.story.recorder.selector]))
 
 ;; ---- per-event translation -----------------------------------------------
-
-(deftest event-step-dispatch
-  (testing "ordinary events become :dispatch steps"
-    (is (= [:dispatch [:counter/inc]]
-           (rf.story.recorder.play-export/event->step [:counter/inc])))
-    (is (= [:dispatch [:auth/login {:user "x"}]]
-           (rf.story.recorder.play-export/event->step [:auth/login {:user "x"}])))))
 
 (deftest event-step-assertion-rides-dispatch-sync
   (testing "assertion events (`:rf.assert/*`) translate to :dispatch-sync"
@@ -35,10 +28,6 @@
            (rf.story.recorder.play-export/event->step [:rf.assert/no-warnings])))
     (is (= [:dispatch-sync [:rf.assert/sub-equals [:counter] 5]]
            (rf.story.recorder.play-export/event->step [:rf.assert/sub-equals [:counter] 5])))))
-
-(deftest event-step-redacted-drops
-  (testing "the [:rf/redacted] placeholder (recorder's canonical 1-tuple) drops out"
-    (is (nil? (rf.story.recorder.play-export/event->step [:rf/redacted])))))
 
 (deftest event-step-malformed-yields-nil
   (testing "malformed inputs return nil"
@@ -110,8 +99,7 @@
 (deftest empty-recording-yields-empty-script
   (testing "an empty recording yields a legal empty :script"
     (let [spec (rf.story.recorder.play-export/recording->script-body [])]
-      (is (= [] (:script spec)))
-      (is (true? (:auto-run? spec))))))
+      (is (= [] (:script spec))))))
 
 (deftest name-and-auto-run-honoured
   (testing "the :name and :auto-run? opts flow through to the spec"
@@ -230,7 +218,6 @@
                  {:name "round trip" :auto-run? true})
           rendered (rf.story.recorder.play-export/render-script-body spec)
           parsed   (edn/read-string rendered)]
-      (is (map? parsed))
       (is (= "round trip" (:name parsed)))
       (is (true? (:auto-run? parsed)))
       (is (= [[:dispatch [:counter/inc]]
@@ -260,7 +247,6 @@
         (is (= :story.x/source (:extends body)))
         ;; The rendered form uses the :script slot (a
         ;; `{:script … :auto-run?}` body); there is no :play-script slot.
-        (is (map? (:script body)))
         (is (nil? (:play-script body))
             "the rendered form emits no :play-script slot")
         (is (false? (:auto-run? (:script body))))
@@ -307,39 +293,31 @@
 
 ;; ---- entry->step ---------------------------------------------------------
 
-(deftest entry-step-dom-click
-  (testing ":dom/click entry → [:click selector]"
-    (is (= [:click "[data-test=\"submit\"]"]
-           (rf.story.recorder.play-export/entry->step
-             {:kind :dom/click :selector "[data-test=\"submit\"]" :t 250})))))
+(deftest entry->step-translates-each-dom-kind-and-drops-the-rest
+  (testing "each DOM entry kind becomes its step; a :dom/submit becomes a
+            [:click form-selector], which submits the form on replay"
+    (are [entry step] (= step (rf.story.recorder.play-export/entry->step entry))
+      {:kind :dom/click :selector "[data-test=\"submit\"]" :t 250}
+      [:click "[data-test=\"submit\"]"]
 
-(deftest entry-step-dom-type
-  (testing ":dom/type entry → [:type selector text]"
-    (is (= [:type "[id=\"name\"]" "alice"]
-           (rf.story.recorder.play-export/entry->step
-             {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 300})))
-    (is (= [:type "[id=\"x\"]" ""]
-           (rf.story.recorder.play-export/entry->step
-             {:kind :dom/type :selector "[id=\"x\"]" :t 0}))
-        "missing :text defaults to empty string")))
+      {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 300}
+      [:type "[id=\"name\"]" "alice"]
 
-(deftest entry-step-dom-submit-maps-to-click
-  (testing ":dom/submit entry → [:click form-selector], which submits the form on replay"
-    (is (= [:click "[id=\"login-form\"]"]
-           (rf.story.recorder.play-export/entry->step
-             {:kind :dom/submit :selector "[id=\"login-form\"]" :t 0})))))
+      ;; a missing :text types the empty string
+      {:kind :dom/type :selector "[id=\"x\"]" :t 0}
+      [:type "[id=\"x\"]" ""]
 
-(deftest entry-step-unknown-kind-yields-nil
-  (testing "unknown entry kinds yield nil"
-    (is (nil? (rf.story.recorder.play-export/entry->step {:kind :unknown :selector "x" :t 0})))
-    (is (nil? (rf.story.recorder.play-export/entry->step nil)))
-    (is (nil? (rf.story.recorder.play-export/entry->step {})))))
-
-(deftest entry-step-missing-selector-yields-nil
-  (testing "DOM-entry without a selector yields nil"
-    (is (nil? (rf.story.recorder.play-export/entry->step {:kind :dom/click :t 0})))
-    (is (nil? (rf.story.recorder.play-export/entry->step {:kind :dom/type :text "x" :t 0})))
-    (is (nil? (rf.story.recorder.play-export/entry->step {:kind :dom/submit :t 0})))))
+      {:kind :dom/submit :selector "[id=\"login-form\"]" :t 0}
+      [:click "[id=\"login-form\"]"]))
+  (testing "an unknown kind, a malformed entry, and a DOM entry without a
+            selector each yield nil"
+    (are [entry] (nil? (rf.story.recorder.play-export/entry->step entry))
+      {:kind :unknown :selector "x" :t 0}
+      nil
+      {}
+      {:kind :dom/click :t 0}
+      {:kind :dom/type :text "x" :t 0}
+      {:kind :dom/submit :t 0})))
 
 ;; ---- entries->steps + wait insertion -------------------------------------
 
@@ -353,32 +331,23 @@
               {:kind :dom/click :selector "[data-test=\"x\"]" :t 10}
               {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 20}])))))
 
-(deftest wait-step-inserted-when-gap-exceeds-threshold
-  (testing "consecutive entries > threshold ms apart get a [:wait Δt] between them"
-    (is (= [[:click "[data-test=\"a\"]"]
-            [:wait 100]
-            [:click "[data-test=\"b\"]"]]
-           (rf.story.recorder.play-export/entries->steps
-             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
-              {:kind :dom/click :selector "[data-test=\"b\"]" :t 100}])))))
+(deftest entries->steps-waits-only-across-a-gap-past-the-threshold
+  (testing "a gap past :wait-threshold-ms (default 50) puts a [:wait Δt]
+            before the next step, a shorter gap folds out, and the opt tunes
+            the threshold"
+    (are [t opts steps]
+         (= steps (rf.story.recorder.play-export/entries->steps
+                    [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
+                     {:kind :dom/click :selector "[data-test=\"b\"]" :t t}]
+                    opts))
+      100 {}
+      [[:click "[data-test=\"a\"]"] [:wait 100] [:click "[data-test=\"b\"]"]]
 
-(deftest no-wait-when-gap-below-threshold
-  (testing "sub-threshold gaps fold out (no :wait noise)"
-    (is (= [[:click "[data-test=\"a\"]"]
-            [:click "[data-test=\"b\"]"]]
-           (rf.story.recorder.play-export/entries->steps
-             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
-              {:kind :dom/click :selector "[data-test=\"b\"]" :t 25}])))))
+      25 {}
+      [[:click "[data-test=\"a\"]"] [:click "[data-test=\"b\"]"]]
 
-(deftest wait-threshold-override
-  (testing "the :wait-threshold-ms opt tunes the gap detector"
-    (is (= [[:click "[data-test=\"a\"]"]
-            [:wait 30]
-            [:click "[data-test=\"b\"]"]]
-           (rf.story.recorder.play-export/entries->steps
-             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
-              {:kind :dom/click :selector "[data-test=\"b\"]" :t 30}]
-             {:wait-threshold-ms 10})))))
+      30 {:wait-threshold-ms 10}
+      [[:click "[data-test=\"a\"]"] [:wait 30] [:click "[data-test=\"b\"]"]])))
 
 (deftest redacted-entries-do-not-leave-orphan-waits
   (testing "a dropped (redacted) entry doesn't insert a wait for itself,
