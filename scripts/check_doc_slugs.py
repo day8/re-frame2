@@ -6,7 +6,8 @@ heading (H1-H6) using the exact same slugifier the MkDocs build uses
 (pymdownx.slugs.slugify with case=lower), then scans every
 [text](file.md) and [text](file.md#anchor) link and reports:
 
-    * BROKEN TARGET — the .md file the link points at does not exist.
+    * BROKEN TARGET — the file or directory a relative link points at does
+      not exist.
     * BROKEN ANCHOR — the file exists but the #anchor isn't a real slug.
 
 Target-file validation catches a stale `[text](file.md)` (no anchor) ref
@@ -45,11 +46,15 @@ Notes on what is and isn't checked:
       of this file for the literal `github.com` finds only this docstring — the
       host is spelled as an escaped regex in the code — and says nothing about
       coverage.
-    * Among RELATIVE links, only those to .md files are validated. Code, image,
-      and asset links are skipped (their existence is mkdocs' concern, not the
-      slug index's). Neither absolute arm above is so limited: the GitHub arm
-      grades any target kind, and a site URL is resolved as a PAGE first — a dot
-      in a page's basename is not an extension, so a static file's existence is
+    * Every RELATIVE link's target must exist, whatever its kind — a page, a
+      source file, an image, a directory — and only a `.md` target has its
+      `#anchor` graded, because only a page has a slug index (`#L12` on a
+      source file names a line). The existence check is the only gate on a
+      link that leaves the docs trees (`../../../implementation/…`):
+      `mkdocs_hooks.py` rewrites those to GitHub URLs before the MkDocs build
+      validates links, so `mkdocs build --strict` cannot see a renamed source
+      file break one. A site URL is resolved as a PAGE first — a dot in a
+      page's basename is not an extension, so a static file's existence is
       asked only once no Markdown route claims the path.
     * Same-file anchors (no path, just #foo) are validated against the
       current file's index. No target-file check is needed.
@@ -1654,9 +1659,8 @@ def _in_repo_github_url_problems(
     Existence is checked for EVERY kind, not only `.md`: such links often name
     source files (`tools/xray/src/**`,
     `examples/capabilities/ssr/ssr/core.cljc`), and a renamed source file is
-    exactly the drift the unwrap exists to catch. The non-`.md` skip that
-    applies to RELATIVE links does not apply here — it is about the slug-index
-    contract, which only `.md` targets have.
+    exactly the drift the unwrap exists to catch — the same rule a relative
+    link's target is held to.
     """
     if not rel:
         return []  # the repository root itself; nothing to resolve.
@@ -2239,7 +2243,8 @@ def check(
     """Validate every in-repo markdown link.  Return the total defect count.
 
     Flags these distinct defects:
-        * BROKEN TARGET     — link points at an .md file that doesn't exist.
+        * BROKEN TARGET     — a relative link's target doesn't exist, whatever
+                              its kind (page, source file, directory).
         * BROKEN ANCHOR     — file exists but the #anchor doesn't resolve.
         * AI_FINDINGS_LINK  — link points into the gitignored ai/findings/ tree.
                               Committed files must not reference
@@ -2376,13 +2381,6 @@ def check(
                     )
                 continue
 
-            # Only validate links to .md files — anchors and target-existence
-            # on other file types (images, source files, asset links) aren't
-            # part of the slug-index contract.  mkdocs' own link check is the
-            # right gate for those.
-            if not path_part.endswith(".md"):
-                continue
-
             target = _resolve_target(
                 path,
                 path_part,
@@ -2391,14 +2389,22 @@ def check(
             if target is None:
                 # Path escapes the repo — treat as external reference, skip.
                 continue
-            if not target.is_file():
+
+            # Every target must exist, whatever its kind.  A page's link into
+            # the source tree (`../../../implementation/…`) is the case no other
+            # gate sees: mkdocs_hooks.py rewrites it to a GitHub URL before the
+            # strict build validates links.  A `.md` target must be a FILE;
+            # anything else may be a directory.
+            is_page = path_part.endswith(".md")
+            if not (target.is_file() if is_page else target.exists()):
                 broken_target.append(
                     (path, line_no, dest, _display_target(target, repo_root))
                 )
                 continue
 
-            # Target exists.  Validate anchor if one was specified.
-            if anchor and anchor not in slugs_for(target):
+            # Target exists.  Only a page has a slug index, so only a `.md`
+            # target's anchor is graded — `#L12` on a source file names a line.
+            if is_page and anchor and anchor not in slugs_for(target):
                 broken_anchor.append(
                     (path, line_no, dest, str(target.relative_to(repo_root.resolve())))
                 )
@@ -2731,6 +2737,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("same_file_anchor_broken",          1),
         ("absolute_path_ok",                 0),
         ("relative_dotdot_ok",               0),
+        # A relative link out of the docs trees into SOURCE is existence-
+        # checked whatever its kind.  The 1 is a renamed source file; the
+        # live source file and the live directory beside it stay silent.
+        ("relative_source_target",           1),
         ("inline_code_placeholder_ignored",  0),
         # POSITIVE CONTROL for wrapped-link handling: the single-line broken
         # link must red too.
