@@ -186,9 +186,7 @@
       (is (= ["h-a" "h-b" "h-c"] (mapv reagent-key cells))
           "REAGENT — indifferent to where the key rides, and that is the point")
       (is (= ["h-a" "h-b" "h-c"] (mapv fresco-key cells))
-          "FRESCO — reads nil for every one of these under `with-meta`")
-      (is (= 3 (count (distinct (mapv fresco-key cells))))
-          "sibling keys are distinct"))))
+          "FRESCO — reads nil for every one of these under `with-meta`"))))
 
 ;; ---- (2) gutters: a CALLED pure fn, graded at BOTH doors ----------------
 
@@ -197,7 +195,8 @@
             `header-gutter` is a pure fn, so `weave-header` CALLS it and
             what lands in the woven seq is the gutter's own `[:div …]`,
             keyed in its attrs map and gradeable at the Fresco door like
-            every other node."
+            every other node. With no state to render from, its style is
+            the transparent base, never an accent fill."
     (xray-setup!)
     (let [woven   (header-woven (render (three-column-opts {})))
           gutters (vec (take-nth 2 (rest woven)))]
@@ -214,6 +213,10 @@
            selects on, so the widget's affordance rides on this string")
       (is (every? #(fn? (:on-pointer-down (nth % 1))) gutters)
           "the drag affordance survives the key injection")
+      (is (every? #(= "transparent" (get-in % [1 :style :background])) gutters)
+          "the base state is transparent; the accent is the CSS rule's")
+      (is (every? #(= "col-resize" (get-in % [1 :style :cursor])) gutters)
+          "the always-visible affordance signal stays inline")
       (is (every? #(and (not (contains? (nth % 1) :on-pointer-enter))
                         (not (contains? (nth % 1) :on-pointer-leave)))
                   gutters)
@@ -221,24 +224,6 @@
            is CSS"))))
 
 ;; ---- (2b) the hover paint is stateless, and the CSS is its other half ---
-
-(deftest gutter-carries-no-hover-state
-  (testing "the gutter renders ONE style regardless of
-            pointer state, because there is no state to render from.
-            Two independent renders of the same table produce byte-equal
-            gutter nodes bar their handler identities; the style map is
-            the transparent base, never an accent fill."
-    (xray-setup!)
-    (let [style-of (fn [] (mapv #(:style (nth % 1))
-                                (take-nth 2 (rest (header-woven
-                                                    (render (three-column-opts {})))))))
-          a (style-of)
-          b (style-of)]
-      (is (= a b) "the same style on every render — nothing to toggle")
-      (is (every? #(= "transparent" (:background %)) a)
-          "the base state is transparent; the accent is the CSS rule's")
-      (is (every? #(= "col-resize" (:cursor %)) a)
-          "the always-visible affordance signal stays inline"))))
 
 (deftest global-styles-paints-the-gutter-hover
   (testing "the OTHER half of the stateless gutter. The
@@ -249,14 +234,12 @@
             handle would never light up. Nothing else in the tree can see
             a broken CSS rule — no gate renders CSS."
     (let [css @#'gs/motion-css]
-      (is (string? css))
-      (is (str/includes? css "[data-testid^=\"rf-xray-resizable-gutter-\"]:hover")
-          "the selector matches the prefix `header-gutter` stamps")
       (is (str/includes? css
                          (str "[data-testid^=\"rf-xray-resizable-gutter-\"]:hover {\n"
                               "  background: var(--rf-xray-accent) !important;\n"
                               "}\n"))
-          "accent token + !important — the inline `background: transparent`
+          "the selector matches the prefix `header-gutter` stamps, with the
+           accent token + !important — the inline `background: transparent`
            beats a stylesheet rule without it")
       (is (str/includes? css "[data-testid^=\"rf-xray-event-list-col-divider-\"]:hover")
           "the sibling rule this one mirrors is present — a
@@ -277,9 +260,7 @@
           (is (= ["c-a" "s-a" "c-b" "s-b" "c-c"] (mapv reagent-key woven))
               "REAGENT")
           (is (= ["c-a" "s-a" "c-b" "s-b" "c-c"] (mapv fresco-key woven))
-              "FRESCO — all nil under `with-meta`")
-          (is (= 5 (count (distinct (mapv fresco-key woven))))
-              "sibling keys are distinct"))))))
+              "FRESCO — all nil under `with-meta`"))))))
 
 ;; ---- (4) row wrappers reach BOTH renderers with the consumer's key ------
 

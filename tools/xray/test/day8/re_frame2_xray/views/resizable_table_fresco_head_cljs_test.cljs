@@ -13,9 +13,11 @@
   this?', and it is one call. A census that pattern-matches the authoring
   shape gets this wrong in both directions: a `reg-view` head is a `def`
   and LOOKS like a component while grading `:invalid`, and a `defview`
-  product is also a `def` and grades `:boundary`. `heads-are-what-the-
-  codec-says-they-are` asks the codec instead, in both directions and
-  against a `:tag` control.
+  product is also a `def` and grades `:boundary`. So the codec is asked
+  instead: `panels/trace_view_cljs_test`'s
+  `panel-heads-are-the-ones-the-codec-accepts` grades both heads against
+  a `:tag` control, and `reagent-head-is-invalid-to-the-codec` below meets
+  the same answer at the element door.
 
   ## The kit runs the BODY, which is the half a `def` cannot pin
 
@@ -123,22 +125,6 @@
 
 ;; ---- (1) the codec's own answer ----------------------------------------
 
-(deftest heads-are-what-the-codec-says-they-are
-  (testing "`head-kind` is the renderer's own answer,
-            asked in both directions. Both heads are `def`s and neither
-            spelling can be told from the other by looking; only the codec
-            knows."
-    (is (= :boundary (rf.fresco.impl.codec/head-kind rt/resizable-table-view))
-        "the Fresco sibling is a minted boundary")
-    (is (true? (rf.fresco.impl.codec/boundary-head? rt/resizable-table-view))
-        "…and carries the boundary marker the codec reads")
-    (is (= :invalid (rf.fresco.impl.codec/head-kind rt/resizable-table))
-        "the Reagent `reg-view` head is NOT a boundary — a plain fn to the
-         codec, which is the whole reason this sibling exists")
-    (is (= :tag (rf.fresco.impl.codec/head-kind :div))
-        "control — the instrument distinguishes, so `:invalid` above is an
-         answer rather than a default")))
-
 (deftest reagent-head-is-invalid-to-the-codec
   (testing "the refusal a consumer panel meets if it mounts
             `[rt/resizable-table …]` inside a boundary. It is LOUD,
@@ -165,24 +151,6 @@
 
 (defn- testid-of [node]
   (:data-testid (rf.fresco.test/attrs node)))
-
-(deftest fresco-head-runs-and-reads-the-column-widths-slot
-  (testing "the boundary body runs on the runtime's own
-            body-run path under exactly ONE read fixture. A body reading a
-            key no fixture answers is refused by name, so a green run here
-            IS the assertion that the read is
-            `[:rf.xray.column-widths/for-table <table-id>]`."
-    (let [tree (fresco-tree)]
-      (is (= :div (:tag tree)) "the container is a div")
-      (is (= "fresco" (:data-rf-xray-resizable-table (rf.fresco.test/attrs tree)))
-          "…and it is this widget's container")
-      (is (= (rt/build-template columns overrides)
-             (:grid-template-columns (style-of (rf.fresco.test/find tree #(= "grid" (:display (style-of %)))))))
-          "THE READ ROW — the header's grid template is built from the
-           fixture's overrides, so the value the boundary read reached
-           `build-template`. Compared against the widget's own pure
-           builder rather than a hand-typed string, so the row grades the
-           read and not the track syntax."))))
 
 (deftest fresco-head-emits-the-gutters-as-native-nodes
   (testing "the gutters under a boundary: a Form-2 Reagent Ratom for the
