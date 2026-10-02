@@ -10,7 +10,7 @@ The exact pre-publish command the skill runs when the author asks for the genera
 clojure -Ttools install-latest :lib io.github.seancorfield/deps-new :as new
 ```
 
-…then continue once the author has run it. The manual 6-step path needs no tool at all and is always available instead.
+…then continue once the author has run it. The manual 6-step path needs no deps-new tool and is always available instead; Java and the Clojure CLI are still prerequisites.
 
 ## The pre-publish command
 
@@ -29,8 +29,8 @@ clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "<RE_FRAME2>/tools/
         -Tnew create :template day8/re-frame2-template :name acme/my-app
 ```
 
-That emits `./my-app/`. Add `:substrate :uix` for the UIx variant. The emitted `deps.edn` carries the two `day8/re-frame2*` coordinates as `:mvn/version`, which does not resolve until the framework is on Clojars — so the generator route continues exactly where the manual one does, at [`SKILL.md`](../SKILL.md) step 2: point those two coordinates at the reviewed checkout with `:local/root` (`<RE_FRAME2>/implementation/core` and `<RE_FRAME2>/implementation/adapters/reagent`, or `…/adapters/uix`, and Story's `:dev` path at `<RE_FRAME2>/tools/story`), then `cd my-app && npm install && npx shadow-cljs compile app && npx shadow-cljs watch app`.
+That emits `./my-app/`. Add `:substrate :uix` for the UIx variant. The emitted `deps.edn` carries the two `day8/re-frame2*` coordinates as `:mvn/version`, which does not resolve until the framework is on Clojars — so the generator route continues exactly where the manual one does, at [`SKILL.md`](../SKILL.md) step 2: point those two coordinates at the reviewed checkout with `:local/root` (`<RE_FRAME2>/implementation/core` and `<RE_FRAME2>/implementation/adapters/reagent`, or `…/adapters/uix`, and Story's `:dev` path at `<RE_FRAME2>/tools/story`), then run the remaining [canonical greenfield steps](../SKILL.md#canonical-greenfield-path-six-steps) from the emitted project: install npm dependencies, run the terminating app compile **and `npm test`**, and only then start the detached watch and report its observed URL.
 
-Already standing *inside* the empty directory you want the app generated into? Add deps-new's own target options — `:target-dir . :overwrite true`. The `:overwrite` is required because deps-new refuses an existing target directory (`. already exists (and :overwrite was not true)`), and `.` always exists.
+Already standing *inside* the empty directory you want the app generated into? Add deps-new's own target options — `:target-dir . :overwrite true`. The `:overwrite` is required because deps-new refuses an existing target directory (`. already exists (and :overwrite was not true)`), and `.` always exists. Use this form only after confirming the target is empty. For an existing empty CLJS project with configuration to preserve, use the manual merge route from the canonical steps instead.
 
 **The skill resolves `<RE_FRAME2>` itself** — it is installed by link from a reviewed checkout ([`README.md` §Install the skill in Claude Code](../README.md#install-the-skill-in-claude-code)), so `SKILL.md`'s own resolved location is `<RE_FRAME2>/skills/re-frame2-setup/SKILL.md` and the template is `<RE_FRAME2>/tools/template`. If the skill was reached some other way and no such checkout is on disk, say so and fall back to the manual 6-step path rather than guessing a path.
