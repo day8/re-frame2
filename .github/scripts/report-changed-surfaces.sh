@@ -1586,6 +1586,13 @@ else
       #                                        test.clj              → jvm-ssr
       #   docs/design/fresco/product/       recipes/async_nav_doc_test.clj
       #     async-routing-recipes.md                                 → jvm-routing
+      #   docs/core/testing/views.md         uix_component_recipe_docs_pin_test
+      #                                        .clj                  → jvm-uix
+      #   docs/core/how-to/use-uix-or-       uix_consumer_deps_recipe_test.clj
+      #     slim.md                                                  → jvm-uix
+      #   docs/skills/re-frame2-setup.md     skills/re-frame2-setup/tests/
+      #                                        setup_drift_test.clj  → skills-
+      #                                                                structural
       #   spec/000-Vision.md                 scope_ensure_authority_test.clj
       #   spec/012-Routing.md                        "
       #   spec/013-Flows.md                          "                → jvm-core
@@ -1618,6 +1625,12 @@ else
       # jvm-machines, jvm-epoch, jvm-ssr and jvm-routing). So the narrowing is
       # on the PATH axis instead: prose a suite reads arms the JVM tier, and
       # prose nothing reads arms nothing.
+      #
+      # Two readers in the roster run OUTSIDE that tier, and their pages arm
+      # their own job's output instead: `jvm-uix` gates on
+      # `adapter_diagnostic` and `skills-structural` on `skills_structural`.
+      # A page arms the output its reader's job reads — `implementation_jvm`
+      # reaches neither.
       #
       # NONE of these arms `cljs_browser`, `cljs_prod` or any Playwright
       # output. Markdown cannot change what React puts on a page.
@@ -1678,6 +1691,36 @@ else
         # (jvm-routing) reads this page's recipe forms and evaluates them — so
         # exactly one is armed.
         implementation_jvm=true
+        ;;
+      docs/core/testing/views.md|docs/core/how-to/use-uix-or-slim.md)
+        # Two named pages, NOT `docs/core/*`, and they arm
+        # `adapter_diagnostic` rather than the JVM tier: both readers run in
+        # `jvm-uix`, which gates on it.
+        #   * `uix_component_recipe_docs_pin_test.clj` holds the testing page's
+        #     §4 component-test recipe byte for byte to the recipe file the
+        #     browser lane runs;
+        #   * `uix_consumer_deps_recipe_test.clj` holds the how-to page's
+        #     coordinate table to the `uix.*` namespaces the UIx examples
+        #     require.
+        # The tree is narrowed for the reason the `docs/api` pages above are:
+        # `docs/core/**` is on lint.yml's `paths:` filter, so its api-manifest
+        # doc-guide gates already watch it, and no other page in it has a
+        # test.yml reader. Arming the tree would queue the four adapter probes
+        # for every guide edit. Add a page here when a new `jvm-uix` suite
+        # names one; a page whose reader runs in an `implementation_jvm` lane
+        # belongs in an arm above instead.
+        adapter_diagnostic=true
+        ;;
+      docs/skills/re-frame2-setup.md)
+        # One named file, NOT `docs/skills/*`. This is the docs-site page for
+        # the setup skill, and `skills/re-frame2-setup/tests/setup_drift_test
+        # .clj` holds it to the setup contract — no literal artefact count,
+        # the tools kept off the framework release line, the omitted trigger
+        # kept off the page, the reference leaves linked at the plural path.
+        # That suite is a Babashka script run by the `skills-structural` job,
+        # which gates on `skills_structural`, so this arm sets that output
+        # and no JVM tier. The other ten pages in the tree have no reader.
+        skills_structural=true
         ;;
       spec/Spec-Schemas.md)
         # The widest single miss in the roster.
