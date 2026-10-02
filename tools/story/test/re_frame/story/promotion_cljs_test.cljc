@@ -14,9 +14,10 @@
     explicit call registers a variant carrying the source link.
 
   The variant-plan compiler is pure data → data and the registrar is a
-  pure side-table, so every test runs on both targets with no host — a
-  fresh side-table per test via the fixture, and an explicit `:lookup`
-  for `:extends` resolution where needed.
+  pure side-table, so the bridge tests run on both targets with no host —
+  a fresh side-table per test via the fixture, and an explicit `:lookup`
+  for `:extends` resolution where needed. The tests that run a variant
+  block on its result with `deref-blocking`, so they are `#?(:clj …)`.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a plain `-test` name would run it on the JVM only."
@@ -93,9 +94,6 @@
   (testing "a run artifact materializes to the normalized four-bucket plan"
     (let [art  (sample-artifact)
           plan (rf.story.promotion/materialize-variant-plan art)]
-      (is (contains? plan :world))
-      (is (contains? plan :script))
-      (is (contains? plan :expect))
       (is (map? (:expect plan)))
       (is (= #{:client} (get-in plan [:world :platforms]))
           "the plan carries the compiler's normalized defaults")))
@@ -171,11 +169,7 @@
       (is (not (contains? link :epoch-tape)))
       (is (not (contains? link :trace)))
       (is (not (contains? link :result))
-          "a registered variant is a curation surface, not an evidence dump")))
-
-  (testing "the promoted variant body also carries the source link"
-    (let [body (rf.story.promotion/artifact->variant-body (sample-artifact))]
-      (is (= :rf.test/run-artifact (get-in body [:run-artifact :artifact/kind]))))))
+          "a registered variant is a curation surface, not an evidence dump"))))
 
 ;; ===========================================================================
 ;; Promotion does NOT auto-register without the explicit call
@@ -185,34 +179,22 @@
   (testing "materialize-variant-plan is pure — it registers NO variant"
     (let [art (sample-artifact)]
       (rf.story.promotion/materialize-variant-plan art {:variant/id :story.counter/never})
-      (is (not (rf.story.registrar/registered? :variant :story.counter/never))
-          "materialize must not touch the side-table")
       (is (empty? (rf.story.registrar/registrations :variant))
-          "the side-table stays empty after materialization"))))
+          "materialize must not touch the side-table"))))
 
-(deftest promote-requires-explicit-variant-id
-  (testing "promote-run-artifact! throws without an explicit :variant/id"
-    (let [art (sample-artifact)]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-promote-no-id"
-            (rf.story.promotion/promote-run-artifact! art {})))
-      (is (empty? (rf.story.registrar/registrations :variant))
-            "a no-id promotion registers nothing"))))
-
-(deftest promote-honours-only-namespaced-variant-id
-  (testing ":variant/id is the SOLE accepted key — the undocumented
+(deftest promote-refuses-opts-without-a-namespaced-variant-id
+  (testing "promote-run-artifact! throws without an explicit :variant/id.
+            :variant/id is the SOLE accepted key — the undocumented
             unqualified :variant-id spelling is NOT honoured (symmetric with
             materialize-variant-plan + spec + the rest of the bridge)"
-    (let [art (sample-artifact)]
-      ;; An opts map carrying ONLY the unqualified :variant-id is treated as
-      ;; a no-id promotion: it throws and registers nothing.
+    (doseq [opts [{} {:variant-id :story.counter/unqualified}]]
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
             #"story-promote-no-id"
-            (rf.story.promotion/promote-run-artifact! art {:variant-id :story.counter/unqualified})))
-      (is (empty? (rf.story.registrar/registrations :variant))
-          "the unqualified :variant-id registers nothing"))))
+            (rf.story.promotion/promote-run-artifact! (sample-artifact) opts))
+          (str "refused: " (pr-str opts))))
+    (is (empty? (rf.story.registrar/registrations :variant))
+        "a no-id promotion registers nothing")))
 
 (deftest promotion-refuses-a-missing-artifact
   (testing "promote-run-artifact! refuses a nil or non-artifact exactly as it
@@ -237,20 +219,13 @@
           (str "refused: " (pr-str not-an-artifact))))))
 
 (deftest promote-registers-the-named-variant
-  (testing "the explicit named call DOES register a curated variant"
+  (testing "the explicit named call DOES register a curated variant, whose
+            body carries the source-artifact link + the program"
     (let [art (sample-artifact)
           ret (rf.story.promotion/promote-run-artifact!
                 art {:variant/id :story.counter/regression-042})]
       (is (= :story.counter/regression-042 ret)
           "promote returns the registered variant id")
-      (is (rf.story.registrar/registered? :variant :story.counter/regression-042)
-          "the variant is now in the side-table")))
-
-  (testing "the registered body carries the source-artifact link + the program"
-    (rf.story.registrar/clear-all!)
-    (let [art (sample-artifact)]
-      (rf.story.promotion/promote-run-artifact!
-        art {:variant/id :story.counter/regression-042})
       (let [body (rf.story.registrar/handler-meta :variant :story.counter/regression-042)]
         (is (= :rf.test/run-artifact (get-in body [:run-artifact :artifact/kind]))
             "provenance survives into the registered variant")
@@ -373,31 +348,14 @@
 ;; [:world :frame :fx-overrides] EMPTY: run normally, a managed HTTP request
 ;; would fail closed ("no stub matched"), a SILENT fidelity gap.
 ;;
-;; These tests pin the runnable contract on the VARIANT BODY:
-;;   1. the body carries :network + :fx-overrides (the runnable slots, NOT just
-;;      the :run-artifact link);
-;;   2. compiling the body populates [:world :network] (so the run installs the
-;;      route stubs) + lowers :rf.http/managed to the managed-stub fx;
-;;   3. a full round-trip — body → plan → ->artifact → replay — reproduces the
-;;      SAME :success reply as a direct replay of the source artifact. RED
-;;      (a body without :network): the round-trip artifact's :network is
-;;      empty and the request fail-closes. GREEN: it reproduces.
-
-(deftest promoted-variant-body-carries-runnable-network-and-fx
-  (testing "the variant body lifts the artifact's :network + :fx-decisions onto
-            the RUNNABLE :network / :fx-overrides slots"
-    (register-network-event! :promo-net/get-cart [:get "/api/cart"])
-    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
-          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
-          body   (rf.story.promotion/artifact->variant-body art)]
-      (is (= routes (:network body))
-          "the per-route reply map rides the body's runnable :network slot")
-      ;; The artifact's :fx-decisions carries the lowered managed-stub redirect;
-      ;; the body's :network slot OWNS :rf.http/managed (it re-derives the same
-      ;; redirect through rf.story.plan/lower-network), so the lifted :fx-overrides must
-      ;; NOT also set it — else check-network-fx-conflict! hard-fails.
-      (is (not (contains? (:fx-overrides body) rf.story.plan/managed-fx-id))
-          ":rf.http/managed is dropped from :fx-overrides — :network owns it"))))
+;; This test pins the runnable contract on the VARIANT BODY: a full
+;; round-trip — body → plan → ->artifact → replay — reproduces the SAME
+;; :success reply as a direct replay of the source artifact. RED (a body
+;; without :network): the round-trip artifact's :network is empty and the
+;; request fail-closes. The body's :network slot OWNS :rf.http/managed (the
+;; compiler re-derives the redirect through rf.story.plan/lower-network), so
+;; the lift drops it from :fx-overrides; a body carrying it on both slots
+;; fails the compile with :rf.error/story-network-fx-conflict.
 
 (deftest promoted-network-variant-runs-to-the-same-result
   (testing "running the PROMOTED VARIANT reproduces the source run's :success

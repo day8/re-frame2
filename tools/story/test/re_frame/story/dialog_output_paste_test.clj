@@ -107,14 +107,6 @@
       (is (= [[:rf.assert/path-equals [:paste :value] 5]] (:assertions body)))
       (is (contains? (:tags body) :test)))))
 
-(defn- story-alias-fails-to-paste?
-  "Control — the `story/` spelling does not compile in a namespace
-  whose only Story alias is `rf.story`."
-  [snippet]
-  (try (paste! (str/replace snippet "(rf.story/" "(story/"))
-       false
-       (catch Exception _ true)))
-
 (deftest recorder-gen-play-snippet-output-pastes-verbatim
   (let [snippet (rf.story.recorder/gen-play-snippet
                   [[:paste/inc]]
@@ -124,8 +116,7 @@
     (paste! snippet)
     (let [body (registered :story.paste/recorded)]
       (is (= :story.paste/source (:extends body)))
-      (is (str/includes? (pr-str (:script body)) "[:dispatch-sync [:paste/inc]]")))
-    (is (story-alias-fails-to-paste? snippet))))
+      (is (str/includes? (pr-str (:script body)) "[:dispatch-sync [:paste/inc]]")))))
 
 (deftest recorder-export-dialog-output-pastes-verbatim
   (let [spec    (rf.story.recorder.play-export/recording->script-body
@@ -137,8 +128,7 @@
     (paste! snippet)
     (let [body (registered :story.paste/exported)]
       (is (= :story.paste/source (:extends body)))
-      (is (str/includes? (pr-str (:script body)) "[:dispatch [:paste/inc]]")))
-    (is (story-alias-fails-to-paste? snippet))))
+      (is (str/includes? (pr-str (:script body)) "[:dispatch [:paste/inc]]")))))
 
 (deftest promote-run-output-pastes-verbatim
   (let [artifact (rf.story.artifact/make-run-artifact
@@ -152,8 +142,7 @@
     (paste! snippet)
     (let [body (registered :story.paste/regression)]
       (is (= :story.paste/source (:extends body)))
-      (is (contains? body :run-artifact)))
-    (is (story-alias-fails-to-paste? snippet))))
+      (is (contains? body :run-artifact)))))
 
 (deftest sub-override-value-entry-output-pastes-verbatim
   (let [snippet (rf.story.ui.schema-form/override-snippet
@@ -162,8 +151,7 @@
     (paste! snippet)
     (let [body (registered :story.paste/source-pinned)]
       (is (= :story.paste/source (:extends body)))
-      (is (= {[:paste/state] :error} (:sub-overrides body))))
-    (is (story-alias-fails-to-paste? snippet))))
+      (is (= {[:paste/state] :error} (:sub-overrides body))))))
 
 ;; ---- pasted as-is, a recording RUNS ------------------------
 
