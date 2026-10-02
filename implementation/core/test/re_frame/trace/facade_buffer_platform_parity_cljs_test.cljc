@@ -74,6 +74,8 @@
   (testing "(rf/trace-buffer frame-id {:flat true}) returns raw trace events"
     (run-one-event!)
     (let [flat (rf/trace-buffer frame-id {:flat true})]
+      (is (vector? flat)
+          "the flat read is a vector")
       (is (seq flat)
           "the flat read is non-empty")
       (is (every? :operation flat)
@@ -96,4 +98,5 @@
   (testing "an unregistered frame reads [] rather than throwing"
     (rf.trace.tooling/clear-trace-rings!)
     (is (= [] (rf/trace-buffer :kuky-51/never-registered)))
+    (is (= [] (rf/trace-buffer :kuky-51/never-registered {:flat true})))
     (is (nil? (rf/clear-trace-buffer! :kuky-51/never-registered)))))

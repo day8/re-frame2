@@ -65,9 +65,7 @@
           (is (= :rf2-244/structural (:operation (last @live)))
               "the live listener saw the structural event")
           (is (= ring-before (flat fid))
-              "the structural emit is NOT retained in the frame's ring")
-          (is (empty? (filter #(= :rf2-244/structural (:operation %)) (flat fid)))
-              "the structural operation never appears in the ring"))
+              "the structural emit is NOT retained in the frame's ring"))
         (finally
           (rf.trace.tooling/unregister-listener! ::retention-live)
           (rf.trace.tooling/clear-trace-rings!)
@@ -159,10 +157,8 @@
             "A's structural fact is NOT retained in A's ring")
         ;; THE BOUNDARY: C's listener-triggered nested emit IS retained in C's ring —
         ;; legitimate nested work runs under normal (non-structural) scope.
-        (is (= 1 (count (flat c-fid)))
-            "C's listener-triggered nested emit is retained in C's ring")
-        (is (= :rf2-vf2qke/c-nested (:operation (first (flat c-fid))))
-            "C's ring holds exactly the nested emit")
+        (is (= [:rf2-vf2qke/c-nested] (mapv :operation (flat c-fid)))
+            "C's listener-triggered nested emit is retained in C's ring, and is all it holds")
         ;; And the nested emit reached the live stream too.
         (is (some #(= :rf2-vf2qke/c-nested (:operation %)) @live)
             "the nested emit also streamed live")

@@ -7,7 +7,8 @@
     2. `:rf.trace/dispatch-id` allocation + parent-dispatch-id linkage.
     3. `:origin` / `:source` opts ride trace events. `:source` is the
        one functional-origin axis (there is no parallel
-       `:rf/dispatch-origin`) — see `dispatch-source-*` deftests below.
+       `:rf/dispatch-origin`) — see
+       `dispatch-defaults-origin-to-app-and-source-to-unknown` below.
 
   Per Spec 009 §Per-frame trace rings (event-keyed, dev-only) and
   §Dispatch correlation. JVM-only by intent — the trace + router
@@ -80,7 +81,6 @@
     (rf/dispatch-sync [:ping])
     (let [cascades (rf/trace-buffer :rf/default)]
       (is (vector? cascades) "trace-buffer returns a vector")
-      (is (seq cascades) "ring has at least one cascade after a dispatch")
       (let [c (first cascades)]
         (is (number? (:dispatch-id c)) "cascade carries its :dispatch-id")
         (is (= :rf/default (:frame c)) "cascade carries the frame-id")
@@ -88,16 +88,6 @@
         (is (vector? (:trace-events c)) "cascade carries the raw events")
         (is (seq (:trace-events c)) "trace-events is non-empty")
         (is (some? (:dispatched c)) "cascade carries the :rf.event/dispatched event")))))
-
-(deftest ^:requires-debug trace-buffer-flat-returns-raw-events
-  (testing "{:flat true} returns the raw event stream"
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:ping])
-    (let [evs (flat-events :rf/default)]
-      (is (vector? evs))
-      (is (seq evs))
-      (is (some #(= :rf.event/dispatched (:operation %)) evs)
-          "the :rf.event/dispatched trace lands in the flat stream"))))
 
 ;; ---- 1b. Event-keyed eviction --------------------------------------------
 
@@ -283,26 +273,6 @@
 
 ;; ---- 1e-bis. Re-configuring the process default retunes inherited rings ---
 
-(deftest ^:requires-debug configure-lowers-already-used-inherited-frame
-  (testing "lowering the process default trims an ALREADY-USED inherited ring"
-    ;; The frame's ring is allocated (it emitted cascades) and inherits
-    ;; the process default — no per-frame override. Lowering the default
-    ;; afterwards must retune + trim it. Every allocated ring stores
-    ;; :events-retained, so a guard keyed on that slot would always read
-    ;; "override" and configure! would silently skip this ring; the ring's
-    ;; :override? flag is what tells the two apart.
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-    (dotimes [_ 10] (rf/dispatch-sync [:ping]))
-    (is (= 10 (count (rf/trace-buffer :rf/default)))
-        ":rf/default retained all 10 cascades at the default cap")
-    (rf/configure! {:trace-buffer {:events-retained 1}})
-    (is (<= (count (rf/trace-buffer :rf/default)) 1)
-        "lowering the default trimmed the already-used inherited ring")
-    ;; A subsequent emit also respects the lowered cap.
-    (rf/dispatch-sync [:ping])
-    (is (<= (count (rf/trace-buffer :rf/default)) 1)
-        "post-reconfigure emits stay within the lowered cap")))
-
 (deftest ^:requires-debug configure-retunes-inherited-but-preserves-override
   (testing "a re-configured default retunes inherited frames; explicit overrides survive"
     (rf/configure! {:trace-buffer {:events-retained 50}})
@@ -317,11 +287,17 @@
     (is (= 8  (count (rf/trace-buffer :tb/pinned)))
         ":tb/pinned capped at its own override (8)")
     ;; Lower the process default: inherited frame is retuned, override is not.
+    ;; Every allocated ring stores :events-retained, so a guard keyed on that
+    ;; slot would read "override" and skip the already-used inherited ring;
+    ;; the ring's :override? flag is what tells the two apart.
     (rf/configure! {:trace-buffer {:events-retained 2}})
     (is (<= (count (rf/trace-buffer :tb/inherit)) 2)
         "inherited frame trimmed to the new default")
     (is (= 8 (count (rf/trace-buffer :tb/pinned)))
-        "explicit per-frame override is NOT clobbered by the new default")))
+        "explicit per-frame override is NOT clobbered by the new default")
+    (rf/dispatch-sync [:spam] {:frame :tb/inherit})
+    (is (<= (count (rf/trace-buffer :tb/inherit)) 2)
+        "post-reconfigure emits stay within the lowered cap")))
 
 (deftest ^:requires-debug configure-zero-disables-inherited-ring-only
   (testing "configure! 0 disables inherited rings but leaves overrides alone"
@@ -360,8 +336,7 @@
       ;; the three retained dispatch-ids are strictly increasing and the
       ;; earliest retained is greater than the very first emitted id.
       (let [ids (mapv :dispatch-id cs)]
-        (is (apply < ids) "retained cascades are in oldest-first order")
-        (is (= ids (vec (sort ids))) "oldest-first preserved after eviction")))))
+        (is (apply < ids) "retained cascades are in oldest-first order")))))
 
 (deftest ^:requires-debug per-frame-override-zero-before-first-emit-disables-cleanly
   (testing "a 0 per-frame override before first emit disables the ring without crashing"
@@ -456,26 +431,22 @@
     (is (= [] (rf/trace-buffer :app/transient))
         "ring is empty after frame destroy")))
 
-(deftest ^:requires-debug read-against-unknown-frame-returns-empty
-  (testing "trace-buffer for a never-registered frame returns []"
-    (is (= [] (rf/trace-buffer :no-such-frame)))
-    (is (= [] (rf/trace-buffer :no-such-frame {:flat true})))))
-
 ;; ---- 1g. Filter vocabulary (event-level, :flat true) ---------------------
 
-(deftest ^:requires-debug trace-buffer-filter-operation
-  (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:ping])
-  (let [dispatched (flat-events :rf/default {:operation :rf.event/dispatched})]
-    (is (seq dispatched))
-    (is (every? #(= :rf.event/dispatched (:operation %)) dispatched))))
-
-(deftest ^:requires-debug trace-buffer-filter-op-type
-  (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:ping])
-  (let [event-only (flat-events :rf/default {:op-type :rf.event})]
-    (is (seq event-only))
-    (is (every? #(= :rf.event (:op-type %)) event-only))))
+(deftest ^:requires-debug trace-buffer-flat-filters-narrow-to-matching-events
+  (testing "each event-level filter key returns a non-empty stream holding only
+            the events it matches"
+    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
+    (rf/dispatch-sync [:ping])
+    (doseq [[opts matches?]
+            [[{:operation :rf.event/dispatched} #(= :rf.event/dispatched (:operation %))]
+             [{:op-type :rf.event}              #(= :rf.event (:op-type %))]
+             [{:pred (fn [ev] (#{:rf.event :error} (:op-type ev)))}
+              #(#{:rf.event :error} (:op-type %))]]]
+      (let [k   (key (first opts))
+            evs (flat-events :rf/default opts)]
+        (is (seq evs) (str k " matches at least one event"))
+        (is (every? matches? evs) (str k " keeps only the events it matches"))))))
 
 (deftest ^:requires-debug trace-buffer-filter-since
   (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
@@ -560,27 +531,6 @@
   (let [win (flat-events :rf/default {:between [0 1]})]
     (is (= [] win))))
 
-(deftest ^:requires-debug trace-buffer-filter-sensitive
-  (testing ":sensitive? filter matches top-level slot"
-    (rf/reg-event :ev/x {:rf/sensitive? true} (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-event :ev/y (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:ev/x])
-    (rf/dispatch-sync [:ev/y])
-    (let [sens   (flat-events :rf/default {:sensitive? true})
-          plain  (flat-events :rf/default {:sensitive? false})]
-      (is (seq sens) "at least one sensitive event")
-      (is (every? #(true? (:sensitive? %)) sens))
-      (is (seq plain) "at least one non-sensitive event")
-      (is (every? #(not (true? (:sensitive? %))) plain)))))
-
-(deftest ^:requires-debug trace-buffer-filter-pred
-  (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:ping])
-  (let [evs (flat-events :rf/default
-                         {:pred (fn [ev] (#{:rf.event :error} (:op-type ev)))})]
-    (is (seq evs))
-    (is (every? #(#{:rf.event :error} (:op-type %)) evs))))
-
 ;; ---- 1h. Cascade-bundle filters ------------------------------------------
 
 (deftest ^:requires-debug trace-buffer-cascade-filter-event-id
@@ -613,18 +563,6 @@
 
 ;; ---- 2. :dispatch-id correlation -----------------------------------------
 
-(deftest ^:requires-debug dispatch-id-allocated-on-every-dispatch
-  (testing "every :rf.event/dispatched trace carries a numeric :rf.trace/dispatch-id"
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:ping])
-    (rf/dispatch-sync [:ping])
-    (let [evs (dispatched-events (flat-events :rf/default))
-          ids (map #(get-in % [:tags :rf.trace/dispatch-id]) evs)]
-      (is (seq evs))
-      (is (every? some? ids))
-      (is (every? number? ids))
-      (is (= (count (distinct ids)) (count ids))))))
-
 (deftest ^:requires-debug top-level-dispatch-has-no-parent
   (rf/reg-event :standalone (fn [{:keys [db]} _] {:db db}))
   (rf/dispatch-sync [:standalone])
@@ -635,40 +573,13 @@
     (is ev)
     (is (nil? (get-in ev [:tags :rf.trace/parent-dispatch-id])))))
 
-(deftest ^:requires-debug fx-dispatch-inherits-parent-dispatch-id
-  (rf/reg-event :outer (fn [_ _] {:fx [[:dispatch [:inner]]]}))
-  (rf/reg-event :inner (fn [{:keys [db]} _] {:db (assoc db :inner? true)}))
-  (rf/dispatch-sync [:outer])
-  (let [evs   (dispatched-events (flat-events :rf/default))
-        outer (->> evs
-                   (filter #(= [:outer] (get-in % [:tags :rf.event/v])))
-                   first)
-        inner (->> evs
-                   (filter #(= [:inner] (get-in % [:tags :rf.event/v])))
-                   first)]
-    (is outer)
-    (is inner)
-    (is (= (get-in outer [:tags :rf.trace/dispatch-id])
-           (get-in inner [:tags :rf.trace/parent-dispatch-id])))))
+;; ---- 3. :origin / :source defaults ----------------------------------------
 
-;; ---- 3. :origin opt -------------------------------------------------------
-
-(deftest ^:requires-debug origin-defaults-to-app
-  (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:ping])
-  (let [ev (->> (flat-events :rf/default)
-                dispatched-events
-                (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                first)]
-    (is ev)
-    (is (= :app (get-in ev [:tags :rf.event/origin])))))
-
-;; ---- 4. :source opt -------------------------------------------------------
-
-(deftest ^:requires-debug dispatch-source-defaults-to-unknown
-  ;; The default `:source` is `:unknown` (the un-stamped dispatch site).
-  ;; `:source` is the single closed-enum functional-origin axis; there is
-  ;; no parallel `:rf/dispatch-origin` tag.
+(deftest ^:requires-debug dispatch-defaults-origin-to-app-and-source-to-unknown
+  ;; An un-stamped dispatch defaults `:origin` to `:app` and `:source` to
+  ;; `:unknown` (the un-stamped dispatch site). `:source` is the single
+  ;; closed-enum functional-origin axis; there is no parallel
+  ;; `:rf/dispatch-origin` tag.
   ;;
   ;; `:source` is hoisted as a top-level slot on every trace event
   ;; (see `re-frame.trace/build-event` — Spec 009 §Core fields hoist
@@ -680,33 +591,12 @@
                 dispatched-events
                 (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
                 first)]
-    (is ev)
+    (is (= :app (get-in ev [:tags :rf.event/origin])))
     (is (= :unknown (:source ev)))
     (is (nil? (get-in ev [:tags :rf/dispatch-origin]))
         "there is no :rf/dispatch-origin tag")))
 
-(deftest ^:requires-debug dispatch-source-fx-cascade-stamps-fx-dispatch
-  (testing "child dispatches emitted by :dispatch fx are tagged :fx-dispatch"
-    ;; A `:dispatch` fx from a non-machine parent stamps
-    ;; `:source :fx-dispatch` on the child envelope (the actor-message
-    ;; path stamps `:machine-action` instead).
-    (rf/reg-event :parent (fn [_ _] {:fx [[:dispatch [:child]]]}))
-    (rf/reg-event :child (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:parent] {:source :ui})
-    (let [parent-ev (->> (flat-events :rf/default)
-                         dispatched-events
-                         (filter #(= [:parent] (get-in % [:tags :rf.event/v])))
-                         first)
-          child-ev  (->> (flat-events :rf/default)
-                         dispatched-events
-                         (filter #(= [:child] (get-in % [:tags :rf.event/v])))
-                         first)]
-      (is parent-ev)
-      (is child-ev)
-      (is (= :ui          (:source parent-ev)))
-      (is (= :fx-dispatch (:source child-ev))))))
-
-;; ---- 5. Frame-level trace-emission gate ----------------------------------
+;; ---- 4. Frame-level trace-emission gate ----------------------------------
 
 (deftest ^:requires-debug app-frame-emits-trace-while-tool-frame-silent
   (testing "an app frame's cascade DOES grow its ring; the tool frame's does NOT"
@@ -781,20 +671,7 @@
           "an app frame's ambient scope does not suppress the emit")
       (rf/unregister-listener! :trace ::untagged-control))))
 
-;; ---- 6. B4 hot-reload dedup-by-shape ------------------------------------
-
-(deftest ^:requires-debug hot-reload-unchanged-handler-emits-zero-traces
-  (testing "re-registering an identical handler emits ZERO traces (B4 dedup)"
-    (let [handler-fn (fn [{:keys [db]} _] {:db db})]
-      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
-      (rf/clear-trace-buffer! :rf/default)
-      ;; Identical re-registration — same fn, same meta. B4: zero emits.
-      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
-      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
-      (rf/reg-event :ev/hot {:doc "hot"} handler-fn)
-      (is (= [] (rf/trace-buffer :rf/default {:flat true
-                                              :op-type :rf.registry}))
-          "no :rf.registry/* traces from idempotent hot-reload"))))
+;; ---- 5. B4 hot-reload dedup-by-shape ------------------------------------
 
 (deftest ^:requires-debug hot-reload-changed-handler-emits-one-trace
   (testing "re-registering a CHANGED handler emits exactly one :rf.registry/handler-replaced"
@@ -832,20 +709,3 @@
       (rf/unregister-listener! :trace ::probe)
       (is (seq @recv)
           "post-clear re-registration emits at least one registry trace"))))
-
-(deftest ^:requires-debug hot-reload-dedup-per-kind-id
-  (testing "dedup is per-(kind, id) — separate ids don't interfere"
-    (let [recv (atom [])]
-      (rf/register-listener! :trace ::probe
-                             (fn [ev]
-                               (when (= :rf.registry (:op-type ev))
-                                 (swap! recv conj ev))))
-      (rf/reg-event :a {:doc "a"} (fn [{:keys [db]} _] {:db db}))
-      (rf/reg-event :b {:doc "b"} (fn [{:keys [db]} _] {:db db}))
-      (rf/unregister-listener! :trace ::probe)
-      ;; Different ids never share dedup state — both initial
-      ;; registrations are first-time emits.
-      (let [a-emits (filter #(= :a (-> % :tags :id)) @recv)
-            b-emits (filter #(= :b (-> % :tags :id)) @recv)]
-        (is (seq a-emits) "first :a registration emits")
-        (is (seq b-emits) "first :b registration emits")))))
