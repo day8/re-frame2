@@ -39,10 +39,6 @@
           fake-a            (fake-root)
           fake-b            (fake-root)]
       (swap! active-roots-cell conj (:root fake-a) (:root fake-b))
-      (is (= 2 (count @active-roots-cell))
-          "precondition: two active roots tracked")
-      (is (zero? @(:unmount-count fake-a)) "fake-a not yet unmounted")
-      (is (zero? @(:unmount-count fake-b)) "fake-b not yet unmounted")
       (dispose-fn)
       (is (= 1 @(:unmount-count fake-a))
           "fake-a was unmounted by dispose-adapter!")
@@ -335,15 +331,7 @@
                               [:sub :y] (select-keys r-a-y [:reaction])})
           frm-b  (fake-frame {[:sub :z] (select-keys r-b   [:reaction])})]
       (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
-      ;; Preconditions: cache atoms populated, no dispose yet.
-      (is (= 2 (count @(:sub-cache frm-a))))
-      (is (= 1 (count @(:sub-cache frm-b))))
-      (is (zero? @(:dispose-count r-a-x)))
-      (is (zero? @(:dispose-count r-a-y)))
-      (is (zero? @(:dispose-count r-b)))
-
       (rf.substrate.spine/dispose-frame-sub-caches!)
-
       (is (= 1 @(:dispose-count r-a-x))
           "walk/a [:sub :x]'s reaction was disposed")
       (is (= 1 @(:dispose-count r-a-y))

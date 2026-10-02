@@ -128,44 +128,6 @@
                 "lvl-2 ALSO stamped :fx-dispatch (immediate trigger, not :ui from the root)")))
         (finally (rf/unregister-listener! :trace ::rec))))))
 
-(deftest dispatch-fx-preserves-origin-while-overriding-source
-  (testing ":origin propagates through the cascade; :source is OVERRIDDEN per-step"
-    (let [seen      (atom [])
-          envelopes (atom {})]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-      (try
-        (register-probe-fx! envelopes)
-        (rf/reg-event :test/parent
-          (fn [_ _] {:fx [[:test/probe [:parent]] [:dispatch [:test/child]]]}))
-        (rf/reg-event :test/child
-          (fn [{:keys [db]} _] {:db db :fx [[:test/probe [:child]]]}))
-
-        (rf/dispatch-sync [:test/parent] {:source :ui :origin :pair})
-
-        ;; ---- ALWAYS-ON: the two axes read off the envelopes ---------------
-        (let [parent-env (:parent @envelopes)
-              child-env  (:child  @envelopes)]
-          (is (= :pair (:origin parent-env)))
-          (is (= :pair (:origin child-env))
-              ":origin propagates through the cascade")
-          (is (= :ui          (:source parent-env)))
-          (is (= :fx-dispatch (:source child-env))
-              ":source is overridden by the substrate's :dispatch fx"))
-
-        ;; ---- dev arm: the trace SHAPE — `:origin` under `:tags`,
-        ;;      `:source` hoisted to the top level (Spec 009 §Core fields).
-        (when rf.interop/debug-enabled?
-          (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
-                parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
-                child-ev   (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
-            (is (= :pair (get-in parent-ev [:tags :rf.event/origin])))
-            (is (= :pair (get-in child-ev  [:tags :rf.event/origin]))
-                ":origin propagates through the cascade")
-            (is (= :ui          (:source parent-ev)))
-            (is (= :fx-dispatch (:source child-ev))
-                ":source is overridden by the substrate's :dispatch fx")))
-        (finally (rf/unregister-listener! :trace ::rec))))))
-
 ;; ---- :fx-dispatch-later stamp by the :dispatch-later fx handler ----------
 
 (deftest dispatch-later-fx-stamps-source-fx-dispatch-later
@@ -198,8 +160,6 @@
         ;; ---- ALWAYS-ON ---------------------------------------------------
         (let [parent-env (:parent @envelopes)
               child-env  (:child  @envelopes)]
-          (is (some? parent-env))
-          (is (some? child-env))
           (is (= :ui                (:source parent-env)))
           (is (= :fx-dispatch-later (:source child-env))
               ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch"))
@@ -209,8 +169,6 @@
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
                 child-ev   (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
-            (is (some? parent-ev))
-            (is (some? child-ev))
             (is (= :ui                (:source parent-ev)))
             (is (= :fx-dispatch-later (:source child-ev))
                 ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch")))

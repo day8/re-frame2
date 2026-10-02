@@ -124,17 +124,14 @@
       ;; detection in the choke point. The throw survives the production gate,
       ;; so it is what proves the detection fired at all — without it this
       ;; deftest would execute nothing under `-Dre-frame.debug=false`.
-      (is (some? @thrown)
-          "the choke point detected the derived container and threw")
       (is (= :rf.error/derived-container-replaced
              (:rf.error/id (ex-data @thrown)))
-          "the same detection that would emit the trace carries the category on the throw")
+          "the choke point detected the derived container and threw — the same
+           detection that would emit the trace carries the category on the throw")
       ;; Dev-instrumentation arm (see ns docstring §Posture split).
       (when rf.interop/debug-enabled?
-        (is (some? ev)
-            "a :rf.error/derived-container-replaced error trace was emitted")
         (is (= :error (:op-type ev))
-            "the trace's op-type is :error")
+            "a :rf.error/derived-container-replaced error trace was emitted, op-type :error")
         (is (= :rf.error/derived-container-replaced (:operation ev))
             "the trace's :operation is the error category keyword")
         (is (= :rf.error/derived-container-replaced (get-in ev [:tags :category]))
