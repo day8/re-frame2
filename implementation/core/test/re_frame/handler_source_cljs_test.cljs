@@ -27,7 +27,6 @@
                   (fn [{:keys [db]} _ev] {:db db}))
     (let [m   (rf/handler-meta {:source :store :kind :event :id :rf2-xhfxcs.cljs/event})
           src (:rf.handler/source m)]
-      (is (string? src) ":rf.handler/source should be a string under DEBUG=true")
       (is (str/includes? src "reg-event"))
       (is (str/includes? src ":rf2-xhfxcs.cljs/event"))
       (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")))))
@@ -43,5 +42,4 @@
                   (fn [_ _] {}))
     (let [src (:rf.handler/source
                (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy.cljs/event-ctx}))]
-      (is (string? src))
       (is (str/includes? src "reg-event")))))

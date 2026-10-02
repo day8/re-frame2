@@ -82,11 +82,11 @@
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :evt/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:evt/inc])
+      (rf/dispatch-sync [:evt/inc "payload"])
       (is (= 1 (count @seen))
           "listener fired exactly once for one dispatch")
       (let [r (first @seen)]
-        (is (= [:evt/inc]      (:event r)))
+        (is (= [:evt/inc "payload"] (:event r)))
         (is (= :evt/inc        (:event-id r)))
         (is (= :rf/default     (:frame r)))
         (is (= :ok             (:outcome r)))
@@ -142,8 +142,6 @@
       (rf/dispatch-sync [:evt/writes])
       (is (= 1 (count @seen)) "listener fired once for the dispatch")
       (let [outcome (:outcome (first @seen))]
-        (is (not= :ok outcome)
-            "a rejected dispatch is NOT reported as a clean :ok")
         (is (= :rolled-back outcome)
             "schema rejection surfaces as the distinct :rolled-back outcome
              (the stable public vocabulary for transaction-rejected)")))))
@@ -175,8 +173,6 @@
       (rf/dispatch-sync [:evt/writes])
       (is (= 1 (count @seen)) "listener fired once for the dispatch")
       (let [outcome (:outcome (first @seen))]
-        (is (not= :ok outcome)
-            "a flow-aborted dispatch is NOT reported as a clean :ok")
         (is (= :flow-error outcome)
             "a flow-output throw surfaces as the distinct :flow-error outcome"))
       (is (not (contains? (rf/app-db-value :rf/default) :n))
@@ -294,40 +290,9 @@
       ;; record does NOT carry it (trace-bus territory).
       (rf/dispatch-sync [:evt/shape] {:source :test})
       (let [r @seen]
-        (is (some? r))
         (is (= #{:event :event-id :frame :time :outcome :elapsed-ms}
                (set (keys r)))
-            "exactly the Spec 009 tight-record key set, nothing else")
-        (is (not (contains? r :dispatch-id)))
-        (is (not (contains? r :parent-dispatch-id)))
-        (is (not (contains? r :tags)))
-        (is (not (contains? r :op-type)))
-        (is (not (contains? r :source)))
-        (is (not (contains? r :origin)))
-        (is (not (contains? r :rf.trace/trigger-handler)))))))
-
-;; ---- 6. An ordinary handler's record fans out -----------------------------
-;;
-;; The one handler-meta key the substrate consults is `:rf.trace/no-emit?`.
-;; Data sensitivity is per-path (the per-frame `[:rf.runtime/elision]`
-;; runtime-db registry, which the EP-0025 commit-plane classification effects
-;; and the other declaration sources `re-frame.elision` names populate), so it
-;; redacts values inside a record rather than suppressing the record.
-
-(deftest ordinary-handler-record-fans-out
-  (testing "An ordinary handler's record fans out to the listener, carrying
-            its event payload."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/normal
-                       (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
-      (rf/dispatch-sync [:evt/normal "payload"])
-      (is (= 1 (count @seen))
-          "handler fans out normally")
-      (is (= [:evt/normal "payload"] (:event (first @seen)))
-          "the elided event payload reaches the listener"))))
+            "exactly the Spec 009 tight-record key set, nothing else")))))
 
 ;; No registered listeners is the hot-path floor — the substrate
 ;; short-circuits to a single deref-and-empty-check. This namespace's fixture,

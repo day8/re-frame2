@@ -43,11 +43,11 @@
         (fn [record] (swap! seen conj record)))
       (rf/reg-event :prod/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:prod/inc])
+      (rf/dispatch-sync [:prod/inc "payload"])
       (is (= 1 (count @seen))
           "listener fired exactly once for the dispatched event — prod-elision contract holds")
       (let [r (first @seen)]
-        (is (= [:prod/inc]   (:event r)))
+        (is (= [:prod/inc "payload"] (:event r)))
         (is (= :prod/inc     (:event-id r)))
         (is (= :rf/default   (:frame r)))
         (is (= :ok           (:outcome r)))
@@ -92,25 +92,3 @@
           "dispatch-sync returned nil despite the listener throw")
       (is (= 1 (count @seen))
           "the sibling listener still received the record under prod"))))
-
-;; ---- an ordinary handler's record fans out under prod ---------------------
-;;
-;; Under prod the one handler-meta key the substrate consults is
-;; `:rf.trace/no-emit?`. Data sensitivity is per-path (the per-frame
-;; `[:rf.runtime/elision]` runtime-db registry), so it redacts values inside
-;; a record rather than suppressing the record.
-
-(deftest event-emit-handler-fires-under-prod
-  (testing "An ordinary handler delivers its record, carrying its event
-            payload, to listeners under prod."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        :prod/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :prod/normal
-                       (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
-      (rf/dispatch-sync [:prod/normal "payload"])
-      (is (= 1 (count @seen))
-          "handler fans out under prod")
-      (is (= [:prod/normal "payload"] (:event (first @seen)))
-          "elided event payload reaches the listener under prod"))))
