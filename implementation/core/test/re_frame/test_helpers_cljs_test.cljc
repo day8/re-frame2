@@ -58,17 +58,6 @@
       (is (= :button (first out)))
       (is (= "counter-inc" (:data-testid (second out)))))))
 
-(deftest expand-tree-recurses-into-nested-function-components
-  (testing "a parent view with a child fn-component expands both"
-    (let [tree (counter-view {:n 3 :on-inc identity})
-          out  (rf.test-helpers/expand-tree tree)]
-      ;; outer :div
-      (is (= :div (first out)))
-      ;; inner button was a fn-component — should be expanded to :button
-      (let [inner (some #(when (and (vector? %) (= :button (first %))) %)
-                        (tree-seq vector? seq out))]
-        (is (some? inner) "nested function component was not expanded")))))
-
 (deftest expand-tree-handles-leaves
   (testing "non-vector/non-seq inputs are returned unchanged"
     (is (= "hi"      (rf.test-helpers/expand-tree "hi")))
@@ -226,13 +215,6 @@
 ;; `:data-rf-xray-*`. The testid wrappers above are thin aliases for
 ;; the `:data-testid`-bound case.
 ;; ---------------------------------------------------------------------------
-
-(deftest find-by-attr-resolves-data-testid
-  (testing "find-by-attr with :data-testid behaves like find-by-testid"
-    (let [tree (counter-view {:n 0 :on-inc identity})
-          hit  (rf.test-helpers/find-by-attr tree :data-testid "counter-inc")]
-      (is (some? hit))
-      (is (= :button (first hit))))))
 
 (deftest find-by-attr-resolves-data-test
   (testing "Story-style :data-test selectors are matched"

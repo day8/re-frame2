@@ -33,7 +33,10 @@
 ;; ESCAPE PATH #1 (frame-image / inline fx absent from the process-
 ;; global registrar): the image-only inline fx does NOT execute under the
 ;; sink; exactly one `[fx-id args]` row is recorded. Positive control proves
-;; the fx WOULD fire without the sink.
+;; the fx WOULD fire without the sink. Interception happens ONCE at the effect
+;; executor, not by inferring coverage from
+;; `(rf/registrations {:source :store :kind :fx})`, which an image-only fx is
+;; absent from.
 ;; ===========================================================================
 
 (deftest dry-run-does-not-execute-image-only-inline-fx
@@ -232,32 +235,3 @@
                @sink)
             ":would-fire-effects is COMPLETE and SOURCE-ORDERED")))))
 
-;; ===========================================================================
-;; Structural: interception happens ONCE at the effect
-;; executor, NOT by inferring coverage from (rf/registrations {:source :store :kind :fx}). This pins
-;; that an fx id that exists ONLY on the frame image (never in the global
-;; registrar) is STILL intercepted — an inference a registrar enumeration
-;; cannot make. (The skills-side pin that dispatch-dry-run does not call
-;; (rf/registrations {:source :store :kind :fx}) lives in tests/runtime.)
-;; ===========================================================================
-
-(deftest sink-intercepts-without-registrar-enumeration
-  (testing "an fx id absent from the process-global :fx registrar is still
-            recorded + skipped — the guarantee is executor-sited, not
-            enumeration-inferred"
-    (rf/make-frame {:id :ni/main})
-    (let [ran (atom false)
-          img (rf.image/image
-                {:id :ni/img
-                 :registrations
-                 {:reg-event [[:go {} (fn [_ _] {:fx [[:only/on-image {:k :v}]]})]]
-                  :reg-fx    [[:only/on-image {} (fn [_ _] (reset! ran true))]]}})]
-      (rf.live-frame/make-frame {:id :ni/main :images [img]} [])
-      (let [global-fx-ids (set (keys (rf/registrations {:source :store :kind :fx})))
-            sink          (atom [])]
-        (is (not (contains? global-fx-ids :only/on-image)))
-        (binding [rf.fx/*effect-sink* sink]
-          (rf/dispatch-sync [:go] {:frame :ni/main}))
-        (is (false? @ran) "the image-only fx was intercepted despite absence
-                           from the global registrar")
-        (is (= [[:only/on-image {:k :v}]] @sink))))))
