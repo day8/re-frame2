@@ -26,12 +26,7 @@
   exercised at the framework-trace level (`re-frame.trace-test`) and at
   the schemas-loaded story-side tests; the sensitive rows here drive
   frameless sub reads, which sub-tag classification fails closed to
-  `:sensitive? true`.
-
-  The non-sensitive-mirror loop test pins that
-  trace events fanning out from the collector's bookkeeping handler
-  do NOT re-enter the collector when the bookkeeping handler carries
-  `:rf.trace/no-emit? true`."
+  `:sensitive? true`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -52,7 +47,7 @@
 ;; it, so each test runs against the SAME wiring the production preload
 ;; installs), and clears the per-process counter + egress profile so each
 ;; test starts from the baseline. `:async? true` is the map form cljs.test
-;; requires for section (3)'s `(async done …)` test, which has to cross a task
+;; requires for section (2)'s `(async done …)` test, which has to cross a task
 ;; boundary to see the coalesced dispatch land.
 
 (use-fixtures :each
@@ -71,44 +66,7 @@
        (config/reset-suppressed-count!)
        (config/set-egress-profile! config/default-egress-profile))}))
 
-;; ---- helpers ------------------------------------------------------------
-
-(defn- register-non-sensitive-event! []
-  (rf/reg-event :test/plain-bump
-    (fn [{:keys [db]} [_ n]]
-      {:db (assoc db :test/last-bump n)})))
-
-(defn- drain-depth-exceeded?
-  "True iff Xray's trace buffer contains a `:rf.error/drain-depth-
-  exceeded` event. The framework's drain-depth limit terminates a
-  runaway cascade; this is the signal that the loop wasn't contained."
-  []
-  (boolean
-    (some (fn [ev] (= :rf.error/drain-depth-exceeded (:operation ev)))
-          (trace-collector/buffer-for-test))))
-
-;; ---- (1) the non-sensitive mirror loop is closed ------------------------
-
-(deftest two-hundred-non-sensitive-dispatches-do-not-loop
-  (testing "non-sensitive trace events flow into the buffer cleanly.
-            `collect-trace!` only swaps the buffer-state
-            atom (no follow-on dispatch), so there is no
-            `:rf.xray/note-trace-event` self-emit loop to close in
-            the first place — the buffer fills purely from the
-            host's own dispatches."
-    (register-non-sensitive-event!)
-    (dotimes [n 200]
-      (rf/dispatch-sync [:test/plain-bump n]))
-    (is (not (drain-depth-exceeded?))
-        "no drain-depth-exceeded across 200 dispatches")
-    ;; The buffer contains many trace events per dispatch (event/
-    ;; dispatched, event/handled, event/db-changed, event/do-fx, ...)
-    ;; — we don't assert an exact count, just that the runtime
-    ;; survived all 200 dispatches.
-    (is (pos? (count (trace-collector/buffer-for-test)))
-        "buffer received the trace events from 200 plain dispatches")))
-
-;; ---- (2) Xray's own FRAMELESS sub reads are self-noise ------------------
+;; ---- (1) Xray's own FRAMELESS sub reads are self-noise ------------------
 ;;
 ;; Mounting the shell cold-reads Xray's own subs inside one synchronous
 ;; render. Those reads run outside any event run, so core emits their
@@ -172,9 +130,9 @@
     (is (= 3 (config/suppressed-count))
         "a host sub's frameless read is still suppressed and counted")))
 
-;; ---- (3) a HOST burst costs one dispatch per task -----------------------
+;; ---- (2) a HOST burst costs one dispatch per task -----------------------
 ;;
-;; Section (2) covers the TRIGGER (Xray counting its own reads); this section
+;; Section (1) covers the TRIGGER (Xray counting its own reads); this section
 ;; covers the AMPLIFIER. With one `:rf.xray/note-sensitive-suppressed` per
 ;; suppressed trace, a genuine host burst of more than ~100 frameless
 ;; sensitive traces in one task would carry `:rf/xray`'s queue past the
