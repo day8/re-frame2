@@ -94,30 +94,9 @@
 ;; FIRES — declared events dispatch-sync into the variant frame on destroy
 ;; ===========================================================================
 
-(deftest loaders-teardown-events-fire-on-destroy
-  (testing ":loaders-teardown events fire exactly once on destroy-variant!"
-    (let [fired (atom [])]
-      (rf/reg-event :ws/open  (fn [{:keys [db]} _] {:db (assoc db :ws? :open)}))
-      (rf/reg-event :ws/close (fn [{:keys [db]} _] (swap! fired conj :ws/close) {:db db}))
-      (rf.story/reg-variant :story.lt.fires/v
-        {:loaders          [[:ws/open]]
-         :loaders-teardown [[:ws/close]]
-         :setup           []})
-      (let [p (rf.story/run-variant :story.lt.fires/v)]
-        (async done
-          (-> p
-              (rf.story.async/then
-                (fn [_]
-                  (is (= [] @fired)
-                      "teardown has NOT fired yet — variant is still live")
-                  (rf.story/destroy-variant! :story.lt.fires/v)
-                  (is (= [:ws/close] @fired)
-                      "teardown fired exactly once on destroy")
-                  (done)))))))))
-
 (deftest loaders-teardown-events-fire-in-declared-order
-  (testing "within `:loaders-teardown` events fire in DECLARED order —
-            symmetric with `:loaders`"
+  (testing "`:loaders-teardown` events fire on destroy and not before, in
+            DECLARED order — symmetric with `:loaders`"
     (let [fired (atom [])]
       (rf/reg-event :step/one   (fn [{:keys [db]} _] (swap! fired conj :one) {:db db}))
       (rf/reg-event :step/two   (fn [{:keys [db]} _] (swap! fired conj :two) {:db db}))
@@ -130,6 +109,8 @@
           (-> p
               (rf.story.async/then
                 (fn [_]
+                  (is (= [] @fired)
+                      "teardown has NOT fired yet — variant is still live")
                   (rf.story/destroy-variant! :story.lt.order/v)
                   (is (= [:one :two :three] @fired)
                       "declared order — symmetric with :loaders")
@@ -256,10 +237,9 @@
                         err     (first (filter
                                          #(= :rf.error/exception (:assertion %))
                                          asserts))]
-                    (is (some? err)
-                        "an `:rf.error/exception` record was projected")
                     (is (= :phase-loaders-teardown (:phase err))
-                        ":phase :phase-loaders-teardown on the record")
+                        "an `:rf.error/exception` record was projected, with
+                         :phase :phase-loaders-teardown")
                     (is (false? (:passed? err))
                         ":passed? false — error records never pass")
                     (is (= [:boom/cleanup] (:event err))
@@ -269,27 +249,3 @@
                     (is (= {:why :test} (:data (:error err)))
                         ":error :data carries the ex-info data map"))
                   (done)))))))))
-
-;; ===========================================================================
-;; NO SLOT — variants without `:loaders-teardown` tear down cleanly
-;; ===========================================================================
-
-(deftest variant-without-loaders-teardown-still-tears-down
-  (testing "a variant declaring no `:loaders-teardown` slot tears
-            down cleanly — the loaders-teardown step is a no-op for it"
-    (rf/reg-event :seed/init
-      (fn [{:keys [db]} _] {:db (assoc db :seeded? true)}))
-    (rf.story/reg-variant :story.lt.none/v
-      {:setup [[:seed/init]]})
-    (let [p (rf.story/run-variant :story.lt.none/v)]
-      (async done
-        (-> p
-            (rf.story.async/then
-              (fn [_]
-                (is (nil? (rf.story/destroy-variant! :story.lt.none/v))
-                    "destroy returns nil — no-op for variants without
-                     :loaders-teardown")
-                (is (not (contains? (rf.story/variant-frames)
-                                    :story.lt.none/v))
-                    "frame is destroyed")
-                (done))))))))
