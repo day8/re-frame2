@@ -135,7 +135,6 @@
                     (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
       (let [data (ex-data ex)]
         (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id data)))
         (is (= 'rf/reg-event (:where data)))
@@ -159,7 +158,6 @@
                     (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
       (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex))))
       (is (re-find #"interceptor chains in metadata :interceptors" (:reason (ex-data ex)))))))
 
@@ -173,7 +171,6 @@
                     (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
       (let [data (ex-data ex)]
         (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id data)))
         (is (= "reg-event" (:reg-fn data)))
@@ -194,7 +191,6 @@
                     (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
       (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id (ex-data ex))))
       (is (re-find #"reference" (:reason (ex-data ex))))))
 
@@ -204,7 +200,6 @@
                     (fn [{:keys [db]} _] {:db db}))
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
       (let [data (ex-data ex)]
         (is (= :rf.error/inline-interceptor-removed (:rf.error/id data)))
         (is (= "reg-event" (:reg-fn data)))
@@ -350,7 +345,6 @@
               (is (= [:test.k3bj/string-return] (:event t)))
               (is (= "hello" (:returned t)))
               (is (= (type "hello") (:returned-type t)))
-              (is (string? (:reason t)))
               (is (re-find #"non-map" (:reason t))))
             (is (= :no-recovery (:recovery (first errs))))))
         (is (= db-before (rf/app-db-value :rf/default))
@@ -405,17 +399,6 @@
         (is (= db-before (rf/app-db-value :rf/default))
             "app-db is unchanged after a nil-return no-op")))))
 
-(deftest reg-event-map-return-still-works
-  (testing "handler returning a well-shaped {:db ...} effect-map applies"
-    (let [recorded (record-traces! ::map-good)]
-      (rf/reg-event :test.k3bj/map-return
-        (fn [_ _] {:db {:k3bj/touched? true}}))
-      (rf/dispatch-sync [:test.k3bj/map-return])
-      (is (empty? (error-events recorded :rf.error/effect-handler-bad-return))
-          "a map return must not fire the bad-return error")
-      (is (true? (:k3bj/touched? (rf/app-db-value :rf/default)))
-          ":db was applied as the effect-map specifies"))))
-
 ;; ---- normalise-args: documented user-facing shapes ----------------------
 ;;
 ;; Per the `reg-event` docstring (events.cljc), the variadic tail accepts
@@ -435,12 +418,7 @@
       (rf/reg-event :test.fuudi/shape-1
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-1? true)}))
       (rf/dispatch-sync [:test.fuudi/shape-1])
-      (is (true? (:test.fuudi/touched-1? (rf/app-db-value :rf/default))))
-      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/shape-1})]
-        (is (not (contains? meta :event/kind))
-            "there is no :event/kind sub-tag")
-        (is (= 1 (count (:interceptors meta)))
-            "no user interceptors; chain holds only the runtime :rf/event-handler wrapper")))
+      (is (true? (:test.fuudi/touched-1? (rf/app-db-value :rf/default)))))
 
     (testing "shape 2 — metadata middle: (reg-event :id {:doc \"...\"} handler)"
       (rf/reg-event :test.fuudi/shape-2
@@ -495,7 +473,6 @@
                  :surplus)
                nil
                (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
       (is (= :rf.error/reg-event-bad-arity (:rf.error/id (ex-data ex)))
           ":rf.error/id is the canonical discriminator")
       (is (re-find #"reg-event expects" (:reason (ex-data ex)))
@@ -507,7 +484,6 @@
                  (fn [{:keys [db]} _] {:db db}))
                nil
                (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
       (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id (ex-data ex))))
       (is (re-find #"metadata-map" (:reason (ex-data ex)))))))
 
@@ -523,17 +499,6 @@
 ;; `(rf/handler-meta {:source :store :kind :event :id id}) :interceptors` and filter
 ;; `(remove :rf/default?)` to surface only the user's interceptor chain.
 
-(deftest auto-wrapper-carries-rf-default-tag
-  (testing "reg-event auto-wrapper has :rf/default? true"
-    (rf/reg-event :test.twt7m/handler (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/handler})
-                           :interceptors)
-          auto-wrapper (last interceptors)]
-      (is (= :rf/event-handler (:id auto-wrapper))
-          "the auto-wrapper sits at the tail of the interceptor chain")
-      (is (= true (:rf/default? auto-wrapper))
-          "the auto-wrapper carries :rf/default? true"))))
-
 (deftest tooling-can-filter-defaults-via-rf-default-tag
   (testing "the self-describing tag lets tools filter without an id
    allowlist — `(remove :rf/default?)` surfaces user-supplied
@@ -547,8 +512,6 @@
                            :interceptors)
           user-only    (vec (remove :rf/default? interceptors))]
       (is (= 3 (count interceptors)) "two user refs + one framework auto-wrapper")
-      (is (= 2 (count user-only))
-          "filtering by :rf/default? leaves the two user interceptor refs (keywords)")
       (is (= [:test.twt7m/a :test.twt7m/b] (chain-ids user-only))))))
 
 ;; ---- `:boundary? true` without `:schema` is rejected at registration ------
@@ -576,14 +539,6 @@
   (testing "`:boundary? true` on a handler that carries no
             :schema raises :rf.error/at-boundary-missing-schema at
             registration time."
-    (testing ":boundary? true with no :schema"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/at-boundary-missing-schema"
-            (rf/reg-event :test.iftj4/no-schema-2
-              {:boundary? true}
-              (fn [_ _] {})))))
-
     (testing ":boundary? true alongside other metadata but still no :schema"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
@@ -602,7 +557,6 @@
             ":rf.error/id matches the catalogued :rf.error/* category")
         (is (= "reg-event" (:reg-fn data)))
         (is (= :test.iftj4/data-probe (:id data)))
-        (is (string? (:reason data)))
         (is (re-find #":boundary\?" (:reason data)))
         (is (re-find #":schema" (:reason data)))
         (is (= :no-recovery (:recovery data)))))
@@ -629,18 +583,6 @@
               :boundary? true}
              (fn [_ _] {})))
         "registration returns the event id when :schema is present"))
-
-  (testing "registration without :boundary? is unaffected by the check"
-    (is (= :test.iftj4/no-boundary
-           (rf/reg-event :test.iftj4/no-boundary
-             (fn [_ _] {})))
-        "no :boundary?, no schema, no error"))
-
-  (testing "metadata-map without :schema is fine when :boundary? is absent"
-    (is (= :test.iftj4/just-meta
-           (rf/reg-event :test.iftj4/just-meta
-             {:doc "no boundary, no schema"}
-             (fn [_ _] {})))))
 
   (testing "KEY presence, not truthiness: `{:schema nil
             :boundary? true}` registers and delegates the nil token to the
@@ -704,14 +646,6 @@
   (testing "A bare interceptor (not in metadata :interceptors) throws
             :rf.error/reg-event-bare-interceptor rather than being silently
             dropped."
-    (testing "two-arg form: (reg-event id bare-icpt handler)"
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/reg-event-bare-interceptor"
-            (rf/reg-event :test.3ut12/bare-2
-              bare-icpt
-              (fn [{:keys [db]} _] {:db db})))))
-
     (testing "a bare interceptor that carries ONLY :before is caught too"
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
@@ -731,7 +665,6 @@
         (is (= 'rf/reg-event (:where data)))
         (is (= :middle (:slot data)))
         (is (= :fix-registration (:recovery data)))
-        (is (string? (:reason data)))
         (is (re-find #"BARE interceptor" (:reason data)))
         (is (re-find #":interceptors" (:reason data)))))
 

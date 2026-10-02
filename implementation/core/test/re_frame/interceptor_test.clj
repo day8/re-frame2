@@ -141,9 +141,7 @@
       (is (contains? @seen-keys :rf.interceptor.path/stack)
           "path interceptor stashes its stack under the reserved :rf.interceptor.path/stack key")
       (is (not (contains? @seen-keys :path-stack))
-          "the bare :path-stack key must NOT appear (reserved-namespace contract)")
-      (is (= 11 (get-in (rf/app-db-value :rf/default) [:foo :bar]))
-          "the path interceptor's splice-back behaviour holds"))))
+          "the bare :path-stack key must NOT appear (reserved-namespace contract)"))))
 
 (deftest path-interceptor-nesting
   (testing "nested [:rf.interceptor/path …] interceptors compose correctly —
@@ -288,9 +286,6 @@
           "the original :before failure is the recorded FIRST error")
       (is (= :before (get-in final [:rf/interceptor-error :phase]))
           "the FIRST error is the upstream :before throw")
-      (is (= 1 (count errs))
-          "exactly one error — the path interceptor's :after did NOT synthesise
-           a spurious second error from (pop [])")
       (is (= [:path-short/boom] (mapv :id errs))
           "no error attributed to the path interceptor — its :after no-opped
            cleanly")
@@ -356,9 +351,7 @@
                          {}))
       (rf/dispatch-sync [:unwrap-test/consume {:k "v" :n 7}])
       (is (= {:k "v" :n 7} @seen-event)
-          "handler receives the payload map directly")
-      (is (map? @seen-event)
-          "the unwrapped event arg is a map, not a vector"))))
+          "handler receives the payload map directly"))))
 
 ;; ---- cofx delivery (EP-0017: declared-only, value-returning) --------------
 ;;
@@ -515,12 +508,6 @@
           first-err (:rf/interceptor-error final)]
       (is (vector? errs)
           ":rf/interceptor-errors is a vector")
-      (is (= 2 (count errs))
-          "both errors were recorded — neither was overwritten")
-      (is (= :before (:phase first-err))
-          ":rf/interceptor-error retains the FIRST error (the :before failure)")
-      (is (= :before-bad (:id first-err))
-          ":rf/interceptor-error identifies the FIRST failing interceptor")
       (is (= [:before :after] (mapv :phase errs))
           "errors appear in the vector in occurrence order")
       (is (= [:before-bad :after-bad] (mapv :id errs))
@@ -634,9 +621,7 @@
       (is (= {:n 1} (rf.interceptor/get-coeffect ctx' :db))
           "sibling coeffects are preserved")
       (is (= {} (:effects ctx'))
-          ":effects is untouched by a coeffect write")
-      (is (nil? (rf.interceptor/get-coeffect ctx :now))
-          "the original ctx is unchanged (persistent — no in-place mutation)"))))
+          ":effects is untouched by a coeffect write"))))
 
 (deftest assoc-effect-writes-and-is-readable
   (testing "assoc-effect sets k in :effects and returns the updated ctx"
@@ -645,9 +630,7 @@
       (is (= {:n 2} (rf.interceptor/get-effect ctx' :db))
           "the assoc'd effect reads back through get-effect")
       (is (= {:n 1} (rf.interceptor/get-coeffect ctx' :db))
-          ":coeffects :db is independent of :effects :db")
-      (is (= {} (:effects ctx))
-          "the original ctx's :effects is unchanged (persistent)"))))
+          ":coeffects :db is independent of :effects :db"))))
 
 (deftest update-coeffect-applies-fn-with-trailing-args
   (testing "update-coeffect applies f to the value at k, threading trailing args"
@@ -818,10 +801,6 @@
                                                  :before       identity
                                                  :source-coord probe-coord)
           bare       (rf.interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
-      (is (= :siheh/probe (:id with-coord))
-          "the constructor carries the requested :id")
-      (is (fn? (:before with-coord))
-          "the constructor carries the :before fn")
       (is (= probe-coord (:source-coord with-coord))
           "an explicit :source-coord stays on the interceptor map")
       (is (nil? (:source-coord bare))

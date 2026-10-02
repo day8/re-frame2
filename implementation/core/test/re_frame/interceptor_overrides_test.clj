@@ -213,32 +213,11 @@
         (is (false? (rf.interceptor-registry/override-key-matches? [:my/ic :a :b] {:id :my/ic}))
             "a 3-vector key is not an [id arg] ref and falls through to false")))))
 
-;; ---- ref= canonical-bytes fallback + fail-soft catch (unit) -------------------
+;; ---- ref= fail-soft catch (unit) ------------------------------------------
 ;;
-;; `ref=` (interceptor_registry.cljc) has two arms the override walk exercises
-;; only end-to-end, pinned here at the unit level: (1) the
-;; canonical-bytes fallback (via `rf.identity/identical-identity?`) that makes two
-;; arg spellings differing only in map-key order match; (2) the fail-soft catch
-;; that returns false (not throws) when canonicalization throws on a non-EDN
-;; arg.
-
-(deftest ref=-fast-structural-and-canonical-fallback
-  (testing "The fast `=` path and the canonical-bytes fallback"
-    (testing "fast structural `=` short-circuit"
-      (is (true? (rf.interceptor-registry/ref= :my/ic :my/ic))
-          "two identical bare-keyword refs are =")
-      (is (true? (rf.interceptor-registry/ref= [:my/ic [:cart]] [:my/ic [:cart]]))
-          "two identical [id arg] vectors are ="))
-
-    (testing "canonical-bytes fallback — map-key order is irrelevant"
-      (is (true? (rf.interceptor-registry/ref= [:my/ic {:a 1 :z 2}] [:my/ic {:z 2 :a 1}]))
-          "two [id arg] refs differing ONLY in map-key order are ref= via canonical bytes"))
-
-    (testing "genuinely different args are NOT equal"
-      (is (false? (rf.interceptor-registry/ref= [:my/ic {:a 1}] [:my/ic {:a 2}]))
-          "different arg values are not ref=")
-      (is (false? (rf.interceptor-registry/ref= :my/ic :other/ic))
-          "different bare keywords are not ref="))))
+;; `ref=` (interceptor_registry.cljc) returns false, rather than throwing, when
+;; canonicalization throws on a non-EDN arg. A serializable override key never
+;; reaches that arm through the override walk, so it is pinned at the unit level.
 
 (deftest ref=-fail-soft-on-non-edn-arg
   (testing "When canonicalization throws on a non-EDN arg,

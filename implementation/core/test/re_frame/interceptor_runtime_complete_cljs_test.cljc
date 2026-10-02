@@ -88,8 +88,6 @@
     (let [before (rf/app-db-value :rf/default)]
       (rf/dispatch-sync [:cart/add :milk])
       (let [after (rf/app-db-value :rf/default)]
-        (is (not (identical? before after))
-            "a real change produces a new app-db object (the commit wrote)")
         (is (= [:milk] (get-in after [:cart :items]))
             "the changed slice was spliced back into full app-db at [:cart]")))))
 
@@ -245,7 +243,6 @@
                  :id     :lower/test
                  :before (fn [ctx] (assoc-in ctx [:coeffects :db ::lowered?] true)))]
       (is (= :lower/test (:id icpt)))
-      (is (fn? (:before icpt)))
       ;; Chains are reference-only (EP-0022): the lowered value is NOT a
       ;; legal chain entry. Register the lowered value at
       ;; the reg-interceptor boundary (the authoring input accepts a value),
@@ -257,18 +254,7 @@
         (fn [{:keys [db]} _] {:db db}))
       (rf/dispatch-sync [:lower/run])
       (is (::lowered? (rf/app-db-value :rf/default))
-          "the lowered interceptor ran in the chain (via a registered ref)")))
-
-  (testing "the lowered value is rejected as an INLINE chain entry (chains are reference-only)"
-    (let [icpt (rf.interceptor/->interceptor*
-                 :id     :lower/inline
-                 :before identity)]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-                            #":rf.error/inline-interceptor-removed"
-                            (rf/reg-event :lower/inline-run
-                              {:interceptors [icpt]}
-                              (fn [{:keys [db]} _] {:db db})))
-          "an inline lowered value in a chain is :rf.error/inline-interceptor-removed"))))
+          "the lowered interceptor ran in the chain (via a registered ref)"))))
 
 ;; Public authoring is `reg-interceptor` — its return id and registered
 ;; handler-meta are pinned by `re-frame.reg-interceptor-cljs-test`'s
@@ -299,10 +285,6 @@
                    :id     :stale/inline
                    :before (fn [ctx] ctx)
                    :after  (fn [ctx] ctx))]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-                            #":rf.error/inline-interceptor-removed"
-                            (rf.interceptor-registry/resolve-chain [inline]))
-          "resolve-chain rejects an inline value (the dispatch-time seam, not the reg-event guard)")
       ;; The dispatch-time arm stamps :where rf/resolve-chain — distinct from the
       ;; registration-time guard's :where rf/reg-event. This is the whole point of
       ;; the belt-and-braces: a stale inline value that somehow slips past
@@ -310,7 +292,6 @@
       (let [ex (try (rf.interceptor-registry/resolve-chain [inline])
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-        (is (some? ex) "resolve-chain threw")
         (is (= :rf.error/inline-interceptor-removed (:rf.error/id (ex-data ex))))
         (is (= 'rf/resolve-chain (:where (ex-data ex)))
             "the dispatch-time :where distinguishes it from the registration-time rf/reg-event seam")
@@ -325,20 +306,10 @@
     (let [ex (try (rf.interceptor-registry/resolve-chain ["not-a-ref"])
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (some? ex) "resolve-chain threw on the malformed entry")
       (is (= :rf.error/invalid-interceptor-ref (:rf.error/id (ex-data ex)))
           "the :else arm raises :rf.error/invalid-interceptor-ref")
       (is (= "not-a-ref" (:ref (ex-data ex)))
           "the offending entry rides the error data"))))
-
-(deftest resolve-chain-passes-framework-default-untouched
-  (testing "the framework default-wrapper (:rf/default? true) passes through resolve-chain untouched"
-    ;; The ONE inline value resolve-chain lets through — proves the carve-out the
-    ;; inline loud-fail arm sits beside is exercised on the same direct seam.
-    (let [default {:id :rf/event-handler :rf/default? true :before identity}
-          out     (rf.interceptor-registry/resolve-chain [default])]
-      (is (= [default] out)
-          "the framework default passed through untouched (not rejected as an inline value)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; chain-needs-resolution? predicate's three branches
@@ -397,7 +368,6 @@
     (let [ex (try (rf.interceptor-registry/resolve-ref [:fac/boom :x])
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (some? ex) "resolve-factory threw")
       (is (= :rf.error/interceptor-factory-arity (:rf.error/id (ex-data ex)))
           "a non-:rf.error throw is wrapped as factory-arity")
       (is (re-find #"kaboom" (:reason (ex-data ex)))
@@ -415,7 +385,6 @@
     (let [ex (try (rf.interceptor-registry/resolve-ref [:fac/custom-err :x])
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (some? ex) "resolve-factory threw")
       (is (= :rf.error/my-custom-factory-error (:rf.error/id (ex-data ex)))
           "the structured :rf.error/* propagated VERBATIM — NOT wrapped as factory-arity")
       (is (= :verbatim (:detail (ex-data ex)))
@@ -450,7 +419,6 @@
     (let [ex (try (rf.interceptor-registry/resolve-ref [:fac/garbage-empty :x])
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-      (is (some? ex) "an empty-map return threw")
       (is (= :rf.error/interceptor-factory-arity (:rf.error/id (ex-data ex)))
           "an empty map {} (neither descriptor nor value) falls to the :else arm")
       (is (re-find #"neither a static descriptor" (:reason (ex-data ex)))

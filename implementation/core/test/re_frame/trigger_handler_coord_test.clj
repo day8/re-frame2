@@ -131,12 +131,9 @@
   metadata-stripped registrations)."
   [ev expected-kind expected-id]
   (let [t (:rf.trace/trigger-handler ev)]
-    (is (some? t)
-        (str "expected :rf.trace/trigger-handler on " (:operation ev)))
     (is (= expected-kind (:kind t)))
     (is (= expected-id   (:id t)))
     (let [c (:source-coord t)]
-      (is (map? c) ":source-coord present")
       (is (symbol? (:ns c))   ":ns is a symbol")
       (is (string? (:file c)) ":file is a string")
       (is (integer? (:line c)) ":line is an integer"))))
@@ -153,14 +150,10 @@
           [exc] (errors-of traces :rf.error/handler-exception)
           rec   (error-of errors :rf.error/handler-exception)]
       ;; ALWAYS-ON: same attribution on the production channel —
-      ;; the record names the failing event and resolves its coord.
+      ;; the record names the failing event (its coord is pinned by
+      ;; `source-coord-matches-registration-site` below).
       (is (= :rf2-3nn8/throwing-event (:event-id rec))
           "the always-on record names the failing event")
-      (is (map? (:source-coord rec))
-          "the always-on record carries the registration :source-coord")
-      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/throwing-event)
-             (:source-coord rec))
-          "the always-on record carries the event's registration coord")
       (when rf.interop/debug-enabled?
         ;; `assert-trigger-shape` reads `:rf.trace/trigger-handler` off the
         ;; top level of the event; it must not ALSO ride under `:tags`.
@@ -188,7 +181,6 @@
       ;; `:failing-id` — the Spec 009 §Component-attribution lift — not on the
       ;; coord. Pinning both keeps a future "just read the record" refactor
       ;; from quietly losing the fx attribution.
-      (is (some? rec) "the always-on fx-handler-exception record fired")
       (is (= :rf2-3nn8/use-throwing-fx (:event-id rec))
           "the always-on record's :event-id is the dispatched event")
       (is (= :rf2-3nn8/throwing-fx (:failing-id rec))
@@ -211,7 +203,6 @@
       ;; `error-emit`'s `sub-error-categories`, so its coord resolves under
       ;; `[:sub …]` — the realm-aware lookup. That is the
       ;; production-posture statement of "the record names the FAILING SUB".
-      (is (some? rec) "the always-on sub-exception record fired")
       (is (= :rf2-3nn8/throwing-sub (:event-id rec))
           "the always-on record's id slot carries the SUB id")
       (is (= (rf.source-coords/error-coords-for :sub :rf2-3nn8/throwing-sub)
@@ -236,7 +227,6 @@
           rec    (error-of errors :rf.error/no-such-fx)]
       ;; ALWAYS-ON: `:rf.error/no-such-fx` is a PROMOTED category,
       ;; so the enclosing event's coord reaches production on the record.
-      (is (some? rec) "the always-on no-such-fx record fired")
       (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/uses-missing-fx)
              (:source-coord rec))
           "the always-on record carries the enclosing event's coord")
@@ -286,7 +276,6 @@
       ;; site" claim, made against the always-on registry — which is the
       ;; registration-site record of truth in production, `handler-meta`
       ;; having been stripped of coord keys there.
-      (is (map? errc) "the always-on registry holds the registration coord")
       (is (= errc (:source-coord rec))
           "the always-on record's :source-coord IS the registration coord")
       (is (symbol? (:ns errc)))

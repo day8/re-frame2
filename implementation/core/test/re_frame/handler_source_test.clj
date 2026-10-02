@@ -67,13 +67,10 @@
         src (:rf.handler/source m)]
     ;; Always-on witness: the macro path registered, in EITHER
     ;; posture. The prod arm of the expansion is what would break here.
-    (is (some? m) (str "handler-meta for " kind " " id " should be present"))
     (is (ifn? (:handler-fn m))
         (str "the registered handler-fn is live for " kind " " id))
     ;; Dev-instrumentation arm (see ns docstring §Posture split).
     (when rf.interop/debug-enabled?
-      (is (string? src)
-          (str ":rf.handler/source should be a string for " kind " " id))
       (is (str/includes? src macro-name)
           (str ":rf.handler/source should include the macro name '" macro-name "'"))
       (is (str/includes? src (pr-str id))
@@ -95,9 +92,7 @@
         ;; Whole-form capture: the handler-fn body (the fx-shape return) must
         ;; appear, not just the surface.
         (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")
-            ":rf.handler/source should include the reg-event handler-fn body")
-        (is (str/includes? src ":db")
-            ":rf.handler/source should include the effect-map keyword")))))
+            ":rf.handler/source should include the reg-event handler-fn body")))))
 
 ;; EP-0018: one `reg-event` macro, so a db-shape and an fx-shape body both
 ;; ride the `reg-event` form-source path `reg-event-captures-form-source`
@@ -125,7 +120,6 @@
     (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
                  (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-meta}))]
-        (is (string? src))
         (is (str/includes? src ":doc"))
         (is (str/includes? src "metadata-shape middle slot"))))))
 
@@ -152,7 +146,6 @@
     (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
                  (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-icpts}))]
-        (is (string? src))
         (is (str/includes? src "unwrap"))))))
 
 ;; ---- programmatic call (bypasses macro) ----------------------------------

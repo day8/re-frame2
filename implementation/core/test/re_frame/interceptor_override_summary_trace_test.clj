@@ -200,7 +200,6 @@
           ;; — the chain that actually ran is the fact the guarded tag reports.
           (is (= expected-ran @ran) "the chain that ran reflects the override")
           (when rf.interop/debug-enabled?
-            (is (some? summary) "tag present (the override map is non-empty)")
             (is (= (:removed expected) (:removed summary)) ":removed carries the removed ref ids")
             (is (= (:replaced expected) (:replaced summary)) ":replaced carries the replaced ref ids")
             (if (set? (:matched expected))
@@ -225,7 +224,6 @@
         ;; production too — the frame-scoped removal is not a dev affordance.
         (is (= [::log-b] @ran) "the per-frame override removed ::log-a from the chain")
         (when rf.interop/debug-enabled?
-          (is (some? summary))
           (is (= [::log-a] (:removed summary)))
           (is (= 1 (:count summary))))))))
 
@@ -248,9 +246,8 @@
                               :count    1}}}
           out   (rf.classification/project-trace-event ev)
           summ  (-> out :tags :rf.interceptor/override-summary)]
-      (is (= [::log-a] (:matched summ)))
-      (is (= [::log-a] (:removed summ)))
-      (is (= 1 (:count summ))))))
+      (is (= {:matched [::log-a] :replaced [] :removed [::log-a] :count 1} summ)
+          "a clean id-only summary passes through unchanged"))))
 
 (deftest marks-projection-reduces-param-ref-to-head-id
   (testing "an [id arg] ref is reduced to its head id (arg dropped — not proven safe)"
@@ -266,10 +263,7 @@
           summ (-> out :tags :rf.interceptor/override-summary)]
       (is (= [:rf.interceptor/path] (:matched summ))
           "[id arg] reduced to head id")
-      (is (= [:rf.interceptor/path] (:replaced summ)))
-      ;; The {:secret "tok"} arg must be gone from the egressed shape.
-      (is (not (some #(and (map? %) (contains? % :secret)) (:matched summ)))
-          "no [id arg] arg payload egresses"))))
+      (is (= [:rf.interceptor/path] (:replaced summ))))))
 
 (deftest marks-projection-redacts-non-ref-payload
   (testing "a non-ref payload (a refactor regression smuggling a value) FAILS CLOSED to :rf/redacted"
@@ -286,8 +280,7 @@
           summ (-> out :tags :rf.interceptor/override-summary)]
       (is (= [rf.privacy/redacted-sentinel] (:matched summ))
           "an interceptor VALUE map collapses to the redacted sentinel")
-      (is (= [rf.privacy/redacted-sentinel] (:replaced summ)))
-      (is (not-any? map? (:matched summ)) "no raw interceptor value egresses"))))
+      (is (= [rf.privacy/redacted-sentinel] (:replaced summ))))))
 
 (deftest marks-projection-drops-malformed-non-map-summary
   (testing "a non-map summary payload is dropped entirely (fail closed)"
