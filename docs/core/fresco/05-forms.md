@@ -341,7 +341,8 @@ other value that should update app-db immediately and has no abandonable draft.
 Use the forms module when a field needs commit/cancel buffering.
 Interaction-gated errors and a readable submit lifecycle need no module; they
 are the patterns on this page. Each buffered field adds an address and commit
-protocol to app-db.
+protocol to app-db. For a `reg-view` screen, [Build a form](../how-to/build-a-form.md)
+keeps the draft, the touched fields and the submit status in one app-db slice.
 
 ## Advanced
 

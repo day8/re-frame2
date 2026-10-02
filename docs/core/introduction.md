@@ -135,6 +135,7 @@ covers them in full.
 | Frame | One running app: app-db + queue + caches |
 | Event pipeline | The fixed stages each event goes through: update → commit → render |
 
-The Core pages build this pipeline up one stage at a time. The counter carries the
-examples through [app-db](app-db.md); from [Subscriptions](subscriptions.md) on, where
-there is more data to derive from, they use a small todo list.
+The Core pages build this pipeline up one stage at a time. The counter is the running
+example through [app-db](app-db.md) and the first subscription on
+[Subscriptions](subscriptions.md). One number leaves little to derive, so that page
+then switches to a small todo list, and the later pages keep using it.

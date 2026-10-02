@@ -8,6 +8,8 @@ That rule lives in one [subscription](../glossary.md#subscription) (step 3), so 
 
 The form validates the whole draft on submit. Cross-field rules, per-field and async validation, and retry are in [Advanced](#advanced).
 
+This recipe writes its views with `reg-view`. [Forms](../fresco/05-forms.md) in the Fresco guide covers the same lifecycle in `h/defview` views, including a buffered field for a draft that can be committed or abandoned.
+
 ??? info "Coming from React Hook Form or Formik?"
 
     re-frame2 ships no `<Form>`, `register()`, or `useForm`. A form is a convention built from ordinary events, subs, and schemas: state lives in app-db (every keystroke is an inspectable event), errors are subs, and the validator is a plain function doing a resolver's job, which you can call from a REPL or a unit test with no React or DOM. A registered Malli schema is a development-time check that a production build [elides](../glossary.md#elide); the check that rejects a bad submit is code you write in the handler.

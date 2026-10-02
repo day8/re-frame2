@@ -409,4 +409,4 @@ frame.
 Events, app-db, subscriptions and the purity rule are identical under both. Fresco
 ships its own adapter, `re-frame.fresco.substrate/adapter`, which a Fresco
 application passes to `init!`; a Reagent, reagent-slim or UIx adapter also works
-under a Fresco tree. Fresco is pre-alpha, and its guide is a draft.
+under a Fresco tree. Fresco is pre-alpha.
