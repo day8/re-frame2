@@ -150,12 +150,12 @@ records windowed refetch, the complete subscription fields and supported options
 ## Advanced
 
 An `IntersectionObserver` can dispatch the same command instead of a button.
-Capture the frame during mount, keep that capture with the observer, and
-disconnect it on unmount:
+Call `rf/capture-frame` during render. Keep that capture for the mount callback,
+which creates the observer, observes the sentinel and disconnects on unmount:
 
 ```clojure
-;; Create within frame context; observe the sentinel during mount.
-(let [{:keys [dispatch]} (rf/capture-frame)]
+;; Call at mount with the frame capture made during render.
+(defn load-more-observer [{:keys [dispatch]}]
   (js/IntersectionObserver.
    (fn [entries _observer]
      (when (.-isIntersecting (aget entries 0))
