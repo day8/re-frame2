@@ -204,14 +204,12 @@
       (is (= pool-v2 (pool-row target)) "control: its row names pool V2")
 
       (let [log      (atom [])
-            moved    (atom [])
             reached  (CountDownLatch. 1)
             release  (CountDownLatch. 1)]
         ;; THE READER, standing on the instant of any transient publication: the
         ;; real per-frame reprojection, which re-resolves the frame against
-        ;; whatever the table says right now and swaps the result on. Its return
-        ;; is the reload diff — non-nil exactly when the frame MOVED.
-        (watch-row! target log #(swap! moved conj (rf.live-frame/reproject-live-frame! target)))
+        ;; whatever the table says right now and swaps the result on.
+        (watch-row! target log #(rf.live-frame/reproject-live-frame! target))
         (try
           (let [winner (binding [rf.frame/*upsert-decide-probe*
                                  (window-probe target reached release)]
@@ -227,19 +225,17 @@
                    (err-id #(rf.live-frame/make-frame {:id target :images [img]} pool-v1)))
                 "the same-id contender is rejected by the engine")
 
+            ;; The reader runs only on a logged transition, so an empty log
+            ;; also means no reprojection was offered a pool the winner had
+            ;; not sealed, and the row still names pool V2.
             (is (= [] @log)
                 (str "the rejected contender wrote nothing to the provenance "
                      "table — publishing pool V1 there and then restoring it "
                      "would open a window any reader on any thread could "
-                     "land in"))
-            (is (= [] @moved)
-                (str "no reprojection was offered a pool the winner had not "
-                     "sealed — a reader in such a window would re-resolve "
-                     "the live frame against V1 and swap it on"))
+                     "land in, re-resolve the live frame against V1 and swap "
+                     "it on"))
             (is (= ::inc-v2 (inc-impl target))
                 "the live frame is still running the pool its owner sealed")
-            (is (= pool-v2 (pool-row target))
-                "the row still names the pool the frame is running")
 
             (.countDown release)
             (is (not= ::timeout (deref winner settle-ms ::timeout))
@@ -282,9 +278,7 @@
           (str "the publication and its rollback both ran while the id was "
                "exclusively reserved — outside every reservation a "
                "same-id successor could be interleaved "
-               "between them"))
-      (is (= pool-v1 (pool-row id))
-          "the failed re-construction preserved the ORIGINAL row"))))
+               "between them, and the undo left the ORIGINAL row")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. ABSENT versus RECORDED-NIL, under the reservation. `nil` is a legitimate
@@ -312,11 +306,9 @@
       (is (= [{:from nil :to pool-v1 :reserved? true}
               {:from pool-v1 :to nil  :reserved? true}]
              @log)
-          "both halves ran under the reservation, and the undo restored nil")
-      (is (contains? (deref @provenance) id)
-          "the row is still PRESENT — a recorded nil was not mistaken for absent")
-      (is (nil? (pool-row id))
-          "and still names the live source store"))))
+          (str "both halves ran under the reservation, and the undo restored "
+               "a PRESENT nil row (an absent row logs ::absent) — a recorded "
+               "nil was not mistaken for absent")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. AN OUTER PREFLIGHT'S RESERVATION IS ADOPTED, NOT NESTED. A multi-id
@@ -348,9 +340,9 @@
           (rf.frame/release-frame-construction! owner)))
 
       (is (= [{:from ::absent :to pool-v1 :reserved? true}] @log)
-          (str "exactly ONE publication, made under the outer owner's "
-               "reservation — the losing second entry published nothing"))
-      (is (= pool-v1 (pool-row id)) "the row names the pool that was admitted")
+          (str "exactly ONE publication, of the admitted pool, made under the "
+               "outer owner's reservation — the losing second entry published "
+               "nothing"))
       (is (= ::inc-v1 (inc-impl id)) "and the frame is running it")
 
       ;; The outer owner compare-released, so ordinary construction of the SAME

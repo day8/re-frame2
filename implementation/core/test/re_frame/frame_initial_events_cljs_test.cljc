@@ -149,10 +149,9 @@
                                      [:test/inc]
                                      [:test/inc]
                                      [:test/add :marker :done]]})
-    (let [db (rf/app-db-value :boot/seq)]
-      (is (= 2 (:n db)) "the two :test/inc steps ran in order after the seed")
-      (is (= :done (:marker db)) "the trailing :test/add step ran last")
-      (is (= [] (:log db)) "the seed step replaced app-db wholesale"))))
+    (is (= {:n 2 :log [] :marker :done} (rf/app-db-value :boot/seq))
+        "the seed replaced app-db wholesale, then the two :test/inc steps and the
+         trailing :test/add step ran in order")))
 
 (deftest initial-events-map-step-opts-honoured
   (testing "a map step {:event … :opts {:rf.cofx {:rf/time-ms …}}} passes the
@@ -230,86 +229,54 @@
             "an ordinary runtime dispatch carries no :rf.frame/init-step-index")))))
 
 ;; ===========================================================================
-;; 3. Strict-shape preflight — each bad shape fails the right id, no frame left
-; ===========================================================================
-
-(deftest bare-top-level-event-vector-is-invalid
-  (testing "a bare event vector at the TOP LEVEL fails :rf.error/initial-events-bare-event"
-    (reg-test-events!)
-    (is (= :rf.error/initial-events-bare-event
-           (err-id #(rf/make-frame {:id :bad/bare :initial-events [:test/set-db {:n 0}]})))
-        "[:test/set-db {…}] at top level is rejected (wrap as [[…]])")
-    (is (nil? (rf.frame/frame :bad/bare))
-        "no frame is left registered when preflight validation throws")))
-
-(deftest frame-in-step-opts-is-rejected
-  (testing "a :frame in a map step's :opts fails :rf.error/initial-events-bad-opts"
-    (reg-test-events!)
-    (is (= :rf.error/initial-events-bad-opts
-           (err-id #(rf/make-frame {:id :bad/frame-opt :initial-events [{:event [:test/set-db {}]
-                                                      :opts  {:frame :somewhere-else}}]})))
-        ":frame is forced to the constructed frame and may not be supplied")
-    (is (nil? (rf.frame/frame :bad/frame-opt)) "no frame left registered")))
-
-(deftest non-map-step-opts-is-rejected
-  (testing "a non-map :opts fails :rf.error/initial-events-bad-opts"
-    (reg-test-events!)
-    (is (= :rf.error/initial-events-bad-opts
-           (err-id #(rf/make-frame {:id :bad/opts-shape :initial-events [{:event [:test/set-db {}] :opts :nope}]}))))))
-
-(deftest unknown-step-shape-is-rejected
-  (testing "a step that is neither event vector nor map fails :rf.error/initial-events-bad-step"
-    (reg-test-events!)
-    (is (= :rf.error/initial-events-bad-step
-           (err-id #(rf/make-frame {:id :bad/step :initial-events [42]})))
-        "a number step is rejected")
-    (is (= :rf.error/initial-events-bad-step
-           (err-id #(rf/make-frame {:id :bad/step2 :initial-events :not-a-vector})))
-        "a non-vector top-level value is rejected as bad-step")
-    (is (nil? (rf.frame/frame :bad/step)) "no frame left registered")))
-
-(deftest empty-step-event-is-rejected
-  (testing "an empty step vector / a map step with missing-or-empty :event fails
-            :rf.error/initial-events-bad-event"
-    (reg-test-events!)
-    (is (= :rf.error/initial-events-bad-event
-           (err-id #(rf/make-frame {:id :bad/empty :initial-events [[]]})))
-        "an empty event vector is not a valid step")
-    (is (= :rf.error/initial-events-bad-event
-           (err-id #(rf/make-frame {:id :bad/no-event :initial-events [{:opts {:rf.cofx {}}}]})))
-        "a map step with no :event is rejected")
-    (is (= :rf.error/initial-events-bad-event
-           (err-id #(rf/make-frame {:id :bad/event-kw :initial-events [{:event :not-a-vector}]})))
-        "a map step whose :event is not a vector is rejected")))
-
-;; ===========================================================================
-;; 4. Retirement — :on-create / :initial-db fail loud
+;; 3. Strict-shape preflight and retirement — each malformed construction
+;;    config fails its documented id before any step runs, no frame left
 ;; ===========================================================================
 
-(deftest on-create-is-retired
-  (testing ":on-create supplied to construction fails :rf.error/on-create-retired"
+(deftest each-malformed-construction-config-fails-its-error-id-before-any-frame-exists
+  (testing "every bad :initial-events shape, and each retired construction key,
+            fails its documented :rf.error/* discriminator at preflight, and no
+            refused construction leaves a frame registered"
     (reg-test-events!)
-    (is (= :rf.error/on-create-retired
-           (err-id #(rf/make-frame {:id :ret/oc :on-create [:test/inc]})))
-        "make-frame rejects :on-create")
-    (is (= :rf.error/on-create-retired
-           (err-id #(rf.live-frame/make-frame {:id :ret/oc2 :on-create [:test/inc]})))
-        "make-frame rejects :on-create (it flows through to make-frame's guard)")
-    (is (nil? (rf.frame/frame :ret/oc)) "no frame left registered")))
-
-(deftest initial-db-is-retired
-  (testing ":initial-db supplied to construction fails :rf.error/initial-db-retired"
-    (reg-test-events!)
-    (is (= :rf.error/initial-db-retired
-           (err-id #(rf/make-frame {:id :ret/idb :initial-db {:n 0}})))
-        "make-frame rejects :initial-db")
-    (is (= :rf.error/initial-db-retired
-           (err-id #(rf.live-frame/make-frame {:id :ret/idb2 :initial-db {:n 0}})))
-        "make-frame rejects :initial-db (it is not an image-selection key)")
-    (is (nil? (rf.frame/frame :ret/idb)) "no frame left registered")))
+    (let [rows [["a bare event vector at the TOP LEVEL (wrap as [[…]])"
+                 :bad/bare {:initial-events [:test/set-db {:n 0}]}
+                 :rf.error/initial-events-bare-event]
+                [":frame in a map step's :opts (it is forced to the constructed frame)"
+                 :bad/frame-opt {:initial-events [{:event [:test/set-db {}]
+                                                   :opts  {:frame :somewhere-else}}]}
+                 :rf.error/initial-events-bad-opts]
+                ["a non-map :opts"
+                 :bad/opts-shape {:initial-events [{:event [:test/set-db {}] :opts :nope}]}
+                 :rf.error/initial-events-bad-opts]
+                ["a step that is neither event vector nor map"
+                 :bad/step {:initial-events [42]}
+                 :rf.error/initial-events-bad-step]
+                ["a non-vector top-level :initial-events value"
+                 :bad/step2 {:initial-events :not-a-vector}
+                 :rf.error/initial-events-bad-step]
+                ["an empty event vector step"
+                 :bad/empty {:initial-events [[]]}
+                 :rf.error/initial-events-bad-event]
+                ["a map step with no :event"
+                 :bad/no-event {:initial-events [{:opts {:rf.cofx {}}}]}
+                 :rf.error/initial-events-bad-event]
+                ["a map step whose :event is not a vector"
+                 :bad/event-kw {:initial-events [{:event :not-a-vector}]}
+                 :rf.error/initial-events-bad-event]
+                ["the retired :on-create key"
+                 :ret/oc {:on-create [:test/inc]}
+                 :rf.error/on-create-retired]
+                ["the retired :initial-db key"
+                 :ret/idb {:initial-db {:n 0}}
+                 :rf.error/initial-db-retired]]]
+      (doseq [[label id config expected] rows]
+        (is (= expected (err-id #(rf/make-frame (assoc config :id id))))
+            (str label " fails " expected)))
+      (is (= [] (filterv rf.frame/frame (map second rows)))
+          "no refused construction left a frame registered"))))
 
 ;; ===========================================================================
-;; 5. Reset — destroy-frame! + re-make-frame replays the recorded :initial-events
+;; 4. Reset — destroy-frame! + re-make-frame replays the recorded :initial-events
 ;;    (there is no dedicated reset verb; a full replace is this two-call
 ;;    composition, re-supplying the SAME config the caller holds)
 ;; ===========================================================================
@@ -383,11 +350,8 @@
                                        [:counter/inc]]}
                      [])
       ;; Sanity: construction ran the INLINE handlers (the generation is live).
-      (is (some? (rf.frame/frame-generation :reset/inline))
-          "the frame is image-loaded — its record carries a resolved generation")
-      (let [db0 (rf/app-db-value :reset/inline)]
-        (is (= :inline (:written-by db0)) "construction ran the INLINE seed, not the global")
-        (is (= 1 (:n db0)) "the inline seed (n=0) + inline inc ⇒ n=1"))
+      (is (= {:written-by :inline :n 1} (rf/app-db-value :reset/inline))
+          "construction ran the INLINE seed (n=0) + inline inc, not the global")
       ;; Mutate away from the constructed state via the INLINE inc.
       (rf/dispatch-sync [:counter/inc] {:frame :reset/inline})
       (rf/dispatch-sync [:counter/inc] {:frame :reset/inline})
@@ -401,25 +365,17 @@
                       :initial-events [[:counter/seed 0]
                                        [:counter/inc]]}
                      [])
-      ;; (1) the generation survived — the recreated record still carries it.
-      (is (some? (rf.frame/frame-generation :reset/inline))
-          "(1) reset preserved the resolved image generation — the recreated frame
-           is still image-loaded, NOT degraded to a registrar-resolved frame")
-      ;; (2) the :initial-events replay resolved the INLINE handlers, not the
-      ;;     global — the load-bearing assertion that would FAIL on a degraded
-      ;;     frame (which would write :global, or leave db empty if the global
-      ;;     traced-and-recovered, never :inline).
-      (let [db (rf/app-db-value :reset/inline)]
-        (is (= :inline (:written-by db))
-            "(2) the replay ran the INLINE :counter/seed — the generation's
-             registration namespace, NOT the global registrar (a degraded frame
-             would write :global / be left in a wrong state with no loud signal)")
-        (is (= 1 (:n db))
-            "the inline seed (n=0) + inline inc replayed correctly ⇒ n=1 — the
-             frame returned to its constructed state through its OWN image")))))
+      ;; The generation survived and the :initial-events replay resolved the
+      ;; INLINE handlers, not the global — a degraded frame would write
+      ;; :global, or leave db empty if the global traced-and-recovered, never
+      ;; :inline.
+      (is (= {:written-by :inline :n 1} (rf/app-db-value :reset/inline))
+          "reset preserved the resolved image generation: the replay ran the
+           INLINE :counter/seed + inc (n=1), NOT the global registrar — the frame
+           returned to its constructed state through its OWN image"))))
 
 ;; ===========================================================================
-;; 6. Re-registration — re-records but does NOT replay (durable state preserved)
+;; 5. Re-registration — re-records but does NOT replay (durable state preserved)
 ;; ===========================================================================
 
 (deftest re-registration-re-records-but-does-not-replay
@@ -445,7 +401,7 @@
           "destroy + re-make-frame after re-reg replays the RE-RECORDED setup (n=999)"))))
 
 ;; ===========================================================================
-;; 7. Teardown — STRICT construction: ANY setup-step failure destroys the partial
+;; 6. Teardown — STRICT construction: ANY setup-step failure destroys the partial
 ;;    frame and names the step (EP-0027 §Failure).
 ;;    Both detection routes are pinned: an ESCAPING throw out of dispatch-sync
 ;;    (a cofx-resolution throw) AND an IN-BAND handler-body throw the chain
@@ -566,7 +522,7 @@
           "a clean retry succeeds after A's reservation is released"))))
 
 ;; ===========================================================================
-;; 8. The handler-time construction guard
+;; 7. The handler-time construction guard
 ;; ===========================================================================
 
 (deftest frame-construction-in-handler-fails-loud

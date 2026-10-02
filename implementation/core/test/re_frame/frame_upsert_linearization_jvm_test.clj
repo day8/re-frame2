@@ -523,9 +523,8 @@
             (finally
               (.countDown release)))
           (is (= :hook-failed @owner) "the staged re-registration fails")
-          (is (some? (rf.frame/frame id)) "the frame stayed live throughout")
           (is (= prior-config (:config (rf.frame/frame id)))
-              "the prior config is restored")
+              "the frame stayed live throughout, and the prior config is restored")
           (is (true? (rf.trace/frame-trace-disabled? id))
               "the prior no-emit policy is restored")
           (is (= 5 (retained-cap id)) "the prior retention policy is restored")

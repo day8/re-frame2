@@ -211,10 +211,9 @@
                  it does not restore the whole record wholesale")
             (is (= {:foreign-runtime true} (rf.frame/frame-runtime-db-value id))
                 "and preserves runtime updates made during the callback")
-            (is (= #{:prior} (get-in (rf.frame/frame id) [:config :tags]))
-                "the failed constructor's config is NOT retained")
             (is (= prior-config (:config (rf.frame/frame id)))
-                "the complete prior config is restored, not only its tags")
+                "the failed constructor's config is NOT retained: the complete
+                 prior config is restored, not only its tags")
             (is (true? (rf.trace/frame-trace-disabled? id))
                 "the pre-attempt frame-scoped policy is restored")
             (is (identical? prior-policy-token

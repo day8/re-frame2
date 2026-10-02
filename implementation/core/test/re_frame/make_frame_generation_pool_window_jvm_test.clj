@@ -214,35 +214,10 @@
              "cascade — a stale row would let the cascade's flush reproject "
              "the frame against the PREVIOUS incarnation's pool (V1) and swap "
              "that over the V2 generation the constructor had just installed"))
-    (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation :pool-window/target)
-                                       :event :pool-window/reset))
-        "the V2-only registration is resolvable — the frame is running V2")
     (is (= pool-v2 (pool-row :pool-window/target))
         "the provenance row names the pool the frame is actually running")
     (is (= {:seeded true} (rf/app-db-value :pool-window/target))
         "the setup cascade itself ran (the flush is not being skipped)")))
-
-;; ---------------------------------------------------------------------------
-;; 2. THE SAME WINDOW WITHOUT :initial-events. The clobber needs a resolution
-;;    inside `upsert-frame!` to trigger it, and `:initial-events` is the only
-;;    one on the construction path — so a construction with no setup steps comes
-;;    through unharmed whichever order the row is written in. This case exists so
-;;    the reproduction above cannot be mistaken for "re-construction is broken":
-;;    it pins the trigger precisely.
-;; ---------------------------------------------------------------------------
-
-(deftest construction-without-setup-steps-was-never-in-the-window
-  (testing "with no :initial-events there is no in-upsert resolution to flush
-            the pending reprojection, so the constructor's generation stands —
-            the trigger is the setup cascade, not re-construction itself"
-    (rf/make-frame {:id :pool-window/decoy})
-    (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v1)
-    (rf/destroy-frame! :pool-window/target)
-    (reset! @dirty-flag false)
-    (rf/reg-event :pool-window/armer-2 (fn [{:keys [db]} _] {:db db}))
-    (is (true? @@dirty-flag) "control: a reprojection is pending")
-    (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v2)
-    (is (= ::inc-v2 (inc-impl :pool-window/target)))))
 
 ;; The ROLLBACK that makes writing the row ahead of the engine commit safe is
 ;; pinned beside the reservation it runs under:

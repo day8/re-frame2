@@ -84,8 +84,8 @@
             authority so the runtime-db it returns is in-bounds"
     (rf.events/register-install-frame-state-standard!)
     (let [meta (rf.registrar/handler-meta :event :rf/install-frame-state)]
-      (is (some? meta) "the event resolves in the regular registrar")
-      (is (= rf.events/install-frame-state-handler (:handler-fn meta)))
+      (is (= rf.events/install-frame-state-handler (:handler-fn meta))
+          "the event resolves in the regular registrar")
       (is (true? (:rf/framework-authority? meta))
           "stamped with the general framework-write authority key"))
     (let [std (->> (rf.image-assembly/standard-descriptors)
@@ -108,11 +108,9 @@
                         {:rf.runtime/ssr live-ssr})]
       (rf/dispatch-sync [:rf/install-frame-state {:rf.db/app {:restored :yes}}]
                         {:frame fid})
-      (let [after (rf/frame-state-value fid)]
-        (is (= {:restored :yes} (:rf.db/app after))
-            "app-db is REPLACED, not merged — :old / :other are gone")
-        (is (= (:rf.db/runtime before) (:rf.db/runtime after))
-            "the omitted runtime-db partition is untouched")))))
+      (is (= (assoc before :rf.db/app {:restored :yes}) (rf/frame-state-value fid))
+          "app-db is REPLACED, not merged — :old / :other are gone — and the
+           omitted runtime-db partition is untouched"))))
 
 (deftest a-present-runtime-partition-replaces-per-subtree
   (testing "each runtime-db subtree the payload carries replaces that subtree;
@@ -125,30 +123,25 @@
       (rf/dispatch-sync [:rf/install-frame-state
                          {:rf.db/runtime {:rf.runtime/ssr saved-ssr}}]
                         {:frame fid})
-      (let [after (rf/frame-state-value fid)
-            rt    (:rf.db/runtime after)]
-        (is (= saved-ssr (:rf.runtime/ssr rt))
-            "the supplied subtree REPLACES the live one (the saved value, whole)")
-        (is (= live-routing (:rf.runtime/routing rt))
-            "a subtree the payload omits is preserved, not wiped")
-        (is (= (dissoc (:rf.db/runtime before) :rf.runtime/ssr)
-               (dissoc rt :rf.runtime/ssr))
-            "nothing else in runtime-db moved")
-        (is (= (:rf.db/app before) (:rf.db/app after))
-            "the omitted app partition is untouched")))))
+      (is (= (assoc-in before [:rf.db/runtime :rf.runtime/ssr] saved-ssr)
+             (rf/frame-state-value fid))
+          "the supplied subtree REPLACES the live one (the saved value, whole);
+           the omitted :routing subtree is preserved, nothing else in runtime-db
+           moved, and the omitted app partition is untouched"))))
 
 (deftest both-partitions-install-as-one-transition
   (testing "a payload carrying both partitions installs both in the one event"
-    (let [fid (fresh-frame!)
-          _   (seed! fid {:app :old} {:rf.runtime/routing live-routing})]
+    (let [fid    (fresh-frame!)
+          before (seed! fid {:app :old} {:rf.runtime/routing live-routing})]
       (rf/dispatch-sync [:rf/install-frame-state
                          {:rf.db/app     {:app :restored}
                           :rf.db/runtime {:rf.runtime/ssr saved-ssr}}]
                         {:frame fid})
-      (let [after (rf/frame-state-value fid)]
-        (is (= {:app :restored} (:rf.db/app after)))
-        (is (= saved-ssr (get-in after [:rf.db/runtime :rf.runtime/ssr])))
-        (is (= live-routing (get-in after [:rf.db/runtime :rf.runtime/routing])))))))
+      (is (= {:rf.db/app     {:app :restored}
+              :rf.db/runtime (assoc (:rf.db/runtime before) :rf.runtime/ssr saved-ssr)}
+             (rf/frame-state-value fid))
+          "app-db is replaced AND the :ssr subtree installed, beside the preserved
+           :routing subtree"))))
 
 (deftest an-empty-payload-changes-nothing
   (testing "`{}` names no partition, so nothing is installed"
