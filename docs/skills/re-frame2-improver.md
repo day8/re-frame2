@@ -6,7 +6,7 @@ Reviews **existing** re-frame2 ClojureScript code against a catalogue of re-fram
 
 Ask for a review with the code in scope:
 
-> *Review `src/app/cart/` for re-frame2 anti-patterns.*
+> Using re-frame2-improver, review `src/app/cart/` for re-frame2 anti-patterns.
 
 To apply corrections as well, ask: *"Using re-frame2-improver, review and fix `src/app/cart/`."* In Claude Code, `/re-frame2-improver` loads it explicitly.
 

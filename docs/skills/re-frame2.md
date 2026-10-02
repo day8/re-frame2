@@ -6,7 +6,7 @@ Writes re-frame2 ClojureScript application code — events, subscriptions, effec
 
 Ask for what you want in your own words, in a project that has the skill installed:
 
-> *Add a `:cart/remove` event that removes an item by id, a subscription for the number of items in the cart, and a test for both.*
+> Using re-frame2, add a `:cart/remove` event that removes an item by id, a subscription for the number of items in the cart, and a test for both.
 
 Name `re-frame2` in the request, or use `/re-frame2` in Claude Code.
 
@@ -24,11 +24,11 @@ For Story work it can also drive the optional `re-frame2-story-mcp` server's too
 
 ## When to reach for it
 
-Use it when you want the agent to write or change application code, tests included, in a project that already runs on re-frame2. You don't have to name re-frame2 for it to load.
+Use it when you want the agent to write or change re-frame2 application code, tests included. Adding re-frame2 to an existing app with substantial code or another state management library also belongs here. You don't have to name re-frame2 for it to load.
 
 For related work:
 
-- A project with no re-frame2 in it yet → [re-frame2-setup](re-frame2-setup.md). When the counter mounts, switch back here.
+- Starting a new project from an empty directory → [re-frame2-setup](re-frame2-setup.md). When the counter mounts, switch back here.
 - Code still on re-frame v1 → [re-frame-migration](re-frame-migration.md). re-frame2 removed `reg-event-db`, `reg-event-fx` and `reg-event-ctx`: a leftover call raises `:rf.error/reg-event-db-removed` (or its `-fx-` / `-ctx-` twin) naming `reg-event`. Other v1-only names, such as `reg-sub-raw` and `re-frame.db`, no longer exist, and `^:flush-dom` metadata is ignored.
 - A review of code you already have → [re-frame2-improver](re-frame2-improver.md).
 - A question about the running app → [re-frame2-pair](re-frame2-pair.md).
