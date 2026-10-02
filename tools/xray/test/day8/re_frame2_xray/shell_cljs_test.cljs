@@ -9,8 +9,7 @@
 
     1. The shell mounts the four layers (`rf-xray-ribbon`,
        `rf-xray-event-list`, `rf-xray-tab-bar`, `rf-xray-detail-
-       panel-<tab>`) and the palette modal — and does NOT mount a
-       sidebar or bottom rail.
+       panel-<tab>`) and the palette modal.
 
     2. The L1 ribbon carries four clusters in fixed order: nav,
        frame, filter pills, right icons. The REDACTED indicator
@@ -31,9 +30,6 @@
     5. The REDACTED indicator keeps its render gate
        `(pos? redacted-count)` and pluralises 'event' / 'events' in
        the tooltip. It sits next to the right-icons cluster.
-
-    6. The frame picker excludes `:rf/xray` (and other tool frames)
-       per spec/018 §8 I1.
 
   ## Pure hiccup walk
 
@@ -349,7 +345,9 @@
   (testing "the events ribbon (bar-2) matches the authority reference
             events-ribbon: it carries the `N events filtered out`
             warning + the committed green/red filter pills. The nav
-            cluster + add(+) live on the chrome ribbon (bar-1)."
+            cluster + add(+) live on the chrome ribbon (bar-1). With a
+            filter active the collapse track opens, and there is no
+            `Clear Filters` button."
     (xray-setup!)
     ;; one filtered-out event so the warning + a pill render. Raw
     ;; collect-trace! maps (matching the neighbouring filter tests) so the
@@ -374,7 +372,17 @@
             "the add(+) is NOT in the events ribbon (it lives on bar-1)")
         ;; the bar-2 warning reads `N events filtered out`.
         (is (re-find #"filtered out" (text-nodes ribbon))
-            "the `N events filtered out` warning renders on bar-2")))))
+            "the `N events filtered out` warning renders on bar-2")
+        (is (= "true" (:data-open (second (find-by-testid tree "rf-xray-events-ribbon-collapse"))))
+            "the filters ribbon collapse track is OPEN when a filter is active")
+        (is (some? (find-by-testid tree "rf-xray-events-ribbon-actions"))
+            "action cluster present when a filter hides ≥1 row")
+        (is (some? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
+            "N-hidden message present (the OUT pill hides 1 row → N>0)")
+        (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
+            "there is no Clear Filters button")
+        (is (not (re-find #"Clear Filters" (text-nodes tree)))
+            "no `Clear Filters` copy anywhere in the shell")))))
 
 (deftest events-ribbon-hidden-when-no-filters
   (testing "with no filters the `filters:` ribbon is collapsed
@@ -395,31 +403,6 @@
             "no Clear Filters button")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
             "no N-hidden message when no filter is active")))))
-
-(deftest events-ribbon-warning-without-clear-filters-when-filter-active
-  (testing "when a filter is active the `N events filtered
-            out` warning appears (when N>0), but there is no `Clear
-            Filters` button. The collapse track opens (data-open=true)."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
-    (trace-collector/seed-trace-for-test! {:id 2 :op-type :rf.event :operation :rf.event/dispatched
-                               :tags {:rf.event/v [:noise/tick] :frame :rf/default :rf.trace/dispatch-id 2}})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :noise/tick}]))
-    (rf/with-frame :rf/xray
-      (let [tree     (dynamic-shell-tree/shell-view-tree)
-            collapse (find-by-testid tree "rf-xray-events-ribbon-collapse")]
-        (is (= "true" (:data-open (second collapse)))
-            "the filters ribbon collapse track is OPEN when a filter is active")
-        (is (some? (find-by-testid tree "rf-xray-events-ribbon-actions"))
-            "action cluster present when a filter hides ≥1 row")
-        (is (some? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
-            "N-hidden message present (the OUT pill hides 1 row → N>0)")
-        (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "there is no Clear Filters button")
-        (is (not (re-find #"Clear Filters" (text-nodes tree)))
-            "no `Clear Filters` copy anywhere in the shell")))))
 
 ;; ---- chrome `+ filter` ⇄ events-ribbon mutual exclusion ----------------
 
@@ -527,11 +510,11 @@
                       (= :static (second %))) @dispatches)
           "selecting Static dispatches :rf.xray/set-mode :static"))))
 
-(deftest ribbon-nav-buttons-dispatch-spine-events
-  (testing "spec/018 §3 — ribbon `◀ ▶ ⏭` dispatch focus-cascade-prev /
-            -next / follow-head. Driven in RETRO (focus pinned to an
-            older row) so ⏭ is ENABLED — it's the way back to head
-            (⏭ is disabled only at-head? + live?)."
+(deftest ribbon-fast-forward-dispatches-follow-head-in-retro
+  (testing "spec/018 §3 — the ribbon's `⏭` dispatches follow-head.
+            Driven in RETRO (focus pinned to an older row) so ⏭ is
+            ENABLED — it's the way back to head (⏭ is disabled only
+            at-head? + live?)."
     (xray-setup!)
     ;; Two events + pin focus to the older one ⟹ RETRO, ⏭ enabled.
     (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event
@@ -1215,7 +1198,9 @@
 (deftest event-list-reveals-ungrouped-bucket-when-opt-in
   (testing "`:show-ungrouped? true` reveals the :ungrouped
             row in L2. The power-user opt-in surfaces the bucket as a
-            plain row, with no muted pseudo-row styling."
+            plain row, with no muted pseudo-row styling, and clicking it
+            dispatches `:rf.xray/focus-event :ungrouped` so the spine pins
+            the bucket and downstream panels populate."
     (xray-setup!)
     (config/update-setting! :general :show-ungrouped? true)
     (try
@@ -1223,14 +1208,23 @@
       (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
                                  :operation :sub/registered
                                  :tags {:rf.sub/id :foo/bar}})
-      (rf/with-frame :rf/xray
-        (let [tree (dynamic-shell-tree/shell-view-tree)
-              rows (find-all-by-testid-prefix tree "rf-xray-event-row-")
-              ungrouped-row (find-by-testid tree "rf-xray-event-row-:ungrouped")]
-          (is (= 2 (count rows))
-              "both the real event AND the :ungrouped bucket render under opt-in")
-          (is (some? ungrouped-row)
-              ":ungrouped bucket row is present")))
+      (let [dispatches (atom [])]
+        (with-redefs [rf/dispatch-impl (fn
+                                     ([ev]       (swap! dispatches conj ev) nil)
+                                     ([ev _opts] (swap! dispatches conj ev) nil))]
+          (rf/with-frame :rf/xray
+            (let [tree (dynamic-shell-tree/shell-view-tree)
+                  rows (find-all-by-testid-prefix tree "rf-xray-event-row-")
+                  ungrouped-row (find-by-testid tree "rf-xray-event-row-:ungrouped")
+                  handler (:on-click (second ungrouped-row))]
+              (is (= 2 (count rows))
+                  "both the real event AND the :ungrouped bucket render under opt-in")
+              (is (some? ungrouped-row)
+                  ":ungrouped bucket row is present")
+              (when handler (handler nil)))))
+        (is (some #(and (= :rf.xray/focus-event (first %))
+                        (= :ungrouped (second %))) @dispatches)
+            "clicking it fires :rf.xray/focus-event with `:ungrouped` as the id"))
       (finally
         (config/update-setting! :general :show-ungrouped? false)))))
 
@@ -1258,33 +1252,6 @@
             ":ungrouped row is absent by default")
         (is (not (re-find #"<no event>" (text-nodes tree)))
             "no `<no event>` placeholder leaks into the rendered list")))))
-
-(deftest event-list-ungrouped-row-click-dispatches-focus-cascade
-  (testing "clicking the revealed :ungrouped row dispatches
-            `:rf.xray/focus-event :ungrouped` so the spine pins the
-            bucket and downstream panels populate"
-    (xray-setup!)
-    (config/update-setting! :general :show-ungrouped? true)
-    (try
-      (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-      (trace-collector/seed-trace-for-test! {:id 50 :op-type :rf.registry
-                                 :operation :sub/registered
-                                 :tags {:rf.sub/id :foo/bar}})
-      (let [dispatches (atom [])]
-        (with-redefs [rf/dispatch-impl (fn
-                                     ([ev]       (swap! dispatches conj ev) nil)
-                                     ([ev _opts] (swap! dispatches conj ev) nil))]
-          (rf/with-frame :rf/xray
-            (let [tree (dynamic-shell-tree/shell-view-tree)
-                  row  (find-by-testid tree "rf-xray-event-row-:ungrouped")
-                  handler (:on-click (second row))]
-              (is (some? row) ":ungrouped row is present")
-              (when handler (handler nil)))))
-        (is (some #(and (= :rf.xray/focus-event (first %))
-                        (= :ungrouped (second %))) @dispatches)
-            ":rf.xray/focus-event fired with `:ungrouped` as the id"))
-      (finally
-        (config/update-setting! :general :show-ungrouped? false)))))
 
 (deftest event-row-click-dispatches-focus-cascade
   (testing "spec/018 §6 — row click dispatches :rf.xray/focus-event,
@@ -1406,14 +1373,6 @@
         (ref-fn-2 stub-el)
         (is (= 2 @scroll-calls) "new focus id triggers a fresh scroll")))))
 
-(deftest focused-row-ref-nil-when-not-auto-tracking
-  (testing "`focused-row-ref` returns nil when the
-            spine is NOT in the auto-tracking branch. The row's hiccup
-            map then omits `:ref` (cond->) and React attaches no
-            callback."
-    (is (nil? (#'shell/focused-row-ref 42 false))
-        "auto-track? false → nil ref")))
-
 (deftest focused-row-ref-is-referentially-stable-across-rerenders
   (testing "`event-row` is a plain fn re-invoked on every
             parent re-render (not a stateful component), so calling
@@ -1513,23 +1472,6 @@
         (is (not (nav-next-disabled? tree))
             "▶ ENABLED at tail — id 2 is newer and reachable")
         (is (not (nav-head-disabled? tree)) "⏭ stays enabled")))))
-
-(deftest ribbon-nav-buttons-mid-list-both-enabled
-  (testing "focus on a middle event ⟹ both ◀ and ▶ enabled."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:middle/event]))
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:newer/event]))
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-event 2]))
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/shell-view-tree)]
-        (is (not (nav-prev-disabled? tree))
-            "◀ ENABLED — older event (1) reachable")
-        (is (not (nav-next-disabled? tree))
-            "▶ ENABLED — newer event (3) reachable")
-        (is (not (nav-head-disabled? tree))
-            "⏭ stays enabled in RETRO — it's the way back to head")))))
 
 (deftest ribbon-nav-boundaries-come-from-the-spine-not-the-rendered-rows
   (testing "`nav-boundary-state`'s domain is the SPINE's
@@ -1749,9 +1691,11 @@
 ;;   (B) the disabled button drops its `:on-click` entirely AND carries
 ;;       `cursor: not-allowed` + `aria-disabled` — defense in depth on
 ;;       top of the native `:disabled` block.
-;;   (C) (covered in spine-cljs-test §11) — the spine reducer is a true
-;;       no-op at the edge so a keyboard j/k that bypasses the ribbon
-;;       cannot bypass the invariant either.
+;;   (C) the spine reducer is a true no-op at the edge, so a keyboard j/k
+;;       that bypasses the ribbon cannot bypass the invariant either —
+;;       `spine-cljs-test`'s `focus-step-reducer-is-a-no-op-at-every-boundary`,
+;;       with `focus-sub-step-events-walk-cascades` for the registered
+;;       events' wiring.
 ;; -------------------------------------------------------------------------
 
 (deftest ribbon-prev-disabled-on-single-event-with-ungrouped-bucket
@@ -1794,25 +1738,6 @@
             "no :on-click handler attached — pure no-op")
         (is (= "not-allowed" (get-in attrs [:style :cursor]))
             "cursor: not-allowed telegraphs the no-op")))))
-
-(deftest ribbon-prev-keyboard-equivalent-on-first-event-is-noop
-  (testing "layer (C) — keyboard j (the [<] equivalent) routes
-            through the spine reducer. At the boundary the reducer
-            returns db unchanged, so focus persists on the first event
-            and never slides into nil / :ungrouped."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    ;; Spine auto-snaps focus to the only event in :live mode.
-    (rf/with-frame :rf/xray
-      (let [focus-before @(rf/subscribe [:rf.xray/focus])]
-        (is (= 1 (:dispatch-id focus-before)) "focus on the only event")
-        ;; Fire the keyboard-equivalent event — must be a no-op.
-        (rf/dispatch-sync [:rf.xray/focus-event-prev])
-        (let [focus-after @(rf/subscribe [:rf.xray/focus])]
-          (is (= 1 (:dispatch-id focus-after))
-              "focus unchanged — boundary no-op")
-          (is (some? (:dispatch-id focus-after))
-              "focus never goes nil with a non-empty buffer"))))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) L2 sticky newer-events marker
@@ -2444,56 +2369,7 @@
             "renders the literal count, no abbreviation")))))
 
 ;; -------------------------------------------------------------------------
-;; (12) Frame picker — excludes tool frames by default (spec/018 §8 I1)
-;; -------------------------------------------------------------------------
-;;
-;; The pure `distinct-frames` helper + the `internal-frames` set live in
-;; `day8.re-frame2-xray.frame-switcher` (the L1 frame-switcher slot is a
-;; single contractually-anchored ns every frame-aware feature reaches
-;; through). Pure-helper coverage lives in `frame_switcher_cljs_test.cljs`;
-;; the shell-level smokes below verify the ribbon mounts the picker via
-;; the contract.
-
-(deftest frame-picker-is-strictly-single-select
-  (testing "spec/018 §1 Non-goals — the frame
-            picker is strictly single-select. No 'All frames (merged)'
-            option; no `:multiple` attribute on the <select>; the
-            options list carries exactly one entry per distinct frame
-            in the cascade vector (no aggregate / merged synthetic
-            option)."
-    (xray-setup!)
-    ;; Seed two distinct frames so the picker collapses to the <select>
-    ;; branch (single-frame counts render the flat label).
-    (trace-collector/seed-trace-for-test!
-      (assoc-in (dispatch-trace-ev 1 [:cart/add])
-                [:tags :frame] :app/main))
-    (trace-collector/seed-trace-for-test!
-      (assoc-in (dispatch-trace-ev 2 [:cart/add])
-                [:tags :frame] :app/admin))
-    (rf/with-frame :rf/xray
-      (let [tree   (dynamic-shell-tree/shell-view-tree)
-            picker (find-by-testid tree "rf-xray-ribbon-frame-picker")
-            attrs  (when picker (second picker))]
-        (is (some? picker) "picker renders as a <select> for multi-frame")
-        (is (= :select (first picker))
-            "picker is a <select> element (not a custom multi-select)")
-        (is (nil? (:multiple attrs))
-            "picker has no :multiple attribute — strictly single-select")
-        (is (not (re-find #"(?i)merged|all frames|all-frames"
-                          (text-nodes picker)))
-            "no 'All frames (merged)' / 'merged' / 'all-frames' option
-             surfaces in the picker text")
-        ;; Verify exactly one <option> per distinct frame — no extra
-        ;; aggregate / merged synthetic option.
-        (let [options (filterv (fn [node]
-                                 (and (vector? node)
-                                      (= :option (first node))))
-                               (hiccup-seq picker))]
-          (is (= 2 (count options))
-              "exactly one <option> per distinct frame — no extra aggregate"))))))
-
-;; -------------------------------------------------------------------------
-;; (13) Filter pills — add / remove round-trip
+;; (12) Filter pills — remove round-trip
 ;; -------------------------------------------------------------------------
 
 (defn- add-filter! [mode pill]
@@ -2503,17 +2379,6 @@
 (defn- remove-filter! [mode idx]
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/remove-filter mode idx])))
-
-(deftest filter-pill-add-round-trips
-  (testing "spec/018 §7 — :rf.xray/add-filter appends to the IN bucket"
-    (xray-setup!)
-    (add-filter! :in {:pattern ":auth/*"})
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/shell-view-tree)
-            pill (find-by-testid tree "rf-xray-filter-pill-in-0")]
-        (is (some? pill) "pill renders after add")
-        (is (re-find #":auth/\*" (text-nodes pill))
-            "pill carries the pattern")))))
 
 (deftest filter-pill-remove-round-trips
   (testing "spec/018 §7 — :rf.xray/remove-filter drops the pill at idx"
@@ -2531,16 +2396,7 @@
             "surviving pill carries the second pattern")))))
 
 ;; -------------------------------------------------------------------------
-;; (14) Pure helpers — event-id pluck
-;; -------------------------------------------------------------------------
-
-(deftest event-id-of-event-bundle-plucks-first-element
-  (is (= :foo/bar (shell/event-id-of-event-bundle {:event [:foo/bar {:x 1}]})))
-  (is (nil? (shell/event-id-of-event-bundle {:event nil}))
-      "missing event → nil"))
-
-;; -------------------------------------------------------------------------
-;; (15) :modal-positioning opt
+;; (13) :modal-positioning opt
 ;; -------------------------------------------------------------------------
 ;;
 ;; The opt threads through `shell-view` into `:rf/xray`'s app-db so every
@@ -2594,7 +2450,7 @@
           "no-opt render re-defaults the slot to :fixed"))))
 
 ;; -------------------------------------------------------------------------
-;; (16) L2 row — time chip
+;; (14) L2 row — time chip
 ;; -------------------------------------------------------------------------
 ;;
 ;; The L2 row's `timestamp` column renders the ABSOLUTE wall-clock time

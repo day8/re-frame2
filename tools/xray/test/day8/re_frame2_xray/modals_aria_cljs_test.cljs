@@ -6,6 +6,9 @@
     - aria-modal=\"true\"
     - an accessible name (either aria-label or aria-labelledby
       pointing at a heading id rendered inside the dialog)
+    - the focus trap: a function `:ref` (the `a11y/dialog-ref` closure)
+      and the `:tab-index` its focus-on-open fallback needs, since a
+      labelled dialog with no trap still drops keyboard users
 
   This file pins that contract so a renderer cannot silently regress
   it.
@@ -105,13 +108,15 @@
 ;; (1) Settings popup
 ;; -------------------------------------------------------------------------
 
-(deftest settings-popup-carries-dialog-contract
+(deftest settings-popup-is-a-labelled-focus-trapped-dialog
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
   (let [tree (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-settings-dialog"
-                             "Settings popup")))
+                             "Settings popup")
+    (assert-dialog-focus-ref! tree "rf-xray-settings-dialog"
+                              "Settings popup")))
 
 (deftest settings-popup-close-button-has-aria-label
   (testing "Settings ✕ button accessibility name"
@@ -149,24 +154,28 @@
     {:muted       @(rf/subscribe [:rf.xray/muted-event-ids])
      :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))
 
-(deftest mute-manager-carries-dialog-contract
+(deftest mute-manager-is-a-labelled-focus-trapped-dialog
   (xray-setup!)
   (let [tree (rf/with-frame :rf/xray (mute-manager-dialog-tree))]
     (assert-dialog-contract! tree "rf-xray-mute-manager-dialog"
-                             "Mute manager")))
+                             "Mute manager")
+    (assert-dialog-focus-ref! tree "rf-xray-mute-manager-dialog"
+                              "Mute manager")))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Filter edit-popup
 ;; -------------------------------------------------------------------------
 
-(deftest filter-edit-popup-carries-dialog-contract
+(deftest filter-edit-popup-is-a-labelled-focus-trapped-dialog
   (xray-setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
   (let [tree (rf/with-frame :rf/xray (modal-trees/edit-popup-tree rf/dispatch))]
     (assert-dialog-contract! tree "rf-xray-edit-popup-dialog"
-                             "Filter edit-popup")))
+                             "Filter edit-popup")
+    (assert-dialog-focus-ref! tree "rf-xray-edit-popup-dialog"
+                              "Filter edit-popup")))
 
 ;; -------------------------------------------------------------------------
 ;; (4) Popover — cancellation-cascade
@@ -190,9 +199,10 @@
        :positioning @(rf/subscribe [:rf.xray/modal-positioning])
        :expanded?   @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])})))
 
-(deftest cancellation-cascade-popover-carries-dialog-contract
+(deftest cancellation-cascade-popover-is-a-labelled-focus-trapped-dialog
   (testing "the cancellation-cascade popover carries dialog role +
-            aria-modal + accessible name on its inner dialog wrapper"
+            aria-modal + accessible name, and the focus trap, on its
+            inner dialog wrapper"
     (xray-setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
@@ -203,53 +213,9 @@
         (assert-dialog-contract!
           tree
           "rf-xray-cancellation-cascade-popover-dialog"
+          "Cancellation-cascade popover")
+        (assert-dialog-focus-ref!
+          tree
+          "rf-xray-cancellation-cascade-popover-dialog"
           "Cancellation-cascade popover")))))
 
-;; -------------------------------------------------------------------------
-;; Per-modal focus-ref wiring
-;; -------------------------------------------------------------------------
-;;
-;; The contract tests above prove each modal is LABELLED
-;; (role + aria-modal + accessible name). They do NOT prove the modal
-;; actually attaches the focus-trap. A renderer could ship a perfectly
-;; labelled dialog with no `a11y/dialog-ref` and every contract test
-;; would stay green while keyboard users fell out of the trap. These
-;; tests close that hole by asserting each dialog node carries a
-;; function `:ref` (the dialog-ref closure) + the tab-index its
-;; focus-on-open fallback needs — one assertion per surface so a
-;; regression names the exact modal that lost its trap.
-
-(deftest settings-popup-attaches-focus-ref
-  (xray-setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-open]))
-  (let [tree (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))]
-    (assert-dialog-focus-ref! tree "rf-xray-settings-dialog"
-                              "Settings popup")))
-
-(deftest mute-manager-attaches-focus-ref
-  (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (mute-manager-dialog-tree))]
-    (assert-dialog-focus-ref! tree "rf-xray-mute-manager-dialog"
-                              "Mute manager")))
-
-(deftest filter-edit-popup-attaches-focus-ref
-  (xray-setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/open-edit-popup
-                       {:source :add :mode :in :pill {}}]))
-  (let [tree (rf/with-frame :rf/xray (modal-trees/edit-popup-tree rf/dispatch))]
-    (assert-dialog-focus-ref! tree "rf-xray-edit-popup-dialog"
-                              "Filter edit-popup")))
-
-(deftest cancellation-cascade-popover-attaches-focus-ref
-  (xray-setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
-                       {:dispatch-id :test-dispatch-id}]))
-  (let [tree (rf/with-frame :rf/xray (cancellation-cascade-popover-tree))]
-    (is (some? tree) "Popover renders when open")
-    (when tree
-      (assert-dialog-focus-ref!
-        tree "rf-xray-cancellation-cascade-popover-dialog"
-        "Cancellation-cascade popover"))))
