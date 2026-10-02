@@ -12,7 +12,7 @@
   Browser-only behaviour (Reagent ratom, modal dialog rendering) lives
   in the CLJS-only `re-frame.story.ui.save-variant` ns, which
   `re-frame.story.ui.save-variant-cljs-test` covers."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.save-variant :as rf.story.save-variant]
             [re-frame.story.ui.state :as rf.story.ui.state]))

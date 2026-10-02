@@ -211,7 +211,7 @@
 ;; GLOBAL DECORATORS (Storybook preview.ts parity)
 ;; ===========================================================================
 
-(deftest reg-global-decorator-appends-to-resolved-stack
+(deftest reg-global-decorator-prefixes-resolved-stack
   (testing "a global decorator prefixes the resolved decorator stack for
             every variant — the outermost wrap layer"
     (rf.story/reg-global-decorator :app/theme

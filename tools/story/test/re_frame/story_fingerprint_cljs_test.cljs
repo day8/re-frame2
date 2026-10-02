@@ -35,8 +35,15 @@
 (deftest order-insensitive-on-cljs
   (testing "map key order does not affect the CLJS hash"
     (is (= (rf.story.fingerprint/content-hash {:a 1 :b 2}) (rf.story.fingerprint/content-hash {:b 2 :a 1}))))
-  (testing "set element order does not affect the CLJS hash"
-    (is (= (rf.story.fingerprint/content-hash #{:x :y :z}) (rf.story.fingerprint/content-hash #{:z :y :x})))))
+  (testing "set element order does not affect the CLJS hash. The sets are
+            built by `conj`, which keeps a small CLJS set in insertion order;
+            two set literals would not do, because the reader hands both the
+            same element order"
+    (let [xyz (into #{} [:x :y :z])
+          zyx (into #{} [:z :y :x])]
+      (is (not= (seq xyz) (seq zyx))
+          "the two sets iterate in different orders")
+      (is (= (rf.story.fingerprint/content-hash xyz) (rf.story.fingerprint/content-hash zyx))))))
 
 (deftest volatile-equivalence-on-cljs
   (testing "volatile-only differences canonicalize = and run-hash equal"
@@ -196,7 +203,8 @@
     (is (= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form js/NaN)))
     (is (= "0cf774cf" (rf.story.fingerprint/content-hash js/NaN))
         "matches the JVM `(rf.story.fingerprint/content-hash (Double/NaN))` literal")
-    (is (= (rf.story.fingerprint/canonical-hash {:x js/NaN}) (rf.story.fingerprint/canonical-hash {:x js/NaN}))))
+    (is (= "c4064ddf" (rf.story.fingerprint/canonical-hash {:x js/NaN}))
+        "matches the JVM `(rf.story.fingerprint/canonical-hash {:x Double/NaN})` literal"))
   (testing "±Inf canonicalise to the SAME bit-double forms + hashes the JVM
             produces, mutually distinct"
     (is (= [rf.story.fingerprint/double-tag "7ff0000000000000"] (rf.story.fingerprint/canonical-form js/Infinity)))

@@ -8,9 +8,8 @@
 
   This namespace covers the CLJS-specific surface: that the runtime
   compiles under CLJS, that `run-variant` returns a `js/Promise`,
-  and that `snapshot-identity` produces stable hex hashes on both
-  hosts (the matching JVM test asserts identical hashes; the CLJS
-  smoke just confirms the function runs)."
+  and that `snapshot-identity`'s `:content-hash` is 8-char lowercase
+  hex on CLJS, the fixed width the JVM renders."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]

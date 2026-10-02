@@ -5,6 +5,7 @@
   the same encoding works on JVM and CLJS. JVM tests round-trip the
   expected shape per `005-SOTA-Features.md` §Share URL (retired QR popover)."
   (:require [clojure.test :refer [are deftest is testing]]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.story        :as rf.story]
             [re-frame.story.share  :as rf.story.share]))
@@ -449,6 +450,6 @@
   (testing "share.cljc carries no `api.qrserver.com` URL literal — the
             string must not appear in the source, so a pasted-in
             third-party endpoint is caught."
-    (let [src (slurp (clojure.java.io/resource "re_frame/story/share.cljc"))]
+    (let [src (slurp (io/resource "re_frame/story/share.cljc"))]
       (is (not (str/includes? src "api.qrserver.com"))
           "share.cljc must not reference api.qrserver.com"))))
