@@ -205,98 +205,89 @@ nav:
     - "ClojureScript for non-Clojurians": cljs/index.md
 
   - Core:
-    # Introduction is an explicit titled row (not navigation.indexes): the
-    # LHS should read "Introduction", not repeat the section label "Core".
-    # The main concept track is a flat list in learning order — each page
-    # leans only on what came before. Grouped sections hold the how-to,
-    # testing, explanation, and migration shelves. Run-to-completion is taught
-    # on Effects; its own page serves operational deep links (not a
-    # main-track stop).
     - Introduction: core/introduction.md
-    - "Hiccup: HTML as data": core/hiccup.md
-    - "Events: the vocabulary": core/events.md
-    - "app-db: one map": core/app-db.md
-    - "Subscriptions: derived data": core/subscriptions.md
-    - "Views: pure screens": core/views.md
-    - "Effects: the way out": core/effects.md
-    - "Coeffects: the way in": core/coeffects.md
-    - "Frames: isolated worlds": core/frames.md
-    - "Flows: derived values your handlers can read": core/flows.md
-    - "Interceptors: cross-cutting (rare)": core/interceptors.md
-    - "Errors: structured records": core/errors.md
-    - "Observability: one wire": core/observability.md
-    - "Images: registration sets": core/images.md
-    - "Run to completion (detail)": core/run-to-completion.md
-    - "How-to recipes":
-      - core/how-to/index.md
-      - "Boot and mount an app": core/how-to/boot-and-mount-an-app.md
-      - "Add auth": core/how-to/add-auth.md
-      - "Build a form": core/how-to/build-a-form.md
-      - "Use a React component": core/how-to/use-a-react-component.md
-      - "Validate with schemas": core/how-to/validate-with-schemas.md
-      - "Fix a slow view": core/how-to/fix-a-slow-view.md
-      # There is no "measure before paint" recipe: Fresco does not answer
-      # that problem by measuring. `overlay/popover` places an anchored panel
-      # with a CSS `position-area` the engine recomputes, and
-      # 13-overlays-and-focus.md tells readers to drop measure-then-place.
-      - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md
-      - "Report errors in production": core/how-to/report-errors-in-production.md
-      - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
-      - "Use UIx or slim": core/how-to/use-uix-or-slim.md
-    # Fresco: re-frame2's own native view layer. Section label IS the
-    # landing page (navigation.indexes). Flat list, because the chapter numbers
-    # in the filenames ARE the reading order — the same shape Machines, Story
-    # and Xray use, and titles match each page's H1.
-    - "Fresco: the view layer":
-      - core/fresco/index.md
-      - "0. Installation": core/fresco/00-installation.md
-      - "1. Getting started": core/fresco/01-getting-started.md
-      - "2. Views and reads": core/fresco/02-views-and-reads.md
-      - "3. Events as data": core/fresco/03-events-as-data.md
-      - "4. Controlled inputs": core/fresco/04-controlled-inputs.md
-      - "5. Forms": core/fresco/05-forms.md
-      - "6. Lists and collections": core/fresco/06-lists-and-collections.md
-      - "7. Routing and navigation": core/fresco/07-routing-and-navigation.md
-      - "8. Async resources": core/fresco/08-async-resources.md
-      - "9. Interop": core/fresco/09-interop.md
-      - "10. Islands": core/fresco/10-native-tier.md
-      - "11. Ephemeral state": core/fresco/11-ephemeral-state.md
-      - "12. Motion and presence": core/fresco/12-motion-and-presence.md
-      - "13. Overlays and focus": core/fresco/13-overlays-and-focus.md
-      - "14. Theming and internationalisation": core/fresco/14-theming-and-i18n.md
-      - "15. Testing": core/fresco/15-testing.md
-      - "16. Diagnostics": core/fresco/16-diagnostics.md
-      - "17. Errors": core/fresco/17-errors.md
-      - "18. SSR and hydration": core/fresco/18-ssr-and-hydration.md
-      - "19. Performance": core/fresco/19-performance.md
-      - "20. Migrating from Reagent": core/fresco/20-migration-from-reagent.md
-      - "21. Code splitting and lazy loading": core/fresco/21-code-splitting.md
-      - "22. Accessibility": core/fresco/22-accessibility.md
-      - "API reference": core/fresco/api-reference.md
-      - "Cookbook": core/fresco/cookbook.md
-      - "Troubleshooting": core/fresco/troubleshooting.md
-      - "The escape ladder": core/fresco/escape-ladder.md
-      - "Glossary": core/fresco/glossary.md
-
-    - "Testing":
+    - Run a local app: core/getting-started.md
+    - 'Hiccup: HTML as data': core/hiccup.md
+    - Events: core/events.md
+    - app-db: core/app-db.md
+    - Subscriptions: core/subscriptions.md
+    - Views: core/views.md
+    - Effects: core/effects.md
+    - Coeffects: core/coeffects.md
+    - Testing:
       - core/testing/index.md
-      - "Event handlers": core/testing/event-handlers.md
-      - "Subscriptions": core/testing/subscriptions.md
-      - "Views": core/testing/views.md
-      - "Pipeline runs": core/testing/pipeline-runs.md
-    - "Why it's built this way":
-      - "Inside-out: why views come last": core/explanation/inside-out.md
-      - "One graph: derivations and algebra views": core/derivations-and-algebra-views.md
-      - "Where should this value live?": core/where-state-lives.md
-    - "From re-frame v1":
+      - Event handlers: core/testing/event-handlers.md
+      - Subscriptions: core/testing/subscriptions.md
+      - Views: core/testing/views.md
+      - Pipeline runs: core/testing/pipeline-runs.md
+    - How-to recipes:
+      - core/how-to/index.md
+      - Boot and mount an app: core/how-to/boot-and-mount-an-app.md
+      - Add auth: core/how-to/add-auth.md
+      - Build a form: core/how-to/build-a-form.md
+      - Use a React component: core/how-to/use-a-react-component.md
+      - Validate with schemas: core/how-to/validate-with-schemas.md
+      - Fix a slow view: core/how-to/fix-a-slow-view.md
+      - Keep secrets out of traces: core/how-to/keep-secrets-out-of-traces.md
+      - Report errors in production: core/how-to/report-errors-in-production.md
+      - Configure dev and prod: core/how-to/configure-dev-and-prod.md
+      - Use UIx or slim: core/how-to/use-uix-or-slim.md
+    - 'Fresco: the view layer':
+      - core/fresco/index.md
+      - Installation: core/fresco/00-installation.md
+      - Getting started: core/fresco/01-getting-started.md
+      - Views and reads: core/fresco/02-views-and-reads.md
+      - Events as data: core/fresco/03-events-as-data.md
+      - Controlled inputs: core/fresco/04-controlled-inputs.md
+      - Lists and collections: core/fresco/06-lists-and-collections.md
+      - Application features:
+        - State placement: core/fresco/11-ephemeral-state.md
+        - Forms: core/fresco/05-forms.md
+        - Routing and navigation: core/fresco/07-routing-and-navigation.md
+        - Async resources: core/fresco/08-async-resources.md
+        - Motion and presence: core/fresco/12-motion-and-presence.md
+        - Overlays and focus: core/fresco/13-overlays-and-focus.md
+        - Theming and internationalisation: core/fresco/14-theming-and-i18n.md
+        - Accessibility: core/fresco/22-accessibility.md
+      - Testing and diagnosis:
+        - Testing: core/fresco/15-testing.md
+        - Errors: core/fresco/17-errors.md
+        - Diagnostics: core/fresco/16-diagnostics.md
+        - Performance: core/fresco/19-performance.md
+        - Troubleshooting: core/fresco/troubleshooting.md
+      - React and deployment:
+        - Interop: core/fresco/09-interop.md
+        - Islands: core/fresco/10-native-tier.md
+        - The escape ladder: core/fresco/escape-ladder.md
+        - SSR and hydration: core/fresco/18-ssr-and-hydration.md
+        - Code splitting and lazy loading: core/fresco/21-code-splitting.md
+      - Migrating from Reagent: core/fresco/20-migration-from-reagent.md
+      - Cookbook: core/fresco/cookbook.md
+      - Reference:
+        - API reference: core/fresco/api-reference.md
+        - Glossary: core/fresco/glossary.md
+    - Errors and observability:
+      - Errors: core/errors.md
+      - Observability: core/observability.md
+    - Advanced:
+      - Frames: core/frames.md
+      - Flows: core/flows.md
+      - Interceptors: core/interceptors.md
+      - Images: core/images.md
+      - Run to completion: core/run-to-completion.md
+    - Why it's built this way:
+      - 'Inside-out: why views come last': core/explanation/inside-out.md
+      - 'One graph: derivations and algebra views': core/derivations-and-algebra-views.md
+      - Where should this value live?: core/where-state-lives.md
+    - From re-frame v1:
       - core/25-from-re-frame-v1.md
-      - "Migration rules": migration/from-re-frame-v1/README.md
-      - "async-flow-fx → reg-machine": migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
-      - "http-fx → managed HTTP": migration/from-re-frame-v1/http-fx-to-managed-http.md
-      - "re-frame-query → resources": migration/from-re-frame-v1/re-frame-query-to-resources.md
-      - "Observability logging sweep": migration/from-re-frame-v1/observability-logging-sweep.md
-      - "clj-new → deps-new template": migration/from-clj-new-template/README.md
-    - "Glossary": core/glossary.md
+      - Migration rules: migration/from-re-frame-v1/README.md
+      - async-flow-fx → reg-machine: migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md
+      - http-fx → managed HTTP: migration/from-re-frame-v1/http-fx-to-managed-http.md
+      - re-frame-query → resources: migration/from-re-frame-v1/re-frame-query-to-resources.md
+      - Observability logging sweep: migration/from-re-frame-v1/observability-logging-sweep.md
+      - clj-new → deps-new template: migration/from-clj-new-template/README.md
+    - Glossary: core/glossary.md
 
   - API:
     - api/README.md

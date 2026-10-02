@@ -70,8 +70,11 @@ A todo's title must never be blank. In this example the rule appears twice, on p
       (let [id (inc (apply max 0 (keys (:todos db))))]
         {:db (assoc-in db [:todos id] {:id id :title title :done? false})}))))
 
-(rf/reg-sub :todo/all
-  (fn [db _] (vec (vals (:todos db)))))
+(rf/reg-sub :todo/todos
+  (fn [db _] (:todos db)))
+
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
 
 (rf/reg-view todo-list []
   [:div
@@ -173,8 +176,9 @@ The `:schema` key works on other registration kinds too, with the same failure t
 ```clojure
 ;; A sub's RETURN value, validated after it computes.
 (rf/reg-sub :todo/done-list
-  {:schema [:vector Todo]}
-  (fn [db _] (filterv :done? (vals (:todos db)))))
+  {:inputs [[:todo/all]]
+   :schema [:vector Todo]}
+  (fn [[todos] _] (filterv :done? todos)))
 
 ;; An fx's ARGUMENT map, validated before the effect handler runs.
 (rf/reg-fx :app/notify

@@ -1,19 +1,21 @@
 # Getting started
 
-The counter in [Installation](00-installation.md) used the three forms every
-Fresco view is built from: `h/defview`, `h/sub` and event vectors. This chapter
-shows them in the todo list the rest of the guide uses, and explains what
-changes compared with a Reagent or UIx view.
+Build a todo list whose buttons toggle an item's completion. This page
+replaces the counter from [Installation](00-installation.md) with three
+application files: the views, their event and subscription registrations, and
+the entry point.
 
 ```clojure
-(ns todo.views
-  (:require [re-frame.fresco :as h]))
+;; src/my/app/views.cljs
+(ns my.app.views
+  (:require [my.app.model]
+            [re-frame.fresco :as h]))
 
 (h/defview todo-row [{:keys [id]}]
   (let [{:keys [title done?]} (h/sub [:todo/by-id id])]
-    [:li {:class (when done? "done")}
-     [:span title]
-     [:button {:on-click [:todo/toggle id]} "Toggle"]]))
+    [:li
+     [:span title (when done? " (done)") " "]
+     [:button {:type "button" :on-click [:todo/toggle id]} "Toggle"]]))
 
 (h/defview todo-list [_]
   [:ul
@@ -21,13 +23,112 @@ changes compared with a Reagent or UIx view.
      [todo-row {:key id :id id}])])
 ```
 
-[Fresco](glossary.md#fresco) interprets this [Hiccup](../glossary.md#hiccup)
-and produces React elements. Everything outside the views is ordinary
-re-frame2: the app-db seed, `:todo/visible`, `:todo/by-id`, `:todo/toggle` and
-the other registrations are [the todo model](cookbook.md#the-todo-model), and
-later chapters add to it. Boot it as in
-[Installation](00-installation.md#mount-a-first-screen), rendering
-`[h/frame-root {:id :app :initial-events [[:todo/initialise]]} [todo-list]]`.
+`todo-list` reads the visible todos. Each keyed row reads its own todo and
+sends `[:todo/toggle id]` when clicked. Fresco creates the callback and
+dispatches to the row's frame; when the subscription value changes, the row
+re-renders.
+
+## The todo model
+
+Put the registrations in `src/my/app/model.cljs`. Requiring this namespace
+runs its `reg-event` and `reg-sub` forms before the views render. The model is
+ordinary re-frame2, so it can also be used with Reagent or UIx.
+
+The first screen uses `:todo/initialise`, `:todo/toggle`, `:todo/by-id`, and
+`:todo/visible`. The add, delete, and filter registrations give later examples
+one model to build on.
+
+```clojure
+;; src/my/app/model.cljs
+;; cf. examples/core/todomvc/events.cljs and subs.cljs
+(ns my.app.model
+  (:require [re-frame.core :as rf]))
+
+(def initial-db
+  {:todos   {1 {:id 1 :title "Buy milk"     :done? false}
+             2 {:id 2 :title "Walk the dog" :done? true}}
+   :showing :all})
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db initial-db}))
+
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} [_ title]]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-event :todo/delete
+  (fn [{:keys [db]} [_ id]]
+    {:db (update db :todos dissoc id)}))
+
+(rf/reg-event :todo/set-showing
+  (fn [{:keys [db]} [_ showing]]
+    {:db (assoc db :showing showing)}))
+
+(rf/reg-sub :todo/todos
+  (fn [db _]
+    (:todos db)))
+
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _]
+    (vec (sort-by :id (vals todos)))))
+
+(rf/reg-sub :todo/by-id
+  (fn [db [_ id]]
+    (get-in db [:todos id])))
+
+(rf/reg-sub :todo/showing
+  (fn [db _]
+    (:showing db)))
+
+(rf/reg-sub :todo/visible
+  {:inputs [[:todo/all] [:todo/showing]]}
+  (fn [[todos showing] _]
+    (case showing
+      :active (filterv (complement :done?) todos)
+      :done   (filterv :done? todos)
+      todos)))
+```
+
+## Mount the todo list
+
+Create `src/my/app.cljs`:
+
+```clojure
+;; cf. examples/substrates/fresco/login/core.cljs (client-only boot)
+(ns my.app
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco :as h]
+            [re-frame.fresco.substrate :as substrate]
+            [my.app.views :as views]))
+
+(defonce app-root (h/client-root))
+
+(defn ^:dev/after-load mount! []
+  (h/render! app-root
+             [h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+              [views/todo-list]]
+             (js/document.getElementById "app")))
+
+(defn ^:export init []
+  (rf/init! substrate/adapter)
+  (mount!)
+  nil)
+```
+
+In Installation's `shadow-cljs.edn`, replace `:init-fn counter.core/init`
+with `:init-fn my.app/init`. Keep its dependencies and `public/index.html`,
+then restart `npx shadow-cljs watch app` and reload the page. A reload creates
+a new frame; a hot reload would keep the counter's existing app-db.
+
+The page shows **Buy milk** and **Walk the dog (done)**. Click either Toggle
+button and its `(done)` text appears or disappears. `:initial-events` seeds
+the todos before the first render, and subsequent hot reloads preserve them.
 
 ## What changes in a Fresco view
 
@@ -44,7 +145,5 @@ later chapters add to it. Boot it as in
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A `defview` called as `(todo-row {:id 7})` ignores its props, or fails with React's invalid-hook error | A Fresco view is a React component used as a Hiccup head, not a function to call | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
-| A plain helper written as `[row-icon props]` raises `:rf.error/fresco-bad-head` | A plain function appeared in Hiccup head position | Call it as `(row-icon props)`, or define it with `h/defview` when it needs to re-render on its own |
-| `h/sub` raises `:rf.error/fresco-sub-outside-render` | The read ran outside the synchronous execution of a Fresco view | Read inside the view body and pass or close over the value |
-| A controlled field drops characters or moves the caret | The write path became asynchronous, or the field left Fresco's controlled path | Dispatch the edit synchronously and follow [Controlled inputs](04-controlled-inputs.md) |
+| Boot reports `:rf.error/no-such-handler` for `:todo/initialise`, or the view reports `:rf.error/no-such-sub` | The model namespace was not loaded | Keep `[my.app.model]` in the view namespace's requires |
+| Switching from the counter leaves an empty list or reports `:rf.error/frame-root-reconfigured` | Hot reload kept the counter's frame or changed its mounted options | Reload the page so `:todo/initialise` seeds a new frame |

@@ -451,7 +451,9 @@ The other place to check a server payload is a Malli `:decode` schema on the `:r
 
 ### Let transport retry ride out the flaky network
 
-A 503 from a restarting node or a dropped connection is a transport failure, and managed HTTP retries it if you ask. Add `:retry` to the `:rf.http/managed` map, beside `:request`:
+A repeatable request, such as the username-availability GET above, can retry a
+dropped connection or a 503 from a restarting server. Add `:retry` to that
+request's `:rf.http/managed` map, beside `:request`:
 
 ```clojure
 :retry {:on           #{:rf.http/transport :rf.http/http-5xx}
@@ -459,7 +461,15 @@ A 503 from a restarting node or a dropped connection is a transport failure, and
         :backoff      {:base-ms 250 :factor 2 :max-ms 2000 :jitter true}}
 ```
 
-Leave `:rf.http/http-4xx` out for a login: a 401 is a correct answer ("wrong password"), and retrying it only makes the user wait. `:on-failure` fires only after the final attempt, so a retry that succeeds reaches `:submit-success` and your handlers never see the intermediate 503s; each failed attempt leaves a `:rf.http/retry-attempt` trace row you can watch in [Xray](../glossary.md#xray). [Managed HTTP](../../async/http.md) has the full retry contract.
+`:on-failure` fires only after the final attempt, so a retry that succeeds reaches
+`:on-success` and your handlers never see the intermediate 503s. Each failed
+attempt leaves a `:rf.http/retry-attempt` trace row you can watch in
+[Xray](../glossary.md#xray). Leave `:rf.http/http-4xx` out: retrying the same invalid
+input won't fix it. [Managed HTTP](../../async/http.md) has the full retry contract.
+
+Keep the login submit above as one request per click. A failure shows a message
+and lets the user submit again, as in [Add authentication](add-auth.md) and the
+shipped [auth handlers](../../../examples/real-apps/realworld_http/auth.cljs).
 
 !!! warning "Gotcha: transport retry is not 'refresh the token, then retry'"
 
