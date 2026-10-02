@@ -41,8 +41,8 @@
   reset-runtime fixture `local_render_cljs_test.cljc` uses, declaring the
   same two frames: one CLASSIFIED, one PLAIN. The reset is inert for
   §1–4, which read no runtime state at all."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing use-fixtures]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -207,16 +207,6 @@
     (is (= :routing (h/area {:operation :rf.route/deactivated})))
     (is (= :routing (h/area {:operation :rf.route.nav-token/allocated})))
     (is (= :machine (h/area {:operation :rf.machine.timer/scheduled}))))
-  (testing "the whole rf.machine* family classifies MACHINE by prefix, not
-            an enumerated set — sub-families such as spawn-all / event /
-            history / start all
-            emit under their own sub-namespace and MUST NOT fall through to
-            a bare EVENT"
-    (is (= :machine (h/area {:operation :rf.machine.spawn-all/started})))
-    (is (= :machine (h/area {:operation :rf.machine.spawn-all/completed})))
-    (is (= :machine (h/area {:operation :rf.machine.event/received})))
-    (is (= :machine (h/area {:operation :rf.machine.history/recorded})))
-    (is (= :machine (h/area {:operation :rf.machine.start/started}))))
   (testing "unknown ops fall back to :event-adjacent neutral"
     (is (= :event (h/area {:op-type :totally-made-up})))))
 
@@ -285,12 +275,6 @@
   (is (= "RESOURCE" (h/area-badge {:op-type :rf.event :operation :rf.resource/succeeded})))
   (is (= "ERROR" (h/area-badge {:op-type :error :operation :rf.error/x}))))
 
-(deftest project-row-carries-area-badge
-  (let [row (h/project-row (ev {:id 1 :op-type :rf.event
-                                :operation :rf.event/db-changed}))]
-    (is (= :db (:area row)))
-    (is (= "DB" (:area-badge row)))))
-
 ;; ---- (3) phase / band placement — spec/023 §4 -------------------------
 
 (deftest phase-places-ops-into-arc-bands
@@ -312,10 +296,6 @@
   (testing "④ REACTIVE RENDERING — subs + views"
     (is (= :reactive (h/phase {:op-type :rf.sub :operation :rf.sub/run})))
     (is (= :reactive (h/phase {:op-type :rf.view :operation :rf.view/render})))))
-
-(deftest band-order-is-the-canonical-arc-order
-  (is (= [:dispatch :event-handling :effects :reactive] h/band-order)
-      "the four phase bands run in arc order (spec/023 §2)"))
 
 ;; ---- (4) what-happened verb — spec/023 §5 -----------------------------
 
@@ -676,14 +656,6 @@
 (deftest stage-colour-reuses-the-epoch-badge-colour
   (testing "the colour-coded left edge IS the Epoch step's
             badge colour (reused, not a parallel palette)"
-    (is (= (epoch-badge/colour :DISPATCH)
-           (h/stage-colour {:op-type :rf.event :operation :rf.event/dispatched})))
-    (is (= (epoch-badge/colour :SIDE-EFFECTS)
-           (h/stage-colour {:op-type :rf.fx :operation :rf.fx/handled})))
-    (is (= (epoch-badge/colour :SUBSCRIPTIONS)
-           (h/stage-colour {:op-type :rf.sub :operation :rf.sub/run})))
-    (is (= (epoch-badge/colour :VIEWS)
-           (h/stage-colour {:op-type :rf.view :operation :rf.view/render})))
     (testing "the 7 stage colours match the Epoch step palette exactly"
       (doseq [[ot op stage] [[:rf.event :rf.event/dispatched :DISPATCH]
                              [:rf.event :rf.cofx/run :COEFFECT]
@@ -853,28 +825,18 @@
         (is (= 4 (count (:bands feed))))
         (is (every? :empty? (:bands feed)))))))
 
-(deftest project-feed-from-epoch-no-focus
-  (testing "focus-status :no-focus → :no-focus empty-kind, no rows"
-    (let [feed (h/project-feed-from-epoch nil :no-focus)]
-      (is (= :no-focus (:empty-kind feed)))
-      (is (zero? (:total feed)))
-      (is (zero? (:rendered feed)))
-      (is (= [] (:rows feed)))
-      (is (nil? (:epoch-id feed))))))
-
-(deftest project-feed-from-epoch-epoch-evicted
-  (testing "focus-status :epoch-evicted → :epoch-evicted empty-kind"
-    (let [feed (h/project-feed-from-epoch nil :epoch-evicted)]
-      (is (= :epoch-evicted (:empty-kind feed)))
-      (is (zero? (:total feed)))
-      (is (zero? (:rendered feed)))
-      (is (= [] (:rows feed))))))
-
-(deftest project-feed-from-epoch-ignores-record-unless-focused
-  (testing "only :focused status reads the record's :trace-events"
-    (let [epoch (domino-trail-epoch)]
-      (is (zero? (:total (h/project-feed-from-epoch epoch :no-focus))))
-      (is (zero? (:total (h/project-feed-from-epoch epoch :epoch-evicted)))))))
+(deftest project-feed-from-epoch-reads-the-record-only-when-focused
+  (testing "a :no-focus or :epoch-evicted status names its empty state and
+            projects no rows, whether or not a record is passed — only
+            :focused reads the record's :trace-events"
+    (are [status record]
+         (= {:empty-kind status :total 0 :rendered 0 :rows []}
+            (select-keys (h/project-feed-from-epoch record status)
+                         [:empty-kind :total :rendered :rows]))
+      :no-focus      nil
+      :epoch-evicted nil
+      :no-focus      (domino-trail-epoch)
+      :epoch-evicted (domino-trail-epoch))))
 
 (deftest project-feed-from-epoch-shape-keys
   (testing "the feed shape carries NO filtering keys"

@@ -329,8 +329,9 @@
 ;; `.cljs` and only the node lane grades it, so the view-level test lives
 ;; in `routing_params_egress_cljs_test.cljs`. What is gradeable on the JVM is
 ;; the ALGEBRA plus the framework contract it rests on — which keys the arm
-;; touches, that an absent key is left absent, and (row 10a) that a `[:params …]`
-;; declaration is genuinely accepted and re-rooted by routing's own lowering.
+;; touches and that an absent key is left absent. The route frame's policy is
+;; lowered by routing's own `lower-for-route`, so a `[:params …]` declaration
+;; routing rejected or failed to re-root reds the covered-keys row.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private route-secret "secret-abc123")
@@ -345,42 +346,6 @@
    :query      {:token route-secret :tab route-sibling}
    :fragment   "step-3"
    :transition :settled})
-
-(deftest route-classification-accepts-and-lowers-a-params-path
-  (testing "the premise the route-slice rows rest on, pinned in the
-            VALIDATION and LOWERING code rather than read off a docstring.
-            Spec 012's worked example declares :sensitive on QUERY paths and
-            :large on the PARAMS path, so ':sensitive on a :params path' is
-            not something the example demonstrates. It is nonetheless fully
-            supported: `normalize-axis-paths` validates any concrete path
-            without inspecting its head, and `apply-route-classification`
-            re-roots every path the same way."
-    (let [extracted (rf.routing.classification/validate+extract
-                      :route/user route-declaration)]
-      (is (= [[:params :token] [:query :token]] (:sensitive extracted))
-          "a [:params …] path was rejected or reshaped at validation")
-      (is (= [] (:large extracted))
-          "the absent :large axis did not normalise to empty"))
-    (let [lowered (rf.routing.classification/apply-route-classification
-                    {} (rf.routing.classification/validate+extract
-                         :route/user route-declaration))
-          claims  (-> lowered :rf.runtime/elision :sensitive-declarations)]
-      ;; The registry is keyed BY PATH, each key carrying the set of owners
-      ;; claiming it — so the coordinates are the KEYS, and `:source :route`
-      ;; is what says route ACTIVATION put them there rather than a
-      ;; commit-plane effect.
-      (is (some? claims)
-          "lowering wrote no sensitive declarations at all")
-      (is (contains? claims [:rf.runtime/routing :current :params :token])
-          (str "the [:params :token] declaration did not re-root to the "
-               "absolute runtime-db coordinate the params seed walks at. got: "
-               (pr-str claims)))
-      (is (= #{{:source :route}}
-             (get claims [:rf.runtime/routing :current :params :token]))
-          "the params coordinate was not claimed by the ROUTE owner")
-      (is (contains? claims [:rf.runtime/routing :current :query :token])
-          "the [:query :token] declaration did not re-root — the control that
-           says the two axes lower identically"))))
 
 (deftest local-render-route-slice-projects-both-covered-keys
   (testing "the arm lowers the declared key on BOTH covered axes
