@@ -9,7 +9,7 @@ For example, a login form needs an empty state, a pending request, a rejected
 password, a retry and a successful sign-in. Story keeps those states available
 without repeatedly clicking through the application.
 
-[![Story showing a named UI state beside its inputs and runtime tools.](../images/story/story-tutorial-00-shell.png)](../images/story/story-tutorial-00-shell.png)
+[![Story showing a named UI state: 1 selects the authenticated variant; 2 shows the successful sign-in its setup reached.](../images/story/story-tutorial-00-shell.png)](../images/story/story-tutorial-00-shell.png)
 
 A story groups variants of a view. A variant declares the setup that reaches
 one state and, when needed, a script and assertions. A workspace displays

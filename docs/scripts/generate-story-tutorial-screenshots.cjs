@@ -162,8 +162,21 @@ const SHOTS = [
     hash: '#/stories',
     waitFor: '[data-test="story-mode-tabs"]',
     before: async (page) => {
+      await page.evaluate(() => {
+        const { cljs, re_frame } = window;
+        re_frame.story.reg_variant_STAR_(
+          cljs.core.keyword('story.login-form', 'error-message'),
+          cljs.reader.read_string(
+            '{:extends :story.login-form/error ' +
+            ':script [[:assert [:rf.assert/state-is :login/flow :error]] ' +
+            '[:assert [:rf.assert/sub-equals [:login/error] "Invalid credentials."]]] ' +
+            ':tags #{:dev :docs :test}}'));
+      });
+      await page.locator('[data-test="story-sidebar-variant-row"][data-variant=":story.login-form/error-message"]').click();
       await page.getByText('Tests', { exact: true }).click();
       await page.locator('[data-test="story-test-view"]').waitFor({ state: 'visible' });
+      await page.waitForFunction(() =>
+        document.querySelector('[data-test="story-test-status-pill"]')?.textContent.toUpperCase().includes('2 PASSED'));
     },
   },
   {
@@ -213,6 +226,8 @@ const SHOTS = [
       await page
         .locator('[data-test="story-xray-panel-chip"][aria-pressed="true"]', { hasText: 'App-db' })
         .waitFor({ state: 'attached', timeout: SHOT_VISIBLE_TIMEOUT_MS });
+      // Use the shell's resize control so both machine snapshots are readable.
+      await page.locator('[data-test="story-right-rail-splitter"]').press('End');
     },
   },
   {
@@ -242,6 +257,8 @@ const SHOTS = [
       const heading = page.getByRole('textbox', { name: ':heading', exact: true });
       await heading.fill('Try again');
       await page.locator('[data-test="story-save-variant-button"]').scrollIntoViewIfNeeded();
+      await heading.hover();
+      await page.mouse.wheel(0, -120);
     },
   },
   {
@@ -320,8 +337,11 @@ function makeServer() {
       }
 
       rel = decodeURIComponent(rel.replace(/^\//, ''));
-      const filePath = path.normalize(path.join(app.out, rel));
-      if (!filePath.startsWith(app.out)) {
+      // Example HTML also loads its shared stylesheet and its imports.
+      const shared = rel.startsWith('_shared/');
+      const fileRoot = shared ? path.join(REPO_ROOT, 'examples', '_shared') : app.out;
+      const filePath = path.resolve(fileRoot, shared ? rel.slice('_shared/'.length) : rel);
+      if (!filePath.startsWith(fileRoot + path.sep)) {
         res.writeHead(403);
         res.end('Bad path.');
         return;

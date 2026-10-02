@@ -5,11 +5,12 @@ Use **Story** to reproduce a state or interaction with controlled inputs,
 events behind the result. Keep the reproduction and assertions together so
 fixing a bug leaves a scenario you can run again.
 
-```clojure
-(require '[re-frame.story :as story])
+Append this regression to the login testbed's
+`tools/story/testbeds/login_form/stories.cljc`, outside `register-all!`:
 
-;; Use the login-form testbed's existing error scenario and its setup.
-(story/reg-variant :story.login-form/error-regression
+```clojure
+;; The testbed namespace already requires [re-frame.story :as rf.story].
+(rf.story/reg-variant :story.login-form/error-regression
   {:extends :story.login-form/error
    :script [[:assert [:rf.assert/state-is :login/flow :error]]
             [:assert [:rf.assert/sub-equals
@@ -42,7 +43,7 @@ diagnostic exercise; the regression assertion above states the correct result.
 
 ## Xray in Story's right rail
 
-[![Story's embedded Xray: the selected variant's events and panel evidence stay beside the canvas.](../images/story/story-tutorial-07-xray-embed.png)](../images/story/story-tutorial-07-xray-embed.png)
+[![Story's embedded Xray: callout 5 highlights the login machine moving from :submitting to :error.](../images/story/story-tutorial-07-xray-embed.png)](../images/story/story-tutorial-07-xray-embed.png)
 
 Story gives each variant its own frame. The rail observes the selected
 variant's frame and offers **Epoch**, **App-db**, **Views**, **Trace**,
@@ -74,7 +75,7 @@ portable login-form registrations:
   (ts/make-reset-runtime-fixture {:adapter plain/adapter}))
 
 (deftest invalid-credentials-remain-visible
-  (story/is :story.login-form/error))
+  (story/is :story.login-form/error-regression))
 ```
 
 The test classpath needs the Story and epoch artefacts and the testbed's source
