@@ -74,10 +74,7 @@
     (let [tags (rf.story/list-tags)]
       (is (= (into rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
              tags))
-      (testing "the seven inclusion tags are all present"
-        (is (every? tags rf.story.schemas/canonical-tags)))
-      (testing "the five state tags are all present"
-        (is (every? tags rf.story.schemas/canonical-state-tags))
+      (testing "the five state tags are exactly the :state/* magnitudes"
         (is (= #{:state/empty :state/small :state/medium :state/large :state/special}
                rf.story.schemas/canonical-state-tags))))))
 
