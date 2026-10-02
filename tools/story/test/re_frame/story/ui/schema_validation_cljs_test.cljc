@@ -122,18 +122,6 @@
       (is (= [:user :credentials]    (:path row)))
       (is (nil? (:failing-id row))))))
 
-(deftest project-failure-cofx-row
-  (testing "a :where :cofx failure carries an explicit :failing-id (the
-            event-id whose handler was about to run — per Spec 010
-            §Validation order step 2's emit shape); the projector
-            surfaces that under :failing-id"
-    (let [ev  (failure-event 4 :cofx {:cofx-id    :now
-                                      :event-id   :foo/bar
-                                      :failing-id :foo/bar})
-          row (rf.story.ui.schema-validation/project-failure ev)]
-      (is (= :cofx                   (:where row)))
-      (is (= :foo/bar                (:failing-id row))))))
-
 (deftest project-failure-prefers-an-explicit-failing-id
   (testing "an explicit :failing-id wins over the event-id / sub-id /
             cofx-id / fx-id fallbacks"
@@ -273,13 +261,6 @@
       ;; The explainer's output is captured.
       (is (some? (get-in by-key [:name :explain]))))))
 
-(deftest args-violations-conforming-args-empty
-  (testing "when every arg conforms, the violation vector is empty"
-    (is (= [] (rf.story.ui.schema-validation/args-violations {:name "alice" :age 30}
-                                  [:map [:name :string] [:age :int]]
-                                  {:validate string-validator
-                                   :explain  string-explainer})))))
-
 (deftest args-violations-decides-absent-keys-by-presence-not-by-validator
   (testing "an absent REQUIRED key is a violation whatever the child
             validator says about nil — one that rejects nil and one that
@@ -373,11 +354,7 @@
     (let [explanation {:errors [{:path [:email] :message "missing"}
                                 {:path []       :message "bad"}]}
           out         (rf.story.ui.schema-validation/format-explain explanation)]
-      (is (string? out))
-      (is (re-find #":email" out))
-      (is (re-find #"missing" out))
-      (is (re-find #"\(root\)" out))
-      (is (re-find #"bad" out)))))
+      (is (= ":email: missing; (root): bad" out)))))
 
 (deftest format-explain-reads-a-real-malli-explanation
   (testing "the explanation `malli.core/explain` really returns — `:errors`

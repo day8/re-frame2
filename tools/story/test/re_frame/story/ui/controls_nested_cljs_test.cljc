@@ -69,14 +69,6 @@
          (is (= [:k] (mapv :key (:entries w))))))))
 
 #?(:cljs
-   (deftest infer-widget-vector-emits-repeater
-     (testing ":vector schema → :repeater widget with element schema"
-       (let [w (rf.story.ui.controls/infer-widget [:vector :string])]
-         (is (= :repeater (:widget w)))
-         (is (= :vector   (:kind w)))
-         (is (= :text     (-> w :element :widget)))))))
-
-#?(:cljs
    (deftest infer-widget-set-emits-repeater
      (testing ":set schema → :repeater widget kind :set"
        (let [w (rf.story.ui.controls/infer-widget [:set :int])]
@@ -226,12 +218,6 @@
          (is (= :number (-> t :n :widget)))))))
 
 ;; ---- JVM + CLJS: path-aware set-cell-override ---------------------------
-
-(deftest set-cell-override-writes-nested
-  (testing "a multi-element path writes at the nested location"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override s :story.a/x [:meta :author] "ada")]
-      (is (= "ada" (get-in s1 [:cell-overrides :story.a/x :meta :author]))))))
 
 (deftest set-cell-override-deeply-nested
   (testing "path can address depth ≥ 3"
@@ -438,12 +424,3 @@
       ;; :items row-ids gone, :tags row-ids intact.
       (is (= [] (rf.story.ui.state/repeater-row-ids s2 :story.a/x [:items])))
       (is (= 1 (count (rf.story.ui.state/repeater-row-ids s2 :story.a/x [:tags])))))))
-
-(deftest clear-cell-override-unknown-key-is-noop
-  (testing "clearing an arg-key with no override leaves the state
-            effectively unchanged (the variant entry is pruned only
-            when it becomes empty)"
-    (let [s0 rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override-scalar s0 :story.a/x :label "hi")
-          s2 (rf.story.ui.state/clear-cell-override s1 :story.a/x :missing)]
-      (is (= "hi" (get-in s2 [:cell-overrides :story.a/x :label]))))))

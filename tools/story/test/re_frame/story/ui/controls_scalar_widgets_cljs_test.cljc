@@ -327,8 +327,7 @@
                rather than just 'street'."
        (let [tree (rf.story.ui.controls/scalar-widget
                     :story.x/v [:address :street] "Main St" {:widget :text})]
-         (is (re-find #"address" (-> tree second :aria-label)))
-         (is (re-find #"street"  (-> tree second :aria-label)))))))
+         (is (= ":address / :street" (-> tree second :aria-label)))))))
 
 ;; ---- typed values survive the DOM adapter ---------------------------------
 ;;
