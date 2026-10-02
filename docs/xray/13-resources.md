@@ -1,4 +1,4 @@
-# 13. Resources
+# Resources
 
 Server data looks wrong: a screen shows stale data, a request never finishes, or the cache keeps growing. The Resources tab shows the resources the observed frame has: what is registered, what is cached, what is in flight, and what loaded, invalidated or evicted each entry.
 
@@ -6,7 +6,7 @@ It shows the frame's state now. Picking an event changes which frame the tab rea
 
 ## Reading the tab
 
-![The Resources tab after two tenants' dashboards have loaded, numbered: 1 the resource registry, 2 the scope resolver, 3 the two live cache entries, 4 the work that loaded them](../images/xray/xray-tutorial-resources.png)
+[![The Resources tab after two tenants' dashboards have loaded, numbered: 1 the resource registry, 2 the scope resolver, 3 the two live cache entries, 4 the work that loaded them](../images/xray/xray-tutorial-resources.png)](../images/xray/xray-tutorial-resources.png)
 
 The tab stacks one section per question. The four at the top, numbered in the screenshot, are the ones you read most:
 
@@ -49,7 +49,7 @@ The tenant-switcher testbed has one resource, `:tenant/dashboard`, scoped by the
 
 ```powershell
 cd implementation
-npx shadow-cljs watch :testbeds/tenant-switcher
+npm run dev -- :testbeds/tenant-switcher
 ```
 
 Open `http://localhost:8060`:
@@ -67,3 +67,28 @@ When server data looks wrong:
 3. If a request seems stuck, read **What is still running?** and the **Work ledger**.
 4. If two users or tenants see each other's data, compare the scopes in **Live instances** and read the **Scope resolution timeline**.
 5. For the exact records behind any of these, focus the event in the event list and open Trace.
+
+## Read an instance's status
+
+| Status | Meaning | Check next |
+| --- | --- | --- |
+| `idle` | No loaded result or active fetch is represented | The declaration, demand and scope resolution |
+| `loading` | Initial data is being fetched | The active work and reply evidence |
+| `fetching` | Existing data is being refreshed | Freshness, invalidation and the work ledger |
+| `loaded` | A value was loaded | Whether it is stale and which scope/params identify it |
+| `error` | The load failed | Failure details and retry policy |
+
+The **stale** marker is separate from status: retained data can exist while
+requiring a refresh. An entry's generation identifies a fetch lineage; do not
+compare a late reply to a newer entry solely by resource id.
+
+## Troubleshooting
+
+| Symptom | Check | Action |
+| --- | --- | --- |
+| A tenant sees another tenant's data | Resolved scope and cache key | Fix the resolver inputs; identical params still need distinct scopes |
+| The cache keeps growing | Owner count and Cache growth | Release application-owned entries at the intended lifetime |
+| An entry remains pinned | **Scope audit + lints** | Check the application's attach/release pairing |
+| A reply was ignored | Stale races and generations | Check whether a newer request or invalidation replaced that attempt |
+| Selecting old events does not rewind instances | Resources shows current state | Read the old event in Epoch or Trace |
+| Merely opening the tab seems to fetch | The inspector does not create demand | Inspect the app's readers, route requirements or explicit loads |

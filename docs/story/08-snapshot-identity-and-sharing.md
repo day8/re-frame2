@@ -7,7 +7,7 @@ recipient can reproduce.
 ## Content identity
 
 A variant has a name, but names are not stable enough for every job. You can
-rename `:story.login/error` to `:story.auth/login-error` without changing the
+rename `:story.login-form/error` to `:story.auth/login-error` without changing the
 state it renders. You can also keep the name and change the state completely.
 
 So Story also identifies a variant by a hash of its canonical content:
@@ -34,7 +34,7 @@ hashes moved.
 
 The Share dialog exposes the common handoff paths.
 
-![The Story Share dialog with URL, EDN, screenshot, and static build options.](../images/story/story-tutorial-06-share-dialog.png)
+[![Share dialog: 1 groups URL, EDN, screenshot and static-build options; 2 shows the share URL and its reproducibility label.](../images/story/story-tutorial-06-share-dialog.png)](../images/story/story-tutorial-06-share-dialog.png)
 
 **Share ▸** in the toolbar opens it. Each row copies one thing to the clipboard:
 
@@ -124,3 +124,12 @@ The share URL, copied EDN, screenshot and static build carry real values,
 unredacted. Pressing Share or Copy is you handing over your own app's state,
 the same as pasting console output, so anything sensitive in the variant goes
 with it. Read what you share.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A shared URL opens a different state | The recipient has different registrations, or required inputs are omitted | Share the matching catalogue/source revision and inspect reproducibility reasons. |
+| A share is labelled partially reproducible | A value or input cannot be represented faithfully | Replace functions/opaque values with declared data where possible. |
+| The screenshot cannot reproduce the bug | It contains pixels only | Include the variant declaration or URL and its run evidence. |
+| An EDN copy is lost after reload | It was never saved in source | Paste the form into a loaded stories namespace. |

@@ -61,3 +61,19 @@ two `configure!` keys point them at it:
 
 `:rf.story/project-root` is the directory that source paths are relative to;
 Xray's source links use it too.
+
+## Try a dispatch
+
+Select the login error variant, open **Dispatch** and send
+`[:login/flow [:login/dismiss]]`. The selected frame returns to idle;
+other variants retain their own state. Re-run the variant to return to its
+declared error setup.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `:rf.error/unknown-tag` at registration | A custom tag was not registered | Call `reg-tag` before variants use it. |
+| A variant is absent from the sidebar | Search/tag filters exclude it | Clear search or include its excluded tag. |
+| Dispatch asks for coeffects | The event declares required inputs | Supply the console's named coeffects. |
+| Open in editor points at the wrong directory | Project root is wrong for the source coordinate | Configure the project root from which those relative paths resolve. |

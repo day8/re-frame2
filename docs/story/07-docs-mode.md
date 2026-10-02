@@ -4,7 +4,7 @@ Docs mode, the **Docs** tab above the canvas, turns the selected variant into
 a documentation page. The page is built from the registration itself, so it
 stays in step with the variant the canvas renders and the test runner runs.
 
-![Docs mode for the login error variant, showing status, args, decorators, parameters, evidence, and tags.](../images/story/story-tutorial-05-docs-mode.png)
+[![Callout 1 marks Docs mode for the login error variant: status, args, decorators, parameters, evidence and tags come from the registration and latest run.](../images/story/story-tutorial-05-docs-mode.png)](../images/story/story-tutorial-05-docs-mode.png)
 
 Under the variant's id, parent story and `:doc`, the page's sections are:
 
@@ -38,3 +38,18 @@ Status and Evidence come from the variant's last run in Test mode. Until it
 has run, the Evidence section says there is no evidence yet and points you at
 the Tests tab; the full narrative is in the Evidence panel
 ([chapter 6](06-xray-earned-at-failure.md#the-failure-path)).
+
+## Try it on the login error
+
+Select the error variant, open **Tests** to obtain a run, then open **Docs**.
+Compare its Args and Decorators with Controls and its registration. The
+Evidence section comes from that same run, so its Inspect button takes Xray
+to the corresponding event rather than a newly executed scenario.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Evidence says no run is available | No result has been stored for this variant | Open Tests and run it. |
+| A section is absent | The registration supplies no corresponding data | Add the relevant doc, arg description or prose workspace. |
+| All variants appear instead of one | A story header is selected | Select the individual variant in the sidebar. |

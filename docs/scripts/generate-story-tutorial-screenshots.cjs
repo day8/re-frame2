@@ -5,7 +5,7 @@
  * Run after compiling the Story testbed bundles:
  *
  *   cd implementation
- *   npm install
+ *   npm ci
  *   npx shadow-cljs compile :examples/login-form \
                              :examples/counter-with-stories \
                              :examples/nine-states-with-stories
@@ -134,7 +134,7 @@ const SHOTS = [
   {
     file: 'story-tutorial-01-first-variant.png',
     app: '/login',
-    query: '?variant=story.login-form%2Fidle',
+    query: '?variant=story.login-form%2Ferror',
     hash: '#/stories',
     waitFor: '[data-test="login-form"]',
   },
@@ -232,6 +232,52 @@ const SHOTS = [
     waitFor: '[data-test="story-sidebar"]',
     before: openFailingRun,
   },
+  {
+    file: 'story-tutorial-10-controls.png',
+    app: '/login',
+    query: '?variant=story.login-form%2Ferror',
+    hash: '#/stories',
+    waitFor: '[data-test="story-save-variant-button"]',
+    before: async (page) => {
+      const heading = page.getByRole('textbox', { name: ':heading', exact: true });
+      await heading.fill('Try again');
+      await page.locator('[data-test="story-save-variant-button"]').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    file: 'story-tutorial-11-recorder.png',
+    app: '/login',
+    query: '?variant=story.login-form%2Fidle',
+    hash: '#/stories',
+    waitFor: '[data-test="story-toolbar-rec"]',
+    before: async (page) => {
+      // Match the tutorial's starting frame: idle setup and the shipped
+      // pending variant's declared HTTP stub.
+      await page.evaluate(() => {
+        const { cljs, re_frame } = window;
+        const pending = re_frame.story.handler_meta(
+          cljs.core.keyword('variant'),
+          cljs.core.keyword('story.login-form', 'submitting'));
+        const decorators = cljs.core.get(pending, cljs.core.keyword('decorators'));
+        const body = cljs.core.assoc(
+          cljs.reader.read_string('{:extends :story.login-form/idle :tags #{:dev :test}}'),
+          cljs.core.keyword('decorators'), decorators);
+        re_frame.story.reg_variant_STAR_(
+          cljs.core.keyword('story.login-form', 'recording-start'), body);
+      });
+      const row = page.locator(
+        '[data-test="story-sidebar-variant-row"][data-variant=":story.login-form/recording-start"]');
+      await row.waitFor({ state: 'visible', timeout: SHOT_VISIBLE_TIMEOUT_MS });
+      await row.click();
+      await page.locator('[data-test="story-toolbar-rec"]').click();
+      await page.locator('[data-test="login-email"]').fill('ada@example.com');
+      await page.locator('[data-test="login-password"]').fill('wrong');
+      await page.locator('[data-test="login-submit"]').click();
+      await page.locator('[data-test="story-recorder-stop"]').click();
+      await page.locator('[data-test="story-recorder-dialog"]').waitFor({ state: 'visible' });
+    },
+  },
+
 ];
 
 function contentType(filePath) {

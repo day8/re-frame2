@@ -151,5 +151,93 @@
       "label": "5  The :login/failure beat and its Xray links",
       "labelPos": "left"
     }
+  ],
+  "story-tutorial-02-workspace-grid.png": [
+    {
+      "selector": "[data-test=\"story-sidebar\"]",
+      "colour": "#1976d2",
+      "label": "1  Select the workspace",
+      "labelAt": {
+        "x": 28,
+        "y": 770
+      }
+    },
+    {
+      "selector": "main",
+      "colour": "#43a047",
+      "label": "2  Compare independent states",
+      "labelAt": {
+        "x": 570,
+        "y": 780
+      }
+    }
+  ],
+  "story-tutorial-05-docs-mode.png": [
+    {
+      "selector": "[data-test=\"story-docs-view\"]",
+      "colour": "#1976d2",
+      "label": "1  Documentation from the registration",
+      "labelAt": {
+        "x": 370,
+        "y": 760
+      }
+    }
+  ],
+  "story-tutorial-06-share-dialog.png": [
+    {
+      "selector": "[data-test=\"story-share-export-dialog\"]",
+      "colour": "#1976d2",
+      "label": "1  Share the current variant",
+      "labelPos": "above"
+    },
+    {
+      "selector": "[data-test=\"story-egress-share-url\"]",
+      "colour": "#43a047",
+      "label": "2  URL and reproduction limits",
+      "labelPos": "below"
+    }
+  ],
+  "story-tutorial-08-nine-states.png": [
+    {
+      "selector": "main",
+      "colour": "#1976d2",
+      "label": "1  Review the complete state matrix",
+      "labelAt": {
+        "x": 540,
+        "y": 825
+      }
+    }
+  ],
+  "story-tutorial-10-controls.png": [
+    {
+      "selector": "input[aria-label=\":heading\"]",
+      "padding": 3,
+      "colour": "#1976d2",
+      "label": "1  Edit the heading",
+      "labelPos": "left"
+    },
+    {
+      "selector": "[data-test=\"story-save-variant-button\"]",
+      "padding": 3,
+      "colour": "#43a047",
+      "label": "2  Keep these inputs as a variant",
+      "labelPos": "left"
+    }
+  ],
+  "story-tutorial-11-recorder.png": [
+    {
+      "selector": "[data-test=\"story-recorder-snippet\"]",
+      "padding": 3,
+      "colour": "#1976d2",
+      "label": "1  Recorded steps; replace redacted inputs",
+      "labelPos": "below"
+    },
+    {
+      "selector": "[data-test=\"story-recorder-copy\"]",
+      "padding": 3,
+      "colour": "#43a047",
+      "label": "2  Copy the declaration into source",
+      "labelPos": "below"
+    }
   ]
 }

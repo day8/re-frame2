@@ -1,33 +1,110 @@
-# 14. Xray, Story and tests
+# Turn a diagnosis into a regression test
 
-A Story variant or a test failed, and you want to see what the app did. Xray gives no pass or fail verdict of its own: the verdict comes from your test runner or from Story's Tests tab. Xray shows the runtime behind it: which events ran, what they changed, and what the trace recorded.
+Use **Story** to reproduce a state or interaction with controlled inputs,
+**tests** to decide whether its assertions pass, and **Xray** to explain the
+events behind the result. Keep the reproduction and assertions together so
+fixing a bug leaves a scenario you can run again.
 
-## From a failing variant into Xray
+```clojure
+(require '[re-frame.story :as story])
 
-Story runs each variant's script and checks its assertions. When one fails:
+;; Use the login-form testbed's existing error scenario and its setup.
+(story/reg-variant :story.login-form/error-regression
+  {:extends :story.login-form/error
+   :script [[:assert [:rf.assert/state-is :login/flow :error]]
+            [:assert [:rf.assert/sub-equals
+                      [:login/error] "Invalid credentials."]]]
+   :tags #{:dev :test}})
+```
 
-1. Story's **Tests** tab names the failing assertion; **show detail** gives the expected and actual values.
-2. **open in Evidence →** opens the run's narrative in Story's right rail, with the failing step selected. Each step lists the events it dispatched, with the epoch each one produced.
-3. Each of those events carries **Xray: Epoch**, **Xray: App-db** and **Xray: Trace** links. A link points the Xray panel in the rail at that tab and that event's epoch.
+The parent testbed variant supplies the login setup and stubbed failure.
+This variant checks the machine state and the message derived from it.
+In your app, extend the corresponding registered scenario and assert the
+behaviour the fix must preserve.
 
-From there you read the epoch as you would in Xray anywhere else. [Xray, earned at failure](../story/06-xray-earned-at-failure.md) in the Story guide follows one failure through these steps, with screenshots.
+## Follow a failing assertion into Xray
+
+In Story's **Tests** tab:
+
+1. Open **show detail** on the failed assertion. Compare expected and actual.
+2. Choose **open in Evidence →**. Story selects the script step that failed
+   in its Evidence panel.
+3. Follow **Xray: Epoch**, **Xray: App-db** or **Xray: Trace** on the event
+   belonging to that step.
+4. Read the responsible handler, state write or machine transition and follow
+   its source link. Fix the cause, then rerun the same variant.
+
+[![A failed Story run: 1 shows the verdict, 2–3 offer detail and Evidence, 4 selects the failing beat, and 5 links the setup failure event into Xray.](../images/story/story-tutorial-09-failing-run.png)](../images/story/story-tutorial-09-failing-run.png)
+
+The [Story failure walkthrough](../story/06-xray-earned-at-failure.md) follows
+an intentionally wrong expectation through these controls. That example is a
+diagnostic exercise; the regression assertion above states the correct result.
 
 ## Xray in Story's right rail
 
-Story embeds Xray in its right rail, one panel at a time. A row of chips picks the panel (Epoch, App-db, Views, Trace, Machines or Routing), under a strip of the selected variant's recent events. Click an event in the strip to focus the panel on that epoch. A story or variant can choose the panel the rail opens on; [Xray in the right rail](../story/06-xray-earned-at-failure.md#xray-in-the-right-rail) in the Story guide shows how.
+[![Story's embedded Xray: the selected variant's events and panel evidence stay beside the canvas.](../images/story/story-tutorial-07-xray-embed.png)](../images/story/story-tutorial-07-xray-embed.png)
 
-Each variant runs in its own frame, registered under the variant's id, and the rail watches the selected variant's frame. Select another variant and Xray follows it. **Pop out** opens the full Xray shell, with every tab, in a second window.
+Story gives each variant its own frame. The rail observes the selected
+variant's frame and offers **Epoch**, **App-db**, **Views**, **Trace**,
+**Machines** and **Routing**. Selecting a different variant changes the
+observed frame; selecting an event pins that epoch. **Pop out** opens the full
+Xray shell with its other panels.
 
-Story switches off Xray's keyboard shortcuts so its own keys keep working. Inside Story, and in a shell popped out from it, use the mouse.
+Story disables Xray's global keyboard shortcuts to keep its own keys
+available. Use the mouse inside this embedded inspector and its pop-out.
+A custom host can make the same frame/epoch/panel handoff with
+[`focus!`](api/mount-control.md#focusing-a-panel-from-a-host).
 
-Story points Xray at a frame, an epoch and a tab with `focus!`, which any host can call. [Focusing a panel from a host](api/mount-control.md#focusing-a-panel-from-a-host) lists its keys.
+## Run the same assertion in CI
 
-## Tests without Xray
+The shell makes a scenario visible; `story/is` reports the same scenario's
+assertions through your test runner. Here is a JVM test using the shipped
+portable login-form registrations:
 
-Tests on the JVM or in Node run without Xray. They read the same epoch records Xray shows, with [`rf/epoch-history`](../api/re-frame.epoch.md#epoch-history): the event, app-db before and after, the effects and the trace. So a test can assert on anything you saw in Xray.
+```clojure
+(ns my-app.login-regression-test
+  (:require [clojure.test :refer [deftest use-fixtures]]
+            [re-frame.epoch]
+            [re-frame.story :as story]
+            [re-frame.substrate.plain-atom :as plain]
+            [re-frame.test-support :as ts]
+            [login-form.stories]))
 
-Treat a schema violation as a failure even when the final app-db looks right; the runtime may have rolled the bad write back. [Violations in tests](06-schema-timeline.md#violations-in-tests) explains why, and how Story counts them.
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter plain/adapter}))
 
-## From a bug you saw in Xray to a test
+(deftest invalid-credentials-remain-visible
+  (story/is :story.login-form/error))
+```
 
-A bug you reproduced with Xray open is a list of events, and replaying that list in a test rebuilds the same state. [From a past epoch to a test](03-time-travel.md#from-a-past-epoch-to-a-test) shows where Xray shows each event's vector and the coeffect values it recorded, and links the test that replays them.
+The test classpath needs the Story and epoch artefacts and the testbed's source
+path. In your app, require your own `.cljc` stories namespace instead of
+`login-form.stories`. A headless runner checks events and state; a scenario
+with DOM steps needs a runner with the required DOM capabilities. The
+[Story test guide](../story/04-the-variant-is-a-test.md#using-story-from-tests)
+includes ClojureScript's asynchronous test form and runner choices.
+
+## When the bug came from a live app
+
+From Xray, collect the initial state, the ordered event vectors and each
+event's recordable coeffects. Preserve external replies as stubs. Replaying
+the event vectors without their clock, generated ids or reply inputs may
+produce a different run.
+
+For a state-only regression, dispatch those events in an isolated test frame.
+For a state worth inspecting visually, make a Story variant and keep the
+assertions in it. The [pipeline testing guide](../core/testing/pipeline-runs.md#replay-a-bug-as-a-regression-test)
+shows the isolated-frame replay.
+
+## Troubleshooting
+
+| Symptom | Meaning | Action |
+| --- | --- | --- |
+| `:fail` despite correct final state | A check failed or unconsumed failure evidence remains | Read the failed assertion and schema/error evidence |
+| `:cannot-run` | The runner lacks required capabilities | Choose a capable runner or keep this regression at a state-only level |
+| `:error` | Running the scenario itself failed | Read the exception and execution details; this is not an assertion pass |
+| No epochs in a headless run | The epoch artefact was not loaded or evidence was not retained | Require `re-frame.epoch` and rerun with enough retention |
+| A variant created in the shell disappears on reload | Its registration was only in memory | Copy the generated form into the stories namespace |
+
+Xray never changes these verdicts. It supplies evidence to help you fix the
+behaviour that the assertion checks.

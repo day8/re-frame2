@@ -1,46 +1,51 @@
-# 9. The app-db tab
+# Find the state that changed
 
-You know which event ran; now you need to know what state it changed. The app-db tab shows the frame's state as the focused event left it, with that event's changes marked.
+Use **app-db** when you know which event ran and want to check its writes.
+The tree shows the selected epoch's state after the event, with changes
+marked in place.
 
-## Changes marked in place
+Run step 5 in the `standard-epochs` example, select
+`:standard-epochs/increment-flow`, and open app-db. Find `:base` and
+`:derived`: the handler increments the first; the flow calculates the second.
 
-The tree is app-db as the focused event left it. Each value the event changed is marked `← was` with its old value (2 in the screenshot), and the maps above every change are expanded for you, so the changes are what you see first.
+[![The selected flow event's state: 1 is the app-db card and 2 marks the changed :base and :derived values with their old values.](../images/xray/xray-tutorial-app-db.png)](../images/xray/xray-tutorial-app-db.png)
 
-![The app-db tab after a flow event, numbered: 1 the app-db card, 2 :base and :derived marked with their old values](../images/xray/xray-tutorial-app-db.png)
-
-Use app-db when you are asking:
-
-- Did the handler write the path I expected?
-- Did a runtime-managed slice change?
-- Did a rollback preserve the old state?
-- Did a route, machine, or flow put data where I think it did?
-- Did a large or sensitive value get elided before display?
-
-## Your state and the runtime's state
-
-Your own keys sit in the top **app-db** card (1). A flow's output is written into your app-db, at the path the flow declares, so it shows there too, like `:derived` above.
-
-Machines and routing keep their state beside your app-db rather than inside it, in the frame's runtime state. It follows in cards of its own: one per machine instance under `:rf/machines` and `:rf/spawned`, then `:rf/route`, `:rf/pending-navigation` and `:rf/elision`. A card appears only when that state exists. Your handlers read this state but never write it directly, so when a runtime card changed, look for the event or effect that asked the runtime to advance the machine or the route.
-
-Resource state is not shown here; [13. Resources](13-resources.md) covers it.
+`← was` shows a changed value's previous value. Added and removed entries
+receive their own diff treatment; a missing key is different from a key whose
+value became `nil` or an empty collection. Maps above changes open
+automatically so the changed paths are visible first.
 
 ## Zoom into a path
 
-Double-click a map or vector, or press Enter on it, to zoom in. The breadcrumb above the tree leads back up, and Esc zooms out one level. Zooming keeps a large app-db manageable, because you can stay at the part that matters instead of expanding everything.
+Double-click a map or vector, or press **Enter** on it, to zoom into that
+value. The breadcrumb leads back up; **Esc** zooms out one level. This is
+useful for a large state tree where you only need one feature's slice.
 
-A typical pass:
+If the handler returned the right value but the screen is wrong, inspect the
+subscription and view that consume it in [Views](views.md).
 
-1. Read the focused event in Epoch.
-2. Open app-db for the marked changes.
-3. Zoom into the suspicious path.
-4. If the UI still looks wrong, check the subscriptions that read it in Views.
+## App state and framework state
 
-## Read-only
+Your application keys are in the top **app-db** card (1). Flow output appears
+there too, at the flow's declared output path.
 
-The app-db tab does not edit values. To change state, dispatch an event, use a test frame, restore an epoch with **Reset** ([Restoring a past epoch](03-time-travel.md#restoring-a-past-epoch)), or use the pair/MCP surface with the appropriate write permission.
+The framework keeps machine and routing state in a separate runtime
+partition. Xray follows with cards for machine instances under `:rf/machines`
+and `:rf/spawned`, then `:rf/route`, `:rf/pending-navigation` and `:rf/elision`
+when present. These labels organize the inspector; they are not application
+keys you should write with a handler.
 
-## Redaction and elision
+Resource caches have their own [Resources panel](13-resources.md).
 
-Sensitive and large values are rendered under the same classification rules as the rest of the tooling. A value declared sensitive shows as a **● redacted** chip, and a very long string is shortened to a size marker. Neither is a broken diff.
+## Troubleshooting
 
-Because both sides of a changed sensitive value read redacted, the tree cannot show that it changed; a chip reading "N redacted paths modified" says so instead. The path and the surrounding values are usually enough to tell you what kind of value changed and where to look next.
+| Symptom | Cause | Action |
+| --- | --- | --- |
+| The value differs from the running app | You selected an earlier epoch | Compare the selected row with the newest row |
+| State looks valid after a bad write | A schema check may have rejected the candidate | Check the pink row and Epoch's violation block |
+| A sensitive value is a redacted chip | The current local visibility profile redacts it | Read the path and surrounding state, or choose the appropriate local profile |
+| “N redacted paths modified” without a visible diff | Both old and new values display as redacted | Use the path count as evidence of change; redaction cannot display the values |
+| A long value is shortened | Its classification or the display limit elided content | Inspect a smaller path or use the application's own controlled test |
+
+The panel is read-only. Dispatch an application event to change state, or use
+[Reset](03-time-travel.md#restoring-a-past-epoch) to restore a retained snapshot.

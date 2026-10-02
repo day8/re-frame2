@@ -1,31 +1,32 @@
 # Xray
 
-Something just happened in your re-frame2 app. A button was clicked, a handler ran, a subscription recomputed, a view rendered, a machine moved, a route changed, or a schema check failed. Xray is the devtools panel that shows you that cascade as one record, in the page beside your app.
+Use Xray when you can reproduce a problem in a running re-frame2 app and need
+to see which event, state change, subscription or view caused it. This guide
+teaches you to investigate an interaction and turn what you find into a test.
 
-Xray reads what the framework already records: the trace stream, the epoch history, source coordinates, the registries and each frame's state. It adds no second runtime and does not change how your app runs.
+[![Xray beside the example app: 1 chooses the frame and controls, 2 selects an event, 3 selects a tab, and 4 explains the selected event.](../images/xray/xray-tutorial-shell.png)](../images/xray/xray-tutorial-shell.png)
 
-![The standard-epochs testbed with Xray open beside it, and Xray's four parts numbered: 1 the ribbon, 2 the event list, 3 the tab strip, 4 the detail panel](../images/xray/xray-tutorial-shell.png)
+A completed event normally has an **epoch**: a record of its state before and
+after, its effects, and the subscriptions and views that reacted. Select an
+event in the event list (2), then read **Epoch** in the detail panel (4).
+Open **app-db** for the changed values or **Views** for the rendering work.
 
-## The one-minute model
+Selecting an older event changes the evidence you see. Your app keeps running.
+Some panels, including Resources and Graph, show the running app's current
+structure; they do not rewind with the selection.
 
-Every event that finishes produces an **epoch**: the event, app-db before and after, the effects that ran, the subscriptions that recomputed, the views that rendered, and the trace records emitted along the way. An epoch is the unit you debug.
+Xray's **Dynamic** mode investigates activity. **Static** mode browses registered
+machines, routes, schemas, flows and interceptors without selecting an event.
+Neither mode gives a test verdict. [Story runs a reproducible scenario and
+checks its assertions](14-story-and-tests.md); Xray explains the runtime behind
+that result.
 
-Xray's screen is built around that. The event list (2 in the screenshot) shows recent epochs. Click one, and the tabs (3) show that epoch in the detail panel (4): the Epoch tab explains the whole event step by step, and the other tabs show its state changes, its re-renders, its raw trace, and what it did to machines and routes. The ribbon (1) chooses the frame, the mode, filters and settings.
+## When to use another tool
 
-## Two modes
+For a repeatable component state or interaction, define a Story variant. For
+an automated regression, keep the assertion in a test. Use React DevTools or
+the browser's performance tools to investigate React commits and browser
+paint; Xray cannot measure those from an event record.
 
-**Dynamic** mode answers "what just happened?" It has the event list, and its tabs show the event you pick.
-
-**Static** mode answers "what exists in this app?" It drops the event list and lists what is registered: machines, routes, schemas, flows and interceptors.
-
-## When not to use Xray
-
-Xray is a diagnostic reader. It is not a replacement for your editor, your tests, Story, or the browser's performance tools, and it does not ship in production. It gives no pass or fail verdict: [14. Xray, Story and tests](14-story-and-tests.md) shows how it works beside the tools that do.
-
-It does not write your app-db, except when you press **Reset** to restore a past epoch, and it does not wrap or patch your handlers. What it does is answer the questions you ask when a re-frame2 app behaves strangely:
-
-- What event started this?
-- What state changed?
-- What effects ran?
-- Which subscriptions and views reacted?
-- Where in the source should I look next?
+Xray belongs in a development build. Its inspection panels read your app;
+**Reset** is the explicit action that restores a retained frame snapshot.

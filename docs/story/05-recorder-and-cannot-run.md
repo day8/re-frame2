@@ -1,261 +1,139 @@
-# 5. The recorder, and cannot-run
+# Record an interaction
 
-The recorder writes a `:script` from what you do on the canvas. This chapter
-covers the recorder, the script grammar, and `:cannot-run`: the status a run
-reports when its runner cannot perform a step, such as a click on a runner
-with no DOM.
+Use the recorder to turn canvas interaction into a script, then edit it
+into a repeatable test. A recording supplies actions; add assertions for
+the behaviour you want to preserve.
 
 ## Recording a script
 
-The recorder watches the selected variant's frame while you work the canvas,
-and turns what you did into a whole `rf.story/reg-variant` form. It pastes and
-runs as-is in a stories namespace that requires `[re-frame.story :as
-rf.story]`.
-
-1. Select a variant.
-2. Press **REC** in the toolbar. It turns red, and an overlay names the variant
-   and counts the events captured so far.
-3. Click and type through the interaction on the canvas.
-4. Press **REC** again, or **stop** in the overlay.
-
-The overlay has two more controls. **DOM on** records your clicks and typing as
-DOM steps; switch it to **DOM off** to record only the events they dispatch.
-**+ assert** opens a picker of the seven `:rf.assert/*` assertions, asks for
-the payload, and inserts the assertion at that point in the recording, while
-recording carries on underneath.
-
-When you stop, the **Test Codegen** dialog shows the form under an id you can
-edit. Typing an email and a password into the login testbed's idle variant and
-pressing Sign in records:
+Give the login form a starting variant whose HTTP effect cannot leave the
+test:
 
 ```clojure
-(rf.story/reg-variant :story.login-form/recorded-883367
+;; In the testbed namespace, which requires [re-frame.story :as rf.story].
+(rf.story/reg-variant :story.login-form/recording-start
   {:extends :story.login-form/idle
-   :script  {:auto-run? true
-             :script    [[:type "[data-test=\"login-email\"]" "[:rf/redacted]"]
-                         [:type "[data-test=\"login-password\"]" "[:rf/redacted]"]
-                         [:click "[data-test=\"login-submit\"]"]]}})
+   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
+   :tags #{:dev :test}})
 ```
 
-The new variant extends the one you recorded on, so it starts from the same
-setup. Each DOM gesture becomes a `:click` or `:type` step addressed by a
-selector. The events a gesture dispatches are not recorded as steps of their
-own, because replaying the gesture dispatches them again: here Sign in's
-`:login/submit` is dispatched by the `:click`. Any other event the frame saw,
-or every event when **DOM off** is set, becomes a `:dispatch` step, whose third
-element carries the coeffects to replay, such as the clock reading the event
-was stamped with. A pause of 50 ms or more between two steps becomes a
-`[:wait ms]` step. Typed values are redacted in inputs of type
-password, email or tel, and in inputs whose `autocomplete` names a credential
-or payment field.
+1. Select `recording-start` and press **REC** in the toolbar.
+2. Keep **DOM on** to record browser gestures. Type `ada@example.com` and
+   `wrong`, then press **Sign in**.
+3. Press **REC** again, or **stop** in the overlay.
+4. Inspect the generated form in **Test Codegen**.
 
-The dialog has four buttons: **copy to clipboard** copies the form,
-**discard** clears the recording and closes the dialog, **close** just closes
-it, and **export as :script** opens a second dialog. There you name the script, which becomes its
-`:name`, and can tick **Auto-assert app-db at end**, which appends up to five
-`[:assert-db path value]` steps checking the app-db paths the recording
-changed. **replay in this story** runs the exported script against a fresh
-copy of the variant, so you can check it before you paste it.
+[![The recorder's generated script: 1 shows captured steps with redacted inputs; 2 copies the declaration for editing and saving in source.](../images/story/story-tutorial-11-recorder.png)](../images/story/story-tutorial-11-recorder.png)
 
-A recording is data, so you can diff it, copy it, send it over MCP, and edit
-it like any hand-written script. Treat it as a first draft: delete the steps
-you do not mean, and turn the final state you care about into an assertion.
-
-## The shapes of `:script`
-
-A `:script` is either a vector of steps or a map around one:
+Email and password fields are redacted. The recorded form therefore needs
+edited test inputs before it can replay meaningfully. Keep synthetic values,
+remove incidental pauses and add a useful expectation:
 
 ```clojure
-:script {:name      "happy path"
-         :auto-run? true
-         :script    [[:dispatch [:counter/inc]]
-                     [:assert-db [:count] 1]]}
+(rf.story/reg-variant :story.login-form/submit-from-form
+  {:extends :story.login-form/recording-start
+   :script [[:type "[data-test=login-email]" "ada@example.com"]
+            [:type "[data-test=login-password]" "wrong"]
+            [:click "[data-test=login-submit]"]
+            [:assert [:rf.assert/state-is :login/flow :submitting]]
+            [:assert [:rf.assert/effect-emitted :rf.http/managed]]]
+   :tags #{:dev :test}})
 ```
 
-The bare vector means the same as the map with `:auto-run? true`: the canvas
-runs the script as soon as the variant mounts, and `rf.story/run`, `rf.story/is`
-and the Tests tab run it too. `:auto-run? false` leaves it until you press
-**Re-run** in the toolbar, and the test verbs skip it. The map is closed, so a
-misspelling such as `:autorun?` is rejected at registration instead of quietly
-running the script.
+Open **Tests** on this variant. Expect the form to show Signing in and both
+assertions to pass. The stub holds the request, so the test checks submission
+and effect emission without pretending that a server accepted the login.
 
-A variant that needs several scripts declares `:plays` instead, a vector of
-maps whose `:name` is required and unique:
+DOM gestures replay the events the view dispatches. The recorder omits those
+dispatches as separate steps to avoid doing the same action twice.
+**DOM off** records dispatched events instead, which is useful when the
+claim belongs in a headless state test.
+
+## What belongs in setup and script?
+
+Setup establishes the state the viewer should land on. Script is the
+behaviour to observe or test. A rejected-login display uses submit and
+failure as setup. A rejection-interaction test puts them in its script:
 
 ```clojure
-:plays [{:name "happy-path"
-         :script [[:dispatch-sync [:counter/initialise 5]]
-                  [:assert-db [:count] 5]]}
-        {:name "edge-case-zero"
-         :script [[:dispatch-sync [:counter/initialise 0]]
-                  [:assert-db [:count] 0]]}]
+(rf.story/reg-variant :story.login-form/rejection-interaction
+  {:extends :story.login-form/recording-start
+   :script [[:dispatch [:login/flow
+                        [:login/submit {:email "ada@example.com"
+                                        :password "wrong"}]]]
+            [:assert [:rf.assert/state-is :login/flow :submitting]]
+            [:dispatch [:login/flow [:login/failure {:failure {:status 401}}]]]
+            [:assert [:rf.assert/state-is :login/flow :error]]]
+   :tags #{:dev :test}})
 ```
 
-The first play runs on mount, and so does any other play that sets
-`:auto-run? true`; the test verbs run the same plays. The toolbar's play status
-turns into a dropdown that lists each play with its last result, runs any one
-of them from the variant's setup, and offers **Run all**. A variant declares
-`:script` or `:plays`, not both.
+This second version tests the real event path without depending on DOM
+selectors. Both examples control the outside world and declare what they
+expect.
+
+## The shapes of script
+
+`:script` accepts a vector of steps or a map with `:script`, an optional
+`:name` and `:auto-run?`. A bare vector auto-runs. Setting
+`:auto-run? false` leaves the play manual; the normal test verbs skip it.
+Use `:plays` for several named scripts instead of `:script`.
+The [script reference](api/script.md#script-shapes-and-plays) gives exact
+forms and selection rules.
 
 ## The steps
 
-| Step | What it does |
-|---|---|
-| `[:dispatch event]` | Dispatches the event and waits for it to settle. An optional third element, `{:rf.cofx {...}}`, supplies coeffects. |
-| `[:dispatch-sync event]` | Dispatches the event synchronously. |
-| `[:assert assertion]` | Runs an `:rf.assert/*` assertion at this point in the script. |
-| `[:assert-db path value]` | Checks that the app-db value at `path` equals `value`. `[:assert-db path :pred f]` checks it against a predicate instead. |
-| `[:assert-dom selector :visible]` | Checks that an element is present. `:hidden` checks that it is absent, and `:text "..."` checks its text. |
-| `[:click selector]`, `[:type selector text]`, `[:focus selector]` | Drive the DOM. |
-| `[:wait-until condition]` | Waits until `[:db path value]`, `[:db path :pred f]` or `[:queue-empty]` holds. |
-| `[:wait ms]` | Sleeps. See below for why you rarely want it. |
-| `[:flush-presence]`, `[:flush-presence ms]` | Advances the presence clock your host installs for enter and exit transitions. With none installed, the step cannot run. |
+Dispatch, assertion and DOM steps are enough for most scenarios. Dispatch
+steps settle before the next step. Setup accepts only dispatches; checkpoints,
+DOM gestures and waits belong in the script. A known step with malformed
+arguments raises `:rf.error/story-bad-step`.
 
-A bare event vector in a `:script` or `:setup` is read as `[:dispatch event]`.
-That shorthand has a catch: a misspelt step tag, such as `[:asert …]`, is
-dispatched as an event, and the run errors because no handler is registered
-for it. A known tag with the wrong arguments, such as `[:assert-dom sel]`,
-errors the run with `:rf.error/story-bad-step` before any step runs. `:setup`
-accepts only dispatches: an `[:assert …]` there errors with
-`:rf.error/story-assert-in-setup`, and a DOM or wait step there errors the run
-too, so move it to `:script`.
-
-The [Scripts reference](api/script.md) has the full grammar.
-
-## What belongs in `:setup` and what belongs in `:script`
-
-Setup establishes the state the viewer should land on. Script is the behaviour
-you want to observe or test.
-
-For the login error variant:
-
-```clojure
-:setup [[:login/flow [:login/submit {...}]]
-        [:login/flow [:login/failure {...}]]]
-```
-
-is setup because it creates the error state the variant is about.
-
-For a "submit the form" test, the same interaction would belong in `:script`:
-
-```clojure
-:script [[:dispatch-sync
-          [:login/flow [:login/submit {:email "ada@example.com"
-                                       :password "correct-horse"}]]]
-         [:assert [:rf.assert/state-is :login/flow :authenticated]]]
-```
-
-The difference is intent, not mechanism: both run real events. Setup is the
-precondition; the script is what the variant is about.
-
-## cannot-run
-
-A run can report:
-
-- `:pass`;
-- `:fail`;
-- `:error`;
-- `:cannot-run`.
-
-`:cannot-run` means the selected runner could not observe the evidence a step
-or assertion requires. It is neither a pass nor a skip: `rf.story/is` reports
-it as a test failure, so CI cannot read it as green.
-
-For example, this needs a DOM runner:
-
-```clojure
-[:click "[data-test=login-submit]"]
-```
-
-A headless runner can run app-db assertions and effect assertions, but it cannot
-click a browser element. So the row is reported as `:cannot-run` with the
-missing capability. A DOM or browser runner can execute it.
-
-A run whose only problems are refusals is `:cannot-run` as a whole. A genuine
-failure still wins: the verdict is `:error` if anything errored, otherwise
-`:fail` if anything failed, otherwise `:cannot-run` if anything was refused,
-and only then `:pass`.
-
-## Runner capability ladder
-
-Each runner provides a set of capabilities, and each richer runner provides
-everything the cheaper ones do:
-
-| Runner | Adds | Useful for |
-|---|---|---|
-| `:headless` | `:app-db` `:effects` `:schema` `:trace` `:pure-subs` | app-db, effects, trace, schema, pure subscriptions. |
-| `:hiccup` | `:hiccup-structure` | structural view output without a browser. |
-| `:cljs-reactive` | `:reactive-counts` | subscription and render recompute counts. |
-| `:dom` | `:dom` | DOM events, focus, visibility, form entry. |
-| `:browser` | `:pixels` `:a11y-engine` | pixels, screenshots, browser a11y engines. |
-
-Each step and assertion needs a set of capabilities. Dispatches and
-`:assert-db` need `:app-db`; `:click`, `:type`, `:focus` and `:assert-dom` need
-`:dom`; the waits need nothing. Of the assertions, `dispatched?` also needs
-`:trace`, `no-warnings` needs `:trace`, `effect-emitted` needs `:effects`,
-`sub-equals` needs `:pure-subs`, and `schema-error` needs `:schema`. The
-variant's required capabilities are the union. Test mode and the run result's
-`:required-runner` list them, and the sidebar chip names the cheapest runner
-that covers them.
-
-`rf.story/run` and `rf.story/is` use `:headless` unless you pass `:runner`.
-`{:runner :dom}` fixes the runner; `{:runner :auto}`, or `{:escalate true}`,
-picks the cheapest runner whose capabilities cover the variant's, and the run
-is `:cannot-run` when none does. A DOM step also needs a real document: on the
-JVM there is none, so `{:runner :dom}` still refuses it there. The canvas runs
-a variant with `{:runner :auto}`, and the Tests tab shows the canvas's run, so
-a DOM step runs in the page against the rendered view.
-
-Keep most Story tests headless. A claim about an app-db path, a machine state,
-a subscription value or an emitted effect needs no browser; use a DOM runner
-when the claim is about the DOM.
-
-No Story runner proves pixels or an axe scan: a run reports
-`:rf.assert/visual-snapshot` and `:rf.assert/a11y` as `:cannot-run`, because
-nothing produces the pixel or axe evidence they need. Review pixels with a
-runner you bring ([Local visual review](08-local-visual-review.md)).
+The recorder can insert checkpoints with **+ assert**. **export as :script**
+offers a replay preview and optional final app-db checks. Review generated
+checks: an incidental state change is not necessarily behaviour worth testing.
+The [reference](api/script.md#the-grammar-tagged-step-forms) lists every step.
 
 ## Waiting without flakiness
 
-Avoid fixed sleeps:
+Use `[:wait-until [:queue-empty]]` or a declared db condition rather than
+a fixed pause. The runner checks it after the preceding dispatch settles;
+an unmet condition fails the step rather than waiting indefinitely.
+A machine state is in runtime state, so check it with `state-is`, not an
+app-db wait.
 
-```clojure
-[:wait 300]
-```
+`run` and `is` honour fixed `:wait` steps, but deterministic replay
+checks report them as `:cannot-run`. Remove recorder pauses that are not
+part of the interaction's meaning.
 
-A sleep may pass on your laptop and fail on CI, because time passing is not the
-same as the app being ready. `rf.story/run` and `rf.story/is` still honour it,
-but `rf.story/assert-deterministic`, which replays a program in fresh frames to
-check it runs the same way every time, refuses a program with a `[:wait ms]` as
-`:cannot-run`.
+## Cannot-run
 
-Wait for a condition instead. A machine's state is not in app-db, so a
-`[:wait-until [:db …]]` condition cannot see it. Wait for the event queue to
-drain, then assert the state:
+The DOM script needs a browser document. A headless run reports
+`:cannot-run` for its DOM steps, and `is` treats that as an unsuccessful
+test. It does not mean the login code failed. The
+[runner guide](runners.md) shows how to choose a host that can perform
+the step and distinguish missing capability from a failed expectation.
 
-```clojure
-[:wait-until [:queue-empty]]
-[:assert [:rf.assert/state-is :login/flow :authenticated]]
-```
+## Runner capability ladder
 
-The runner checks the condition once the preceding dispatch has settled. A
-condition that never holds fails the step with a reason naming it, such as
-`wait-until [:db [:form :ready?] true] never became true`, instead of hanging.
+Story's runner ids are `:headless`, `:hiccup`, `:cljs-reactive`,
+`:dom` and `:browser`. Their capabilities are enumerated in
+[the runtime reference](api/runtime.md#runner-capabilities).
 
 ## Privacy at the recorder boundary
 
-The recorder redacts at two points, and they cover different things.
+The recorder replaces text from password, email and tel inputs, and
+credential/payment autocomplete fields, with `"[:rf/redacted]"`.
+Sensitive events are removed from generated scripts. Matching typed strings
+are also redacted from retained event payloads. Replace redacted values with
+synthetic inputs when building a replay; classification does not manufacture
+usable credentials.
 
-Typing into a password, email or tel input, or into one whose `autocomplete`
-names a credential or payment field, records the text as the string
-`"[:rf/redacted]"`. The step stays, so the reproduction keeps its shape, but
-the value is gone.
+## Troubleshooting
 
-A dispatched event your app has classified as sensitive (see [Keep secrets
-and large things out of traces](../core/how-to/keep-secrets-out-of-traces.md))
-is recorded as `[:rf/redacted]` and dropped from the generated script. A value
-typed into one of the inputs above is redacted from any dispatch the recorder
-keeps, too: every string in its payload equal to a typed value becomes
-`"[:rf/redacted]"`, the same text the `:type` step records. Anything else in
-an event nobody classified is recorded as it was dispatched, so read a
-recording before you commit it.
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Replayed form never submits | Redacted email/password are not valid test inputs | Replace them with the synthetic values shown above. |
+| Headless run says `:cannot-run` | Recorded steps need a DOM | Run them in the browser, or keep an event-based version of the test. |
+| Setup raises `:rf.error/story-assert-in-setup` | An assertion was placed before the script | Move it to `:script` or terminal `:assertions`. |
+| Setup raises `:rf.error/story-setup-step-unrunnable` | It contains a wait or DOM gesture | Use a setup event; put the gesture in the script. |
+| A selector matches no element | The component or selector changed | Inspect the canvas and update the selector; prefer stable data attributes. |
+| The recording disappears after reload | Only the live shell held it | Copy the reviewed registration into source. |

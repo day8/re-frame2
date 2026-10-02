@@ -22,14 +22,14 @@ needs real documentation.
 ## Grid
 
 ```clojure
-(rf.story/reg-workspace :Workspace.login/all-states
+(rf.story/reg-workspace :Workspace.login-form/all-states
   {:doc      "The five login states side by side."
    :layout   :grid
-   :variants [:story.login/idle
-              :story.login/submitting
-              :story.login/error
-              :story.login/submitting-retry
-              :story.login/authenticated]
+   :variants [:story.login-form/idle
+              :story.login-form/submitting
+              :story.login-form/error
+              :story.login-form/submitting-retry
+              :story.login-form/authenticated]
    :columns  3})
 ```
 
@@ -43,16 +43,16 @@ scrolls inside the cell. A grid renders its first 100 cells and offers
 `:variants-grid` lists every variant under a parent story for you:
 
 ```clojure
-(rf.story/reg-workspace :Workspace.login/auto-grid
+(rf.story/reg-workspace :Workspace.login-form/auto-grid
   {:layout  :variants-grid
-   :for     :story.login
+   :for     :story.login-form
    :columns 3})
 ```
 
 Use an explicit grid when the order is part of the story you want to tell. Use
 `:variants-grid` when you want every variant under a parent to appear without
 maintaining the list by hand. The cells come in variant-id order. `:for` names
-the story; without it, the workspace id does, so `:Workspace.login/auto-grid`
+the story; without it, the workspace id does, so `:Workspace.login-form/auto-grid`
 enumerates `:story.login`. Give it `:variants` instead of `:for`, and it
 renders exactly those variants.
 
@@ -66,9 +66,9 @@ a time, with previous and next buttons to move between them.
 `:tabs` mounts one variant at a time, under a strip of tabs:
 
 ```clojure
-(rf.story/reg-workspace :Workspace.login/tabs
+(rf.story/reg-workspace :Workspace.login-form/tabs
   {:layout   :tabs
-   :variants [:story.login/idle :story.login/error]})
+   :variants [:story.login-form/idle :story.login-form/error]})
 ```
 
 ## Prose
@@ -76,12 +76,12 @@ a time, with previous and next buttons to move between them.
 `:prose` interleaves Markdown with variants, in order:
 
 ```clojure
-(rf.story/reg-workspace :Workspace.login/guide
+(rf.story/reg-workspace :Workspace.login-form/guide
   {:layout  :prose
    :content [{:type :prose   :body "## Signing in\nThe form starts empty."}
-             {:type :variant :id   :story.login/idle}
+             {:type :variant :id   :story.login-form/idle}
              {:type :prose   :body "A rejected password re-enables the form."}
-             {:type :variant :id   :story.login/error}]})
+             {:type :variant :id   :story.login-form/error}]})
 ```
 
 A variant's [Docs mode](07-docs-mode.md) page also shows the prose of any
@@ -115,3 +115,12 @@ iframe boundary.
 
 The background picker's colour sits behind each cell's view as well as behind
 the canvas ([Modes, viewports and backgrounds](07-modes-and-viewports.md#viewports-and-backgrounds)).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Automatic grid includes a new unwanted variant | `:variants-grid` enumerates the parent | Use an explicit `:grid` when the review set is curated. |
+| `:rf.error/workspace-shape` | Required slots or mutually exclusive fields are wrong | Give grid/tabs `:variants`, prose `:content`, and automatic grid only one of `:for` or `:variants`. |
+| Only the first cells appear | The grid reached its display cap | Use **+N more**, or split a large catalogue into focused workspaces. |
+| A portalled dialog covers neighbouring cells | Cells share a browser document | Review that variant alone or adapt the portal target. |

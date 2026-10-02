@@ -1,40 +1,33 @@
-# 9. Multi-substrate and the agent loop
+# Choose a rendering host
 
-A variant names a view id and describes a state as data, so the same
-registration can render under more than one view layer, and an agent can run
-it. This chapter covers substrates, the two hosts an agent can drive Story in,
-and Story-MCP.
-
-## Substrates
-
-A story body names a view id and describes behaviour. It contains no JSX,
-Reagent hiccup or UIx component code, so the same body can render under
-different view layers, which Story calls substrates:
+Use the rendering layer your view was written for. Story's variant bodies
+name a view id and inputs, so the scenario can stay the same while the host
+changes how that view is mounted.
 
 ```clojure
-(rf.story/reg-story :story.login
-  {:component  :my-app.views/login-card
-   :args       {:heading "Sign in"}
+;; Requires [re-frame.story :as rf.story].
+(rf.story/reg-story :story.login-form
+  {:component :login-form.views/login-card
+   :args {:heading "Sign in"}
    :substrates #{:reagent}})
 ```
 
-A member of `:substrates` names the registered render function that embeds the
-view, which is not the same thing as the adapter `rf/init!` installed. A story
-with `:substrates #{:fresco}` renders Fresco views inside a shell whose
-installed adapter is Reagent's; the Fresco views find their variant's frame
-through React context and respond to events dispatched into it. The testbed at
-`tools/story/testbeds/fresco_counter/` is a worked example.
+## Substrates
 
-Story registers the `:reagent` render function itself. `:uix` and `:fresco`
-depend on libraries only your app carries, so your app registers them at boot,
-in a few lines. For UIx:
+The `:substrates` set accepts `:reagent`, `:uix` and `:fresco`.
+Each names the render function Story uses to embed a view. It is separate
+from the adapter installed by `rf/init!`.
+
+Story installs its Reagent renderer. Register the renderer for another
+view layer at browser boot, where your app has that layer's dependencies.
+For UIx:
 
 ```clojure
-;; src/my_app/stories.cljc
+;; In a portable stories namespace.
 (ns my-app.stories
-  (:require [re-frame.core  :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.story :as rf.story]
-            #?(:cljs [uix.core :refer [$]])))   ;; only the browser renders
+            #?(:cljs [uix.core :refer [$]])))
 
 #?(:cljs
    (rf.story/register-substrate! :uix
@@ -42,86 +35,53 @@ in a few lines. For UIx:
        ($ (rf/view view-id) args))))
 ```
 
-`register-substrate!` exists only in the browser, so the call and the
-`uix.core` require sit in `#?(:cljs …)` branches, which the JVM skips, as the
-view require does in [chapter 1](01-first-variant.md#the-smallest-useful-story-file).
+For Fresco, the shipped `tools/story/testbeds/fresco_counter/core.cljs`
+uses this form at boot:
 
-The render function receives the variant id, the view id and the effective
-args, and returns what the shell mounts inside the variant's frame. The
-`:fresco` version resolves the view the same way and creates the element with
-`re-frame.fresco/as-element`; the testbed above carries it.
+```clojure
+;; Browser code requiring re-frame.core, re-frame.story and re-frame.fresco.
+(rf.story/register-substrate! :fresco
+  (fn [_variant-id view-id args]
+    (rf.fresco/as-element [(rf/view view-id) args])))
+```
 
-A variant whose `:substrates` set names more than one member renders once per
-substrate, side by side, each in a cell headed with its name. A variant
-without `:substrates` takes its story's. When a substrate cannot render a
-variant, Story says so: a substrate nobody registered paints a red cell naming
-the `register-substrate!` call it needs, as `:cannot-run` does for a step a
-runner cannot perform.
+The shell mounts the view under the variant's frame context. The Fresco
+testbed installs Reagent's adapter for the shell and embeds Fresco views
+inside it; it does not need a second React root.
+
+A variant inherits the story's substrates unless it declares its own.
+Naming several renders a cell for each. Opt into multiple layers only when
+the registered component can render through each selected function;
+the set does not translate a Reagent component into UIx or Fresco.
 
 ## Two hosts
 
-An agent drives Story in one of two hosts, and each host owns its own frames.
+The browser shell and a JVM test are separate processes with separate
+registries and frames. Requiring the same `.cljc` stories gives them the
+same declarations; it does not share live state.
 
-- **The story-mcp server** is a stdio process in its own JVM. It sees the
-  stories loaded into that JVM, runs variants in frames it allocates there,
-  and has no bridge to a browser. A browser-only read such as
-  `list-substrates` or `read-a11y-violations` therefore answers with a
-  capability-unavailable error, never an empty result.
-- **The browser** is the app you have open. An agent reaches its Story
-  registry through re-frame2-pair's `eval-cljs`, then reads, dispatches to
-  and traces a variant with the ordinary pair tools, because a variant is a
-  frame.
+Run machine, subscription and effect tests on the JVM with the fixture in
+[the testing recipe](04-the-variant-is-a-test.md#using-story-from-tests).
+Use the browser for DOM interaction and for Xray's live view of a selected
+variant. Keep the whole diagnosis in the host that produced the failure.
 
-A variant id registered in both hosts names two frames with two separate
-app-dbs, so run a whole loop in the host that holds the frame you care about.
-The agent skills state the rule for choosing: the `re-frame2` skill for
-story-mcp, in
-[`story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#which-host-to-use),
-and the `re-frame2-pair` skill for the browser, in
-[`stories.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md#which-host-to-use).
-[Two surfaces, one live door](api/mcp-surface.md#two-surfaces-one-live-door)
-covers the boundary in more depth.
+## Advanced
 
-## Story-MCP
+Story-MCP exposes registration and execution to external tools, including
+an assistant. Its stdio server runs a JVM catalogue loaded from your portable
+stories namespace; it is not a connection to the open browser shell.
+Browser-only observations such as an axe scan are unavailable there.
 
-Story-MCP is a separate artifact, `day8/re-frame2-story-mcp`. Story holds the
-registry, the runtime, snapshot identity and the shell; Story-MCP adds the MCP
-server, its JSON-RPC transport, the tool registry, and the redaction of values
-sent to the agent.
+The [MCP reference](api/mcp-surface.md#running-the-server) shows how to launch
+the server. Its write tools are disabled unless explicitly enabled.
+Changes registered in either live host still need to be saved in source
+to survive a restart.
 
-It exposes 19 tools:
+## Troubleshooting
 
-| Category | Tools |
-|---|---|
-| Dev | `get-story-instructions`, `preview-variant`, `list-substrates` |
-| Docs/read | `list-stories`, `get-story`, `get-variant`, `list-tags`, `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`, `get-docs-markdown`, `explain-variant` |
-| Testing | `run-variant`, `snapshot-identity`, `read-a11y-violations`, `read-failures` |
-| Write, gated | `register-variant`, `unregister-variant` |
-
-They cover what you do in the shell: list states, preview one, run it, read
-its failures, see how it was assembled, and, when writes are allowed, register
-a variant. [Running the server](api/mcp-surface.md#running-the-server) shows
-how to launch it against your stories.
-
-## The agent loop
-
-The repository's skills under `skills/` are operating instructions for agents
-that use Story and Story-MCP. Run inside one of the two hosts, the loop is:
-
-1. list or get the variant;
-2. preview it if needed;
-3. run it;
-4. read its failures;
-5. in the browser host, inspect the same frame and its epochs through the pair
-   tools or Xray;
-6. register a refined variant, when writes are allowed.
-
-The agent runs the same variant the shell shows, and reads the same run result
-Test mode does.
-
-## Useful references
-
-- [Story API reference](api/index.md) - the exact form of every registration, step and function.
-- [MCP surface](api/mcp-surface.md) - running Story-MCP, and what crosses the wire to an agent.
-- [Xray](../xray/index.md) - the diagnostic tool Story embeds.
-- For implementors, the normative specs: [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) for Story and [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) for the MCP server.
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Red cell says a substrate is unavailable | Its render function was not registered | Call `register-substrate!` at browser boot. |
+| The view cannot render under a selected layer | The component and renderer use different conventions | Select the matching layer or register the appropriate view/bridge. |
+| A JVM tool cannot find a browser variant | The hosts have independent registries | Require its portable declarations in the JVM, or inspect it in the browser. |
+| A JVM tool cannot read an axe result | The observation exists only in the browser | Scan and inspect the variant in its browser host. |

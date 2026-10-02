@@ -1,42 +1,65 @@
-# 3. Time-travel scrubbing
+# Inspect and restore earlier state
 
-The bug happened three events ago and the app has moved on. You want to look at that earlier event without stopping the app or losing your place. In Xray the event list is the scrubber: focusing a past event points every event tab at it, and following the newest event lets them move on again.
-
-## Following and focused
-
-Xray is always in one of two states:
-
-- **Following**: the tabs show the newest epoch for the selected frame, and move on as new events arrive.
-- **Focused**: the tabs stay on an older epoch you picked.
-
-You focus an older epoch by clicking its event (1 in the screenshot) or by stepping back. The ribbon's **‹** (or `j`) steps to the previous event and **›** (or `k`) to the next, and **»** (or `l`, or Shift+G) follows the newest event again (3). While an older event is focused, a strip under the list reads "↓ N newer events — » to follow" (2); click it to return to the newest. Space pauses and resumes following without focusing an event.
-
-Focus changes what Xray shows, not your app. The app keeps running, and every event tab (Epoch, app-db, Views, Trace, Machine and Routes) shows the focused epoch.
-
-![Xray with an older event focused, numbered: 1 the focused event, 2 the strip reading ↓ 3 newer events — » to follow, 3 the step and follow buttons, 4 the Epoch tab's numbered steps, 5 the Reset button](../images/xray/xray-tutorial-epoch.png)
+The bug happened several events ago. Select that earlier event to inspect its
+state without stopping the app. Use **Reset** only when you want the app's
+frame state to change too.
 
 ## Inspecting a past event
 
-On the standard-epochs testbed:
+In the `standard-epochs` example:
 
-1. Press **⏭ Step** three times. Each step adds two events: `:standard-epochs/run-step`, then the event that step runs.
-2. Click the first `:standard-epochs/run-step` event in Xray's event list.
-3. Open app-db. `:step` reads `0 ← was nil`: the state as the first step left it, not the `2` the third step left.
-4. Open Trace. It lists the trace records for that epoch.
-5. Press **»**. The tabs jump back to the newest epoch.
+1. Reload, then run step 5 twice.
+2. Select the first `:standard-epochs/increment-flow` row.
+3. Open **app-db**. It shows `:base 2` and `:derived 4`; the live app has
+   already advanced to `3` and `6`.
+4. Open **Trace**. Its records belong to that selected epoch.
+5. Press **»** to follow the newest event again.
+
+[![History controls: 1 pins an older event, 2 counts newer events, 3 steps or follows, 4 shows the selected epoch, and 5 restores its frame state.](../images/xray/xray-tutorial-epoch.png)](../images/xray/xray-tutorial-epoch.png)
+
+Xray is **following** when the event panels move to the newest epoch as it
+arrives, and **focused** when they stay on a selected event. The newer-events
+strip (2) also returns to following when clicked. **Space** pauses or resumes
+following. Recording continues while you inspect or pause.
+
+Resources, Graph and Frames still show current structure. Routes labels its
+current-route section separately from the selected epoch's navigation.
 
 ## Restoring a past epoch
 
-Looking at a past epoch changes nothing in your app. Restoring one does: **Reset ↺**, at the right end of the tab bar (5 in the screenshot above), puts the frame back into the state the focused event left it in. That includes app-db, machine snapshots and the current route, which are restored together.
+Select the earlier flow event and press **Reset ↺** (5). It restores the
+frame's recorded state after that event: app-db and the retained runtime state,
+including machine snapshots and route state. The flow values are `2` and `4`
+again. Reset is disabled until an epoch is focused and asks for no confirmation.
 
-Reset asks for no confirmation, and it is disabled until an event is focused. It calls the runtime's [`restore-epoch!`](../api/re-frame.epoch.md#restore-epoch) on the frame Xray is observing. When the runtime refuses, the bar shows "Reset failed — epoch unavailable (see Trace)" and the Trace tab holds the reason: for example, an epoch whose event failed cannot be restored, and neither can one that has left the history.
+Reset does not reverse a server write, un-send a message or rewind browser
+history. It does not rerun the event's effects. To reproduce an interaction
+that depends on external replies or time, use controlled inputs in
+[Story or a test](14-story-and-tests.md).
 
-Inspect first. Restore only when you want the app itself back in that state, for example to try a fixed handler from the same starting point.
+## Retention and failures
 
-## How far back you can go
+Xray defaults to 50 epochs per frame. Settings → General → **Epoch history**
+changes the retained count; its slider runs from 5 to 200 in steps of 5.
+Increasing it preserves more future evidence. It cannot recover an epoch
+that has already been evicted.
 
-Xray keeps the newest 50 epochs per frame. Change that with the **Epoch history** setting on Settings' General tab. Focus an event whose epoch has left the history and the tabs say so; the Epoch tab reads "The selected epoch was evicted from the history buffer. Pick a more recent event."
+| Message or symptom | Meaning | Action |
+| --- | --- | --- |
+| “The selected epoch was evicted from the history buffer” | The old snapshot is gone | Select a recent row, or reproduce with a larger history |
+| “The selected event settled no epoch” | The selected bundle has no settled snapshot | Inspect the newest completed event; for outside-event errors, enable the ungrouped row |
+| “Reset failed — epoch unavailable (see Trace)” | The runtime rejected the restore | Inspect the failure trace; choose a retained successful epoch in a live frame |
+| The state restored but an external result remains | That result lives outside the frame snapshot | Recreate the scenario with stubbed effects |
+
+The runtime also rejects incompatible snapshots, such as a machine snapshot
+whose definition no longer exists. The [`restore-epoch!`
+reference](../api/re-frame.epoch.md#restore-epoch) documents the return value
+and failure conditions.
 
 ## From a past epoch to a test
 
-A bug you reproduced with Xray open is a list of events, and replaying that list in a test rebuilds the same state. Focus each event in turn: the Epoch tab shows its event vector under DISPATCH and the coeffect values it recorded under RECORDABLE COEFFECTS. [Replay a bug as a regression test](../core/testing/pipeline-runs.md#replay-a-bug-as-a-regression-test) shows the test that replays them.
+For each event in the reproduction, read **DISPATCH** and **RECORDABLE
+COEFFECTS** in Epoch. Preserve the initial state, the event sequence and the
+recorded inputs. [Replay a bug as a regression
+test](../core/testing/pipeline-runs.md#replay-a-bug-as-a-regression-test)
+shows how to dispatch that sequence in an isolated frame.

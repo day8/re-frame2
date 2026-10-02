@@ -412,32 +412,30 @@ nav:
     - "Glossary": ssr/glossary.md
 
   - Story:
-    # Section label IS the Story welcome page (navigation.indexes).
     - story/index.md
-    - "1. Your first variant": story/01-first-variant.md
-    - "2. Every state, side by side": story/02-every-state-side-by-side.md
-    - "3. The fidelity ladder": story/03-fidelity-ladder.md
-    - "4. The variant is a test": story/04-the-variant-is-a-test.md
-    - "5. The recorder, and cannot-run": story/05-recorder-and-cannot-run.md
-    - "6. Xray, earned at failure": story/06-xray-earned-at-failure.md
-    # Chapters 7 and 8 are groups: the topics a growing variant library needs,
-    # then sharing and review. 08-snapshot-identity-and-sharing.md keeps its
-    # name because tools/story/spec links to its #static-builds and
-    # #local-visual-review anchors.
-    - "7. Organising a variant library":
-      - "Docs mode": story/07-docs-mode.md
+    - "Install": story/installation.md
+    - "Develop a scenario":
+      - "Your first variant": story/01-first-variant.md
+      - "Compare states": story/02-every-state-side-by-side.md
+      - "Edit and save inputs": story/controls.md
+      - "Choose state inputs": story/03-fidelity-ladder.md
+      - "Run as a test": story/04-the-variant-is-a-test.md
+      - "Choose a runner": story/runners.md
+      - "Diagnose a failure": story/06-xray-earned-at-failure.md
+      - "Record an interaction": story/05-recorder-and-cannot-run.md
+    - "Organise a variant library":
+      - "Composition": story/07-composition.md
+      - "Decorators": story/07-decorators.md
       - "Workspaces": story/07-workspaces.md
       - "Modes, viewports and backgrounds": story/07-modes-and-viewports.md
-      - "Decorators": story/07-decorators.md
       - "Tags and shell tools": story/07-tags-and-tools.md
-      - "Composition": story/07-composition.md
-    - "8. Sharing and review":
+      - "Docs mode": story/07-docs-mode.md
+    - "Sharing and review":
       - "Snapshot identity and sharing": story/08-snapshot-identity-and-sharing.md
       - "Local visual review": story/08-local-visual-review.md
       - "Static builds": story/08-static-builds.md
-    - "9. Multi-substrate and the agent loop": story/09-multi-substrate-and-agent-loop.md
+    - "Choose a rendering host": story/09-multi-substrate-and-agent-loop.md
     - "API reference":
-      # Sub-section label IS its overview (navigation.indexes).
       - story/api/index.md
       - "Registration": story/api/registration.md
       - "Scripts": story/api/script.md
@@ -446,29 +444,33 @@ nav:
       - "Reference": story/api/reference.md
 
   - Xray:
-    # Section label IS the Xray welcome page (navigation.indexes).
     - xray/index.md
-    - "1. Installation": xray/01-installation.md
-    - "2. Panel tour": xray/02-panel-tour.md
-    - "3. Time-travel scrubbing": xray/03-time-travel.md
-    - "4. Trace stream": xray/04-trace-stream.md
-    - "5. Click-to-source": xray/05-click-to-source.md
-    - "6. Schema violations": xray/06-schema-timeline.md
-    - "7. SSR hydration": xray/07-hydration.md
-    - "8. Machine inspector": xray/08-machine-inspector.md
-    - "9. The app-db tab": xray/09-app-db-diff.md
-    - "10. Derivation graph": xray/10-derivation-graph.md
-    - "11. The Fresco tab": xray/11-fresco-tab.md
-    # 12-14 are appended rather than slotted by topic, so that no existing
-    # page is renamed and no inbound link or anchor moves.
-    - "12. Routes": xray/12-routes.md
-    - "13. Resources": xray/13-resources.md
-    - "14. Xray, Story and tests": xray/14-story-and-tests.md
+    - "Install Xray": xray/01-installation.md
+    - "Debug an interaction":
+      - "Follow an event": xray/debug-an-event.md
+      - "Find changed state": xray/09-app-db-diff.md
+      - "Explain a re-render": xray/views.md
+      - "Inspect earlier state": xray/03-time-travel.md
+      - "Read runtime records": xray/04-trace-stream.md
+      - "Open the source": xray/05-click-to-source.md
+      - "Keep a regression test": xray/14-story-and-tests.md
+    - "Investigate a feature":
+      - "Schema violations": xray/06-schema-timeline.md
+      - "State machines": xray/08-machine-inspector.md
+      - "Requests and replies": xray/managed-effects.md
+      - "Routing": xray/12-routes.md
+      - "Resources": xray/13-resources.md
+      - "Value dependencies": xray/10-derivation-graph.md
+      - "Fresco views": xray/11-fresco-tab.md
+      - "SSR hydration": xray/07-hydration.md
+    - "Panel and session controls":
+      - "Choose a panel": xray/02-panel-tour.md
+      - "Manage evidence": xray/manage-evidence.md
     - "API reference":
-      # Sub-section label IS its overview (navigation.indexes).
       - xray/api/index.md
       - "Mount control": xray/api/mount-control.md
       - "Configuration keys": xray/api/config-keys.md
+      - "Diagnostic values": xray/api/diagnostics.md
       - "Reference": xray/api/reference.md
 
   - Skills:

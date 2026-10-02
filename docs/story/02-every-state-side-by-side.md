@@ -1,151 +1,86 @@
-# 2. Every state, side by side
+# Compare states side by side
 
-UI bugs hide in the states nobody drives by hand: loading, error, retry. This
-chapter gives the login form five variants, puts them side by side in a
-workspace grid, and uses Controls to edit a variant's inputs.
+Put the login form's normal and failure states in one workspace. This makes
+it easy to compare disabled fields, error messages and retry controls without
+recreating each state by hand.
+
+```clojure
+;; In a namespace requiring [re-frame.story :as rf.story].
+;; These variants ship in tools/story/testbeds/login_form/stories.cljc.
+(rf.story/reg-workspace :Workspace.login-form/all-states
+  {:doc "The five login states side by side."
+   :layout :grid
+   :variants [:story.login-form/idle
+              :story.login-form/submitting
+              :story.login-form/error
+              :story.login-form/submitting-retry
+              :story.login-form/authenticated]
+   :columns 3
+   :tags #{:docs}})
+```
+
+Open **all-states** under Workspaces in the login testbed's sidebar.
+
+[![The login workspace: 1 selects the workspace; 2 compares the five independent login states, including pending, error and authenticated.](../images/story/story-tutorial-02-workspace-grid.png)](../images/story/story-tutorial-02-workspace-grid.png)
 
 ## Five login states
 
-The login-form testbed carries five variants:
+| Variant | What to compare |
+| --- | --- |
+| `idle` | Empty enabled fields and the Sign in button. |
+| `submitting` | Disabled fields and Signing in while the stub holds the request. |
+| `error` | Error message, enabled fields and Cancel. |
+| `submitting-retry` | Retrying label after a previous rejection. |
+| `authenticated` | Welcome banner in place of the form. |
 
-```clojure
-:story.login/idle
-:story.login/submitting
-:story.login/error
-:story.login/submitting-retry
-:story.login/authenticated
-```
+Each cell has its own frame and machine state. Try **Cancel** in the error
+cell: that cell returns to idle; the other four retain their state. Reopen
+the workspace to restore its declared starting states.
 
-The error variant looks like this:
-
-```clojure
-(rf.story/reg-variant :story.login/error
-  {:doc "Server rejected credentials. Form re-enabled; the error is visible."
-   :setup [[:login/flow
-            [:login/submit {:email "ada@example.com"
-                            :password "wrong"}]]
-           [:login/flow
-            [:login/failure
-             {:failure {:status 401
-                        :message "Invalid credentials."}}]]]
-   :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
-   :script [[:assert [:rf.assert/state-is :login/flow :error]]
-            [:assert [:rf.assert/sub-equals [:login/error] "Invalid credentials."]]]
-   :tags #{:dev :docs :test}})
-```
-
-The setup submits the form and then delivers the failure event, so the
-machine reaches `:error` along the same path the app takes. The
-`force-fx-stub-id` decorator takes over the HTTP effect, so no request is
-sent; the view itself is untouched.
-
-To reach the error through the HTTP reply itself, rather than a hand-fired
-failure event, stub the request with `:network`. Each key is a `[method url]`
-route and each value says how to reply:
-
-```clojure
-(rf.story/reg-variant :story.login/error-from-401
-  {:doc     "The server answers 401, and the reply drives the form to :error."
-   :setup   [[:login/flow [:login/submit {:email    "ada@example.com"
-                                          :password "wrong"}]]]
-   :network {[:post "/api/login"] {:reply {:failure {:kind :rf.http/http-4xx
-                                                     :tags {:status 401}}}}}
-   :script  [[:assert [:rf.assert/state-is :login/flow :error]]]
-   :tags    #{:dev :docs :test}})
-```
-
-`{:reply {:ok data}}` answers with a decoded success value instead. `:network`
-stubs `:rf.http/managed` requests, and a request that matches no route fails as
-a transport error instead of reaching the network. `rf.story/force-fx-stub-id`
-is the coarser tool: it takes over every call to one effect and answers nothing,
-which is what the submitting variant wants, a request frozen in flight.
+Frames isolate application state. The cells still share the page's CSS,
+focus and portals. A dialog mounted into `document.body` appears outside
+its cell. The [workspace guide](07-workspaces.md#what-the-cells-share)
+explains these limits.
 
 ## Workspaces
 
-A workspace arranges variants together. The simplest useful form is an explicit
-grid:
+An explicit `:grid` preserves your chosen order. For a growing collection,
+`:variants-grid` enumerates a parent's variants:
 
 ```clojure
-(rf.story/reg-workspace :Workspace.login/all-states
-  {:doc      "The five login states side by side."
-   :layout   :grid
-   :variants [:story.login/idle
-              :story.login/submitting
-              :story.login/error
-              :story.login/submitting-retry
-              :story.login/authenticated]
-   :columns  3
-   :tags     #{:docs}})
+(rf.story/reg-workspace :Workspace.login-form/auto-grid
+  {:layout :variants-grid
+   :for :story.login-form
+   :columns 3})
 ```
 
-Open the workspace and all five states render together.
-
-![A login workspace rendering idle, submitting, error, retry, and authenticated states side by side.](../images/story/story-tutorial-02-workspace-grid.png)
-
-Each cell gets its own frame. If a cell dispatches an event, it changes that
-cell's frame and no other, so reviewing one state cannot disturb the others.
-
-A frame isolates state, not the page: every cell shares the shell's page and
-its stylesheets. [Workspaces](07-workspaces.md) covers what that means for a
-view, and the other layouts: a grid that lists a story's variants for you,
-tabs, and prose with live variants between the paragraphs.
+The [workspace reference](api/registration.md#workspace-body) also describes
+`:tabs` and `:prose`.
 
 ## The bigger wall
 
-The `nine_states` example puts one todos view on screen in nine states:
-Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct and Done.
+The `nine_states` example compares Nothing, Loading, Empty, One, Some,
+Too Many, Incorrect, Correct and Done for one todos view.
 
-![The nine_states workspace showing a matrix of todo UI states.](../images/story/story-tutorial-08-nine-states.png)
-
-With every state on one page, the question changes from "can I reach the empty
-state?" to "does every state this screen can show look right?"
+[![Callout 1 surrounds the nine_states matrix of normal, loading and invalid todo states for comparison.](../images/story/story-tutorial-08-nine-states.png)](../images/story/story-tutorial-08-nine-states.png)
 
 ## Controls
 
-Controls, in the right rail, edits the selected variant's args and its view
-state overrides. It also summarises the variant's setup, network and effect
-inputs, and holds the save actions.
-
-For ordinary args, Story derives a control from the view's `:rf/props` schema
-([chapter 1](01-first-variant.md#a-schema-on-the-view-gives-you-controls))
-where it can:
-
-| Schema shape | Control |
-|---|---|
-| `:boolean` | checkbox |
-| `[:enum ...]` | select |
-| `:int`, `:double` | number field |
-| `:string` | text field |
-| `:keyword` | text field, read back as a keyword |
-| `[:maybe X]` | the control for `X` |
-| `:map` | a group of fields, one per key |
-| `:vector`, `:set` | a list of fields, with rows to add and remove |
-| `:tuple` | one field per position |
-
-Where a derived control is not the one you want, name it in the story's or
-variant's `:argtypes`, keyed by arg, as `{:heading {:control :textarea}}`. The
-controls are `:text`, `:textarea`, `:number`, `:boolean`, `:select`, `:radio`,
-`:date` and `:color`; `:select` and `:radio` take their choices from
-`:options`. A variant's `:argtypes` beats its story's, and both beat the
-schema.
-
-Controls edits **inputs**, not arbitrary component internals. Changing
-`:heading` changes an arg. Pinning a subscription value creates a view-state
-override. Saving the current canvas state tells you which parts can be
-written as a variant and which cannot.
+For a selected variant, [Controls](controls.md) edits view inputs and lets
+you keep a useful combination as a new variant.
 
 ## Save the current state as a variant
 
-When Controls edits give you a state worth keeping, press **save as new
-variant…** under Controls. The dialog shows a `reg-variant` form that extends
-the selected variant with the current args, under an id you can edit. Below
-the form it lists each part of the state it could not take from the live
-canvas, such as sub-overrides, db seed, route, network, effect overrides or
-viewport. Each is marked "captured as declared" when the new variant inherits
-it from the source, or "not yet projectable" when the form leaves it out.
-Story never writes your source; copy the form into your stories namespace.
+Controls' **save as new variant…** creates a declaration extending the
+selected variant. Copy it into your stories namespace to keep it across
+reloads. This saves an authored state; [promoting a run](04-the-variant-is-a-test.md#promoting-a-run)
+preserves an executed scenario and its expectations.
 
-Saving is an authoring gesture: it names a state you built by hand. Its
-testing counterpart, promoting a run to a regression variant (chapter 4),
-turns a run that failed into a variant, and the shell keeps the two as
-separate actions.
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `:rf.error/workspace-shape` | A layout's required field is missing, or both `:for` and `:variants` were given | A grid needs `:variants`; an automatic grid uses one source of variants. |
+| Cells are empty or show an unknown view | Referenced variants or their view were not registered | Require their namespaces before opening the workspace. |
+| Cell interactions affect each other | The view hardcodes an internal frame provider | Use the variant frame, or review such views serially with `:variants-grid :isolation :shared`. |
+| Text or colours differ from the app | The app supplies inherited styles outside the view | Supply those styles through a decorator. |

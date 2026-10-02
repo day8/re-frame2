@@ -1,4 +1,4 @@
-# 5. Click-to-source
+# Click-to-source
 
 You have found the event, trace row or DOM element that looks wrong, and now you want the line of code behind it. re-frame2 records where each registration and view is defined, and Xray turns those source coordinates into links to your editor.
 
@@ -34,7 +34,7 @@ The value is the namespace, the view's name, the line and the column.
 
 Going the other way, hover a view in the Epoch or Views tab and Xray highlights that view's element on the page.
 
-![The standard-epochs testbed with one step row outlined and numbered 1: the view's root element, which carries data-rf2-source-coord](../images/xray/xray-tutorial-source-coord.png)
+[![The standard-epochs testbed with one step row outlined and numbered 1: the view's root element, which carries data-rf2-source-coord](../images/xray/xray-tutorial-source-coord.png)](../images/xray/xray-tutorial-source-coord.png)
 
 ## From Xray to your editor
 
@@ -90,3 +90,13 @@ Each hop follows the runtime's own record of where things are registered, so you
 In a production build, a registration's metadata carries no source coordinate, and the HTML carries no `data-rf2-source-coord` or `data-rf-view`. The runtime keeps each registration's `:ns`, `:file` and `:line` for one purpose only, so that error reports can still name where a handler lives. Production bundles should not include Xray.
 
 Source links never show values. Values are rendered under the framework's redaction and elision rules, so a link can tell you where a sensitive value came from without showing the value.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| “No editor configured” | No project or local editor choice was made | Choose the editor in Settings → General |
+| The wrong editor opens | A local override wins over the project default | Choose **(project default)** or reset the override |
+| The editor reports a missing file | A relative coordinate was resolved against the wrong root | Check the logged URI; set project-root only for relative coordinates |
+| There is no source link | The registration has no usable file coordinate, or this is a production build | Check the dev registration and follow the handler id in your editor |
+| DOM inspection finds no attribute on the selected element | Coordinates live on the registered view's root | Inspect the nearest ancestor with `data-rf2-source-coord` |

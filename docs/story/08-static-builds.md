@@ -7,11 +7,10 @@ server. It is the Story shell itself, with every variant's canvas, docs,
 controls and status, not a set of screenshots.
 
 It takes an entry namespace, a build, a host page, and one script. The names
-below continue the `my-app` from [Install Story](index.md#install-story).
+below continue the `my-app` from [the installation recipe](installation.md).
 
-**1. An entry namespace that mounts only the shell.** Your dev entry point
-mounts Story on the `#/stories` route beside your app. A published catalogue has
-no app beside it, so it gets its own entry, `src/my_app/story_static.cljs`:
+**1. An entry namespace that mounts only the shell.** A published catalogue
+gets its own entry, `src/my_app/story_static.cljs`:
 
 ```clojure
 (ns my-app.story-static
@@ -71,11 +70,9 @@ The copy is spelled in Node so the same line runs under Windows `cmd` and a
 POSIX shell. `npm run story:build` is also the command the Share dialog's
 **Static build** row copies.
 
-Run `npm run story:build`. After the `:advanced` compile, which takes a minute
-or so, `out/story-static/my-app/` holds `index.html`, `main.js`, and
-shadow-cljs's `manifest.edn`. That directory is the site: open its `index.html`
-straight from disk, serve it with any static file server, or publish the
-directory as-is to GitHub Pages, Netlify, S3, or any other static host. The
+Run `npm run story:build`. After the `:advanced` compile, `out/story-static/my-app/` holds `index.html`, `main.js`, and
+shadow-cljs's `manifest.edn`. That directory is the site: serve it with a static file server, or publish the
+directory to GitHub Pages or another static host. The
 generator template's `.gitignore` already ignores `out/`.
 
 A variant selected in the published catalogue still writes itself into the
@@ -88,3 +85,12 @@ it. Subscription pins are compiled out too, so a variant that relies on
 ([chapter 3](03-fidelity-ladder.md#rung-3-subscription-overrides)), and the
 published site carries no Xray.
 
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Host page cannot load `main.js` | The HTML and bundle were not published together | Publish the whole output directory; keep its relative asset path. |
+| The published state differs from development | The variant relied on subscription pins | Use real setup or a db seed for published variants. |
+| Xray or editor links are absent | These development tools are omitted | Diagnose in a dev build; publish the catalogue for review. |
+| The catalogue is empty | Its entry did not load your stories | Require the registrations from `story-static`. |
