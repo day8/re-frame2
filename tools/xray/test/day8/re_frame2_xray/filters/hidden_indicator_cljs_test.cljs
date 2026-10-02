@@ -153,31 +153,12 @@
 ;; (2) view renders the banner
 ;; -------------------------------------------------------------------------
 
-(deftest indicator-renders-count-when-hidden
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:noise/tick]))
-  (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
-  (rf/with-frame :rf/xray
-    (let [tree (dynamic-shell-tree/shell-view-tree)
-          indicator (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator")
-          count-node (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count")]
-      (is (some? indicator) "banner renders when rows are hidden")
-      ;; There is no Clear Filters button; the warning carries the count
-      ;; only.
-      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-clear"))
-          "there is no Clear filters button")
-      ;; The bar-2 warning reads `N events filtered out` (authority
-      ;; reference events-ribbon).
-      (is (re-find #"1 event filtered out" (rf.test-helpers/text-content count-node))))))
-
-(deftest hidden-message-does-not-duplicate-the-committed-pills
-  (testing "per the Figma EventsRibbon mock the hidden-state
-            is a plain count. The committed pill must render EXACTLY ONCE
-            (in the LEFT cluster via pills-view); the hidden-message must
-            NOT re-render it as a cause chip, and there is no Clear
-            Filters button."
+(deftest indicator-renders-the-count-and-no-cause-chips
+  (testing "per the Figma EventsRibbon mock the hidden state is a plain
+            `N events filtered out` count: the committed pill renders
+            EXACTLY ONCE (in the left cluster, via pills-view), the
+            message re-renders it as no cause chip, and there is no
+            Clear Filters button"
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:a]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:b]))
@@ -185,17 +166,17 @@
     (frame-dispatch [:rf.xray/add-filter :out {:pattern :noise/tick}])
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/shell-view-tree)]
-        ;; the committed OUT pill renders ONCE — in the left cluster.
+        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-indicator"))
+            "banner renders when rows are hidden")
+        (is (re-find #"1 event filtered out"
+                     (rf.test-helpers/text-content
+                       (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count"))))
         (is (= 1 (count-by-testid tree "rf-xray-filter-pill-out-0"))
             "the committed pill renders exactly once (left cluster)")
-        ;; there is no duplicate cause-chip cluster.
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-causes"))
             "no duplicate cause-chip cluster in the hidden-message")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-pill-0"))
             "no duplicate pill chip in the hidden-message")
-        ;; the count renders; there is no Clear Filters button.
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-count"))
-            "the hidden count renders")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filters-hidden-clear"))
             "there is no Clear Filters button")))))
 
