@@ -79,31 +79,18 @@
     ;; entries. Returning {} (not nil) lets callers compose with
     ;; reduce-kv / get-in / count without nil-pun special cases.
     (rf.registrar/clear-all!)
-    (is (= {} (rf.subs/sub-topology)))
-    (is (map? (rf.subs/sub-topology)))))
+    (is (= {} (rf.subs/sub-topology)))))
 
 (deftest layer-1-sub-has-empty-inputs
   (testing "a layer-1 sub (reads app-db directly) reports :input-kind :db / :inputs []"
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [topo (rf.subs/sub-topology)]
-      (is (contains? topo :n))
       (is (= :db (:input-kind (topo :n)))
           "layer-1 / direct-app-db reader is :input-kind :db")
       (is (= [] (:inputs (topo :n)))
           ":inputs is always present and is the empty vector for layer-1 subs"))))
 
 ;; ---- declared-input chain capture ---------------------------------------------------
-
-(deftest single-input-layer-2-sub-reports-the-upstream-query-vector
-  (testing "a layer-2 sub with one declared input reports one upstream QUERY-VECTOR"
-    (rf/reg-sub :n  (fn [db _] (:n db)))
-    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
-    (let [topo (rf.subs/sub-topology)]
-      (is (= :db (:input-kind (topo :n))))
-      (is (= :static (:input-kind (topo :n2))))
-      (is (= [] (:inputs (topo :n))))
-      (is (= [[:n]] (:inputs (topo :n2)))
-          ":static inputs are the literal `:inputs` query-vectors (Spec 002 §registrar query API)"))))
 
 (deftest multi-input-layer-2-sub-preserves-declaration-order
   (testing "multi-input declared-input chain order is preserved (matters for body fn arity)"
@@ -163,9 +150,8 @@
       (is (= :parametric (:input-kind entry))
           "parametric subs are discriminated by :input-kind")
       (is (= :parametric (:inputs entry))
-          ":inputs is the :parametric sentinel — realized edges are per-query-v cache state")
-      (is (not (vector? (:inputs entry)))
-          "the static surface must NOT pretend the parametric edge set is a static vector"))))
+          ":inputs is the :parametric sentinel, never a pretend static vector —
+           realized edges are per-query-v cache state"))))
 
 ;; ---- :doc and source-coord passthrough -----------------------------------
 

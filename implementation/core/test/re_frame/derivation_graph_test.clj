@@ -147,17 +147,11 @@
       ;; Every family contributed at least one node.
       (is (= #{:subs :flows :resources :routes :machines} families)
           "all five algebra-view families are present in the assembled graph")
-      ;; Canonical node-id tagging per family.
-      (is (contains? nodes [:sub :cart/total]) "a subscription node, [:sub …]-tagged")
-      ;; flow node id is FRAME-SCOPED: [:flow <frame-id> <flow-id>]
-      ;; so a reused flow-id across frames does not collapse onto one slot.
-      (is (contains? nodes [:flow :rf/default :cart/materialized-total])
-          "a flow node, [:flow <frame-id> <flow-id>]-tagged (frame-scoped)")
-      (is (contains? nodes [:resource :article/by-slug]) "a resource node, [:resource …]-tagged")
-      (is (contains? nodes [:machine :upload/main]) "a machine node, [:machine …]-tagged")
-      (is (contains? nodes [:rf/route :route/article]) "a route node, [:rf/route …]-tagged")
-      ;; The superkinds are classified — a tool that knows only the two
-      ;; superkinds can classify every node.
+      ;; Each family's node sits under its canonical id — [:sub …],
+      ;; [:resource …], [:machine …], [:rf/route …], and the FRAME-SCOPED
+      ;; [:flow <frame-id> <flow-id>], so a reused flow-id across frames does
+      ;; not collapse onto one slot — and carries its superkind, so a tool
+      ;; that knows only the two superkinds can classify every node.
       (is (= :derivation (get-in nodes [[:sub :cart/total] :kind])))
       (is (= :derivation (get-in nodes [[:flow :rf/default :cart/materialized-total] :kind])))
       (is (= :process    (get-in nodes [[:resource :article/by-slug] :kind])))
@@ -173,8 +167,7 @@
   (testing "the assembled edges carry :input and :selector roles"
     (register-one-of-each!)
     (let [g     (rf.derivation.graph/derivation-graph all-contributors)
-          edges (:edges g)
-          roles (->> edges (map :role) set)]
+          edges (:edges g)]
       ;; :input — :cart/total depends on :cart/items. In the STATIC graph
       ;; subscription nodes are keyed by bare sub-id, and a [:sub [:q]]
       ;; declared input resolves to that node id (the qv's head).
@@ -189,8 +182,6 @@
                        :role :selector})
                 edges)
           "the :selector edge from the machine process to its selector sub")
-      (is (contains? roles :input))
-      (is (contains? roles :selector))
       ;; The selector sub node is ENRICHED with the
       ;; :machine-selector refinement (still a :derivation superkind — not a
       ;; second subscription system; the refinement is colour, not contract).
@@ -222,8 +213,6 @@
           nodes (:nodes g)
           a-id  [:flow :app/a :shared/total]
           b-id  [:flow :app/b :shared/total]]
-      (is (contains? nodes a-id) "frame :app/a's flow node is present, frame-scoped")
-      (is (contains? nodes b-id) "frame :app/b's flow node is present, frame-scoped")
       (is (= #{a-id b-id}
              (set (keep (fn [[id node]] (when (= :shared/total (:id node)) id)) nodes)))
           "the graph keys the shared flow-id under two DISTINCT ids (no collapse)")
@@ -252,7 +241,6 @@
     (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           edges (:edges g)
           param (filter #(= :param (:role %)) edges)]
-      (is (seq param) "a :param edge is present")
       (is (some #(and (= [:rf/route :route/article] (:from %))
                       (= [:resource :article/by-slug] (:to %))
                       (= :param (:role %)))
@@ -286,10 +274,8 @@
                :to   [:sub :upload/progress]
                :role :selector}]
              (vec sel))
-          "one selector edge from the machine the selector actually reads")
-      ;; The unrelated machine receives NO selector edge (no cross product).
-      (is (not-any? #(= [:machine :download/main] (:from %)) sel)
-          "no selector edge from the unrelated :download/main machine"))))
+          "one selector edge, from the machine the selector actually reads —
+           none from the unrelated :download/main machine (no cross product)"))))
 
 (deftest machine-has-tag-selector-targets-the-named-machine
   (testing "a [:rf.machine/has-tag? machine-id tag] selector targets only that machine"
@@ -317,7 +303,6 @@
                 (fn [[a c] _] {:article a :comments c}))
     (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           node  (get (:nodes g) [:sub :article/page])]
-      (is (some? node) "the parametric sub node is present")
       (is (= :parametric (:inputs node)) "its declared inputs are the :parametric marker")
       ;; No static edge names a realized [:article/by-slug …] input — those
       ;; only appear in the LIVE graph (per concrete query vector).
@@ -369,7 +354,6 @@
     (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
     (let [g     (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
           slice (get (:nodes g) :rf/route)]
-      (is (some? slice) "the live route slice node is present, keyed by :rf/route")
       (is (= :route/article (:route-id slice)) "the live matched route id")
       (is (= {:slug "welcome"} (:params slice)) "the live matched params"))))
 
