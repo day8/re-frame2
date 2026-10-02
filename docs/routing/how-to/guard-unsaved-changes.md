@@ -29,11 +29,8 @@ prompt from, and two events to answer it:
      [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
 ```
 
-`[:editor :draft]` and `[:editor :saved]` are written by the `:editor/open`,
-`:editor/edit` and `:editor/save` events from
-[the tutorial](../tutorial.md#step-11--warn-before-losing-unsaved-changes), which
-builds this editor step by step. Render `[leave-prompt]` once in the root view; it
-renders nothing until a navigation is waiting, and it serves every guarded route.
+Render `[leave-prompt]` once in the root view. It renders nothing until a
+navigation is waiting, and it serves every guarded route.
 
 When `:editor/can-leave?` returns `false`, the navigation does not commit: the route
 and URL stay where they are, the attempt is parked in `:rf/pending-navigation`, and
@@ -54,6 +51,48 @@ while the prompt is showing.
 
 The sub must return `true` or `false`. Any other value blocks the navigation and
 raises `:rf.error/can-leave-non-boolean`.
+
+## Set up the article editor
+
+Extend the [articles reader](../tutorial.md#the-complete-app) with an editor. Its
+`sample-articles` map supplies the saved title; opening an article initializes
+both `:draft` and `:saved`, editing changes only the draft, and saving copies it
+to the saved value:
+
+```clojure
+(rf/reg-event :editor/open
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
+          title (get-in sample-articles [slug :title])]
+      {:db (assoc db :editor {:slug slug :draft title :saved title})})))
+
+(rf/reg-event :editor/edit
+  (fn [{:keys [db]} [_ text]]
+    {:db (assoc-in db [:editor :draft] text)}))
+
+(rf/reg-event :editor/save
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))}))
+
+(rf/reg-sub :editor/draft (fn [db _] (get-in db [:editor :draft])))
+
+(rf/reg-view editor-page []
+  [:div
+   [:h1 "Edit title"]
+   [:input {:value (or @(subscribe [:editor/draft]) "")
+            :on-change #(dispatch [:editor/edit (.. % -target -value)])}]
+   [:button {:on-click #(dispatch [:editor/save])} "Save"]])
+```
+
+Add `:app/article-editor [editor-page]` to `page-for`. In `article-page`, read
+the slug from `@(subscribe [:rf.route/params])` and render
+`[rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]`.
+Keep all registrations in `app.core` before the frame is created.
+
+Open **Edit**, change the title and click **Home**. The prompt appears while
+the URL stays on the editor. **Stay** keeps the draft; **Leave** goes home.
+After **Save**, Home opens directly. This sample saves locally; for a server
+write, mark the draft saved only after the server reports success.
 
 ## Save and leave
 
@@ -80,19 +119,22 @@ The router never sees the browser closing the tab, reloading, or following an
 external link. For those, add a `beforeunload` listener that reads the same sub:
 
 ```clojure
-(defn install-unload-warning!
-  "Ask the browser to confirm a hard exit while the draft is dirty."
-  [frame-id]
-  (.addEventListener js/window "beforeunload"
-    (fn [e]
-      ;; A DOM listener runs outside any frame scope, so name the frame.
-      (when-not (rf/subscribe-once [:editor/can-leave?] {:frame frame-id})
-        (.preventDefault e)
-        (set! (.-returnValue e) "")))))
+#?(:cljs
+   (defn install-unload-warning!
+     "Ask the browser to confirm a hard exit while the draft is dirty."
+     [frame-id]
+     (.addEventListener js/window "beforeunload"
+       (fn [e]
+         ;; A DOM listener runs outside any frame scope, so name the frame.
+         (when-not (rf/subscribe-once [:editor/can-leave?] {:frame frame-id})
+           (.preventDefault e)
+           (set! (.-returnValue e) ""))))))
 ```
 
-Call it once at boot with `:app`. The browser shows its own dialog with its own
-wording, and only if the reader has interacted with the page. Because both exits read
+Call it once at browser boot with `:app`. The `#?(:cljs …)` branch keeps
+the tutorial's `.cljc` namespace loadable in JVM tests. The browser shows its
+own dialog with its own wording, and only if the reader has interacted with the page.
+Because both exits read
 `:editor/can-leave?`, they cannot disagree about whether the draft is dirty.
 
 ## Test it
