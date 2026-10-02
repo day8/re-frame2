@@ -1303,14 +1303,14 @@ as the record of what was ruled; dispositions and riders are inline.
    re-resolution and sensitivity-inheritance precision, so tooling marks the
    whole-db cost on both axes.
 
-   > **Follow-up recorded 2026-10-02.**
-   > [EP-0025](EP-0025-data-classification.md), graduated 2026-06-24, removed
-   > sensitivity propagation, including this named-resolver arm. Declared
-   > inputs still describe scope dependencies and the cost of whole-db reads;
-   > a resource classifies its derived scope through its own `:sensitive` /
-   > `:large` declarations. The inheritance rider above remains the record of
-   > the earlier decision. See
-   > [Spec 016's current rule](../../spec/016-Resources.md#no-derived-sensitivity-propagation).
+    > **Follow-up recorded 2026-10-02.**
+    > [EP-0025](EP-0025-data-classification.md), graduated 2026-06-24, removed
+    > sensitivity propagation, including this named-resolver arm. Declared
+    > inputs still describe scope dependencies and the cost of whole-db reads;
+    > a resource classifies its derived scope through its own `:sensitive` /
+    > `:large` declarations. The inheritance rider above remains the record of
+    > the earlier decision. See
+    > [Spec 016's current rule](../../spec/016-Resources.md#no-derived-sensitivity-propagation).
 
 3. Should `:cross-scope?` remain after descriptors exist?
    **Recommendation:** keep it as an explicit broad operation with dev warnings
