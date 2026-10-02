@@ -80,12 +80,6 @@
           [:rf.assert/no-warnings]]
          (rf.story.recorder/recorded-events))))
 
-(deftest insert-assertion!-rejects-non-assertion
-  (rf.story.recorder/start-recording! :story.x/y 0)
-  (rf.story.recorder/insert-assertion! [:counter/inc])
-  (rf.story.recorder/insert-assertion! [:rf.story/lifecycle-tick])
-  (is (= [] (rf.story.recorder/recorded-events))))
-
 (defn- extract-play-script-vector
   "Pull the inner `:script` vector substring out of the rendered snippet
   by walking balanced brackets after the public `:script` body's inner

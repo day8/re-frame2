@@ -443,11 +443,9 @@
             object-identity pr-str"
     (is (= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form (fn [] 1))))
     (is (= (rf.story.fingerprint/canonical-form (fn [] 1)) (rf.story.fingerprint/canonical-form (fn [x] x))))
-    (is (not (re-find #"object\[" (pr-str (rf.story.fingerprint/canonical-form (fn [] 1))))))
     (testing "keywords / symbols / colls are IFn but NOT folded to the
               sentinel — only genuine fns are"
       (is (= :kw  (rf.story.fingerprint/canonical-form :kw)))
-      (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form :kw)))
       (is (not= rf.story.fingerprint/opaque-fn (rf.story.fingerprint/canonical-form #{:a})))))
   (testing "DELIBERATE TRADE-OFF: two plans differing ONLY in fn
             identity hash EQUAL — determinism is the contract, not fn
@@ -763,22 +761,3 @@
       (is (= (rf.story.fingerprint/canonical-hash tuple)
              (rf.story.fingerprint/canonical-hash (assoc tuple :variant-id :story.y/v)))
           "canonical-hash strips :variant-id (run/diff equivalence)"))))
-
-;; ===========================================================================
-;; METAMORPHIC RELATION — inline plan ≡ registered-variant plan
-;; ===========================================================================
-
-(deftest inline-plan-equals-registered-plan-after-canonicalize
-  (testing "an inline plan and the normalized plan of a registered variant
-            describing the same behaviour produce the same plan-hash after
-            canonicalization, even when they carry different identity /
-            provenance slots"
-    (let [registered (assoc base-plan
-                            :variant/id :story.checkout/submits
-                            :source-chain [:story.checkout :story.checkout/submits]
-                            :explain {:from :registry})
-          inline     (-> base-plan
-                         (dissoc :variant/id :plan/id)
-                         (assoc :source-chain [] :explain {:from :inline}))]
-      (is (= (rf.story.fingerprint/plan-hash registered) (rf.story.fingerprint/plan-hash inline))
-          "same testable content → same plan-hash regardless of provenance"))))

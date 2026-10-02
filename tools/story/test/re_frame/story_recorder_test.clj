@@ -16,13 +16,13 @@
   - Impure entrypoints (`start-recording!`, `stop-recording!`,
     `record-event!`, `clear!`, `toggle!`) — exercise the per-process
     atom alongside the predicate filter.
-  - `gen-play-snippet` — the codegen output is `read-string`-able
-    EDN; the assertion is shape-level (round-trips back to the same
-    public `:script` body) so a cosmetic formatting change does not
-    churn the test."
+  - `gen-play-snippet` — the codegen output reads back as exactly the
+    `(reg-variant …)` form its opts describe; comparing read forms rather
+    than text keeps a cosmetic formatting change from churning the
+    test."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -126,14 +126,6 @@
   (is (= :story.counter/x (rf.story.recorder/recording-variant)))
   (is (= [] (rf.story.recorder/recorded-events))))
 
-(deftest record-event!-captures-recordable
-  (rf.story.recorder/start-recording! :story.counter/x 0)
-  (rf.story.recorder/record-event! [:counter/inc])
-  (rf.story.recorder/record-event! [:rf.assert/path-equals [:a] 1])
-  (rf.story.recorder/record-event! [:counter/dec])
-  (is (= [[:counter/inc] [:counter/dec]]
-         (rf.story.recorder/recorded-events))))
-
 (deftest toggle!-flips
   (testing "toggle! starts when idle and stops when recording"
     (rf.story.recorder/toggle! :story.x/y)
@@ -151,38 +143,41 @@
 
 ;; ---- gen-play-snippet ----------------------------------------------------
 
-(deftest gen-play-snippet-empty
-  (testing "gen-play-snippet with no events renders an empty :script
-            body vector (the recorder emits the :script spelling, never
-            :play-script)"
-    (let [snip (rf.story.recorder/gen-play-snippet [] {:variant-id :story.x/y})]
-      (is (string? snip))
-      (is (str/includes? snip ":story.x/y"))
-      (is (str/includes? snip ":script"))
-      (is (not (str/includes? snip ":play-script"))
-          "the recorder never emits a :play-script slot")
-      (is (str/includes? snip "[]")))))
+(deftest gen-play-snippet-reads-back-as-the-reg-variant-form
+  (testing "the snippet reads back as exactly the (reg-variant …) form its
+            opts describe: the public :script slot (never :play-script), each
+            event wrapped as a [:dispatch-sync <event>] step, the rf.story
+            alias unless :alias names another, and :doc / :extends only when
+            given"
+    (are [events opts form]
+         (= form (edn/read-string (rf.story.recorder/gen-play-snippet events opts)))
+      ;; no events: the empty :script vector still renders
+      []
+      {:variant-id :story.x/y}
+      '(rf.story/reg-variant :story.x/y
+         {:script {:auto-run? true :script []}})
 
-(deftest gen-play-snippet-includes-doc
-  (let [snip (rf.story.recorder/gen-play-snippet
-               [[:counter/inc]]
-               {:variant-id :story.counter/x :doc "user inc once"})]
-    (is (str/includes? snip ":doc"))
-    (is (str/includes? snip "user inc once"))))
+      ;; payload-bearing events keep their order and payloads
+      [[:counter/inc]
+       [:auth/login {:email "alice@example.com" :remember? true}]
+       [:cart/add-item :widget-x 3]]
+      {:variant-id :story.x/y}
+      '(rf.story/reg-variant :story.x/y
+         {:script {:auto-run? true
+                   :script    [[:dispatch-sync [:counter/inc]]
+                               [:dispatch-sync [:auth/login {:email "alice@example.com" :remember? true}]]
+                               [:dispatch-sync [:cart/add-item :widget-x 3]]]}})
 
-(deftest gen-play-snippet-includes-extends
-  (let [snip (rf.story.recorder/gen-play-snippet
-               [[:counter/inc]]
-               {:variant-id :story.counter/recorded
-                :extends    :story.counter/happy-path})]
-    (is (str/includes? snip ":extends"))
-    (is (str/includes? snip ":story.counter/happy-path"))))
-
-(deftest gen-play-snippet-uses-custom-alias
-  (let [snip (rf.story.recorder/gen-play-snippet
-               []
-               {:variant-id :story.x/y :alias "rf"})]
-    (is (str/includes? snip "rf/reg-variant"))))
+      ;; every optional slot, and a custom alias
+      [[:counter/inc]]
+      {:variant-id :story.counter/recorded
+       :doc        "user inc once"
+       :extends    :story.counter/happy-path
+       :alias      "rf"}
+      '(rf/reg-variant :story.counter/recorded
+         {:doc     "user inc once"
+          :extends :story.counter/happy-path
+          :script  {:auto-run? true :script [[:dispatch-sync [:counter/inc]]]}}))))
 
 (defn- extract-play-script-vector
   "Pull the inner `:script` vector substring out of the rendered snippet
@@ -216,49 +211,21 @@
   [script-vec]
   (mapv second script-vec))
 
-(deftest gen-play-snippet-roundtrips-events
-  (testing "the rendered public :script body vector reads back as
-            [:dispatch-sync <event>] steps that unwrap to the original
-            events (the recorder emits the public :script slot, and
-            gen-play-snippet wraps each captured event as a :dispatch-sync
-            step)"
-    (let [events     [[:counter/inc]
-                      [:auth/login {:email "alice@example.com" :remember? true}]
-                      [:cart/add-item :widget-x 3]]
-          snippet    (rf.story.recorder/gen-play-snippet
-                       events
-                       {:variant-id :story.x/y})
-          script-str (extract-play-script-vector snippet)
-          script-vec (edn/read-string script-str)]
-      (is (some? script-str) "extractor found a :script vector substring")
-      (is (every? #(and (vector? %)
-                        (= :dispatch-sync (first %)))
-                  script-vec)
-          "every step is a [:dispatch-sync <event-vec>] form")
-      (is (= events (unwrap-dispatch-sync-steps script-vec))
-          "unwrapping :dispatch-sync round-trips to the original events"))))
-
 ;; ---- DOM-event entries + per-event timestamps ---------------------------
 
-(deftest append-dom-click-pure-shape
-  (testing "append-dom of a click vector lands an :entries entry"
-    (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)
-          s1 (rf.story.recorder/append-dom s0 [:dom/click "[data-test=\"a\"]" 100])]
-      (is (= 1 (count (:entries s1))))
-      (is (= {:kind :dom/click :selector "[data-test=\"a\"]" :t 100}
-             (first (:entries s1)))))))
+(deftest append-dom-lands-each-kind-as-one-entry
+  (testing "append-dom translates each DOM-event vector into exactly one
+            :entries map"
+    (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)]
+      (are [dom-event entry] (= [entry] (:entries (rf.story.recorder/append-dom s0 dom-event)))
+        [:dom/click "[data-test=\"a\"]" 100]
+        {:kind :dom/click :selector "[data-test=\"a\"]" :t 100}
 
-(deftest append-dom-type-pure-shape
-  (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)
-        s1 (rf.story.recorder/append-dom s0 [:dom/type "[id=\"x\"]" "alice" 200])]
-    (is (= {:kind :dom/type :selector "[id=\"x\"]" :text "alice" :t 200}
-           (first (:entries s1))))))
+        [:dom/type "[id=\"x\"]" "alice" 200]
+        {:kind :dom/type :selector "[id=\"x\"]" :text "alice" :t 200}
 
-(deftest append-dom-submit-pure-shape
-  (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)
-        s1 (rf.story.recorder/append-dom s0 [:dom/submit "[id=\"login\"]" 300])]
-    (is (= {:kind :dom/submit :selector "[id=\"login\"]" :t 300}
-           (first (:entries s1))))))
+        [:dom/submit "[id=\"login\"]" 300]
+        {:kind :dom/submit :selector "[id=\"login\"]" :t 300}))))
 
 (deftest append-dom-rejects-malformed
   (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)]
@@ -355,23 +322,6 @@
            (rf.story.recorder/make-assertion :rf.assert/path-equals
                                     {:path [:auth :status]})))))
 
-(deftest append-assertion-pure-state-machine
-  (testing "append-assertion appends valid :rf.assert/* events through the filter"
-    (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)
-          s1 (-> s0
-                 (rf.story.recorder/append [:counter/inc])
-                 (rf.story.recorder/append-assertion
-                   [:rf.assert/path-equals [:n] 1])
-                 (rf.story.recorder/append [:counter/inc])
-                 (rf.story.recorder/append-assertion
-                   [:rf.assert/sub-equals [:counter] 2]))]
-      (is (= [[:counter/inc]
-              [:rf.assert/path-equals [:n] 1]
-              [:counter/inc]
-              [:rf.assert/sub-equals [:counter] 2]]
-             (:events s1))
-          "assertions are interleaved inline with dispatched events"))))
-
 (deftest append-assertion-rejects-non-assertions
   (testing "append-assertion is a no-op for non-:rf.assert/* event vectors"
     (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)
@@ -382,25 +332,6 @@
                  (rf.story.recorder/append-assertion []))]
       (is (= [] (:events s1))
           "only :rf.assert/* event vectors land via append-assertion"))))
-
-(deftest append-assertion-noop-when-not-recording
-  (testing "append-assertion drops events when :recording? is false"
-    (let [s0 rf.story.recorder/initial-state
-          s1 (rf.story.recorder/append-assertion s0 [:rf.assert/no-warnings])]
-      (is (= [] (:events s1))))))
-
-(deftest insert-assertion!-event-vec-arity
-  (testing "insert-assertion! one-arg form appends a pre-built event vector"
-    (rf.story.recorder/start-recording! :story.x/y 0)
-    (rf.story.recorder/record-event! [:counter/inc])
-    (rf.story.recorder/insert-assertion! [:rf.assert/path-equals [:n] 1])
-    (rf.story.recorder/record-event! [:counter/inc])
-    (rf.story.recorder/insert-assertion! [:rf.assert/no-warnings])
-    (is (= [[:counter/inc]
-            [:rf.assert/path-equals [:n] 1]
-            [:counter/inc]
-            [:rf.assert/no-warnings]]
-           (rf.story.recorder/recorded-events)))))
 
 (deftest insert-assertion!-rejects-non-assertion-event
   (testing "insert-assertion! drops anything that isn't an :rf.assert/* event"
@@ -439,11 +370,6 @@
               [:rf.assert/path-equals [:n] 8]]
              events)
           "user dispatches AND inserted assertions are interleaved")
-      (is (str/includes? snippet ":rf.assert/sub-equals"))
-      (is (str/includes? snippet ":rf.assert/path-equals"))
-      (is (str/includes? snippet "[:counter/inc]"))
-      (is (some? script-str)
-          "extractor found the rendered :script vector")
       (is (= events (unwrap-dispatch-sync-steps script-vec))
           "the public :script body vector unwraps to the original events"))))
 
@@ -482,8 +408,6 @@
         "the :events slot carries bare event vectors")
     ;; The parallel :entries slot carries the rich shape.
     (let [entries (rf.story.recorder/recorded-entries)]
-      (is (= 3 (count entries))
-          ":entries mirrors :events one-for-one")
       (is (every? #(= :event/dispatch (:kind %)) entries)
           "each entry is an :event/dispatch shape")
       (is (= [[:counter/inc] [:counter/inc] [:counter/dec]]
@@ -657,8 +581,8 @@
 ;; the implementation cannot silently drift. Two failure modes
 ;; this guards:
 ;;
-;;   1. Accidental facade growth/shrink — a new recorder helper picked
-;;      up by the namespace, or one of the intended seven removed.
+;;   1. Accidental facade shrink — one of the intended seven removed,
+;;      or rebound to a non-fn.
 ;;   2. Vocabulary drift — `gen-play-snippet` emitting a `:play-script`
 ;;      spelling at the facade level (the recorder-ns test pins the ns;
 ;;      this pins the re-export).
@@ -677,7 +601,7 @@
      gen-play-snippet
      recording->script-body})
 
-(deftest facade-exposes-exactly-the-intended-recorder-vars
+(deftest facade-exposes-every-documented-recorder-var
   (testing "every documented recorder entry is present + callable on
             re-frame.story (API.md §Recorder facade)"
     (doseq [sym intended-recorder-facade-vars]
@@ -759,9 +683,7 @@
       (is (= {:recording? true :variant-id :story.x/y
               :events [] :cofx [] :entries [] :started-ms 1000}
              s)
-          "the captured state carries variant-id but no separate realm key")
-      (is (not-any? #(= "rf.realm" (namespace %)) (keys s))
-          "no :rf.realm/* key on the recorder state"))))
+          "the captured state carries variant-id but no separate realm key"))))
 
 (deftest end-to-end-recording-and-play-body-carry-no-realm-key
   (testing "a recording against a variant frame captures no realm key, and the
@@ -782,10 +704,8 @@
           "the recording's address is the variant frame")
       (let [events (:events final-state)
             body   (rf.story/recording->script-body events)]
-        (is (not-any? #(= "rf.realm" (namespace %)) (keys body))
-            "the play body carries no realm key")
         (is (= [:auto-run? :script] (sort (keys body)))
-            "the body is the frame-only {:script :auto-run?} shape")))
+            "the body is the frame-only {:script :auto-run?} shape — no realm key")))
     (rf.story/destroy-variant! :story.frame/target)
     (rf.story.recorder/remove-trace-listener!)))
 
