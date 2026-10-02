@@ -159,7 +159,6 @@
           "the always-on error record fired for the throwing handler")
       (when rf.interop/debug-enabled?
         (is (some? cascade-id))
-        (is (some? err) "the handler-exception fired")
         (is (= cascade-id (dispatch-id err))
             ":rf.error/* traces carry the cascade's :rf.trace/dispatch-id")))))
 
@@ -180,8 +179,6 @@
       (is (true? (:got-child (rf/app-db-value :test/main)))
           "the child dispatch committed in this posture")
       (when rf.interop/debug-enabled?
-        (is (some? parent))
-        (is (some? child))
         (is (some? (dispatch-id parent)))
         (is (some? (dispatch-id child)))
         (is (not= (dispatch-id parent) (dispatch-id child))

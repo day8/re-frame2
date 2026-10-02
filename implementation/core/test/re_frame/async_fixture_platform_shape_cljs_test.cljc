@@ -57,8 +57,6 @@
              "on the JVM :async? true returns the fn-form — clojure.test has no async tests and no map-fixture support, so the map would be an IFn key lookup that silently skips every test")
          :cljs
          (do
-           (is (map? fx)
-               "on CLJS :async? true returns the {:before :after} map — the only shape cljs.test will run an (async done …) row under")
            (is (fn? (:before fx)) "…with a zero-arg :before")
            (is (fn? (:after fx))  "…and a zero-arg :after"))))))
 
@@ -95,8 +93,6 @@
 (deftest default-shape-is-still-the-fn-form-on-both-hosts
   (testing "omitting :async? yields a callable fn-form fixture on every host"
     (let [fx (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
-      (is (fn? fx)
-          "the default shape is the fn-form — sibling fn-fixture composition and fixture-as-a-function call sites hold")
       (let [ran? (atom false)]
         (fx (fn [] (reset! ran? true)))
         (is (true? @ran?) "and invoking it as a function runs the body")))))

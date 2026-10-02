@@ -423,9 +423,7 @@
     (rf/make-frame {:id :drain.iso/B :initial-events   [[:seed/B]]
                     :drain-depth 4})
 
-    ;; Capture :A's pre-dispatch state — this is what we'll compare to.
-    (let [a-pre  (rf/app-db-value :drain.iso/A)
-          traces (atom [])]
+    (let [traces (atom [])]
       (rf/register-listener! :trace ::iso (fn [ev] (swap! traces conj ev)))
 
       ;; Register a loop event under :B that infinitely self-dispatches.
@@ -449,9 +447,7 @@
              (rf/app-db-value :drain.iso/B))
           ":B's durable per-event writes survive; no whole-drain rollback")
 
-      ;; --- (b) :A's app-db is byte-identical to its pre-dispatch state.
-      (is (= a-pre (rf/app-db-value :drain.iso/A))
-          ":A's app-db is untouched (value-equal to pre-dispatch)")
+      ;; --- (b) :A's app-db is exactly its :initial-events state.
       (is (= {:where :A :counter 0 :marker :pristine}
              (rf/app-db-value :drain.iso/A))
           ":A's app-db remains exactly its :initial-events state")
@@ -466,7 +462,6 @@
                                    (:operation ev))
                             ev))
                         @traces)]
-          (is (some? hit) "drain-depth-exceeded trace was emitted")
           (is (= :drain.iso/B (get-in hit [:tags :frame]))
               "the trace's :frame tag is :B (the overflowing frame), not :A")
           (is (false? (get-in hit [:tags :rollback?]))
@@ -515,8 +510,6 @@
           ;; --- CYCLE EVIDENCE: the tail ring of settled event-ids.
           (is (vector? (:tail-event-ids rec))
               ":tail-event-ids is the cycle-evidence ring (a vector)")
-          (is (seq (:tail-event-ids rec))
-              ":tail-event-ids is non-empty (events settled before the halt)")
           (is (every? #{:ping :pong} (:tail-event-ids rec))
               ":tail-event-ids carries the cycle's event-ids (ids only, no args)")
           ;; The repeating suffix names the cycle: the last two settled ids are

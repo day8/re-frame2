@@ -63,7 +63,6 @@
           step     (first steps)]
       (is (= :handler-throw (:rf/step step)))
       (is (= {:n 0} (:db-after step)) "db rolled back on throw")
-      (is (some? (:error step)))
       (is (= :rf.error/handler-throw (get-in step [:error :operation]))))))
 
 (deftest validate-event-short-circuits
@@ -106,7 +105,6 @@
       ;; `:steps` holds the step-result MAPS (a trace of every step), not the
       ;; bare `:rf/step` status keyword — the reducing fn conjes the step map.
       (let [s (first (:steps acc))]
-        (is (map? s) ":steps entries are step-result maps")
         (is (= :ok (:rf/step s)))
         (is (= {:n 1} (:db-after s))))
       (is (= [] (:errors acc))))))

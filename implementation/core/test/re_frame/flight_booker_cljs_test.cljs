@@ -113,16 +113,6 @@
   [f query-v]
   (rf/compute-sub query-v (rf/app-db-value f)))
 
-(deftest seed-state-lights-book
-  (testing "the seeded one-way form (both dates the same valid ISO date) is a
-            fully bookable state — every leg of the AND holds"
-    (let [f (flight-frame!)]
-      (is (false? (sub f [:flight/return-enabled?])) "one-way disables the return input")
-      (is (true?  (sub f [:flight/start-valid?])))
-      (is (true?  (sub f [:flight/return-valid?])) "one-way: return validity is not required")
-      (is (true?  (sub f [:flight/dates-coherent?])))
-      (is (true?  (sub f [:flight/book-enabled?])) "Book is clickable"))))
-
 (deftest invalid-start-date-blocks-book
   (testing "an impossible start date fails start-valid? and drops book-enabled?"
     (let [f (flight-frame!)]

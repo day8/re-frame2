@@ -162,8 +162,6 @@
         ;; ---- ALWAYS-ON: propagation read off the envelopes ---------------
         (let [parent-env (:parent @envelopes)
               child-env  (:child  @envelopes)]
-          (is (some? parent-env) "the parent's dispatch envelope was captured")
-          (is (some? child-env)  "the child's dispatch envelope was captured")
           (is (= :test (:origin parent-env)) "parent carries :origin :test")
           (is (= :test (:source parent-env)) "parent carries :source :test")
           (is (= ::scoped-trace (:trace-id parent-env)) "parent carries :trace-id")
@@ -184,8 +182,6 @@
                                   (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev    (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
                 child-ev     (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
-            (is (some? parent-ev) "parent's :rf.event/dispatched is captured")
-            (is (some? child-ev)  "child's :rf.event/dispatched is captured")
             (is (= :test      (get-in parent-ev [:tags :rf.event/origin])) "parent carries :origin :test")
             (is (= :test      (:source parent-ev))                          "parent carries :source :test")
             (is (= :test      (get-in child-ev  [:tags :rf.event/origin]))
@@ -211,7 +207,6 @@
                          :source    :unit-test})
 
       (let [env (first @captured-envelopes)]
-        (is (some? env) "the fx-handler ctx carried :envelope")
         (is (= ::abc      (:trace-id env)))
         (is (= :test      (:origin env)))
         (is (= :unit-test (:source env)))
