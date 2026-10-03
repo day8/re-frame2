@@ -63,6 +63,60 @@ view. It adds no independent re-render granularity. This lets a helper read the
 current filter or other state directly instead of requiring the caller to
 thread that value through its arguments.
 
+In the cell below, each row is a view that reads its own todo, and
+`remaining-label` is a plain helper called by `todo-list`, which itself reads
+only the ids. Click ✓ on a row: the row re-renders from its own read, and the
+count updates because `todo-list` recorded the helper's read as its own.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"     :done? false}
+                  2 {:id 2 :title "Walk the dog" :done? true}
+                  3 {:id 3 :title "Post letter"  :done? false}}}}))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-sub :todo/all
+  (fn [db _]
+    (vec (sort-by :id (vals (:todos db))))))
+
+(rf/reg-sub :todo/ids
+  (fn [db _]
+    (sort (keys (:todos db)))))
+
+(rf/reg-sub :todo/by-id
+  (fn [db [_ id]]
+    (get-in db [:todos id])))
+
+;; A plain helper: its read is recorded by the view that calls it.
+(defn remaining-label []
+  (let [n (count (remove :done? (h/sub [:todo/all])))]
+    (str n (if (= 1 n) " todo" " todos") " left")))
+
+;; A view: a boundary that re-renders when its own read changes.
+(h/defview todo-row [{:keys [id]}]
+  (let [{:keys [title done?]} (h/sub [:todo/by-id id])]
+    [:li
+     [:span title (when done? " (done)") " "]
+     [:button {:on-click [:todo/toggle id]} "✓"]]))
+
+(h/defview todo-list [_]
+  [:section
+   [:ul
+    (for [id (h/sub [:todo/ids])]
+      [todo-row {:key id :id id}])]
+   [:p (remaining-label)]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list {}]]
+```
+
 Do not interchange the two forms:
 
 ```clojure
