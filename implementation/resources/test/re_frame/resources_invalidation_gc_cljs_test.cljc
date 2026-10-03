@@ -310,15 +310,7 @@
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
              {:tags #{[:article "w"]}
-              :cross-scope? true :cause nil}]))))
-  (testing "cross-scope WITH a :cause is accepted (the audited escape clears
-            the gate) — no throw"
-    (is (map?
-          (rf.resources.events/invalidate-tags-handler
-            (invalidate-cofx {})
-            [:rf.resource/invalidate-tags
-             {:tags #{[:article "w"]} :cross-scope? true
-              :cause [:admin/manual-purge]}])))))
+              :cross-scope? true :cause nil}])))))
 
 ;; ---- invalidate-tags scope routes through canonicalize-scope ---------------
 

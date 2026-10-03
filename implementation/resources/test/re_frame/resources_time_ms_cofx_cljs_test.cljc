@@ -116,15 +116,14 @@
             (str event-id " declares :rf/time-ms in :rf.cofx/requires (was "
                  (pr-str requires) ")"))))))
 
-(deftest load-causing-handlers-declare-generation-and-time
-  (testing "a load-causing event declares BOTH the
-            recordable generation-allocation cofx AND the causal `:rf/time-ms`"
+(deftest load-causing-handlers-declare-generation-allocation
+  (testing "a load-causing event declares the recordable generation-allocation
+            cofx (its `:rf/time-ms` is pinned with every time-consuming event
+            above)"
     (doseq [event-id [:rf.resource/ensure :rf.resource/refetch :rf.mutation/execute]]
       (let [requires (set (:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id event-id})))]
         (is (contains? requires :rf.resource/generation-allocation)
-            (str event-id " declares the generation-allocation cofx"))
-        (is (contains? requires :rf/time-ms)
-            (str event-id " declares the time cofx"))))))
+            (str event-id " declares the generation-allocation cofx"))))))
 
 ;; ===========================================================================
 ;; failure / cancellation replies carry the causal :completed-at.

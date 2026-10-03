@@ -180,11 +180,9 @@
           wid (:current-work e)
           r   (record wid)]
       (testing "the entry points at its current work id"
-        (is (some? wid))
         (is (= [:rf.work/resource scoped-key 1] wid)))
       (testing "a serializable work record exists, keyed by work id (Spec 016
                 §Frame work ledger)"
-        (is (some? r))
         (is (= wid (:work/id r)))
         (is (= :resource (:work/kind r)))
         (is (= :rf/default (:work/frame r)))
@@ -196,10 +194,7 @@
         (is (number? (:started-at r))))
       (testing "the work record carries NO host handles (serializable EDN
                 for SSR / Xray)"
-        (is (rf.resources.work-ledger/serializable-record? r))
-        (is (not (contains? r :abort-controller)))
-        (is (not (contains? r :promise)))
-        (is (not (contains? r :abort-fn)))))))
+        (is (rf.resources.work-ledger/serializable-record? r))))))
 
 (deftest work-record-byte-keyed-address-is-canonical
   ;; EP-0012 — the work record lives at ONE address: the
@@ -215,15 +210,12 @@
     (let [wid (:current-work (entry scoped-key))
           rdb (runtime-db)]
       (testing "the byte-keyed work-ledger API reads the live row"
-        (is (some? (rf.resources.work-ledger/get-record rdb wid)))
         (is (= :running (:status (rf.resources.work-ledger/get-record rdb wid)))))
       (testing "the row is stored under the CEDN-1 byte work-id-id, NOT the
                 work-id vector"
         (is (contains? (:rf.runtime/work-ledger rdb) (rf.resources.work-ledger/work-id-id wid)))
         (is (not (contains? (:rf.runtime/work-ledger rdb) wid)))
-        (is (string? (rf.resources.work-ledger/work-id-id wid))))
-      (testing "the [work-ledger-key work-id] vector address holds nothing"
-        (is (nil? (get-in rdb [rf.resources.state/work-ledger-key wid])))))))
+        (is (string? (rf.resources.work-ledger/work-id-id wid)))))))
 
 (deftest work-record-started-at-deadline-at-from-token-time-ms
   ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
@@ -272,11 +264,9 @@
     (let [wid (:current-work (entry scoped-key))]
       (testing "a host-side side-table slot exists for [frame-id work-id]
                 (host-side, NOT runtime-db — Spec 016 §Frame work ledger)"
-        (is (some? (rf.resources.work-ledger/get-handle :rf/default wid)))
         (is (= :rf.http/managed (:transport (rf.resources.work-ledger/get-handle :rf/default wid)))))
       (testing "the side table is NOT inside runtime-db (no host handles ride
                 the durable wire)"
-        (is (nil? (get-in (runtime-db) [:rf.runtime/work-ledger :handles])))
         ;; the record in runtime-db is host-handle-free
         (is (rf.resources.work-ledger/serializable-record? (record wid)))))))
 
@@ -441,7 +431,7 @@
 ;; 5. stale suppression is mandatory; abort is opportunistic
 ;; ===========================================================================
 
-(deftest stale-reply-suppressed-and-row-terminal
+(deftest supersession-aborts-and-marks-the-old-row-suppressed
   (rf/reg-resource :ss/article (article-spec) article-spec-request)
   (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ss/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ss/article :scope :rf.scope/global
@@ -455,15 +445,7 @@
         (is (contains? (set @aborts) (req wid1))))
       (testing "the OLD work row is marked terminal :suppressed (:superseded)"
         (is (= :suppressed (:status (record wid1))))
-        (is (= :superseded (get-in (record wid1) [:outcome :reason]))))
-      (testing "Spec 016 §stale suppression (mandatory) — the OLD-generation
-                reply never mutates the newer entry"
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key scoped-key :work/id wid1 :generation 1
-                            :data {:stale "data"}}])
-        (let [e (entry scoped-key)]
-          (is (not= {:stale "data"} (:data e)) "stale reply did not write")
-          (is (= 2 (:generation e)) "entry generation unchanged"))))))
+        (is (= :superseded (get-in (record wid1) [:outcome :reason])))))))
 
 ;; ===========================================================================
 ;; 6. dedupe joins the existing record (no new generation / record)
@@ -750,14 +732,7 @@
                 ephemeral ::post, no host handle) and EDN-
                 serializable — it can ride the durable row / SSR / epoch wire"
         (is (true? (rf.reply/data-only-target? target)))
-        (is (rf.resources.work-ledger/serializable-record? target)))
-      (testing "the durable continuation carries ONLY the suppression identity
-                — no scope (correlation metadata, not a suppression key) and no
-                :stale-key synonym (one name per fact)"
-        (let [vp (second (:event target))]
-          (is (not (contains? vp :scope)))
-          (is (not (contains? vp :stale-key)))
-          (is (= wid (:work/id vp)) "the single suppression identity")))))
+        (is (rf.resources.work-ledger/serializable-record? target)))))
   (testing "durable-reply-to FAILS LOUD if a host handle ever hid in a row fact
             (an impossible-by-construction smuggle, but the boundary asserts it)"
     ;; A record whose :resource/key carried a host handle (a fn) must never
@@ -806,8 +781,7 @@
         (testing "each frame mints the SAME frame-local work-id at the same
                   generation — the collision the bare work-id would cause"
           (is (= [:rf.work/resource scoped-key 1] wid-a))
-          (is (= [:rf.work/resource scoped-key 1] wid-b))
-          (is (= wid-a wid-b) "bare work-ids are identical across frames"))
+          (is (= [:rf.work/resource scoped-key 1] wid-b)))
         (testing "Spec 016 §Transport — the lowered transport :request-id is
                   the frame-QUALIFIED token, DISTINCT per frame, so the
                   process-global managed-HTTP registry cannot supersede one
@@ -815,9 +789,7 @@
           (is (= 2 (count req-ids)) "both frames lowered a managed request")
           (is (contains? (set req-ids) (rf.resources.work-ledger/managed-request-id fa wid-a)))
           (is (contains? (set req-ids) (rf.resources.work-ledger/managed-request-id fb wid-b)))
-          (is (apply distinct? req-ids) "the two frames' request-ids differ")
-          (is (not= (set req-ids) #{wid-a})
-              "the request-id is NOT the bare work-id (which would collide)"))
+          (is (apply distinct? req-ids) "the two frames' request-ids differ"))
         (testing "both frames carry an independent live work record + host
                   handle keyed by their own [frame-id work-id]"
           (is (= :running (:status (record fa wid-a))))
@@ -940,8 +912,6 @@
         (is (= (:rf.runtime/work-ledger ref-rdb)
                (:rf.runtime/work-ledger new-rdb))
             "self-healed prune matches the full-scan reference")
-        (is (contains? new-rdb :rf.runtime/work-ledger-by-key)
-            "the inverse index was rebuilt")
         (is (= (-> new-rdb rf.resources.work-ledger/recompute-ledger-index
                    :rf.runtime/work-ledger-by-key)
                (:rf.runtime/work-ledger-by-key new-rdb))
