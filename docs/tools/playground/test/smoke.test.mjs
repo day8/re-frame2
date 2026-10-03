@@ -26,10 +26,13 @@
  *   - a plain cell evaluates alongside the loaded re-frame2 bundle.
  *   - an instant-navigation swap releases the outgoing page's React roots,
  *     destroys its frames and clears its registrations, and framework
- *     registrations survive it.
+ *     registrations survive it, a replaced one restored.
  *   - a fragment link and an href-less link in a cell run their handlers
  *     without reaching document.body, where instant navigation listens, and
  *     without navigating; a fragment link in prose still reaches it.
+ *   - a cell does JS interop (an input's value, a string method, js/
+ *     globals), has Clojure 1.11's parse-long and update-vals, and names a
+ *     reg-view with ^{:rf/id ...}.
  *   - a same-page re-fetch, which Material's first navigation after a full
  *     load performs even for a fragment link, keeps the mounted cells and
  *     their state instead of re-running them.
@@ -900,15 +903,21 @@ assert(
 //     machines artefact's :rf/machine sub and :rf.machine/* fxs resolve for a
 //     fresh reg-machine cell even though every frame, :rf/default included, was
 //     destroyed.
+//   - a framework registration a cell replaced is restored: page 1 overrides
+//     :rf.route/entry-denied, and page 2 finds the framework's handler again.
 //
 // Page 1: register :page1/stale from a real cell. It lands after the baseline,
-// so it is page-owned. Its cell is page 1's 17th live root.
+// so it is page-owned. The same cell keeps the framework's
+// :rf.route/entry-denied handler and replaces it. Its cell is page 1's 17th
+// live root.
 await page.evaluate(() => {
   const host = document.createElement("div");
   const cell = document.createElement("pre");
   cell.className = "language-cljs-rf2";
   cell.textContent = [
-    "(require '[re-frame.core :as rf])",
+    "(ns rf2smoke.p1 (:require [re-frame.core :as rf]))",
+    "(def entry-denied (:handler-fn (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))",
+    "(rf/reg-event :rf.route/entry-denied (fn [_ _] {}))",
     "(rf/reg-event :page1/stale",
     "  (fn [{:keys [db]} _] {:db (assoc db :leaked-registration true)}))",
     '[:span#rf2-p1-stale "page1 registered :page1/stale"]',
@@ -952,9 +961,12 @@ await page.evaluate(() => {
     "   :states  {:off {:on {:flip {:target :on}}}",
     "             :on  {:on {:flip {:target :off}}}}})",
     "(rf/dispatch-sync [:rf2nav/toggle2 [:flip]])",
+    "(def restored? (identical? rf2smoke.p1/entry-denied",
+    "                           (:handler-fn (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied}))))",
     "(defn tog2 []",
     "  (let [snap @(rf/subscribe [:rf/machine :rf2nav/toggle2])]",
-    "    [:div [:span#rf2-nav-tog \"tog: \" (str (:state snap))]]))",
+    "    [:div [:span#rf2-nav-tog \"tog: \" (str (:state snap))]",
+    "     [:span#rf2-nav-restored \"restored: \" (str restored?)]]))",
     "[tog2]",
   ].join("\n");
   // Leak probe: dispatch page 1's :page1/stale into a fresh frame without
@@ -997,6 +1009,12 @@ console.log("page 2 machine cell:", JSON.stringify(navTog));
 assert(
   navTog === "tog: :on",
   `machine framework registrations survive dispose (got ${JSON.stringify(navTog)})`
+);
+
+const navRestored = (await page.locator("#rf2-nav-restored").innerText()).trim();
+assert(
+  navRestored === "restored: true",
+  `a framework registration a cell replaced (:rf.route/entry-denied) is restored on nav (got ${JSON.stringify(navRestored)})`
 );
 
 const navLeak = (await page.locator("#rf2-nav-leak").innerText()).trim();
@@ -1065,6 +1083,41 @@ const bodyLinkClicks = await page.evaluate(() => window.__rf2BodyLinkClicks);
 assert(
   JSON.stringify(bodyLinkClicks) === JSON.stringify(["prose-frag"]),
   `only the prose link reaches document.body (got ${JSON.stringify(bodyLinkClicks)})`
+);
+
+// --- interop and clojure.core in a cell ------------------------------------
+//
+// A cell reads an input with `(.. e -target -value)`, calls a method on a
+// string, reaches `js/` globals, uses Clojure 1.11's parse fns, and names a
+// view with `^{:rf/id …}`.
+await page.evaluate(() => {
+  const cell = document.createElement("pre");
+  cell.className = "language-cljs-rf2";
+  cell.textContent = [
+    "(require '[reagent2.core :as r] '[re-frame.core :as rf])",
+    "(rf/reg-view ^{:rf/id :interop/root} interop-root [] [:span])",
+    "(def typed (r/atom \"\"))",
+    "(defn interop-view []",
+    "  [:div",
+    "   [:input#interop-in {:on-change #(reset! typed (.. % -target -value))}]",
+    "   [:span#interop-echo @typed]",
+    "   [:span#interop-values",
+    "    (pr-str [(.trim \" x \") (fn? js/console.log) (js/Math.max 1 2)",
+    "             (parse-long \"12\") (update-vals {:a 1} inc) (some? (rf/view :interop/root))])]])",
+    "[interop-view]",
+  ].join("\n");
+  document.body.appendChild(cell);
+  window.__rf2PlaygroundMountAll();
+});
+await page.waitForSelector("#interop-in", { timeout: 20000 });
+await page.fill("#interop-in", "typed text");
+await waitText("#interop-echo", "typed text");
+const interopEcho = await frescoText("#interop-echo");
+assert(interopEcho === "typed text", `a cell reads an input with (.. e -target -value) (got ${JSON.stringify(interopEcho)})`);
+const interopValues = await frescoText("#interop-values");
+assert(
+  interopValues === '["x" true 2 12 {:a 2} true]',
+  `a cell calls methods, reaches js/ globals, has parse-long and update-vals, and honours ^{:rf/id} on reg-view (got ${JSON.stringify(interopValues)})`
 );
 
 // --- same-page re-fetch ----------------------------------------------------

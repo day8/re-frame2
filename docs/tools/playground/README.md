@@ -75,6 +75,10 @@ The bundle carries core, both view layers and every optional artefact:
 | `re-frame.resources` | Resource events and subs |
 | `re-frame.routing`, `re-frame.epoch`, `re-frame.ssr` | Routing, epoch history, `render-to-string` |
 
+A cell also has ordinary ClojureScript interop, such as `(.. e -target -value)`,
+`(.trim s)`, `js/console` and `js/Date.now`, and Clojure 1.11's additions to
+`clojure.core`, such as `parse-long` and `update-vals`.
+
 Fresco's `defhost` is not available, because a cell has no foreign React
 component to wrap.
 
@@ -122,8 +126,10 @@ uninstall can restore a previous page's routes.
   registrar, so a later cell can render a view an earlier one registered.
 - **Leaving a page clears it.** On navigation the outgoing page's components
   unmount, its frames are destroyed, and its registrations and HTTP
-  interceptors are removed. Destroying a frame also stops its requests and
-  timers. Each page registers what it uses.
+  interceptors are removed. A framework registration a cell replaced, such
+  as a handler for `:rf.route/entry-denied`, gets the framework's back.
+  Destroying a frame also stops its requests and timers. Each page registers
+  what it uses.
 - **Never create a `:url-bound? true` frame.** It would take over the docs
   site's address bar. Routing works on in-memory frames.
 - **A link in a cell works as it does in an app.** A fragment link such as
@@ -174,9 +180,10 @@ like mkdocs output. It checks that the bootstrap loads each engine on demand,
 that plain cells evaluate and report errors, that re-frame2 cells render and
 re-render on dispatch (including machine, flow, schema and multi-frame
 cells), that Fresco cells render through the same fence, that stubbed HTTP
-and resource cells load, that routing, epoch and SSR are present, and that
-navigating away releases the outgoing page's React roots, frames and
-registrations, that a fragment link in a cell stays in the cell, and that a
+and resource cells load, that routing, epoch and SSR are present, that a cell
+does JS interop, that navigating away releases the outgoing page's React
+roots, frames and registrations and restores a framework registration a cell
+replaced, that a fragment link in a cell stays in the cell, and that a
 same-page re-fetch keeps the mounted cells. Build both bundles first.
 
 ## How it works
