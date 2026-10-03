@@ -363,7 +363,7 @@
       (is (= 3 (get-in w [2 :page]))
           "the params component is untouched — nothing is declared there"))))
 
-(deftest a-global-scope-is-never-walked
+(deftest the-scope-walk-leaves-a-global-scope-untouched
   (testing "`:rf.scope/global` is a bare keyword, not a [tier {identity}] tuple,
             so it has no identity slot to substitute. An owner that DECLARES a
             :scope slot passes the declaration gate and walks the scope, and the
