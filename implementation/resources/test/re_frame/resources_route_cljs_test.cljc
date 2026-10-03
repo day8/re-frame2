@@ -275,6 +275,23 @@
 ;; 5. route leave / supersession releases the prior owner
 ;; ===========================================================================
 
+(deftest route-leave-releases-prior-route-owner
+  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
+  (rf/reg-route :route/article
+                {:params    [:map [:slug :string]]
+                 :resources [{:resource :article/by-slug
+                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
+  (rf/reg-route :route/home {} "/")
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
+  (let [token-1    (:nav-token (slice))
+        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
+    (is (contains? (:active-owners (entry scoped-key)) [:route :route/article token-1]))
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
+    (testing "leaving the route releases its nav-token owner from the entry"
+      (is (not (contains? (:active-owners (entry scoped-key))
+                          [:route :route/article token-1]))
+          "the prior route owner was released on leave"))))
+
 ;; ---- route A→B (same scoped key) does not join abort-requested ------------
 ;; A route leave releases the prior nav-token owner, which marks an in-flight
 ;; attempt :abort-requested while the entry still points at it. An immediate
