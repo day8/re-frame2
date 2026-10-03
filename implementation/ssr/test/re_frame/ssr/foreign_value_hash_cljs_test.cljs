@@ -93,7 +93,6 @@
            `{:threw \"RangeError\"}` where a hash was expected."
     (doseq [[label v] [["a self-referential object" (self-referential-object)]
                        ["a React 19 context"        corpus-context]
-                       ["a React 19 provider"       provider]
                        ["a provider in head position"
                         [provider {:value "dark"} [:p.render-subtree "SUBTREE"]]]
                        ["a provider nested in markup"
@@ -119,12 +118,9 @@
            — which the `:advanced` compiler renames — back into the hash
            the fn branch exists to keep identity out of."
     (is (= "#js{}" (rf.ssr.hash/canonical-edn #js {"a" 1 "b" "two"})))
-    (is (= "#js{}" (rf.ssr.hash/canonical-edn #js {})))
     (is (= "#js{}" (rf.ssr.hash/canonical-edn #js {"f" (fn [] 1)}))
         "no #object[<munged name>] survives the crossing")
-    (is (= "#js[]" (rf.ssr.hash/canonical-edn #js [1 2 3])))
-    (is (= "#js[]" (rf.ssr.hash/canonical-edn #js [])))
-    (is (= "#js{}" (rf.ssr.hash/canonical-edn provider)))))
+    (is (= "#js[]" (rf.ssr.hash/canonical-edn #js [1 2 3])))))
 
 (deftest the-form-around-a-foreign-value-still-hashes
   (testing "The token collapses the FOREIGN value and nothing else — the

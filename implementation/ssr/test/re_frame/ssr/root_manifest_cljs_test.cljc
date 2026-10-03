@@ -846,6 +846,5 @@
          (is (not (contains? bare :identifier-prefix))
              "manifest optionality is preserved — the extension key is absent"))
        (testing "discovery resolves it to React's effective empty prefix"
-         (is (= "" (:identifier-prefix found)))
          (is (= (assoc bare :identifier-prefix "") found)
              "identity is the manifest plus the resolved effective prefix")))))

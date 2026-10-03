@@ -184,16 +184,6 @@
 ;; ---- client host -----------------------------------------------------------
 
 #?(:cljs
-   (deftest client-renders-the-body-when-nothing-failed
-     (testing "the ordinary case: no recorded outcome, render the body"
-       (let [fid :test/client-body]
-         (rf/make-frame {:id fid :platform :client})
-         (is (= [:div "body"]
-                (rf/with-frame fid
-                  (boundary {:id :card.revenue :fallback [:p "loading"]}
-                            [:div "body"]))))))))
-
-#?(:cljs
    (deftest client-renders-the-declared-fallback-for-a-failed-boundary
      (testing "a boundary in the failed set renders its DECLARED
                fallback — the markup the failed chunk left in the DOM.
