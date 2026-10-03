@@ -27,6 +27,49 @@ Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re
 ;; => {:ok? true :frame :app/main :event-id :cart/checkout …}
 ```
 
+The cell below runs that loop. Add two apples and check out, then rewind to before
+the last event: the cart comes back and the history keeps every epoch. Replay the
+last event and checkout runs again, recording a new epoch.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.epoch])
+
+(rf/reg-event :cart/add
+  (fn [{:keys [db]} [_ item]]
+    {:db (update db :cart/items (fnil conj []) item)}))
+
+(rf/reg-event :cart/checkout
+  (fn [{:keys [db]} _]
+    {:db (assoc db :cart/items [] :cart/ordered (:cart/items db))}))
+
+(rf/reg-sub :cart/items   (fn [db _] (:cart/items db [])))
+(rf/reg-sub :cart/ordered (fn [db _] (:cart/ordered db)))
+
+(rf/reg-view cart-history []
+  (let [items   @(subscribe [:cart/items])
+        ordered @(subscribe [:cart/ordered])
+        ;; Not a subscription: read again whenever the cart changes.
+        history (rf/epoch-history :app/main)
+        n       (count history)]
+    [:div
+     [:button {:on-click #(dispatch [:cart/add "apple"])} "Add an apple"]
+     " "
+     [:button {:on-click #(dispatch [:cart/checkout])} "Check out"]
+     [:p "Cart: " (pr-str items) ", ordered: " (pr-str ordered)]
+     [:p "History: " (pr-str (map :event-id history))]
+     [:button {:disabled (< n 2)
+               :on-click #(rf/restore-epoch! :app/main (:epoch-id (nth history (- n 2))))}
+      "Rewind to before the last event"]
+     " "
+     [:button {:disabled (zero? n)
+               :on-click #(rf/replay-epoch! :app/main (:epoch-id (peek history)))}
+      "Replay the last event"]]))
+
+[rf/frame-root {:id :app/main}
+ [cart-history]]
+```
+
 You call everything on this page through `rf/`, including listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `rf/current-config`). The same-named `re-frame.epoch` vars are the implementations behind the facade; a test calls only the teardown functions `clear-history!` and `clear-epoch-listeners!` on `epoch/`. The [Observability guide](../core/observability.md#the-epoch-history-what-the-app-was) shows how epochs fit the trace model.
 
 ## Epoch history
