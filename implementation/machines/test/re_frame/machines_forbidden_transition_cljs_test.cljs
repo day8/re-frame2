@@ -51,88 +51,44 @@
     (rf/dispatch-sync [seed-id])))
 
 ;; ---------------------------------------------------------------------------
-;; (a) `{:on {:logout {}}}` on a child BLOCKS the parent's inherited :logout
-;;     (the empty-map block — internal no-op, state unchanged)
+;; (a) PRESENCE decides: a child `{:on {:logout {}}}` (the empty-map block)
+;;     or `{:on {:logout nil}}` (a present nil, the XState `undefined`
+;;     analogue) BLOCKS the parent's inherited :logout as an internal no-op,
+;;     while a child with NO :logout key INHERITS it (absence ≠ block).
 ;; ---------------------------------------------------------------------------
 
-(deftest empty-map-child-entry-blocks-parent-inherited-transition
-  (testing "child `{:on {:logout {}}}` blocks the parent's inherited :logout (no-op)"
-    (let [machine
-          {:initial :authenticated
-           :data    {}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:logout [:unauthenticated]}     ;; factored to the parent
-             :states
-             ;; :modal opts OUT of the inherited :logout with an empty map.
-             {:dashboard {:on {:open-modal :modal}}
-              :modal     {:on {:logout {}              ;; FORBIDDEN — empty map
-                               :close  :dashboard}}}}
-            :unauthenticated {}}}]
-      (rf/reg-machine :forbid/empty machine)
-      ;; Reposition into :modal where the block lives.
-      (seed-snapshot! :forbid/empty {:state [:authenticated :modal] :data {}})
-      (rf/dispatch-sync [:forbid/empty [:logout]])
-      (is (= [:authenticated :modal] (:state (snapshot :forbid/empty)))
-          "the empty-map child entry matched + halted the walk — parent :logout NOT inherited; state unchanged"))))
+(defn- logout-machine
+  "The parent declares :logout; :modal's own :logout entry is `modal-logout`,
+  and :dashboard declares none."
+  [modal-logout]
+  {:initial :authenticated
+   :data    {}
+   :states
+   {:authenticated
+    {:initial :dashboard
+     :on      {:logout [:unauthenticated]}     ;; factored to the parent
+     :states
+     {:dashboard {:on {:open-modal :modal}}
+      :modal     {:on {:logout modal-logout
+                       :close  :dashboard}}}}
+    :unauthenticated {}}})
+
+(deftest child-logout-entry-presence-decides-the-inherited-transition
+  (doseq [[label machine-id modal-logout resting-leaf expected]
+          [["an empty-map child entry matched + halted the walk: parent :logout NOT inherited; state unchanged"
+            :forbid/empty {} :modal [:authenticated :modal]]
+           ["a present-nil child entry matched + halted the walk: parent :logout NOT inherited; state unchanged"
+            :forbid/nil nil :modal [:authenticated :modal]]
+           ["an absent child :logout key: the walk continues to the parent and the inherited :logout fires"
+            :forbid/absent nil :dashboard [:unauthenticated]]]]
+    (rf/reg-machine machine-id (logout-machine modal-logout))
+    ;; Reposition into the leaf under test.
+    (seed-snapshot! machine-id {:state [:authenticated resting-leaf] :data {}})
+    (rf/dispatch-sync [machine-id [:logout]])
+    (is (= expected (:state (snapshot machine-id))) label)))
 
 ;; ---------------------------------------------------------------------------
-;; (b) `{:on {:logout nil}}` ALSO blocks (a present nil is the XState
-;;     `undefined` analogue)
-;; ---------------------------------------------------------------------------
-
-(deftest nil-child-entry-also-blocks-parent-inherited-transition
-  (testing "child `{:on {:logout nil}}` ALSO blocks"
-    (let [machine
-          {:initial :authenticated
-           :data    {}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:logout [:unauthenticated]}
-             :states
-             ;; :modal opts OUT with a PRESENT nil value — the XState
-             ;; `LOGOUT: undefined` analogue. A present nil blocks the
-             ;; parent's :logout (it does not fall through).
-             {:dashboard {:on {:open-modal :modal}}
-              :modal     {:on {:logout nil             ;; FORBIDDEN — present nil
-                               :close  :dashboard}}}}
-            :unauthenticated {}}}]
-      (rf/reg-machine :forbid/nil machine)
-      (seed-snapshot! :forbid/nil {:state [:authenticated :modal] :data {}})
-      (rf/dispatch-sync [:forbid/nil [:logout]])
-      (is (= [:authenticated :modal] (:state (snapshot :forbid/nil)))
-          "the present-nil child entry matched + halted the walk — parent :logout NOT inherited; state unchanged"))))
-
-;; ---------------------------------------------------------------------------
-;; (c) a child with NO :logout entry INHERITS the parent's — absence ≠
-;;     block. Only a PRESENT key blocks; an absent one never does.
-;; ---------------------------------------------------------------------------
-
-(deftest absent-child-entry-still-inherits-parent-transition
-  (testing "child with NO :logout key inherits the parent's :logout (absence ≠ block)"
-    (let [machine
-          {:initial :authenticated
-           :data    {}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:logout [:unauthenticated]}
-             :states
-             ;; :dashboard declares NO :logout — it must inherit the parent's.
-             {:dashboard {:on {:open-modal :modal}}
-              :modal     {:on {:logout nil :close :dashboard}}}}
-            :unauthenticated {}}}]
-      (rf/reg-machine :forbid/absent machine)
-      ;; Rest at :dashboard (no :logout key) and dispatch :logout.
-      (seed-snapshot! :forbid/absent {:state [:authenticated :dashboard] :data {}})
-      (rf/dispatch-sync [:forbid/absent [:logout]])
-      (is (= [:unauthenticated] (:state (snapshot :forbid/absent)))
-          "absent child :logout key → walk continues to the parent → inherited :logout fired"))))
-
-;; ---------------------------------------------------------------------------
-;; (d) the blocking child INTERNAL transition runs its :action then halts
+;; (b) the blocking child INTERNAL transition runs its :action then halts
 ;;     — for both the empty-map-with-action and... the nil form takes no
 ;;     action (nil carries none), so :action coverage rides the map form.
 ;; ---------------------------------------------------------------------------
@@ -166,7 +122,7 @@
           "internal transition — state unchanged; parent :logout still blocked"))))
 
 ;; ---------------------------------------------------------------------------
-;; (e) compound coverage — the block lives on a deeper leaf and shadows a
+;; (c) compound coverage — the block lives on a deeper leaf and shadows a
 ;;     transition factored TWO levels up.
 ;; ---------------------------------------------------------------------------
 
@@ -202,7 +158,7 @@
           ":browsing has no :logout key → walk continues to :app → inherited :logout fired"))))
 
 ;; ---------------------------------------------------------------------------
-;; (f) forbidden block vs :* / :ns/* fallthrough — the headline semantic.
+;; (d) forbidden block vs :* / :ns/* fallthrough — the headline semantic.
 ;;     A forbidden block (enabled internal candidate) does NOT fall to a
 ;;     same-level wildcard, NOR to a parent wildcard — it is a deliberate
 ;;     consume-here. This is the OPPOSITE of a GUARD-BLOCKED exact, which
@@ -264,6 +220,5 @@
       (reset! log [])
       (rf/dispatch-sync [:forbid/guard-contrast [:auth/logout]])
       (is (= [:leaf-star] @log)
-          "guard-blocked exact is NOT enabled → falls through to the same-level :*")
-      (is (not (some #{:blocked} @log))
-          "the guard-blocked action did not run"))))
+          "guard-blocked exact is NOT enabled → falls through to the same-level :*;
+           the guard-blocked action did not run"))))
