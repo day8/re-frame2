@@ -1096,11 +1096,11 @@
   (testing "no over-refetch: a FRESH infinite feed
             WITH a page stays ABSENT from the plan (the SSR win, no double-fetch)"
     (let [loaded-feed (infinite-entry* {:resource-id :feed/timeline :status :loaded
-                                        :data [{:items [1 2 3]}] :loaded-at 1000 :stale-at 9.0e15})]
-      (let [plan (->> (rf.resources.ssr/hydrate-refetch-plan (runtime-db-with {fkey loaded-feed}) 5000)
-                      (into {} (map (juxt :resource/key identity))))]
-        (is (not (contains? plan fkey))
-            "a fresh infinite feed WITH a page is NOT double-fetched")))))
+                                        :data [{:items [1 2 3]}] :loaded-at 1000 :stale-at 9.0e15})
+          plan        (->> (rf.resources.ssr/hydrate-refetch-plan (runtime-db-with {fkey loaded-feed}) 5000)
+                           (into {} (map (juxt :resource/key identity))))]
+      (is (not (contains? plan fkey))
+          "a fresh infinite feed WITH a page is NOT double-fetched"))))
 
 (deftest hydrate-settles-empty-infinite-loading-then-refetches
   (testing "END-TO-END — a server-side :loading empty infinite
