@@ -113,6 +113,87 @@ Saving alone would make the guard pass; the flag states the intent. It skips the
 current route's `:can-leave` for this one navigation and nothing else, so the
 target's `:can-enter` still runs. There is no flag that skips `:can-enter`.
 
+## Try it
+
+This cell puts the guard, the prompt and both exits on one in-memory frame, which
+opens on the editor. A button stands in for typing a new title. Click
+**Change the title**, then **Home**: the prompt appears and the route stays on the
+editor. **Stay** keeps the draft and **Leave** goes home. Open **Edit intro** again
+to try **Save** before **Home**, and **Save and close**.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing])
+
+(def sample-articles {"intro" {:title "Intro to re-frame2"}})
+
+(rf/reg-route :app/home {} "/")
+(rf/reg-route :app/article {:params [:map [:slug :string]]} "/articles/:slug")
+(rf/reg-route :app/article-editor
+  {:params    [:map [:slug :string]]
+   :on-match  [[:editor/open]]
+   :can-leave [:editor/can-leave?]}
+  "/articles/:slug/edit")
+
+(rf/reg-sub :editor/can-leave?
+  (fn [db _]
+    (= (get-in db [:editor :draft]) (get-in db [:editor :saved]))))
+(rf/reg-sub :editor/draft (fn [db _] (get-in db [:editor :draft])))
+
+(rf/reg-event :editor/open
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
+          title (get-in sample-articles [slug :title])]
+      {:db (assoc db :editor {:slug slug :draft title :saved title})})))
+
+(rf/reg-event :editor/edit
+  (fn [{:keys [db]} [_ text]]
+    {:db (assoc-in db [:editor :draft] text)}))
+
+(rf/reg-event :editor/save
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))}))
+
+(rf/reg-event :editor/save-and-close
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+      {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))
+       :fx [[:dispatch [:rf.route/navigate {:to            :app/article
+                                            :params        {:slug slug}
+                                            :bypass-leave? true}]]]})))
+
+(rf/reg-view leave-prompt []
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
+    [:div.modal
+     [:p "You have unsaved changes. Leave anyway?"]
+     [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])} "Stay"]
+     [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
+
+(rf/reg-view editor-page []
+  [:div
+   [:h1 "Edit title"]
+   [:p "Draft: " @(subscribe [:editor/draft])]
+   [:button {:on-click #(dispatch [:editor/edit "A new title"])} "Change the title"]
+   [:button {:on-click #(dispatch [:editor/save])} "Save"]
+   [:button {:on-click #(dispatch [:editor/save-and-close])} "Save and close"]])
+
+(rf/reg-view editor-app []
+  [:div
+   [:nav [rf/route-link {:to :app/home} "Home"] " · "
+         [rf/route-link {:to :app/article-editor :params {:slug "intro"}} "Edit intro"]]
+   [leave-prompt]
+   (case @(subscribe [:rf.route/id])
+     :app/home           [:h1 "Home"]
+     :app/article        [:h1 "Article " (:slug @(subscribe [:rf.route/params]))]
+     :app/article-editor [editor-page]
+     nil)])
+
+[rf/frame-root {:id             :app
+                :initial-events [[:rf.route/navigate {:to     :app/article-editor
+                                                      :params {:slug "intro"}}]]}
+ [editor-app]]
+```
+
 ## Closing the tab or reloading
 
 The router never sees the browser closing the tab, reloading, or following an

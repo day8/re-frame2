@@ -83,6 +83,68 @@ Under server rendering, answer an old URL with a `301` from the server boot even
 [Controlling the response](../../ssr/response.md) does for `/posts`, so search engines
 and other clients learn the new address.
 
+## Try it
+
+This cell puts the interceptor on an in-memory frame. Its controls send an old URL
+each way it can arrive: as `:rf.route/handle-url-change`, the event the address bar
+sends; as a `route-link` click; and as a `{:url …}` navigate. Each lands on
+`:app/article` with the query and fragment kept. The last button navigates to
+`{:to :legacy/post}`, which names no URL, so the old route commits.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing :as rf.routing])
+
+(rf/reg-route :app/home {} "/")
+(rf/reg-route :app/article {:params [:map [:slug :string]]} "/articles/:slug")
+(rf/reg-route :legacy/post {} "/posts/:slug")
+
+(def moved
+  {:legacy/post (fn [{:keys [slug]}] {:to :app/article :params {:slug slug}})})
+
+(defn- redirect-for [[ev-id a]]
+  (let [url (case ev-id
+              :rf.route/handle-url-change a
+              :rf.route/url-requested     (:url a)
+              :rf.route/navigate          (:url a)
+              nil)]
+    (when-let [{:keys [route-id params query fragment]} (some-> url rf.routing/match-url)]
+      (when-let [new-address (moved route-id)]
+        (assoc (merge {:query query :fragment fragment} (new-address params))
+               :replace? (or (= :rf.route/handle-url-change ev-id)
+                             (true? (:replace? a))))))))
+
+(rf/reg-interceptor :app/redirect-moved
+  {:doc "Send navigations to a moved route on to its new address."}
+  {:before
+   (fn [ctx]
+     (if-let [request (redirect-for (get-in ctx [:coeffects :event]))]
+       (-> ctx
+           (assoc :rf/skip-handler? true)
+           (assoc-in [:effects :fx] [[:dispatch [:rf.route/navigate request]]]))
+       ctx))})
+
+(rf/reg-view old-urls []
+  (let [{:keys [route-id params query fragment]} @(subscribe [:rf/route])]
+    [:div
+     [:p
+      [:button {:on-click #(dispatch [:rf.route/handle-url-change "/posts/intro?tag=ssr#comments"])}
+       "Address bar: /posts/intro?tag=ssr#comments"]
+      [rf/route-link {:to :legacy/post :params {:slug "ssr"}} "Link: /posts/ssr"]]
+     [:p
+      [:button {:on-click #(dispatch [:rf.route/navigate {:url "/posts/intro"}])}
+       "Navigate by URL: /posts/intro"]
+      [:button {:on-click #(dispatch [:rf.route/navigate {:to :legacy/post :params {:slug "intro"}}])}
+       "Navigate by id: :legacy/post"]
+      [:button {:on-click #(dispatch [:rf.route/navigate {:to :app/home}])} "Home"]]
+     [:pre (pr-str {:route-id route-id :params params :query query :fragment fragment})]]))
+
+[rf/frame-root {:id             :app
+                :interceptors   [:app/redirect-moved]
+                :initial-events [[:rf.route/navigate {:to :app/home}]]}
+ [old-urls]]
+```
+
 ## Test it
 
 ```clojure
