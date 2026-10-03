@@ -497,7 +497,7 @@ test('xray-feature-gate: a scenario with a captured pageerror is not marked pass
 
 // ---- check-story-static.cjs ----
 
-test('check-story-static: pageerrors are tracked in a dedicated array, not just diagnostics (rf2-mwx08)', () => {
+test('check-story-static: a pageerror lands in a dedicated array and throws even when assertions passed (rf2-mwx08)', () => {
   const src = read('check-story-static.cjs');
   assert.match(
     src,
@@ -509,10 +509,6 @@ test('check-story-static: pageerrors are tracked in a dedicated array, not just 
     /page\.on\(\s*['"]pageerror['"][\s\S]{0,160}?pageErrors\.push\(/,
     'the pageerror handler must push into the dedicated pageErrors array',
   );
-});
-
-test('check-story-static: the smoke throws on a captured pageerror even when assertions passed (rf2-mwx08)', () => {
-  const src = read('check-story-static.cjs');
   assert.match(
     src,
     /if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,300}?throw\s+new\s+Error/,
@@ -528,7 +524,7 @@ test('check-story-static: the smoke throws on a captured pageerror even when ass
 // pageerrors go into a dedicated array and flip the verdict to fail before
 // `passed = true`.
 
-test('tenant-switcher-testbed: pageerrors are tracked in a dedicated array, not just diagnostics (rf2-h5e3v7)', () => {
+test('tenant-switcher-testbed: a pageerror lands in a dedicated array and fails the spec even when assertions passed (rf2-h5e3v7)', () => {
   const src = read('serve-and-run-tenant-switcher-testbed.cjs');
   assert.match(
     src,
@@ -540,10 +536,6 @@ test('tenant-switcher-testbed: pageerrors are tracked in a dedicated array, not 
     /page\.on\(\s*['"]pageerror['"][\s\S]{0,160}?pageErrors\.push\(/,
     'the pageerror handler must push into the dedicated pageErrors array',
   );
-});
-
-test('tenant-switcher-testbed: a captured pageerror fails the spec even when assertions passed (rf2-h5e3v7)', () => {
-  const src = read('serve-and-run-tenant-switcher-testbed.cjs');
   assert.match(
     src,
     /if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,300}?throw\s+new\s+Error/,

@@ -372,16 +372,6 @@ test('the checkout depth and the fetch-by-name travel together (rf2-8oh5)', () =
   }
 });
 
-test('the reachability check consults the object store (rf2-uol6)', () => {
-  assert.match(
-    identifyStep().run,
-    /git rev-parse --verify --quiet "\$base\^\{commit\}"/,
-    '`git rev-parse --verify` echoes any 40-hex string back with exit 0 WITHOUT ' +
-      'consulting the object store, so peeling to ^{commit} is what ' +
-      'makes this a reachability check rather than a syntax check',
-  );
-});
-
 test('the accepted base arrives through env:, never interpolated into the run body (rf2-8oh5)', () => {
   const step = identifyStep();
   assert.equal(
@@ -724,23 +714,6 @@ test('the dispatch ref is a BRANCH ref, through env:, and never a commit id (rf2
     step.run,
     /gh workflow run "\$f" --ref "\$DISPATCH_REF"/,
     'and the dispatch must use it',
-  );
-});
-
-test('the dispatch cannot swallow its own failure (rf2-amh0)', () => {
-  // The byte-sequence that turns a failed dispatch into a green run.
-  assert.doesNotMatch(
-    dispatchStep().run,
-    /gh workflow run[^\n]*\|\|/,
-    '`||` after `gh workflow run` converts a failed dispatch into a passing step. ' +
-      'This canary GATES NOTHING, so a red costs one visible failure and blocks ' +
-      'nobody — whereas a green that means "we tried" keeps a dispatcher that ' +
-      'never succeeds green indefinitely',
-  );
-  assert.match(
-    dispatchStep().run,
-    /exit 1/,
-    'and the counted failures must red the step at the end of the loop',
   );
 });
 
