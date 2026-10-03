@@ -178,26 +178,44 @@ wrong and right versions side by side.
 
 ### A handler throws
 
-*Adding the first todo computes the next id with `max` over no keys, and that
-throws.*
+*Adding a todo trims the title the user typed, which the input keeps in app-db under
+`:new-title`. Before anyone has typed there is no `:new-title`, and `.trim` on `nil`
+throws.* Click **Add a todo**:
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} _]
+    (let [id    (inc (apply max 0 (keys (:todos db))))
+          title (.trim (:new-title db))]                 ;; throws while :new-title is nil
+      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
+
+(rf/reg-sub :todo/count (fn [db _] (count (:todos db))))
+
+(rf/reg-view add-todo []
+  [:div
+   [:button {:on-click #(dispatch [:todo/add])} "Add a todo"]
+   [:p @(subscribe [:todo/count]) " todos"]])
+
+[rf/frame-root {:id :app}
+ [add-todo]]
+```
+
+The count stays at 0. The runtime catches the exception and emits
+`:rf.error/handler-exception` with `:recovery :no-recovery`: the run halts, nothing
+is committed, and app-db is untouched. Fix it with a default at the point of access:
 
 ```clojure
 (rf/reg-event :todo/add
-  (fn [{:keys [db]} [_ title]]
-    (let [id (inc (apply max (keys (:todos db))))]     ;; throws when :todos is empty
+  (fn [{:keys [db]} _]
+    (let [id    (inc (apply max 0 (keys (:todos db))))
+          title (.trim (:new-title db ""))]
       {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
 ```
 
-The runtime catches the exception and emits `:rf.error/handler-exception` with
-`:recovery :no-recovery`: the run halts, nothing is committed, and app-db is
-untouched. Fix it with a default at the point of access:
-
-```clojure
-(rf/reg-event :todo/add
-  (fn [{:keys [db]} [_ title]]
-    (let [id (inc (apply max 0 (keys (:todos db))))]
-      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
-```
+Make the same change in the cell, press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS),
+and click again: the count goes up.
 
 Make a handler throw on purpose in dev with [Xray](glossary.md#xray) open. The error
 appears inside the run that produced it, below the dispatch that caused it, with its
