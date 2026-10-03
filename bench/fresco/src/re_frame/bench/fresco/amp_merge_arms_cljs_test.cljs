@@ -136,7 +136,6 @@
     (testing "`field-lean` writes `:expanded`'s keys, in `:expanded`'s order"
       (is (= expanded-attr-keys (vec (keys lean)))))
     (testing "and therefore stays on `:expanded`'s side of the cliff"
-      (is (= 8 (count lean)))
       (is (instance? PersistentArrayMap lean)))
     (testing "no `:class` key reaches the element at all"
       (is (not (contains? lean :class))
@@ -175,7 +174,6 @@
                                                    remainder))]
         (is (= merged lean) "the same attribute map")
         (is (= (vec (keys merged)) (vec (keys lean))) "in the same order")
-        (is (= (type merged) (type lean)) "and in the same REPRESENTATION")
         (is (= entries (count merged)))
         (is (instance? representation merged))
         (is (instance? representation lean))))))

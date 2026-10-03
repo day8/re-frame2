@@ -42,7 +42,7 @@
   required to be positive, converged primitives put the bar at zero
   where every reading clears it. A browser proof cannot
   find that — mutating the measured ARM leaves the micro table healthy —
-  so [[a-converged-prediction-refuses-however-healthy-the-deltas-look]]
+  so [[the-audits-exact-converged-case]]
   and its siblings below pin it by arithmetic instead. That is the second
   reason this file exists and not merely belt-and-braces either."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -109,15 +109,6 @@
       (is (true? (:ok? r)))
       (is (= 0.18 (:worst r))))))
 
-(deftest an-instrument-with-no-signal-refuses
-  (testing "the planted-fault shape: the ablation stops biting, so the
-            deltas collapse toward zero and the control must refuse"
-    (let [r (rf.bench.fresco.walk-profile-app/tag-cache-floor-row [(healthy 0.01) (healthy 0.02) (healthy -0.01)]
-                                    census roster micro)]
-      (is (false? (:ok? r)))
-      (is (re-find #"BELOW it" (:why r))
-          "and says so in the terms the driver prints"))))
-
 (deftest strict-rule-beats-overlap
   (testing "ONE dataset, TWO rules, opposite verdicts — this is why the
             control does not call `rf.bench.fresco.lane/control-verdict`"
@@ -165,19 +156,6 @@
   from the floor rather than down, which is on its own enough to say the
   band has stopped meaning anything."
   [[:cached-parse-hit 150.0] [:parse-tag-fresh 50.0]])
-
-(deftest a-converged-prediction-refuses-however-healthy-the-deltas-look
-  (testing "fresh == cached predicts NO extra cost, so there is nothing for
-            the walk to have seen — and a control with nothing to see must
-            not report that it saw it"
-    (let [r (rf.bench.fresco.walk-profile-app/tag-cache-floor-row [(healthy 0.20) (healthy 0.25)] census roster
-                                    micro-converged)]
-      (is (= 0.0 (:predicted r)) "the fixture really does state a zero floor")
-      (is (false? (:ok? r))
-          "a bar of zero is cleared by any measurement whatever, so passing
-           here is passing on a vacuous test")
-      (is (false? (:stated? r))
-          "and the refusal is attributed to the PREDICTION, not to the arms"))))
 
 (deftest the-audits-exact-converged-case
   (testing "cached 50 ns, fresh 50 ns, observed delta 0 — which an

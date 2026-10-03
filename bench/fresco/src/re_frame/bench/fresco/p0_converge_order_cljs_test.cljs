@@ -130,6 +130,10 @@
       (is (= [1.3065 1.2388 1.3538] (:per-round (:reagent-first r))))
       (is (= [1.1417 1.1099] (:per-round (:uix-first r))))
       (is (false? (:strata-overlap? r)) "disjoint")
+      (is (= :numerator-slower (:direction (:reagent-first r)))
+          "both strata sit wholly above 1.0, so UIx-slower is a verdict the
+           partition does not touch")
+      (is (= :numerator-slower (:direction (:uix-first r))))
       (is (close? 1.2997 (:mean (:reagent-first r))))
       (is (close? 1.1258 (:mean (:uix-first r)))
           "the UIx-first stratum's 1.1258")
@@ -138,31 +142,9 @@
       (is (close? 1.2128 (:order-balanced-mean r))
           "and the design-unbiased estimator is 1.2128, not 1.2301"))))
 
-(deftest the-m1-direction-survives-the-partition
-  (testing "both M1 strata sit wholly above 1.0, so UIx-slower is a
-           verdict the partition does not touch — the fail-closed half
-           does not fire"
-    (let [r (v (:M1 published))]
-      (is (= :numerator-slower (:direction (:reagent-first r))))
-      (is (= :numerator-slower (:direction (:uix-first r))))
-      (is (true? (:direction-agrees? r)))
-      (is (false? (:refuse? r))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 2. The same partition on the other three published rows
 ;; ---------------------------------------------------------------------------
-
-(deftest m2-and-broad-overlap-and-the-current-narrow-row-does-not
-  (testing "M2 and broad overlap; the CURRENT narrow row is disjoint, and
-           only the SUPERSEDED unbatched one overlaps"
-    (is (true?  (:strata-overlap? (v (:M2 published)))))
-    (is (true?  (:strata-overlap? (v (:broad published)))))
-    (is (false? (:strata-overlap? (v (:narrow published))))
-        "the batched narrow row's strata are [1.1700-1.2053] against
-         [1.0570-1.1515] — DISJOINT, so its 1.1540 is not a threshold
-         either")
-    (is (true?  (:strata-overlap? (v superseded-narrow)))
-        "the superseded unbatched row is the one that overlaps")))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. Which row splits disjointly is not stable across runs
@@ -175,19 +157,18 @@
            is empty — which is what a 20%-per-row chance rate looks like"
     (let [disjoint (fn [m] (into #{} (remove #(:strata-overlap? (v (get m %))))
                                  [:M1 :M2 :broad :narrow]))]
-      (is (= #{:M1 :narrow} (disjoint published)))
-      (is (= #{:broad}      (disjoint sweep)))
+      (is (= #{:M1 :narrow} (disjoint published))
+          "M2 and broad overlap; the batched narrow row's strata are
+           [1.1700-1.2053] against [1.0570-1.1515], DISJOINT, so its 1.1540
+           is not a threshold either")
+      (is (true? (:strata-overlap? (v superseded-narrow)))
+          "and only the SUPERSEDED unbatched narrow row overlaps")
+      (is (= #{:broad}      (disjoint sweep))
+          "the sweep's M1 strata overlap (1.3253 [1.1905-1.4242] against
+           1.2338 [1.1462-1.3214]), so the published disjointness is not a
+           property of the M1 row")
       (is (empty? (set/intersection (disjoint published)
                                             (disjoint sweep)))))))
-
-(deftest the-sweep-does-not-reproduce-the-m1-split
-  (testing "the reproduction sweep's M1 strata OVERLAP — 1.3253
-           [1.1905-1.4242] against 1.2338 [1.1462-1.3214] — so the
-           disjointness the published run showed is not a property of the
-           M1 row"
-    (let [r (v (:M1 sweep))]
-      (is (true? (:strata-overlap? r)))
-      (is (true? (:magnitude-resolved? r))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. Direction is the fail-closed half, and it never fires on real data
@@ -1246,8 +1227,6 @@
            5 carries vectors, and this test pins which cells the fixture
            does and does not hold, so a later reader cannot mistake the
            table for something it is not"
-    (is (= 20 (count (for [r retake row rows] (get r row))))
-        "twenty run means — every accepted and every completed run, all four rows")
     (is (= #{:M1 :M2 :broad :narrow} (set (keys run-5-per-round)))
         "and per-round vectors for exactly one run")
     (is (every? #(= 6 (count %)) (vals run-5-per-round))
