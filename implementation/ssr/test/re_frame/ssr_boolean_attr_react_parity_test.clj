@@ -247,9 +247,9 @@
 
 (deftest boolean-attr-class-agrees-with-installed-react-dom
   (testing "Every attribute react-dom accepts a boolean for is
-            classified the way react-dom classifies it. This is the check the
-            two-serialiser parity test structurally cannot make: the evidence
-            comes from outside both consumers of the roster"
+            classified the way react-dom classifies it. A comparison between
+            the two serialisers structurally cannot make this check: the
+            evidence comes from outside both consumers of the roster"
     (doseq [row (rows)]
       (let [attribute (:attribute row)
             react     (react-class row)]
@@ -518,8 +518,8 @@
       (let [react-markup (get row (:field probe))
             ours         (rf.ssr.emit/render-to-string
                            [:div {(keyword (:attribute row)) (:value probe)}] {})]
-        (is (= "<div></div>" ours)
-            "this emitter renders the bare element for every value")
+        ;; The bare element itself is the reserved-prop arm of
+        ;; `render-to-string-follows-react-for-every-non-boolean-probe-value`.
         (when (not= "<div></div>" react-markup)
           (is (not= react-markup ours)
               (str "react-dom renders " (pr-str react-markup)

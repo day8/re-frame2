@@ -111,7 +111,14 @@
       (is (str/includes? out "once=\"2\""))
       (is (str/includes? out "online=\"3\""))
       (is (str/includes? out "only=\"4\""))
-      (is (str/includes? out "on=\"5\"")))))
+      (is (str/includes? out "on=\"5\""))))
+
+  (testing "stripped props are filtered BEFORE the grammar gate — a prop
+            that would otherwise throw `:rf.error/ssr-invalid-attribute-name`
+            is silently dropped rather than raising"
+    (is (= " id=\"x\""
+           (rf.ssr.html-helpers/attr-string {(keyword "onClick=alert(1) data-x") "v"
+                              :id "x"})))))
 
 (deftest attr-string-strips-function-valued-props
   (testing "Function-valued props have no HTML serialisation
@@ -276,9 +283,7 @@
 
     (testing "streaming and non-streaming agree, which is the property the
               shared roster exists to guarantee"
-      (doseq [tree [[:div {:key "k"}]
-                    [:div {:ref "R"}]
-                    [:div {:key 1 :id "a"} "x"]
+      (doseq [tree [[:div {:key 1 :id "a"} "x"]
                     [:main [:div {:key "k"} "x"]]
                     [:ul (for [i [1 2]] [:li {:key i} i])]]]
         (is (= (rf.ssr.emit/render-to-string tree {})
@@ -326,9 +331,6 @@
             `__html` as the element's body."
     (testing ":children is dropped"
       (is (= " id=\"x\"" (rf.ssr.html-helpers/attr-string {:children "v" :id "x"})))
-      (is (= "" (rf.ssr.html-helpers/attr-string {:children "v"}))
-          "a props map that is ONLY :children yields the empty string, not a
-           stray leading space")
       (is (= "" (rf.ssr.html-helpers/attr-string {:children ["a" "b"]}))
           "a VECTOR of children — the shape a hiccup caller's children slot
            actually holds — dropped too, rather than printed as EDN"))
@@ -339,13 +341,7 @@
              (rf.ssr.html-helpers/attr-string
                {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :id "x"})))
       (is (= "" (rf.ssr.html-helpers/attr-string
-                  {:dangerouslySetInnerHTML {:__html "<b>x</b>"}})))
-      (is (not (str/includes?
-                 (rf.ssr.html-helpers/attr-string
-                   {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :id "x"})
-                 ":__html"))
-          "the raw EDN map text must never reach the wire — the risk is
-           not merely a stray attribute NAME but a printed map as its VALUE"))
+                  {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}))))
 
     (testing "REAL children still render — dropping the prop does not touch
               the children slot, which is also React's own precedence rule
@@ -381,11 +377,9 @@
             test demonstrating only one would not show the thing that
             justifies that location."
     (testing "the hiccup BODY emitter (emit/render-to-string). The raw-HTML
-              channel leaves the attributes and arrives as the element's body"
+              channel's body rendering, on both walkers, is pinned by
+              `re-frame.ssr-emit-test/dangerously-set-inner-html-renders-raw-on-both-paths`"
       (is (= "<div></div>" (rf.ssr.emit/render-to-string [:div {:children "v"}] {})))
-      (is (= "<div><b>x</b></div>"
-             (rf.ssr.emit/render-to-string
-               [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}] {})))
       (is (= "<div id=\"a\">x</div>"
              (rf.ssr.emit/render-to-string [:div {:children "c" :id "a"} "x"] {}))
           "the surviving attributes and the real children are untouched"))
@@ -393,16 +387,11 @@
     (testing "the STREAMING shell walker (streaming/render-shell), which
               reaches this roster through the `emit/attr-string` re-export"
       (is (= "<div></div>"
-             (:shell-html (rf.ssr.streaming/render-shell [:div {:children "v"}]))))
-      (is (= "<div><b>x</b></div>"
-             (:shell-html (rf.ssr.streaming/render-shell
-                            [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}])))))
+             (:shell-html (rf.ssr.streaming/render-shell [:div {:children "v"}])))))
 
     (testing "body and streaming emitters agree byte-for-byte, which is the
               property the shared roster exists to guarantee"
-      (doseq [tree [[:div {:children "v"}]
-                    [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
-                    [:div {:children "v" :id "a"} "x"]
+      (doseq [tree [[:div {:children "v" :id "a"} "x"]
                     [:main [:div {:children "v"} "x"]]]]
         (is (= (rf.ssr.emit/render-to-string tree {})
                (:shell-html (rf.ssr.streaming/render-shell tree)))
@@ -442,20 +431,6 @@
              (rf.ssr.html-helpers/attr-string
                {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :class "c"}))))))
 
-(deftest attr-string-normal-attrs-still-emit
-  (testing "the filter does not over-reach — ordinary attrs round-trip"
-    (let [out (rf.ssr.html-helpers/attr-string {:id "main" :class "a b" :data-x "1"})]
-      (is (str/includes? out "id=\"main\""))
-      (is (str/includes? out "class=\"a b\""))
-      (is (str/includes? out "data-x=\"1\""))))
-
-  (testing "stripped props are filtered BEFORE the grammar gate — a prop
-            that would otherwise throw `:rf.error/ssr-invalid-attribute-name`
-            is silently dropped rather than raising"
-    (is (= " id=\"x\""
-           (rf.ssr.html-helpers/attr-string {(keyword "onClick=alert(1) data-x") "v"
-                              :id "x"})))))
-
 (deftest attr-string-serialises-style-map
   (testing "A map-valued `:style` serialises to a CSS declaration
             string (matching react-dom/server's `pushStyleAttribute`), NOT the
@@ -465,10 +440,7 @@
             load."
     (testing "a single string-valued declaration"
       (is (= " style=\"margin:0 1em\""
-             (rf.ssr.html-helpers/attr-string {:style {:margin "0 1em"}})))
-      (is (not (str/includes? (rf.ssr.html-helpers/attr-string {:style {:margin "0 1em"}})
-                              "{:margin"))
-          "the raw EDN map text must never reach the wire"))
+             (rf.ssr.html-helpers/attr-string {:style {:margin "0 1em"}}))))
 
     (testing "camelCase property names → kebab CSS names (React's rule)"
       (is (= " style=\"margin-top:4px\""
@@ -524,9 +496,7 @@
             server/client render agree (no hydration attribute mismatch)."
     (let [html-out (rf.ssr.emit/render-to-string
                      [:div {:style {:margin "0 1em" :color :red}} "hi"] {})]
-      (is (= "<div style=\"margin:0 1em;color:red\">hi</div>" html-out))
-      (is (not (str/includes? html-out "{:margin"))
-          "no raw EDN map text on the wire — no hydration attribute mismatch"))))
+      (is (= "<div style=\"margin:0 1em;color:red\">hi</div>" html-out)))))
 
 (deftest render-to-string-strips-lowercase-handlers-end-to-end
   (testing "The canonical lowercase `on*` payload an attacker

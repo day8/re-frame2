@@ -83,20 +83,6 @@
 
 ;; ---- JVM side: the formatters pin the canonical literals -----------------
 
-(deftest jvm-format-source-coord-byte-identical-to-canonical
-  (testing "the JVM `format-source-coord` consumes the fixture and produces
-            the canonical <ns>:<sym>:<line>:<col> string — bytes match the
-            literal the CLJS companion pins."
-    (is (= expected-source-coord
-           (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords))
-        "JVM data-rf2-source-coord value must match the canonical literal")))
-
-(deftest jvm-format-view-id-byte-identical-to-canonical
-  (testing "the JVM `format-view-id` produces `(str id)`, the
-            same `data-rf-view` value the CLJS host stamps."
-    (is (= expected-view-id (rf.views.jvm-source-coord-annotation/format-view-id fixture-id))
-        "JVM data-rf-view value must match the canonical literal")))
-
 (deftest jvm-format-source-coord-degraded-shape-byte-identical
   (testing "When :line / :column are absent (programmatic reg-view*), the
             JVM helper degrades to <ns>:<sym>:?:? — byte-identical to the

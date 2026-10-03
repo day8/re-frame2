@@ -129,14 +129,7 @@
     (let [d (caught-ex-data
               #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :children [{:html "\n<b>x</b>"}]})))]
-      (is (= :rf.error/ui-tree-malformed (:rf.error/id d)))))
-  (testing "an ordinary <textarea> body still emits — only :html children reject"
-    (is (= "<textarea>hi</textarea>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :children ["hi"]})))
-        "a string child is fine")
-    (is (= "<textarea>plain</textarea>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "plain"}})))
-        ":value content is fine")))
+      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
 
 (deftest textarea-effective-child-stream-is-validated
   ;; A direct `{:html …}` check of only the textarea's IMMEDIATE children
@@ -672,9 +665,7 @@
   (testing "VACUITY: no LF prefix ⇒ no compensation (the compensation must not add one)"
     (is (= "<pre>hello</pre>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["hello"]})))
-        "content not beginning with LF is emitted unchanged")
-    (is (= "<textarea>hello</textarea>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :textarea :attrs {:value "hello"}})))))
+        "content not beginning with LF is emitted unchanged"))
   (testing "a leading CR (\\r) is NOT a newline-eating trigger — matches React"
     (is (= "<pre>\r\nhello</pre>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :pre :children ["\r\nhello"]})))

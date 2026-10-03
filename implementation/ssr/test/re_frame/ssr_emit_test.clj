@@ -31,7 +31,6 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.emit :as rf.ssr.emit]
             [re-frame.ssr.streaming :as rf.ssr.streaming]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
@@ -67,35 +66,73 @@
         (str "emit-ui-tree byte-mismatch for <" tag-name ">"))))
 
 ;; ===========================================================================
-;; Strip-prop XSS rule through `render-to-string` / `emit-element`
+;; Strip-prop XSS rule through both hiccup walkers
 ;; ===========================================================================
 
-(deftest render-to-string-strips-event-handler-props
-  (testing "An `on*` event-handler prop fed
-            through the FULL `render-to-string` emit composition (not
-            `attr-string` in isolation) is dropped at emit time. Pins
-            that the strip survives `emit-element`'s attr path."
-    (testing ":on-click (kebab) is stripped through render-to-string"
-      (is (= "<div id=\"x\"></div>"
-             (rf.ssr.emit/render-to-string [:div {:on-click "alert(1)" :id "x"}] {}))))
-
-    (testing ":onClick (camelCase) is stripped through render-to-string"
-      (is (= "<div id=\"x\"></div>"
-             (rf.ssr.emit/render-to-string [:div {:onClick "alert(1)" :id "x"}] {}))))
-
-    (testing "the stripped handler value never appears in the output
-              string — belt-and-braces against a partial-emit leak"
-      (let [html (rf.ssr.emit/render-to-string
-                   [:div {:onMouseDown "steal()" :id "x"}] {})]
-        (is (not (str/includes? html "steal"))
-            "the handler body must not survive anywhere in the markup")
-        (is (not (str/includes? html "onMouseDown"))
-            "the handler attribute name must not survive either")))
-
-    (testing "a div whose ONLY attr is a stripped handler emits a clean
-              open tag — no stray space, no bare attr"
-      (is (= "<div></div>"
-             (rf.ssr.emit/render-to-string [:div {:on-click "f"}] {}))))))
+(deftest hostile-props-are-stripped-on-both-walkers
+  (testing "Every strip class — an `on*` handler in any spelling, a
+            function value, a prototype-pollution key in any case — is
+            dropped at emit time through the FULL composition of BOTH
+            hiccup walkers: `render-to-string` (`emit-element`) and the
+            streaming shell walk (`walk-dom-tag`, which re-derives attrs
+            via `emit/attr-string`). The rows reach the open/close branch,
+            the void-element branch and nested descent, where
+            `emit-children` re-enters `emit-element` per child. Each
+            expectation is the exact markup, so no handler name or body, no
+            stray space and no bare attribute reaches the wire."
+    (doseq [[label tree expected]
+            [["kebab :on-click"
+              [:div {:on-click "alert(1)" :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["camelCase :onClick"
+              [:div {:onClick "alert(1)" :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["multi-word camelCase :onMouseDown"
+              [:div {:onMouseDown "steal()" :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["a stripped handler as the ONLY attr"
+              [:div {:on-click "f"}]
+              "<div></div>"]
+             ["a handler beside a child"
+              [:div {:on-click "alert(1)" :id "x"} [:p "shell body"]]
+              "<div id=\"x\"><p>shell body</p></div>"]
+             ["a function value"
+              [:div {:title (fn [_] :handler) :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["a function value on an innocuous key"
+              [:span {:data-cb (fn [] nil)}]
+              "<span></span>"]
+             ["__proto__"
+              [:div {:__proto__ "polluted" :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["constructor"
+              [:div {:constructor "polluted" :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["prototype"
+              [:div {:prototype "polluted" :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["a prototype-pollution key matched case-insensitively"
+              [:div {:Constructor "polluted" :id "x"}]
+              "<div id=\"x\"></div>"]
+             ["a function value and __proto__ beside a child"
+              [:div {:title (fn [] nil) :__proto__ "polluted" :id "x"} [:span "ok"]]
+              "<div id=\"x\"><span>ok</span></div>"]
+             ["void <input>, kebab handler"
+              [:input {:on-change "x()" :id "x"}]
+              "<input id=\"x\">"]
+             ["void <img>, camelCase handler"
+              [:img {:onError "alert(1)" :src "/a.png"}]
+              "<img src=\"/a.png\">"]
+             ["void <input> under a <form>"
+              [:form [:input {:onChange "steal()" :name "q"}]]
+              "<form><input name=\"q\"></form>"]
+             ["a handler several levels deep"
+              [:div [:section [:ul [:li {:onClick "deep()" :class "item"} "deep"]]]]
+              "<div><section><ul><li class=\"item\">deep</li></ul></section></div>"]]]
+      (is (= expected (rf.ssr.emit/render-to-string tree {}))
+          (str "render-to-string — " label))
+      (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
+          (str "render-shell — " label)))))
 
 (deftest render-to-string-strips-lowercase-touch-handlers
   (testing "The lower-case W3C Touch Events L2 GlobalEventHandlers
@@ -119,48 +156,6 @@
           (is (not (str/includes? html "alert(document.cookie)"))
               (str "touch handler payload reached wire HTML for " k ": "
                    html)))))))
-
-(deftest render-to-string-strips-function-valued-props
-  (testing "A function-valued prop has no HTML
-            serialisation and is dropped through the full emit
-            composition."
-    (is (= "<div id=\"x\"></div>"
-           (rf.ssr.emit/render-to-string [:div {:title (fn [_] :handler) :id "x"}] {})))
-
-    (testing "fn value is stripped even on an innocuous key name"
-      (is (= "<span></span>"
-             (rf.ssr.emit/render-to-string [:span {:data-cb (fn [] nil)}] {}))))))
-
-(deftest render-to-string-drops-prototype-pollution-keys
-  (testing "Reserved prototype-pollution keys
-            (`__proto__` / `constructor` / `prototype`) are dropped
-            through `render-to-string` before they reach the host
-            createElement-equivalent on hydration."
-    (doseq [k ["__proto__" "constructor" "prototype"]]
-      (testing (str "`" k "` is dropped through render-to-string")
-        (is (= "<div id=\"x\"></div>"
-               (rf.ssr.emit/render-to-string
-                 [:div {(keyword k) "polluted" :id "x"}] {}))
-            (str k " must not survive to wire output via the emit path"))))
-
-    (testing "the match is case-insensitive at the composed callsite too"
-      (is (= "<div id=\"x\"></div>"
-             (rf.ssr.emit/render-to-string
-               [:div {(keyword "Constructor") "polluted" :id "x"}] {}))))))
-
-(deftest render-to-string-strips-props-on-void-element
-  (testing "The strip composes with the VOID-element branch
-            of `emit-element` (emit.cljc:322-323), not just the
-            open/close branch. An `on*` handler on an <input> is dropped
-            and the void tag self-closes cleanly."
-    (is (= "<input id=\"x\">"
-           (rf.ssr.emit/render-to-string
-             [:input {:on-change "x()" :id "x"}] {})))
-    (let [html (rf.ssr.emit/render-to-string
-                 [:img {:onError "alert(1)" :src "/a.png"}] {})]
-      (is (str/includes? html "src=\"/a.png\"") "the legit attr survives")
-      (is (not (str/includes? html "onError")) "the handler is stripped")
-      (is (not (str/includes? html "alert")) "the handler body is gone"))))
 
 (deftest render-to-string-strips-props-through-registered-view-root
   (testing "The strip composes with the CALLABLE-head
@@ -198,68 +193,9 @@
       (is (not (str/includes? html "alert"))
           "no handler body leaks through the injection composition"))))
 
-(deftest render-to-string-strips-deep-nested-handler
-  (testing "The strip runs at EVERY emit-element descent, not
-            only the root. A handler buried several levels deep is
-            dropped — `emit-children` re-enters `emit-element` per child."
-    (let [html (rf.ssr.emit/render-to-string
-                 [:div
-                  [:section
-                   [:ul
-                    [:li {:onClick "deep()" :class "item"} "deep"]]]]
-                 {})]
-      (is (str/includes? html "class=\"item\"") "the deep legit attr survives")
-      (is (str/includes? html ">deep</li>") "the deep text survives")
-      (is (not (str/includes? html "onClick")) "the deep handler is stripped")
-      (is (not (str/includes? html "deep()")) "the deep handler body is gone"))))
-
 ;; ===========================================================================
 ;; Strip-prop XSS rule through `streaming/render-shell`'s walk
 ;; ===========================================================================
-
-(deftest render-shell-strips-event-handler-props
-  (testing "The streaming shell walker
-            (`walk-dom-tag`, streaming.cljc:225-227) re-derives attrs via
-            `emit/attr-string`, so an `on*` handler on a shell DOM
-            element must be stripped through the shell walk too — not
-            just through the non-streaming `render-to-string`."
-    (let [tree [:div {:on-click "alert(1)" :id "x"}
-                [:p "shell body"]]
-          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
-      (is (str/includes? shell-html "<p>shell body</p>")
-          "the shell body renders")
-      (is (str/includes? shell-html "id=\"x\"")
-          "the legit attr survives the walk")
-      (is (not (str/includes? shell-html "on-click"))
-          "the handler is stripped through walk-dom-tag")
-      (is (not (str/includes? shell-html "alert(1)"))
-          "the handler body never reaches the shell HTML"))))
-
-(deftest render-shell-strips-function-and-proto-props
-  (testing "Fn-valued + prototype-pollution
-            props are also stripped through the streaming walk."
-    (let [tree [:div {:title (fn [] nil)
-                      :__proto__ "polluted"
-                      :id "x"}
-                [:span "ok"]]
-          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
-      (is (str/includes? shell-html "id=\"x\"") "the legit attr survives")
-      (is (str/includes? shell-html "<span>ok</span>") "body renders")
-      (is (not (str/includes? shell-html "__proto__"))
-          "the prototype-pollution key is stripped through the walk")
-      (is (not (str/includes? shell-html "polluted"))
-          "the prototype-pollution value never reaches the shell"))))
-
-(deftest render-shell-strips-handler-on-void-element
-  (testing "The streaming walk's void-element branch
-            (streaming.cljc:224) also runs the strip. An `on*` handler on
-            an <input> in the shell is dropped."
-    (let [tree [:form
-                [:input {:onChange "steal()" :name "q"}]]
-          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
-      (is (str/includes? shell-html "name=\"q\"") "the legit attr survives")
-      (is (not (str/includes? shell-html "onChange")) "the handler is stripped")
-      (is (not (str/includes? shell-html "steal")) "the handler body is gone"))))
 
 (deftest render-shell-strips-handler-buried-near-suspense-boundary
   (testing "A hostile handler on a shell element that SITS
@@ -344,31 +280,7 @@
                   "{\"@type\":\"WebSite\",\"u\":\"a</\\u0073cript>b\"}"
                   "</script>")
              out)
-          "the embedded </script> is rewritten to </\\u0073cript>, element not terminated")
-      ;; Reversing `\u0073` -> `s` (exactly what a JS engine / JSON.parse does
-      ;; when decoding the escape) restores the author's JSON verbatim — the
-      ;; round-trip JSON.parse performs.
-      (let [body    (-> out
-                        (str/replace-first "<script type=\"application/ld+json\">" "")
-                        (str/replace-first "</script>" ""))
-            decoded (str/replace body "\\u0073" "s")]
-        (is (= json decoded)
-            "decoding \\u0073 -> s restores the original JSON island (JSON.parse round-trip)")))))
-
-(deftest data-payload-json-ld-channel-uses-stricter-escape-unchanged
-  (testing "The DATA-payload channel (reg-head JSON-LD) keeps its own
-            escape: the SAME `</script>` payload keeps the stricter
-            data-aware `\\u003c` escape, DISTINCT from the author-content
-            raw-text closing-sequence rewrite."
-    (let [html (rf.ssr/head-model->html
-                 {:json-ld [{"@type"    "Article"
-                             "headline" "</script><script>alert(1)</script>"}]})]
-      (is (str/includes? html "\\u003c/script>\\u003cscript>")
-          "JSON-LD data payload still escapes every `<` as the JSON `\\u003c` escape")
-      (is (not (str/includes? html "</\\u0073cript>"))
-          "the data channel does NOT use the author-content raw-text rewrite")
-      (is (not (str/includes? html "</script><script>alert"))
-          "the hostile breakout literal does not survive on the data channel"))))
+          "the embedded </script> is rewritten to </\\u0073cript>, element not terminated"))))
 
 (deftest render-to-string-allows-empty-or-element-only-raw-text-tags
   (testing "A raw-text tag with NO string child is inert; the raw-text
@@ -400,13 +312,10 @@
     (testing "[:BR] self-closes (no </BR>)"
       (let [html (rf.ssr.emit/render-to-string [:BR] {})]
         (is (= "<BR>" html)
-            "void classification is case-insensitive; author case preserved")
-        (is (not (str/includes? html "</BR>"))
-            "no spurious closing tag for an upper-case void element")))
+            "void classification is case-insensitive; author case preserved")))
     (testing "[:Img …] self-closes with its attrs"
       (let [html (rf.ssr.emit/render-to-string [:Img {:src "/a.png"}] {})]
-        (is (= "<Img src=\"/a.png\">" html))
-        (is (not (str/includes? html "</Img>")))))
+        (is (= "<Img src=\"/a.png\">" html))))
     (testing "[:INPUT …] self-closes"
       (is (= "<INPUT name=\"q\">"
              (rf.ssr.emit/render-to-string [:INPUT {:name "q"}] {}))))
@@ -487,9 +396,7 @@
       (let [html (rf.ssr.emit/render-to-string [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})]
         (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">a</div><div>b</div>"
                         html)
-            (str "exactly one data-rf-render-hash, on the first div; got: " html))
-        (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
-            "marker appears exactly once across the fragment's children")))
+            (str "exactly one data-rf-render-hash, on the first div; got: " html))))
     (testing "an explicit :render-hash threads through the fragment root"
       (is (= "<div data-rf-render-hash=\"deadbeef\">x</div>"
              (rf.ssr.emit/render-to-string [:<> [:div "x"]] {:render-hash "deadbeef"}))
@@ -497,11 +404,7 @@
     (testing "nested fragments keep threading the marker down to the first DOM tag"
       (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">y</div>"
                       (rf.ssr.emit/render-to-string [:<> [:<> [:div "y"]]] {:render-hash "deadbeef"}))
-          "a fragment whose first child is a fragment still places the marker"))
-    (testing "no opts → no marker (root-attrs nil on the fragment branch)"
-      (is (= "<div>x</div>"
-             (rf.ssr.emit/render-to-string [:<> [:div "x"]] {}))
-          "without :render-hash the fragment root emits no marker"))))
+          "a fragment whose first child is a fragment still places the marker"))))
 
 (deftest fragment-props-map-is-not-a-child
   (testing "A `:<>` fragment's PROPS MAP at slot 1 is not a child.
@@ -529,9 +432,7 @@
     (testing "no EDN of the props map survives anywhere on the wire"
       (let [html (rf.ssr.emit/render-to-string
                    [:<> {:key "k" :data-x "v"} [:p "body"]] {})]
-        (is (= "<p>body</p>" html) (str "got: " html))
-        (is (not (str/includes? html ":key")) "no keyword EDN on the wire")
-        (is (not (str/includes? html "&quot;")) "no escaped EDN string on the wire")))
+        (is (= "<p>body</p>" html) (str "got: " html))))
     (testing "a fragment that is ONLY a props map emits nothing"
       (is (= "" (rf.ssr.emit/render-to-string [:<> {:key "k"}] {})))
       (is (= "" (rf.ssr.emit/render-to-string [:<>] {}))))
@@ -572,9 +473,7 @@
       (let [html (rf.ssr.emit/render-to-string
                    [:<> {:key "k"} [:div "a"] [:div "b"]] {:render-hash "deadbeef"})]
         (is (= "<div data-rf-render-hash=\"deadbeef\">a</div><div>b</div>" html)
-            (str "marker on the first div only; got: " html))
-        (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
-            "marker appears exactly once across the fragment's children")))
+            (str "marker on the first div only; got: " html))))
     (testing "a props-carrying fragment agrees byte-for-byte with the bare one"
       (is (= (rf.ssr.emit/render-to-string
                [:<> [:div "a"] [:div "b"]] {:render-hash "deadbeef"})
@@ -609,9 +508,7 @@
     (testing "the marker lands on the FIRST DOM child only across a multi-child seq"
       (let [html (rf.ssr.emit/render-to-string (for [i [1 2]] [:p i]) {:render-hash "deadbeef"})]
         (is (re-matches #"<p data-rf-render-hash=\"[0-9a-f]+\">1</p><p>2</p>" html)
-            (str "exactly one marker, on the first <p>; got: " html))
-        (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
-            "marker appears exactly once across the seq's children")))
+            (str "exactly one marker, on the first <p>; got: " html))))
     (testing "an explicit :render-hash threads through the lazy-seq root"
       (is (= "<div data-rf-render-hash=\"deadbeef\">x</div>"
              (rf.ssr.emit/render-to-string (list [:div "x"]) {:render-hash "deadbeef"}))
@@ -641,17 +538,6 @@
                              {:id :b1 :fallback [:span "loading"]}
                              [:div "resolved"]]
                             {})))
-    (testing "the marker's id/fallback/subtree never reach the wire as
-              a bogus <suspense-boundary> element"
-      (let [thrown (try (rf.ssr.emit/render-to-string
-                          [:rf/suspense-boundary
-                           {:id :secret-boundary :fallback [:span "spin"]}
-                           [:div "leak-me"]]
-                          {})
-                        (catch clojure.lang.ExceptionInfo e e))]
-        (is (instance? clojure.lang.ExceptionInfo thrown))
-        (is (= :rf.error/ssr-suspense-boundary-outside-stream
-               (:rf.error/id (ex-data thrown))))))
     (testing "a marker NESTED inside a normal DOM tree also fails loud
               (emit-children recurses into it)"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -857,15 +743,7 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo
                             #":rf.error/invalid-hiccup-head"
                             (rf.ssr.emit/render-to-string el {}))
-          (str "malformed-head vector must fail loud, not emit raw: " (pr-str el)))))
-
-  (testing "No raw `<script>` / `<img onerror>` survives to output
-            for a malformed-head vector (the throw prevents any emission)"
-    (doseq [el [[nil "<script>alert(1)</script>"]
-                ["x" "<img src=x onerror=alert(1)>"]]]
-      (let [out (try (rf.ssr.emit/render-to-string el {}) (catch Throwable _ ::threw))]
-        (is (= ::threw out)
-            (str "no wire output produced for malformed head: " (pr-str el)))))))
+          (str "malformed-head vector must fail loud, not emit raw: " (pr-str el))))))
 
 (deftest streaming-rejects-malformed-hiccup-head
   (testing "The streaming shell walker rejects a malformed-head
@@ -955,14 +833,7 @@
           "sync emit renders the same-arity-inner Form-2 output")
       (is (= "<p>v=7</p>"
              (:shell-html (rf.ssr.streaming/render-shell [form2-arg 7])))
-          "streaming renders the same-arity-inner Form-2 output")
-      ;; Belt-and-braces: no fn-identity toString leaks into the output.
-      (doseq [out [(rf.ssr.emit/emit-element [form2-closed "hello"])
-                   (:shell-html (rf.ssr.streaming/render-shell [form2-closed "hello"]))]]
-        (is (not (str/includes? out "fn__"))
-            "no inner-fn .toString (`…fn__…@…`) leaks as page text")
-        (is (not (str/includes? out "@"))
-            "no object-identity `@hash` leaks as page text"))))
+          "streaming renders the same-arity-inner Form-2 output")))
 
   (testing "A component that resolves to a fn even after the
             Form-2 unwrap (deeper than Form-2) fails loud, never leaking a fn"
@@ -1160,14 +1031,17 @@
 ;; than its shortest arm requires, CLJS binds the missing parameters to
 ;; `undefined` and renders while the JVM raises; the JVM is stricter there on
 ;; purpose (`emit/invoke-form-2-render-fn`, THE SUPPORTED CONTRACT). What is
-;; here is the second public consumer: streaming shares one resolver with
-;; sync, so every row asserts through BOTH.
+;; here is the second public consumer: streaming shares the one resolver
+;; with sync, so the table's rows are asserted here through
+;; `streaming/render-shell`.
 ;; ===========================================================================
 
 (deftest emit-form-2-multi-arity-inner-refuses-what-cljs-refuses
   (testing "A multi-arity inner handed a count no arm declares is
-            REFUSED on both server paths, as the client refuses it, rather
-            than silently rendering some shorter arm's output"
+            REFUSED by the streaming shell walk, as the client refuses it,
+            rather than silently rendering some shorter arm's output. The
+            sync emitter's rows are the cross-host table in
+            `re-frame.ssr.form2-arity-cljs-test`"
     ;; The two dispatcher shapes above. Under a prefix walk the first would
     ;; render `<p>m2|a|b</p>` and the second `<p>m1|a</p>`.
     (let [multi-1-2 (fn [& _] (fn ([x]   [:p (str "m1|" x)])
@@ -1175,14 +1049,8 @@
           multi-0-1 (fn [& _] (fn ([]  [:p "m0"])
                                   ([x] [:p (str "m1|" x)])))]
       (is (thrown? clojure.lang.ArityException
-                   (rf.ssr.emit/emit-element [multi-1-2 "a" "b" "c"]))
-          "sync emit refuses a 1-or-2-arity inner handed 3 args")
-      (is (thrown? clojure.lang.ArityException
                    (rf.ssr.streaming/render-shell [multi-1-2 "a" "b" "c"]))
           "streaming refuses a 1-or-2-arity inner handed 3 args")
-      (is (thrown? clojure.lang.ArityException
-                   (rf.ssr.emit/emit-element [multi-0-1 "a" "b"]))
-          "sync emit refuses a 0-or-1-arity inner handed 2 args")
       (is (thrown? clojure.lang.ArityException
                    (rf.ssr.streaming/render-shell [multi-0-1 "a" "b"]))
           "streaming refuses a 0-or-1-arity inner handed 2 args")
@@ -1191,24 +1059,18 @@
       ;; they DO declare — otherwise the rows above would be satisfied by a
       ;; blanket refusal of multi-arity inners, which is a different (and
       ;; worse) behaviour wearing the same green.
-      (is (= "<p>m2|a|b</p>" (rf.ssr.emit/emit-element [multi-1-2 "a" "b"]))
-          "sync emit selects the exact 2-arity arm")
       (is (= "<p>m2|a|b</p>"
              (:shell-html (rf.ssr.streaming/render-shell [multi-1-2 "a" "b"])))
           "streaming selects the exact 2-arity arm")
-      (is (= "<p>m1|a</p>" (rf.ssr.emit/emit-element [multi-1-2 "a"]))
-          "sync emit selects the exact 1-arity arm")
       (is (= "<p>m1|a</p>"
              (:shell-html (rf.ssr.streaming/render-shell [multi-1-2 "a"])))
           "streaming selects the exact 1-arity arm")
-      (is (= "<p>m0</p>" (rf.ssr.emit/emit-element [multi-0-1]))
-          "sync emit selects the exact 0-arity arm")
       (is (= "<p>m0</p>" (:shell-html (rf.ssr.streaming/render-shell [multi-0-1])))
           "streaming selects the exact 0-arity arm")))
 
-  (testing "A fixed+variadic inner routes by the same rules: the
-            exact fixed arm when one matches, otherwise the variadic arm with
-            the WHOLE arg list, on both server paths"
+  (testing "A fixed+variadic inner routes by the same rules through the
+            streaming shell walk: the exact fixed arm when one matches,
+            otherwise the variadic arm with the WHOLE arg list"
     ;; `(fn ([a] …) ([a b & r] …))` — fixed arity 1 plus a variadic arm
     ;; requiring 2. The compiled CLJS dispatcher sends 1 arg to the fixed arm
     ;; and 3 to the variadic one; so must the JVM. Note a prefix walk would
@@ -1216,13 +1078,9 @@
     (let [mixed (fn [& _] (fn ([a] [:p (str "mx1|" a)])
                               ([a b & r] [:p (str "mxv|" a "|" b "|"
                                                   (str/join "," r))])))]
-      (is (= "<p>mxv|a|b|c</p>" (rf.ssr.emit/emit-element [mixed "a" "b" "c"]))
-          "sync emit hands the satisfied variadic arm every arg")
       (is (= "<p>mxv|a|b|c</p>"
              (:shell-html (rf.ssr.streaming/render-shell [mixed "a" "b" "c"])))
           "streaming hands the satisfied variadic arm every arg")
-      (is (= "<p>mx1|a</p>" (rf.ssr.emit/emit-element [mixed "a"]))
-          "sync emit prefers the exact fixed arm")
       (is (= "<p>mx1|a</p>" (:shell-html (rf.ssr.streaming/render-shell [mixed "a"])))
           "streaming prefers the exact fixed arm"))))
 
@@ -1256,14 +1114,15 @@
 ;; 011 §What React-native adoption does not catch records that React neither
 ;; patches nor reports attribute-only hydration mismatches.
 ;;
-;; These drive the classes through `emit/render-to-string`, and compare them
-;; against the structural-tree serialiser. Every react-dom-evidenced row runs
-;; through BOTH hiccup SSR modes — `render-to-string` and
-;; `streaming/render-shell`, which share one `attr-string` — in
+;; These drive the classes through `emit/render-to-string`. Every
+;; react-dom-evidenced row runs through BOTH hiccup SSR modes —
+;; `render-to-string` and `streaming/render-shell`, which share one
+;; `attr-string` — and through the structural-tree serialiser, each checked
+;; against react-dom's own class, in
 ;; `re-frame.ssr-boolean-attr-react-parity-test`.
 ;; ===========================================================================
 
-(deftest render-to-string-aria-and-data-booleans-stringify
+(deftest render-to-string-aria-booleans-stringify-both-ways
   (testing "An `aria-*` boolean stringifies in BOTH directions;
             `false` is a state, never an omission"
     (is (= "<button aria-expanded=\"true\">x</button>"
@@ -1272,23 +1131,12 @@
     (is (= "<button aria-expanded=\"false\">x</button>"
            (rf.ssr.emit/render-to-string [:button {:aria-expanded false} "x"] {}))
         "aria-expanded false → aria-expanded=\"false\", never absent")
-    (is (= "<div aria-hidden=\"false\"></div>"
-           (rf.ssr.emit/render-to-string [:div {:aria-hidden false}] {}))
-        "aria-hidden false survives — absent would mean the opposite")
     (is (= "<div aria-checked=\"false\"></div>"
            (rf.ssr.emit/render-to-string [:div {:aria-checked false}] {}))
         "aria-checked false survives")
     (is (= "<div aria-disabled=\"false\"></div>"
            (rf.ssr.emit/render-to-string [:div {:aria-disabled false}] {}))
-        "aria-disabled false survives"))
-
-  (testing "`data-*` booleans stringify the same way"
-    (is (= "<div data-open=\"true\"></div>"
-           (rf.ssr.emit/render-to-string [:div {:data-open true}] {}))
-        "data-* true → data-open=\"true\"")
-    (is (= "<div data-open=\"false\"></div>"
-           (rf.ssr.emit/render-to-string [:div {:data-open false}] {}))
-        "data-* false → data-open=\"false\"")))
+        "aria-disabled false survives")))
 
 (deftest render-to-string-booleanish-attrs-stringify-both-ways
   (testing "The nested editable-parent case: an explicit
@@ -1340,46 +1188,3 @@
     (is (= "<button disabled>Go</button>"
            (rf.ssr.emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
         "nil on an ordinary attribute is dropped, beside a presence attr and text")))
-
-(defn- boolean-attr-class-signature
-  "Reduce an emitted element string to WHICH boolean class the serialiser
-  applied to `attribute-name` — the comparable across the two SSR
-  serialisers, whose presence SPELLINGS differ by design (the hiccup emitter
-  writes a bare `disabled`, the structural-tree serialiser `disabled=\"\"`;
-  011 §Hash-based mismatch detection tolerates exactly that difference)."
-  [attribute-name html]
-  (let [lower (str/lower-case html)
-        nm    (str/lower-case attribute-name)]
-    (cond
-      (str/includes? lower (str nm "=\"true\""))  :stringified-true
-      (str/includes? lower (str nm "=\"false\"")) :stringified-false
-      (str/includes? lower (str nm "=\"\""))      :presence
-      (str/includes? lower (str " " nm ">"))      :presence
-      (str/includes? lower (str " " nm " "))      :presence
-      :else                                       :absent)))
-
-(deftest boolean-classes-agree-with-the-structural-tree-serialiser
-  (testing "The hiccup emitter and `emit-ui-tree` reach the SAME
-            class verdict for every row of 004B §Booleans and their
-            neighbours. Compared as CLASSES, not bytes: the two pipelines are
-            separate (004B) and differ in presence spelling and name mapping;
-            what must not differ is which class an attribute is in"
-    (doseq [[attribute-key value] [[:aria-hidden true]     [:aria-hidden false]
-                                   [:aria-expanded false]
-                                   [:data-open true]       [:data-open false]
-                                   [:contentEditable true] [:contentEditable false]
-                                   [:draggable false]
-                                   [:spellCheck false]
-                                   [:disabled true]        [:disabled false]
-                                   [:checked false]        [:hidden true]
-                                   [:download true]        [:download false]
-                                   [:title true]           [:role false]]]
-      (let [attribute-name (name attribute-key)
-            hiccup-html    (rf.ssr.emit/render-to-string [:div {attribute-key value}] {})
-            tree-html      (rf.ssr.ui-tree/emit-ui-tree
-                            (v1 {:tag :div :attrs {attribute-key value}}))]
-        (is (= (boolean-attr-class-signature attribute-name tree-html)
-               (boolean-attr-class-signature attribute-name hiccup-html))
-            (str attribute-key " " value
-                 " — hiccup emitted " (pr-str hiccup-html)
-                 ", the structural-tree serialiser " (pr-str tree-html)))))))

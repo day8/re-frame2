@@ -22,7 +22,7 @@
   arm sits at that site.
 
   A keyword head is NOT a view and NOT annotated — it is a DOM
-  element (`keyword-head-*` below).
+  element (`re-frame.ssr-keyword-head-contract-test` pins that rule).
 
   ## Posture split
 
@@ -37,16 +37,15 @@
   So every assertion ABOUT an annotation — present or absent — lives inside a
   `(when interop/debug-enabled? …)` arm.
   The negative ones travel with the positive ones deliberately: \"the outer
-  view did not stamp itself\", \"a fragment root is not annotated\", \"a
-  keyword head is not annotated\" all pass VACUOUSLY under the gate, where
-  nothing stamps anything, so leaving them outside the arm would report a
-  green that proved nothing.
+  view did not stamp itself\" and \"a fragment root is not annotated\" pass
+  VACUOUSLY under the gate, where nothing stamps anything, so leaving them
+  outside the arm would report a green that proved nothing.
 
   What is posture-independent, and therefore what this namespace
   contributes to `scripts/test-ssr-prod-gate.sh`, is the RENDER: which
   element each head shape resolves to and what it emits.  A Form-2 view's
   inner output is the thing rendered; a fragment root emits its children
-  unwrapped; a keyword head is an element, not a view; a nested view-ref root
+  unwrapped; a nested view-ref root
   renders the inner view.  Those hold in both postures and are asserted
   outside the arm.  `production-build-emits-no-annotation` gains a REAL-gate
   arm (`when-not interop/debug-enabled?`) so the production posture is
@@ -293,30 +292,6 @@
             (str "streamed shell must be annotated; got: " (pr-str shell-html)))
         (is (str/includes? shell-html
                            "data-rf-view=\":ssr-coord-test/shell\""))))))
-
-;; ---------------------------------------------------------------------------
-;; A keyword head is an element, NOT a view, NOT annotated
-;; ---------------------------------------------------------------------------
-
-(deftest keyword-head-is-an-element-and-is-not-annotated
-  (testing "A keyword head is a DOM / custom element
-            on every host, never a view, so it carries no
-            annotation even when a view of the same id is registered."
-    (rf/reg-view* :coord-demo/card {} (fn [_] [:div.card "x"]))
-    (let [html (rf.ssr/render-to-string [:coord-demo/card :revenue] {})]
-      ;; SEMANTIC, posture-independent: the keyword head is
-      ;; emitted as a CUSTOM ELEMENT with its argument as a child, and the
-      ;; identically-named registered view is NOT invoked (no `.card` div).
-      ;; That resolution rule is the load-bearing half and is posture-free;
-      ;; the `=` pins it exactly, annotation-free.
-      (is (= "<card>revenue</card>" html)))))
-
-(deftest plain-hiccup-not-annotated
-  (testing "ordinary tags are never annotated"
-    ;; SEMANTIC, posture-independent: ordinary hiccup emits
-    ;; exactly itself, so the exact bytes also show no annotation was added.
-    (is (= "<div><span>x</span></div>"
-           (rf.ssr/render-to-string [:div [:span "x"]] {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Production gate — at the registration site
