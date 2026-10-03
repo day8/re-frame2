@@ -189,14 +189,16 @@ With the preload wired, the only code your app needs is its ordinary boot. The p
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent]
-            [reagent.dom :as rdom]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [my.app.views :as views]))
 
+(defonce app-root (reagent-adapter/client-root))   ;; inert until the first render!
+
 (defn ^:export main []
-  (rf/init! reagent/adapter)             ;; install the substrate adapter
-  (rdom/render [views/root]
-               (js/document.getElementById "app")))
+  (rf/init! reagent-adapter/adapter)               ;; install the substrate adapter
+  (reagent-adapter/render! app-root
+    [rf/frame-root {:id :app/main} [views/root]]
+    (js/document.getElementById "app")))
 ```
 
 The preload registers Xray's listeners and opens it in `[data-rf-xray-host]` once `rf/init!` has installed the adapter. Your app code never requires `day8.re-frame2-xray.core` or calls `init!`.
