@@ -316,6 +316,52 @@ Use `h/as-element` for one subtree returned through a callback. Use
 `h/as-component` when a native parent will mount, key, and re-render the view
 as a component.
 
+In the cell below the parent is a reagent2 `rf/reg-view` under
+`rf/frame-root`, and each row is a Fresco view crossing through
+`h/as-component`. The parent passes only an id; the row reads its todo with
+`h/sub` and dispatches its intent to the frame it finds in React context. Tick
+a row to see both work.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"     :done? false}
+                  2 {:id 2 :title "Walk the dog" :done? true}}}}))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-sub :todo/by-id
+  (fn [db [_ id]]
+    (get-in db [:todos id])))
+
+;; The Fresco view.
+(h/defview todo-row [{:keys [id]}]
+  (let [{:keys [title done?]} (h/sub [:todo/by-id id])]
+    [:li
+     [:label
+      [:input {:type      :checkbox
+               :checked   done?
+               :on-change [:todo/toggle id]}]
+      " " title (when done? " (done)")]]))
+
+;; Its React component, created once at top level.
+(def todo-row* (h/as-component todo-row))
+
+;; The reagent2 parent.
+(rf/reg-view todo-list []
+  [:ul
+   [:> todo-row* {:id 1}]
+   [:> todo-row* {:id 2}]])
+
+[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list]]
+```
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |

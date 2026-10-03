@@ -192,6 +192,54 @@ shape, and a routed application needs `:url-bound? true`
 nothing, and a bare `rf/subscribe` in a Fresco body throws. Translate every
 read and dispatch in a body you move, not only the ones the compiler flags.
 
+The two cells below render the same list. The first is the `rf/reg-view`
+original on the reagent2 adapter, and it registers the model. The second is
+the Fresco port, which reuses that model. Every difference between them is in
+the tables above: `rf/reg-view` becomes `h/defview`, `@(subscribe ...)` becomes
+`h/sub`, the dispatch closure becomes the event vector, `^{:key id}` moves into
+the props map, and `rf/frame-root` becomes `h/frame-root`. Each cell has its
+own frame, so toggling a todo in one leaves the other alone.
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"     :done? false}
+                  2 {:id 2 :title "Walk the dog" :done? true}}}}))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-sub :todo/all
+  (fn [db _]
+    (vec (sort-by :id (vals (:todos db))))))
+
+(rf/reg-view todo-list []
+  [:ul
+   (for [{:keys [id title done?]} @(subscribe [:todo/all])]
+     ^{:key id}
+     [:li title (when done? " (done)") " "
+      [:button {:on-click #(dispatch [:todo/toggle id])} "Toggle"]])])
+
+[rf/frame-root {:id :reagent-original :initial-events [[:todo/initialise]]}
+ [todo-list]]
+```
+
+```cljs-rf2
+(require '[re-frame.fresco :as h])
+
+(h/defview ported-todo-list [_]
+  [:ul
+   (for [{:keys [id title done?]} (h/sub [:todo/all])]
+     [:li {:key id} title (when done? " (done)") " "
+      [:button {:on-click [:todo/toggle id]} "Toggle"]])])
+
+[h/frame-root {:id :fresco-port :initial-events [[:todo/initialise]]}
+ [ported-todo-list]]
+```
+
 Two differences catch people out:
 
 - A Reagent-style `#(rf/dispatch ...)` callback has no captured frame when the
