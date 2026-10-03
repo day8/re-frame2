@@ -267,8 +267,6 @@
           m         {composite :a :plain :b "s" :c 7 :d}
           walked    (rf.bench.fresco.front.codec/realize-deep m)]
       (is (identical? m walked))
-      (is (= m walked))
-      (is (= (keys m) (keys walked)))
       (is (identical? composite (first (filter vector? (keys walked)))))
       (is (= :a (get walked composite)))
       (is (= :a (get walked [:composite 1])))
@@ -280,7 +278,6 @@
     (let [m      (into {} (map (fn [i] [[:k i] i]) (range 32)))
           walked (rf.bench.fresco.front.codec/realize-deep m)]
       (is (identical? m walked))
-      (is (= 32 (count walked)))
       (is (= 17 (get walked [:k 17]))))))
 
 (deftest realize-deep-reaches-a-lazy-seq-at-a-key-position-too

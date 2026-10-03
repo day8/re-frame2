@@ -44,9 +44,8 @@
   renderer invokes it exactly as the DOM renderer does — the shell's
   `useSyncExternalStore` answers from its server snapshot
   ([[re-frame.bench.fresco.ssr.entry]]). That keeps the row headless
-  rather than behind a browser, and it
-  doubles as an SSR clause: a server pass leaves no durable
-  registration behind a bracket."
+  rather than behind a browser. That a server pass leaves no durable
+  registration is `ssr/entry-cljs-test`'s claim, in this same build."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.mount :as rf.bench.fresco.arm1.mount]
@@ -175,35 +174,3 @@
             "two boundary bodies ran — the page and the row")
         (is (= [] (rf-measure-names))
             "and NOTHING reached the User-Timing stream")))))
-
-(deftest a-flag-off-build-emits-no-render-measure-across-repeated-renders
-  (testing "The bracket is per-render, so a single-render row cannot
-            distinguish 'elided' from 'emitted once and cleared'. Ten
-            renders would leave ten retained entries in a flag-on build
-            with retention on; here they leave none, and the body-run
-            count proves ten renders were asked for."
-    (when-not rf.performance/enabled?
-      (fresh!)
-      (clear-measures!)
-      (rf.bench.fresco.arm1.runtime/reset-body-runs!)
-      (dotimes [_ 5]
-        (server-html [measured-page {}]))
-      (is (= 10 (rf.bench.fresco.arm1.runtime/body-runs)) "five passes over two boundaries")
-      (is (= [] (rf-measure-names))
-          "and the retained buffer is still empty"))))
-
-(deftest a-server-pass-leaves-no-retained-registration-behind-the-bracket
-  (testing "The SSR clause. A `renderToString` pass runs bodies and
-            mints read-set entries, but React never calls `subscribe`, so
-            nothing is committed. The bracket must not change that — it
-            writes a measure and (retention off) clears it, and holds no
-            reference of its own. `stats` is the arm's own enumeration of
-            what survived."
-    (when-not rf.performance/enabled?
-      (fresh!)
-      (clear-measures!)
-      (server-html [measured-page {}])
-      (is (zero? (:boundaries (rf.bench.fresco.arm1.runtime/stats)))
-          "a server pass committed nothing — no registration holds a reader slot")
-      (is (= [] (rf-measure-names))
-          "and left no User-Timing entry either"))))

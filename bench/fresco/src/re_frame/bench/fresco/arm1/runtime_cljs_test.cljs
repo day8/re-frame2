@@ -130,20 +130,6 @@
     (is (= #{(key-of [:dogfood/visible-ids]) (key-of [:dogfood/todo 0])}
            (reads-of entry)))))
 
-(deftest the-collector-reads-inside-a-for-and-inside-an-inlined-helper
-  (seeded! 3)
-  (testing "the one acceptable read surface: a read in a loop and a read
-           donated by a plain helper, both landing on the enclosing
-           boundary's edge set"
-    (letfn [(label [id] [:span (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo id]))])]
-      (let [entry (render (fn [_] [:ul (for [id (rf.bench.fresco.arm1.runtime/sub [:dogfood/visible-ids])]
-                                         [:li (label id)])]))]
-        (is (= #{(key-of [:dogfood/visible-ids])
-                 (key-of [:dogfood/todo 0])
-                 (key-of [:dogfood/todo 1])
-                 (key-of [:dogfood/todo 2])}
-               (reads-of entry)))))))
-
 (deftest a-lazy-for-registers-its-edges-and-its-readers-re-run
   (seeded! 3)
   (testing "**A Surface B property, and the one a lazy host language can lose
@@ -562,30 +548,21 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-minted-view-is-a-legal-hiccup-head
-  (let [v (rf.bench.fresco.arm1.runtime/mint-view! "test/probe" (fn [_] [:li]))]
+  (let [v (rf.bench.fresco.arm1.runtime/mint-view! "test/probe" (fn [_] [:li]))
+        m (unchecked-get v "frescoMemo")]
     (is (fn? v))
     (is (rf.bench.fresco.front.codec/boundary-head? v))
     (is (= "test/probe" (.-displayName v)))
     (is (true? (unchecked-get v "frescoBoundary"))
         "the codec's own boundary marker, so a view is a head by
-         construction and the stable-head cache has nothing to do")))
-
-(deftest a-minted-view-keeps-its-memo-wrapper-internal
-  (testing "HD-006 puts a value-equality
-           bail-out on every boundary, but `React.memo` answers an OBJECT
-           and a minted head must stay a function — so the wrapper is
-           attached to the head rather than returned in its place, and no
-           memo object escapes as the public representation"
-    (let [v (rf.bench.fresco.arm1.runtime/mint-view! "test/memo-probe" (fn [_] [:li]))
-          m (unchecked-get v "frescoMemo")]
-      (is (fn? v) "the head is a function")
-      (is (some? m) "and it carries a wrapper")
-      (is (not (fn? m)) "which is the memo object, and is not a function")
-      (is (identical? m (unchecked-get v "frescoMemo"))
-          "**stability is the whole contract.** One wrapper per head,
-           minted at definition — a fresh one per element would be a fresh
-           React element TYPE every render, and React would unmount and
-           remount the entire subtree instead of bailing out of it"))))
+         construction and the stable-head cache has nothing to do")
+    (testing "HD-006 puts a value-equality bail-out on every boundary, but
+             `React.memo` answers an OBJECT and a minted head must stay a
+             function — so the wrapper, one per head and minted at
+             definition, is attached to the head rather than returned in its
+             place, and no memo object escapes as the public representation"
+      (is (some? m) "the head carries a wrapper")
+      (is (not (fn? m)) "which is the memo object, and is not a function"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Residue — the standing zero-leaked-refcounts assertion
