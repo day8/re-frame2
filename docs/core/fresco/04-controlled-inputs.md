@@ -54,6 +54,55 @@ This one refuses titles longer than 80 characters:
       {:db (assoc-in db [:todo.ui :draft id] typed)})))
 ```
 
+The cell below runs the same handler with a 20-character limit, so the refusal
+is quick to reach, beside a select and a checkbox. Type past the limit, or into
+the middle of the text: the field keeps showing what app-db holds, printed
+underneath, and the caret stays where you were typing.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo.ui/edit
+  (fn [{:keys [db]} [_ id typed]]
+    (when (<= (count typed) 20)
+      {:db (assoc-in db [:todo.ui :draft id] typed)})))
+
+(rf/reg-event :todo.ui/set-priority
+  (fn [{:keys [db]} [_ priority]]
+    {:db (assoc-in db [:todo.ui :priority] priority)}))
+
+(rf/reg-event :todo/set-done
+  (fn [{:keys [db]} [_ id done?]]
+    {:db (assoc-in db [:todos id :done?] done?)}))
+
+(rf/reg-sub :todo.ui/draft (fn [db [_ id]] (get-in db [:todo.ui :draft id])))
+(rf/reg-sub :todo.ui/priority (fn [db _] (get-in db [:todo.ui :priority] "normal")))
+(rf/reg-sub :todo/done? (fn [db [_ id]] (get-in db [:todos id :done?] false)))
+(rf/reg-sub :app/db (fn [db _] db))   ;; for the printout
+
+(h/defview todo-fields [{:keys [id]}]
+  [:div
+   [:input {:type     :text
+            :value    (h/sub [:todo.ui/draft id])
+            :on-input [:todo.ui/edit id ::h/value]}]
+   " "
+   [:select {:value     (h/sub [:todo.ui/priority])
+             :on-change [:todo.ui/set-priority ::h/value]}
+    [:option {:value "normal"} "Normal"]
+    [:option {:value "urgent"} "Urgent"]]
+   " "
+   [:label
+    [:input {:type      :checkbox
+             :checked   (h/sub [:todo/done? id])
+             :on-change [:todo/set-done id ::h/checked]}]
+    " Done"]
+   [:pre (pr-str (h/sub [:app/db]))]])
+
+[h/frame-root {:id :app}
+ [todo-fields {:id 7}]]
+```
+
 Controlled means the model owns the displayed value after every commit. If
 autofill, a browser extension, or another script changes `.value`, the next
 commit restores the model. An event delivered after the field unmounts is a
