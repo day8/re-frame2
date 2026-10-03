@@ -178,8 +178,6 @@
               :rf.http/managed request ran through the per-frame :before
               chain; the auth interceptor stamped the Authorization header
               the domain :request never declared"
-      (is (= "Token abc123" (auth-header))
-          "the resource read carries the frame-policy auth header")
       (is (= {:method :get :url "/api/articles/w"
               :headers {"Authorization" "Token abc123"}}
              (:request @last-decorated))

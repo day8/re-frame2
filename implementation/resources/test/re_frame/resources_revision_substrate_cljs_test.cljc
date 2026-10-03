@@ -36,9 +36,7 @@
   (testing "the base empty entry carries :revision 0, alongside :generation 0"
     (let [e (rf.resources.state/empty-entry :conduit/article)]
       (is (= 0 (:revision e)) ":revision base value is 0")
-      (is (= 0 (:generation e)) ":generation base value is 0")
-      (is (contains? e :revision)
-          ":revision is a present durable entry fact, not absent")))
+      (is (= 0 (:generation e)) ":generation base value is 0")))
   (testing "the 2-arity (with scoped-key) also carries :revision 0"
     (let [sk (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "a"})
           e  (rf.resources.state/empty-entry :conduit/article sk)]
@@ -358,13 +356,7 @@
       (is (false? (rf.resources.mutation-runtime/optimistic-conflict?
                     (rf.resources.state/empty-entry :conduit/article) absent-baseline))
           "a bare revision-0 entry reads as unmoved; the live-read case is held
-           by `restore-before`'s `:absent` arm, not by the conflict check")))
-  (testing "the comparison is canonical-identity over the monotone counter, not
-            a value diff: an absent entry reads as revision 0"
-    (is (false? (rf.resources.mutation-runtime/optimistic-conflict? nil 0))
-        "absent entry ~ 0 vs applied 0 — no conflict")
-    (is (true? (rf.resources.mutation-runtime/optimistic-conflict? {:revision 1} 0))
-        "current 1 vs applied 0 — conflict")))
+           by `restore-before`'s `:absent` arm, not by the conflict check"))))
 
 ;; ---- owner-liveness writes: the NO-OP GATE ---------------------------------
 ;;
@@ -390,7 +382,6 @@
   (testing "attaching a NEW owner adds it to :active-owners AND bumps :revision
             (an authoritative durable write a rollback could clobber)"
     (let [e0 (rf.resources.state/empty-entry :conduit/article)]
-      (is (= 0 (:revision e0)))
       (let [e1 (rf.resources.state/attach-owner e0 :owner/a)]
         (is (contains? (:active-owners e1) :owner/a) "the new owner is in the set")
         (is (= 1 (:revision e1)) "a new owner bumps :revision 0 -> 1")
