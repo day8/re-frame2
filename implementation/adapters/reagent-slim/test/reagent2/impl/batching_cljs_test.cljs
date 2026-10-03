@@ -253,6 +253,13 @@
 ;; knows to drain the reactive queue as part of the next microtask.
 ;; ---------------------------------------------------------------------------
 
+(deftest rea-schedule-wired-after-batching-load
+  (testing "requiring reagent2.impl.batching installs batching/schedule into rea-schedule"
+    (is (some? @ratom/rea-schedule)
+        "rea-schedule got wired at batching ns load time")
+    (is (fn? @ratom/rea-schedule)
+        "the wired value is a fn")))
+
 (deftest rea-schedule-triggers-microtask-drain
   (testing "a Reaction dep change schedules a microtask + drains via batching"
     (async done
