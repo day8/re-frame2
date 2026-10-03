@@ -309,8 +309,8 @@ second is a 404, so it reaches `:todo/fetch-failed` with `:kind :rf.http/http-4x
 
 The stub comes from `re-frame.http.test-support`. `install-managed-request-stubs!`
 registers an effect that answers from the map, and the frame's `:fx-overrides`
-routes `:rf.http/managed` to it, so the three handlers are unchanged. A stub replies
-at once, inside the same [drain](#run-to-completion), so `Loading…` never renders
+routes `:rf.http/managed` to it, so the handlers are the ones a real app runs. A stub
+replies at once, inside the same [drain](#run-to-completion), so `Loading…` never renders
 here; against a real server it shows while the request is in flight.
 
 All three handlers are pure. Each tests as a plain function, and the request tests
