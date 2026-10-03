@@ -86,8 +86,7 @@
     (try
       (rf.registrar/clear-all!)
       (testing "(machine-algebra-view) returns {} (not nil) when no machines are registered"
-        (is (= {} (rf.machines.tooling/machine-algebra-view)))
-        (is (map? (rf.machines.tooling/machine-algebra-view))))
+        (is (= {} (rf.machines.tooling/machine-algebra-view))))
       (testing "(machine-algebra-view machine-id) returns nil for an unregistered id"
         (is (nil? (rf.machines.tooling/machine-algebra-view :nope/missing))))
       (finally
@@ -121,92 +120,79 @@
       (is (= [:machine :upload/main] (:owner node)))
       (is (false? (:spawns? node)) "this machine declares no :spawn"))))
 
-(deftest declared-event-inputs-are-walked-from-the-whole-state-tree
-  (testing ":on event triggers across all states lower to sorted, de-duped [:event …] inputs"
-    (rf/reg-machine :upload/main upload-machine)
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :upload/main)]
-      (is (= [[:event :upload/failed]
-              [:event :upload/progress]
-              [:event :upload/start]
-              [:event :upload/succeeded]]
-             (:inputs node))
-          "every author-declared :on key across :idle + :uploading, sorted + distinct"))))
+;; ---- declared [:event …] inputs, walked from the whole state tree --------
 
-(deftest reserved-and-wildcard-events-are-not-declared-inputs
-  (testing "reserved framework events + the :* wildcard are filtered from :inputs"
-    (rf/reg-machine :guarded/main
-      {:initial :a
-       :data    {}
-       :states  {:a {:on {:go            :b
-                          :*             :a            ;; wildcard — not a concrete input
-                          :rf.machine/x  :b}}          ;; reserved ns — framework plumbing
-                 :b {}}})
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :guarded/main)]
-      (is (= [[:event :go]] (:inputs node))
-          "only the concrete app event :go survives the reserved-ns / wildcard filter"))))
+(deftest declared-event-inputs-are-walked-from-the-whole-state-tree
+  (doseq [[label machine-id spec expected]
+          [["every author-declared :on key across :idle + :uploading, sorted + distinct"
+            :upload/main upload-machine
+            [[:event :upload/failed]
+             [:event :upload/progress]
+             [:event :upload/start]
+             [:event :upload/succeeded]]]
+           ["reserved framework events and the :* wildcard are filtered out; only
+            the concrete app event :go survives"
+            :guarded/main
+            {:initial :a
+             :data    {}
+             :states  {:a {:on {:go            :b
+                                :*             :a            ;; wildcard — not a concrete input
+                                :rf.machine/x  :b}}          ;; reserved ns — framework plumbing
+                       :b {}}}
+            [[:event :go]]]
+           ["leaf + parent :on keys are collected across the hierarchy, sorted"
+            :auth/flow
+            {:initial :authenticated
+             :data    {}
+             :states  {:authenticated
+                       {:initial :dashboard
+                        :on      {:logout :loggedout}
+                        :states  {:dashboard {:on {:open-settings :settings}}
+                                  :settings  {:on {:close :dashboard}}}}
+                       :loggedout {}}}
+            [[:event :close] [:event :logout] [:event :open-settings]]]
+           [":regions state-maps are walked like :states: both regions' :on keys surface"
+            :par/main
+            {:initial :running
+             :data    {}
+             :states  {:running
+                       {:type    :parallel
+                        :regions {:left  {:initial :l0 :states {:l0 {:on {:left/go :l1}} :l1 {}}}
+                                  :right {:initial :r0 :states {:r0 {:on {:right/go :r1}} :r1 {}}}}}}}
+            [[:event :left/go] [:event :right/go]]]]]
+    (rf/reg-machine machine-id spec)
+    (is (= expected (:inputs (get (rf.machines.tooling/machine-algebra-view) machine-id)))
+        label)))
 
 ;; ---- evaluation-policy set -----------------------------------------------
 
-(deftest evaluation-is-on-transition-by-default
-  (testing "a timer-less, spawn-less machine evaluates only :on-transition"
-    (rf/reg-machine :plain/main {:initial :a :data {} :states {:a {:on {:go :b}} :b {}}})
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :plain/main)]
-      (is (= #{:on-transition} (:evaluation node))))))
-
-(deftest after-timer-adds-scheduled-policy
-  (testing "an :after delayed transition adds :scheduled to the evaluation set"
-    (rf/reg-machine :timed/main
-      {:initial :waiting
-       :data    {}
-       :states  {:waiting {:after {1000 :timed-out}}
-                 :timed-out {}}})
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :timed/main)]
-      (is (= #{:on-transition :scheduled} (:evaluation node))
-          ":after timer means a scheduler delivers a synthetic timer event"))))
-
-(deftest spawning-machine-adds-on-reply-and-spawns-flag
-  (testing "a :spawn-bearing state adds :on-reply and sets :spawns? true"
-    (rf/reg-machine :worker/child {:initial :running :data {} :states {:running {}}})
-    (rf/reg-machine :parent/main
-      {:initial :idle
-       :data    {}
-       :states  {:idle    {:on {:go :working}}
-                 :working {:spawn {:machine-id :worker/child}}}})
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :parent/main)]
-      (is (= #{:on-transition :on-reply} (:evaluation node))
-          "a spawning parent reacts to its children's reply events")
-      (is (true? (:spawns? node))))))
-
-;; ---- hierarchical + parallel state trees ---------------------------------
-
-(deftest hierarchical-on-keys-are-walked-recursively
-  (testing "nested :states :on triggers are collected from every depth"
-    (rf/reg-machine :auth/flow
-      {:initial :authenticated
-       :data    {}
-       :states  {:authenticated
-                 {:initial :dashboard
-                  :on      {:logout :loggedout}
-                  :states  {:dashboard {:on {:open-settings :settings}}
-                            :settings  {:on {:close :dashboard}}}}
-                 :loggedout {}}})
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :auth/flow)]
-      (is (= [[:event :close] [:event :logout] [:event :open-settings]]
-             (:inputs node))
-          "leaf + parent :on keys collected across the hierarchy, sorted"))))
-
-(deftest parallel-region-on-keys-are-walked
-  (testing ":regions state-maps are walked like :states"
-    (rf/reg-machine :par/main
-      {:initial :running
-       :data    {}
-       :states  {:running
-                 {:type    :parallel
-                  :regions {:left  {:initial :l0 :states {:l0 {:on {:left/go :l1}} :l1 {}}}
-                            :right {:initial :r0 :states {:r0 {:on {:right/go :r1}} :r1 {}}}}}}})
-    (let [node (get (rf.machines.tooling/machine-algebra-view) :par/main)]
-      (is (= [[:event :left/go] [:event :right/go]] (:inputs node))
-          "both regions' :on keys surface as inputs"))))
+(deftest evaluation-policy-follows-the-declared-timers-and-spawns
+  (rf/reg-machine :worker/child {:initial :running :data {} :states {:running {}}})
+  (doseq [[label machine-id spec expected]
+          [["a timer-less, spawn-less machine evaluates only :on-transition"
+            :plain/main {:initial :a :data {} :states {:a {:on {:go :b}} :b {}}}
+            #{:on-transition}]
+           ["an :after delayed transition adds :scheduled: a scheduler delivers a
+            synthetic timer event"
+            :timed/main
+            {:initial :waiting
+             :data    {}
+             :states  {:waiting {:after {1000 :timed-out}}
+                       :timed-out {}}}
+            #{:on-transition :scheduled}]
+           ["a :spawn-bearing state adds :on-reply: a spawning parent reacts to its
+            children's reply events"
+            :parent/main
+            {:initial :idle
+             :data    {}
+             :states  {:idle    {:on {:go :working}}
+                       :working {:spawn {:machine-id :worker/child}}}}
+            #{:on-transition :on-reply}]]]
+    (rf/reg-machine machine-id spec)
+    (is (= expected (:evaluation (get (rf.machines.tooling/machine-algebra-view) machine-id)))
+        label))
+  (is (true? (:spawns? (get (rf.machines.tooling/machine-algebra-view) :parent/main)))
+      "the :spawn-bearing parent sets :spawns? true"))
 
 ;; ---- metadata passthrough ------------------------------------------------
 

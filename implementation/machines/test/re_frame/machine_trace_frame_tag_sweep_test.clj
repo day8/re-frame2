@@ -10,7 +10,7 @@
   remaining ~13 emit sites across:
 
     - finalize.cljc — :on-done callback throw (machine-action-exception)
-    - join.cljc — invoke-all resolution traces (any-failed, all-completed,
+    - join.cljc — spawn-all resolution traces (any-failed, all-completed,
       some-completed, cancelled-on-join-resolution, late-completion,
       bad-child-id)
     - timer.cljc — wall-clock fx-layer traces (machine-bad-after-delay,
@@ -297,7 +297,7 @@
              :done    {:final? true :output-key :id}
              :failed  {:final? true :error? true :output-key :id}}})
 
-(deftest invoke-all-all-completed-tag-carries-frame
+(deftest spawn-all-all-completed-tag-carries-frame
   (testing ":rf.machine.spawn-all/all-completed carries `:frame` tag
    (frame-id plumbed into emit-resolution-traces!)"
     (let [child  (mk-child-spec)
@@ -332,7 +332,7 @@
 
 ;; ---- join.cljc :rf.error/machine-spawn-all-bad-child-id ------------------
 
-(deftest invoke-all-bad-child-id-tag-carries-frame
+(deftest spawn-all-bad-child-id-tag-carries-frame
   (testing ":rf.error/machine-spawn-all-bad-child-id carries `:frame` tag
    (`(:rf/frame machine)` resolved at interceptor entry)"
     (let [child  (mk-child-spec)

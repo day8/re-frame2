@@ -166,31 +166,43 @@
 (defn- timer-cancellations [evs]
   (ops evs :rf.machine.timer/cancelled))
 
-(deftest cancelled-on-exit-emits-reason-on-exit
-  (testing ":after timer cancelled by state-exit emits :reason :on-exit"
-    (rf/reg-machine :rf2-82a0u/cancel-exit
-      {:initial :armed
-       :states  {:armed {:after {60000 :timeout}
-                         :on    {:cancel :idle}}
-                 :timeout {}
-                 :idle    {}}})
+(deftest cancelled-on-exit-carries-its-reason-and-mirrors-scheduled
+  (testing "an :after timer cancelled by state-exit emits ONE :cancelled with
+            :reason :on-exit, whose payload mirrors :scheduled's shape for
+            arm-cancel pairing by (machine-id, state, epoch)"
+    (rf/reg-machine :rf2-82a0u/mirror
+      {:initial :loading
+       :states  {:loading {:after {30000 :timeout}
+                           :on    {:cancel :idle}}
+                 :idle    {}
+                 :timeout {}}})
     (let [evs (record-traces!
                 (fn []
-                  ;; Bootstrap into :armed — fx layer arms the timer.
-                  (rf/dispatch-sync [:rf2-82a0u/cancel-exit [:rf.machine/start]])
-                  ;; Exit :armed — fires after-cancel-fx.
-                  (rf/dispatch-sync [:rf2-82a0u/cancel-exit [:cancel]])))
-          cs  (timer-cancellations evs)
-          ev  (first cs)]
+                  ;; Bootstrap into :loading (the fx layer arms the timer), then
+                  ;; exit it, which fires after-cancel-fx.
+                  (rf/dispatch-sync [:rf2-82a0u/mirror [:rf.machine/start]])
+                  (rf/dispatch-sync [:rf2-82a0u/mirror [:cancel]])))
+          sched-ev  (first (ops evs :rf.machine.timer/scheduled))
+          cs        (timer-cancellations evs)
+          cancel-ev (first cs)]
+      (is (some? sched-ev) ":scheduled fired")
       (is (= 1 (count cs))
           "exactly one cancellation trace from the exit")
-      (is (= :on-exit (-> ev :tags :reason))
+      (is (= :on-exit (-> cancel-ev :tags :reason))
           ":reason :on-exit stamped on the unified event")
-      (is (= :rf2-82a0u/cancel-exit (-> ev :tags :actor-id))
-          ":actor-id present (payload mirrors :scheduled)")
-      (is (some? (-> ev :tags :epoch))
-          ":epoch present (mirrors :scheduled for pairing)")
-      (is (some? (-> ev :tags :frame))
+      (is (= :rf2-82a0u/mirror
+             (-> sched-ev :tags :actor-id)
+             (-> cancel-ev :tags :actor-id))
+          ":actor-id names the machine on both halves of the pair")
+      (is (= (-> sched-ev :tags :state)
+             (-> cancel-ev :tags :state))
+          ":state matches")
+      (is (some? (-> cancel-ev :tags :epoch))
+          ":epoch present for pairing")
+      (is (= (-> sched-ev :tags :epoch)
+             (-> cancel-ev :tags :epoch))
+          ":epoch matches — the cancel closes the same arm's slot")
+      (is (some? (-> cancel-ev :tags :frame))
           ":frame present (epoch-capture admission)"))))
 
 (deftest cancelled-on-destroy-emits-reason-on-destroy
@@ -217,29 +229,3 @@
       (is (seq destroy-evs)
           (str "at least one :reason :on-destroy emit; got " (mapv #(-> % :tags :reason) cs))))))
 
-(deftest cancelled-payload-mirrors-scheduled
-  (testing "the :cancelled payload mirrors :scheduled's shape for
-            arm-cancel pairing by (machine-id, state, epoch)"
-    (rf/reg-machine :rf2-82a0u/mirror
-      {:initial :loading
-       :states  {:loading {:after {30000 :timeout}
-                           :on    {:cancel :idle}}
-                 :idle    {}
-                 :timeout {}}})
-    (let [evs (record-traces!
-                (fn []
-                  (rf/dispatch-sync [:rf2-82a0u/mirror [:rf.machine/start]])
-                  (rf/dispatch-sync [:rf2-82a0u/mirror [:cancel]])))
-          sched-ev  (first (ops evs :rf.machine.timer/scheduled))
-          cancel-ev (first (timer-cancellations evs))]
-      (is (some? sched-ev) ":scheduled fired")
-      (is (some? cancel-ev) ":cancelled fired")
-      (is (= (-> sched-ev :tags :actor-id)
-             (-> cancel-ev :tags :actor-id))
-          ":actor-id matches across the pair")
-      (is (= (-> sched-ev :tags :state)
-             (-> cancel-ev :tags :state))
-          ":state matches")
-      (is (= (-> sched-ev :tags :epoch)
-             (-> cancel-ev :tags :epoch))
-          ":epoch matches — the cancel closes the same arm's slot"))))
