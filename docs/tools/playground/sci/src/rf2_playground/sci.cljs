@@ -57,7 +57,7 @@
             [re-frame.routing]
             [re-frame.epoch]
             [re-frame.ssr]
-            [re-frame.fresco :as h]
+            [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.forms]
             [re-frame.fresco.overlay]
             [re-frame.fresco.motion]
@@ -297,7 +297,7 @@
   [el]
   (when-let [{:keys [reagent fresco]} (get @roots el)]
     (swap! roots dissoc el)
-    (try (if reagent (rdc/unmount reagent) (h/unmount! fresco))
+    (try (if reagent (rdc/unmount reagent) (rf.fresco/unmount! fresco))
          (catch :default _ nil))))
 
 (defn- frame-bind-component
@@ -347,9 +347,9 @@
   ;; A fresh root per run: a committed `h/frame-root` refuses new options, so
   ;; re-rendering an edited cell into the old root would fail.
   (release! el)
-  (let [handle (h/client-root)]
+  (let [handle (rf.fresco/client-root)]
     (swap! roots assoc el {:fresco handle})
-    (h/render! handle [h/frame-provider {:frame app-frame} value] el)))
+    (rf.fresco/render! handle [rf.fresco/frame-provider {:frame app-frame} value] el)))
 
 (defn- render-reagent! [value el]
   (let [root (or (:reagent (get @roots el))
