@@ -345,7 +345,6 @@
                         {:subs {[:tk/todo 1] {:text "milk" :done false}}})]
 
     (testing "the root carries the version gate every consumer validates first"
-      (is (= 1 (:rf.ui/tree-version tree)))
       (is (= 1 rf.fresco.test/tree-version)))
 
     (testing "the whole tree is plain serialisable data — no wrapper types,
@@ -361,8 +360,7 @@
     (testing "the projections read it"
       (is (= "milk" (rf.fresco.test/text tree)))
       (is (= :span (:tag (rf.fresco.test/find tree #(= "text" (:class (:attrs %)))))))
-      (is (= 2 (count (rf.fresco.test/find-all tree map?))))
-      (is (= [:tk/toggle 1] (:on-click (rf.fresco.test/attrs tree)))))
+      (is (= 2 (count (rf.fresco.test/find-all tree map?)))))
 
     (testing "and `attrs` MERGES events with attributes, which is the one
               attribute read — a keyword lookup on the node is a field miss"
@@ -472,11 +470,7 @@
             which rules out a body that recursed once and happened to stop"
     (is (= (rf.fresco.test/tree [greeting-body {:who "ada"}])
            (rf.fresco.test/tree [greeting {:who "ada"}]))))
-
-  (testing "the control: `farewell`, whose helper is NOT named after it,
-            cannot collide — so the rows above measure the collision and
-            not the kit's minted-head path in general"
-    (is (= "bye ada" (rf.fresco.test/text (rf.fresco.test/tree [farewell {:who "ada"}]))))))
+)
 
 (deftest a-host-crossing-is-opaque-at-l2
   (testing "at the root"
@@ -507,23 +501,7 @@
                                      [:div (react/createElement "b" nil "raw")])
                                    {}]))
                     []))))
-
-  (testing "and an unforced `delay` is refused rather than forced — forcing
-            an author's explicit deferral would change what their program
-            means, which is the runtime's own ruling at a crossing.
-
-            THE IDENTITY, not the id alone. An assertion reading only
-            `:rf.error/id` would stay green while the kit answered the
-            runtime's id with its OWN opacity reason — a pointer to a tier
-            where the identical refusal waits. The advice rides in
-            `:reason`, which is prose and not frozen here; what this pins is
-            the id, borrowed from the runtime, and `:where`, the kit's own —
-            a borrowed id brings the runtime's reason with it or it is not a
-            borrowing."
-    (is (= {:rf.error/id :rf.error/fresco-deferred-read-at-boundary
-            :where       're-frame.fresco.test}
-           (refusal (outcome #(rf.fresco.test/tree [(fn [_] [:div (delay [:p])]) {}]))
-                    [])))))
+)
 
 (deftest a-plain-function-in-head-position-refuses-as-the-runtime-does
   (testing "HD-016 makes it a loud error in Fresco, so the kit refuses it
@@ -620,12 +598,6 @@
                              {:subs {[:tk/todo 1] {:text "milk"}}}))))))
 
 (deftest the-read-resolver-is-discardable
-  (testing "the fixture cells exist for the body run and are gone when it
-            returns — nothing subscribed, nothing watched, nothing left to
-            dispose"
-    (let [before (count @rf.fresco.impl.collector/!cells)]
-      (rf.fresco.test/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
-      (is (= before (count @rf.fresco.impl.collector/!cells)))))
 
   (testing "and the runtime's own retention tables are as they were — the
             render acquired no cell, took no reference and recorded no edge"

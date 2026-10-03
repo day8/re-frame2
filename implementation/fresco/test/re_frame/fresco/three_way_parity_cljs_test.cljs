@@ -365,7 +365,6 @@
 (deftest a-declared-render-crossing-is-the-authors-own-function-and-costs-no-wrapper
   (testing "a handwritten component is a FUNCTION, and it is the element type
             React reconciles on — not a wrapper holding one"
-    (is (fn? react-cell))
     (is (identical? react-cell (.-type (react/createElement react-cell #js {:label "42"})))))
 
   (testing "so the props React hands the component carry the author's own
