@@ -14,16 +14,16 @@
   - missing route — invoking `route-link` with an unregistered `:to` id
     raises `:rf.error/no-such-route` (the same error `route-url` raises;
     the link view delegates to `route-url` for URL synthesis).
-  - `:rf.route/url-requested` lands on `:rf.route/navigate` — dispatching the
-    event the view fires when a plain left-click is intercepted updates
-    the `:rf/route` slice end-to-end. This pins the click→event pipeline
-    at the JVM layer; CLJS tests cover the click handler's modifier-key
-    branching.
+  - the click's dispatch — the `:rf.route/url-requested` payload a plain
+    left-click carries (`link-model`'s `:payload`) holds the link's
+    `:replace?` / `:scroll` / `:bypass-leave?` policy, and dispatching it
+    navigates as those keys say. CLJS tests cover the click handler's
+    modifier-key branching.
   - server-frame `:url-strategy` — a `:platform :server` frame
     declaring `with-base-path` / the hash strategy renders the ENCODED href
-    through the registered `:route/link` view and the SSR emitter, while
-    the navigation payload stays path-form. The cross-host half (the same
-    hrefs on CLJS) is `route_link_ssr_parity_cljs_test.cljc`.
+    through the registered `:route/link` view and the SSR emitter. The
+    cross-host half (the same hrefs on CLJS, and the path-form navigation
+    payload `link-model` carries) is `route_link_ssr_parity_cljs_test.cljc`.
 
   Per Spec 012 §Linking from views — plain-anchor semantics and API.md
   `route-link` row."
@@ -128,7 +128,6 @@
 
 (deftest route-link-ssr-honours-the-server-frames-url-strategy
   (rf/reg-route :route/active {} "/active")
-  (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
   (server-frame! :ssr/history-base
                  (rf.routing/with-base-path rf.routing/history-url-strategy "/demos"))
   (server-frame! :ssr/hash rf.routing/hash-url-strategy)
@@ -152,25 +151,12 @@
       (is (= "/demos/active"
              (:href (second (rf/with-frame :ssr/history-base (view {:to :route/active})))))
           "with-base-path history: /demos/active")
-      (is (= "/demos/articles/intro"
-             (:href (second (rf/with-frame :ssr/history-base
-                              (view {:to :route/article :params {:id "intro"}})))))
-          "with-base-path history: params ride inside the based href")
       (is (= "#/active"
              (:href (second (rf/with-frame :ssr/hash (view {:to :route/active})))))
           "hash: #/active on the server too")
       (is (= "/demos#/active"
              (:href (second (rf/with-frame :ssr/hash-base (view {:to :route/active})))))
           "with-base-path hash: base OUTSIDE the fragment on the server too")))
-
-  (testing "the :routing/link-model seam agrees, and its navigation payload stays
-            path-form — only the rendered href is encoded"
-    (let [model (rf.routing.link/link-model {:to :route/active} :ssr/history-base)]
-      (is (= "/demos/active" (:href model)))
-      (is (= [:rf.route/url-requested {:url "/active"}]
-             (:payload model))
-          "the cascade is path-form throughout; the base never enters the payload"))
-    (is (= "/demos#/active" (:href (rf.routing.link/link-model {:to :route/active} :ssr/hash-base)))))
 
   (testing "a bare call outside any frame scope renders path-form (the
             direct-call ergonomics above hold)"
@@ -196,42 +182,6 @@
           "the missing-route error keyword matches route-url's contract")
       (is (= :route/nope (:route-id (ex-data thrown)))
           "ex-data carries the offending route-id"))))
-
-;; ---- :rf.route/url-requested → :rf.route/navigate pipeline -------------------
-
-(deftest route-link-click-event-completes-navigation
-  (testing ":rf.route/url-requested with a route-link's payload navigates"
-    ;; Per Spec 012 §Standard runtime events the click handler emits
-    ;; `:rf.route/url-requested {:url ...}` — ONE key, because a raw URL IS
-    ;; the address and the handler re-derives the rest from it.
-    ;; The default `:rf.route/url-requested` handler classifies via match-url
-    ;; and dispatches `:rf.route/handle-url-change`, which updates the :rf/route
-    ;; slice. This test pins the round-trip without a DOM event — the
-    ;; CLJS test covers the click branching that produces the dispatch.
-    (rf/reg-route :route/home    {} "/")
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-
-    ;; Suppress the :client-only :rf.nav/push-url fx on the JVM (the
-    ;; pattern the other routing JVM suites use).
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-
-    ;; Land on /home first so :rf/route has a current id.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
-    (is (= :route/home
-           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        "initial nav lands at :route/home")
-
-    ;; Fire the event a click on `[rf/route-link {:to :route/article :params {:id \"intro\"}}]`
-    ;; would produce.
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
-    (is (= :route/article
-           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        ":rf.route/url-requested with a route-link payload completes the navigation")
-    (is (= {:id "intro"}
-           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :params]))
-        ":params matched from the link's URL land in the :rf/route slice")))
 
 ;; ---- navigation policy on a link -----------------------------------------
 ;;

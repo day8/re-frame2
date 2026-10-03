@@ -44,6 +44,17 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
+(defn- record-scroll-fx!
+  "Re-register `:rf.nav/scroll` for the JVM drain, recording each call's args,
+  and `:rf.nav/push-url` as a no-op: the spec's `:platforms #{:client}` default
+  would otherwise skip both here. Returns the recording atom."
+  []
+  (let [calls (atom [])]
+    (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+                  (fn [_ args] (swap! calls conj args)))
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+    calls))
+
 ;; ---- Spec 012 §Scroll restoration -----------------------------------------
 
 (deftest routing-scroll-metadata-preserved
@@ -79,19 +90,7 @@
                                    :scroll :restore} "/articles/:id")
     (rf/reg-route :route/profile  {:scroll false} "/profile")
 
-    (let [calls (atom [])]
-      ;; Override the spec's :platforms #{:client} default for the JVM
-      ;; test — re-register :rf.nav/scroll on both server+client so the
-      ;; do-fx interpreter actually invokes our capture.
-      (rf.fx/reg-fx :rf.nav/scroll
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls conj args)))
-      ;; :rf.nav/push-url is :platforms #{:client} by default; suppress on
-      ;; the JVM the same way the other routing tests do.
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
-
+    (let [calls (record-scroll-fx!)]
       ;; 1. Forward navigation to a route with no :scroll metadata —
       ;;    default :top.
       (rf/dispatch-sync [:rf.route/navigate {:to :route/articles}])
@@ -125,14 +124,12 @@
       (is (empty? @calls)
           ":scroll false on the route suppresses the :rf.nav/scroll fx")
 
-      ;; 5. :rf.route/handle-url-change with cause :link also emits the fx — default :top.
-      ;; Land on "/" (route/home, no :scroll meta) so the NEXT step's
+      ;; 5. Land on "/" (route/home, no :scroll meta) so the NEXT step's
       ;; handle-url-change to "/articles" is a genuine navigation, not a
       ;; rule-3 identical no-op (Spec 012 §Per-route data loading rule 3).
-      (reset! calls [])
+      ;; The :link cause's own :top default is pinned by
+      ;; url-change-default-scroll-follows-the-resolved-cause.
       (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
-      (is (= :top (-> @calls first :strategy))
-          "cause :link emits :rf.nav/scroll with default :top")
 
       ;; 6. :rf.route/handle-url-change (popstate / initial) defaults to
       ;;    :restore — the saved position trumps a forward-style :top.
@@ -164,15 +161,7 @@
 
 (deftest url-change-default-scroll-follows-the-resolved-cause
   (testing "{:rf.route/cause :link} defaults the scroll strategy to :top"
-    (let [calls (atom [])]
-      ;; Same JVM re-registration the emission test above uses: the spec's
-      ;; :platforms #{:client} default would otherwise skip the fx here.
-      (rf.fx/reg-fx :rf.nav/scroll
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls conj args)))
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
+    (let [calls (record-scroll-fx!)]
       (rf/reg-route :route/home     {} "/")
       (rf/reg-route :route/articles {} "/articles")
       ;; Land on "/" first so the graded dispatch is a genuine transition
@@ -187,15 +176,7 @@
           "cause :link ⇒ default scroll :top (a forward navigation's default)")))
 
   (testing "{:rf.route/cause :popstate} defaults the scroll strategy to :restore"
-    (let [calls (atom [])]
-      ;; Same JVM re-registration the emission test above uses: the spec's
-      ;; :platforms #{:client} default would otherwise skip the fx here.
-      (rf.fx/reg-fx :rf.nav/scroll
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls conj args)))
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
+    (let [calls (record-scroll-fx!)]
       (rf/reg-route :route/home     {} "/")
       (rf/reg-route :route/articles {} "/articles")
       (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
@@ -363,11 +344,7 @@
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {:params [:map [:id :string]]
                                   :scroll :restore} "/articles/:id")
-    (let [calls (atom [])]
-      (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls conj args)))
-      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
-                 (fn [_ _] nil))
+    (let [calls (record-scroll-fx!)]
       ;; Seed a saved position for "/articles/intro" in the host cache,
       ;; as a prior visit's capture would have.
       (rf.routing/save-scroll-position! :rf/default "/articles/intro" [0 640])
@@ -448,13 +425,7 @@
     ;; Spec 012 rule-3 no-op (no scroll fx) and mask the precedence result.
     (rf/reg-route :route/silent  {:scroll false} "/silent")
     (rf/reg-route :route/silent2 {:scroll false} "/silent2")
-    (let [calls (atom [])]
-      (rf.fx/reg-fx :rf.nav/scroll
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls conj args)))
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
+    (let [calls (record-scroll-fx!)]
       ;; Without an opts override the route's :scroll false suppresses.
       (rf/dispatch-sync [:rf.route/navigate {:to :route/silent}])
       (is (empty? @calls)
@@ -469,13 +440,7 @@
   (testing "opts :scroll false suppresses even when the route declares a
             concrete :scroll strategy"
     (rf/reg-route :route/loud {:scroll :restore} "/loud")
-    (let [calls (atom [])]
-      (rf.fx/reg-fx :rf.nav/scroll
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls conj args)))
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
+    (let [calls (record-scroll-fx!)]
       (rf/dispatch-sync [:rf.route/navigate {:to :route/loud :scroll false}])
       (is (empty? @calls)
           "opts :scroll false suppresses despite the route's :scroll :restore")))
@@ -489,13 +454,7 @@
             map form. The rejection legs live in routing_nav_fx_schemas_test
             (schema) and routing_nav_fx_schemas_cljs_test (handler + gate)"
     (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
-    (let [calls (atom [])]
-      (rf.fx/reg-fx :rf.nav/scroll
-                 {:platforms #{:server :client}}
-                 (fn [_ args] (swap! calls conj args)))
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] nil))
+    (let [calls (record-scroll-fx!)]
       (rf/dispatch-sync [:rf.route/navigate {:to :route/custom}])
       (is (= {:behavior :smooth :block :center} (-> @calls first :strategy))
           "the resolver neither coerces nor drops an unsupported strategy")

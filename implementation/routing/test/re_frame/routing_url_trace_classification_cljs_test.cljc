@@ -196,11 +196,8 @@
       (when rf.interop/debug-enabled?
         (let [requests (event-args :rf.route/navigate events)]
           (is (seq requests) "control: the window carries the navigate event")
-          (is (every? #(= "2" (get-in % [:query-merge :page])) requests)
-              "control: the undeclared query value rides verbatim")
-          (is (every? #(= query-secret (get-in % [:query-merge :token])) requests)
-              "the declared query value rides verbatim: no route, no declaration")
-          (is (every? #(identical? in-place %) requests)))))
+          (is (every? #(identical? in-place %) requests)
+              "the request rides verbatim, its declared query value included: no route, no declaration"))))
     (testing "control: the same key, on the same route, named with :to, redacts"
       (let [named  {:to     :route/acct
                     :params {:secret param-secret :other "visible"}

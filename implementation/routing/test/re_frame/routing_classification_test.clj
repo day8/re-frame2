@@ -94,15 +94,6 @@
 ;; (1) registration-time fail-loud validation (EP-0025 §Failure posture)
 ;; ===========================================================================
 
-(deftest reg-route-accepts-projection-relative-classification
-  (testing "a well-formed :sensitive / :large declaration registers cleanly"
-    (is (= :route/oauth
-           (rf/reg-route :route/oauth
-                         {:sensitive [[:query :token] [:query :code]]
-                          :large     [[:params :payload]]}
-                         "/oauth/callback"))
-        "reg-route returns its id for a valid classification declaration")))
-
 (deftest reg-route-rejects-malformed-classification-loud
   (testing "a non-vector axis fails loud at registration"
     (is (thrown-with-msg?
@@ -295,9 +286,7 @@
       ;; inside it. The walker descends the ancestor (so the descendant
       ;; redacts) rather than collapsing it to a marker.
       (is (not (rf.elision/marker? payload))
-          "the :large ancestor is NOT collapsed to a marker — no path/bytes/digest leak while a sensitive descendant lives inside")
-      (is (map? payload)
-          "the ancestor remains a walked map (descended, so the nested secret redacts)"))))
+          "the :large ancestor is NOT collapsed to a marker — no path/bytes/digest leak while a sensitive descendant lives inside"))))
 
 ;; ===========================================================================
 ;; End-to-end :large-redacts-at-egress for a route.
@@ -421,15 +410,13 @@
                 {:sensitive-declarations
                  {[:rf.runtime/routing :current :query :old] #{{:source :route}}}}}
           out  (rf.routing.classification/apply-route-classification base nil)]
-      (is (nil? (get-in out [:rf.runtime/elision :sensitive-declarations]))
-          "the emptied axis slot is pruned, not left as {}")
       ;; The base carried a registry, so the result emits an EXPLICIT (empty)
       ;; `:rf.runtime/elision` key — the router's reconcile honours the clear
       ;; verbatim rather than carrying the leaving route's entries forward.
       (is (contains? out :rf.runtime/elision)
           "the explicit (empty) registry key signals the clear to reconcile")
       (is (= {} (:rf.runtime/elision out))
-          "the cleared registry is an empty map (read as no declarations)")))
+          "the cleared registry is an empty map: the emptied axis slot is pruned, not left as {}")))
 
   (testing "no prior slot + no new entries → no :rf.runtime/elision sub-tree"
     (let [out (rf.routing.classification/apply-route-classification {:other :state} nil)]

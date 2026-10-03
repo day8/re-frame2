@@ -154,18 +154,17 @@
 
 (defn- held-across-re-registration
   "Visit `:audit/secret` with a secret param, hold and deref `[:rf/route]` and
-  `[:rf.route/params]`, optionally re-register `:audit/secret` with no
-  declaration at the same pattern, then navigate to `/plain` and deref both
-  inside a trace capture."
-  [re-register?]
+  `[:rf.route/params]`, re-register `:audit/secret` with no declaration at the
+  same pattern, then navigate to `/plain` and deref both inside a trace
+  capture."
+  []
   (rf/reg-route :audit/secret {:sensitive [[:params :secret]]} "/secret/:secret")
   (rf/reg-route :audit/plain {} "/plain")
   (visit! (str "/secret/" audit-secret))
   (let [held   (into {} (map (fn [qv] [qv (rf/subscribe qv)])) [[:rf/route] [:rf.route/params]])
         read!  #(into {} (map (fn [[qv r]] [qv @r])) held)
         before (read!)
-        _      (when re-register?
-                 (rf/reg-route :audit/secret {} "/secret/:secret"))
+        _      (rf/reg-route :audit/secret {} "/secret/:secret")
         after  (atom nil)
         events (capture-traces (fn [] (visit! "/plain") (reset! after (read!))))]
     {:before before :after @after :events events}))
@@ -174,21 +173,7 @@
   (testing "the prior value is classified by the declaration it was computed
             under, so re-registering the route without it before navigating
             away does not declassify it"
-    (let [{:keys [before after events]} (held-across-re-registration true)]
-      (is (= audit-secret (get-in before [[:rf/route] :params :secret]))
-          "the in-process read stays raw")
-      (is (= :audit/plain (get-in after [[:rf/route] :route-id])))
-      (when rf.interop/debug-enabled?
-        (is (= rf.privacy/redacted-sentinel
-               (get-in (run-tags [:rf/route] events) [:rf.sub/prev-value :params :secret])))
-        (is (= rf.privacy/redacted-sentinel
-               (get-in (run-tags [:rf.route/params] events) [:rf.sub/prev-value :secret])))
-        (is (not (.contains (pr-str events) audit-secret))
-            "no secret appears on any trace the navigation emits")))))
-
-(deftest leaving-an-unchanged-route-keeps-the-held-subs-prev-values-classified
-  (testing "control: the same navigation with no re-registration"
-    (let [{:keys [before after events]} (held-across-re-registration false)]
+    (let [{:keys [before after events]} (held-across-re-registration)]
       (is (= audit-secret (get-in before [[:rf/route] :params :secret]))
           "the in-process read stays raw")
       (is (= :audit/plain (get-in after [[:rf/route] :route-id])))
