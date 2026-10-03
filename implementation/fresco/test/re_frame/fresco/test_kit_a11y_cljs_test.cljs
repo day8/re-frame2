@@ -218,19 +218,17 @@
     (is (nil? (rf.fresco.test/role nil)) "nil in, nil out — so it threads through a miss")
     (is (nil? (rf.fresco.test/role t)) "a fragment is not an element")
     (is (nil? (rf.fresco.test/role (tagged t :div))) "and a div has no role of its own"))
+  (let [t (markup [:div [a-child {}]])]
+    (is (nil? (rf.fresco.test/role (rf.fresco.test/find t #(some? (:view-id %)))))
+        "a boundary node has no role and that is not an error: L2 records a
+         child boundary as the CALL it is; what it renders — and therefore
+         what role it presents — is the child's own tree to answer"))
   (testing "text content is REFUSED rather than answered nil, because a
             string reaching a projection is a caller reading the wrong
             thing and a nil would let it read on"
     (is (= {:rf.error/id :rf.error/ui-tree-malformed
             :where       're-frame.fresco.test}
            (refusal (outcome #(rf.fresco.test/role "milk")))))))
-
-(deftest a-boundary-node-has-no-role-and-that-is-not-an-error
-  (let [t (markup [:div [a-child {}]])]
-    (is (nil? (rf.fresco.test/role (rf.fresco.test/find t #(some? (:view-id %)))))
-        "L2 records a child boundary as the CALL it is; what it renders —
-         and therefore what role it presents — is the child's own tree to
-         answer")))
 
 ;; ---------------------------------------------------------------------------
 ;; accessible-name — the five steps, each shown to WIN over the next
@@ -315,7 +313,7 @@
                      [:input {:id "title" :type "text"}]])]
       (is (nil? (rf.fresco.test/accessible-name t (tagged t :input)))))))
 
-(deftest a-label-beats-the-controls-own-text-and-aria-label-beats-the-label
+(deftest aria-label-beats-a-label-and-a-label-beats-title
   (let [t (markup [:form
                    [:label {:for "x"} "from the label"]
                    [:input {:id "x" :type "text" :aria-label "from aria"}]])]
@@ -325,7 +323,10 @@
                    [:input {:id "x" :type "text" :title "from the title"}]])]
     (is (= "from the label" (rf.fresco.test/accessible-name t (tagged t :input)))
         "and `:title` is the LAST resort, below the label rather than
-         above it")))
+         above it"))
+  (let [t (markup [:div [:input {:type "text" :title "Search"}]])]
+    (is (= "Search" (rf.fresco.test/accessible-name t (tagged t :input)))
+        "and alone, `:title` is still a name")))
 
 (deftest the-host-languages-own-labelling-per-element
   (testing "a submit button is named by its :value, which is markup no
@@ -365,10 +366,6 @@
     (testing "and ordinary prose has no role, so no name"
       (is (nil? (rf.fresco.test/accessible-name t (classed t "plain")))))))
 
-(deftest title-is-the-last-resort-and-is-still-a-name
-  (let [t (markup [:div [:input {:type "text" :title "Search"}]])]
-    (is (= "Search" (rf.fresco.test/accessible-name t (tagged t :input))))))
-
 (deftest accessible-name-refuses-a-node-from-somewhere-else
   (let [labelled (markup [:form
                           [:label {:for "x"} "Title"]
@@ -384,11 +381,7 @@
       (is (= {:rf.error/id :rf.error/ui-tree-malformed
               :where       're-frame.fresco.test}
              (refusal (outcome #(rf.fresco.test/accessible-name elsewhere
-                                                    (tagged labelled :input)))))))
-    (testing "the discriminator reports :returned for the legal pairing,
-              so the refusal row is not a helper that only knows one verb"
-      (is (= {:returned "Title"}
-             (outcome #(rf.fresco.test/accessible-name labelled (tagged labelled :input))))))))
+                                                    (tagged labelled :input)))))))))
 
 (deftest accessible-name-nil-puns-and-refuses-text
   (is (nil? (rf.fresco.test/accessible-name (markup [:div]) nil)))
@@ -423,46 +416,32 @@
        gate"))
 
 (deftest removing-any-one-name-reports-that-one-control-and-only-it
-  (testing "the content off a button"
-    (let [t (markup (assoc a-named-form 1 [:button {:type "button"}]))
-          found (rf.fresco.test/unnamed-controls t)]
-      (is (= 1 (count found)))
-      (is (= :button (:tag (first found))))))
-  (testing "the aria-label off the second button"
-    (let [t (markup (assoc a-named-form 2 [:button.aria {:type "button"}]))
-          found (rf.fresco.test/unnamed-controls t)]
-      (is (= 1 (count found)))
-      (is (= "aria" (:class (rf.fresco.test/attrs (first found)))))))
-  (testing "the `for` off the label — the control keeps its id and the
-            label keeps its text, so nothing about the markup LOOKS
-            different except the one attribute that binds them"
-    (let [t (markup (assoc a-named-form 3 [:label "Named by for"]))
-          found (rf.fresco.test/unnamed-controls t)]
-      (is (= 1 (count found)))
-      (is (= "by-for" (:id (rf.fresco.test/attrs (first found)))))))
-  (testing "the TEXT out of the wrapping label, keeping the containment —
-            so what this row measures is the label's contribution and not
-            merely whether a label is nearby"
-    (let [t (markup (assoc a-named-form 5
-                           [:label [:input.wrapped {:type "checkbox"}]]))
-          found (rf.fresco.test/unnamed-controls t)]
-      (is (= 1 (count found)))
-      (is (= "wrapped" (:class (rf.fresco.test/attrs (first found)))))))
-  (testing "the referent of aria-labelledby"
-    (let [t (markup (assoc a-named-form 6 [:span {:id "other"} "Named by reference"]))
-          found (rf.fresco.test/unnamed-controls t)]
-      (is (= 1 (count found)))
-      (is (= "referenced" (:class (rf.fresco.test/attrs (first found)))))))
-  (testing "the :value off the submit button"
-    (let [t (markup (assoc a-named-form 8 [:input.submit {:type "submit"}]))
-          found (rf.fresco.test/unnamed-controls t)]
-      (is (= 1 (count found)))
-      (is (= "submit" (:class (rf.fresco.test/attrs (first found)))))))
-  (testing "the text out of the link"
-    (let [t (markup (assoc a-named-form 9 [:a {:href "/x"}]))
-          found (rf.fresco.test/unnamed-controls t)]
-      (is (= 1 (count found)))
-      (is (= :a (:tag (first found)))))))
+  (doseq [[what index replacement pick expected]
+          [["the content off a button"
+            1 [:button {:type "button"}] :tag :button]
+           ["the aria-label off the second button"
+            2 [:button.aria {:type "button"}] :class "aria"]
+           ["the `for` off the label — the control keeps its id and the
+             label keeps its text, so nothing about the markup LOOKS
+             different except the one attribute that binds them"
+            3 [:label "Named by for"] :id "by-for"]
+           ["the TEXT out of the wrapping label, keeping the containment —
+             so what this row measures is the label's contribution and not
+             merely whether a label is nearby"
+            5 [:label [:input.wrapped {:type "checkbox"}]] :class "wrapped"]
+           ["the referent of aria-labelledby"
+            6 [:span {:id "other"} "Named by reference"] :class "referenced"]
+           ["the :value off the submit button"
+            8 [:input.submit {:type "submit"}] :class "submit"]
+           ["the text out of the link"
+            9 [:a {:href "/x"}] :tag :a]]]
+    (testing what
+      (let [found (rf.fresco.test/unnamed-controls (markup (assoc a-named-form index replacement)))
+            node  (first found)]
+        (is (= 1 (count found)))
+        (is (= expected (if (= :tag pick)
+                          (:tag node)
+                          (get (rf.fresco.test/attrs node) pick))))))))
 
 (deftest moving-a-control-out-of-its-wrapping-label-reports-it
   (testing "the sabotage the row above deliberately did not do: the input

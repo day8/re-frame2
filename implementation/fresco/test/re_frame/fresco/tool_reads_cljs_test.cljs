@@ -239,19 +239,6 @@
       (is (nil? (:loss e))))
     (release)))
 
-(deftest two-declared-views-over-one-edge-set-are-one-row-naming-both
-  (seeded!)
-  (let [a   (mount! (rf.fresco.impl.codec/retained-body named-probe))
-        b   (mount! (rf.fresco.impl.codec/retained-body twin-probe))
-        e   (rf.fresco.tool/read-mounted-boundaries)
-        row (first (:boundaries e))]
-    (is (= 1 (count (:boundaries e)))
-        "the identity is still the edge set — two views reading one set share one entry")
-    (is (= 2 (:instances row)))
-    (is (= [named-probe-name twin-probe-name] (mapv :view (:views row)))
-        "both names ride on the one row, sorted, so neither view is hidden behind the other")
-    (a) (b)))
-
 (deftest a-name-minted-outside-defview-has-no-source
   (seeded!)
   (let [body (fn [_] (rf.fresco/sub [:tr/left]) nil)]

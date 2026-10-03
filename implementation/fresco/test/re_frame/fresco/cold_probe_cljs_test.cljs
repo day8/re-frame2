@@ -205,26 +205,13 @@
       (is (some? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/plain]))))
       (is (some? (sub-cache-entry [:coldprobe/plain])))
       (is (= 1 (count (rf.fresco.test.runtime/cell-readers (sub-key [:coldprobe/plain]))))))
+    ;; The equivalence commit-free Tier-1 reads rest on: the probe's pure
+    ;; compute and the reactive build share the input grammar, so a value
+    ;; must not depend on which rung answered it.
+    (testing "and a warm read, through the committed cell, answers what the
+              cold read answered"
+      (is (= [7] (run-body! (fn [read] (read [:coldprobe/plain]))))))
     (release)))
-
-(deftest a-cold-read-answers-what-the-committed-path-answers
-  (seeded!)
-  ;; The equivalence commit-free Tier-1 reads rest on: the
-  ;; probe's pure compute and the reactive build share the input grammar,
-  ;; so a value must not depend on which rung answered it.
-  (let [cold (first (run-body! (fn [read] (read [:coldprobe/plain]))))]
-    (let [entry   (do (rf.fresco.impl.collector/render-body
-                        frame-id (fn [_] (rf.fresco.impl.collector/sub [:coldprobe/plain]) [:p]) {})
-                      (rf.fresco.impl.collector/last-reads))
-          release (rf.fresco.impl.collector/commit-boundary! entry (fn []))
-          warm    (first (run-body! (fn [read] (read [:coldprobe/plain]))))]
-      (testing "the warm read really is warm — a committed cell now holds
-                the key, so this second read is a pure deref and not a
-                second cold one"
-        (is (some? (get @rf.fresco.impl.collector/!cells (sub-key [:coldprobe/plain])))))
-      (is (= cold warm))
-      (is (= 7 warm))
-      (release))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. One memo, and it belongs to the run
@@ -277,10 +264,8 @@
 
     (testing "the probe keeps the reactive path's contract for an id
               nobody registered: it emits, and it recovers to nil rather
-              than throwing through a render"
-      (is (= 1 (count misses))))
-
-    (testing "and it emits ONCE for the run, not once per read. A memoised
+              than throwing through a render — and it emits ONCE for the
+              run, not once per read. A memoised
               nil has to be a HIT — a lookup that treated `no value` and
               `the value nil` alike would re-emit and recompute on every
               read of every unregistered key a body touches"
