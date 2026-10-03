@@ -63,6 +63,55 @@ What happens:
 App-db never stores "still animating". Keeping the node painted is Presence's
 job.
 
+The cell below runs that list. A cell has no stylesheet, so the fade is
+written as inline styles, and it lasts a full second so you can watch it.
+Delete a todo: it fades and stops taking clicks, then goes. Press **Restore**
+while a row is fading and it comes back on the same node, because re-entry
+cancels the exit.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h]
+         '[re-frame.fresco.motion :as motion])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"}
+                  2 {:id 2 :title "Walk the dog"}
+                  3 {:id 3 :title "Post letter"}}}}))
+
+(rf/reg-event :todo/delete
+  (fn [{:keys [db]} [_ id]]
+    {:db (update db :todos dissoc id)}))
+
+(rf/reg-sub :todo/visible
+  (fn [db _]
+    (vec (sort-by :id (vals (:todos db))))))
+
+;; The page's .todo and .todo--exit rules, inline.
+(def shown  {:opacity 1 :transition "opacity 1000ms"})
+(def hidden {:opacity 0 :transition "opacity 1000ms"})
+
+(h/defview todo-list [_]
+  [:div
+   [:ul.todo-list
+    [motion/presence {:timeout-ms 1000}
+     (for [{:keys [id title]} (h/sub [:todo/visible])]
+       [:li.todo
+        {:key                id
+         :style              shown
+         ::motion/unmounting {:style       hidden
+                              :inert       true
+                              :aria-hidden true}}
+        title " "
+        [:button {:type "button" :aria-label "Delete todo"
+                  :on-click [:todo/delete id]} "×"]])]]
+   [:button {:type "button" :on-click [:todo/initialise]} "Restore"]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list]]
+```
+
 ## What Presence covers
 
 Presence owns **retention and phase**, nothing else:

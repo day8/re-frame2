@@ -77,6 +77,70 @@ keeps tracking the anchor as it moves; the module measures nothing and installs
 no scroll or resize listener. Where it is unavailable, the panel opens at the
 top layer's default position, and placing it is CSS you write.
 
+The cell below runs `filter-menu` above the list it filters. Press **Show**,
+pick a filter, then click outside the panel or press Escape: the browser
+dismisses it, `:on-dismiss` sets the flag false, and focus returns to
+**Show**.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h]
+         '[re-frame.fresco.overlay :as overlay])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos   {1 {:id 1 :title "Buy milk"     :done? false}
+                    2 {:id 2 :title "Walk the dog" :done? true}}
+          :showing :all}}))
+
+(rf/reg-event :todo/set-showing
+  (fn [{:keys [db]} [_ showing]]
+    {:db (assoc db :showing showing)}))
+
+(rf/reg-sub :todo/showing (fn [db _] (:showing db)))
+
+(rf/reg-sub :todo/visible
+  (fn [{:keys [todos showing]} _]
+    (cond->> (sort-by :id (vals todos))
+      (= showing :active) (remove :done?)
+      (= showing :done)   (filter :done?))))
+
+(h/reg-state :todo.ui/filter-open? {:default false})
+
+(h/defview filter-menu [{:keys [id]}]
+  (let [open?      (h/sub [:todo.ui/filter-open? id])
+        trigger-id (str "filter-" id "-trigger")]
+    [:div.filter
+     [:button {:id            trigger-id
+               :type          "button"
+               :aria-expanded open?
+               :on-click      [:todo.ui/filter-open? id (not open?)]}
+      "Show"]
+
+     [overlay/popover
+      {:open?      open?
+       :on-dismiss [:todo.ui/filter-open? id false]
+       :anchor     trigger-id
+       :placement  :bottom-start}
+      [:ul
+       (for [showing [:all :active :done]]
+         [:li {:key showing}
+          [:button {:type     "button"
+                    :on-click [:todo/set-showing showing]}
+           (name showing)]])]]]))
+
+(h/defview todo-screen [_]
+  [:div
+   [filter-menu {:id "todos"}]
+   [:p "Showing " (name (h/sub [:todo/showing]))]
+   [:ul
+    (for [{:keys [id title]} (h/sub [:todo/visible])]
+      [:li {:key id} title])]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-screen]]
+```
+
 ## Modals
 
 `overlay/modal` uses a native `<dialog>` and calls `showModal`:
@@ -123,6 +187,54 @@ A modal gives you the platform's modal behaviour:
 Light-dismiss defaults to false for modals so a destructive confirmation does
 not close on a stray backdrop click. Style the native backdrop with
 `::backdrop` CSS ([Theming and internationalisation](14-theming-and-i18n.md)).
+
+The cell below gives each row a Delete button that opens `confirm-delete`. It
+reuses `:todo/initialise` and `:todo/visible` from the popover cell above.
+While the dialog is open the page behind it ignores clicks. *Keep it* has
+focus first; Escape and *Keep it* both close the dialog, and *Delete* removes
+the row.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h]
+         '[re-frame.fresco.overlay :as overlay])
+
+(h/reg-state :todo.ui/confirm-delete? {:default false})
+
+(rf/reg-event :todo/delete
+  (fn [{:keys [db]} [_ id]]
+    {:db (update db :todos dissoc id)}))
+
+(rf/reg-event :todo/delete-confirmed
+  (fn [_ [_ id]]
+    {:fx [[:dispatch [::h/clear :todo.ui/confirm-delete? id]]
+          [:dispatch [:todo/delete id]]]}))
+
+(h/defview confirm-delete [{:keys [id]}]
+  [overlay/modal
+   {:open?      (h/sub [:todo.ui/confirm-delete? id])
+    :on-dismiss [:todo.ui/confirm-delete? id false]
+    :label      "Confirm deletion"}
+   [:h2 "Delete this todo?"]
+   [:p "This cannot be undone."]
+   [:footer
+    [:button {:on-click [:todo.ui/confirm-delete? id false]}
+     "Keep it"]
+    [:button.danger {:on-click [:todo/delete-confirmed id]}
+     "Delete"]]])
+
+(h/defview todo-rows [_]
+  [:ul
+   (for [{:keys [id title]} (h/sub [:todo/visible])]
+     [:li {:key id}
+      title " "
+      [:button {:type "button" :on-click [:todo.ui/confirm-delete? id true]}
+       "Delete"]
+      [confirm-delete {:id id}]])])
+
+[h/frame-root {:id :confirm :initial-events [[:todo/initialise]]}
+ [todo-rows]]
+```
 
 ## Focus behaviour
 

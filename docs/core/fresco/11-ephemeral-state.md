@@ -48,6 +48,52 @@ event id and an app-db key at once. The instance key is a keyword, string,
 number or vector of those. Registering the concern again replaces the
 registration, so a namespace reload is harmless.
 
+The cell below runs `todo-item` for two todos and prints what app-db holds at
+`[:ui :todo.ui/expanded?]` underneath. Expand a todo and watch its entry
+appear there, keyed by the todo's id. **Forget todo 1** dispatches
+`[::h/clear :todo.ui/expanded? 1]`, which removes the entry so the todo reads
+its default again.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"     :notes "Oat, not dairy."}
+                  2 {:id 2 :title "Walk the dog" :notes "Round the park."}}}}))
+
+(rf/reg-sub :todo/ids (fn [db _] (sort (keys (:todos db)))))
+(rf/reg-sub :todo/by-id (fn [db [_ id]] (get-in db [:todos id])))
+(rf/reg-sub :app/expanded-slice              ;; for the printout
+  (fn [db _] (get-in db [:ui :todo.ui/expanded?])))
+
+(h/reg-state :todo.ui/expanded? {:default false})
+
+(h/defview todo-item [{:keys [id]}]
+  (let [{:keys [title notes]} (h/sub [:todo/by-id id])
+        expanded?             (h/sub [:todo.ui/expanded? id])]
+    [:li
+     [:button {:type "button"
+               :aria-expanded expanded?
+               :on-click [:todo.ui/expanded? id (not expanded?)]}
+      title]
+     (when expanded?
+       [:p.notes notes])]))
+
+(h/defview todo-items [_]
+  [:div
+   [:ul
+    (for [id (h/sub [:todo/ids])]
+      [todo-item {:key id :id id}])]
+   [:button {:type "button" :on-click [::h/clear :todo.ui/expanded? 1]}
+    "Forget todo 1"]
+   [:pre "[:ui :todo.ui/expanded?] " (pr-str (h/sub [:app/expanded-slice]))]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-items]]
+```
+
 When a change means more than "this slot now holds that value" (something else
 must happen, or the change itself should be recorded), write a named event and
 its subscription by hand instead:
