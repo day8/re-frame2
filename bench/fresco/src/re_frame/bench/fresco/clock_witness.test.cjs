@@ -37,7 +37,7 @@ test('every fixture in clock_witness.cjs passes', () => {
   assert.deepStrictEqual(bad, [], `failing fixtures: ${bad.join(', ')}`);
   // A self-test that silently stopped having cases is a self-test that passes
   // for the wrong reason.
-  assert.ok(checks.length >= 15, `expected the witness to carry its fixtures, saw ${checks.length}`);
+  assert.ok(checks.length >= 20, `expected the witness to carry its fixtures, saw ${checks.length}`);
 });
 
 // --- the shape of a physical key --------------------------------------------
@@ -108,19 +108,6 @@ test('MUTATED (sampleIndex dropped from the key): the collapse is REFUSED by nam
   assert.match(named.why, /one record per physical key/);
 });
 
-test('MUTATED: two keys reported under one interaction id is REFUSED', () => {
-  const a = keyAt(0, 0);
-  const b = keyAt(0, 1);
-  const v = witness.adjudicate({
-    sent: [a, b],
-    entries: [...entriesFor(a, 11, 32), ...entriesFor(b, 11, 40)],
-    census: CENSUS,
-    shape: SHAPE,
-  });
-  assert.strictEqual(v.ok, false);
-  assert.ok(v.faults.map((f) => f.code).includes('shared-interaction-id'));
-});
-
 // --- censoring is published, not dropped ------------------------------------
 
 test('a key that produced no entry is censored and the arm publishes the rate', () => {
@@ -138,12 +125,6 @@ test('a key that produced no entry is censored and the arm publishes the rate', 
   const lines = witness.format(v).join('\n');
   assert.match(lines, /censored/);
   assert.match(lines, /CONDITIONAL on clearing 16 ms/);
-});
-
-test('the published block never claims more interactions than keys pressed', () => {
-  const v = witness.adjudicate(twoKeys());
-  assert.ok(v.totals.observed <= v.totals.sent);
-  assert.strictEqual(v.totals.observed + v.totals.censored, v.totals.sent);
 });
 
 // --- sub-recompute localisation is a gate -----------------------------------
