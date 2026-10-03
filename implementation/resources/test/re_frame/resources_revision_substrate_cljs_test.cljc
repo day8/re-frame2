@@ -381,14 +381,14 @@
 (deftest attach-owner-bumps-revision-only-when-a-new-owner-lands
   (testing "attaching a NEW owner adds it to :active-owners AND bumps :revision
             (an authoritative durable write a rollback could clobber)"
-    (let [e0 (rf.resources.state/empty-entry :conduit/article)]
-      (let [e1 (rf.resources.state/attach-owner e0 :owner/a)]
-        (is (contains? (:active-owners e1) :owner/a) "the new owner is in the set")
-        (is (= 1 (:revision e1)) "a new owner bumps :revision 0 -> 1")
-        (testing "attaching a SECOND distinct owner also lands + bumps"
-          (let [e2 (rf.resources.state/attach-owner e1 :owner/b)]
-            (is (= #{:owner/a :owner/b} (:active-owners e2)) "set gains the 2nd owner")
-            (is (= 2 (:revision e2)) "the 2nd distinct owner bumps 1 -> 2"))))))
+    (let [e0 (rf.resources.state/empty-entry :conduit/article)
+          e1 (rf.resources.state/attach-owner e0 :owner/a)]
+      (is (contains? (:active-owners e1) :owner/a) "the new owner is in the set")
+      (is (= 1 (:revision e1)) "a new owner bumps :revision 0 -> 1")
+      (testing "attaching a SECOND distinct owner also lands + bumps"
+        (let [e2 (rf.resources.state/attach-owner e1 :owner/b)]
+          (is (= #{:owner/a :owner/b} (:active-owners e2)) "set gains the 2nd owner")
+          (is (= 2 (:revision e2)) "the 2nd distinct owner bumps 1 -> 2")))))
   (testing "RE-ATTACHING an already-present owner is a NO-OP — the set is
             unchanged and :revision is UNMOVED (the load-bearing gate: no
             phantom conflict on every unrelated re-ensure)"

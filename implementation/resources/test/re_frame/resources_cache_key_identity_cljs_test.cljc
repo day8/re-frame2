@@ -37,7 +37,6 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    #?(:cljs [cljs.reader])
-   [re-frame.identity :as rf.identity]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.work-ledger :as rf.resources.work-ledger]
