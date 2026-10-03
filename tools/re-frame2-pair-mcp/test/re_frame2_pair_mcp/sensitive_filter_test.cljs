@@ -160,75 +160,55 @@
 ;; walking the record's `:trace-events` slot at egress.
 ;; ---------------------------------------------------------------------------
 
-(deftest sensitive-epoch-rollup-true-detected
-  ;; The runtime rollup key: `:rf.epoch/sensitive? true`, NO unqualified
-  ;; `:sensitive?`, NO sensitive constituent trace event — the
-  ;; schema-derived-sensitive shape.
-  (is (sensitive/sensitive-epoch? {:epoch-id 1 :event-id :auth/sign-in :rf.epoch/sensitive? true})))
-
-(deftest sensitive-epoch-rollup-false-passes
-  ;; `:rf.epoch/sensitive? false` with no sensitive constituent ⇒ not sensitive.
-  (is (not (sensitive/sensitive-epoch? {:epoch-id 1 :event-id :cart/add :rf.epoch/sensitive? false}))))
-
-(deftest sensitive-epoch-unqualified-key-is-not-the-rollup
-  ;; Guard against regressing to the unqualified key: the runtime never
-  ;; writes a top-level `:sensitive?` on an epoch RECORD (only on trace
-  ;; events). An epoch carrying ONLY an unqualified `:sensitive? true`
-  ;; (no qualified rollup, no sensitive constituent trace event) is a
-  ;; shape the runtime never emits; we don't treat the stray
-  ;; unqualified key as the rollup signal — the qualified key is
-  ;; authoritative. (The `:trace-events` walk still governs real cascades.)
-  (is (not (sensitive/sensitive-epoch? {:epoch-id 1 :event-id :auth/sign-in :sensitive? true}))))
-
-(deftest sensitive-epoch-rollup-malformed-truthy-fails-closed
-  ;; A transport bug that coerces `:rf.epoch/sensitive? true` into a
-  ;; string/keyword MUST NOT leak the record. The rollup is classified
-  ;; through the shared fail-closed
-  ;; `mcp-base.sensitive/sensitive-stamp?`, so malformed-truthy drops.
+(deftest sensitive-epoch?-truth-table
+  ;; The runtime never writes a top-level `:sensitive?` on an epoch RECORD
+  ;; (only on trace events), so a stray unqualified key is not the rollup
+  ;; signal — the qualified key is authoritative. A transport bug that
+  ;; coerces `:rf.epoch/sensitive? true` into a string/keyword MUST NOT
+  ;; leak the record: the rollup is classified through the shared
+  ;; fail-closed `mcp-base.sensitive/sensitive-stamp?`, so malformed-truthy
+  ;; drops. A `:rf.epoch/sensitive? false` rollup is the assembler's claim
+  ;; that no constituent is sensitive; if a constituent disagrees we trust
+  ;; the constituent — defense-in-depth drops on EITHER signal.
   (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the warning
-    (is (sensitive/sensitive-epoch? {:epoch-id 1 :rf.epoch/sensitive? "true"}))
-    (is (sensitive/sensitive-epoch? {:epoch-id 2 :rf.epoch/sensitive? :yes}))
-    (is (sensitive/sensitive-epoch? {:epoch-id 3 :rf.epoch/sensitive? 1}))))
-
-(deftest sensitive-epoch-constituent-trace-event-detected
-  ;; The top-level rollup is absent (older runtime), but a constituent
-  ;; trace event carries the stamp — the egress guard must still drop.
-  (is (sensitive/sensitive-epoch?
-        {:epoch-id 2
-         :event-id :auth/sign-in
-         :trace-events [{:op-type :rf.event :operation :rf.event/run-start
-                         :tags {:rf.trace/phase :run-start}}
-                        {:op-type :rf.event :operation :rf.event/run-end
-                         :tags {:rf.trace/phase :run-end}
-                         :sensitive? true}]})))
-
-(deftest sensitive-epoch-no-stamps-passes
-  (is (not (sensitive/sensitive-epoch?
-             {:epoch-id 3
-              :event-id :cart/add
-              :trace-events [{:op-type :rf.event :operation :rf.event/run-start
-                              :tags {:rf.trace/phase :run-start}}
-                             {:op-type :rf.event :operation :rf.event/run-end
-                              :tags {:rf.trace/phase :run-end}}]}))))
-
-(deftest sensitive-epoch-empty-trace-events-passes
-  (is (not (sensitive/sensitive-epoch? {:epoch-id 4 :trace-events []})))
-  (is (not (sensitive/sensitive-epoch? {:epoch-id 5}))))
-
-(deftest sensitive-epoch-non-map-input-passes
-  (is (not (sensitive/sensitive-epoch? nil)))
-  (is (not (sensitive/sensitive-epoch? [:trace-events [{:sensitive? true}]])))
-  (is (not (sensitive/sensitive-epoch? "anything"))))
-
-(deftest sensitive-epoch-explicit-false-rollup-still-walks-trace-events
-  ;; A `:rf.epoch/sensitive? false` rollup is the assembler's claim that
-  ;; no constituent is sensitive. If a constituent disagrees we trust
-  ;; the constituent — defense-in-depth means we drop on EITHER signal,
-  ;; never silently overrule a sensitive constituent.
-  (is (sensitive/sensitive-epoch?
-        {:epoch-id 6
-         :rf.epoch/sensitive? false
-         :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]})))
+    (doseq [[record sensitive? note]
+            [[{:epoch-id 1 :event-id :auth/sign-in :rf.epoch/sensitive? true} true
+              "the runtime rollup alone (the schema-derived-sensitive shape)"]
+             [{:epoch-id 1 :event-id :cart/add :rf.epoch/sensitive? false} false
+              "a false rollup with no sensitive constituent"]
+             [{:epoch-id 1 :event-id :auth/sign-in :sensitive? true} false
+              "an unqualified :sensitive? on the record is not the rollup"]
+             [{:epoch-id 1 :rf.epoch/sensitive? "true"} true "malformed-truthy string rollup fails closed"]
+             [{:epoch-id 2 :rf.epoch/sensitive? :yes} true "malformed-truthy keyword rollup fails closed"]
+             [{:epoch-id 3 :rf.epoch/sensitive? 1} true "malformed-truthy number rollup fails closed"]
+             [{:epoch-id 2
+               :event-id :auth/sign-in
+               :trace-events [{:op-type :rf.event :operation :rf.event/run-start
+                               :tags {:rf.trace/phase :run-start}}
+                              {:op-type :rf.event :operation :rf.event/run-end
+                               :tags {:rf.trace/phase :run-end}
+                               :sensitive? true}]}
+              true
+              "rollup absent (older runtime) but a constituent trace event carries the stamp"]
+             [{:epoch-id 3
+               :event-id :cart/add
+               :trace-events [{:op-type :rf.event :operation :rf.event/run-start
+                               :tags {:rf.trace/phase :run-start}}
+                              {:op-type :rf.event :operation :rf.event/run-end
+                               :tags {:rf.trace/phase :run-end}}]}
+              false
+              "no stamps anywhere"]
+             [{:epoch-id 4 :trace-events []} false "empty trace events"]
+             [{:epoch-id 5} false "no trace events slot"]
+             [nil false "nil input"]
+             [[:trace-events [{:sensitive? true}]] false "a non-map input"]
+             ["anything" false "a string input"]
+             [{:epoch-id 6
+               :rf.epoch/sensitive? false
+               :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}
+              true
+              "a false rollup never overrules a sensitive constituent"]]]
+      (is (= sensitive? (boolean (sensitive/sensitive-epoch? record))) note))))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive on epoch records — the epoch-read defense-in-depth

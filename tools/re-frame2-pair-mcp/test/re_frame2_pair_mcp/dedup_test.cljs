@@ -108,15 +108,14 @@
                 :traces    []}})
 
 (deftest snapshot-dedup-wraps-each-frames-epochs
+  ;; Other slices pass through unchanged: snapshot-dedup-round-trips-per-frame
+  ;; restores only :epochs and compares the whole snapshot.
   (let [wrapped (pipeline/dedup-epochs-in-snapshot fixture-snapshot true)]
     (testing ":epochs slot wrapped on every frame that has one"
       (doseq [[_fid fmap] wrapped]
         (let [eps (:epochs fmap)]
           (is (and (map? eps) (contains? eps :rf.mcp/dedup-table))
-              "epochs slice replaced with dedup-table marker"))))
-    (testing "other slices pass through unchanged"
-      (is (= {:k :v} (-> wrapped :rf/default :app-db)))
-      (is (= [] (-> wrapped :rf/default :traces))))))
+              "epochs slice replaced with dedup-table marker"))))))
 
 (deftest snapshot-dedup-disabled-passes-through
   (is (= fixture-snapshot

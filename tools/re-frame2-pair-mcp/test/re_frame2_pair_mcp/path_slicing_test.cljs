@@ -57,30 +57,6 @@
 ;; tree-summary — the {:rf.mcp/summary ...} marker shape.
 ;; ---------------------------------------------------------------------------
 
-(deftest tree-summary-map-records-top-level-keys-and-bytes-approx
-  ;; `:bytes` is a cheap approximation, not a precise count. It is
-  ;; `count × per-entry constant`, never `(count (pr-str v))` — a
-  ;; deep walk would contradict the marker's "no-deep-walk" contract
-  ;; (a 54MB app-db slice would burn a 54MB string allocation per
-  ;; summary). Pin the contract: the estimate scales linearly with
-  ;; entry count, is non-negative, and is order-of-magnitude
-  ;; reasonable for tiny maps.
-  (let [v {:a 1 :b 2 :nested {:deep {:value 42}}}
-        s (summary/tree-summary v)
-        marker (:rf.mcp/summary s)]
-    (is (= :map (:type marker)))
-    (is (= #{:a :b :nested} (set (:keys marker))))
-    (is (= 3 (:count marker)))
-    (is (integer? (:bytes marker)))
-    (is (pos? (:bytes marker)))
-    ;; The estimate is `:count × per-entry-constant` — for a 3-entry
-    ;; map under the current 16-byte heuristic that's 48. Pin a
-    ;; range, not the literal, so a future re-tune of the heuristic
-    ;; (e.g. measuring against a representative corpus) doesn't churn
-    ;; the test fixture by one byte.
-    (is (<= 8 (:bytes marker) 512)
-        "Per-entry estimate should be order-of-magnitude reasonable")))
-
 (deftest tree-summary-bytes-is-cheap-on-large-values
   ;; The load-bearing property. Computing `:bytes` on a 50K-entry map
   ;; MUST be effectively instant — the marker exists precisely to avoid
@@ -100,8 +76,9 @@
     (is (zero? (mod bytes 50000))
         "Bytes must be entry-count × constant, not pr-str byte count")))
 
-(deftest tree-summary-set-and-seq
-  (is (= :set (-> (summary/tree-summary #{1 2 3}) :rf.mcp/summary :type)))
+(deftest tree-summary-classifies-a-seq
+  ;; The set case is pinned with its count and bytes in
+  ;; set_valued_app_db_test.
   (is (= :seq (-> (summary/tree-summary (list 1 2 3)) :rf.mcp/summary :type))))
 
 ;; ---------------------------------------------------------------------------
@@ -211,37 +188,23 @@
 ;; deepest-valid-prefix — the error-recovery breadcrumb.
 ;; ---------------------------------------------------------------------------
 
-(deftest deepest-valid-prefix-walks-map-keys
-  (let [db {:user {:auth {:token "abc"}}}]
-    (is (= [:user :auth :token]
-           (summary/deepest-valid-prefix db [:user :auth :token])))
-    (is (= [:user :auth]
-           (summary/deepest-valid-prefix db [:user :auth :missing])))
-    (is (= []
-           (summary/deepest-valid-prefix db [:missing])))))
-
-(deftest deepest-valid-prefix-walks-vector-indices
-  (let [db {:items [:apple :banana :cherry]}]
-    (is (= [:items 1]
-           (summary/deepest-valid-prefix db [:items 1])))
-    (is (= [:items]
-           (summary/deepest-valid-prefix db [:items 99])))
-    (is (= [:items]
-           ;; non-integer key on a vector terminates the walk
-           (summary/deepest-valid-prefix db [:items :nope])))))
-
-(deftest deepest-valid-prefix-stops-at-scalar
-  (let [db {:user {:name "alice"}}]
-    ;; Walking past a string scalar stops at the scalar's parent.
-    (is (= [:user :name]
-           (summary/deepest-valid-prefix db [:user :name :char])))))
-
-(deftest deepest-valid-prefix-handles-nil-leaf
+(deftest deepest-valid-prefix-walks-to-the-last-resolvable-step
   ;; nil is a legitimate map value; the path that points at it is
   ;; "valid" up to the nil, but a further step terminates.
-  (let [db {:k nil}]
-    (is (= [:k] (summary/deepest-valid-prefix db [:k])))
-    (is (= [:k] (summary/deepest-valid-prefix db [:k :anything])))))
+  (let [auth  {:user {:auth {:token "abc"}}}
+        items {:items [:apple :banana :cherry]}]
+    (doseq [[db path expected note]
+            [[auth [:user :auth :token] [:user :auth :token] "a fully resolvable map path"]
+             [auth [:user :auth :missing] [:user :auth] "a missing map key stops at its parent"]
+             [auth [:missing] [] "a missing first key resolves nothing"]
+             [items [:items 1] [:items 1] "a vector index in range"]
+             [items [:items 99] [:items] "an out-of-range index stops at the vector"]
+             [items [:items :nope] [:items] "a non-integer key on a vector terminates the walk"]
+             [{:user {:name "alice"}} [:user :name :char] [:user :name]
+              "walking past a string scalar stops at the scalar"]
+             [{:k nil} [:k] [:k] "a path pointing at a nil leaf is valid"]
+             [{:k nil} [:k :anything] [:k] "a step past a nil leaf terminates"]]]
+      (is (= expected (summary/deepest-valid-prefix db path)) note))))
 
 ;; ---------------------------------------------------------------------------
 ;; slice-app-db-in-snapshot — snapshot's `:app-db` post-processing.

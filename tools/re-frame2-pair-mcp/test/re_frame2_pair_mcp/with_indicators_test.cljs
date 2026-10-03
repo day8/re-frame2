@@ -94,22 +94,7 @@
 (defn- contains-with-indicators? [src]
   (boolean (re-find #"wire/with-indicators|with-indicators" src)))
 
-(deftest snapshot-emit-site-routes-through-with-indicators
-  (let [src (read-source "src/re_frame2_pair_mcp/tools/snapshot.cljs")]
-    (is (contains-with-indicators? src)
-        "snapshot.cljs MUST route its envelope through wire/with-indicators")))
-
-(deftest get-path-emit-site-routes-through-with-indicators
-  (let [src (read-source "src/re_frame2_pair_mcp/tools/get_path.cljs")]
-    (is (contains-with-indicators? src)
-        "get_path.cljs MUST route its envelope through wire/with-indicators")))
-
-(deftest trace-window-emit-site-routes-through-with-indicators
-  (let [src (read-source "src/re_frame2_pair_mcp/tools/trace_window.cljs")]
-    (is (contains-with-indicators? src)
-        "trace_window.cljs MUST route its envelope through wire/with-indicators")))
-
-(deftest watch-epochs-emit-site-routes-through-with-indicators
-  (let [src (read-source "src/re_frame2_pair_mcp/tools/watch_epochs.cljs")]
-    (is (contains-with-indicators? src)
-        "watch_epochs.cljs MUST route its envelope through wire/with-indicators")))
+(deftest every-pinned-emit-site-routes-through-with-indicators
+  (doseq [file ["snapshot.cljs" "get_path.cljs" "trace_window.cljs" "watch_epochs.cljs"]]
+    (is (contains-with-indicators? (read-source (str "src/re_frame2_pair_mcp/tools/" file)))
+        (str file " MUST route its envelope through wire/with-indicators"))))

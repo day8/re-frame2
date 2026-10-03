@@ -34,24 +34,18 @@
 ;; parse-limit-arg — MCP-arg normalisation.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-limit-default-when-absent
-  (is (= default-limit (cursor/parse-limit-arg nil)))
-  (is (= default-limit (cursor/parse-limit-arg js/undefined))))
-
-(deftest parse-limit-positive-integer-pass-through
-  (is (= 10 (cursor/parse-limit-arg 10)))
-  (is (= 1  (cursor/parse-limit-arg 1)))
-  (is (= 1000 (cursor/parse-limit-arg 1000))))
-
-(deftest parse-limit-clamps-non-positive-to-one
-  (is (= 1 (cursor/parse-limit-arg 0)))
-  (is (= 1 (cursor/parse-limit-arg -5))))
-
-(deftest parse-limit-parses-numeric-string
-  (is (= 25 (cursor/parse-limit-arg "25"))))
-
-(deftest parse-limit-non-numeric-string-falls-back
-  (is (= default-limit (cursor/parse-limit-arg "bogus"))))
+(deftest parse-limit-arg-resolution
+  (doseq [[input expected note]
+          [[nil default-limit "absent ⇒ the default"]
+           [js/undefined default-limit "undefined ⇒ the default"]
+           [10 10 "a positive integer passes through"]
+           [1 1 "the smallest positive integer passes through"]
+           [1000 1000 "a large positive integer passes through"]
+           [0 1 "zero clamps to one"]
+           [-5 1 "a negative clamps to one"]
+           ["25" 25 "a numeric string parses"]
+           ["bogus" default-limit "a non-numeric string falls back to the default"]]]
+    (is (= expected (cursor/parse-limit-arg input)) note)))
 
 ;; ---------------------------------------------------------------------------
 ;; encode-cursor / decode-cursor — opaque round-trip.
@@ -62,52 +56,24 @@
   (is (nil? (cursor/encode-cursor {})))
   (is (nil? (cursor/encode-cursor {:v 1 :after-id nil}))))
 
-(deftest cursor-round-trip-preserves-payload
-  (let [payload {:v 1 :after-id "epoch-42" :ms 5000 :until-ms 1234567890
-                 :frame :rf/default}
-        encoded (cursor/encode-cursor payload)
-        decoded (cursor/decode-cursor encoded)]
-    (is (= payload decoded))))
-
-;; ---------------------------------------------------------------------------
-;; INTEGER epoch-ids (real-runtime fidelity).
-;;
-;; The reference epoch runtime (`re-frame/epoch/state.cljc`
-;; `next-epoch-id` = `(swap! counter inc)`) emits INTEGER epoch-ids, and
-;; Spec-Schemas declares `:epoch-id` as `:any`. `decode-cursor` must
-;; accept any `:after-id` shape: an integer-bearing second-page cursor
-;; round-trips intact rather than decoding as `::malformed` and tripping
-;; a spurious `:rf.mcp/cursor-stale`. These pin the contract to `:any` —
-;; the tests use REAL integer ids, not synthesised strings, so a
-;; regression to a `string?` guard fails here.
-;; ---------------------------------------------------------------------------
-
-(deftest cursor-round-trips-integer-after-id
-  ;; The headline case: an integer :after-id survives encode→decode and
-  ;; is NOT rejected as malformed.
-  (let [payload {:v 1 :after-id 7 :ms 1000 :until-ms 1234567890 :frame :rf/default}
-        encoded (cursor/encode-cursor payload)
-        decoded (cursor/decode-cursor encoded)]
-    (is (string? encoded) "encode emits a token for an integer after-id")
-    (is (not= malformed decoded) "integer after-id must NOT decode as malformed")
-    (is (= payload decoded) "the integer after-id round-trips losslessly")
-    (is (integer? (:after-id decoded)) "after-id stays an integer, not coerced to string")
-    (is (= 7 (:after-id decoded)))))
-
-(deftest cursor-round-trips-keyword-after-id
-  ;; :epoch-id is :any — a keyword id (a less-common but legal opaque
-  ;; shape) must also survive.
-  (let [payload {:v 1 :after-id :ev/login :ms nil :until-ms nil :frame nil}
-        decoded (cursor/decode-cursor (cursor/encode-cursor payload))]
-    (is (not= malformed decoded))
-    (is (= :ev/login (:after-id decoded)))))
-
-(deftest encode-cursor-emits-token-for-integer-after-id
-  ;; encode-cursor's "is there an after-id?" guard must accept an
-  ;; integer (not silently drop it as it would if it required string?).
-  (is (string? (cursor/encode-cursor {:v 1 :after-id 0}))
-      "integer 0 is a valid after-id (some?, not string?)")
-  (is (string? (cursor/encode-cursor {:v 1 :after-id 42}))))
+(deftest cursor-round-trips-every-after-id-shape
+  ;; The reference epoch runtime (`re-frame/epoch/state.cljc`
+  ;; `next-epoch-id` = `(swap! counter inc)`) emits INTEGER epoch-ids, and
+  ;; Spec-Schemas declares `:epoch-id` as `:any`. `decode-cursor` must
+  ;; accept any `:after-id` shape: an integer-bearing second-page cursor
+  ;; round-trips intact rather than decoding as `::malformed` and tripping
+  ;; a spurious `:rf.mcp/cursor-stale`, and encode's "is there an
+  ;; after-id?" guard is `some?`, not `string?` — integer 0 included. The
+  ;; rows use REAL integer ids, not synthesised strings, so a regression
+  ;; to a `string?` guard fails here; equality also proves an integer id
+  ;; is not coerced to a string.
+  (doseq [payload [{:v 1 :after-id "epoch-42" :ms 5000 :until-ms 1234567890
+                    :frame :rf/default}
+                   {:v 1 :after-id 7 :ms 1000 :until-ms 1234567890 :frame :rf/default}
+                   {:v 1 :after-id 0}
+                   {:v 1 :after-id :ev/login :ms nil :until-ms nil :frame nil}]]
+    (is (= payload (cursor/decode-cursor (cursor/encode-cursor payload)))
+        (str "after-id " (pr-str (:after-id payload)) " round-trips losslessly"))))
 
 (deftest decode-cursor-nil-on-nil-input
   (is (nil? (cursor/decode-cursor nil)))

@@ -21,8 +21,6 @@
   than through the live nREPL eval boundary (covered by the
   stdio-roundtrip harness)."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
-            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame.mcp-base.elision :as rf.mcp-base.elision]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
@@ -57,30 +55,18 @@
   (testing "3 records each carrying an identical large-elided marker → :elided-large == 3 (dedup on)"
     (let [marker (large-marker [:slot])
           epochs (vec (for [n (range 3)] (epoch-with-marker n marker)))
-          {:keys [indicators]}
+          {:keys [value indicators]}
           (wp/run-wire-pipeline epochs {:kind   :epoch-vector
                                         :incl?  false
                                         :mode   :diff
                                         :dedup? true})]
       (is (= 3 (:elided indicators))
           "every one of the 3 identical markers is counted, NOT pooled to 1 by dedup")
-      ;; Guard against a regression that re-walks the deduped payload:
-      ;; that path collapses the 3 equal markers to a single cache
-      ;; entry, so the walker would see 1.
-      (is (= 3 (count epochs)) "fixture sanity: 3 records"))))
-
-(deftest epoch-vector-dedup-of-equal-markers-would-undercount-without-fix
-  (testing "the deduped payload genuinely pools the 3 equal markers — proving the pre-dedup count is load-bearing"
-    (let [marker  (large-marker [:slot])
-          epochs  (vec (for [n (range 3)] (epoch-with-marker n marker)))
-          encoded (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff)
-          deduped (rf.mcp-base.dedup/dedup-value encoded true)]
-      ;; Walking `deduped` returns 1 here (the undercount); walking
-      ;; `encoded` — the pipeline's choice — returns the correct 3.
-      (is (= 1 (rf.mcp-base.elision/count-elided-markers deduped))
-          "dedup pools the 3 equal markers → walking the deduped payload undercounts to 1 (the hazard)")
-      (is (= 3 (rf.mcp-base.elision/count-elided-markers encoded))
-          "walking the pre-dedup payload counts all 3 (the pipeline's choice)"))))
+      ;; The control, proving the pre-dedup count is load-bearing: the
+      ;; shipped (deduped) payload genuinely pools the 3 equal markers into
+      ;; one cache entry, so a regression that re-walked it would see 1.
+      (is (= 1 (rf.mcp-base.elision/count-elided-markers value))
+          "dedup pools the 3 equal markers → walking the shipped payload undercounts to 1 (the hazard)"))))
 
 (deftest epoch-vector-elided-count-stable-with-dedup-off
   (testing "dedup off → no pooling → :elided-large == 3 either way"

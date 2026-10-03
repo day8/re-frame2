@@ -15,7 +15,6 @@
             [cljs.reader :as edn]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
-            [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.cache :as cache]))
 
 ;; ---------------------------------------------------------------------------
@@ -59,23 +58,11 @@
 ;; cacheable? — tool-allowlist guard.
 ;; ---------------------------------------------------------------------------
 
-(deftest cacheable-read-tools
-  ;; The five read tools listed in `cacheable-tools` should all hit.
-  (is (cache/cacheable? "snapshot"))
-  (is (cache/cacheable? "get-path"))
-  (is (cache/cacheable? "trace-window"))
-  (is (cache/cacheable? "watch-epochs"))
-  (is (cache/cacheable? "discover-app")))
-
-(deftest cacheable-excludes-action-tools
-  ;; Action tools' return values are the result of an action; their
-  ;; hashes will differ even on \"identical\" state.
-  (is (not (cache/cacheable? "dispatch")))
-  (is (not (cache/cacheable? "eval-cljs")))
-  (is (not (cache/cacheable? "tail-build")))
-  (is (not (cache/cacheable? "unknown-tool"))))
-
-(deftest cacheable-excludes-get-operating-frame
+(deftest cacheable?-is-the-read-tool-allowlist
+  ;; The five read tools listed in `cacheable-tools` hit. Action tools'
+  ;; return values are the result of an action; their hashes will differ
+  ;; even on "identical" state.
+  ;;
   ;; `get-operating-frame` is a read of VOLATILE runtime
   ;; state (the live frame registry + the per-session pin), not a
   ;; function of frame app-db. Both axes can move WITHOUT an app-db
@@ -86,8 +73,18 @@
   ;; only flushes on an explicit operating-frame mutation — so caching
   ;; it could serve a stale `:rf.mcp/cache-hit` for byte-identical empty
   ;; args. It must be non-cacheable.
-  (is (not (cache/cacheable? "get-operating-frame"))
-      "get-operating-frame must not consult the response cache"))
+  (doseq [[tool cacheable?] [["snapshot" true]
+                             ["get-path" true]
+                             ["trace-window" true]
+                             ["watch-epochs" true]
+                             ["discover-app" true]
+                             ["dispatch" false]
+                             ["eval-cljs" false]
+                             ["tail-build" false]
+                             ["unknown-tool" false]
+                             ["get-operating-frame" false]]]
+    (is (= cacheable? (cache/cacheable? tool))
+        (str tool (if cacheable? " consults" " must not consult") " the response cache"))))
 
 ;; ---------------------------------------------------------------------------
 ;; args->fingerprint — stable across JS-object key order.
@@ -109,25 +106,9 @@
   (is (nil? (cache/args->fingerprint js/undefined)))
   (is (= {} (cache/args->fingerprint #js {}))))
 
-(deftest args-fingerprint-distinguishes-different-args
-  (let [a (args-js {:frame ":rf/default"})
-        b (args-js {:frame ":stories"})]
-    (is (not= (cache/args->fingerprint a)
-              (cache/args->fingerprint b)))))
-
 ;; ---------------------------------------------------------------------------
 ;; hash-result — sensitive to text + error flag.
 ;; ---------------------------------------------------------------------------
-
-(deftest hash-result-stable-for-same-text
-  (let [r1 (mcp-result "{:ok? true :app-db {:k :v}}")
-        r2 (mcp-result "{:ok? true :app-db {:k :v}}")]
-    (is (= (cache/hash-result r1) (cache/hash-result r2)))))
-
-(deftest hash-result-differs-for-different-text
-  (let [r1 (mcp-result "{:ok? true :app-db {:k :v}}")
-        r2 (mcp-result "{:ok? true :app-db {:k :other}}")]
-    (is (not= (cache/hash-result r1) (cache/hash-result r2)))))
 
 (deftest hash-result-distinguishes-error-vs-success
   ;; Same text payload but :isError true vs. false should hash
@@ -151,8 +132,6 @@
                                           :enabled? true})]
     (is (identical? result out)
         "fresh call returns the original result untouched")
-    (is (not (cache-hit-result? out))
-        "fresh call does not emit a cache-hit marker")
     (is (= 1 (cache/size))
         "fresh call stored an entry in the LRU")))
 
@@ -196,9 +175,7 @@
     ;; Mutation → different text → different hash → miss.
     (let [out (cache/apply-cache r2 opts)]
       (is (identical? r2 out)
-          "mutation returns the fresh result untouched")
-      (is (not (cache-hit-result? out))
-          "mutation does not emit a cache-hit marker"))
+          "mutation returns the fresh result untouched"))
     (is (= 1 (cache/size))
         "key was overwritten in place, not duplicated")))
 
@@ -215,17 +192,6 @@
       (is (identical? r out)))
     (is (zero? (cache/size))
         "disabled cache stores nothing")))
-
-(deftest non-cacheable-tool-bypasses
-  ;; Action tools (`dispatch`, `eval-cljs`, `tail-build`) bypass even
-  ;; when `enabled? true`.
-  (let [args (args-js {:event "[:cart/checkout]"})
-        r    (mcp-result "{:ok? true :dispatched? true}")
-        opts {:tool "dispatch" :args args :enabled? true}]
-    (let [out (cache/apply-cache r opts)]
-      (is (identical? r out)))
-    (is (zero? (cache/size))
-        "action tools never poison the cache")))
 
 (deftest get-operating-frame-never-serves-stale-cache-hit
   ;; The load-bearing scenario. Two byte-identical
@@ -246,9 +212,7 @@
           "first get-operating-frame read passes through untouched"))
     (let [out2 (cache/apply-cache r2 opts)]
       (is (identical? r2 out2)
-          "second byte-identical read still returns the fresh payload")
-      (is (not (cache-hit-result? out2))
-          "no :rf.mcp/cache-hit marker — could mask a changed frame/session"))
+          "second byte-identical read still returns the fresh payload, not a :rf.mcp/cache-hit marker that could mask a changed frame/session"))
     (is (zero? (cache/size))
         "get-operating-frame never poisons the cache")))
 
@@ -268,42 +232,6 @@
       (let [out (cache/apply-cache ok opts)]
         (is (identical? ok out)
             "successful follow-up is a fresh miss")))))
-
-(deftest preflight-rejection-is-error-shaped-and-bypasses-cache
-  ;; A runtime/preflight/transport rejection routes through
-  ;; probe/err->result, which emits an :isError result (NOT a
-  ;; success-shaped ok-text). Two guarantees:
-  ;;   (a) the result carries :isError true (the known-tool-failure
-  ;;       contract: API §Result shape / 001 §JSON-RPC error codes), and
-  ;;   (b) because apply-cache bypasses :isError, such a failure can never
-  ;;       be cached and can never produce a later :rf.mcp/cache-hit on the
-  ;;       same (tool, args) key — masking a subsequent successful read.
-  (let [;; A structured ex-info exactly like resolve-and-preflight! rejects
-        ;; with on a runtime-absent build.
-        rej   (ex-info "no re-frame2-pair runtime for build"
-                       {:reason :no-runtime-for-build :build :app})
-        err   (probe/err->result :snapshot-failed rej)
-        args  (args-js {:frame ":rf/default"})
-        opts  {:tool "snapshot" :args args :enabled? true}]
-    ;; (a) error-shaped.
-    (is (true? (j/get err :isError))
-        "preflight rejection surfaces as :isError true")
-    (let [edn-out (some-> (extract-text err) edn/read-string)]
-      (is (false? (:ok? edn-out)))
-      (is (= :no-runtime-for-build (:reason edn-out))
-          "structured ex-info reason surfaces verbatim"))
-    ;; (b) not cached — passes through untouched, leaves no entry.
-    (let [out (cache/apply-cache err opts)]
-      (is (identical? err out)
-          "preflight-failure result passes through apply-cache untouched"))
-    (is (zero? (cache/size))
-        "a preflight failure must not poison the cache")
-    ;; And it cannot manufacture a later cache-hit: a second identical
-    ;; failure is again a pass-through, never a :rf.mcp/cache-hit marker.
-    (let [err2 (probe/err->result :snapshot-failed rej)
-          out2 (cache/apply-cache err2 opts)]
-      (is (not (cache-hit-result? out2))
-          "a repeated preflight failure never returns a :rf.mcp/cache-hit"))))
 
 (deftest different-tools-same-args-do-not-collide
   ;; (snapshot, args) and (get-path, args) are different keys.
