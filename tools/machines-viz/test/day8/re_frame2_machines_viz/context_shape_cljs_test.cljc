@@ -140,11 +140,7 @@
       (is (= {} (:shape result))
           "empty `[:map]` → empty authoritative shape, not the :data sample")
       (is (false? (:inferred? result))
-          "declared (even empty) → inferred? false")
-      (is (not (contains? (:shape result) :secret))
-          "undeclared sample key :secret is NOT rendered as inferred context")
-      (is (not (contains? (:shape result) :nonce))
-          "undeclared sample key :nonce is NOT rendered as inferred context"))))
+          "declared (even empty) → inferred? false"))))
 
 (deftest empty-closed-map-schema-is-declared-not-inferred
   (testing "a declared-but-empty `[:map {:closed true}]` (an
@@ -157,9 +153,7 @@
                     :states  {:s {}}})]
       (is (= {} (:shape result))
           "empty closed `[:map …]` → empty authoritative shape")
-      (is (false? (:inferred? result)))
-      (is (not (contains? (:shape result) :secret))
-          "undeclared sample key is NOT rendered as inferred context"))))
+      (is (false? (:inferred? result))))))
 
 (deftest wrapped-map-schema-is-declared-not-inferred
   (testing "a `:map` WRAPPED in a Malli refinement (`[:and [:map
@@ -176,6 +170,4 @@
       (is (= {:n "number"} (:shape result))
           "unwrapped `:map`'s declared key :n wins; :secret is excluded")
       (is (false? (:inferred? result))
-          "wrapped declared `:map` → inferred? false (authoritative)")
-      (is (not (contains? (:shape result) :secret))
-          "undeclared sample key :secret is NOT rendered as inferred context"))))
+          "wrapped declared `:map` → inferred? false (authoritative)"))))

@@ -94,22 +94,15 @@
 
 (deftest error->data-handles-native-error
   (testing "error->data on a native Error / Throwable returns
-            :message + :name. The native-error branch is cljs/clj-
-            split inside the fn; this pin exercises whichever runtime
-            the test compiles to."
+            :message + :name, and never :stack (stacks are long,
+            environment-specific, and bloat the trace bus). The native-error
+            branch is cljs/clj-split inside the fn; this pin exercises
+            whichever runtime the test compiles to."
     (let [e   #?(:cljs (js/Error. "boom")
                  :clj  (RuntimeException. "boom"))
           out (layout-error/error->data e)]
       (is (= "boom" (:message out)))
-      (is (some? (:name out)) ":name field carries the error class"))))
-
-(deftest error->data-omits-stack
-  (testing "error->data never carries :stack — stacks are long,
-            environment-specific, and bloat the trace bus. Pin the
-            negative so a refactor that adds :stack fails here."
-    (let [e   #?(:cljs (js/Error. "boom")
-                 :clj  (RuntimeException. "boom"))
-          out (layout-error/error->data e)]
+      (is (some? (:name out)) ":name field carries the error class")
       (is (not (contains? out :stack))))))
 
 ;; ---- layout-error-result -----------------------------------------------

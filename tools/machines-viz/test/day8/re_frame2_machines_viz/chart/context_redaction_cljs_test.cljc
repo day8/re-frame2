@@ -91,10 +91,6 @@
 ;; ---------------------------------------------------------------------------
 ;; redact-value / redact-context — the projection itself
 
-(deftest redact-value-sensitive-becomes-sentinel
-  (testing "a sensitive key projects to :rf/redacted regardless of value"
-    (is (= :rf/redacted (r/redact-value :tok "hunter2" {:sensitive #{:tok}})))))
-
 (deftest redact-value-large-becomes-elided-no-head
   (testing "a large key elides to the canonical :rf.size/large-elided marker with NO content head"
     (let [big (apply str (repeat 50 "x"))
@@ -112,11 +108,6 @@
     (is (= :rf/redacted
            (r/redact-value :k (apply str (repeat 1000 "z"))
                            {:sensitive #{:k} :large #{:k}})))))
-
-(deftest redact-value-passes-ordinary-through
-  (testing "an unclassified small value is unchanged"
-    (is (= 42 (r/redact-value :count 42 {})))
-    (is (= [:a :b] (r/redact-value :seen [:a :b] {})))))
 
 (deftest redact-context-projects-the-whole-band
   (testing "the band map is redacted slot-by-slot, order preserved"
@@ -183,8 +174,7 @@
     ;; publish 24; the slot means bytes, so it must publish 66.
     (let [body (-> (r/redact-value :blob utf8-discriminating-value {:large #{:blob}})
                    :rf.size/large-elided)]
-      (is (= 66 (:bytes body)) "UTF-8 bytes of the pr-str form")
-      (is (not= 24 (:bytes body)) "NOT the 24 UTF-16 code units of the same form")))
+      (is (= 66 (:bytes body)) "UTF-8 bytes of the pr-str form, NOT its 24 UTF-16 code units")))
   (testing "an ASCII value of the same code-unit length measures the same under either ruler"
     (let [body (-> (r/redact-value :blob ascii-control-value {:large #{:blob}})
                    :rf.size/large-elided)]

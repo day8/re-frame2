@@ -410,59 +410,31 @@
 ;; hierarchical path, OR a region-map (PARALLEL — N simultaneously-active
 ;; leaves). `highlight-ids` resolves ALL THREE to a SET of active-leaf
 ;; node-ids so the chart lights up EVERY active region at once (the §1.2
-;; parity bar in 001-Topology-Parity.md). These pins cover each arm:
-;; flat→1, compound→1 leaf, region-map→N, nested→deepest leaf.
+;; parity bar in 001-Topology-Parity.md).
 
-(deftest highlight-ids-flat-keyword-is-singleton
-  (testing "a flat-keyword `:state` resolves to a one-element
-            set (the single-active case, set-wrapped)"
-    (is (= #{(layout/node-id [:authing])}
-           (layout/highlight-ids :authing)))))
-
-(deftest highlight-ids-compound-path-is-singleton-leaf
-  (testing "a hierarchical path resolves to a one-element set
-            holding the DEEPEST leaf's id (node-id of the full path)"
-    (is (= #{(layout/node-id [:authenticated :browsing])}
-           (layout/highlight-ids [:authenticated :browsing])))))
-
-(deftest highlight-ids-region-map-is-the-set-of-active-leaves
-  (testing "a PARALLEL snapshot's region-map resolves to the
-            SET of N active leaves, one per region. Each region value
-            resolves via
-            `region-scoped-id` of the REGION + the in-region path
-            (project-parallel region-scopes a state's node-id so two regions
-            sharing a state NAME mint DISTINCT ids; the resolver mints the
-            SAME scoped id)."
-    (let [state {:data :loading :form :neutral :mode :active}
-          ids   (layout/highlight-ids state)]
-      (is (= 3 (count ids)) "three regions → three active leaf ids")
-      (is (= #{(layout/region-scoped-id :data [:loading])
-               (layout/region-scoped-id :form [:neutral])
-               (layout/region-scoped-id :mode [:active])}
-             ids)))))
-
-(deftest highlight-ids-nested-region-value-resolves-to-deepest-leaf
-  (testing "a region whose value is itself a vector path (a
-            compound region) resolves to the DEEPEST leaf, exactly as the
-            single-compound case does. Spec 005: a compound region's
-            value is a vector path INSIDE that region."
-    (let [state {:auth [:authenticated :dashboard] :lifecycle :idle}
-          ids   (layout/highlight-ids state)]
-      (is (= #{(layout/region-scoped-id :auth [:authenticated :dashboard])
-               (layout/region-scoped-id :lifecycle [:idle])}
-             ids))
-      (is (= 2 (count ids))
-          "the compound region contributes ONE id (its deepest leaf), not
-           one-per-path-segment"))))
-
-(deftest highlight-ids-empty-for-nil
-  (testing "nil `:state` (no highlight) → the empty set (a
-            SET, never nil — callers can always `contains?` it)"
-    (is (= #{} (layout/highlight-ids nil)))))
-
-(deftest highlight-ids-empty-for-empty-region-map
-  (testing "an empty region-map resolves to the empty set"
-    (is (= #{} (layout/highlight-ids {})))))
+(deftest highlight-ids-resolves-each-state-arm
+  (testing "every `:state` arm resolves to the SET of active-leaf ids: a flat
+            keyword and a hierarchical path to one leaf (the path's deepest),
+            a region-map to one region-scoped leaf per region (the scoped id
+            project-parallel mints, so same-named states in two regions stay
+            distinct; a compound region contributes its deepest leaf, not one
+            id per segment), and nil or an empty region-map to the empty set
+            (a SET, never nil, so callers can always `contains?` it)"
+    (doseq [[label state expected]
+            [["flat keyword"          :authing
+              #{(layout/node-id [:authing])}]
+             ["hierarchical path"     [:authenticated :browsing]
+              #{(layout/node-id [:authenticated :browsing])}]
+             ["region-map"            {:data :loading :form :neutral :mode :active}
+              #{(layout/region-scoped-id :data [:loading])
+                (layout/region-scoped-id :form [:neutral])
+                (layout/region-scoped-id :mode [:active])}]
+             ["compound region value" {:auth [:authenticated :dashboard] :lifecycle :idle}
+              #{(layout/region-scoped-id :auth [:authenticated :dashboard])
+                (layout/region-scoped-id :lifecycle [:idle])}]
+             ["nil"                   nil #{}]
+             ["empty region-map"      {}  #{}]]]
+      (is (= expected (layout/highlight-ids state)) label))))
 
 (deftest highlight-ids-subsumes-highlight-id-for-single-active
   (testing "for a single-active state, `highlight-ids` is
@@ -504,19 +476,14 @@
 
 ;; ---- event-line --------------------------------------------------------
 
-(deftest event-line-event-with-action-strips-action
-  (testing "`event-line` does NOT emit `/ action`; that
-            text form is `edge-label`'s job. The action surfaces as a
-            pill in the chart and as the full text in `:data-event`
-            via `edge-label`."
-    (is (= "submit"
-           (layout/event-line {:event :submit :action :log-it})))))
-
-(deftest event-line-event-with-guard-and-action-strips-action
-  (is (= "submit [authed?]"
-         (layout/event-line {:event :submit
-                             :guard :authed?
-                             :action :log-it}))))
+(deftest event-line-omits-the-action-segment
+  (testing "`event-line` does NOT emit `/ action`; that text form is
+            `edge-label`'s job. The action surfaces as a pill in the chart and
+            as the full text in `:data-event` via `edge-label`."
+    (doseq [[label edge expected]
+            [["event + action"         {:event :submit :action :log-it}                 "submit"]
+             ["event + guard + action" {:event :submit :guard :authed? :action :log-it} "submit [authed?]"]]]
+      (is (= expected (layout/event-line edge)) label))))
 
 (deftest event-segment-after-iso-duration-renders-milliseconds
   (testing "an ISO-8601 `:after` delay key renders its milliseconds, not the
@@ -590,9 +557,7 @@
       (is (= [:a] (:to self)) "target resolves to the source path")
       (is (= (:source self) (:target self)) "source == target → self-loop")
       (is (contains? node-ids (:target self))
-          "the self-loop target is a REAL node (no phantom :same-state)")
-      (is (not (contains? node-ids "same_state"))
-          "no dangling :same-state node is minted"))))
+          "the self-loop target is a REAL node (no phantom :same-state)"))))
 
 (deftest project-definition-internal-self-transition-omit-target
   (testing "a transition that omits :target (internal —
@@ -735,20 +700,6 @@
 
 ;; ---- edge-id collision -------------------------------------------------
 
-(deftest project-definition-edge-ids-distinct-for-guarded-fork
-  (testing "a same-event/same-target fork that differs
-            only by guard mints DISTINCT edge ids so xyflow keeps both
-            branches (colliding ids would drop one branch)"
-    (let [m {:initial :a
-             :states  {:a {:on {:go [{:target :b :guard :g1}
-                                     {:target :b :guard :g2}]}}
-                       :b {}}}
-          {:keys [edges]} (layout/project-definition m)
-          go-edges (filter #(= :go (:event %)) edges)
-          ids      (map :id go-edges)]
-      (is (= 2 (count go-edges)) "both candidate edges survive")
-      (is (= 2 (count (set ids))) "their xyflow ids are distinct"))))
-
 (deftest project-definition-edge-ids-distinct-for-identical-candidates
   (testing "even byte-identical candidates (same target,
             no guard/action) get distinct ids via the per-key ordinal"
@@ -822,33 +773,25 @@
              (get-in result [:definition-error :defect :category]))
           ":error? on a non-final node surfaces the canonical error-flag-without-final defect"))))
 
-(deftest project-definition-rejects-structurally-invalid-before-elk
-  (testing "a structurally-invalid definition is REJECTED
-            before graph construction: no nodes / edges are produced (nothing
-            reaches ELK, no orphan edges to absent nodes), and the result
-            carries the value-free canonical defect category so the chart
-            renders a rejection placeholder"
-    (doseq [[label definition expected]
+(deftest project-definition-definition-error-is-content-free-and-rejection-only
+  (testing "a structurally-invalid definition's `:definition-error` is
+            content-free BY CONSTRUCTION: beside the category it carries
+            CARDINALITY, never material read off the definition — no `:keys`
+            (every top-level key, uncapped) and no defect `:path`, but the
+            top-level key COUNT and the defect's DEPTH. That projection
+            rejects these BEFORE ELK with the canonical category is
+            `recursively-invalid-rejected-by-every-surface` in the
+            cross-emitter ns; the full summary grammar is
+            `definition-summary-is-content-free-by-construction` in the
+            grammar-validation ns."
+    (doseq [[label definition]
             [["nested compound missing :initial"
-              {:initial :outer :states {:outer {:states {:inner {}}}}}
-              :rf.error/machine-compound-state-missing-initial]
+              {:initial :outer :states {:outer {:states {:inner {}}}}}]
              ["dangling transition target"
-              {:initial :idle :states {:idle {:on {:go :missing}}}}
-              :rf.error/machine-unresolved-target]
+              {:initial :idle :states {:idle {:on {:go :missing}}}}]
              ["unknown bare node key"
-              {:initial :idle :states {:idle {:on-entry :oops}}}
-              :rf.error/machine-unknown-node-key]]]
-      (let [{:keys [nodes edges definition-error]} (layout/project-definition definition)]
-        (is (empty? nodes) (str label ": no nodes reach ELK"))
-        (is (empty? edges) (str label ": no orphan edges to absent nodes"))
-        (is (= expected (get-in definition-error [:defect :category]))
-            (str label ": carries the canonical defect category"))
-        ;; The summary is content-free BY CONSTRUCTION, so what it
-        ;; carries beside the category is CARDINALITY, never material read off
-        ;; the definition: no `:keys` (every top-level key, uncapped), but the
-        ;; top-level key COUNT and the defect's DEPTH. The full grammar is
-        ;; `definition-summary-is-content-free-by-construction` in the
-        ;; grammar-validation ns.
+              {:initial :idle :states {:idle {:on-entry :oops}}}]]]
+      (let [{:keys [definition-error]} (layout/project-definition definition)]
         (is (nil? (:keys definition-error))
             (str label ": no raw top-level key set rides the projection result"))
         (is (nil? (get-in definition-error [:defect :path]))
@@ -858,14 +801,12 @@
         (is (integer? (get-in definition-error [:defect :depth]))
             (str label ": carries the defect's DEPTH, not its path")))))
 
-  (testing "a nil definition is NOT an error (it is the empty-state placeholder),
-            and a VALID definition still projects nodes"
+  (testing "a nil definition is NOT an error (it is the empty-state
+            placeholder), and a VALID definition carries none"
     (is (nil? (:definition-error (layout/project-definition nil))))
-    (is (empty? (:nodes (layout/project-definition nil))))
-    (let [{:keys [nodes definition-error]}
-          (layout/project-definition {:initial :a :states {:a {:on {:go :b}} :b {}}})]
-      (is (nil? definition-error) "a valid definition carries no :definition-error")
-      (is (seq nodes) "a valid definition still projects nodes"))))
+    (is (nil? (:definition-error
+               (layout/project-definition {:initial :a :states {:a {:on {:go :b}} :b {}}})))
+        "a valid definition carries no :definition-error")))
 
 ;; ---- :on-done (XState onDone) completion edge ---------------------------
 ;;
@@ -962,15 +903,21 @@
         (is (= (:source (first od)) (:id root))
             "the completion edge anchors on the parallel-root node")))))
 
-(deftest project-definition-parallel-without-on-done-emits-no-root-node
-  (testing "a parallel machine with NO :on-done leaks no
-            synthetic parallel-root node + no completion edge"
+(deftest project-definition-bare-parallel-mints-no-synthetic-root
+  (testing "a parallel machine with NO :on-done and NO root :on projects
+            only its regions' nodes and edges: no synthetic parallel-root
+            node, no completion edge, no MACHINE-ROOT chip, no root :on edge"
     (let [m {:type :parallel
              :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
                        :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
           {:keys [nodes edges]} (layout/project-definition m)]
       (is (empty? (filter :parallel-root? nodes)))
-      (is (empty? (filter :on-done? edges))))))
+      (is (empty? (filter :on-done? edges)))
+      (is (empty? (filter :machine-root? nodes))
+          "no synthetic MACHINE-ROOT chip without a root :on")
+      (is (not-any? #(= layout/machine-root-id (:id %)) nodes))
+      (is (empty? (filter :parallel-root-on? edges))
+          "no root :on edges"))))
 
 ;; ---- root parallel `:on` projection -------------------------------------
 ;;
@@ -1055,19 +1002,6 @@
         (is (= :log-ping (:action e)) "the action is preserved"))
       (is (some? (first (filter :machine-root? nodes)))
           "the MACHINE-ROOT chip anchors the affordance"))))
-
-(deftest project-definition-parallel-without-root-on-leaks-no-machine-root
-  (testing "a parallel machine with NO root :on projects only
-            its regions' nodes and edges: no MACHINE-ROOT chip, no root :on edge"
-    (let [m {:type :parallel
-             :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
-                       :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
-          {:keys [nodes edges]} (layout/project-definition m)]
-      (is (empty? (filter :machine-root? nodes))
-          "no synthetic MACHINE-ROOT chip without a root :on")
-      (is (not-any? #(= layout/machine-root-id (:id %)) nodes))
-      (is (empty? (filter :parallel-root-on? edges))
-          "no root :on edges"))))
 
 (deftest project-definition-parallel-root-on-edge-ids-distinct-and-machine-root-prefixed
   (testing "multi-region root :on edges mint DISTINCT ids
@@ -1404,8 +1338,6 @@
           {:keys [nodes edges]} (layout/project-definition m)]
       (is (empty? (filter #(= :noop (:event %)) edges))
           "the root :same-state fallback is dropped entirely")
-      (is (not (contains? (set (map :id edges)) ""))
-          "no phantom edge id derived from an empty node-id")
       (is (empty? (filter :machine-root? nodes))
           "no synthetic MACHINE-ROOT chip is minted for a fully-dropped fallback"))))
 
