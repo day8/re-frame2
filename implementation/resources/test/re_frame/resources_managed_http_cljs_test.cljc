@@ -19,7 +19,9 @@
        runtime reads the decoded data / failure envelope from there;
     5. generation/stale suppression via the real reply shape — a late
        reply carrying a superseded work-id / generation NEVER overwrites
-       newer data, even through the full transport reply shape;
+       newer data (the request-decoration suite's
+       `decoration-composes-with-stale-suppression` drives it through the
+       full transport reply shape);
     6. dedupe/join while in flight — a second ensure joins (no new
        generation), attaching the owner.
 
@@ -204,10 +206,7 @@
         (is (= :app/article (:decode args)))
         (is (fn? (:accept args)))
         (is (= {:on #{:rf.http/http-5xx} :max-attempts 3} (:retry args)))
-        (is (= {:method :get :url "/a/w"} (:request args))))
-      (testing "the runtime did NOT leak the reserved keys into the app
-                :request envelope"
-        (is (not (contains? (:request args) :request-id)))))))
+        (is (= {:method :get :url "/a/w"} (:request args)))))))
 
 ;; ===========================================================================
 ;; 3. The REAL transport reply shape (data in arg 3, not arg 2)
@@ -265,35 +264,6 @@
         (is (nil? (:error e)))))))
 
 ;; ===========================================================================
-;; 4. Stale-reply suppression via the real reply shape (the correctness
-;;    boundary — a stale reply MUST NEVER overwrite newer data)
-;; ===========================================================================
-
-(deftest stale-transport-reply-suppressed
-  (rf/reg-resource :sp/article (article-spec) article-spec-request)
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :sp/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :sp 1]}])
-    (let [gen1-args @last-managed-args]
-      ;; a newer refetch forces generation 2 (the prior gen-1 work is now stale)
-      (rf/dispatch-sync [:rf.resource/refetch
-                         {:resource :sp/article :scope :rf.scope/global
-                          :params {:slug "w"}}])
-      (is (= 2 (:generation (entry scoped-key))))
-      (testing "Spec 016 §Cancellation is opportunistic; stale suppression is
-                mandatory — the STALE gen-1 transport success reply (via the
-                full reply shape) NEVER overwrites the newer entry"
-        (reply-success! gen1-args {:stale "data"})
-        (let [e (entry scoped-key)]
-          (is (not= {:stale "data"} (:data e)) "stale reply did not write")
-          (is (= 2 (:generation e)) "entry generation unchanged")
-          (is (= :loading (:status e)) "still in flight on the current gen"))
-        (testing "the CURRENT gen-2 reply lands normally"
-          (reply-success! @last-managed-args {:fresh "data"})
-          (is (= {:fresh "data"} (:data (entry scoped-key)))))))))
-
-;; ===========================================================================
 ;; 4b. managed-HTTP ABORT replies are CANCELLATION, not failure
 ;;     — an intentional abort routes through the same :on-failure reply but
 ;;     must NOT populate :error / :refresh-error or a :failed ledger row; the
@@ -322,7 +292,6 @@
                 stable state: NOT :error, NO :error envelope, no usable data"
         (reply-failure! @last-managed-args (aborted-failure wid :user))
         (let [e (entry k)]
-          (is (not= :error (:status e)) "aborted first-load did NOT settle :error")
           (is (= :idle (:status e)) "settled to a non-error stable :idle state")
           (is (nil? (:error e)) "no error envelope written")
           (is (nil? (:refresh-error e)) "no refresh-error written")
@@ -459,7 +428,6 @@
                 mutated (no cross-frame write even at the same work-id/gen)"
         (reply-into-frame! fb a-payload {:title "A-data"})
         (let [eb (entry fb k)]
-          (is (not= {:title "A-data"} (:data eb)) "frame B entry NOT written by frame A's reply")
           (is (= :loading (:status eb)) "frame B still in flight (reply rejected)")
           (is (nil? (:data eb)) "frame B has no data")))
       (testing "frame A's reply dispatched into its OWN frame settles normally

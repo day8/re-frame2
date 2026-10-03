@@ -168,7 +168,7 @@
 ;;    :patch-summary slots fill; :rf.mutation/optimistic-reconciled fires.
 ;; ===========================================================================
 
-(deftest success-commits-the-optimistic-apply-and-discards-the-inverse
+(deftest success-commits-the-optimistic-apply-and-fills-the-patch-summary
   (reg-article-resource!)
   (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
                {:article {:favorited false :favoritesCount 9}})
