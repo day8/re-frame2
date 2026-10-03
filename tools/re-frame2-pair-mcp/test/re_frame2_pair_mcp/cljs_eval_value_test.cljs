@@ -115,13 +115,16 @@
 ;; :ex present → reject. An nREPL-level eval exception (compile error,
 ;; thrown form) must surface as a rejected Promise, never a resolved nil
 ;; or partial value — the caller's .catch turns it into the transport
-;; error envelope.
+;; error envelope. :ex takes precedence over a present :value — even if
+;; shadow somehow returned both, the exception path wins (fail loud over a
+;; partial value).
 ;; ---------------------------------------------------------------------------
 
 (deftest ex-rejects-with-error
   (async done
     (-> (with-stubbed-cljs-eval!
-          {:ex "class clojure.lang.ExceptionInfo" :err "Unable to resolve symbol: foo"}
+          {:ex "class clojure.lang.ExceptionInfo" :err "Unable to resolve symbol: foo"
+           :value "{:results [\"42\"] :ns user}"}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "foo")))
         ;; The rejection arm IS this row's success path, so the two handlers are
         ;; SIBLINGS of one two-arg `.then` and the single `done` trails them. A
@@ -293,20 +296,3 @@
         (.then (fn [v]
                  (is (nil? v) "empty :results vector resolves to nil")
                  (done))))))
-
-;; ---------------------------------------------------------------------------
-;; :ex takes precedence over a present :value — even if shadow somehow
-;; returned both, the exception path wins (fail loud over a partial
-;; value).
-;; ---------------------------------------------------------------------------
-
-(deftest ex-precedence-over-value
-  (async done
-    (-> (with-stubbed-cljs-eval!
-          {:ex "thrown" :err "detail" :value "{:results [\"42\"] :ns user}"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [_]
-                 (is false ":ex must win over a present :value"))
-               (fn [err]
-                 (is (re-find #"nREPL eval error: thrown" (.-message err)))))
-        (.then (fn [_] (done))))))

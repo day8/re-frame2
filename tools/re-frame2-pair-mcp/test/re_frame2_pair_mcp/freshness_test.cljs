@@ -78,24 +78,6 @@
    :runtime-loaded-at   1000
    :read-at             9999})
 
-(deftest assemble-merges-fresh
-  (async done
-    (-> (with-jvm-half! {:compile-cycle 7
-                         :build-flushed-at 500
-                         :runtime-count 1
-                         :heartbeat-age-ms 200}
-          (fn [] (fresh/assemble nil :app browser-half)))
-        (.then
-          (fn [token]
-            (is (= "uuid-abc" (:runtime-instance-id token)) "browser id carried through")
-            (is (= 1000 (:runtime-loaded-at token)) "browser load time carried through")
-            (is (= 7 (:compile-cycle token)) "JVM monotonic compile-cycle merged in")
-            (is (= 500 (:build-flushed-at token)) "JVM flush timestamp merged in")
-            (is (= :app (:build-id token)) "build-id stamped")
-            (is (= :fresh (:liveness token)) "load (1000) > flush (500) ⇒ :fresh")
-            (is (nil? (:hint token)) "no hint on a fresh verdict")
-            (done))))))
-
 (deftest assemble-flags-stale-build
   (async done
     (-> (with-jvm-half! {:compile-cycle 12
@@ -117,7 +99,7 @@
 (deftest assemble-degrades-to-unknown-when-jvm-half-nil
   (async done
     (-> (with-jvm-half! nil
-          (fn [] (fresh/assemble nil :app browser-half)))
+          (fn [] (fresh/assemble nil :examples/machine-epochs browser-half)))
         (.then
           (fn [token]
             (is (= :unknown (:liveness token))
@@ -127,20 +109,11 @@
             (is (= 1000 (:runtime-loaded-at token)))
             (is (re-find #"LIVENESS UNKNOWN" (:hint token)))
             (is (nil? (:compile-cycle token)) "no JVM fields when the half is absent")
-            (done))))))
-
-(deftest assemble-no-runtime
-  (async done
-    (-> (with-jvm-half! {:compile-cycle 3
-                         :build-flushed-at 5000
-                         :runtime-count 0
-                         :heartbeat-age-ms nil}
-          (fn [] (fresh/assemble nil :app browser-half)))
-        (.then
-          (fn [token]
-            (is (= :no-runtime (:liveness token))
-                "zero runtimes ⇒ :no-runtime (even though flush > load)")
-            (is (re-find #"NO RUNTIME" (:hint token)))
+            (is (not (contains? token :port)) "no port arg ⇒ no :port slot")
+            (is (re-find #"ACTION" (:hint token)))
+            ;; With no port, the hint still names the build for the watch restart.
+            (is (re-find #":examples/machine-epochs" (:hint token))
+                "names the build so `shadow-cljs watch <build>` is unambiguous")
             (done))))))
 
 (deftest token-from-health-extracts-browser-half
@@ -176,7 +149,12 @@
 ;; `assemble` (4-arity) / `token-from-health` (4-arity) via the opts map.
 ;; ---------------------------------------------------------------------------
 
-(deftest unknown-hint-names-the-port-when-known
+(deftest unknown-hint-is-actionable-with-the-port
+  ;; MULTIPLE / ZOMBIE shadow-cljs JVMs holding the ports keep discover-app
+  ;; at :liveness :unknown — reads work (the socket reaches a runtime) but
+  ;; the build worker lives in a different JVM, so the worker lookup misses.
+  ;; The :unknown hint must NAME that case and recommend the `npx shadow-cljs
+  ;; stop` → single-watch remediation that frees the orphan ports.
   (async done
     (-> (with-jvm-half! nil ; nil JVM half ⇒ :unknown
           (fn [] (fresh/assemble nil :examples/machine-epochs browser-half {:port 8033})))
@@ -190,40 +168,12 @@
                 "names the EXACT URL the human reloads")
             (is (re-find #"shadow-cljs watch" (:hint token))
                 "names the watch restart as the escalation")
-            (done))))))
-
-(deftest unknown-hint-diagnoses-the-zombie-shadow-case
-  ;; MULTIPLE / ZOMBIE shadow-cljs JVMs holding the ports keep discover-app
-  ;; at :liveness :unknown — reads work (the socket reaches a runtime) but
-  ;; the build worker lives in a different JVM, so the worker lookup misses.
-  ;; The :unknown hint must NAME that case and recommend the `npx shadow-cljs
-  ;; stop` → single-watch remediation that frees the orphan ports.
-  (async done
-    (-> (with-jvm-half! nil ; nil JVM half ⇒ :unknown
-          (fn [] (fresh/assemble nil :examples/machine-epochs browser-half {:port 8033})))
-        (.then
-          (fn [token]
-            (is (= :unknown (:liveness token)))
             (is (re-find #"(?i)zombie" (:hint token))
                 "names the multiple/zombie-shadow case as the dominant cause")
             (is (re-find #"npx shadow-cljs stop" (:hint token))
                 "recommends the remediation that frees the orphan ports")
             (is (re-find #"(?i)one" (:hint token))
                 "tells the operator to start exactly ONE watch")
-            (done))))))
-
-(deftest unknown-hint-degrades-to-build-name-without-a-port
-  (async done
-    (-> (with-jvm-half! nil
-          (fn [] (fresh/assemble nil :examples/machine-epochs browser-half)))
-        (.then
-          (fn [token]
-            (is (= :unknown (:liveness token)))
-            (is (not (contains? token :port)) "no port arg ⇒ no :port slot")
-            (is (re-find #"ACTION" (:hint token)))
-            ;; With no port, the hint still names the build for the watch restart.
-            (is (re-find #":examples/machine-epochs" (:hint token))
-                "names the build so `shadow-cljs watch <build>` is unambiguous")
             (done))))))
 
 (deftest no-runtime-hint-is-actionable-with-the-port
@@ -442,12 +392,7 @@
       (-> (fresh/jvm-build-freshness (socket-conn) :app)
           (.then
             (fn [half]
-              (is (map? half) "a success payload parses back to a map (not nil-degraded)")
               (is (= payload half) "the four documented keys round-trip verbatim")
-              (is (= 12 (:compile-cycle half)))
-              (is (= 1699999999999 (:build-flushed-at half)))
-              (is (= 2 (:runtime-count half)))
-              (is (= 42 (:heartbeat-age-ms half)))
               nil))
           (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
           (.then (fn [_] (done)))))))
@@ -488,6 +433,9 @@
       (-> (fresh/assemble (socket-conn) :app browser-half)
           (.then
             (fn [token]
+              (is (= "uuid-abc" (:runtime-instance-id token)) "browser id carried through")
+              (is (= 1000 (:runtime-loaded-at token)) "browser load time carried through")
+              (is (= :app (:build-id token)) "build-id stamped")
               (is (= 9 (:compile-cycle token)) "the REAL JVM half's compile-cycle merged in")
               (is (= 500 (:build-flushed-at token)))
               (is (= 1 (:runtime-count token)))

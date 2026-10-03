@@ -106,17 +106,6 @@
       (clj->js (mapv (fn [{:keys [name kind]}] (dirent name kind)) entries))
       #js [])))
 
-(deftest walk-finds-implementation-level-edn
-  (testing "monorepo with shadow-cljs.edn under <root>/implementation/"
-    (let [root "/proj"
-          impl (jp root "implementation")
-          tree {root [{:name "implementation" :kind :dir}
-                      {:name "README.md"      :kind :file}]
-                impl [{:name "shadow-cljs.edn" :kind :file}]}
-          hits (vec (array-seq (rd/walk-for-shadow-edns* (fs-stub tree) root)))]
-      (is (= 1 (count hits)))
-      (is (= (jp impl "shadow-cljs.edn") (first hits))))))
-
 (deftest walk-skips-node-modules-and-target
   (testing "the skip-dir-names set is honoured — node_modules + target trees are not descended"
     (let [root "/proj"
@@ -192,46 +181,31 @@
 ;; project-home->candidate* — port file beside a shadow-cljs.edn.
 ;; ===========================================================================
 
-(deftest candidate-from-target-shadow-cljs
-  (testing "the first port-file location (target/shadow-cljs/nrepl.port) wins"
-    (let [read-fn (fn [path]
-                    (cond
-                      (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$" path)
-                      "12345"
-                      :else (throw (js/Error. "ENOENT"))))
-          c       (rd/project-home->candidate* read-fn "/proj")]
-      (is (= "/proj" (:project-home c)))
-      (is (= 12345 (:port c)))
-      (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$" (:port-file c))))))
-
-(deftest candidate-from-dot-shadow-cljs-when-target-missing
-  (testing "second candidate (.shadow-cljs/nrepl.port) wins if target/ absent"
-    (let [read-fn (fn [path]
-                    (cond
-                      (re-find #"\.shadow-cljs[\\/]nrepl\.port$" path) "5555"
-                      :else (throw (js/Error. "ENOENT"))))]
-      (is (= 5555 (:port (rd/project-home->candidate* read-fn "/proj")))))))
-
-(deftest candidate-from-nrepl-port-when-others-missing
-  (testing "third candidate (.nrepl-port) is the last fallback"
-    (let [read-fn (fn [path]
-                    (cond
-                      (re-find #"\.nrepl-port$" path) "8765"
-                      :else (throw (js/Error. "ENOENT"))))]
-      (is (= 8765 (:port (rd/project-home->candidate* read-fn "/proj")))))))
-
-(deftest no-candidate-when-no-port-file
-  (testing "no port file at any of the three locations → nil (project not running)"
-    (let [read-fn (fn [_path] (throw (js/Error. "ENOENT")))]
-      (is (nil? (rd/project-home->candidate* read-fn "/proj"))))))
-
-(deftest candidate-rejects-non-numeric-port
-  (testing "isNaN port content → nil (don't return NaN as a port)"
-    (let [read-fn (fn [path]
-                    (if (re-find #"target" path)
-                      "not-a-number"
-                      (throw (js/Error. "ENOENT"))))]
-      (is (nil? (rd/project-home->candidate* read-fn "/proj"))))))
+(deftest candidate-reads-the-first-port-file-present
+  ;; The three port-file locations are tried in order; a missing or
+  ;; non-numeric port file yields no candidate (the project is not running).
+  (let [reads (fn [pattern content]
+                (fn [path]
+                  (if (re-find pattern path) content (throw (js/Error. "ENOENT")))))]
+    (testing "the first port-file location (target/shadow-cljs/nrepl.port) wins"
+      (let [c (rd/project-home->candidate*
+                (reads #"target[\\/]shadow-cljs[\\/]nrepl\.port$" "12345") "/proj")]
+        (is (= "/proj" (:project-home c)))
+        (is (= 12345 (:port c)))
+        (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$" (:port-file c)))))
+    (doseq [[read-fn port note]
+            [[(reads #"\.shadow-cljs[\\/]nrepl\.port$" "5555") 5555
+              "second candidate (.shadow-cljs/nrepl.port) wins if target/ absent"]
+             [(reads #"\.nrepl-port$" "8765") 8765
+              "third candidate (.nrepl-port) is the last fallback"]
+             [(fn [_path] (throw (js/Error. "ENOENT"))) nil
+              "no port file at any of the three locations → nil (project not running)"]
+             [(reads #"target" "not-a-number") nil
+              "isNaN port content → nil (don't return NaN as a port)"]]]
+      (let [c (rd/project-home->candidate* read-fn "/proj")]
+        (if port
+          (is (= port (:port c)) note)
+          (is (nil? c) note))))))
 
 ;; ===========================================================================
 ;; discover-via-roots* — top-level orchestration with all I/O injected.

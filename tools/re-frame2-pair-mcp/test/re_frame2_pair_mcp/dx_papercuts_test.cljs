@@ -90,48 +90,34 @@
   (is (= :rf/default (args/->frame-keyword ":rf/default")))
   (is (= :rf/default (args/->frame-keyword "rf/default")))
   (is (= :foo (args/->frame-keyword ":foo")))
-  (is (= :foo (args/->frame-keyword "foo")))
-  (is (= (args/->frame-keyword ":rf/default")
-         (args/->frame-keyword "rf/default"))
-      "both forms resolve identically — no doubled-colon footgun"))
+  (is (= :foo (args/->frame-keyword "foo"))))
 
 ;; ===========================================================================
 ;; Papercut 3 — batch read via the plural `paths` arg.
 ;; ===========================================================================
 
-(deftest parse-paths-arg-nil-is-nil
-  (is (nil? (args/parse-paths-arg nil)))
-  (is (nil? (args/parse-paths-arg "")))
-  (is (nil? (args/parse-paths-arg "   "))))
-
-(deftest parse-paths-arg-edn-string-of-path-vectors
-  (is (= [[:cart :total] [:user :id]]
-         (args/parse-paths-arg "[[:cart :total] [:user :id]]"))))
-
-(deftest parse-paths-arg-cljs-vector-of-paths
-  (is (= [[:a :b] [:c]]
-         (args/parse-paths-arg [[:a :b] [:c]]))))
-
-(deftest parse-paths-arg-js-array-of-edn-path-strings
-  (is (= [[:cart :total] [:user :id]]
-         (args/parse-paths-arg #js ["[:cart :total]" "[:user :id]"]))))
-
-(deftest parse-paths-arg-js-array-of-segment-arrays
-  ;; Each entry may itself be a JS array of segment strings.
-  (is (= [[:cart :items 0] [:user :id]]
-         (args/parse-paths-arg #js [#js [":cart" ":items" "0"] #js [":user" ":id"]]))))
-
-(deftest parse-paths-arg-non-collection-string-is-nil
-  ;; A bare scalar EDN string isn't a batch — return nil so the caller
-  ;; falls back to the singular surface rather than reading garbage.
-  (is (nil? (args/parse-paths-arg ":foo")))
-  (is (nil? (args/parse-paths-arg "42"))))
-
-(deftest parse-paths-arg-empty-edn-vector-is-empty-batch
-  ;; An explicit empty batch is distinguishable from "no batch" (nil) so
-  ;; the tool can return :empty-paths rather than silently no-op'ing.
-  (is (= [] (args/parse-paths-arg "[]")))
-  (is (= [] (args/parse-paths-arg #js []))))
+(deftest parse-paths-arg-shapes
+  ;; A bare scalar EDN string isn't a batch — nil, so the caller falls back
+  ;; to the singular surface rather than reading garbage. An explicit empty
+  ;; batch is distinguishable from "no batch" (nil) so the tool can return
+  ;; :empty-paths rather than silently no-op'ing.
+  (doseq [[input expected note]
+          [[nil nil "absent"]
+           ["" nil "empty string"]
+           ["   " nil "blank string"]
+           ["[[:cart :total] [:user :id]]" [[:cart :total] [:user :id]]
+            "an EDN string of path vectors"]
+           [[[:a :b] [:c]] [[:a :b] [:c]] "a CLJS vector of paths"]
+           [#js ["[:cart :total]" "[:user :id]"] [[:cart :total] [:user :id]]
+            "a JS array of EDN path strings"]
+           [#js [#js [":cart" ":items" "0"] #js [":user" ":id"]]
+            [[:cart :items 0] [:user :id]]
+            "a JS array whose entries are JS arrays of segment strings"]
+           [":foo" nil "a bare scalar EDN keyword is not a batch"]
+           ["42" nil "a bare scalar EDN number is not a batch"]
+           ["[]" [] "an explicit empty EDN batch"]
+           [#js [] [] "an explicit empty JS batch"]]]
+    (is (= expected (args/parse-paths-arg input)) note)))
 
 (deftest batch-paths-form-folds-over-paths
   ;; The batch eval form folds over the path vectors server-side and
@@ -149,7 +135,6 @@
         egress-opts   (elision/egress-opts-edn false)
         form          (get-path/batch-paths-form
                         snapshot-call paths ":rf/default" egress-opts)]
-    (is (string? form))
     (is (re-find #"^\(let " form) "batch form opens a let block")
     ;; The embedded paths literal rides verbatim in the reduce seed.
     (is (re-find #"\[:cart :total\]" form))

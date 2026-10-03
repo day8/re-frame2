@@ -74,18 +74,7 @@
         "bare form")
     (is (= :examples/step-deck
            (wire/arg-build conn (tu/args->js {:build ":examples/step-deck"})))
-        "colon form resolves identically")
-    (is (= (wire/arg-build conn (tu/args->js {:build "examples/step-deck"}))
-           (wire/arg-build conn (tu/args->js {:build ":examples/step-deck"})))
-        "the two forms are indistinguishable post-coercion")))
-
-(deftest arg-build-colon-tolerance-on-bare-build
-  ;; The non-namespaced case: `app` and `:app` both land on `:app`,
-  ;; never the malformed `::app` (a `user`-ns keyword) that would probe a
-  ;; build that doesn't exist.
-  (let [conn (fresh-conn)]
-    (is (= :app (wire/arg-build conn (tu/args->js {:build "app"}))))
-    (is (= :app (wire/arg-build conn (tu/args->js {:build ":app"}))))))
+        "colon form resolves identically")))
 
 (deftest arg-build-explicit-predicate-sees-either-colon-form
   ;; Explicitness keys on arg PRESENCE, not coercion shape — both the
@@ -97,20 +86,6 @@
 ;; ---------------------------------------------------------------------------
 ;; `wire/arg-build` — cache lookup precedence.
 ;; ---------------------------------------------------------------------------
-
-(deftest arg-build-without-cache-uses-env-default
-  ;; Baseline: nothing in the cache, no `:build` arg → env default `:app`.
-  (let [conn (fresh-conn)
-        args (tu/args->js {})]
-    (is (= :app (wire/arg-build conn args)))))
-
-(deftest arg-build-with-cache-uses-cached-build-id
-  ;; The contract: a cached resolved-build-id is the default when the
-  ;; operator omits `:build` — overrides the `:app` env fallback.
-  (let [conn (fresh-conn)
-        args (tu/args->js {})]
-    (swap! conn assoc :resolved-build-id :examples/step-deck)
-    (is (= :examples/step-deck (wire/arg-build conn args)))))
 
 (deftest arg-build-explicit-arg-overrides-cache
   ;; Explicit-wins rule: a `:build` MCP arg ALWAYS beats the cache.
@@ -157,21 +132,6 @@
   form string."
   [conn build-id]
   (swap! conn update :probed-builds (fnil conj #{}) build-id))
-
-(deftest discover-app-caches-resolved-build-id-on-success
-  ;; The core contract: a successful `discover-app` records the
-  ;; build-id on the conn so subsequent tool calls don't need `:build`.
-  (async done
-    (let [conn (fresh-conn)
-          _    (prime-probe-cache! conn :examples/step-deck)
-          args (tu/args->js {:build "examples/step-deck"})]
-      (-> (tu/with-stubbed-eval! healthy-health
-            (fn [] (discover-app/discover-app conn args)))
-          (.then
-            (fn [_result]
-              (is (= :examples/step-deck (:resolved-build-id @conn))
-                  "Successful discover-app must cache the resolved build-id")
-              (done)))))))
 
 (deftest discover-app-does-not-cache-on-precondition-failure
   ;; `discover-app` short-circuits on precondition failures (e.g.
@@ -312,7 +272,7 @@
 ;; the canonical keyword.
 ;; ---------------------------------------------------------------------------
 
-(deftest discover-app-echoes-canonical-round-trippable-build
+(deftest discover-app-caches-and-echoes-the-canonical-build
   (async done
     (let [conn (fresh-conn)
           _    (prime-probe-cache! conn :examples/step-deck)
@@ -322,6 +282,8 @@
           (.then
             (fn [result]
               (let [edn (tu/extract-edn result)]
+                (is (= :examples/step-deck (:resolved-build-id @conn))
+                    "Successful discover-app must cache the resolved build-id")
                 ;; Both :build-id and the input-name-matching :build carry
                 ;; the canonical keyword.
                 (is (= :examples/step-deck (:build-id edn)))
@@ -494,51 +456,13 @@
     ([_c _b form] (js/Promise.resolve (if (preload-probe-form? form) true health)))
     ([_c _b form _o] (js/Promise.resolve (if (preload-probe-form? form) true health)))))
 
-(deftest port-discover-without-pre-probe-still-caches
-  ;; discover-app{port} on a multi-build setup, with NO pre-seeded
-  ;; `:probed-builds` — discover-app must probe the resolved build live,
-  ;; mark it probed, AND write `:resolved-build-id`. The faithful model of
-  ;; a live first-contact call.
-  (async done
-    (let [conn         (fresh-conn)
-          orig-running probe/running-builds
-          orig-port    probe/resolve-build-by-port
-          orig-eval    nrepl/cljs-eval-value
-          orig-jvm     nrepl/jvm-eval
-          eval-stub    (live-like-eval-stub healthy-health)
-          jvm-stub     (fn [& _] (js/Promise.resolve {:value ""}))]
-      ;; multi-build workspace; the port resolves to machine-epochs.
-      (set! probe/running-builds
-            (fn [_] (js/Promise.resolve [:examples/machine-epochs :examples/standard-epochs])))
-      (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve :examples/machine-epochs)))
-      (set! nrepl/cljs-eval-value eval-stub)
-      ;; freshness JVM-half degrades to :unknown (harmless): this suite's
-      ;; fresh-conn carries no :socket, so jvm-build-freshness short-circuits
-      ;; to nil without a round-trip. The jvm-eval stub is belt-and-braces.
-      (set! nrepl/jvm-eval jvm-stub)
-      (-> (discover-app/discover-app conn (tu/args->js {:port 8033}))
-          (.then
-            (fn [result]
-              (let [edn (tu/extract-edn result)]
-                (is (true? (:ok? edn))
-                    "discover-app{port} succeeds against the live-like runtime")
-                (is (= :examples/machine-epochs (:build-id edn))
-                    "resolved the build serving the port")
-                (is (contains? (:probed-builds @conn) :examples/machine-epochs)
-                    "discover-app probed + marked the resolved build live (no pre-seed)")
-                (is (= :examples/machine-epochs (:resolved-build-id @conn))
-                    "the :port-resolved build is cached even without a pre-probe — the live gap"))))
-          (.finally (fn []
-                      (set! probe/running-builds orig-running)
-                      (set! probe/resolve-build-by-port orig-port)
-                      (tu/restore-eval! eval-stub orig-eval)
-                      (tu/restore-jvm-eval! jvm-stub orig-jvm)))
-          (.then (fn [_] (done)))))))
-
 (deftest port-discover-no-pre-probe-sticks-through-invoke
-  ;; THE end-to-end case: discover-app{port} (no pre-probe) then a no-build
-  ;; `get-path` THROUGH `tools/invoke` (the single MCP egress, incl.
-  ;; `canonicalize-build-step`) lands on the resolved build, NOT `:app`.
+  ;; THE end-to-end case: discover-app{port} on a multi-build setup with NO
+  ;; pre-seeded `:probed-builds` must probe the resolved build live, mark
+  ;; it probed and cache it — the faithful model of a live first-contact
+  ;; call — and a no-build `get-path` THROUGH `tools/invoke` (the single
+  ;; MCP egress, incl. `canonicalize-build-step`) then lands on the
+  ;; resolved build, NOT `:app`.
   (async done
     (let [conn          (fresh-conn)
           captured      (atom :NOT-CALLED)
@@ -560,7 +484,14 @@
               (js/Promise.resolve
                 #js {:content #js [#js {:type "text" :text "{:ok? true}"}]})))
       (-> (discover-app/discover-app conn (tu/args->js {:port 8033}))
-          (.then (fn [_]
+          (.then (fn [result]
+                   (let [edn (tu/extract-edn result)]
+                     (is (true? (:ok? edn))
+                         "discover-app{port} succeeds against the live-like runtime")
+                     (is (= :examples/machine-epochs (:build-id edn))
+                         "resolved the build serving the port")
+                     (is (contains? (:probed-builds @conn) :examples/machine-epochs)
+                         "discover-app probed + marked the resolved build live (no pre-seed)"))
                    ;; second call: NO :build arg, through the invoke egress.
                    (tools/invoke conn "get-path" (tu/args->js {:path "[:k]"}) nil)))
           (.then (fn [_]
