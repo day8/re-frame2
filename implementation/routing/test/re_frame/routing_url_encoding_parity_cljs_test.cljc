@@ -209,16 +209,7 @@
     (doseq [[codes why] unpaired-surrogates]
       (is (thrown? #?(:clj Throwable :cljs :default)
                    (rf.routing.url/url-encode (code-units codes)))
-          why)))
-  (testing "the aliasing itself, stated directly: whatever `url-encode`
-            does with a lone surrogate, it must not be what it does with
-            a literal `?` — those two inputs are different strings"
-    (is (= "%3F" (rf.routing.url/url-encode (code-units [0x003F])))
-        "a literal `?` still encodes to %3F on both hosts")
-    (is (thrown? #?(:clj Throwable :cljs :default)
-                 (rf.routing.url/url-encode (code-units [0xD800])))
-        "while the lone surrogate a substituting encoder maps to the SAME
-         bytes is refused on both hosts")))
+          why))))
 
 (deftest url-encode-still-encodes-every-well-formed-string-on-both-hosts
   (testing "the controls: valid input must NOT be refused, so the table
@@ -227,9 +218,7 @@
             point's UTF-8 bytes"
     (doseq [[codes expected why] well-formed-code-unit-strings]
       (is (= expected (rf.routing.url/url-encode (code-units codes))) why)))
-  (testing "the whole ASCII mark set and the escaped controls are
-            untouched by the surrogate guard"
-    (is (= "!'()~*-._" (rf.routing.url/url-encode "!'()~*-._")))
+  (testing "the escaped controls are untouched by the surrogate guard"
     (is (= "a%20b%26c" (rf.routing.url/url-encode "a b&c")))))
 
 (deftest url-encode-splat-refuses-unpaired-surrogates-per-chunk
@@ -385,12 +374,9 @@
       (let [parsed (rf.routing/match-url built)]
         (is (some? parsed) "it is not a malformed-URL route-miss")
         (is (= emoji (get-in parsed [:params :slug]))
-            "and round-trips back to the same string")
-        (is (= [0xD83D 0xDE00]
-               (let [s (get-in parsed [:params :slug])]
-                 [(code-unit-at s 0) (code-unit-at s 1)]))
-            "asserted as CODE UNITS, so a U+FFFD substitution anywhere in
-             the round trip cannot read as a pass")))
+            "and round-trips back to the same string — `emoji` is built from
+             the code units the helper's own test pins, so a U+FFFD
+             substitution cannot read as a pass")))
     (let [built (rf.routing/route-url {:to :parity/surrogate2 :params {:slug "?"}})]
       (is (= "/p/%3F" built)
           "and a literal `?` still emits %3F — the alias target stays

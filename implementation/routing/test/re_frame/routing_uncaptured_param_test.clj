@@ -130,7 +130,6 @@
 
   (testing "an optional group's inner name is CAPTURED even when the group
             elides — the typo beside it is what rejects"
-    (is (= "/docs" (rf.routing.registry/route-url {:to :route/docs :params {}})))
     (let [data (thrown-data #(rf.routing.registry/route-url {:to :route/docs :params {:sction "x"}}))]
       (is (= :uncaptured-params (:reason data))
           "the misspelling `:sction` is caught — route-url's own

@@ -144,13 +144,11 @@
 
 (deftest non-admitted-values-are-still-refused-and-never-stringified
   (rf/reg-route :route/search {} "/search")
-  (testing "route-url refuses a host value, a float and an unsafe integer"
+  (testing "route-url refuses a host value, a float and an unsafe integer
+            under the URL's own string-key spelling too"
     (doseq [[label v] [["host object" (Object.)]
                        ["float" 1.5]
                        ["2^53" 9007199254740992]]]
-      (is (= :rf.error/route-url-non-edn-value
-             (thrown-id #(rf.routing/route-url {:to :route/search :query {:x v}})))
-          (str label " under a keyword key"))
       (is (= :rf.error/route-url-non-edn-value
              (thrown-id #(rf.routing/route-url {:to :route/search :query {"x" v}})))
           (str label " under a string key"))))

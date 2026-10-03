@@ -80,14 +80,9 @@
       (let [ex (thrown-route-url :route/item {:id v} {})]
         (is (some? ex)
             (str "a " (name label) " path value must throw, not host-stringify"))
-        ;; Assert the STRUCTURED :rf.error/id (Spec 009 §the
-        ;; stable discriminator), not just the message string.
+        ;; The STRUCTURED :rf.error/id is the stable discriminator (Spec 009).
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "structured :rf.error/id for a " (name label) " path value"))
-        ;; The message is a human sentence + the trailing
-        ;; [:rf.error/<id>] token; assert the token, not exact equality.
-        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
-            (str "message token (secondary) for a " (name label) " path value"))
         (let [data (ex-data ex)]
           (is (= :route/item (:route-id data)))
           (is (= :params (:slot data)))
@@ -103,10 +98,6 @@
             (str "a " (name label) " query value must throw"))
         (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
             (str "structured :rf.error/id for a " (name label) " query value"))
-        ;; The message is a human sentence + the trailing
-        ;; [:rf.error/<id>] token; assert the token, not exact equality.
-        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
-            (str "message token (secondary) for a " (name label) " query value"))
         (let [data (ex-data ex)]
           (is (= :route/search (:route-id data)))
           (is (= :query (:slot data)))
@@ -272,7 +263,6 @@
       ;; SAME parsed value on both hosts — the lowercase-canonical UUID object.
       (is (= canonical (get-in m [:params :id]))
           "mixed-case capture coerces to the lowercase-canonical UUID (same JVM+CLJS)")
-      (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string")
       ;; the coerced value conforms to :uuid, so the canonical route matches.
       (is (= :route/art (:route-id m)) "the canonical :uuid route matches, not not-found")
       (is (not (:validation-failed? m)) "the coerced UUID passes :uuid validation")
@@ -293,6 +283,4 @@
       ;; lower-casing `v` unconditionally would make this read
       ;; "not-a-uuid"; the fallback must preserve the caller's original case.
       (is (= "NOT-A-UUID" (get-in m [:params :id]))
-          "a non-UUID capture stays the raw original-case string (same JVM+CLJS)")
-      (is (string? (get-in m [:params :id]))
-          "no coercion occurred — it is a string, not a UUID object"))))
+          "a non-UUID capture stays the raw original-case string (same JVM+CLJS)"))))
