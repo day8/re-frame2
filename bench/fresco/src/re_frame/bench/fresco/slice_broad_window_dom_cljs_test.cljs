@@ -381,13 +381,11 @@
           ":ctl-blocked runs in the non-seed THEME on 8 of 12 per round")
       (is (= (* audit-rounds 4) (non-seed-themes runs :locale))
           "against :locale's 4 of 12 — the same divergence with the
-           dimensions swapped"))
-    (testing "and established pre-states close both at the same schedule,
-             so the refusals above are about the rig and not about the
-             replay"
-      (let [runs (established-runs rf.bench.fresco.slice-broad-clock-app/arms audit-sampling audit-rounds)]
-        (is (= (mix runs :theme) (mix runs :donor-theme)))
-        (is (= (mix runs :ctl-blocked) (mix runs :locale)))))))
+           dimensions swapped"))))
+
+;; Established pre-states close both at this same schedule, so the refusals
+;; above are about the rig and not about the replay: that is the first
+;; schedule of `paired-arms-see-the-same-governed-state-mix`.
 
 (deftest every-arm-takes-both-directions-in-equal-numbers
   (testing "`locale-plan` and `theme-plan` are written for a rotor — the
