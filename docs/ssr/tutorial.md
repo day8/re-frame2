@@ -112,7 +112,7 @@ Mod-Enter:
 
 (rf/dispatch-sync [:articles/seed [{:id "1" :title "Hello, server"}]])
 
-[:pre (ssr/render-to-string (root-view) {})]
+[:pre {:style {:white-space "pre-wrap"}} (ssr/render-to-string (root-view) {})]
 ```
 
 !!! note "Why is `subscribe` unqualified in the view?"
@@ -261,14 +261,18 @@ and both the markup and the hash change:
 (require '[re-frame.core :as rf]
          '[re-frame.ssr :as ssr])
 
+(def two-articles
+  [{:id "1" :title "Hello, server"}
+   {:id "2" :title "Hydration, verified"}])
+
 (defn stamped-page []
   (let [hiccup (root-view)
         rhash  (ssr/render-tree-hash hiccup)]
     [:div
-     [:button {:on-click #(rf/dispatch [:articles/seed [{:id "1" :title "Hello, server"}
-                                                       {:id "2" :title "Hydration, verified"}]])}
+     [:button {:on-click #(rf/dispatch [:articles/seed two-articles])}
       "Seed a second article"]
-     [:pre (ssr/render-to-string hiccup {:render-hash rhash})]]))
+     [:pre {:style {:white-space "pre-wrap"}}
+      (ssr/render-to-string hiccup {:render-hash rhash})]]))
 
 [stamped-page]
 ```

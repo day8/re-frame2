@@ -43,12 +43,13 @@ A render uses three kinds of code, and none of them touches the browser:
 ```cljs-rf2
 (require '[re-frame.ssr :as ssr])
 
-[:pre
+[:pre {:style {:white-space "pre-wrap"}}
  (ssr/render-to-string
-   [:article#intro.card                               ;; #id and .class become attributes
-    [:h2 "Why <head> tags & JSON-LD matter"]          ;; text is escaped
-    [:img {:src "/img/intro.png" :alt "Intro"}]       ;; a void element has no closing tag
-    [:input {:type "checkbox" :checked true :disabled false}]])]   ;; true is written bare, false left out
+   [:article#intro.card                          ;; id and class attributes
+    [:h2 "Why <head> tags & JSON-LD matter"]     ;; text is escaped
+    [:img {:src "/img/intro.png" :alt "Intro"}]  ;; void: no closing tag
+    ;; a true attribute is written bare, a false one left out
+    [:input {:type "checkbox" :checked true :disabled false}]])]
 ```
 
 So every handler, subscription and view you have already written can run on the server. Work that needs the browser — a `localStorage` write, a focus trap — is an effect you declare as client-only, rather than a branch in your code ([`:platforms`](#platforms--one-handler-gated-per-runtime), below).
@@ -342,7 +343,8 @@ This cell hashes one view both ways. `article-list` is the Var `rf/reg-view` def
 
 (rf/reg-event :articles/add
   (fn [{:keys [db]} _]
-    {:db (update db :articles (fnil conj []) (str "Article " (inc (count (:articles db)))))}))
+    (let [n (inc (count (:articles db)))]
+      {:db (update db :articles (fnil conj []) (str "Article " n))})))
 
 (rf/reg-sub :articles/titles (fn [db _] (:articles db [])))
 
@@ -353,8 +355,9 @@ This cell hashes one view both ways. `article-list` is the Var `rf/reg-view` def
 (defn hashes []
   [:div
    [:button {:on-click #(rf/dispatch [:articles/add])} "Add an article"]
-   [:p "(article-list) hashes to " (ssr/render-tree-hash (article-list))]
-   [:p "[article-list] hashes to " (ssr/render-tree-hash [article-list])]])
+   [article-list]
+   [:p "called:    " (ssr/render-tree-hash (article-list))]
+   [:p "reference: " (ssr/render-tree-hash [article-list])]])
 
 [hashes]
 ```
