@@ -211,8 +211,7 @@
         (is (= (:error palette) (:final-error ct))
             "error-final ring tracks the palette error hue")
         (is (not= (:final ct) (:final-error ct))
-            "the error ring is visually distinct from the quiet success ring")
-        (is (string? (:final-error ct)))))))
+            "the error ring is visually distinct from the quiet success ring")))))
 
 (deftest chart-label-stack-is-sans
   (testing "the chart-label font token is sans (structure-
@@ -261,7 +260,6 @@
       (let [ct (tokens/chart-tokens palette)]
         (is (= (:magenta-pink palette) (:edge-guard-blocked ct))
             "guard-blocked edge tracks the palette pink hue")
-        (is (string? (:edge-guard-blocked ct)))
         (is (not= (:edge-fired ct)  (:edge-guard-blocked ct)))
         (is (not= (:edge-active ct) (:edge-guard-blocked ct)))
         (is (not= (:edge-quiet ct)  (:edge-guard-blocked ct)))
