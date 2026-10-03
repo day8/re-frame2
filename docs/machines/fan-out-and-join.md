@@ -88,6 +88,96 @@ handles the resolution event and moves to `:ready`. Any failure or the
 eight-second deadline moves to `:failed`; logout moves to `:signed-out`.
 Every exit destroys the children that are still running.
 
+The cell below registers both machines and mounts the startup flow in two
+frames. In the first, both endpoints answer: **Start** dispatches
+`[:rf.machine/start]`, which spawns the two children; each child's `:on-done`
+fold stores its result, and the join moves the parent to `:ready`. In the
+second, every request fails, so the first failure fires `:on-any-failed` and
+the parent enters `:failed` with no results. **Retry** re-enters
+`:loading-session` and fails again.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+;; The first frame's server: both endpoints answer.
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/me"]          {:reply {:ok {:name "Ada"}}}
+   [:get "/api/preferences"] {:reply {:ok {:theme "dark"}}}})
+
+(rf/reg-machine :auth/load-json
+  {:initial :running
+   :data {}
+   :actions
+   {:fetch
+    (fn [{:keys [data]}]
+      {:fx [[:rf.http/managed
+             {:request {:method :get :url (:url data)}
+              :decode :json
+              :on-success [(:rf/self-id data) [:loaded]]
+              :on-failure [(:rf/self-id data) [:failed]]}]]})
+    :keep-value (fn [{[_ reply] :event}]
+                  {:data {:value (:value reply)}})
+    :keep-error (fn [{[_ reply] :event}]
+                  {:data {:reason (:error reply)}})}
+   :states
+   {:running {:entry :fetch
+              :on {:loaded {:target :done :action :keep-value}
+                   :failed {:target :error :action :keep-error}}}
+    :done  {:final? true :output-key :value}
+    :error {:final? true :error? true :output-key :reason}}})
+
+(rf/reg-machine :auth.session/startup
+  {:initial :loading-session
+   :data {:profile nil :preferences nil}
+   :states
+   {:loading-session
+    {:entry (fn [_] {:data {:profile nil :preferences nil}})
+     :spawn-all
+     {:children
+      [{:id :profile :machine-id :auth/load-json
+        :data {:url "/api/me"}
+        :on-done (fn [{:keys [data result]}]
+                   (assoc data :profile result))}
+       {:id :preferences :machine-id :auth/load-json
+        :data {:url "/api/preferences"}
+        :on-done (fn [{:keys [data result]}]
+                   (assoc data :preferences result))}]
+      :join :all
+      :on-all-complete [:auth/session-loaded]
+      :on-any-failed [:auth/session-failed]}
+     :after {8000 :failed}
+     :on {:auth/session-loaded :ready
+          :auth/session-failed :failed
+          :auth/logout :signed-out}}
+    :ready {:tags #{:auth/ready}
+            :on {:auth/logout :signed-out}}
+    :failed {:on {:auth/retry :loading-session
+                  :auth/logout :signed-out}}
+    :signed-out {}}})
+
+(rf/reg-view startup-view [server]
+  (let [{:keys [state data]} @(subscribe [:rf/machine :auth.session/startup])]
+    [:div
+     [:p [:strong server] " · state: " (pr-str state)]
+     [:p "profile: " (pr-str (:profile data))
+      " · preferences: " (pr-str (:preferences data))]
+     [:button {:on-click #(dispatch [:auth.session/startup [:rf.machine/start]])} "Start"]
+     [:button {:on-click #(dispatch [:auth.session/startup [:auth/retry]])} "Retry"]
+     [:button {:on-click #(dispatch [:auth.session/startup [:auth/logout]])} "Log out"]]))
+
+;; :fx-overrides answers each frame's requests without a network.
+;; A real app leaves it out.
+[:div
+ [rf/frame-root {:id :auth.session/up
+                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+  [startup-view "Both endpoints answer"]]
+ [rf/frame-root {:id :auth.session/down
+                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+  [startup-view "Every request fails"]]]
+```
+
 The entry action resets working data for a retry. Progress updates should
 use a targetless transition so they preserve those children:
 
