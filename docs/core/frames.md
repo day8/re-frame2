@@ -388,6 +388,61 @@ Notes:
    and sets `:drain-depth` to 16. Your own keys win, and `(rf/frame-meta :todos/work)`
    shows the result.
 
+Here two frames run the same registrations with different `:fx-overrides`. One
+routes `:rf.http/managed` to a stub that answers from a route map. The other routes
+it to `:rf.http/managed-canned-failure`, which fails every request as if the network
+were down. Click **Sync** in each:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/todos"] {:reply {:ok [{:id 1 :title "Write report"}
+                                     {:id 2 :title "Book flights"}]}}})
+
+(rf/reg-event :todo/sync
+  (fn [_ _]
+    {:fx [[:rf.http/managed {:request    {:method :get :url "/api/todos"}
+                             :on-success [:todo/synced]
+                             :on-failure [:todo/sync-failed]}]]}))
+
+(rf/reg-event :todo/synced
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (assoc db :synced value :sync-error nil)}))
+
+(rf/reg-event :todo/sync-failed
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    {:db (assoc db :sync-error (:kind error))}))
+
+(rf/reg-sub :todo/synced     (fn [db _] (:synced db)))
+(rf/reg-sub :todo/sync-error (fn [db _] (:sync-error db)))
+
+(rf/reg-view sync-panel []
+  (let [todos @(subscribe [:todo/synced])
+        error @(subscribe [:todo/sync-error])]
+    [:div
+     [:button {:on-click #(dispatch [:todo/sync])} "Sync"]
+     (cond
+       error [:p "Failed: " (str error)]
+       todos [:ul (for [{:keys [id title]} todos] ^{:key id} [:li title])]
+       :else [:p "Not synced"])]))
+
+;; the new idea: each frame decides what :rf.http/managed does
+[:div {:style {:display "flex" :gap "2em"}}
+ [rf/frame-root {:id           :todos/online
+                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+  [sync-panel]]
+ [rf/frame-root {:id           :todos/offline
+                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+  [sync-panel]]]
+```
+
+The left panel lists both todos and the right one shows
+`Failed: :rf.http/transport`. Nothing in `sync-panel` or its handlers names a
+stand-in; each frame chooses its own.
+
 The `:observability` key is covered in
 [Observability](observability.md#consuming-production-telemetry-declare-a-sink), and
 the full grammar in the [API reference](../api/re-frame.core.md).
