@@ -158,6 +158,66 @@ where the navigation renders and pass the result into an inline helper:
 
 Use `:aria-current "page"` as the semantic state and a class for styling.
 
+The cell below wires the three filter routes to `filter-nav` and a list that
+derives its filter from the route id. Its frame has no `:url-bound?`, so it
+routes in memory and leaves this page's address bar alone. Click the links:
+the route changes, the active link gets its `aria-current`, and the list
+follows. Hover a link to see the real `href` the router built.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing]
+         '[re-frame.fresco :as h])
+
+(rf/reg-route :app/all    {} "/")
+(rf/reg-route :app/active {} "/active")
+(rf/reg-route :app/done   {} "/done")
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"     :done? false}
+                  2 {:id 2 :title "Walk the dog" :done? true}}}}))
+
+(rf/reg-sub :todo/all
+  (fn [db _]
+    (vec (sort-by :id (vals (:todos db))))))
+
+(rf/reg-sub :todo/visible
+  {:inputs [[:todo/all] [:rf.route/id]]}
+  (fn [[todos route] _]
+    (case route
+      :app/active (filterv (complement :done?) todos)
+      :app/done   (filterv :done? todos)
+      todos)))
+
+(h/defview filter-nav [_]
+  (let [current (h/sub [:rf.route/id])
+        nav     (fn [to label]
+                  (h/route-link
+                   {:to           to
+                    :class        (when (= to current) "is-active")
+                    :aria-current (when (= to current) "page")
+                    :style        {:margin-right "1em"}}
+                   label))]
+    [:nav.filters
+     (nav :app/all "All")
+     (nav :app/active "Active")
+     (nav :app/done "Done")]))
+
+(h/defview todo-page [_]
+  [:div
+   [filter-nav]
+   [:ul
+    (for [{:keys [id title]} (h/sub [:todo/visible])]
+      [:li {:key id} title])]
+   [:p "Route: " (pr-str (h/sub [:rf.route/id]))]])
+
+[h/frame-root {:id             :app
+               :initial-events [[:todo/initialise]
+                                [:rf.route/navigate {:to :app/all}]]}
+ [todo-page]]
+```
+
 ## Veto one link
 
 A specific link may replace its navigation with another action, such as asking
