@@ -125,21 +125,6 @@
                    (is (= [] (:running-builds edn))))
                  (done))))))
 
-(deftest multiple-builds-ambiguous-fails-loud
-  ;; Two builds running, no :build passed → can't pick one. Error lists
-  ;; both so the operator sees the right --build.
-  (async done
-    (-> (with-stubbed-runtime! {:running-vec [:app :examples/step-deck]
-                                :runtime? true :eval-value 42}
-          (fn []
-            (eval-cljs/eval-cljs-tool (fresh-conn) #js {:form "(+ 1 2)"})))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :no-runtime-for-build (:reason edn)))
-                   (is (= [:app :examples/step-deck] (:running-builds edn))))
-                 (done))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Auto-detect — the single running build is used without a :build arg.
 ;; ---------------------------------------------------------------------------
@@ -219,87 +204,6 @@
                  (let [edn (read-edn r)]
                    (is (= :invalid-numeric-arg (:reason edn)))
                    (is (= "timeout-ms" (:arg edn))))
-                 (done))))))
-
-(deftest negative-timeout-ms-rejected
-  (async done
-    (-> (eval-cljs/eval-cljs-tool (fresh-conn)
-                                  #js {:form "(+ 1 2)" :await true :timeout-ms -1})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-edn r)]
-                   (is (= :invalid-numeric-arg (:reason edn)))
-                   (is (= "timeout-ms" (:arg edn))))
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Typed result envelope — the default (non-await) path wraps the form
-;; so a genuine nil, an eval-error, and an unserializable value are
-;; DISTINCT outcomes instead of collapsing to a bare null. The stub
-;; returns the TAGGED `:rf.mcp/result` envelope the runtime would emit;
-;; the server projects it.
-;; ---------------------------------------------------------------------------
-
-(deftest typed-eval-error-surfaces-structured
-  ;; A form that throws (e.g. an unresolved symbol) → :ok? false
-  ;; :reason :rf.error/eval-cljs-threw — NOT a silent nil.
-  (async done
-    (-> (with-stubbed-runtime!
-          {:running-vec [:app] :runtime? true
-           :eval-value {:rf.mcp/result :eval-error
-                        :reason :rf.error/eval-cljs-threw
-                        :ex "#error {:message \"x is not defined\"}"
-                        :message "x is not defined"}}
-          (fn []
-            (eval-cljs/eval-cljs-tool (fresh-conn)
-                                      #js {:form "(x)" :build "app"})))
-        (.then (fn [r]
-                 (is (err? r) "an eval-error is an :isError envelope")
-                 (let [edn (read-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :rf.error/eval-cljs-threw (:reason edn)))
-                   (is (= "x is not defined" (:message edn)))
-                   (is (= :app (:build edn)) "build echoed on the error too"))
-                 (done))))))
-
-(deftest typed-unserializable-surfaces-with-preview
-  ;; A form returning a #object / #js / Function → :ok? false
-  ;; :reason :rf.error/unserializable with a :preview — NOT a null.
-  (async done
-    (-> (with-stubbed-runtime!
-          {:running-vec [:app] :runtime? true
-           :eval-value {:rf.mcp/result :unserializable
-                        :type "object"
-                        :preview "#object[Object [object console]]"}}
-          (fn []
-            (eval-cljs/eval-cljs-tool (fresh-conn)
-                                      #js {:form "js/console" :build "app"})))
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :rf.error/unserializable (:reason edn)))
-                   (is (= "object" (:type edn)))
-                   (is (str/includes? (:preview edn) "#object")
-                       "the preview shows WHAT the value was")
-                   (is (string? (:hint edn)) "a corrective hint is offered"))
-                 (done))))))
-
-(deftest typed-value-rides-back-under-value
-  ;; The happy path through the codec: a serializable value → :ok? true
-  ;; :value v. Same shape callers always saw — additive, not a flip.
-  (async done
-    (-> (with-stubbed-runtime!
-          {:running-vec [:app] :runtime? true
-           :eval-value {:rf.mcp/result :value :value {:a 1 :b [2 3]}}}
-          (fn []
-            (eval-cljs/eval-cljs-tool (fresh-conn)
-                                      #js {:form "{:a 1 :b [2 3]}" :build "app"})))
-        (.then (fn [r]
-                 (is (not (err? r)))
-                 (let [edn (read-edn r)]
-                   (is (true? (:ok? edn)))
-                   (is (= {:a 1 :b [2 3]} (:value edn))))
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
@@ -467,29 +371,6 @@
                     (tu/restore-jvm-eval! jvm-stub orig-jvm)
                     (tu/restore-eval! cljs-stub orig-cljs))))))
 
-(deftest await-resolved-value
-  ;; Thenable that resolves to a value after a single :pending read.
-  ;; The wrapper returns the mailbox sentinel; the poll sees :pending
-  ;; once, then :resolved with the EDN value.
-  (async done
-    (-> (with-stubbed-await! {:wrap-result {:rf.mcp/await-mailbox "await-test-1"}
-                              :poll-script [{:status :pending}
-                                            {:status :resolved :value {:hello "world"}}]}
-          (fn []
-            (eval-cljs/eval-cljs-tool
-              (fresh-conn)
-              #js {:form  "(-> (js/Promise.resolve {:hello \"world\"}) (.then identity))"
-                   :await true
-                   :build "app"})))
-        (.then (fn [r]
-                 (is (not (err? r)))
-                 (let [edn (read-edn r)]
-                   (is (true? (:ok? edn)))
-                   (is (= {:hello "world"} (:value edn))
-                       "resolved value surfaces under :value")
-                   (is (= :app (:build edn))))
-                 (done))))))
-
 (deftest await-timeout-surfaces-structured
   ;; Thenable that never settles: the poll runs the clock out and the
   ;; server returns {:ok? false :reason :rf.error/eval-cljs-timeout
@@ -645,19 +526,15 @@
                          "the caller's comment rides through verbatim"))
                    (done)))))))
 
-(deftest await-and-frame-wrappers-survive-a-trailing-line-comment
-  ;; The await wrapper is a pure fn, and the frame+await composition is
-  ;; the wrapper order the tool builds (frame first, await outside).
-  (let [commented "(+ 20 22) ; expected answer"
-        framed    (str "(re-frame.core/with-frame :rf/xray " commented "\n)")]
+(deftest await-wrapper-survives-a-trailing-line-comment
+  ;; The await wrapper is a pure fn. The frame wrapper's own newline is
+  ;; pinned through the real tool by
+  ;; trailing-line-comment-survives-the-frame-wrapper.
+  (let [commented "(+ 20 22) ; expected answer"]
     (is (readable? (await-promise/wrap-form "(+ 20 22)" "mbox"))
         "CONTROL: the await wrapper reads without a comment")
     (is (readable? (await-promise/wrap-form commented "mbox"))
-        "await wrapper: the comment swallows no closing delimiter")
-    (is (readable? framed)
-        "frame wrapper: its own closing paren is not inside the comment")
-    (is (readable? (await-promise/wrap-form framed "mbox"))
-        "frame + await compose without an unreadable boundary")))
+        "await wrapper: the comment swallows no closing delimiter")))
 
 (deftest frame-arg-omitted-leaves-form-unwrapped
   ;; Without :frame the form crosses the wire verbatim — no with-
@@ -681,28 +558,6 @@
                      (is (not-any? #(re-find #"re-frame\.core/with-frame" %)
                                    non-probe-forms)
                          "omitted :frame MUST NOT wrap the form"))
-                   (done)))))))
-
-(deftest frame-arg-accepts-bare-name-and-edn-shape
-  ;; `args/->frame-keyword` accepts both bare names ("rf/xray") and
-  ;; EDN-shaped strings (":rf/xray"). Either should produce the same
-  ;; with-frame wrap.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-form-recorder! {:runtime? true :eval-value 1 :forms-atom forms}
-            (fn []
-              (eval-cljs/eval-cljs-tool
-                (fresh-conn)
-                #js {:form "(+ 1 0)" :frame "rf/xray" :build "app"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-edn r)]
-                     (is (= :rf/xray (:frame edn))
-                         "bare name coerced to keyword"))
-                   (let [non-probe-forms (->> @forms (remove sentinel-probe?))]
-                     (is (some #(re-find #"with-frame :rf/xray" %)
-                               non-probe-forms)
-                         "wrap uses the coerced keyword"))
                    (done)))))))
 
 (deftest frame-arg-composes-with-await

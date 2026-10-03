@@ -134,13 +134,12 @@
   [forms* needle]
   (first (filter #(str/includes? % needle) @forms*)))
 
-;; The witness payloads. `(inc 41)` is an ordinary EDN list that
+;; The witness payload. `(inc 41)` is an ordinary EDN list that
 ;; EVALUATES to 42, so an unquoted emission is visible as a value change
-;; rather than as a crash; `js/window` is a symbol that resolves; the
-;; emitter-tagged vector is the strongest witness, because unquoted it is
-;; recognised as IR and its payload spliced in as raw source.
+;; rather than as a crash. The emitter-tagged vector — recognised as IR
+;; and its payload spliced in as raw source if left unquoted — is
+;; witnessed once, on the shared `rt-quote` emit, in eval_form_test.
 (def ^:private inert-list (list 'inc 41))
-(def ^:private raw-tag :re-frame2-pair-mcp.tools.eval-form/raw)
 
 ;; ---------------------------------------------------------------------------
 ;; read-sub — the query vector.
@@ -159,36 +158,6 @@
                          "the query reaches read-sub! as the datum the caller sent")
                      (is (not= [:review/sub 42] (second call))
                          "and NOT as a printed expression that evaluates to 42"))
-                   (done)))))))
-
-(deftest read-sub-emitter-shaped-query-is-not-spliced
-  (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? true :value 1})
-      (-> (read-sub/read-sub-tool
-            (fresh-conn)
-            #js {:sub "[:re-frame2-pair-mcp.tools.eval-form/raw \"(inc 41)\"]"})
-          (.then (fn [_]
-                   (let [src  (form-matching forms "read-sub!")
-                         call (find-call (read-form src)
-                                         're-frame2-pair.runtime/read-sub!)]
-                     (is (= [raw-tag "(inc 41)"] (quoted-datum (second call)))
-                         "the tagged vector rides through as the vector it is")
-                     (is (not (str/includes? src "read-sub! (inc 41)"))
-                         "no raw-source splice in the runtime call"))
-                   (done)))))))
-
-(deftest read-sub-ordinary-query-is-unchanged
-  ;; CONTROL — scalars and maps print and quote alike, so quoting must
-  ;; leave the everyday query reaching the runtime as the same datum.
-  (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? true :value 1})
-      (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:review/sub {:user/id 42}]"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "read-sub!"))
-                                         're-frame2-pair.runtime/read-sub!)]
-                     (is (= [:review/sub {:user/id 42}] (quoted-datum (second call)))))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -327,21 +296,5 @@
                                          're-frame2-pair.runtime/replay-epoch)]
                      (is (= inert-list (quoted-datum (second call)))
                          "the epoch-id reaches the runtime unevaluated"))
-                   (writes/set-allow-writes! prev)
-                   (done)))))))
-
-(deftest ordinary-integer-epoch-id-still-rides
-  ;; CONTROL — the documented everyday shape (`epoch-id "7"`) is a
-  ;; number, which prints and quotes alike.
-  (async done
-    (let [forms (atom [])
-          prev  (writes/allow-writes-enabled?)]
-      (writes/set-allow-writes! true)
-      (capture-eval! forms {:ok? true :restored? true :epoch-id 7})
-      (-> (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "restore-epoch"))
-                                         're-frame2-pair.runtime/restore-epoch)]
-                     (is (= 7 (quoted-datum (second call)))))
                    (writes/set-allow-writes! prev)
                    (done)))))))

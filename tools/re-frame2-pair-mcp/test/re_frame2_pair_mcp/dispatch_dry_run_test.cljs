@@ -569,22 +569,3 @@
                      (is (= '(inc 41) (get-in opts [:rf.cofx :review/fact]))
                          "the simulated dispatch uses the fact the caller scripted"))
                    (done)))))))
-
-(deftest dry-run-emitter-shaped-event-payload-is-not-spliced
-  (async done
-    (let [forms   (atom [])
-          raw-tag :re-frame2-pair-mcp.tools.eval-form/raw]
-      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool
-                (fresh-conn)
-                #js {:event "[:re-frame2-pair-mcp.tools.eval-form/raw \"(inc 41)\"]"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (is (= [raw-tag "(inc 41)"]
-                          (quoted-datum (second (runtime-call forms))))
-                       "the tagged vector rides through as the vector it is")
-                   (is (not (str/includes? (dispatch-form forms)
-                                           "dispatch-dry-run (inc 41)"))
-                       "no raw-source splice in the runtime call")
-                   (done)))))))

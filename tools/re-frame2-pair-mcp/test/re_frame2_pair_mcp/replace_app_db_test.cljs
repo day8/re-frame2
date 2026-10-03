@@ -74,11 +74,6 @@
     (second form)
     ::not-quoted))
 
-(defn- db-arg
-  "The `db` argument of the captured `app-db-reset!` call, as a read form."
-  [captured]
-  (second (cljs.reader/read-string @captured)))
-
 ;; ---------------------------------------------------------------------------
 ;; Gate — default OFF.
 ;; ---------------------------------------------------------------------------
@@ -192,29 +187,6 @@
 ;; nested-list and symbol cases are pinned on `rt-quote` itself in
 ;; eval-form-test.
 ;; ---------------------------------------------------------------------------
-
-(deftest db-does-not-splice-an-emitter-shaped-payload
-  ;; A caller-supplied vector wearing the emitter's own `::raw` tag is
-  ;; PAYLOAD. On the `pr-str` path `emit-arg` recognised it as IR and
-  ;; spliced its string in as raw source, replacing the app-db value
-  ;; outright with a live host form.
-  (async done
-    (let [captured (atom nil)
-          raw-tag  (str :re-frame2-pair-mcp.tools.eval-form/raw)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured {:ok? true :frame :rf/default}
-                (fn []
-                  (replace-app-db/replace-app-db-tool
-                    (fresh-conn)
-                    #js {:db (str "[" raw-tag " \"(inc 41)\"]")})))))
-          (.then (fn [_]
-                   (is (= [:re-frame2-pair-mcp.tools.eval-form/raw "(inc 41)"]
-                          (quoted-datum (db-arg captured)))
-                       "the tagged vector rides through as the vector it is")
-                   (is (not (str/includes? @captured "app-db-reset! (inc 41)"))
-                       "and its string is never spliced into the runtime call's arg position")
-                   (done)))))))
 
 (deftest passes-frame-as-second-arg
   (async done

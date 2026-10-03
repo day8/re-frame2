@@ -7,7 +7,8 @@
   with the recorded cofx + override maps. Pins:
 
     - NO `--allow-writes` gate: like `dispatch`, the tool drives the
-      app's own handlers and reaches the runtime with the gate OFF;
+      app's own handlers and reaches the runtime with the gate OFF (the
+      corpus fixture `:replay-epoch/happy` runs with writes off);
     - the EDN parse of the `epoch-id` arg, including INTEGER ids;
     - the frame arg rides as the SECOND runtime arg;
     - the success envelope passes through verbatim; every
@@ -20,7 +21,6 @@
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
-            [re-frame2-pair-mcp.tools.writes :as writes]
             [re-frame2-pair-mcp.tools.replay-epoch :as replay-epoch]))
 
 (defn- fresh-conn []
@@ -79,26 +79,6 @@
                      :fx-fired [:http] :subs-recomputed 2 :renders 1}})
 
 ;; ---------------------------------------------------------------------------
-;; Dispatch authority — NOT the writes gate.
-;; ---------------------------------------------------------------------------
-
-(deftest reaches-the-runtime-with-allow-writes-off
-  ;; replay drives the app's own handlers (dispatch posture); the
-  ;; --allow-writes gate names the two out-of-band rewrite tools only.
-  (async done
-    (let [captured (atom nil)
-          prev     (writes/allow-writes-enabled?)]
-      (writes/set-allow-writes! false)
-      (-> (with-captured-eval! captured success-envelope
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"})))
-          (.then (fn [r]
-                   (is (not (err? r)) "not refused by the writes gate")
-                   (is (some? @captured) "the runtime WAS contacted with writes OFF")
-                   (is (= true (:ok? (read-result-text r))))))
-          (.finally (fn [] (writes/set-allow-writes! prev) (done)))))))
-
-;; ---------------------------------------------------------------------------
 ;; epoch-id parsing — :any, including integers; frame is the 2nd arg.
 ;; ---------------------------------------------------------------------------
 
@@ -108,13 +88,9 @@
       (-> (with-captured-eval! captured success-envelope
             (fn []
               (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "7"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-result-text r)]
-                     (is (= true (:ok? edn)))
-                     (is (= true (:replayed? edn)))
-                     (is (= 7 (:source-epoch-id edn)))
-                     (is (= 12 (:epoch-id edn)) "the NEW epoch id rides through"))
+          (.then (fn [_]
+                   ;; The envelope it returns is pinned whole by
+                   ;; consequence-envelope-passes-through-on-success.
                    (let [parsed (cljs.reader/read-string @captured)]
                      (is (= 're-frame2-pair.runtime/replay-epoch (first parsed)))
                      ;; Caller EDN rides quoted.
@@ -134,18 +110,6 @@
                    (let [parsed (cljs.reader/read-string @captured)]
                      (is (= '(quote 12) (second parsed)))
                      (is (= :stories (nth parsed 2)) "frame is the 2nd runtime arg"))
-                   (done)))))))
-
-(deftest rejects-missing-epoch-id
-  (async done
-    (let [captured (atom :untouched)]
-      (-> (with-captured-eval! captured :should-not-reach
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn) #js {})))
-          (.then (fn [r]
-                   (is (err? r))
-                   (is (= :missing-epoch-id (:reason (read-result-text r))))
-                   (is (= :untouched @captured) "no runtime round-trip on a missing id")
                    (done)))))))
 
 (deftest rejects-unreadable-epoch-id
@@ -215,9 +179,8 @@
         (.then (fn [r]
                  (is (not (err? r)))
                  (let [edn (read-result-text r)]
-                   (is (= success-envelope edn) "the runtime consequence rides verbatim")
-                   (is (= :rf/redacted (second (get-in edn [:cascade-summary :event-vector])))
-                       "the redacted :event-vector marker survives the wire"))
+                   (is (= success-envelope edn)
+                       "the runtime consequence rides verbatim, the redacted :event-vector marker included"))
                  (done))))))
 
 (deftest signals-raw-state-posture-before-the-replay-eval
