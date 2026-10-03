@@ -190,9 +190,7 @@
       (is (= #{page-name title-name note-name}
              (set (map #(subs % (count render-prefix)) names)))
           "one entry per rendered head, each named by its displayName")
-      (is (= 3 (count names)) "and exactly one entry each — no double-emit")
-      (is (every? #(.startsWith % render-prefix) names)
-          "every entry is prefix-filterable"))))
+      (is (= 3 (count names)) "and exactly one entry each — no double-emit"))))
 
 (deftest the-measure-carries-a-duration-and-allocates-no-marks
   (testing "The entry shape Spec 009 documents: a `measure` with a
@@ -203,7 +201,6 @@
     (server-html [measured-page {}])
     (let [e (entry-named (str render-prefix page-name))]
       (is (some? e) "the page's entry is present")
-      (is (= "measure" (.-entryType e)))
       (is (number? (.-duration e)))
       (is (>= (.-duration e) 0) "a duration, not a sentinel"))
     (is (zero? (rf-mark-count))

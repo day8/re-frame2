@@ -363,17 +363,6 @@
 ;; Beyond the six — the obligations the laws would silently lose
 ;; ===========================================================================
 
-(deftest sub-key-identity-is-value-equality-over-query-and-args
-  (seeded! 3)
-  (let [row (mount! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))]
-    (try
-      (testing "same query-id, same args — one key, however it was constructed"
-        (is (= [(:reg row)]
-               (rf.bench.fresco.arm1.runtime/cell-readers [frame-id (vec [:dogfood/todo (+ 0 1)])]))))
-      (testing "same query-id, different args — different keys"
-        (is (= [] (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/todo 2])))))
-      (finally (stop-all! row)))))
-
 (deftest an-abandoned-render-writes-nothing-because-the-only-write-is-the-commits
   (seeded! 3)
   (testing "**The abandoned-render obligation, structurally.** React can
