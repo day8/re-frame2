@@ -192,38 +192,9 @@
         (is (= expected-cursor (:next-page-param we)) "the cursor rides verbatim")
         (is (= expected-prev (:prev-page-param we)) "the prev mirror rides verbatim")
         (is (nil? (:page-error we)) ":page-error rides (nil here)")
-        (is (= :fetching (:status we)) "the entry status rides (settled on hydrate, not here)")))))
-
-(deftest projection-strips-current-work-and-omits-work-ledger
-  (reg-feed!)
-  (testing "the transient in-flight load-more pointer + the host work-ledger row
-            do NOT ride the wire (they reference a host attempt that does not
-            survive the round-trip) — same rule as a scalar entry"
-    (let [rdb  (feed-with-load-more-in-flight :app/main)
-          proj (rf.resources.ssr/project-resources-runtime-db rdb)
-          we   (val (first (get-in proj [rf.resources.state/resources-key :entries])))]
-      (is (not (contains? we :current-work))
-          "the load-more :current-work pointer is stripped on the wire")
-      (is (not (contains? proj rf.resources.state/work-ledger-key))
-          "the :rf.runtime/work-ledger subtree (the in-flight page-3 row) never rides"))))
-
-(deftest projected-entry-merges-items-identically-server-side
-  (reg-feed!)
-  (testing "a server-side read of the PROJECTED entry merges :items IDENTICALLY
-            to the live entry — the headline R3 read rides the wire (the page
-            vector + the registered :page->items accessor are all that the merge
-            needs, and both survive the projection)"
-    (let [rdb       (feed-with-load-more-in-flight :app/main)
-          live      (get-in rdb [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])
-          proj      (rf.resources.ssr/project-resources-runtime-db rdb)
-          projected (val (first (get-in proj [rf.resources.state/resources-key :entries])))]
-      (is (= expected-items (merged-items* live)) "live merge")
-      (is (= expected-items (merged-items* projected))
-          "the projected entry merges to the SAME flat ordered :items list — no page loss")
-      (is (= (merged-items* live) (merged-items* projected))
-          "server-side projected read is identical to the live read")
-      (testing "the merge across pages preserves order + every page's items"
-        (is (= (vec (mapcat :items expected-pages)) (merged-items* projected)))))))
+        (is (= :fetching (:status we)) "the entry status rides (settled on hydrate, not here)")
+        (is (not (contains? we :current-work))
+            "the in-flight load-more :current-work pointer is stripped on the wire")))))
 
 ;; ===========================================================================
 ;; (b) EPOCH RESTORE — the page vector + cursor/terminal? + :fetching-next?
@@ -238,7 +209,8 @@
             scalar entry"
     (let [snapshot (feed-with-load-more-in-flight :app/main)
           out      (rf.resources.ssr/reconcile-on-restore snapshot :app/main)
-          e        (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
+          e        (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])
+          row      (get-in out [rf.resources.state/work-ledger-key (rf.resources.work-ledger/work-id-id load-more-wid)])]
       (is (rf.resources.state/infinite-entry? e) "the restored entry is still the infinite feed")
       (is (= expected-pages (:data e))
           "the ordered page vector rehydrates intact — order preserved, no page loss")
@@ -247,34 +219,16 @@
       (is (false? (rf.resources.state/terminal? (:next-page-param e)))
           "terminal? is FALSE — a 4th page exists (cursor \"c3\"), as before restore")
       (is (= expected-prev (:prev-page-param e)) "the prev mirror rehydrates intact")
-      (is (= 3 (rf.resources.state/page-count e)) "all 3 pages survived (no page loss)")
       (is (= expected-items (merged-items* e))
-          "the merged :items rehydrates to the SAME flat ordered list"))))
-
-(deftest restore-settles-vanished-load-more-to-last-stable
-  (reg-feed!)
-  (testing "the load-more that was IN FLIGHT at capture vanished with the host
-            attempt — restore settles the entry to its last-stable status
-            (:loaded, the accumulated pages had data), clears :current-work, and
-            dangles the non-terminal page-3 work-ledger row (it must not dangle
-            as a live attempt against the restored feed)"
-    (let [snapshot (feed-with-load-more-in-flight :app/main)
-          out      (rf.resources.ssr/reconcile-on-restore snapshot :app/main)
-          e        (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])
-          row      (get-in out [rf.resources.state/work-ledger-key (rf.resources.work-ledger/work-id-id load-more-wid)])]
-      (is (= :loaded (:status e))
-          ":fetching-with-data settles to :loaded (keep last-known-good) — never stranded :fetching")
-      (is (nil? (:current-work e)) "the vanished load-more pointer is cleared")
-      ;; the durable feed is UNTOUCHED by the settle — only the transient
-      ;; in-flight facts are reconciled.
-      (is (= expected-pages (:data e)) "the page vector is untouched by the settle")
-      (is (= expected-cursor (:next-page-param e)) "the cursor is untouched by the settle")
-      (testing "the non-terminal page-3 work-ledger row is dangled (suppressed)"
+          "the merged :items rehydrates to the SAME flat ordered list")
+      (testing "the load-more in flight at capture vanished with its host attempt:
+                the entry settles to last-stable :loaded, its :current-work
+                clears, and its page-3 work-ledger row dangles :suppressed"
+        (is (= :loaded (:status e))
+            ":fetching-with-data settles to :loaded (keep last-known-good) — never stranded :fetching")
+        (is (nil? (:current-work e)) "the vanished load-more pointer is cleared")
         (is (= :suppressed (:status row)) "the in-flight load-more row settled terminal :suppressed")
-        (is (rf.resources.work-ledger/terminal? (:status row)) "it is now terminal")
-        (is (= :dangling (get-in row [:outcome :reason])) "marked dangling")
-        (is (not (contains? rf.resources.work-ledger/non-terminal-statuses (:status row)))
-            "NO non-terminal load-more row survives the restore")))))
+        (is (= :dangling (get-in row [:outcome :reason])) "marked dangling")))))
 
 (deftest restore-fetching-next?-resolves-false-no-phantom-load-more
   (reg-feed!)

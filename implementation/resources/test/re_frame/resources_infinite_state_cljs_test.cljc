@@ -57,7 +57,6 @@
       (is (nil? (:prev-page-param e)))
       (is (nil? (:page-error e)))
       (is (= :idle (:status e)))
-      (is (= 0 (rf.resources.state/page-count e)))
       (testing "it is still an ordinary resource entry (R1 — no new kind)"
         (is (= :feed/timeline (:resource/id e)))
         (is (= [:rf.scope/global :feed/timeline {:filter :recent}] (:resource/key e)))
@@ -113,7 +112,6 @@
       (is (= :loaded (:status e1)))
       (is (= 1000 (:loaded-at e1)))
       (is (= 61000 (:stale-at e1)))
-      (is (= 1 (rf.resources.state/page-count e1)))
       (is (> (:revision e1) (:revision e0)) "authoritative write bumps revision (EP-0019)"))))
 
 (deftest append-multiple-pages-accumulates
@@ -131,7 +129,6 @@
       (is (= [(page [:a] "c1") (page [:b] "c2") (page [:c] "c3")] (:data e)))
       (is (= [nil "c1" "c2"] (:page-params e)) "one param per page, page-0 = nil")
       (is (= "c3" (:next-page-param e)))
-      (is (= 3 (rf.resources.state/page-count e)))
       (is (= 1200 (:loaded-at e)) "loaded-at re-stamped each append"))))
 
 (deftest append-terminal-page
@@ -187,7 +184,6 @@
           envelope {:kind :rf.http/server :status 503}
           failed (rf.resources.state/entry-page-failed loaded {:error envelope})]
       (is (= :loaded (:status failed)) "feed returns to :loaded, NOT :error")
-      (is (= 2 (rf.resources.state/page-count failed)) "all accumulated pages kept")
       (is (= (:data loaded) (:data failed)) "page vector untouched")
       (is (= "c2" (:next-page-param failed)) "cursor untouched")
       (is (= envelope (:page-error failed)) ":page-error recorded")
@@ -252,10 +248,8 @@
                e0 {:page (page [:a*] "c1") :page-param nil :page-index 0
                    :next-page-param-fn next-cursor
                    :loaded-at 9000 :stale-at 9999})]
-      (is (= 3 (rf.resources.state/page-count e1)) "feed NOT grown — replace, not append")
-      (is (= (page [:a*] "c1") (nth (:data e1) 0)) "page-0 replaced with the fresh value")
-      (is (= (page [:b] "c2") (nth (:data e1) 1)) "tail page-1 preserved")
-      (is (= (page [:c] "c3") (nth (:data e1) 2)) "tail page-2 preserved")
+      (is (= [(page [:a*] "c1") (page [:b] "c2") (page [:c] "c3")] (:data e1))
+          "page-0 replaced in place; the tail is preserved and the feed NOT grown")
       (is (= [nil "c1" "c2"] (:page-params e1)) "page-0 param replaced in step; tail params kept")
       (is (= :loaded (:status e1)))
       (is (= 9000 (:loaded-at e1)) ":loaded-at re-stamped")
@@ -329,8 +323,8 @@
                e0 {:page (page [:b] "c2") :page-param "c1" :page-index 1
                    :next-page-param-fn next-cursor
                    :loaded-at 3 :stale-at 4})]
-      (is (= 2 (rf.resources.state/page-count e1)) "the page was APPENDED (feed grew), not replaced")
-      (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e1)))
+      (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e1))
+          "the page was APPENDED (feed grew), not replaced")
       (is (= [nil "c1"] (:page-params e1)) "params appended in step")
       (is (= "c2" (:next-page-param e1)) "cursor advanced from the appended tail")))
   (testing "a replace into an EMPTY feed at index 0 appends page-0"
@@ -339,8 +333,7 @@
                e0 {:page (page [:a] "c1") :page-param nil :page-index 0
                    :next-page-param-fn next-cursor
                    :loaded-at 1 :stale-at 2})]
-      (is (= 1 (rf.resources.state/page-count e1)) "index 0 == count 0 → append page-0")
-      (is (= [(page [:a] "c1")] (:data e1))))))
+      (is (= [(page [:a] "c1")] (:data e1)) "index 0 == count 0 → append page-0"))))
 
 (deftest page-ops-on-a-nil-entry-are-noops
   ;; With no feed to write into, each pure page op returns nil unchanged.
@@ -419,8 +412,7 @@
             unchanged — a plain refetch refreshes page 0 only)"
     (let [e0 (accumulated-3)]
       (is (identical? e0 (rf.resources.state/entry-begin-refetch-sweep e0 nil)))
-      (is (identical? e0 (rf.resources.state/entry-begin-refetch-sweep e0 {})))
-      (is (not (contains? (rf.resources.state/entry-begin-refetch-sweep e0 nil) :refetch-sweep))))))
+      (is (identical? e0 (rf.resources.state/entry-begin-refetch-sweep e0 {}))))))
 
 (deftest entry-begin-refetch-sweep-opt-in-arms-cursor
   (testing ":refetch-all-pages? arms the cursor with pages 1..N-1 (issue-time
@@ -428,8 +420,7 @@
     (let [e0 (accumulated-3)
           e1 (rf.resources.state/entry-begin-refetch-sweep e0 {:refetch-all-pages? true})]
       (is (= [["c1" 1] ["c2" 2]] (:refetch-sweep e1)) "cursor armed with the sweep tail")
-      (is (= 3 (rf.resources.state/page-count e1)) ":data UNTOUCHED — never truncated")
-      (is (= (:data e0) (:data e1)))
+      (is (= (:data e0) (:data e1)) ":data UNTOUCHED — never truncated")
       (is (= (:status e0) (:status e1)))
       (is (= (:revision e0) (:revision e1)) "revision NOT bumped by arming the cursor")))
   (testing ":refetch-window 2 arms a cursor with only page 1"

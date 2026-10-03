@@ -59,17 +59,6 @@
       (is (true? (:infinite meta)))
       (is (fn? (:next-page-param meta))))))
 
-(deftest valid-infinite-spec-with-all-optionals-registers
-  (testing "the full optional infinite slice (R3/R6/R7) registers"
-    (is (= :feed/full
-           (rf.resources.registry/reg-resource
-             :feed/full
-             (assoc (base-infinite-spec)
-                    :prev-page-param   (fn [first-page _all] (get-in first-page [:page-info :prev-cursor]))
-                    :page->items       :items
-                    :initial-page-param "p0"
-                    :refetch           {:refetch-all-pages? false :refetch-window 3}) base-infinite-request)))))
-
 (deftest infinite-without-next-page-param-rejected
   (testing ":infinite true with NO :next-page-param => infinite-missing-next-page-param (R8 gate)"
     (is (thrown-with-msg?
@@ -136,7 +125,12 @@
            ["a well-formed :refetch policy"
             :feed/rf-ok {:refetch {:refetch-all-pages? true :refetch-window 5}}]
            ["an empty :refetch policy"
-            :feed/rf-empty {:refetch {}}]]]
+            :feed/rf-empty {:refetch {}}]
+           ["the full optional slice together"
+            :feed/full {:prev-page-param    (fn [first-page _all] (get-in first-page [:page-info :prev-cursor]))
+                        :page->items        :items
+                        :initial-page-param "p0"
+                        :refetch            {:refetch-all-pages? false :refetch-window 3}}]]]
     (testing (str label " registers")
       (is (= id (rf.resources.registry/reg-resource id (merge (base-infinite-spec) override)
                                                     base-infinite-request))))))
@@ -157,18 +151,8 @@
        (catch #?(:clj Throwable :cljs :default) e e)))
 
 (deftest retired-page-data-schema-key-is-hard-rejected
-  (testing "an infinite spec that still carries :page-data-schema is REJECTED
-            (resource-bad-spec) — the retired key is never silently stored"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/retired
-                                 (assoc (base-infinite-spec)
-                                        :page-data-schema :app/timeline-page)
-                                 base-infinite-request))))
-  (testing "the reject fails BEFORE storage — no registrar entry is written"
-    (is (nil? (rf.resources.registry/resource-meta :feed/retired))
-        "a rejected registration leaves nothing behind (pre-storage gate)"))
-  (testing "the error carries the retired key + names BOTH replacements"
+  (testing "an infinite spec that still carries :page-data-schema is REJECTED;
+            the error carries the retired key + names BOTH replacements"
     (let [ex   (capture-ex
                  #(rf.resources.registry/reg-resource :feed/retired2
                                          (assoc (base-infinite-spec)
@@ -185,6 +169,9 @@
           "the reason names the VALIDATION replacement (request :decode)")
       (is (re-find #":sensitive" msg)
           "the reason names the CLASSIFICATION replacement (:sensitive/:large)")))
+  (testing "the reject fails BEFORE storage — no registrar entry is written"
+    (is (nil? (rf.resources.registry/resource-meta :feed/retired2))
+        "a rejected registration leaves nothing behind (pre-storage gate)"))
   (testing "the retired key is rejected on an ORDINARY (non-infinite) resource
             too — it is rejected WHEREVER it appears"
     (is (thrown-with-msg?
