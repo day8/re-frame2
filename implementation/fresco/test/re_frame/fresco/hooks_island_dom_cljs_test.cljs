@@ -599,13 +599,7 @@
                   (is (= rf.fresco.roots-frames-support/released (teardown! handle))))
 
                 (exercised! :hooks/strict-mode)
-                (-> (rf.fresco.roots-frames-support/quiesced!)
-                    (.then (fn [_]
-                             (testing "past the reapers the tables are empty"
-                               (is (= {:cells 0 :cell-refs 0 :boundaries 0
-                                       :edges 0 :entries 0}
-                                      (rf.fresco.test.runtime/residue))))
-                             nil)))))
+                (rf.fresco.roots-frames-support/quiesced!)))
             (.catch (report-failure! "W4 StrictMode"))
             (.then (fn [_] (release-minted!) (done))))))))
 

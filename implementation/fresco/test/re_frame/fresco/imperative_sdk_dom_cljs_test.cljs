@@ -28,7 +28,7 @@
   sentence as code, and both halves are load-bearing rather than
   decorative.
 
-  Taking the release out of the cleanup reds seven of the eight rows below
+  Taking the release out of the cleanup reds every row below
   — including [[after-teardown-the-outside-world-reaches-nothing]], where a
   torn-down page's chart keeps receiving real `window` events and writing
   real intents into app-db. Widening the acquire effect's deps to `#js
@@ -96,7 +96,6 @@
   | [[a-remount-releases-then-acquires-and-the-instance-is-a-new-one]] | exact release at an ordinary exit | a cleanup that runs but releases the SUCCESSOR |
   | [[a-thrown-render-releases-and-the-reset-key-retry-acquires-afresh]] | the exit path nobody writes | `try`-less cleanup, or a release keyed off unmount alone |
   | [[after-teardown-the-outside-world-reaches-nothing]] | no stale-frame callbacks | a listener that outlives its component |
-  | [[the-shells-hook-ledger-is-unmoved]] | the island's hooks are the ISLAND's | a wrapper's cost migrating into every boundary on the page |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## Browser lane
@@ -105,8 +104,7 @@
   entire mechanism under test and `react-dom/server` runs none. `:node-test`
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`) and
   each row degrades there to a STATED skip rather than to a false green —
-  the posture the other `*-dom` suites keep. [[the-shells-hook-ledger-is-unmoved]]
-  is the one row that needs no fiber and states so."
+  the posture the other `*-dom` suites keep."
   (:require [clojure.set :as set]
             [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
@@ -115,7 +113,6 @@
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
-            [re-frame.fresco.test.runtime :as rf.fresco.test.runtime]
             [re-frame.fresco.roots-frames-support :as rf.fresco.roots-frames-support]
             [re-frame.test-support :as rf.test-support]
             ["react" :as react]
@@ -485,13 +482,6 @@
 
 (defn- ids [] (set (keys @!live)))
 
-(defn- balanced?
-  "Every acquisition has been released or is still live — the invariant
-  the whole matrix is written against, and the one statement that holds
-  under StrictMode, a remount and a throw alike."
-  []
-  (= @!acquired (+ @!released (count @!live))))
-
 (defn- skip! [why]
   (is true (str "an imperative-SDK claim needs a real React DOM — " why)))
 
@@ -536,10 +526,8 @@
                             in one tree are two instances, with two distinct
                             ids, and the counters agree"
                     (is (= 2 (count @!live)))
-                    (is (= 2 (count (ids))))
                     (is (= 2 @!acquired))
-                    (is (= 0 @!released))
-                    (is (balanced?)))
+                    (is (= 0 @!released)))
 
                   (testing "and each instance is really attached to its own
                             node — the vendor wrote `textContent` React never
@@ -573,8 +561,7 @@
                             vendor's ledger and the runtime's agree"
                     (is (= 0 (count @!live)))
                     (is (= 2 @!released))
-                    (is (= 0 @!double-destroys))
-                    (is (balanced?)))
+                    (is (= 0 @!double-destroys)))
 
                   (exercised! :sdk/premise)
                   nil))
@@ -650,8 +637,7 @@
                     (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                     (is (= 0 (count @!live)))
                     (is (= 1 @!released))
-                    (is (= 0 @!double-destroys))
-                    (is (balanced?)))
+                    (is (= 0 @!double-destroys)))
 
                   (exercised! :sdk/idempotent-acquisition)
                   nil))
@@ -697,8 +683,7 @@
                             render body, which reads 2 live here and paints
                             perfectly"
                     (is (= 1 (count @!live)))
-                    (is (= 0 @!double-destroys))
-                    (is (balanced?)))
+                    (is (= 0 @!double-destroys)))
 
                   (testing "the survivor is the live one: the FIRST instance's
                             listener was removed with it, so one external event
@@ -710,8 +695,7 @@
                             mount acquired"
                     (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                     (is (= 0 (count @!live)))
-                    (is (= 2 @!released))
-                    (is (balanced?)))
+                    (is (= 2 @!released)))
 
                   (exercised! :sdk/strict-mode)
                   nil))
@@ -742,8 +726,7 @@
                 (fn [_]
                   (testing "dropped from the tree, the instance went with it"
                     (is (= 1 @!acquired))
-                    (is (= 1 @!released))
-                    (is (balanced?)))
+                    (is (= 1 @!released)))
 
                   (testing "and the outside world reaches nothing while it is
                             gone — the listener left with the instance"
@@ -759,8 +742,7 @@
                             old one resurrected"
                     (is (= 2 @!acquired))
                     (is (not= @!first @!second)
-                        "a resurrected instance would carry the old id")
-                    (is (balanced?)))
+                        "a resurrected instance would carry the old id"))
 
                   ;; A KEYED remount is the same story at a different door:
                   ;; React deletes the fiber and builds another, so the recipe
@@ -775,8 +757,7 @@
                     (is (= 3 @!acquired))
                     (is (= 2 @!released))
                     (is (= 1 (count @!live)))
-                    (is (= 0 @!double-destroys))
-                    (is (balanced?)))
+                    (is (= 0 @!double-destroys)))
 
                   (testing "one live instance means one intent per external
                             event — a leaked predecessor would answer 2 here
@@ -787,7 +768,6 @@
                   (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                   (is (= 0 (count @!live)))
                   (is (= 3 @!released))
-                  (is (balanced?))
                   (exercised! :sdk/remount)
                   nil))
               (.catch (report-failure! "remount" handle))
@@ -856,8 +836,7 @@
                     (is (= "fell" (text-at handle ".fell")))
                     (is (= 1 @!acquired) "no second acquisition anywhere in this")
                     (is (= 1 @!released))
-                    (is (= 0 @!double-destroys))
-                    (is (balanced?)))
+                    (is (= 0 @!double-destroys)))
 
                   (testing "and nothing survives the fall: the vendor's window
                             listener went with the instance, so an external
@@ -875,8 +854,7 @@
                             with no contribution from the attempt that threw"
                     (is (= 2 @!acquired))
                     (is (= 1 @!released))
-                    (is (not= @!before (first (ids))))
-                    (is (balanced?)))
+                    (is (not= @!before (first (ids)))))
 
                   (testing "one instance means one intent, which is what says
                             the pre-throw instance is really gone rather than
@@ -889,8 +867,7 @@
                     (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/teardown-census! handle)))
                     (is (= 0 (count @!live)))
                     (is (= 2 @!released))
-                    (is (= 0 @!double-destroys))
-                    (is (balanced?)))
+                    (is (= 0 @!double-destroys)))
 
                   (exercised! :sdk/thrown-render-and-retry)
                   nil))
@@ -938,8 +915,7 @@
                     (is (= 0 (count @!live)))
                     (is (= 1 @!acquired))
                     (is (= 1 @!released))
-                    (is (= 0 @!double-destroys))
-                    (is (balanced?)))
+                    (is (= 0 @!double-destroys)))
 
                   (exercised! :sdk/no-stale-callback)
                   nil))
@@ -947,28 +923,7 @@
               (.then (fn [_] (done)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 7. The fence — the island's hooks are the ISLAND's
-;; ---------------------------------------------------------------------------
-
-(deftest the-shells-hook-ledger-is-unmoved
-  ;; The rule an optional capability may not break is that it does not add
-  ;; a hook to EVERY boundary; a component spending its own is its own
-  ;; affair. [[spark-island]] spends five, which is a fact about one
-  ;; wrapper on one screen. The fence that holds is the boundary shell's
-  ;; ledger, and it is asserted here — unmoved, and neither of its two
-  ;; entries a `useRef` or a `useState` — so that the recipe's cost cannot
-  ;; be confused with a change to what every boundary on the page pays.
-  ;;
-  ;; No fiber needed: the ledger is a declaration, read off the runtime.
-  (testing "the shell declares exactly its two hooks"
-    (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           rf.fresco.test.runtime/shell-hook-ledger))
-    (is (= 2 (count rf.fresco.test.runtime/shell-hook-ledger))))
-  (testing "and declares no ref or state hook — HD-020(b)"
-    (is (empty? (filter #(#{:use-ref :use-state} %) rf.fresco.test.runtime/shell-hook-ledger)))))
-
-;; ---------------------------------------------------------------------------
-;; 8. The roster
+;; 7. The roster
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised

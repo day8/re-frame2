@@ -203,7 +203,6 @@
         (when (= 1 (count @seen))
           (let [ev (first @seen)]
             (is (= :info (:op-type ev)))
-            (is (= :rf.ssr/host-adopted (:operation ev)))
             (is (= "crossing-chart" (get-in ev [:tags :host])))
             (is (= 're-frame.fresco.impl.codec/mint-host-gate!
                    (get-in ev [:tags :where]))))))

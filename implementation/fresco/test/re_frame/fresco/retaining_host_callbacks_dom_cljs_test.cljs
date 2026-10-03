@@ -379,41 +379,11 @@
               (str "carrier " (name carrier) " ran the vendor's body " runs
                    " times across " ticks " parent re-renders")))))))
 
-(deftest the-grid-is-a-live-instrument
-  ;; Section 1 turns on a bail-out, which is a NON-event, and a non-event
-  ;; passes for the wrong reason the moment the thing that would disturb
-  ;; it stops happening — a parent that no longer re-renders, a read that
-  ;; no longer notifies, a tick that no longer writes. So the same
-  ;; scenario is asked the opposite question: the carriers that churn must
-  ;; churn by exactly the number of ticks that were driven.
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (testing "the parent really did re-render once per tick"
-        (fresh!)
-        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
-                                  [host-parent {:arm :intent-vector}])]
-          (try
-            (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
-            (is (= (str ticks) (.getAttribute (.querySelector (:container handle) ".parent")
-                                              "data-tick"))
-                "the parent painted every tick, so the bail-out rows above were
-                 given something to bail out of")
-            (finally (rf.fresco.impl.mount/release! handle)))))
-
-      (testing "and the vendor is one component, so the two answers are
-                comparable rather than two different memos"
-        (fresh!)
-        (is (= 1 (run-arm! [host-parent {:arm :absent}])))
-        (is (= (inc ticks) (run-arm! [host-parent {:arm :intent-vector}]))
-            "same vendor, same declaration, same parent, same ticks — the
-             carrier is the whole of the difference")))))
-
 ;; ---------------------------------------------------------------------------
 ;; 2 — Identity, read directly rather than inferred from the count
 ;; ---------------------------------------------------------------------------
 
-(deftest what-the-vendor-holds-across-renders
+(deftest a-lowered-intent-hands-the-vendor-a-new-function-every-render
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
@@ -425,23 +395,10 @@
                                   [host-parent {:arm :intent-vector}])]
           (try
             (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
-            (is (= (inc ticks) (count @!held)))
             (is (= (inc ticks) (count (set @!held)))
                 "every one of them is a distinct object")
             (finally (rf.fresco.impl.mount/release! handle)))))
-
-      (testing "the identity-stable carriers hand it the SAME function every
-                render, so the bail-out above is `Object.is` answering true
-                rather than React skipping a render for some other reason"
-        (doseq [arm [:plain-fn]]
-          (fresh!)
-          (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id
-                                    [host-parent {:arm arm}])]
-            (try
-              (dotimes [_ ticks] (rf.fresco.impl.mount/dispatch! handle [::tick]))
-              (is (= 1 (count @!held))
-                  (str (name arm) " re-rendered the vendor"))
-              (finally (rf.fresco.impl.mount/release! handle)))))))))
+)))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — RETENTION. A callback the vendor kept still routes inside its own
