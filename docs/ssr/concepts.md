@@ -38,6 +38,19 @@ A render uses three kinds of code, and none of them touches the browser:
 - **Subscriptions are pure derivations.** State in, value out — nodes on [the derivation graph](../core/glossary.md#the-derivation-graph), rooted at app-db.
 - **The render tree is data.** [Hiccup](../core/glossary.md#hiccup) is nested vectors and maps, and [`render-to-string`](glossary.md#render-to-string) is a pure function from hiccup to an HTML string. It needs no React, no DOM and no JS runtime.
 
+`render-to-string` runs in the browser too, so you can see what the server sends for a piece of hiccup. Edit it and press Mod-Enter:
+
+```cljs-rf2
+(require '[re-frame.ssr :as ssr])
+
+[:pre
+ (ssr/render-to-string
+   [:article#intro.card                               ;; #id and .class become attributes
+    [:h2 "Why <head> tags & JSON-LD matter"]          ;; text is escaped
+    [:img {:src "/img/intro.png" :alt "Intro"}]       ;; a void element has no closing tag
+    [:input {:type "checkbox" :checked true :disabled false}]])]   ;; true is written bare, false left out
+```
+
 So every handler, subscription and view you have already written can run on the server. Work that needs the browser — a `localStorage` write, a focus trap — is an effect you declare as client-only, rather than a branch in your code ([`:platforms`](#platforms--one-handler-gated-per-runtime), below).
 
 ??? info "For JavaScript developers"
@@ -320,6 +333,31 @@ The hash is computed over the hiccup, not the HTML, and the walk that computes i
 - **Pass `:root-view` in the fn form**, `(fn [] ((rf/view :app/root)))`. The fn calls the root view, so the handler has its hiccup to hash. The vector form `[(rf/view :app/root)]` is a view reference, renders the same HTML, and ships no hash.
 - **Have the root view return an element**, such as `[:main …]`. A root whose body is only another view, `[(rf/view :pages/articles)]`, would hash to the same constant for every app, so the Ring handler ships no hash for it either.
 - **Only the root view's own markup is compared.** Views nested inside it are not expanded, so a mismatch inside a nested view goes undetected by the hash.
+
+This cell hashes one view both ways. `article-list` is the Var `rf/reg-view` defines, so `(article-list)` calls the view and `[article-list]` is a reference to it. Press the button: the list grows and the called form's hash changes, while the reference's hash stays the same.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.ssr :as ssr])
+
+(rf/reg-event :articles/add
+  (fn [{:keys [db]} _]
+    {:db (update db :articles (fnil conj []) (str "Article " (inc (count (:articles db)))))}))
+
+(rf/reg-sub :articles/titles (fn [db _] (:articles db [])))
+
+(rf/reg-view article-list []
+  (into [:ul] (for [title @(subscribe [:articles/titles])]
+                [:li title])))
+
+(defn hashes []
+  [:div
+   [:button {:on-click #(rf/dispatch [:articles/add])} "Add an article"]
+   [:p "(article-list) hashes to " (ssr/render-tree-hash (article-list))]
+   [:p "[article-list] hashes to " (ssr/render-tree-hash [article-list])]])
+
+[hashes]
+```
 
 On the client, `:render-tree-fn (fn [] ((rf/view :app/root)))` is the matching call ([hydrate, then verify](#the-client-side-hydrate-then-verify)). When no hash ships, `hydrate!` has nothing to compare, and no mismatch is ever reported.
 
