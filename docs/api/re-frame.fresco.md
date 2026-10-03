@@ -480,6 +480,47 @@ the root whose handle you pass, so a page can hold as many roots as it needs. Se
    [chart-panel]]
   ```
 
+The cell below runs this boundary. Break the chart and the fallback replaces it, and
+`:on-error` records the failure. Show sales and the chart comes back, because
+`:reset-key` changed; remove `:reset-key` and run the cell again, and the fallback
+stays.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :chart/set-query
+  (fn [{:keys [db]} [_ query]]
+    {:db (assoc db :chart/query query)}))
+
+(rf/reg-event :chart/render-failed
+  (fn [{:keys [db]} [_ error]]
+    {:db (assoc db :chart/last-failure (ex-message error))}))
+
+(rf/reg-sub :chart/query        (fn [db _] (:chart/query db :sales)))
+(rf/reg-sub :chart/last-failure (fn [db _] (:chart/last-failure db)))
+
+(h/defview chart-panel [{:keys [query]}]
+  (if (= query :broken)
+    (throw (ex-info "no data for :broken" {:query query}))
+    [:p "Chart of " (name query)]))
+
+(h/defview dashboard [_]
+  (let [query (h/sub [:chart/query])]
+    [:div
+     [:button {:on-click [:chart/set-query :broken]} "Break the chart"]
+     " "
+     [:button {:on-click [:chart/set-query :sales]} "Show sales"]
+     [h/error-boundary {:fallback  (fn [e] [:p.error "The chart failed: " (ex-message e)])
+                        :reset-key query
+                        :on-error  [:chart/render-failed]}
+      [chart-panel {:query query}]]
+     [:p "Last failure recorded: " (pr-str (h/sub [:chart/last-failure]))]]))
+
+[h/frame-root {:id :app/charts}
+ [dashboard {}]]
+```
+
 ### `portal`
 
 - **Kind**: component (Fresco head)
@@ -748,6 +789,41 @@ an event prop an *intent*. See [Events as data](../core/fresco/03-events-as-data
       `:on-submit`, or a key map, at a prop whose caller passes something other than
       the DOM event first, such as `onChange(date)`. Write an `h/event`, which
       receives every argument. A plain vector with no marker works at any prop.
+
+Each control below uses one shape from the table, and the list shows the event
+each one dispatched. Type in the field and press Enter: `::h/value` arrives as the
+text. The plain function dispatches through a handle from `rf/capture-frame`,
+because React calls it with no frame in scope.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :event-log/add
+  (fn [{:keys [db]} event]
+    {:db (update db :event-log/entries (fnil conj []) event)}))
+
+(rf/reg-sub :event-log/entries (fn [db _] (:event-log/entries db [])))
+
+(h/defview event-props [_]
+  (let [{:keys [dispatch]} (rf/capture-frame)]
+    [:div
+     [:button {:on-click [:event-log/add :vector]} "Event vector"]
+     " "
+     [:input {:placeholder "Type, then Enter or Escape"
+              :on-key-down {"Enter"  [:event-log/add :enter ::h/value]
+                            "Escape" [:event-log/add :escape]}}]
+     " "
+     [:button {:on-click (h/event [_e] [:event-log/add :h-event])} "h/event"]
+     " "
+     [:button {:on-click (fn [_e] (dispatch [:event-log/add :plain-fn]))}
+      "Plain function"]
+     [:ol (for [[i entry] (map-indexed vector (h/sub [:event-log/entries]))]
+            [:li {:key i} (pr-str entry)])]]))
+
+[h/frame-root {:id :app/event-log}
+ [event-props {}]]
+```
 
 ## Marker keywords
 
