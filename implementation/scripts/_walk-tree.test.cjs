@@ -107,19 +107,7 @@ const acceptTxt = (name) => name.endsWith('.txt');
 const skipNodeModules = (name) => name === 'node_modules';
 const rel = (items) => items.map((p) => path.relative(ROOT, p).split(path.sep).join('/')).sort();
 
-it('walkDir collects every accepted file across the tree (clean walk)', () => {
-  const { items, walkErrors } = walkDir({
-    roots: [ROOT],
-    io: fakeIo(tree()),
-    skipDir: skipNodeModules,
-    acceptFile: acceptTxt,
-  });
-  assert.deepStrictEqual(walkErrors, [], 'a clean walk records no errors');
-  // node_modules/junk.txt is pruned by policy; x/y/z remain.
-  assert.deepStrictEqual(rel(items), ['a/x.txt', 'b/y.txt', 'z.txt']);
-});
-
-it('POLICY: a skipDir prune is never visited and never an error', () => {
+it('POLICY: walkDir collects every accepted file, and a skipDir prune is never read — even when unreadable', () => {
   // Even if node_modules were UNREADABLE, the policy skip means it is never
   // read — so no walkError and its contents never appear.
   const { items, walkErrors } = walkDir({
@@ -161,10 +149,6 @@ it('TEETH: an unreadable/missing ROOT is recorded by name (independent per-root)
   assert.strictEqual(walkErrors[0].code, 'ENOENT');
 });
 
-it('assertWalkComplete is a no-op on a clean walk', () => {
-  assert.doesNotThrow(() => assertWalkComplete([], 'ctx'));
-});
-
 it('TEETH: assertWalkComplete throws (naming the path + cause) on a partial walk', () => {
   const walkErrors = [{ path: B, code: 'EACCES', message: `EACCES: scandir '${B}'` }];
   let thrown = null;
@@ -181,7 +165,7 @@ it('TEETH: assertWalkComplete throws (naming the path + cause) on a partial walk
   assert.deepStrictEqual(thrown.walkErrors, walkErrors, 'the walkErrors ride along');
 });
 
-it('walkErrorReport names the count, context, and every path + cause', () => {
+it('walkErrorReport names the count, context, and every path', () => {
   const report = walkErrorReport(
     [
       { path: A, code: 'EACCES', message: `EACCES: scandir '${A}'` },

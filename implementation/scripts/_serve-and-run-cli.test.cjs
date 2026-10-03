@@ -65,14 +65,8 @@ test('an unknown option fails fast with a clear message (rf2-hmgwk2)', () => {
   assert.match(out, /Unknown option/, `stderr should name the unknown option: ${out}`);
 });
 
-test('a non-integer --port fails fast with a clear message (rf2-hmgwk2)', () => {
-  const { status, out } = runWith(['--port', 'abc']);
-  assert.notEqual(status, 0, `expected non-zero exit; got ${status}`);
-  assert.match(out, /--port must be an integer in 1\.\.65535/, out);
-});
-
-test('an out-of-range --port fails fast (rf2-hmgwk2)', () => {
-  for (const bad of ['0', '65536', '-1']) {
+test('a non-integer or out-of-range --port fails fast with a clear message (rf2-hmgwk2)', () => {
+  for (const bad of ['abc', '0', '65536', '-1']) {
     const { status, out } = runWith(['--port', bad]);
     assert.notEqual(status, 0, `expected non-zero exit for --port ${bad}; got ${status}`);
     assert.match(out, /--port must be an integer in 1\.\.65535/, `--port ${bad}: ${out}`);

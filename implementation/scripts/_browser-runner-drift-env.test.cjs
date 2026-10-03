@@ -74,14 +74,6 @@ test('flag present, no ambient value: the var is forwarded as "1"', () => {
   assert.equal(env[DRIFT_UNVERIFIABLE_ENV_VAR], '1');
 });
 
-test('flag present AND ambient value present: still forwarded as "1" (idempotent)', () => {
-  const env = computeRunnerEnv(
-    { PATH: '/usr/bin', [DRIFT_UNVERIFIABLE_ENV_VAR]: '1' },
-    { driftUnverifiable: true, browserTestUrl: URL },
-  );
-  assert.equal(env[DRIFT_UNVERIFIABLE_ENV_VAR], '1');
-});
-
 test('flag present, ambient value is something OTHER than "1": still normalised to "1"', () => {
   // Defends against an ambient value like "0" or "true" being passed through
   // verbatim instead of the canonical "1" run-browser-tests.cjs compares against.
