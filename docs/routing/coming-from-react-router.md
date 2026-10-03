@@ -133,6 +133,45 @@ the list:
 refresh and a pasted link all give the same result. If "opened from the list" needs to
 matter, store it in app-db.
 
+Here it runs with two routes on an in-memory frame. Open an article: the list stays
+mounted under the dialog, and the route is `:app/article`.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing])
+
+(def sample-articles
+  {"intro" {:title "Intro to re-frame2"}
+   "ssr"   {:title "Server rendering"}})
+
+(rf/reg-route :app/articles {} "/articles")
+(rf/reg-route :app/article {:params [:map [:slug :string]]} "/articles/:slug")
+
+(rf/reg-view articles-page []
+  [:ul
+   (for [[slug {:keys [title]}] sample-articles]
+     ^{:key slug}
+     [:li [rf/route-link {:to :app/article :params {:slug slug}} title]])])
+
+(rf/reg-view article-dialog []
+  (let [{:keys [slug]} @(subscribe [:rf.route/params])]
+    [:div {:role "dialog" :style {:border "1px solid" :padding "0 1em 1em"}}
+     [:h2 (get-in sample-articles [slug :title])]
+     [rf/route-link {:to :app/articles} "Close"]]))
+
+(rf/reg-view root-view []
+  (let [id @(subscribe [:rf.route/id])]
+    [:div
+     [articles-page]                       ;; keep the list mounted
+     (when (= id :app/article)
+       [article-dialog])
+     [:p [:code (pr-str id @(subscribe [:rf.route/params]))]]]))
+
+[rf/frame-root {:id             :app
+                :initial-events [[:rf.route/navigate {:to :app/articles}]]}
+ [root-view]]
+```
+
 ### The same loaders run on the server
 
 React Router's framework mode has server loaders with their own build and runtime. In
