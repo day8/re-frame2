@@ -364,13 +364,14 @@
           "the params component is untouched — nothing is declared there"))))
 
 (deftest a-global-scope-is-never-walked
-  (testing "`:rf.scope/global` is a bare keyword, not a [tier {identity}] tuple.
-            An owner that declares nothing under :scope must leave it exactly
-            as it found it"
+  (testing "`:rf.scope/global` is a bare keyword, not a [tier {identity}] tuple,
+            so it has no identity slot to substitute. An owner that DECLARES a
+            :scope slot passes the declaration gate and walks the scope, and the
+            walk must leave the keyword exactly as it found it"
     (let [k (install-entry! :rf/default
                             (rf.resources.state/scoped-resource-key
-                              :rf.scope/global :plain/report {:page 3}))
-          w (wire-key :rf/default :plain/report)]
+                              :rf.scope/global :tenant/report {:page 3}))
+          w (wire-key :rf/default :tenant/report)]
       (is (= :rf.scope/global (nth w 0)))
       (is (= k w))
       (is (= (rf.resources.state/key-id k) (rf.resources.state/key-id w))))))
