@@ -111,7 +111,7 @@ fi
 # renamed directory, a discovery default that matched nothing — cannot report
 # itself green with `Ran 0 tests`.  Calibrated below the observed count with
 # room for ordinary churn; raise it when the suite grows materially.  The
-# calibration is ~13% headroom against the observed count, applied as a
+# calibration is the observed count minus 35 tests, applied as a
 # convention rather than in response to any one namespace: no floor with
 # usable headroom could notice a single small namespace vanishing.
 #
