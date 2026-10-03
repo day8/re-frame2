@@ -100,6 +100,83 @@ on the resource rather than the route. Non-blocking reads, prefetches and
 `:on-match` never change the route transition. A resource declared with
 `:blocking? false` starts on entry too; give its view its own loading state.
 
+## Try it
+
+This cell runs the resource, the route and both views on an in-memory frame.
+HTTP stubs stand in for the server, and the frame's `:fx-overrides` sends its
+requests to them. Open each article: the stubs answer at once, so the loading
+state passes too quickly to see. **A missing article** gets a `404`, so the page
+shows its error, the transition reads `:error` and the route error is
+`:rf.error/resource-route-blocking`. Going back to **Intro** shows the cached
+article.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing]
+         '[re-frame.resources]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as rf.http.test-support])
+
+;; Stand-in for the server: two articles and a 404.
+(rf.http.test-support/install-managed-request-stubs!
+  {[:get "/api/articles/intro"]   {:reply {:ok {:title "Intro to re-frame2"}}}
+   [:get "/api/articles/ssr"]     {:reply {:ok {:title "Server rendering"}}}
+   [:get "/api/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
+
+(rf/reg-event :article/remember
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    {:db (assoc db :article/last-read
+                (get-in rt [:rf.runtime/routing :current :params :slug]))}))
+
+(rf/reg-resource :article/detail
+  {:params-schema [:map [:slug :string]]
+   :scope :rf.scope/global}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode :json}))
+
+(rf/reg-route :app/articles {} "/articles")
+(rf/reg-route :app/article
+  {:parent :app/articles
+   :params [:map [:slug :string]]
+   :on-match [[:article/remember]]
+   :resources [{:resource :article/detail
+                :params (fn [route] {:slug (get-in route [:params :slug])})
+                :blocking? true}]}
+  "/articles/:slug")
+
+(rf/reg-view article-page []
+  (let [{:keys [slug]} @(subscribe [:rf.route/params])
+        article @(subscribe [:rf/resource {:resource :article/detail
+                                           :params {:slug slug}}])]
+    (cond
+      (:has-data? article) [:h1 (:title (:data article))]
+      (:error article)     [:p.error "Could not load the article."]
+      :else                [:p "Loading article…"])))
+
+(rf/reg-view route-status []
+  (case @(subscribe [:rf.route/transition])
+    :loading [:p {:role "status"} "Loading page…"]
+    :error [:p.error "Could not load this page."]
+    nil))
+
+(rf/reg-view article-reader []
+  [:div
+   [:nav [rf/route-link {:to :app/article :params {:slug "intro"}} "Intro"] " · "
+         [rf/route-link {:to :app/article :params {:slug "ssr"}} "Server rendering"] " · "
+         [rf/route-link {:to :app/article :params {:slug "missing"}} "A missing article"]]
+   [route-status]
+   [article-page]
+   [:p [:code (pr-str {:transition @(subscribe [:rf.route/transition])
+                       :error      (:rf.error/id @(subscribe [:rf.route/error]))})]]])
+
+[rf/frame-root {:id             :app
+                :fx-overrides   {:rf.http/managed :rf.http/managed-test-stub}
+                :initial-events [[:rf.route/navigate {:to     :app/article
+                                                      :params {:slug "intro"}}]]}
+ [article-reader]]
+```
+
 ## Share a parent's data
 
 Put data needed by a section's shell on its parent route. For example, register
