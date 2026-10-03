@@ -229,31 +229,9 @@
           "both regions advanced: :left on :go, :right on the ensured :inner"))))
 
 ;; ===========================================================================
-;; wrote-db `:offending-value` redacted at egress
+;; wrote-db `:offending-value` redacted at egress (the action-effect path is
+;; machine-macrostep-snapshot-rules-test's action-returning-db-emits-error-and-drops-db)
 ;; ===========================================================================
-
-(deftest wrote-db-offending-value-redacted-at-egress
-  (testing "an action that wrongly returns :db carrying a SENSITIVE payload
-            does NOT leak it raw on the :rf.error/machine-action-wrote-db trace
-            — `:offending-value` is summarized to :rf/redacted at the egress
-            chokepoint; the structural slots (`:action-id`) survive"
-    (let [m {:initial :a
-             :actions {:bad (fn [_] {:db   {:auth {:token "super-secret-jwt"}}
-                                     :data {:legit 1}})}
-             :states  {:a {:on {:go {:target :b :action :bad}}} :b {}}}]
-      (rf/reg-machine :wrote-db/sensitive m)
-      (rf.machines.test-support/with-trace-capture seen
-        (rf/dispatch-sync [:wrote-db/sensitive [:go]])
-        (let [errs (filterv #(= :rf.error/machine-action-wrote-db (:operation %)) @seen)]
-          (is (= 1 (count errs)) "exactly one wrote-db error")
-          (let [tags (:tags (first errs))]
-            (is (= :rf/redacted (:offending-value tags))
-                "the offending app-db (with the secret) is redacted at egress")
-            (is (= :bad (:action-id tags))
-                "the structural :action-id slot survives so the operator can locate it")
-            ;; the secret string appears NOWHERE in the egressed tags.
-            (is (not (re-find #"super-secret-jwt" (pr-str tags)))
-                "the sensitive token does not appear anywhere in the egressed trace")))))))
 
 (deftest update-snapshot-wrote-db-uses-actor-id-and-redacts
   (testing "the :rf.machine/update-snapshot escape-hatch :db hard-disallow

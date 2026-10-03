@@ -6,7 +6,7 @@
   `:b` name one state and commit one spelling of it.
 
   A hierarchical machine's `:state` is a vector path, so there a vector
-  target commits its path (`compound_state_shape_cljs_test` pins the
+  target commits its path (`compound_state_shape_cljs_test` pins it, and the
   root-level-leaf case).
 
   A parallel machine's regions follow the same two arms inside the region
@@ -57,16 +57,6 @@
     (rf/reg-machine :flat-vec/machine flat-vector-target)
     (rf/dispatch-sync [:flat-vec/machine [:go]])
     (is (= :b (:state (snapshot :flat-vec/machine))))))
-
-(def ^:private hierarchical
-  {:initial :out
-   :states  {:out {:on {:login [:in :home]}}
-             :in  {:initial :home
-                   :states  {:home {}}}}})
-
-(deftest hierarchical-machine-vector-target-commits-its-path
-  (testing "a vector target into a compound commits the leaf path"
-    (is (= [:in :home] (state-after hierarchical [:out] [:login])))))
 
 (def ^:private regions
   {:type    :parallel

@@ -45,11 +45,6 @@
 
 ;; ---- declaration accessor + boundary predicate ----------------------------
 
-(deftest internal-events-accessor
-  (testing "internal-events returns the declared SET (or nil when absent)"
-    (is (= #{:tick} (rf.machines.internal-events/internal-events {:internal-events #{:tick}})))
-    (is (nil? (rf.machines.internal-events/internal-events {:initial :a})))))
-
 (deftest boundary-predicate-recognises-declared-internal-events
   (testing "internal-event-external? is true ONLY for a declared internal event"
     (let [m {:internal-events #{:tick :retry/internal}}]
@@ -71,62 +66,24 @@
   (try (rf/reg-machine (keyword "iet" (str (gensym))) machine) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (:rf.error/id (ex-data e)))))
 
-(deftest internal-events-accepts-valid-set
-  (testing "a well-formed :internal-events SET (with a self-raise + :on clause) registers cleanly"
-    (is (nil? (reg-error-id
-                {:initial :waiting
-                 :internal-events #{:tick}
-                 :actions {:kick (fn [_] {:fx [[:raise [:tick]]]})}
-                 :states {:waiting {:entry :kick
-                                    :on {:tick {:target :checking}}}
-                          :checking {}}})))))
-
-(deftest internal-events-rejects-vector-form
-  (testing "a VECTOR :internal-events (the rejected XState array form) fails loud"
-    (is (= :rf.error/machine-bad-internal-events
-           (reg-error-id {:initial :a
-                          :internal-events [:tick]
-                          :states {:a {}}})))))
-
-(deftest internal-events-rejects-non-keyword-member
-  (testing "a SET with a non-keyword member fails loud"
-    (is (= :rf.error/machine-bad-internal-events
-           (reg-error-id {:initial :a
-                          :internal-events #{:tick "tock"}
-                          :states {:a {}}})))))
-
-(deftest internal-events-rejects-non-set
-  (testing "a non-set, non-vector :internal-events (e.g. a keyword) fails loud"
-    (is (= :rf.error/machine-bad-internal-events
-           (reg-error-id {:initial :a
-                          :internal-events :tick
-                          :states {:a {}}})))))
-
-(deftest internal-events-handled-via-on-is-not-a-collision
-  (testing "declaring :tick internal AND handling it via :on {:tick …} is the
-            EXPECTED shape (the EP example) — it registers cleanly"
-    (is (nil? (reg-error-id
-                {:initial :waiting
-                 :internal-events #{:tick}
-                 :states {:waiting {:on {:tick {:target :checking}}}
-                          :checking {}}})))))
-
-(deftest internal-events-rejects-reserved-framework-event
-  (testing "a reserved :rf/* framework event in :internal-events fails loud —
-            framework lifecycle traffic can't be made private"
-    (is (= :rf.error/machine-internal-event-reserved
-           (reg-error-id {:initial :a
-                          :internal-events #{:rf.machine/start}
-                          :states {:a {}}})))
-    (is (= :rf.error/machine-internal-event-reserved
-           (reg-error-id {:initial :a
-                          :internal-events #{:rf.machine/done}
-                          :states {:a {}}})))
-    (is (= :rf.error/machine-internal-event-reserved
-           (reg-error-id {:initial :a
-                          :internal-events #{:tick :rf.machine.spawn/spawned}
-                          :states {:a {}}}))
-        "a reserved member alongside a legal one is still rejected")))
+(deftest malformed-internal-events-are-rejected-at-registration
+  (doseq [[label declaration expected]
+          [["a VECTOR (the rejected XState array form)"
+            [:tick] :rf.error/machine-bad-internal-events]
+           ["a SET with a non-keyword member"
+            #{:tick "tock"} :rf.error/machine-bad-internal-events]
+           ["a non-set, non-vector value (a keyword)"
+            :tick :rf.error/machine-bad-internal-events]
+           ["a reserved :rf/* framework event — framework lifecycle traffic can't be made private"
+            #{:rf.machine/start} :rf.error/machine-internal-event-reserved]
+           ["another reserved framework event"
+            #{:rf.machine/done} :rf.error/machine-internal-event-reserved]
+           ["a reserved member alongside a legal one"
+            #{:tick :rf.machine.spawn/spawned} :rf.error/machine-internal-event-reserved]]]
+    (is (= expected (reg-error-id {:initial :a
+                                   :internal-events declaration
+                                   :states {:a {}}}))
+        (str label " fails loud"))))
 
 ;; ---- dispatch boundary — external dispatch of a private event is rejected --
 

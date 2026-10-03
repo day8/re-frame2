@@ -195,7 +195,7 @@
           (is (some? (-> t :tags :exception))
               ":exception slot is populated"))))))
 
-(deftest initial-entry-throw-skips-invoke-and-after-on-failing-state
+(deftest initial-entry-throw-skips-spawn-and-after-on-failing-state
   (testing "when :entry throws on the initial state, its sibling :spawn and
             :after declarations do NOT fire — the cascade halt is total"
     (let [spawn-fired? (atom false)

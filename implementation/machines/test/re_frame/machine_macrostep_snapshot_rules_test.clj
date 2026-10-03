@@ -103,7 +103,7 @@
    :rf.error/machine-action-wrote-db; :data still flows, :db is dropped"
     (rf/reg-machine :rem/wrote-db
       {:initial :a
-       :actions {:bad (fn [_] {:db {:hacked true} :data {:legit 1}})}
+       :actions {:bad (fn [_] {:db {:auth {:token "super-secret-jwt"}} :data {:legit 1}})}
        :states  {:a {:on {:go {:target :b :action :bad}}} :b {}}})
     (let [evs (record-traces!
                 (fn [] (rf/dispatch-sync [:rem/wrote-db [:go]])))
@@ -117,6 +117,8 @@
       ;; offending action; the operator does not need the app-db contents.
       (is (= :rf/redacted (-> ws first :tags :offending-value))
           "the offending app-db value is redacted at egress")
+      (is (not (re-find #"super-secret-jwt" (pr-str (-> ws first :tags))))
+          "the sensitive token appears nowhere in the egressed trace")
       ;; :data flowed through; the FSM is at :b; app-db root was NOT clobbered.
       (is (= {:legit 1} (:data @(rf/subscribe [:rf/machine :rem/wrote-db]))))
       (is (= :b (snap-of :rem/wrote-db)))
