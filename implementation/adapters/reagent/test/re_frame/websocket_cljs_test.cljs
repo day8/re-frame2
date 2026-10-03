@@ -346,45 +346,6 @@
             (is (not= pre-socket (socket-id-of s))
                 "reconnect spawned a fresh socket")))))))
 
-(defn- max-retries-failed-test []
-  ;; The `:max-retries-exceeded?` guard on `:reconnecting`'s
-  ;; `:always` cascade transitions to `:failed` on entry once
-  ;; `:retries` ≥ `:max-retries`. Drive the machine into
-  ;; `:reconnecting` with a pre-seeded `:retries` count high
-  ;; enough to trip the guard — the simplest way to exercise the
-  ;; max-retries → :failed contract without walking the whole
-  ;; reconnect cascade.
-  (with-sync-mock!
-    (fn []
-      (with-new-frame [f (new-frame)]
-        ;; Connect to spawn the actor.
-        (rf/dispatch-sync [:ws/connection
-                           [:ws/connect {:url "ws://mock"
-                                         :cred-ref :ws.demo/cred-a}]]
-                          {:frame f})
-        ;; Seed the snapshot's :data :retries past :max-retries via a
-        ;; direct write to the machine's :data slot. This is a test
-        ;; helper — production code never does this.
-        ;; EP-0001: machine snapshots are durable runtime-db
-        ;; state, so the seed writes the runtime-db PARTITION via swap-runtime-db!.
-        (re-frame.frame/swap-runtime-db! f
-          (fn [rt]
-            (let [max-retries (get-in rt [:rf.runtime/machines :snapshots :ws/connection :data :max-retries])]
-              (update-in rt [:rf.runtime/machines :snapshots :ws/connection :data]
-                         assoc :retries (inc max-retries)))))
-        ;; Now drive a :ws/closed — the parent transitions to :reconnecting
-        ;; and immediately into :failed via :always-cascade.
-        (let [snap-before (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-          (rf/dispatch-sync [:ws/connection
-                             [:ws/closed {:source-socket-id (socket-id-of snap-before)
-                                          :code 1006}]]
-                            {:frame f}))
-        (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-          (is (= [:failed] (:state s))
-              (str "expected [:failed] got " (:state s)
-                   " retries=" (get-in s [:data :retries])
-                   " max=" (get-in s [:data :max-retries]))))))))
-
 (defn- connection-epoch-staleness-test []
   (with-sync-mock!
     (fn []
@@ -1313,11 +1274,12 @@
                 "buffered as the whole :ws/request event for a later flush")))))))
 
 (defn- drive-to-failed!
-  "Walk the connection machine into top-level `:failed` the same way
-   `max-retries-failed-test` does: connect (spawning the actor), seed
-   `:retries` past `:max-retries`, then fire a live `:ws/closed` so the parent
-   steps to `:reconnecting` and immediately on to `:failed` via the
-   `:max-retries-exceeded?` `:always` cascade."
+  "Walk the connection machine into top-level `:failed` through its
+   max-retries guard: connect (spawning the actor), seed `:retries` past
+   `:max-retries`, then fire a live `:ws/closed` so the parent steps to
+   `:reconnecting` and immediately on to `:failed` via the
+   `:max-retries-exceeded?` `:always` cascade. The caller's `[:failed]`
+   precondition is the suite's pin of that transition."
   [f]
   (rf/dispatch-sync [:ws/connection
                      [:ws/connect {:url "ws://mock" :cred-ref :ws.demo/cred-a}]]
@@ -2014,10 +1976,6 @@
 (deftest websocket-reconnect-cascade
   (testing "reconnect cascade — transport drop → :reconnecting → :after re-enters :active"
     (reconnect-cascade-test)))
-
-(deftest websocket-max-retries-failed
-  (testing "max-retries — :reconnecting → :failed once :max-retries-exceeded?"
-    (max-retries-failed-test)))
 
 (deftest websocket-connection-epoch-staleness
   (testing "connection epoch — stale :ws/received from a prior socket is dropped"

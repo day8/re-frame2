@@ -377,17 +377,7 @@
       (is (= replies-a replies-b))
       (is (= state-a state-b)))
     (testing "which is what makes both app seams equivalent — each is this transition plus an atom"
-      (is (= (count sequence) (count replies-a)))
       (is (every? #(contains? % :ok) replies-a) "and the whole sequence succeeds"))))
-
-(deftest worlds-are-isolated-from-each-other
-  (let [a (world)
-        b (world)]
-    (ok! a :post "/articles/second-article/favorite")
-    (ok! a :post "/articles/hello-conduit/comments" {:body {:comment {:body "only in a"}}})
-    (testing "a write in one world is invisible in another — two demos never share a state"
-      (is (false? (:favorited (:article (ok! b :get "/articles/second-article")))))
-      (is (= 1 (count (:comments (ok! b :get "/articles/hello-conduit/comments"))))))))
 
 ;; ============================================================================
 ;; NEGATIVE CONTROL

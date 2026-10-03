@@ -333,32 +333,12 @@
 ;; path). This test registers the REAL production `AuthSlice` var on the test
 ;; frame — the same var `reg-app-schemas` binds to `:rf/default` at ns-load — so
 ;; the genuine post-commit validator participates on the genuine
-;; `:auth/store-session` commit.
-
-(defn- vec-map-slot-props
-  "The properties map of one slot in a vector-form Malli `[:map ...]`, or nil.
-   Reads the wire User's per-slot `:sensitive?` flag straight off the pure-data
-   schema, no Malli introspection needed."
-  [map-schema slot-key]
-  (some (fn [entry]
-          (when (and (vector? entry) (= slot-key (first entry)) (map? (second entry)))
-            (second entry)))
-        (rest map-schema)))
+;; `:auth/store-session` commit. The wire half — a token-less reply rejected,
+;; the token slot sensitive — belongs to the shared `realworld-shared.schema`
+;; and is pinned by `realworld-resources-cljs-test` and
+;; `realworld-shared-contract-cljs-test`.
 
 (defn- durable-session-user-schema-test []
-  ;; --- WIRE contract: a token-less reply is REJECTED and the token slot
-  ;;     stays sensitive (the durable contract must not weaken decode) ---
-  (is (true? (m/validate ws/UserResponse
-                         {:user {:email "alice@example.com" :username "alice"
-                                 :token "jwt-abc" :bio nil :image nil}}))
-      "a complete login/register/restore/settings reply (with :token) still decodes")
-  (is (false? (m/validate ws/UserResponse
-                          {:user {:email "alice@example.com" :username "alice"
-                                  :bio nil :image nil}}))
-      "a token-LESS reply is STILL rejected by the wire schema — :token stays required")
-  (is (true? (:sensitive? (vec-map-slot-props ws/User :token)))
-      "the wire User's :token slot stays classified :sensitive? true")
-
   ;; --- DURABLE contract: the token-free session user is stored AND validates
   ;;     against the real AuthSlice under the real post-commit validator ---
   (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
@@ -479,87 +459,8 @@
     (is (false? (rf/compute-sub [:editor/can-leave?] (rf/frame-state-value f))))))
 
 ;; ============================================================================
-;; comments — article-detail load and comment-post happy path
+;; comments — a delete rollback against a list that has since shrunk
 ;; ============================================================================
-
-(defn- comments-load-test []
-  ;; URL-routed stub: the article-detail page issues two requests
-  ;; (`/articles/:slug` and `/articles/:slug/comments`); pick the canned
-  ;; payload from the URL.
-  (reg-canned-success-by-url! :realworld.test/canned-article-and-comments
-                              (fn [url]
-                                (cond
-                                  (str/ends-with? url "/comments")
-                                  {:comments [{:id 1
-                                               :createdAt "2026-05-01"
-                                               :updatedAt "2026-05-01"
-                                               :body "First!"
-                                               :author {:username "eve" :bio nil :image nil :following false}}]}
-
-                                  :else
-                                  {:article {:slug "hello"
-                                             :title "Hello"
-                                             :description "Short"
-                                             :body "Body"
-                                             :tagList ["demo"]
-                                             :createdAt "2026-05-01"
-                                             :updatedAt "2026-05-01"
-                                             :favorited false
-                                             :favoritesCount 0
-                                             :author {:username "alice" :bio nil :image nil :following false}}})))
-
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/canned-article-and-comments}})]
-    (rf/dispatch-sync [:article/initialise] {:frame f})
-    (rf/dispatch-sync [:comments/initialise] {:frame f})
-    (rf/dispatch-sync [:comment-form/initialise] {:frame f})
-    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
-    (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/frame-state-value f)))))
-    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f)))))))
-
-(defn- comment-submit-test []
-  (reg-canned-success-by-url! :realworld.test/canned-comment-post
-                              (fn [method url]
-                                (cond
-                                  ;; POST /articles/:slug/comments → returns the saved comment.
-                                  (and (= :post method) (str/ends-with? url "/comments"))
-                                  {:comment {:id 2
-                                             :createdAt "2026-05-02"
-                                             :updatedAt "2026-05-02"
-                                             :body "Nice article."
-                                             :author {:username "alice" :bio nil :image nil :following false}}}
-
-                                  ;; GET /articles/:slug/comments → empty initial list.
-                                  (and (= :get method) (str/ends-with? url "/comments"))
-                                  {:comments []}
-
-                                  :else
-                                  ;; The route-driven :article/load also fires; return
-                                  ;; an article so the page renders.
-                                  {:article {:slug "hello"
-                                             :title "Hello"
-                                             :description "Short"
-                                             :body "Body"
-                                             :tagList []
-                                             :createdAt "2026-05-01"
-                                             :updatedAt "2026-05-01"
-                                             :favorited false
-                                             :favoritesCount 0
-                                             :author {:username "alice" :bio nil :image nil :following false}}})))
-
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/canned-comment-post}})]
-    (rf/dispatch-sync [:article/initialise] {:frame f})
-    (rf/dispatch-sync [:comments/initialise] {:frame f})
-    (rf/dispatch-sync [:comment-form/initialise] {:frame f})
-    (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
-    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
-    (rf/dispatch-sync [:comment-form/edit-field :body "Nice article."] {:frame f})
-    (rf/dispatch-sync [:comment-form/submit] {:frame f})
-    (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f)))))
-    ;; Initial GET returned [] (no existing comments); POST returned 1
-    ;; saved comment → exactly 1 comment in the slice after submit.
-    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f)))))))
 
 (defn- comment-delete-rollback-stale-index-test []
   ;; :comment/delete-rollback re-inserts at an index
@@ -662,33 +563,6 @@
       (is (= 0 (-> (rf/compute-sub [:articles/data] (rf/frame-state-value f))
                    first
                    :favoritesCount))))))
-
-;; ============================================================================
-;; profile — profile + authored-articles load
-;; ============================================================================
-
-(defn- profile-load-test []
-  (reg-canned-success-by-url! :realworld.test/canned-profile
-                              (fn [url]
-                                (if (str/includes? url "/profiles/")
-                                  {:profile {:username "eve" :bio "Writes things" :image nil :following false}}
-                                  {:articles [{:slug "one"
-                                               :title "One"
-                                               :description "Short"
-                                               :body "Body"
-                                               :tagList []
-                                               :createdAt "2026-05-01"
-                                               :updatedAt "2026-05-01"
-                                               :favorited false
-                                               :favoritesCount 0
-                                               :author {:username "eve" :bio nil :image nil :following false}}]})))
-
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/canned-profile}})]
-    (rf/dispatch-sync [:profile/initialise] {:frame f})
-    (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
-    (is (= "eve" (:username (rf/compute-sub [:profile/data] (rf/frame-state-value f)))))
-    (is (= 1 (count (rf/compute-sub [:profile.articles/data] (rf/frame-state-value f)))))))
 
 ;; ============================================================================
 ;; settings — the :settings/form machine (form-region variant of Pattern-Forms)
@@ -1985,28 +1859,6 @@
               "nor its token"))))))
 
 ;; ============================================================================
-;; core — top-level smoke: boots the app, checks per-feature initialisers
-;; populate the expected slices.
-;; ============================================================================
-
-(defn- app-smoke-test []
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
-                                                :auth.session/persist :rf/no-op}})]
-    ;; `:auth/initialise` is its own `:initial-events` step in the real app,
-    ;; not part of the `:app/initialise` fan-out, so boot it here explicitly.
-    (init-auth! f nil)
-    ;; After init: the :auth + :articles slices and the
-    ;; :realworld/tags + :settings/form machine snapshots are present.
-    ;; EP-0001: app data is in app-db; machine snapshots in runtime-db.
-    (let [db (rf/app-db-value f)
-          rt (:rf.db/runtime (rf/frame-state-value f))]
-      (is (contains? db :auth))
-      (is (contains? db :articles))
-      (is (contains? (get-in rt [:rf.runtime/machines :snapshots]) :realworld/tags))
-      (is (contains? (get-in rt [:rf.runtime/machines :snapshots]) :settings/form)))))
-
-;; ============================================================================
 ;; DEFTESTS
 ;; ============================================================================
 
@@ -2018,7 +1870,7 @@
   (testing "the saved JWT arrives through a client-only load effect and a classified
             reply — never a coeffect — and unreadable or stale reads change nothing"
     (session-load-seam-test))
-  (testing "durable AuthSlice user validates token-free; wire User still requires :token"
+  (testing "durable AuthSlice user validates token-free"
     (durable-session-user-schema-test)))
 
 (deftest realworld-articles-feed
@@ -2034,20 +1886,12 @@
     (editor-can-leave-test)))
 
 (deftest realworld-comments
-  (testing "article + comments load on route change"
-    (comments-load-test))
-  (testing "comment submit clears the form and appends to the list"
-    (comment-submit-test))
   (testing "delete rollback with a stale (shrunk-list) index does not throw"
     (comment-delete-rollback-stale-index-test)))
 
 (deftest realworld-favorites
   (testing "favorite toggle rolls back on :http failure"
     (favorite-toggle-test)))
-
-(deftest realworld-profile
-  (testing "profile + authored-articles populate from canned stub"
-    (profile-load-test)))
 
 (deftest realworld-settings
   (testing ":settings/form machine — happy path lands in :correct"
@@ -2116,10 +1960,6 @@
   (testing "a URL-bound cold boot at a PROTECTED deep link with a saved token and a
             DEFERRED restore reply resolves to the requested route, never to login"
     (cold-boot-deep-link-race-test)))
-
-(deftest realworld-core-smoke
-  (testing "app boot populates :auth, :articles, and :tags slices"
-    (app-smoke-test)))
 
 ;; ============================================================================
 ;; article-editor — edit-mode load (PUT) / load-failure / delete / invalid-submit
@@ -3275,15 +3115,15 @@
     (article-social-gates-are-not-vacuous-test)))
 
 ;; ============================================================================
-;; favorites / comments / feed / profile — optimistic-success + follow-author +
-;; article-delete + blank-comment + feed-load + profile-follow
+;; favorites / comments / feed / profile — optimistic-success + blank-comment +
+;; feed-load + profile-follow
 ;; ============================================================================
 ;;
 ;; favorite-toggle-test above covers the FAILURE rollback only. These pin the
-;; success-sync re-seed, the
-;; detail-page follow-author + article-delete flows, the comment-form client
-;; validation, the user-feed load lifecycle, the profile follow/unfollow/rollback,
-;; and the pure home-context flattener.
+;; success-sync re-seed, the comment-form client validation, the user-feed load
+;; lifecycle, the profile follow/unfollow/rollback, and the pure home-context
+;; flattener. The detail page's follow-author and delete flows are pinned on
+;; their current slug by `realworld-article-social-cross-slug` above.
 
 (defn- favorite-synced-success-test []
   ;; :article/favorite-synced re-seeds the article from the server's authoritative
@@ -3314,70 +3154,6 @@
       ;; success handler re-seeded from the reply rather than trusting the optimism.
       (is (= 42 (:favoritesCount art))
           ":article/favorite-synced re-seeds the count from the server reply (select-keys)"))))
-
-(defn- article-follow-author-test []
-  ;; :article/toggle-follow-author — optimistic flip, then :article/author-follow-synced
-  ;; re-seeds the author from the returned profile; the -rollback handler restores
-  ;; the prior flag (driven directly, as comment-delete-rollback-stale-index-test
-  ;; drives its rollback).
-  (reg-canned-success-by-url! :realworld.test/follow-author
-    (fn [url]
-      (cond
-        (str/includes? url "/follow")    {:profile {:username "eve" :bio "Writer" :image nil :following true}}
-        (str/ends-with? url "/comments") {:comments []}
-        :else {:article {:slug "hello" :title "Hello" :description "d" :body "b"
-                         :tagList [] :createdAt "x" :updatedAt "x"
-                         :favorited false :favoritesCount 0
-                         :author {:username "eve" :bio nil :image nil :following false}}})))
-  (with-new-frame [f (rf.frame/make-anon-frame-record!
-                       {:initial-events [[:app/initialise]]
-                        :fx-overrides {:rf.http/managed :realworld.test/follow-author}})]
-    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
-    (is (false? (:following (rf/compute-sub [:article/author] (rf/frame-state-value f))))
-        "eve starts unfollowed")
-    (rf/dispatch-sync [:article/toggle-follow-author] {:frame f})
-    (let [author (rf/compute-sub [:article/author] (rf/frame-state-value f))]
-      (is (true? (:following author)) "the author is followed after the synced reply")
-      (is (= "Writer" (:bio author))
-          ":article/author-follow-synced re-seeds the author from the returned profile"))
-    ;; Rollback handler (driven directly): restores the captured prior flag.
-    ;; The leading "hello" is the issuing slug the handler correlates the
-    ;; author WRITE on; the route is /article/hello, so the gate
-    ;; admits it. Pass a different slug and this assertion fails — which is
-    ;; exactly what follow-cross-slug-late-rollback-is-refused-test pins.
-    ;; "eve" is the issuing USERNAME, which releases the shared follow latch
-    ;; unconditionally — a second identity with a second owner.
-    (rf/dispatch-sync [:article/author-follow-rollback "hello" "eve" false {:kind :rf.http/http-4xx}] {:frame f})
-    (is (false? (:following (rf/compute-sub [:article/author] (rf/frame-state-value f))))
-        ":article/author-follow-rollback restores the captured prior following flag")))
-
-(defn- article-detail-delete-test []
-  ;; :article/delete (detail page) → :article/delete-success → navigate home; and
-  ;; :article/delete-failed surfaces a readable error.
-  (reg-canned-success-by-url! :realworld.test/detail-delete
-    (fn [url]
-      (if (str/ends-with? url "/comments")
-        {:comments []}
-        {:article {:slug "hello" :title "Hello" :description "d" :body "b" :tagList []
-                   :createdAt "x" :updatedAt "x" :favorited false :favoritesCount 0
-                   :author {:username "alice" :bio nil :image nil :following false}}})))
-  (with-new-frame [f (rf.frame/make-anon-frame-record!
-                       {:initial-events [[:app/initialise]]
-                        :fx-overrides {:rf.http/managed :realworld.test/detail-delete}})]
-    (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
-    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
-    (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/frame-state-value f)))))
-    ;; The failure branch (driven directly), taken FIRST so it runs while the
-    ;; reader is still on /article/hello — the slug it correlates against.
-    ;; Driving it after the successful delete would leave the
-    ;; assertion hostage to whatever the home route does to `[:article :slug]`.
-    (rf/dispatch-sync [:article/delete-failed "hello" {:error {:kind :rf.http/http-5xx :status 500}}] {:frame f})
-    (is (some? (rf/compute-sub [:article/error] (rf/frame-state-value f)))
-        ":article/delete-failed surfaces a readable error message")
-    (rf/dispatch-sync [:article/delete] {:frame f})
-    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-        "a successful detail-page delete navigates home")))
 
 (defn- comment-blank-body-test []
   ;; :comment-form/submit with a blank body → client-side validation, no round trip.
@@ -3479,10 +3255,6 @@
 (deftest realworld-favorites-follow-feed
   (testing ":article/favorite-synced re-seeds the count from the server reply"
     (favorite-synced-success-test))
-  (testing ":article/toggle-follow-author optimistic + synced + rollback"
-    (article-follow-author-test))
-  (testing ":article/delete navigates home; :article/delete-failed surfaces an error"
-    (article-detail-delete-test))
   (testing ":comment-form/submit blank body fails on the client, no round trip"
     (comment-blank-body-test))
   (testing "user feed :feed/load / :feed/loaded populate the slice"
