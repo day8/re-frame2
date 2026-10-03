@@ -278,7 +278,7 @@ it('the SAME opt-in env var lets an out-of-tree READ SOURCE through', () => {
   }
 });
 
-it("the opt-in env var doesn't fire on 'false' / '0' / unset", () => {
+it("the opt-in env var doesn't fire on 'false' / '0' / 'no' / 'off'", () => {
   for (const v of ['false', '0', 'no', 'off']) {
     process.env[OPT_IN_VAR] = v;
     try {

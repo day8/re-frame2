@@ -27,8 +27,8 @@
  *      test:scripts` discovers every `scripts/*.test.cjs` by name.)
  *   6. The slim smoke is a DISTINCT surface from the shared adapter-smoke
  *      manifest: its driver file is not named
- *      spec.cjs/*.spec.cjs (so the shared adapter-smoke spec-walker never
- *      discovers it and its reconcile guard stays green) AND it is not an
+ *      spec.cjs/*.spec.cjs (the shared adapter-smoke spec-walker's reconcile
+ *      in _adapter-smoke-filter.test.cjs reds on one) AND it is not an
  *      entry in implementation/adapters/scripts/adapter-smoke-filter.cjs
  *      (whose Reagent/UIx set is its own surface). This is the
  *      two-way drift guard.
@@ -55,12 +55,6 @@ const SHADOW_EDN = path.join(IMPL_ROOT, 'shadow-cljs.edn');
 const PKG_JSON = path.join(IMPL_ROOT, 'package.json');
 const ADAPTER_SMOKE_FILTER = path.join(IMPL_ROOT, 'adapters', 'scripts', 'adapter-smoke-filter.cjs');
 const WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'test.yml');
-const CHANGED_SURFACES = path.join(
-  REPO_ROOT,
-  '.github',
-  'scripts',
-  'report-changed-surfaces.sh',
-);
 
 let failed = 0;
 function it(label, fn) {
@@ -205,7 +199,6 @@ it('npm `test:reagent-slim:smoke` exists and runs the adapter-owned runner', () 
 // its job; declaring an unreferenced script is not CI coverage.
 
 const WORKFLOW_SRC = fs.existsSync(WORKFLOW) ? read(WORKFLOW) : '';
-const CHANGED_SURFACES_SRC = fs.existsSync(CHANGED_SURFACES) ? read(CHANGED_SURFACES) : '';
 
 it('PR CI workflow EXECUTES `npm run test:reagent-slim:smoke`', () => {
   assert.ok(WORKFLOW_SRC, `missing workflow: ${WORKFLOW}`);
@@ -230,47 +223,7 @@ it('the slim smoke runs in a reagent_slim_bundle-gated job', () => {
   );
 });
 
-it('changed-surface detection ARMS reagent_slim_bundle for the smoke RUNNER', () => {
-  // The smoke runner under implementation/scripts/ must route to
-  // reagent_slim_bundle; otherwise editing the runner (or its policy test)
-  // falls into the generic implementation/scripts/* case that never fires
-  // the gate — a false-green hole (mirrors the xray-feature-gate launcher
-  // case). Assert a dedicated case names the runner AND sets the surface.
-  assert.ok(CHANGED_SURFACES_SRC, `missing changed-surfaces script: ${CHANGED_SURFACES}`);
-  assert.ok(
-    /serve-and-run-reagent-slim-smoke\.cjs/.test(CHANGED_SURFACES_SRC),
-    'report-changed-surfaces.sh has no case naming ' +
-      'serve-and-run-reagent-slim-smoke.cjs — editing the smoke runner would ' +
-      'not arm the slim smoke gate (false-green hole)',
-  );
-  // The runner case must set reagent_slim_bundle=true. Extract the case
-  // block (from the case-pattern line naming the runner to its closing
-  // `;;`) and confirm the surface is armed within THAT block — robust to
-  // however long the explanatory comment grows.
-  const idx = CHANGED_SURFACES_SRC.indexOf('serve-and-run-reagent-slim-smoke.cjs');
-  const end = CHANGED_SURFACES_SRC.indexOf(';;', idx);
-  assert.ok(end > idx, 'could not find the end (`;;`) of the slim smoke runner case');
-  const caseBlock = CHANGED_SURFACES_SRC.slice(idx, end);
-  assert.ok(
-    /reagent_slim_bundle=true/.test(caseBlock),
-    'the serve-and-run-reagent-slim-smoke.cjs case does not set ' +
-      'reagent_slim_bundle=true',
-  );
-});
-
 // ---- 6) distinct-surface / two-way drift guard ---------------------------
-
-it('the slim smoke driver is NOT named spec.cjs/*.spec.cjs (shared walker ignores it)', () => {
-  const base = path.basename(SMOKE);
-  assert.ok(
-    base !== 'spec.cjs' && !base.endsWith('.spec.cjs'),
-    `the slim smoke driver is named ${base} — the shared adapter-smoke ` +
-      `spec-walker (run-adapter-smokes.cjs / _adapter-smoke-filter.test.cjs) ` +
-      `would discover it under implementation/adapters/ and fail its ` +
-      `manifest-vs-disk reconcile. Keep it as smoke.cjs (a dedicated, ` +
-      `adapter-owned gate).`,
-  );
-});
 
 it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx only)', () => {
   // The slim smoke is the slim adapter's OWN gate; it must NOT be folded

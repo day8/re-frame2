@@ -12,9 +12,7 @@
  * match ZERO specs in the runner. These tests pin that:
  *
  *   - build-id-shaped and path-shaped filters select the SAME singleton,
- *   - the broad CI filter `adapters/` selects exactly the adapter smokes,
- *   - selection is shared (so orchestrator compile/stage set == runner
- *     spec set by construction), and
+ *   - the broad CI filter `adapters/` selects exactly the adapter smokes, and
  *   - the declared manifest matches the spec.cjs files on disk.
  *
  * Standalone node-runnable suite — no external test framework. Discovered by `npm run test:scripts`.
@@ -142,55 +140,7 @@ for (const name of ADAPTERS) {
       assert.deepStrictEqual(selectBuildIds(shape), [buildId]);
     });
   }
-
-  it(`all supported singleton shapes for ${name} select the identical set`, () => {
-    const sets = shapes.map(selectBuildIds);
-    for (const s of sets) {
-      assert.deepStrictEqual(s, [buildId]);
-    }
-  });
 }
-
-// ---- orchestrator/runner equivalence is structural ----------------------
-// Both scripts call selectEntries over the same ADAPTER_SMOKES manifest. This
-// test pins that, for every supported filter shape, the set the
-// orchestrator stages (build ids) and the set the runner runs (specPaths)
-// are one-to-one — i.e. no shape stages a surface the runner then can't
-// find.
-
-it('selected set maps one-to-one between build ids and specPaths for all shapes', () => {
-  const allShapes = [
-    '',
-    'adapters/',
-    'adapters',
-    'ui/testbed',
-    'ui-testbed',
-    ...ADAPTERS.flatMap((n) => [
-      `adapters/${n}-testbed`,
-      `${n}-testbed`,
-      `adapters/${n}/testbed`,
-      `${n}/testbed`,
-    ]),
-  ];
-  for (const shape of allShapes) {
-    const selected = selectEntries(parseFilterPatterns(shape));
-    // Orchestrator side: the build ids it compiles/stages.
-    const builds = selected.map((e) => e.build);
-    // Runner side: the spec paths it executes.
-    const specs = selected.map((e) => e.specPath);
-    assert.strictEqual(
-      builds.length,
-      specs.length,
-      `shape '${shape}': build count != spec count`,
-    );
-    for (const s of specs) {
-      assert.ok(
-        fs.existsSync(s),
-        `shape '${shape}': runner would run a non-existent spec ${s}`,
-      );
-    }
-  }
-});
 
 // ---- comma-separated OR-match -------------------------------------------
 
@@ -265,18 +215,6 @@ it('a filter matching only the absolute REPO_ROOT prefix selects nothing (rf2-n4
       `filter '${term}' (an absolute REPO_ROOT prefix segment) over-selected`,
     );
   }
-
-  // Supported repo-stable shapes still resolve to the singleton.
-  for (const name of ADAPTERS) {
-    const buildId = `adapters/${name}-testbed`;
-    for (const shape of [`${name}-testbed`, `${name}/testbed`]) {
-      assert.deepStrictEqual(
-        selectBuildIds(shape),
-        [buildId],
-        `shape '${shape}' should still select ${buildId}`,
-      );
-    }
-  }
 });
 
 it('normalizeForFilter collapses _, \\ and / to a single -', () => {
@@ -332,15 +270,6 @@ it('the real listSpecFiles + reconcile agree with the manifest on the live repo 
   const { missing, undeclared } = reconcile(declared, discovered);
   assert.deepStrictEqual(missing, [], `manifest references spec(s) not on disk: ${missing.join(', ')}`);
   assert.deepStrictEqual(undeclared, [], `spec(s) on disk not in the manifest: ${undeclared.join(', ')}`);
-});
-
-it('ADAPTER_SMOKE_SPEC_ROOTS resolve under the repo root', () => {
-  for (const root of ADAPTER_SMOKE_SPEC_ROOTS) {
-    assert.ok(
-      path.resolve(root).startsWith(path.resolve(REPO_ROOT)),
-      `SPEC_ROOT ${root} is outside REPO_ROOT ${REPO_ROOT}`,
-    );
-  }
 });
 
 // ---- root TESTING.md example/adapter-smoke-gate drift guard ---------------

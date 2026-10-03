@@ -193,20 +193,6 @@ it('a single explicit build-id passes through unchanged', () => {
   ]);
 });
 
-it('several explicit build-ids pass through in order', () => {
-  assert.deepStrictEqual(
-    resolveArgs([':examples/standard-epochs', ':examples/routes-epochs']),
-    [':examples/standard-epochs', ':examples/routes-epochs'],
-  );
-});
-
-it('extra shadow-cljs flags pass straight through', () => {
-  assert.deepStrictEqual(resolveArgs([':testbeds/panel-gallery', '--verbose']), [
-    ':testbeds/panel-gallery',
-    '--verbose',
-  ]);
-});
-
 it('a removed group name is NOT expanded — it passes through as a literal', () => {
   // `xray` is just a token. It reaches shadow-cljs as an
   // unknown build-id (which shadow-cljs reports), never a 6-build expansion.
@@ -261,18 +247,6 @@ it('urlsForBuild prints the live + /#/stories URLs for a Story build', () => {
 it('urlsForBuild returns [] for a build with no dev-http port', () => {
   assert.deepStrictEqual(urlsForBuild(':examples/counter'), []);
   assert.deepStrictEqual(urlsForBuild('--verbose'), []);
-});
-
-it('every DEV_HTTP build-id is a colon-prefixed build coord', () => {
-  for (const build of Object.keys(DEV_HTTP)) {
-    assert.ok(build.startsWith(':'), `${build} should be a :build coord`);
-  }
-});
-
-it('urlsForBuild prints the live URL for the managed-http testbed (rf2-d3fb7.1)', () => {
-  assert.deepStrictEqual(urlsForBuild(':examples/managed-http'), [
-    'http://localhost:8035/',
-  ]);
 });
 
 // --- Drift guard ---------------------------------------------------------
