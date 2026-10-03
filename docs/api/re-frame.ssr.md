@@ -59,6 +59,26 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
                                   :render-hash (ssr/render-tree-hash tree)})))
   ```
 
+`render-to-string` runs in the browser too, so the cell below shows the HTML for a
+tree that hits the rules above: shorthand joined with `:class`, escaped text and
+attributes, a void element, dropped props, a blocked `javascript:` URL,
+`:dangerouslySetInnerHTML` and script raw text. Edit the tree and press Mod-Enter.
+
+```cljs-rf2
+(require '[re-frame.ssr :as ssr])
+
+(def tree
+  [:div#cart.panel {:class "open" :key "cart" :on-click (fn [_] nil)}
+   [:h2 "Fish & chips <today>"]
+   [:img {:src "/img/fish.png" :alt "A \"fresh\" fish"}]
+   [:a {:href "javascript:alert(1)"} "A blocked link"]
+   [:div {:dangerouslySetInnerHTML {:__html "<em>written raw</em>"}}]
+   [:script "if (a < b) { done = \"</script>\"; }"]])
+
+[:pre {:style {:white-space "pre-wrap"}}
+ (ssr/render-to-string tree)]
+```
+
 ### `render-tree-hash`
 
 - **Kind**: function
