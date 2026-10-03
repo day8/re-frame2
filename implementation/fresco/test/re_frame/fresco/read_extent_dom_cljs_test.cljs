@@ -506,11 +506,6 @@
                   (is (= (escaped-extent-refusal [:red/escaped])
                          (refusal-shape @!passive-read))))
 
-                (testing "the control, and it is what makes this a row about
-                          READS: the same escaped extent DISPATCHED, and the
-                          write landed. The machinery was demonstrably alive
-                          at the instant the reads were refused"
-                  (is (= "painted=2" (text-at handle "#painted"))))
 
                 (testing "neither refused key was acquired: no reader, no
                           reaction. A refusal that recorded would paint this

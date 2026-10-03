@@ -274,8 +274,7 @@
                 which is what a two-key assertion can see and a one-key
                 assertion cannot"
         (is (= #{(sub-key [:re/flag]) (sub-key [:re/right])}
-               (rf.fresco.test.runtime/reads-of high)))
-        (is (not (contains? (rf.fresco.test.runtime/reads-of high) (sub-key [:re/left]))))))))
+               (rf.fresco.test.runtime/reads-of high)))))))
 
 (deftest a-variable-length-loop-records-every-row-it-ran
   (seeded!)
@@ -549,7 +548,6 @@
   ;; React root, no body — and the discriminator is the same one every row
   ;; above used, which is exactly the point.
   (testing "a top-level read, evaluated at namespace load, refused"
-    (is (contains? module-load-read :refused))
     (is (= (escaped-extent-refusal [:re/left])
            (dissoc (:refused module-load-read) :reason)))
     (is (names-the-recovery? module-load-read))))
