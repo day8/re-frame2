@@ -143,6 +143,49 @@ When the locale changes, only views that read translated values need to
 re-render. The fallback renders the missing key's name, which makes incomplete
 translation tables visible instead of blank.
 
+The cell below runs the same table and subscriptions. Switch the locale and
+the strings change with it. The last line asks for `:todos/archived`, which
+neither table has, so it shows `archived`.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(def strings
+  {:en {:greeting    "Welcome back"
+        :todos/empty "Nothing left to do"
+        :todos/left  "left"}
+   :fr {:greeting    "Bon retour"
+        :todos/empty "Plus rien à faire"
+        :todos/left  "restantes"}})
+
+(rf/reg-sub :i18n/locale
+  (fn [db _query]
+    (:i18n/locale db :en)))
+
+(rf/reg-sub :i18n/t
+  (fn [db [_ k]]
+    (get-in strings
+            [(:i18n/locale db :en) k]
+            (name k))))
+
+(rf/reg-event :i18n/set-locale
+  (fn [{:keys [db]} [_ locale]]
+    {:db (assoc db :i18n/locale locale)}))
+
+(h/defview locale-demo [_]
+  [:div
+   [:p [:strong (h/sub [:i18n/t :greeting])]]
+   [:button {:on-click [:i18n/set-locale :en]} "English"]
+   " "
+   [:button {:on-click [:i18n/set-locale :fr]} "Français"]
+   [:p (h/sub [:i18n/t :todos/empty])]
+   [:p (h/sub [:i18n/t :todos/archived])]])
+
+[h/frame-root {:id :app}
+ [locale-demo]]
+```
+
 Format numbers and dates with the platform and the current locale:
 
 ```clojure
