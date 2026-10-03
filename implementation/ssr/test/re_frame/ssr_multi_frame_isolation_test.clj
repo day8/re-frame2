@@ -130,13 +130,7 @@
     (is (= "bbbb2222" (:server-hash (rf/subscribe-once [:hydration] {:frame frame-b})))
         ":counter/b's :server-hash = 'bbbb2222'")
     (is (= "cccc3333" (:server-hash (rf/subscribe-once [:hydration] {:frame frame-log})))
-        ":log's :server-hash = 'cccc3333'")
-    (let [hashes #{(:server-hash (rf/subscribe-once [:hydration] {:frame frame-a}))
-                   (:server-hash (rf/subscribe-once [:hydration] {:frame frame-b}))
-                   (:server-hash (rf/subscribe-once [:hydration] {:frame frame-log}))}]
-      (is (= 3 (count hashes))
-          (str "three frames hold three distinct server-hashes; saw: "
-               (pr-str hashes))))))
+        ":log's :server-hash = 'cccc3333'")))
 
 ;; ===========================================================================
 ;; cross-frame readout via subscribe-once {:frame fid}

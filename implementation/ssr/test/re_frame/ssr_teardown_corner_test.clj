@@ -17,11 +17,10 @@
 
   ## Scope
 
-  Composition: a single destroy of a fully-populated frame releases
-  all four side-channels in one call (test 1).
-  Idempotence: a second destroy of the same frame-id is a no-op (test 2).
-  Cross-frame isolation: destroying frame A leaves frame B's slots
-  intact (test 3)."
+  Idempotence: a second destroy of the same frame-id is a no-op.
+  Composition and cross-frame isolation: one destroy of a fully-populated
+  frame A releases all four of its side-channels in one call and leaves
+  frame B's identically populated slots intact."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.install :as rf.ssr.install]
@@ -30,53 +29,6 @@
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
-
-;; ===========================================================================
-;; Composition — one destroy clears every side-channel
-;; ===========================================================================
-
-(deftest on-frame-destroyed-clears-every-side-channel-in-one-call
-  (testing "A single destroy call against a frame whose
-            request-slot, response-slot, pending-error-trace buffer AND
-            hydration-payload claim are ALL populated MUST clear every
-            one of them. This pins the all-in-one-call composition that
-            the individual tests don't exercise together. (Head reads
-            keep NO per-frame state — `head-model` returns its model and
-            records nothing — so there is no head channel to clear.)"
-    (let [fid :rf.test/composition-target]
-      ;; Populate every side-channel slot for fid.
-      (rf.ssr.request/set-request! fid {:uri "/comp" :request-method :get})
-      (rf.ssr.response/swap-response! fid (fn [r] (assoc r :status 200)))
-      ;; Plant a synthetic pending error trace.
-      (swap! rf.ssr.error-listener/pending-error-traces
-             update fid (fnil conj [])
-             {:op-type :error :operation :rf.error/composition-probe})
-      ;; Plant a hydration-payload install claim under the frame's id
-      ;; (payload ids ARE frame ids, 004C §6).
-      (swap! rf.ssr.install/installed-payloads
-             assoc fid (rf.ssr.install/claim-record "digest-probe" :rf.test/root))
-
-      (is (some? (rf.ssr.request/get-request fid))
-          "request-slot populated (sanity)")
-      (is (contains? @rf.ssr.response/response-slots fid)
-          "response-slot populated (sanity)")
-      (is (contains? @rf.ssr.error-listener/pending-error-traces fid)
-          "pending-error-traces populated (sanity)")
-      (is (some? (rf.ssr.install/installed-payload fid))
-          "payload claim populated (sanity)")
-
-      ;; Drive the destroy hook directly — this is the single call the
-      ;; spec contract pins as the load-bearing release point.
-      (rf.ssr.request/on-frame-destroyed! fid)
-
-      (is (nil? (rf.ssr.request/get-request fid))
-          "request-slot released by on-frame-destroyed!")
-      (is (not (contains? @rf.ssr.response/response-slots fid))
-          "response-slot released by on-frame-destroyed!")
-      (is (not (contains? @rf.ssr.error-listener/pending-error-traces fid))
-          "pending-error-traces released by on-frame-destroyed!")
-      (is (nil? (rf.ssr.install/installed-payload fid))
-          "payload claim released by on-frame-destroyed!"))))
 
 ;; ===========================================================================
 ;; Idempotence — second destroy is a no-op
@@ -114,8 +66,11 @@
 ;; ===========================================================================
 
 (deftest on-frame-destroyed-isolates-across-frames
-  (testing "Destroying frame A MUST NOT touch frame B's
-            slots. Per Spec 011 §Request/Response storage substrate —
+  (testing "One destroy of frame A releases every one of its four
+            side-channels — request slot, response slot, pending-error-trace
+            buffer and hydration-payload claim — in a single call, and MUST
+            NOT touch frame B's slots. Per Spec 011 §Request/Response
+            storage substrate —
             'two simultaneous per-request frames carry independent
             slots that cannot bleed into each other'. The side-
             channel atoms are keyed by frame-id; the contract is that

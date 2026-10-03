@@ -92,7 +92,6 @@
 (deftest the-failed-set-path-is-under-the-reserved-ssr-key
   (testing "the slot lives under the already-reserved :rf.runtime/ssr
             runtime-db key, a sibling of the :hydration metadata"
-    (is (= :rf.runtime/ssr (first rf.ssr.suspense/failed-boundaries-path)))
     (is (= [:rf.runtime/ssr :streaming :failed-boundaries]
            rf.ssr.suspense/failed-boundaries-path))))
 

@@ -18,11 +18,11 @@
   last-write-wins to in production. Those assertions sit inside
   `(when interop/debug-enabled? …)` arms marked as dev-instrumentation arms.
 
-  `distinct-wire-ids-are-not-deduped`'s no-duplicate-id-trace assertion is a
-  NEGATIVE over the trace ring and sits in the arm with them: under the gate the
-  ring is empty for colliding and distinct ids alike, so it would pass
-  without distinguishing the two. Its posture-independent half — that both
-  continuations survive — sits outside."
+  `render-shell-handles-multiple-boundaries`' no-duplicate-id-trace assertion
+  is a NEGATIVE over the trace ring and sits in the arm with them: under the
+  gate the ring is empty for colliding and distinct ids alike, so it would
+  pass without distinguishing the two. Its posture-independent half — that
+  every distinct-id continuation survives, in document order — sits outside."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
@@ -118,13 +118,24 @@
           "no painted fallback element outside the inert <template>"))))
 
 (deftest render-shell-handles-multiple-boundaries
-  (testing "Multiple boundaries register multiple continuations in document order"
+  (testing "Multiple boundaries register multiple continuations in document
+            order. Their wire ids are distinct (the common keyword case), so
+            duplicate detection collapses none of them"
     (let [tree [:main
                 [:rf/suspense-boundary {:id :a :fallback [:p "A loading"]} [:p "A body"]]
                 [:rf/suspense-boundary {:id :b :fallback [:p "B loading"]} [:p "B body"]]
-                [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C body"]]]
-          {:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
-      (is (= [:a :b :c] (mapv :id continuations)) "FIFO registration in document order"))))
+                [:rf/suspense-boundary {:id :c :fallback [:p "C loading"]} [:p "C body"]]]]
+      (with-trace-recorder! [captured]
+        (let [{:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
+          (is (= [:a :b :c] (mapv :id continuations)) "FIFO registration in document order")
+          ;; Dev-instrumentation arm (see ns docstring). A
+          ;; NEGATIVE over the trace ring: vacuous under the gate, where the
+          ;; ring is empty for colliding and distinct ids alike.
+          (when rf.interop/debug-enabled?
+            (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
+                                     (:operation %))
+                                 @captured))
+                "no duplicate-id trace for distinct ids")))))))
 
 (deftest render-shell-rejects-malformed-boundary
   (testing "Boundary without {:id … :fallback …} attrs throws structurally"
@@ -278,25 +289,6 @@
                 (is (= :last-write-wins (:recovery ev))
                     ":recovery names the applied policy")))))))))
 
-(deftest distinct-wire-ids-are-not-deduped
-  (testing "the other direction: boundaries with genuinely distinct wire ids
-            (the common keyword case) are NOT collapsed"
-    (let [tree [:div
-                [:rf/suspense-boundary {:id :a :fallback [:p "fa"]} [:p "ba"]]
-                [:rf/suspense-boundary {:id :b :fallback [:p "fb"]} [:p "bb"]]]]
-      (with-trace-recorder! [captured]
-        (let [{:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
-          (is (= 2 (count continuations))
-              "distinct wire ids both survive — no false collapse")
-          ;; Dev-instrumentation arm (see ns docstring). A
-          ;; NEGATIVE over the trace ring: vacuous under the gate, where the
-          ;; ring is empty for colliding and distinct ids alike.
-          (when rf.interop/debug-enabled?
-            (is (empty? (filterv #(= :rf.error/suspense-boundary-duplicate-id
-                                     (:operation %))
-                                 @captured))
-                "no duplicate-id trace for distinct ids")))))))
-
 (deftest build-final-payload-shape
   (testing "Final payload carries the canonical :rf/hydration-payload shape"
     (let [fid (make-frame {:db {:articles [{:id "a"}]}})
@@ -329,7 +321,8 @@
 (deftest build-final-payload-version-resolution
   (testing "streaming payload :rf/version
             resolves via `payload-policy/resolve-version`: the caller's
-            explicit :version opt wins, else the SSR artefact's compiled-in
+            explicit :version opt wins (`build-final-payload-shape` pins
+            that), else the SSR artefact's compiled-in
             `pattern-protocol-version` constant (there is no late-bind
             version hook — the SSR artefact owns the version and both wire
             ends read the same constant). A server-local fallback
@@ -341,15 +334,7 @@
                         fid "hash"
                         {:payload :rf.ssr.payload/whole-app-db})]
           (is (= rf.ssr.payload-policy/pattern-protocol-version (:rf/version payload))
-              "absent :version opt → the SSR artefact's compiled-in constant")))
-
-      (testing "explicit :version opt wins over the SSR constant"
-        (let [payload (rf.ssr.streaming/build-final-payload
-                        fid "hash"
-                        {:version 42
-                         :payload :rf.ssr.payload/whole-app-db})]
-          (is (= 42 (:rf/version payload))
-              "caller-supplied :version is the highest-priority source"))))))
+              "absent :version opt → the SSR artefact's compiled-in constant"))))))
 
 ;; ===========================================================================
 ;; Streaming wire-attribute single-source parity

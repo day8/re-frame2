@@ -1,19 +1,18 @@
 (ns re-frame.ssr-streaming-conformance-test
-  "Drive the `:ssr/streaming` conformance fixture against the live ssr
-  runtime. The fixture pins the
-  wire-shape contract for `:rf/suspense-boundary`; this test is the
-  fixture's executable counterpart.
+  "Drive the `:ssr/streaming` and `:ssr/streaming-nested` conformance
+  fixtures against the live ssr runtime. The fixtures pin the wire-shape
+  contract for `:rf/suspense-boundary`.
 
-  Sibling to `re-frame.ssr-conformance-test` which drives the full
-  `ssr-*.edn` corpus through the more elaborate runner (handler
-  realisation, frame setup, request-result assertions). The streaming
-  fixture is a smaller direct-call shape — `:ssr.streaming/render-shell`,
-  `:ssr.streaming/render-continuation`, `:ssr.streaming/build-final-payload`
-  — and runs cleaner as a dedicated focused test that mirrors the
-  conformance fixture step-for-step."
+  `re-frame.ssr-conformance-test` runs every `ssr-*.edn` fixture's
+  `:fixture/calls` through its generic runner, which reads each step's
+  `:shell-html-includes`, `:continuations` (shell walk only),
+  `:html-includes`, `:failed?`, `:payload-keys` and `:rf/version`. This
+  namespace pins the main fixture's shell walk with one failure message
+  per missing substring, and what the generic runner does not read: the
+  nested fixture's `:shell-html-excludes`, `:html-excludes` and per-drain
+  `:continuations`, and both fixtures' `:fixture/wire-order` blocks."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -133,50 +132,6 @@
       (testing "continuations register in fixture-pinned FIFO order"
         (is (= (mapv :id (:continuations expect))
                (mapv :id continuations)))))))
-
-(deftest streaming-fixture-resolve-continuations-match-pin
-  (testing "Each continuation's HTML matches the fixture's :html-includes pin"
-    (let [fixture (load-streaming-fixture)
-          cont-calls (->> (:fixture/calls fixture)
-                          (filter #(= :ssr.streaming/render-continuation (:call %))))
-          ;; A frame to drain against — :rf/default. The fixture sets
-          ;; :platform :server via :fixture/frame-config; reset-runtime
-          ;; creates :rf/default and reset+reg-fixture-handlers wired the
-          ;; views. We drain against that frame.
-          fid     :rf/default]
-      (doseq [{:keys [input expect]} cont-calls]
-        (let [out (rf.ssr/streaming-render-continuation
-                    fid (update input :subtree realise-fixture-head))]
-          (doseq [s (:html-includes expect)]
-            (is (str/includes? (:html out) s)
-                (str "continuation " (:id input) " missing: " (pr-str s))))
-          (is (= (:failed? expect) (:failed? out))
-              (str "continuation " (:id input) " :failed? mismatch")))))))
-
-(deftest streaming-fixture-final-payload-shape-matches-pin
-  (testing "build-final-payload emits the four canonical :rf/* keys"
-    (let [fixture (load-streaming-fixture)
-          fp-call (->> (:fixture/calls fixture)
-                       (filter #(= :ssr.streaming/build-final-payload (:call %)))
-                       first)
-          input   (:input fp-call)
-          expect  (:expect fp-call)
-          payload (rf.ssr/streaming-build-final-payload
-                    :rf/default
-                    (:render-hash input)
-                    ;; The WIRE :rf/frame-id is decoupled from the
-                    ;; projection frame. This fixture's stable `:rf/default`
-                    ;; server frame is named as the `:client-frame-id` wire id,
-                    ;; so the payload carries `:rf/frame-id` to match the
-                    ;; fixture's pinned canonical keys. (Anonymous per-request
-                    ;; frames omit it — see ssr_streaming_test.)
-                    (assoc (dissoc input :render-hash)
-                           :client-frame-id :rf/default))]
-      (testing "payload carries every fixture-pinned key"
-        (is (clojure.set/subset? (:payload-keys expect)
-                                 (set (keys payload)))))
-      (testing ":rf/version matches the pin"
-        (is (= (:rf/version expect) (:rf/version payload)))))))
 
 (deftest streaming-fixture-wire-order-pinned
   (testing "Fixture's :fixture/wire-order block enumerates the four chunk kinds in spec order"
