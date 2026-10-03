@@ -125,6 +125,63 @@ mounted row when app-db changes; measure that separately from body runs.
 The cost is one retained read per mounted row, which is normally fine for
 hundreds of rows.
 
+The cell below adds one thing to that row: a note field the browser owns
+(`:default-value`, no `:value`), standing in for any DOM state a row can hold.
+Type a note on *Walk the dog*, then press **Add to top**. The new todo arrives
+above it and the note stays with *Walk the dog*, because each row is keyed by
+its id rather than its position.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"     :done? false}
+                  2 {:id 2 :title "Walk the dog" :done? false}}
+          :order [1 2]}}))
+
+(rf/reg-event :todo/add-to-top
+  (fn [{:keys [db]} _]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (-> db
+               (assoc-in [:todos id] {:id id :title (str "New todo " id) :done? false})
+               (update :order #(into [id] %)))})))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-event :todo/delete
+  (fn [{:keys [db]} [_ id]]
+    {:db (-> db
+             (update :todos dissoc id)
+             (update :order #(filterv (partial not= id) %)))}))
+
+(rf/reg-sub :todo/visible-ids (fn [db _] (:order db)))
+(rf/reg-sub :todo/by-id (fn [db [_ id]] (get-in db [:todos id])))
+
+(h/defview todo-row [{:keys [id]}]
+  (let [{:keys [title done?]} (h/sub [:todo/by-id id])]
+    [:li {:class (when done? "done")}
+     [:input {:type      :checkbox
+              :checked   done?
+              :on-change [:todo/toggle id]}]
+     [:span title " "]
+     [:input {:placeholder "Note" :default-value ""}]
+     [:button {:on-click [:todo/delete id]} "Delete"]]))
+
+(h/defview todo-list [_]
+  [:div
+   [:button {:on-click [:todo/add-to-top]} "Add to top"]
+   [:ul.todo-list
+    (for [id (h/sub [:todo/visible-ids])]
+      [todo-row {:key id :id id}])]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list {}]]
+```
+
 ## Coarse display model
 
 A parent can subscribe to one vector shaped for rendering and pass each row as
