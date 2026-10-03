@@ -150,6 +150,12 @@
               (fn [{:keys [db]} _]
                 {:db (update db :attempt inc)}))
 
+;; Row 11's break: the cause and a moved `:attempt` in ONE event, so the
+;; `:reset-key` change and the child's throw land in the same render.
+(rf/reg-event :fresco.bdy/break-and-rearm
+              (fn [{:keys [db]} _]
+                {:db (-> db (assoc :boom? true) (update :attempt inc))}))
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
@@ -676,13 +682,12 @@
 ;; `impl.boundary`'s namespace docstring stakes the guarantee on the
 ;; lifecycle — `:on-error` fires from `componentDidCatch` and from nowhere
 ;; else, StrictMode runs the failing render TWICE and `componentDidCatch`
-;; still fires ONCE — and cites its witness by name in the fenced bench
-;; tree (`arm1_lifecycle_dom_cljs_test/the-boundary-reports-once-under-strictmode`),
-;; whose green does not transfer: the bench twin is a donor copy, not
-;; digest-pinned to the shipped class. This is that witness restated
-;; against the shipped door — a restatement, not a dependency — with the
-;; failed-reset arm folded in: a reset the caller schedules with the cause still in place is a NEW
-;; failure, so it reports exactly once more.
+;; still fires ONCE — and cites this row as its witness. The bench tree
+;; carries a twin row against its own donor copy of the class, whose green
+;; does not transfer because that copy is not digest-pinned to the shipped
+;; one. The failed-reset arm is folded in: a reset the caller schedules
+;; with the cause still in place is a NEW failure, so it reports exactly
+;; once more.
 
 (rf.fresco/defview strict-guarded
   "The retry shape under test, with `:on-error` wired: reads `:attempt` as
@@ -734,6 +739,57 @@
             ;; first settle; the moved `:reset-key` is then read by
             ;; `componentDidUpdate`, whose own `setState` is a second
             ;; commit, and the re-thrown child's report follows it.
+            (rf.fresco.impl.mount/settle!)
+            (rf.fresco.impl.mount/settle!)
+            (is (some? (query handle ".fb")) "it threw again; the fallback stands")
+            (is (= ["the child threw" "the child threw"] (:errors (db frame-id)))
+                (str "Got: " (pr-str (:errors (db frame-id))))))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
+
+;; ---------------------------------------------------------------------------
+;; 11 — once per failure when the key and the throw share a render
+;; ---------------------------------------------------------------------------
+;;
+;; React runs `componentDidUpdate` before `componentDidCatch` in the commit
+;; that caught, so a `:reset-key` that moved in the very render that threw
+;; is in front of the reset check at the moment the failure arrives. Read
+;; against the previous props it is a retry: the failure just caught is
+;; cleared, the child re-mounts, throws again and reports again — two
+;; records for one failure. A reset means the key moved SINCE the failure
+;; was caught, which this row pins: one dispatch moves the key and breaks
+;; the child, and one record lands. Its second arm proves the adopted key
+;; still retries, so a fix that simply stopped resetting reds it.
+
+(deftest a-reset-key-move-and-a-throw-in-one-render-report-once
+  (if-not (rf.fresco.impl.mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh! frame-id)
+      ;; `:seed` starts broken; `:retry` clears the cause, so the boundary
+      ;; mounts healthy and the break below is its first failure.
+      (rf/with-frame frame-id (rf/dispatch-sync [:fresco.bdy/retry]))
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [strict-guarded {}])]
+        (try
+          (rf.fresco.impl.mount/settle!)
+          (is (some? (query handle ".ok")) "the child renders before the break")
+          (is (nil? (:errors (db frame-id))) "and nothing has been reported")
+
+          (rf/with-frame frame-id (rf/dispatch-sync [:fresco.bdy/break-and-rearm]))
+          ;; Three settles, more than the fix needs: a reset that wrongly
+          ;; fires is a `setState` from `componentDidUpdate` and a second
+          ;; commit, and its report has to be given every chance to land.
+          (rf.fresco.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
+          (rf.fresco.impl.mount/settle!)
+          (is (some? (query handle ".fb")) "the throw was caught; the fallback stands")
+          (is (= ["the child threw"] (:errors (db frame-id)))
+              (str "ONE report for one failure, though the key moved in the "
+                   "render that threw. Got: " (pr-str (:errors (db frame-id)))))
+
+          (testing "and the key it was caught under is the one a later move
+                    is measured against: moving it again, the cause still in
+                    place, retries and reports exactly once more"
+            (rf/with-frame frame-id (rf/dispatch-sync [:fresco.bdy/rearm]))
             (rf.fresco.impl.mount/settle!)
             (rf.fresco.impl.mount/settle!)
             (is (some? (query handle ".fb")) "it threw again; the fallback stands")
