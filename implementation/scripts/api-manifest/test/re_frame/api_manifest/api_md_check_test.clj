@@ -221,16 +221,11 @@
 ;; unchecked. The floor turns a near-collapse into a FAILURE.
 ;; ---------------------------------------------------------------------------
 
-(deftest zero-extracted-rows-violates-the-floor
-  (testing "ZERO extracted var-rows (a total parser collapse) trips the floor"
+(deftest collapsed-extraction-violates-the-floor
+  (testing "a total parser collapse (ZERO extracted var-rows) and a
+            near-collapse just below the floor both trip it"
     (is (some? (rf.api-manifest.api-md-check/floor-violation 0))
-        "zero extracted rows must be a floor violation (vacuous OK refused)")))
-
-(deftest near-collapse-extraction-violates-the-floor
-  (testing "a near-collapse (a small subset extracted, well below the live
-            count) trips the floor"
-    (is (some? (rf.api-manifest.api-md-check/floor-violation 5))
-        "5 extracted rows is a near-total collapse — must trip the floor")
+        "zero extracted rows must be a floor violation (vacuous OK refused)")
     (is (some? (rf.api-manifest.api-md-check/floor-violation 49))
         "49 rows is below the 50 floor — must trip it")))
 

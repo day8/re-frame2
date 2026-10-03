@@ -77,21 +77,16 @@
 
 (deftest build-manifest-throws-on-duplicate
   (testing "build-manifest refuses to produce a manifest with a duplicate
-            [namespace var] — the throw is what turns generation / --check red"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"Duplicate manifest rows"
-          (rf.api-manifest.gen/build-manifest (live-sidecar-with-duplicate-cljs-only))))))
-
-(deftest build-manifest-duplicate-ex-data-lists-the-key
-  (testing "the thrown ex-data names the duplicate [namespace var] + count so
-            the sidecar/source var can be fixed"
-    (let [dup-row (first (:cljs-only (rf.api-manifest.gen/read-sidecar)))
+            [namespace var] — the throw is what turns generation / --check red
+            — and the ex-data names the duplicate key + count so the
+            sidecar/source var can be fixed"
+    (let [dup-row      (first (:cljs-only (rf.api-manifest.gen/read-sidecar)))
           expected-key [(:namespace dup-row) (:var dup-row)]]
       (try
         (rf.api-manifest.gen/build-manifest (live-sidecar-with-duplicate-cljs-only))
         (is false "expected build-manifest to throw on the duplicate")
         (catch clojure.lang.ExceptionInfo e
+          (is (re-find #"Duplicate manifest rows" (ex-message e)))
           (is (= [[expected-key 2]] (:duplicates (ex-data e)))
               "ex-data must name the duplicated [namespace var] + count 2"))))))
 
@@ -104,7 +99,7 @@
     ;; included, so every other check passes and the duplicate check is what
     ;; fires. A `:classification` key is a live JVM var by construction —
     ;; `build-manifest` refuses a stale one — so this is the cross-category
-    ;; collision. The two tests above duplicate one `:cljs-only` row against
+    ;; collision. The test above duplicates one `:cljs-only` row against
     ;; another, which a check scoped to the `:cljs-only` rows alone still
     ;; catches; this one pins the check to the concatenated rows.
     (let [sidecar (rf.api-manifest.gen/read-sidecar)
@@ -182,19 +177,14 @@
 
 (deftest build-manifest-throws-on-implementation-facade-row
   (testing "build-manifest refuses a :facade? true row at :tier :implementation
-            — the throw is what turns generation / --check red"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"Implementation-only rows exported from a facade"
-          (rf.api-manifest.gen/build-manifest (live-sidecar-with-demoted-facade-var))))))
-
-(deftest build-manifest-implementation-facade-ex-data-lists-the-key
-  (testing "the thrown ex-data names the offending [namespace var] so the
-            var can be moved off the facade"
+            — the throw is what turns generation / --check red — and the
+            ex-data names the offending [namespace var] so the var can be
+            moved off the facade"
     (try
       (rf.api-manifest.gen/build-manifest (live-sidecar-with-demoted-facade-var))
       (is false "expected build-manifest to throw on the planted row")
       (catch clojure.lang.ExceptionInfo e
+        (is (re-find #"Implementation-only rows exported from a facade" (ex-message e)))
         (is (= [["re-frame.core" "capture-frame"]]
                (:implementation-facade (ex-data e))))))))
 
@@ -284,36 +274,28 @@
 
 (deftest build-manifest-throws-on-unjustified-facade-row
   (testing "build-manifest refuses a facade row with no :justification — the
-            throw is what turns generation / --check red"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"Facade rows with no :justification"
-          (rf.api-manifest.gen/build-manifest (live-sidecar-without :justification))))))
-
-(deftest build-manifest-unjustified-ex-data-lists-the-key
-  (testing "the thrown ex-data names the offending [namespace var]"
+            throw is what turns generation / --check red — and the ex-data
+            names the offending [namespace var]"
     (try
       (rf.api-manifest.gen/build-manifest (live-sidecar-without :justification))
       (is false "expected build-manifest to throw on the unjustified row")
       (catch clojure.lang.ExceptionInfo e
+        (is (re-find #"Facade rows with no :justification" (ex-message e)))
         (is (= [["re-frame.core" "capture-frame"]]
                (:unjustified-facade (ex-data e))))))))
 
-(deftest build-manifest-throws-on-unknown-action
+(deftest build-manifest-throws-on-missing-or-unknown-action
   (testing "build-manifest refuses a facade row whose :action is outside the
-            closed vocabulary"
-    (let [sidecar (assoc-in (rf.api-manifest.gen/read-sidecar)
-                            [:classification ["re-frame.core" "capture-frame"]
-                             :action]
-                            :defer)]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #"Facade rows with a missing or unknown :action"
-            (rf.api-manifest.gen/build-manifest sidecar))))))
-
-(deftest build-manifest-throws-on-missing-action
-  (testing "an absent :action is refused too — it is the shape an unclassified
-            new facade export has, which is exactly what the gate is for"
+            closed vocabulary, and an absent :action too — the shape an
+            unclassified new facade export has, which is exactly what the gate
+            is for"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #"Facade rows with a missing or unknown :action"
+          (rf.api-manifest.gen/build-manifest
+            (assoc-in (rf.api-manifest.gen/read-sidecar)
+                      [:classification ["re-frame.core" "capture-frame"] :action]
+                      :defer))))
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #"Facade rows with a missing or unknown :action"
