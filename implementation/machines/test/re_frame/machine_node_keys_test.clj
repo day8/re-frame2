@@ -20,8 +20,6 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot rf.machines.test-support/snapshot)
-
 (defn- reg-error-id
   "Register `machine` under a fresh id, returning the thrown
   `:rf.error/id` (or nil when registration succeeds)."

@@ -15,15 +15,15 @@
   These tests drive the REAL `rf.interop/schedule-after!` fire boundary so the
   timer-fire dispatch is router-stamped with a known fire-time clock value,
   then assert `:rf.reply/completed-at` rides the `:rf.machine.timer/fired`
-  and `:rf.machine.timer/stale-after` traces. The reply MAP carries the
-  canonical `:completed-at`; the trace-tag rows carry ONLY the
-  reply-envelope `:rf.reply/completed-at`, with no bare duplicate."
+  and `:rf.machine.timer/stale-after` traces. The trace-tag rows carry ONLY
+  the reply-envelope `:rf.reply/completed-at`, with no bare duplicate; the
+  reply MAP's canonical `:completed-at` is pinned by the reply-conformance
+  artefact."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines]
-            [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.router :as rf.router]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))

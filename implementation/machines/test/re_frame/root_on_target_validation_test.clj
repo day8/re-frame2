@@ -20,7 +20,7 @@
   pinned in `machine_root_on_fallback_test.clj`; a :type :parallel root's
   region-qualified :on is `validate-parallel!`'s job, pinned in
   `parallel_root_on_test.clj`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
