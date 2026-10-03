@@ -111,4 +111,3 @@
       (is (= :rf.error/machine-non-parallel-root-after-not-supported
              (:rf.error/id (ex-data thrown)))
           "the categorical non-parallel-root-:after rejection wins over the delay-key shape check"))))
-

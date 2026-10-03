@@ -269,4 +269,3 @@
         (is (= 1 (count (:destroyed result)))
             "the destroyed trace fired exactly once (it precedes the abort hook)")
         (assert-teardown-inert result)))))
-

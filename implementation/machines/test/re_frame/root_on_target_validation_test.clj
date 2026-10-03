@@ -54,4 +54,3 @@
                                                           :states  {:a {}}}))]
       (is (= expected (select-keys data (keys expected)))
           (str label " — at registration, not just at dispatch")))))
-
