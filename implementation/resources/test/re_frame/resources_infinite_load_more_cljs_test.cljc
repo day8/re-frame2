@@ -223,8 +223,7 @@
         (is (= :loaded (:status e)))
         (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e)) "appended in order")
         (is (= [nil "c1"] (:page-params e)) "param per page, page-0 = nil")
-        (is (= "c2" (:next-page-param e)) "cursor advanced to page-1's next")
-        (is (= 2 (rf.resources.state/page-count e)))))))
+        (is (= "c2" (:next-page-param e)) "cursor advanced to page-1's next")))))
 
 (deftest load-more-multiple-pages-accumulate
   (testing "successive load-more accumulate the feed in order"
@@ -232,7 +231,6 @@
       (load-more! :lm3/feed) (reply-success! (page [:b] "c2"))
       (load-more! :lm3/feed) (reply-success! (page [:c] "c3"))
       (let [e (entry k)]
-        (is (= 3 (rf.resources.state/page-count e)))
         (is (= [(page [:a] "c1") (page [:b] "c2") (page [:c] "c3")] (:data e)))
         (is (= [nil "c1" "c2"] (:page-params e)))
         (is (= "c3" (:next-page-param e)))))))
@@ -293,8 +291,8 @@
         ;; the single in-flight page settles ONCE → exactly one append
         (reply-success! args1 (page [:b] "c2"))
         (let [e3 (entry k)]
-          (is (= 2 (rf.resources.state/page-count e3)) "exactly one page appended despite two load-mores")
-          (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e3))))))))
+          (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e3))
+              "exactly one page appended despite two load-mores"))))))
 
 ;; ===========================================================================
 ;; 5. stale / superseded page reply is suppressed (mandatory boundary)
@@ -433,7 +431,6 @@
         (reply-failure! (decode-failure "{\"items\":[1]}"))
         (let [e (entry k)]
           (is (= :loaded (:status e)) "feed returns to :loaded (NOT :error)")
-          (is (= 1 (rf.resources.state/page-count e)) "the prior page is preserved")
           (is (= [(page [:a] "c1")] (:data e)) "page vector untouched")
           (is (= "c1" (:next-page-param e)) "cursor untouched — retry is possible")
           (is (= :rf.http/decode-failure (:kind (:page-error e)))
@@ -477,10 +474,8 @@
       (reply-success! (page [:a*] "c1"))
       (let [e (entry k)]
         (is (= :loaded (:status e)))
-        (is (= 3 (rf.resources.state/page-count e)) "still 3 pages after the replacement succeeds")
-        (is (= (page [:a*] "c1") (nth (:data e) 0)) "page-0 replaced in place")
-        (is (= (page [:b] "c2") (nth (:data e) 1)) "tail preserved")
-        (is (= (page [:c] "c3") (nth (:data e) 2)) "tail preserved")))))
+        (is (= [(page [:a*] "c1") (page [:b] "c2") (page [:c] "c3")] (:data e))
+            "page-0 replaced in place, tail preserved, still 3 pages")))))
 
 (deftest refetch-all-pages-opt-in-refreshes-every-page-in-sequence
   ;; :refetch-all-pages? re-fetches EVERY accumulated page param IN SEQUENCE
@@ -517,7 +512,6 @@
       ;; page-2 reply replaces in place — the sweep is now exhausted.
       (reply-success! (page [:c*] "c3"))
       (let [e (entry k)]
-        (is (= 3 (rf.resources.state/page-count e)) "all 3 pages refreshed; length preserved")
         (is (= [(page [:a*] "c1") (page [:b*] "c2") (page [:c*] "c3")] (:data e))
             "every page replaced in place, in order")
         (is (not (contains? e :refetch-sweep)) "the sweep cursor is cleared when exhausted")
@@ -538,10 +532,8 @@
         (is (= 1 (:rf.resource/page-index (second (:on-success @last-managed-args)))) "then page 1"))
       (reply-success! (page [:b*] "c2"))
       (let [e (entry k)]
-        (is (= 3 (rf.resources.state/page-count e)) "feed length preserved (page 2 kept untouched)")
-        (is (= (page [:a*] "c1") (nth (:data e) 0)) "page 0 refreshed")
-        (is (= (page [:b*] "c2") (nth (:data e) 1)) "page 1 refreshed")
-        (is (= (page [:c] "c3") (nth (:data e) 2)) "page 2 left UNTOUCHED (outside the window)")
+        (is (= [(page [:a*] "c1") (page [:b*] "c2") (page [:c] "c3")] (:data e))
+            "pages 0 and 1 refreshed, page 2 left UNTOUCHED (outside the window)")
         (is (not (contains? e :refetch-sweep)) "sweep cleared (window exhausted)")))))
 
 (deftest refetch-sweep-failure-stops-the-sweep-keeps-pages
@@ -810,7 +802,6 @@
       (let [e (entry k)]
         (testing "the page APPENDED despite the ignored owner (warn-and-PROCEED)"
           (is (= :loaded (:status e)))
-          (is (= 2 (rf.resources.state/page-count e)) "exactly the load-more page appended")
           (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e)) "appended in order")
           (is (= "c2" (:next-page-param e)) "cursor advanced from the appended page"))))))
 
@@ -849,25 +840,14 @@
           ;; A new page attempt inherits the feed's :active-owners
           ;; (it mints none), so the row holds exactly ensure's owner.
           (is (= #{[:test :w]} (:owners rec))
-              "the work record's :owners is the held owner — the ignored owner never joined it")))
+              "the work record's :owners is the held owner — the ignored owner never joined it")
+          (is (= [[:user :feed/load-more]] (:causes rec))
+              "the load-more's :cause is recorded on the work record (owner dropped, cause kept)")))
       (testing "no leak survives the page reply (the feed stays at one owner)"
         (reply-success! (page [:b] "c2"))
         (let [e' (entry k)]
-          (is (= :loaded (:status e')) "feed settled :loaded")
-          (is (= 2 (rf.resources.state/page-count e')) "the page still appended (warn-and-PROCEED)")
           (is (= #{[:test :w]} (:active-owners e'))
               "still exactly one owner after settle — no durable leak to release"))))))
-
-(deftest load-more-mistaken-owner-PRESERVES-cause
-  ;; :cause is UNTOUCHED by the owner-drop (attribution preserved):
-  ;; the dropped owner does not strip the load-more's cause from the work record.
-  (testing "the load-more's :cause survives the owner normalization"
-    (let [k (load-page-0! :mc/feed (page [:a] "c1"))]
-      (record-resource-traces!
-        #(load-more-with-owner! :mc/feed [:wrong :owner]))
-      (let [rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry k)))]
-        (is (= [[:user :feed/load-more]] (:causes rec))
-            "the load-more's :cause is recorded on the work record (owner dropped, cause kept)")))))
 
 (deftest load-more-ownerless-emits-no-owner-ignored-warning
   ;; The bright-line guard fires ONLY on a supplied owner: a

@@ -360,19 +360,12 @@
     (let [e (entry (feed-key :iserr/feed))]
       (testing "the entry accumulated the enveloped page fine (merge is read-side)"
         (is (= 1 (rf.resources.state/page-count e))))
-      (testing "the pure merge raises :rf.error/infinite-missing-page-accessor"
-        (is (thrown-with-msg?
-              #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-              #"infinite-missing-page-accessor"
-              (rf.resources.state/merge-pages->items
-                (:data e) (rf.resources.state/resolve-page->items nil)
-                :iserr/feed 'rf.resource/items))))
       (testing "the framework-owned merged-items projection raises too"
         (is (thrown-with-msg?
               #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
               #"infinite-missing-page-accessor"
               (#'re-frame.resources.subs/merged-items e 'rf.resource/items))))
-      (testing "the error carries the canonical :rf.error/id discriminator"
+      (testing "the pure merge raises :rf.error/infinite-missing-page-accessor"
         (is (= :rf.error/infinite-missing-page-accessor
                (try (rf.resources.state/merge-pages->items
                       (:data e) (rf.resources.state/resolve-page->items nil)
