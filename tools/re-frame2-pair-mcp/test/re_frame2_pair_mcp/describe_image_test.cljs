@@ -128,21 +128,6 @@
 ;; Response shape.
 ;; ---------------------------------------------------------------------------
 
-(deftest generation-summary-rides-through
-  (async done
-    (stub-eval! nil sample-generation)
-    (-> (di/describe-image-tool (fresh-conn) (args-js {:frame ":main"}))
-        (.then (fn [r]
-                 (is (not (err? r)))
-                 (let [edn (read-result-text r)]
-                   (is (true? (:ok? edn)))
-                   (is (= :main (:frame edn)))
-                   (is (= [:app/img] (:images edn)))
-                   (is (= [:event :sub] (:kinds edn)))
-                   (is (= {:event 12 :sub 8} (:counts edn))
-                       "per-kind selected-registration counts ride through"))
-                 (done))))))
-
 (deftest include-ns-surfaces-per-registration-coordinates
   (async done
     (stub-eval! nil sample-with-ns)
@@ -182,24 +167,6 @@
                    (is (= [] (:images edn)) "no images on an imageless frame")
                    (is (= [] (:kinds edn)))
                    (is (= {} (:counts edn))))
-                 (done))))))
-
-(deftest ambiguous-frame-rides-through-as-error
-  (async done
-    ;; The runtime returns the :ambiguous-frame refusal (a map with :ok?
-    ;; false); the tool MUST surface it as an :isError result. Taking a
-    ;; plain (map? v) → ok-text branch would ship it WITHOUT isError — a
-    ;; SUCCESS-shaped tools/call carrying a `:ok? false` payload — so
-    ;; `map-envelope-result` routes it through wire/err-text per the
-    ;; universal `:ok? false` contract.
-    (stub-eval! nil {:ok? false :reason :ambiguous-frame :operation :describe-image})
-    (-> (di/describe-image-tool (fresh-conn) (args-js {}))
-        (.then (fn [r]
-                 (is (err? r)
-                     "an :ok? false ambiguous-frame refusal rides isError:true")
-                 (let [edn (read-result-text r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :ambiguous-frame (:reason edn))))
                  (done))))))
 
 (deftest non-map-return-degrades-to-error

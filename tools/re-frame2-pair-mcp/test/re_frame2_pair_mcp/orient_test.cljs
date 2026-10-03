@@ -51,8 +51,7 @@
    :app-db-top-keys {:rf/default [:cart :route :user]}
    ;; The runtime orient counts carry the three EP-0016 resources-artefact
    ;; kinds (:resource / :mutation / :resource-scope) — see the orient
-   ;; descriptor example in descriptors_data.cljs. Including them here means
-   ;; a runtime that dropped a kind from the counts map fails this pin.
+   ;; descriptor example in descriptors_data.cljs.
    :registry {:counts {:event 14 :sub 9 :fx 3 :cofx 1 :view 6
                        :frame 2 :route 4 :flow 0 :head 0 :error-projector 0
                        :resource 3 :mutation 2 :resource-scope 1}
@@ -95,41 +94,8 @@
     (-> (orient/orient-tool (fresh-conn) #js {})
         (.then (fn [r]
                  (is (not (err? r)))
-                 (let [edn (read-result-text r)]
-                   (is (true? (:ok? edn)))
-                   (is (= [:rf/default] (get-in edn [:frames :app])))
-                   (is (= :rf/default (get-in edn [:frames :operating])))
-                   (is (= [:cart :route :user]
-                          (get-in edn [:app-db-top-keys :rf/default]))
-                       "per-app-frame app-db top-keys ride through")
-                   (is (= 14 (get-in edn [:registry :counts :event]))
-                       "registrar counts ride through")
-                   (is (= 3 (get-in edn [:registry :counts :resource]))
-                       "EP-0016 :resource count rides through")
-                   (is (= 2 (get-in edn [:registry :counts :mutation]))
-                       "EP-0016 :mutation count rides through")
-                   (is (= 1 (get-in edn [:registry :counts :resource-scope]))
-                       "EP-0016 :resource-scope count rides through")
-                   (is (= [:cart/total :current-user] (get-in edn [:registry :subs]))
-                       "the navigable sub-id vector rides through")
-                   (is (= [:checkout] (:machines edn)))
-                   (is (true? (get-in edn [:liveness :debug-enabled?]))))
-                 (done))))))
-
-(deftest excludes-tool-frames-from-app-db-top-keys
-  ;; The posture: :app-db-top-keys is keyed by APP frames only — a
-  ;; reserved :rf/xray tool frame is in :frames :all but NOT in
-  ;; :app-db-top-keys (the runtime excludes it). We assert the tool
-  ;; passes the runtime's shape through faithfully.
-  (async done
-    (stub-eval! nil sample-summary)
-    (-> (orient/orient-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (let [edn (read-result-text r)]
-                   (is (contains? (set (get-in edn [:frames :all])) :rf/xray)
-                       ":rf/xray appears in the full frame list")
-                   (is (not (contains? (:app-db-top-keys edn) :rf/xray))
-                       "tool frame is excluded from app-db-top-keys"))
+                 (is (= sample-summary (dissoc (read-result-text r) :build))
+                     "every slot of the runtime summary rides through unchanged")
                  (done))))))
 
 (deftest echoes-session-sticky-build-when-omitted

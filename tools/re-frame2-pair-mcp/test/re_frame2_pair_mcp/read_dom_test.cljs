@@ -8,17 +8,16 @@
        `(re-frame2-pair.runtime/dom-read {...})` — composed via the shared
        `eval-form` DSL (the SAME plumbing read-ui uses), not an inlined
        raw eval string. We assert it carries the load-bearing pieces (the
-       runtime `dom-read` call, the literal selector, the `:limit` /
-       `:max-text` knobs, the sub-selector + explicit-attrs slots) and
+       `:limit` / `:max-text` knobs, the sub-selector + explicit-attrs
+       slots; the corpus pins the call and the literal selector) and
        that it depends only on cljs.core + JS interop + the runtime ns
        (the alias-trap regression guard below).
 
     2. Tool wiring — `read-dom-tool` threads args, runs the preflight,
        and forwards the browser-side envelope. We stub
-       `cljs-eval-value` (no socket) and pin the wire shape: matched
-       :count + per-node {:tag :text :attrs}, the large-text elision
-       marker passthrough, the missing-selector gate, and the
-       bad-selector error reason.
+       `cljs-eval-value` (no socket) and pin the wire shape: the
+       large-text elision marker passthrough, the missing-selector gate,
+       and the bad-selector error reason.
 
   The browser-side semantics (does querySelectorAll actually find the
   node? does textContent cap correctly?) are exercised by the runtime fn
@@ -40,21 +39,18 @@
 ;; Form composition — the browser-side source contract.
 ;; ---------------------------------------------------------------------------
 
-(deftest form-is-thin-runtime-call
+(deftest form-threads-the-text-cap-and-node-limit
   ;; read-dom emits `(re-frame2-pair.runtime/dom-read {...})` via the
   ;; shared `eval-form` DSL, the SAME plumbing read-ui uses, rather than
   ;; inlining its DOM-read core as a raw eval string. The per-node
   ;; projection lives in the runtime's `node->content`, shared with
-  ;; ui-read.
+  ;; ui-read. The corpus fixture `:read-dom/happy` pins the call and the
+  ;; selector; the knobs ride here.
   (let [form (#'read-dom/read-dom-form "#app .counter" nil
                                        read-dom/default-limit
                                        read-dom/default-max-text
                                        nil nil)]
-    (testing "the runtime dom-read call + selector + knobs are present"
-      (is (str/includes? form "re-frame2-pair.runtime/dom-read")
-          "calls the shared runtime dom-read fn")
-      (is (str/includes? form ":selector") "selector opt slot present")
-      (is (str/includes? form "#app .counter") "literal selector embedded")
+    (testing "the per-node text cap and the matched-node limit ride the opts"
       (is (str/includes? form (str ":max-text " read-dom/default-max-text)) "per-node text cap rides")
       (is (str/includes? form (str ":limit " read-dom/default-limit)) "matched-node limit rides"))))
 
@@ -286,26 +282,6 @@
     ;; synchronously and we exercise the form-building / forward path.
     (swap! conn assoc :probed-builds #{:app})
     conn))
-
-(deftest happy-returns-count-and-per-node-shape
-  (async done
-    (let [canned {:ok? true :selector "#app .counter" :count 1 :truncated? false
-                  :nodes [{:tag "div" :text "Count: 3"
-                           :attrs {"class" "counter" "data-count" "3"}}]}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (read-dom/read-dom-tool (fresh-conn) #js {:selector "#app .counter"})))
-          (.then (fn [r]
-                   (is (not (tu/error? r)))
-                   (let [edn (tu/extract-edn r)
-                         node (first (:nodes edn))]
-                     (is (true? (:ok? edn)))
-                     (is (= 1 (:count edn)) "matched count surfaced")
-                     (is (false? (:truncated? edn)))
-                     (is (= "div" (:tag node)) "per-node :tag")
-                     (is (= "Count: 3" (:text node)) "per-node :text")
-                     (is (= "3" (get-in node [:attrs "data-count"])) "per-node data-* attr"))
-                   (done)))))))
 
 (deftest large-text-elision-passes-through
   (async done
