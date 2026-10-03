@@ -130,11 +130,14 @@
     "real op short-circuits a class of confusing downstream errors.\n"))
 
 (defn get-re-frame2-pair-instructions-tool
-  "Return the agent-onboarding text. `conn` and `args` are accepted
-  for shape uniformity with the other tool handlers but ignored —
-  the text is inline and the call carries no per-request state."
-  [_conn _args]
+  "Return the agent-onboarding text beside the server's `tool-contract`
+  fingerprint (`registry/tool-contract`, passed in by the registry, which
+  requires this ns). `conn` and `args` are accepted for shape uniformity
+  with the other tool handlers but ignored — the text is inline and the
+  call carries no per-request state."
+  [_conn _args tool-contract]
   (js/Promise.resolve
     (wire/ok-text {:ok? true
                    :tool "get-re-frame2-pair-instructions"
+                   :tool-contract tool-contract
                    :text instructions-text})))

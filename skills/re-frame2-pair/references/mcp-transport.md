@@ -88,7 +88,7 @@ The table is **complete by gate for tool names and argument names**: `scripts/ch
 |---|---|---|
 | `discover-app` | `{build?, port?}` — connect + health probe; carries a `:freshness` token | SKILL.md §Connect first · §Install / configure below |
 | `orient` | `{}` — app-shape summary in one round-trip | [`ops.md` §Read](ops.md#read) |
-| `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text, no nREPL round-trip | SKILL.md §Connect first |
+| `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text and the server's `:tool-contract` fingerprint, no nREPL round-trip | SKILL.md §Connect first |
 | `list-handlers` | `{kind, frame?}` — every id under one registrar kind | [`ops.md` §Read](ops.md#read) |
 | `handler-meta` | `{kind, id, frame?}` — registration meta for one id (add `frame` for the per-frame arity) | [`ops.md` §Read](ops.md#read) |
 | `describe-image` | `{frame?, include-ns?}` — the selected registration universe a frame runs | [`ops.md` §Frames](ops.md#frames) |

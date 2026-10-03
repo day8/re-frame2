@@ -1983,10 +1983,13 @@
                      "description can carry. "
                      "Inline prose, no nREPL round-trip — call this at session start to orient "
                      "before the first real op. Mirrors story-mcp's `get-story-instructions`. Returns "
-                     "`{:ok? true :tool \"get-re-frame2-pair-instructions\" :text <string>}` — a single text slot "
-                     "the agent host renders verbatim. "
+                     "`{:ok? true :tool \"get-re-frame2-pair-instructions\" :tool-contract <string> :text <string>}`. "
+                     ":tool-contract fingerprints this server's tool names and argument keys; the re-frame2-pair "
+                     "skill states the value it was written against, so an absent or different value means the "
+                     "running server is a stale build — rebuild and restart it before reading a missing tool as an "
+                     "app finding. :text is a single slot the agent host renders verbatim. "
                      "Examples: "
-                     "1. Session bootstrap: {} -> {:ok? true :tool \"get-re-frame2-pair-instructions\" :text \"re-frame2-pair quick reference...\"}. "
+                     "1. Session bootstrap: {} -> {:ok? true :tool \"get-re-frame2-pair-instructions\" :tool-contract \"30-1a2b3c4d\" :text \"re-frame2-pair quick reference...\"}. "
                      "2. Cached on second call (universal cache opt-in): {:cache true} -> {:rf.mcp/cache-hit {:hash ... :via :result-hash :hint \"...\"}} (after the first uncached call). "
                      "3. With budget override: {:max-tokens 0} -> {:ok? true :text \"...\"} (cap disabled; the text always fits comfortably).")
    ;; Measured, not estimated. The response is a fixed inline string with no

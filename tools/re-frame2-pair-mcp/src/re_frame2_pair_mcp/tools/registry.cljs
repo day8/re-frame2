@@ -33,7 +33,9 @@
             [re-frame2-pair-mcp.tools.describe-image :as describe-image]
             [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as get-re-frame2-pair-instructions]
-            [re-frame2-pair-mcp.tools.descriptors-data :as data]))
+            [re-frame2-pair-mcp.tools.descriptors-data :as data]
+            [clojure.string :as str]
+            ["crypto" :as crypto]))
 
 (defn- ignoring-extra
   "Adapt a 2-arity per-tool fn `(fn [conn args])` into the registry's
@@ -43,6 +45,8 @@
   (fn [conn args _extra] (f conn args)))
 
 ;; Order is observable through tools/list and pinned by catalogue tests.
+
+(declare tool-contract)
 
 (def tools
   "Ordered source for tools/list, tools/call dispatch, and cache policy."
@@ -227,7 +231,7 @@
     :cacheable? false
     :descriptor data/get-operating-frame}
    {:name       "get-re-frame2-pair-instructions"
-    :handler    (ignoring-extra #(get-re-frame2-pair-instructions/get-re-frame2-pair-instructions-tool %1 %2))
+    :handler    (ignoring-extra #(get-re-frame2-pair-instructions/get-re-frame2-pair-instructions-tool %1 %2 tool-contract))
     :cacheable? true
     ;; CLOSED-WORLD: the onboarding text is an inline `def`
     ;; in the bundle — zero socket bytes — so the server dispatches it at
@@ -268,6 +272,31 @@
   handshake for the whole set, this for a miss. Do not trim it to a
   bare `did you mean`."
   (mapv :name tools))
+
+(defn contract-fingerprint
+  "Fingerprint of a tool catalogue's CONTRACT: every tool name with the
+  argument keys its inputSchema declares, sorted so authoring order is
+  not part of it. Prose, hints and annotations are left out — they move
+  without changing what an agent can call. Reads `<tool-count>-<8 hex of
+  sha256>`, e.g. `30-1a2b3c4d`."
+  [descriptors]
+  (let [canonical (->> descriptors
+                       (map (fn [{tool :name schema :inputSchema}]
+                              (str tool "(" (str/join "," (sort (map name (keys (:properties schema))))) ")")))
+                       sort
+                       (str/join " "))
+        digest    (-> (.createHash crypto "sha256") (.update canonical) (.digest "hex"))]
+    (str (count descriptors) "-" (subs digest 0 8))))
+
+(def tool-contract
+  "This server's `contract-fingerprint`, reported by
+  `get-re-frame2-pair-instructions` as `:tool-contract`. The
+  re-frame2-pair skill states the value it was written against, so an
+  agent comparing the two can tell a long-running server built from older
+  source — whose `serverInfo` version reads the same — from a current
+  one before it treats a missing tool as an application finding.
+  `tool_contract_test` holds the skill's stated value to this one."
+  (contract-fingerprint tool-descriptors))
 
 (def ^:private cacheable-set
   "Materialised set of tool names whose `:cacheable?` is truthy.

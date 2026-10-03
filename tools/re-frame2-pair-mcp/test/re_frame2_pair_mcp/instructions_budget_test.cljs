@@ -82,8 +82,7 @@
   meant to catch, one file further away."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.tools.cap :as cap]
-            [re-frame2-pair-mcp.tools.registry :as registry]
-            [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as instr]))
+            [re-frame2-pair-mcp.tools.registry :as registry]))
 
 (def ^:private tool-name "get-re-frame2-pair-instructions")
 
@@ -202,7 +201,7 @@
 
 (deftest instructions-response-advertises-its-real-size
   (async done
-    (-> (instr/get-re-frame2-pair-instructions-tool nil nil)
+    (-> ((registry/handler-for tool-name) nil nil nil)
         (.then (fn [result]
                  (let [tokens (cap/sum-payload-tokens result)
                        hint   (typical-tokens-hint)]
@@ -225,7 +224,7 @@
 
 (deftest instructions-response-fits-the-wire-token-budget
   (async done
-    (-> (instr/get-re-frame2-pair-instructions-tool nil nil)
+    (-> ((registry/handler-for tool-name) nil nil nil)
         (.then (fn [result]
                  (let [tokens  (cap/sum-payload-tokens result)
                        budget  cap/default-max-tokens
