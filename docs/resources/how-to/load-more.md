@@ -105,6 +105,85 @@ A load-more keeps existing rows visible. The runtime ignores another load-more
 while one is in flight and sends no request once the cursor is `nil`. The command
 needs no owner: the route already keeps this entry alive.
 
+The cell below runs the feed, route and view against three canned pages. Each
+**Load more** appends a page to the same entry, and the button gives way to
+"All articles loaded." once a page returns a `nil` cursor.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.resources]
+         '[re-frame.http.managed]
+         '[re-frame.routing]
+         '[re-frame.http.test-support :as http-test-support])
+
+;; Three canned pages. A stub matches the URL without :params, so this cell
+;; puts the cursor in the URL itself.
+(defn rows [& ns] (mapv (fn [n] {:slug (str "a" n) :title (str "Article " n)}) ns))
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/article-feed"]          {:reply {:ok {:items (rows 1 2 3) :page-info {:next-cursor "c2"}}}}
+   [:get "/api/article-feed?cursor=c2"] {:reply {:ok {:items (rows 4 5 6) :page-info {:next-cursor "c3"}}}}
+   [:get "/api/article-feed?cursor=c3"] {:reply {:ok {:items (rows 7 8)   :page-info {:next-cursor nil}}}}})
+
+(rf/reg-resource :feed/articles
+  {:params-schema [:map]
+   :scope :rf.scope/global
+   :infinite true
+   :page->items :items
+   :next-page-param (fn [last-page _all-pages]
+                      (get-in last-page [:page-info :next-cursor]))
+   :tags (fn [_params _pages] #{[:article-feed]})}
+  (fn [_params {:rf.resource/keys [page-param]}]
+    {:request {:method :get
+               :url (cond-> "/api/article-feed"
+                      page-param (str "?cursor=" page-param))}
+     :decode :json}))
+
+(rf/reg-route :article/feed
+  {:resources [{:resource :feed/articles
+                :params (fn [_route] {})
+                :blocking? true}]}
+  "/feed")
+
+(rf/reg-view article-feed []
+  (let [query {:resource :feed/articles :params {}}
+        feed @(subscribe [:rf.resource/infinite-state query])]
+    (cond
+      (or (= :idle (:status feed)) (:loading? feed))
+      [:p "Loading articles…"]
+
+      (:error feed)
+      [:div
+       [:p "Could not load the feed."]
+       [:button {:on-click #(dispatch [:rf.resource/refetch query])} "Retry"]]
+
+      :else
+      [:div
+       (when (empty? (:items feed)) [:p "No articles."])
+       (into [:ul] (for [article (:items feed)]
+                     ^{:key (:slug article)} [:li (:title article)]))
+       [:button {:disabled (or (:fetching? feed) (:fetching-next? feed))
+                 :on-click #(dispatch [:rf.resource/refetch query])} "Refresh"]
+       (when (:fetching? feed) [:p "Refreshing…"])
+       (when (:refresh-error feed)
+         [:p "Could not refresh; showing the loaded articles. "
+          [:button {:on-click #(dispatch [:rf.resource/refetch query])} "Retry refresh"]])
+       (when (:page-error feed) [:p "Could not load another page."])
+       (when (:has-next-page? feed)
+         [:button {:disabled (:fetching-next? feed)
+                   :on-click #(dispatch [:rf.resource/load-more
+                                         (assoc query :cause [:user :articles/load-more])])}
+          (cond
+            (:fetching-next? feed) "Loading…"
+            (:page-error feed) "Retry load more"
+            :else "Load more")])
+       (when-not (:has-next-page? feed) [:p "All articles loaded."])])))
+
+[rf/frame-root {:id :feed
+                :initial-events [[:rf.route/navigate {:to :article/feed}]]
+                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [article-feed]]
+```
+
 ## Recover from a failed page
 
 | Failure | Field | UI |

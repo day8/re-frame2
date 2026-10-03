@@ -96,6 +96,104 @@ The click uses the `dispatch` that `reg-view` injects, which carries this view's
 
 The registration already declares which reads this write changes.
 
+### See which reads refresh
+
+The cell below runs this page's registrations and button against canned
+replies, and lists each request. The detail entry has an owner; the list was
+loaded without one. Click **Save**: the detail refetches at once, while the
+list is only marked stale. **Open the list** ensures it, and because it is
+stale it refetches; a second click is a cache hit.
+
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.resources]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support]
+         '[reagent2.core :as r])
+
+;; Canned replies for the two reads and the save.
+(def welcome {:slug "welcome" :title "Welcome" :body "The first article."})
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/articles/welcome"] {:reply {:ok {:article welcome}}}
+   [:get "/api/articles"]         {:reply {:ok {:articles [welcome]}}}
+   [:put "/api/articles/welcome"] {:reply {:ok {:article welcome}}}})
+
+;; Log each request that reaches the stubbed API.
+(def requests (r/atom []))
+(rf/reg-http-interceptor :demo/request-log
+  {:frame  :writes
+   :before (fn [ctx]
+             (let [{:keys [method url]} (:request ctx)]
+               (swap! requests conj (str (str/upper-case (name method)) " " url))
+               ctx))})
+
+(rf/reg-resource :realworld/article
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :tags          (fn [{:keys [slug]} _data] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
+
+(rf/reg-resource :realworld/articles
+  {:params-schema [:map]
+   :scope         :rf.scope/global
+   :tags          (fn [_params data]
+                    (into #{[:article-list]}
+                          (map (fn [a] [:article (:slug a)]) (:articles data))))}
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/articles"} :decode :json}))
+
+(rf/reg-mutation :realworld/save-article
+  {:params-schema [:map [:slug :string] [:title :string] [:body :string]]
+   :scope         :rf.scope/global
+   :invalidates   (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})}
+  (fn [{:keys [slug] :as article} _ctx]
+    {:request {:method :put
+               :url    (str "/api/articles/" slug)
+               :body   {:article article}}
+     :decode  :json}))
+
+(rf/reg-view article-save-button [{:keys [article]}]
+  (let [save @(subscribe [:rf/mutation {:instance [:article-save (:slug article)]}])]
+    [:<>
+     [:button {:disabled (:pending? save)
+               :on-click #(dispatch [:rf.mutation/execute
+                                     {:mutation :realworld/save-article
+                                      :params   article
+                                      :instance [:article-save (:slug article)]
+                                      :cause    [:form-submit :realworld/save-article]}])}
+      (if (:pending? save) "Saving…" "Save")]
+     (when (:error? save) [:p "Could not save this article. Try again."])]))
+
+(rf/reg-view entry-row [{:keys [label query]}]
+  (let [state @(subscribe [:rf/resource query])]
+    [:tr [:td label] [:td [:code (pr-str (:status state))]] [:td (if (:stale? state) "stale" "fresh")]]))
+
+(def detail {:resource :realworld/article :params {:slug "welcome"}})
+(def article-list {:resource :realworld/articles :params {}})
+
+(rf/reg-view demo []
+  (let [article (:article @(subscribe [:rf.resource/data detail]))]
+    [:div
+     [:table
+      [:tbody
+       [entry-row {:label "Detail (owned)" :query detail}]
+       [entry-row {:label "List (no owner)" :query article-list}]]]
+     (when article [article-save-button {:article article}])
+     " "
+     [:button {:on-click #(dispatch [:rf.resource/ensure (assoc article-list :cause [:user :list/open])])}
+      "Open the list"]
+     (into [:ol] (for [r @requests] [:li r]))]))
+
+[rf/frame-root {:id :writes
+                :initial-events [[:rf.resource/ensure (assoc detail :owner [:demo/detail-panel])]
+                                 [:rf.resource/ensure (assoc article-list :cause [:demo/warm])]]
+                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [demo]]
+```
+
 ### Resetting an instance after an error
 
 Retry with `:rf.mutation/execute` under the same instance. To dismiss a settled
