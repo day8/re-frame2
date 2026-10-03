@@ -1,11 +1,9 @@
 /*
- * re-frame2 docs/cljs playground styles (Phase 1, rf2-y99zt; Phase 3, rf2-00zvt).
- *
- * Styles the live-CLJS cells produced by playground.js. Uses Material theme
- * variables where possible so light/dark modes both look right. Built/copied
- * to docs/cljs/playground.css and wired via mkdocs `extra_css`. re-frame2
- * (cljs-rf2) render cells carry both .cljs-cell--render (the live-component
- * mount surface) and .cljs-cell--rf2.
+ * Styles for the live-CLJS cells playground.js creates. Material theme
+ * variables keep both the light and slate schemes readable; fallbacks cover a
+ * page without Material, such as the smoke harness. `npm run build` copies
+ * this file to docs/cljs/playground.css, which mkdocs loads through
+ * `extra_css`.
  */
 
 .cljs-cell {
@@ -14,6 +12,31 @@
 
 .cljs-editor .cm-editor {
   border-radius: 4px;
+}
+
+/* Syntax palette. playground.js maps each highlight tag to one of these. */
+.cljs-editor .cm-editor {
+  --rf2-cm-keyword: #7c3aed;
+  --rf2-cm-atom: #0b7285;
+  --rf2-cm-def: #1864ab;
+  --rf2-cm-var: var(--md-typeset-color, #24292e);
+  --rf2-cm-string: #2b8a3e;
+  --rf2-cm-number: #e8590c;
+  --rf2-cm-regexp: #c2255c;
+  --rf2-cm-comment: #868e96;
+  --rf2-cm-bracket: var(--md-default-fg-color--light, #5c6370);
+}
+
+[data-md-color-scheme="slate"] .cljs-editor .cm-editor {
+  --rf2-cm-keyword: #c792ea;
+  --rf2-cm-atom: #56d4dd;
+  --rf2-cm-def: #82aaff;
+  --rf2-cm-var: var(--md-typeset-color, #d6deeb);
+  --rf2-cm-string: #addb67;
+  --rf2-cm-number: #f78c6c;
+  --rf2-cm-regexp: #f78c6c;
+  --rf2-cm-comment: #7f95a3;
+  --rf2-cm-bracket: var(--md-default-fg-color--light, #93a1ad);
 }
 
 /* Focused editor: Material accent ring. */
@@ -34,8 +57,8 @@
   min-height: 1.4em;
 }
 
-/* Render-cell mount surface (cljs-rf2 cells): holds a live reagent2
- * component, not pr-str'd text — drop the code styling, give it room. */
+/* A re-frame2 cell's result is a live component, not printed text, so it
+ * drops the code styling. */
 .cljs-mount {
   font-family: inherit;
   font-size: inherit;
@@ -44,9 +67,7 @@
   border: 1px solid var(--md-default-fg-color--lightest, #ddd);
 }
 
-/* Bare [:button ...] hiccup inside a live-mounted component: give it a real
- * button look so demo apps carry zero styling ink in their teaching code.
- * Theme-aware via the Material palette variables (light + slate). */
+/* Style bare [:button ...] hiccup so demo code needs no styling of its own. */
 .cljs-mount button {
   padding: 0.1rem 0.7rem;
   margin: 0 0.35rem;
@@ -84,10 +105,9 @@
   color: var(--md-default-fg-color--light, #555);
 }
 
-/* Result value (=> …). A fixed dark green — NOT --md-typeset-ins-color, which
- * is Material's CriticMarkup inserted-text HIGHLIGHT green (a light green meant
- * to sit on a tinted background) and renders low-contrast on the light-grey
- * result panel. #1a5e1a is 7.31:1 on --md-code-bg-color #f4f7f4 (WCAG AAA). */
+/* Result value (=> …). A fixed dark green: Material's --md-typeset-ins-color
+ * is a highlight green that is low-contrast on the light-grey result panel.
+ * #1a5e1a is 7.31:1 on --md-code-bg-color #f4f7f4 (WCAG AAA). */
 .cljs-val {
   font-weight: 600;
   color: #1a5e1a;

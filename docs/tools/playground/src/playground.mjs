@@ -1,45 +1,23 @@
 /*
- * re-frame2 docs/cljs playground.
- *   - plain-CLJS cells.
- *   - live re-frame2 component cells — re-frame2's OWN API.
+ * Live ClojureScript cells for the docs site.
  *
- * A roll-your-own, instant-nav-safe live-CLJS-cell bootstrap — the production
- * renderer for the `docs/cljs` page: the page's ```cljs cells
- * (`.language-cljs`) are rendered here.
+ * Turns fenced code blocks into CodeMirror 6 editors whose code runs in the
+ * browser. Two cell kinds, keyed off the class pymdownx.superfences emits:
  *
- * Two cell kinds:
- *   - ```cljs        -> plain-eval cell. Evaluates the source and pr-str's the
- *                       last form's value. No reagent/re-frame loaded.
- *   - ```cljs-rf2    -> re-frame2 render cell. Evaluates the source against
- *                       re-frame2's OWN public API (re-frame.core v2) and MOUNTS
- *                       the last form's value as a reagent2 component into the
- *                       result div. The cell may `require`
- *                       re-frame.core / reagent2.core and call re-frame2's
- *                       reg-event / reg-sub / dispatch / subscribe. Backed by
- *                       a self-contained SCI bundle (cljs/playground-rf2.js,
- *                       built by docs/tools/playground/sci) — NOT Scittle: there is
- *                       no published scittle.core artefact to build a plugin
- *                       against, and Scittle ships STOCK libs. The bundle
- *                       bundles re-frame2 core + reagent2 + React 19 (React 19
- *                       dropped its UMD build) into one self-contained file,
- *                       loaded on demand only on pages with a cljs-rf2 cell.
+ *   ```cljs      pre.language-cljs      Evaluates the source on Scittle and
+ *                                       prints the last form's value. Runs
+ *                                       on Mod-Enter.
+ *   ```cljs-rf2  pre.language-cljs-rf2  Evaluates the source against
+ *                                       re-frame2's public API and mounts the
+ *                                       last form as a component. Runs on
+ *                                       load and on Mod-Enter.
  *
- *   (There is no cell kind for STOCK reagent/re-frame demos: the guide
- *   teaches re-frame2's own API.)
+ * Each engine is a classic <script> injected only on pages that have its
+ * cell kind: Scittle from jsDelivr, and cljs/playground-rf2.js (built from
+ * ../sci) for re-frame2 cells.
  *
- * Stack:
- *   - CodeMirror 6 (@codemirror/{state,view,commands,language} + @lezer/highlight)
- *     — the editor + Lezer syntax-highlight tags.
- *   - @nextjournal/clojure-mode — Lezer-grammar CLJS mode: syntax,
- *     bracket-match/close, paredit (default_extensions) + complete_keymap.
- *   - Scittle (SCI in a <script> global) — the plain-cell eval engine. Scittle
- *     is a classic <script>, NOT an ES module, so it is NOT imported here; this
- *     bootstrap injects its <script> tag and reads window.scittle at eval time.
- *   - The re-frame2 SCI bundle (cljs/playground-rf2.js) — the cljs-rf2 eval
- *     engine, loaded on demand only on pages with a ```cljs-rf2 cell.
- *
- * This module is bundled by esbuild into an IIFE at docs/cljs/playground.js
- * and wired via mkdocs `extra_javascript`. See docs/tools/playground/README.md.
+ * esbuild bundles this module into the IIFE docs/cljs/playground.js, which
+ * mkdocs loads through `extra_javascript`. See ../README.md.
  */
 
 import { EditorState, Prec } from "@codemirror/state";
@@ -52,50 +30,32 @@ import {
   complete_keymap,
 } from "@nextjournal/clojure-mode";
 
-// Pinned Scittle version. Loaded as a
-// classic <script> global from jsDelivr; installs window.scittle.core.eval_string.
 const SCITTLE_VERSION = "0.8.31";
-const SCITTLE_BASE = `https://cdn.jsdelivr.net/npm/scittle@${SCITTLE_VERSION}/dist`;
-const SCITTLE_SRC = `${SCITTLE_BASE}/scittle.js`;
+const SCITTLE_SRC = `https://cdn.jsdelivr.net/npm/scittle@${SCITTLE_VERSION}/dist/scittle.js`;
 
-// This file's deployed name (esbuild --outfile=../../cljs/playground.js).
-// Used by the selfUrl fallback below to locate the bootstrap's own <script>.
+// This bundle's deployed file name, used to find our own <script> when
+// document.currentScript is unavailable.
 const SELF_BUNDLE_NAME = "playground.js";
 
-// The re-frame2 SCI bundle — a self-contained shadow-cljs build
-// (docs/tools/playground/sci) that bundles re-frame2 core + reagent2 + React 19 and
-// installs window.rf2sci.renderLast. Sibling of this file under docs/cljs/, so
-// it is resolved relative to this file's own URL (see selfUrl below) for
-// /re-frame2/ sub-path safety. Loaded as a classic <script> on demand, only on
-// pages that contain a ```cljs-rf2 cell.
+// The re-frame2 engine, a sibling of this file under docs/cljs/. It installs
+// window.rf2sci.
 const RF2_BUNDLE_NAME = "playground-rf2.js";
 
-// The fence classes pymdownx.superfences emits (see mkdocs.yml custom_fences).
-//   ```cljs     -> pre.language-cljs      -> plain-eval cell
-//   ```cljs-rf2 -> pre.language-cljs-rf2  -> re-frame2 (v2) render cell
-const EVAL_SELECTOR = "pre.language-cljs:not([data-cljs-mounted])";
-const RF2_SELECTOR = "pre.language-cljs-rf2:not([data-cljs-mounted])";
-const ANY_CELL_SELECTOR = `${EVAL_SELECTOR}, ${RF2_SELECTOR}`;
+const EVAL_CELL = "pre.language-cljs";
+const RF2_CELL = "pre.language-cljs-rf2";
+const UNMOUNTED_CELLS = `${EVAL_CELL}:not([data-cljs-mounted]), ${RF2_CELL}:not([data-cljs-mounted])`;
 
-// --- Eval wiring -----------------------------------------------------------
+// --- Eval ------------------------------------------------------------------
 
-// scittle.core.eval_string(src) returns the value of the LAST form (SCI returns
-// the real CLJS value; numbers are JS numbers) and THROWS a JS Error on failure.
-//
-// To also capture *out* (println etc.) AND pr-str the result, we eval a small
-// wrapper. Four gotchas are honoured here:
-//   1. SCI has no JVM classes — java.io.StringWriter is absent. Capture *out*
-//      with clojure.core/with-out-str.
-//   2. with-out-str only captures explicit prints, NOT the body's return value.
-//      Stash the return in an atom inside the body, pr-str it after.
-//   3. A CLJS vector returned to JS is a PersistentVector OBJECT, not a JS
-//      Array — index access returns garbage. Wrap the return in (clj->js ...)
-//      so Scittle hands JS a real Array.
-//   4. A top-level (def x ...)/(defn ...) returns the VAR, so a bare REPL would
-//      print `#'user/x` — confusing for the non-Clojurian audience the docs/cljs
-//      page targets, who expect to see the bound value. When the last form's
-//      value is a var, deref it and pr-str the bound value instead. Other
-//      values pass through unchanged.
+// Evaluates a plain cell on Scittle and returns what it printed plus the
+// pr-str of its last value. The wrapper:
+//   - captures *out* with with-out-str (SCI has no java.io.StringWriter);
+//   - stashes the body's value in an atom, because with-out-str returns only
+//     the printed text;
+//   - derefs a var, so `(def x 1)` shows `1` rather than `#'user/x`;
+//   - returns through clj->js, because a CLJS vector is not a JS Array.
+// Wrapping the body in one `(do ...)` means a plain cell cannot `require`:
+// SCI applies a require's aliases only to sibling top-level forms.
 function evalCljs(src) {
   const scittle = window.scittle;
   if (!scittle || !scittle.core || !scittle.core.eval_string) {
@@ -112,16 +72,13 @@ function evalCljs(src) {
     "        v# (deref r#)" +
     "        v# (if (var? v#) (deref v#) v#)]" +
     "    [o# (pr-str v#)]))";
-  const out = scittle.core.eval_string(wrapped); // -> JS array [printed, resultStr]
+  const out = scittle.core.eval_string(wrapped);
   return { printed: out[0] || "", result: out[1] };
 }
 
-// re-frame2 render-cell eval. Evaluates the source against
-// re-frame2's OWN public API via the self-contained SCI bundle
-// (window.rf2sci, installed by playground-rf2.js) and mounts the last form's
-// value as a reagent2 component into `targetEl`. window.rf2sci.renderLast owns
-// the SCI eval + the reagent2 React-19 root, including re-render-in-place on
-// re-eval, so the bootstrap just hands it the source + target.
+// Evaluates a re-frame2 cell and mounts its last form into `targetEl`.
+// rf2sci.renderLast owns the SCI eval and the React root, and re-renders in
+// place on a second call for the same element.
 function renderComponentRf2(src, targetEl) {
   const rf2 = window.rf2sci;
   if (!rf2 || !rf2.renderLast) {
@@ -154,37 +111,30 @@ function renderError(targetEl, err) {
   targetEl.textContent = "ERROR: " + msg;
 }
 
-// Mod-Enter eval keymap. MUST be wrapped in Prec.highest so it runs BEFORE any
-// default / clojure-mode handler that might also bind Mod-Enter and swallow the
-// event (without Prec.highest the cell would render nothing).
-//
-// `kind` selects the cell behaviour:
-//   "eval" -> pr-str the last form's value
-//   "rf2"  -> mount last form as a re-frame2/reagent2 component
 function runCell(kind, src, resultEl) {
-  if (kind === "rf2") {
-    resultEl.classList.remove("cljs-result--err");
-    renderComponentRf2(src, resultEl);
-  } else {
-    renderResult(resultEl, evalCljs(src));
+  try {
+    if (kind === "rf2") {
+      resultEl.classList.remove("cljs-result--err");
+      renderComponentRf2(src, resultEl);
+    } else {
+      renderResult(resultEl, evalCljs(src));
+    }
+  } catch (e) {
+    renderError(resultEl, e);
   }
 }
 
-function evalKeymap(getResultEl, kind) {
+// Prec.highest, because clojure-mode's keymap also binds Mod-Enter and would
+// otherwise handle the key first.
+function evalKeymap(resultEl, kind) {
   return Prec.highest(
     keymap.of([
       {
         key: "Mod-Enter",
         preventDefault: true,
         run: (view) => {
-          const src = view.state.doc.toString();
-          const resultEl = getResultEl();
-          try {
-            runCell(kind, src, resultEl);
-          } catch (e) {
-            renderError(resultEl, e);
-          }
-          return true; // handled — prevents newline insertion
+          runCell(kind, view.state.doc.toString(), resultEl);
+          return true;
         },
       },
     ])
@@ -193,107 +143,43 @@ function evalKeymap(getResultEl, kind) {
 
 // --- Syntax highlighting ---------------------------------------------------
 //
-// clojure-mode parses + Lezer-tags every token (its `style_tags` map assigns
-// @lezer/highlight tags: Keyword/Boolean -> atom, NS/Operator/DefLike ->
-// keyword, strings -> string, LineComment/Discard! -> comment, Number ->
-// number, VarName -> definition(variableName), Nil -> null, RegExp -> regexp,
-// DocString -> emphasis), but `default_extensions` ships NO HighlightStyle and
-// no syntaxHighlighting() extension — so without the style below the tags are
-// never painted and cells render as plain monospace.
-//
-// We map each tag the grammar emits to a CSS custom property rather than a
-// literal colour, so a SINGLE HighlightStyle reads well under BOTH Material
-// schemes: the per-scheme palette is supplied by `--rf2-cm-*` vars defined in
-// the editor `EditorView.theme` block below, keyed off `[data-md-color-scheme]`
-// (default = light, slate = dark). The fallbacks in each var() keep tokens
-// legible even outside a Material page (e.g. the standalone smoke harness).
+// clojure-mode tags tokens but ships no HighlightStyle, so without this the
+// cells render as plain monospace. Each tag maps to a `--rf2-cm-*` variable;
+// playground.css defines the light and slate palettes.
 const highlightStyle = HighlightStyle.define([
-  // Clojure :keywords + booleans (the grammar tags both as `atom`).
+  // Keywords and booleans are both tagged `atom`.
   { tag: t.atom, color: "var(--rf2-cm-atom)" },
-  // Defining symbols (def/defn names): `(definition (variableName))`.
   { tag: t.definition(t.variableName), color: "var(--rf2-cm-def)" },
   { tag: t.variableName, color: "var(--rf2-cm-var)" },
-  // ns / def-like heads / operator symbols are tagged `keyword`.
+  // ns, def-like heads and operator symbols are tagged `keyword`.
   { tag: t.keyword, color: "var(--rf2-cm-keyword)" },
   { tag: t.string, color: "var(--rf2-cm-string)" },
   { tag: t.number, color: "var(--rf2-cm-number)" },
   { tag: t.regexp, color: "var(--rf2-cm-regexp)" },
   { tag: t.null, color: "var(--rf2-cm-atom)" },
   { tag: [t.lineComment, t.comment], color: "var(--rf2-cm-comment)", fontStyle: "italic" },
-  // DocStrings are tagged `emphasis`.
+  // Docstrings are tagged `emphasis`.
   { tag: t.emphasis, color: "var(--rf2-cm-string)", fontStyle: "italic" },
-  // Bracket matching (paredit/match_brackets) — keep delimiters readable.
   { tag: t.bracket, color: "var(--rf2-cm-bracket)" },
 ]);
 
-// Per-scheme palette + token-span colour protection. Two concerns:
-//   1. Supply the `--rf2-cm-*` vars per Material scheme. The selectors below
-//      target an ancestor `[data-md-color-scheme]` of the editor so the var
-//      cascade resolves to the ACTIVE scheme (Material swaps that attribute on
-//      <html> when the reader toggles light/dark).
-//   2. Material's typeset CSS styles `code`/`pre` spans; CM6 token spans live
-//      inside `.cm-content` and could inherit. Pin token spans to `inherit`
-//      bg + the var colour so the highlight wins (extra specificity via the
-//      `.cm-content` scope), without touching playground.css (sibling owns it).
 const editorTheme = EditorView.theme({
   "&": {
     fontSize: "14px",
     border: "1px solid var(--md-default-fg-color--lightest, #ccc)",
     borderRadius: "4px",
-    // Light/default scheme palette (also the no-Material fallback).
-    "--rf2-cm-keyword": "#7c3aed",
-    "--rf2-cm-atom": "#0b7285",
-    "--rf2-cm-def": "#1864ab",
-    "--rf2-cm-var": "var(--md-typeset-color, #24292e)",
-    "--rf2-cm-string": "#2b8a3e",
-    "--rf2-cm-number": "#e8590c",
-    "--rf2-cm-regexp": "#c2255c",
-    "--rf2-cm-comment": "#868e96",
-    "--rf2-cm-bracket": "var(--md-default-fg-color--light, #5c6370)",
   },
   ".cm-content": { fontFamily: "var(--md-code-font, monospace)" },
-  // Keep CM token spans from inheriting Material typeset colours.
+  // Material styles code spans; keep its backgrounds off the token spans.
   ".cm-content span": { backgroundColor: "transparent" },
 });
 
-// Slate (dark) palette. EditorView.theme scopes rules under the editor's
-// generated class, so a bare `[data-md-color-scheme="slate"]` selector would
-// not match an ANCESTOR. Define the dark palette as a plain document-level
-// stylesheet, injected once, that re-points the vars on any `.cm-editor`
-// living inside a slate-scheme subtree.
-let darkPaletteInjected = false;
-function ensureDarkPalette() {
-  if (darkPaletteInjected) return;
-  darkPaletteInjected = true;
-  const style = document.createElement("style");
-  style.id = "rf2-cm-dark-palette";
-  style.textContent =
-    '[data-md-color-scheme="slate"] .cm-editor {' +
-    "  --rf2-cm-keyword: #c792ea;" +
-    "  --rf2-cm-atom: #56d4dd;" +
-    "  --rf2-cm-def: #82aaff;" +
-    "  --rf2-cm-var: var(--md-typeset-color, #d6deeb);" +
-    "  --rf2-cm-string: #addb67;" +
-    "  --rf2-cm-number: #f78c6c;" +
-    "  --rf2-cm-regexp: #f78c6c;" +
-    "  --rf2-cm-comment: #7f95a3;" +
-    "  --rf2-cm-bracket: var(--md-default-fg-color--light, #93a1ad);" +
-    "}";
-  document.head.appendChild(style);
-}
-
 // --- Cell mount ------------------------------------------------------------
-
-function cellKind(preEl) {
-  if (preEl.classList.contains("language-cljs-rf2")) return "rf2";
-  return "eval";
-}
 
 function mountCell(preEl) {
   if (preEl.dataset.cljsMounted) return;
   const source = preEl.textContent.replace(/\n+$/, "");
-  const kind = cellKind(preEl);
-  const isMount = kind === "rf2";
+  const kind = preEl.matches(RF2_CELL) ? "rf2" : "eval";
 
   const wrap = document.createElement("div");
   wrap.className = "cljs-cell";
@@ -301,69 +187,44 @@ function mountCell(preEl) {
   const editorHost = document.createElement("div");
   editorHost.className = "cljs-editor";
   const resultEl = document.createElement("div");
-  resultEl.className = isMount ? "cljs-result cljs-mount" : "cljs-result";
+  resultEl.className = kind === "rf2" ? "cljs-result cljs-mount" : "cljs-result";
   wrap.appendChild(editorHost);
   wrap.appendChild(resultEl);
 
-  // Replace the static <pre> with the live cell, but mark BOTH so re-scans on
-  // instant nav skip an already-mounted cell (the wrap is what survives).
+  // Mark both elements so a re-scan after instant navigation skips this cell.
   preEl.dataset.cljsMounted = "1";
   preEl.replaceWith(wrap);
   wrap.dataset.cljsMounted = "1";
-
-  // Inject the dark-scheme palette stylesheet once (no-op if already present).
-  ensureDarkPalette();
 
   const state = EditorState.create({
     doc: source,
     extensions: [
       lineNumbers(),
       history(),
-      ...default_extensions, // clojure-mode: lezer syntax, close/match brackets, paredit
-      // Paint the Lezer tags clojure-mode emits. default_extensions parses +
-      // tags but ships NO HighlightStyle — without this the cells render as
-      // plain monospace.
+      ...default_extensions,
       syntaxHighlighting(highlightStyle),
       keymap.of([...complete_keymap, ...defaultKeymap, ...historyKeymap]),
-      evalKeymap(() => resultEl, kind),
+      evalKeymap(resultEl, kind),
       editorTheme,
     ],
   });
 
   new EditorView({ state, parent: editorHost });
 
-  // re-frame2 render cells auto-mount on load so the live component is visible
-  // without interaction (the demo is the point). Plain eval cells stay
-  // Mod-Enter-only — they print a value, which the reader triggers
-  // deliberately. Editing + Mod-Enter re-renders any kind.
-  if (isMount) {
-    try {
-      runCell(kind, source, resultEl);
-    } catch (e) {
-      renderError(resultEl, e);
-    }
-  }
+  // A re-frame2 cell is a demo, so it renders straight away. A plain cell
+  // waits for the reader to press Mod-Enter.
+  if (kind === "rf2") runCell(kind, source, resultEl);
   return wrap;
 }
 
 function mountAll() {
-  document.querySelectorAll(ANY_CELL_SELECTOR).forEach(mountCell);
+  document.querySelectorAll(UNMOUNTED_CELLS).forEach(mountCell);
 }
 
-// --- Scittle loader + instant-nav bootstrap --------------------------------
-//
-// Material's
-// `navigation.instant` swaps page <main> via fetch and does NOT re-execute
-// inline page <script>s, but it DOES re-run every `extra_javascript` module
-// on each instant nav.
-// So this module fires on initial load and every instant page swap. It is:
-//   - Guarded: it does nothing on pages with no ```cljs cells (Scittle's ~183 KB
-//     gz only loads on the page that actually has live cells).
-//   - Idempotent: injects the Scittle <script> at most once per document;
-//     on later instant navs it just re-scans the freshly swapped DOM.
+// --- Engine loading and instant navigation ----------------------------------
 
-// Resolve sibling-asset URLs relative to THIS file's own location, so the
-// /re-frame2/ GitHub Pages sub-path and the domain root both work.
+// Resolve siblings against this file's own URL so the site works both at the
+// domain root and under the /re-frame2/ sub-path.
 const selfUrl =
   (document.currentScript && document.currentScript.src) ||
   (function () {
@@ -376,20 +237,6 @@ const selfUrl =
     return "";
   })();
 
-function hasCells() {
-  return (
-    document.querySelector(
-      "pre.language-cljs, pre.language-cljs-rf2"
-    ) !== null
-  );
-}
-
-function hasRf2Cells() {
-  return document.querySelector("pre.language-cljs-rf2") !== null;
-}
-
-// Resolve a sibling-asset URL (same dir as this file) for /re-frame2/
-// sub-path safety. selfUrl is this module's own src (set below).
 function siblingUrl(name) {
   try {
     return new URL(name, selfUrl).href;
@@ -398,84 +245,51 @@ function siblingUrl(name) {
   }
 }
 
-// Inject a classic <script> at most once per document (keyed by `id`) and call
-// `onReady` when it has loaded (or immediately, if `already()` is already true).
-// Handles the instant-nav re-entry case: an earlier nav may have injected the
-// tag but it has not finished loading yet, so we attach another load listener.
-function ensureScript(id, src, already, onReady) {
-  if (already()) {
-    onReady();
-    return;
-  }
+// Injects a classic <script> at most once per document (keyed by `id`) and
+// resolves once `ready()` holds. A tag injected by an earlier navigation may
+// still be loading, so an existing tag gets another listener.
+function loadScript(id, src, ready) {
+  if (ready()) return Promise.resolve();
   let script = document.getElementById(id);
   if (!script) {
     script = document.createElement("script");
     script.id = id;
     script.src = src;
-    script.addEventListener("load", onReady);
     document.body.appendChild(script);
-  } else {
-    script.addEventListener("load", onReady);
   }
+  return new Promise((resolve, reject) => {
+    script.addEventListener("load", resolve);
+    script.addEventListener("error", () => reject(new Error("failed to load " + src)));
+  });
 }
 
-function scittleReady() {
-  return !!(
-    window.scittle &&
-    window.scittle.core &&
-    window.scittle.core.eval_string
-  );
-}
+const scittleReady = () =>
+  !!(window.scittle && window.scittle.core && window.scittle.core.eval_string);
+const rf2Ready = () => !!(window.rf2sci && window.rf2sci.renderLast);
 
-function ensureScittle(onReady) {
-  ensureScript("cljs-scittle-js", SCITTLE_SRC, scittleReady, onReady);
-}
-
-// Load the self-contained re-frame2 SCI bundle. It installs
-// window.rf2sci.renderLast and bundles its own React 19 — no external React,
-// no Scittle. Idempotent across instant navs (keyed by id); "ready" =
-// window.rf2sci present.
-function rf2Ready() {
-  return !!(window.rf2sci && window.rf2sci.renderLast);
-}
-
-function ensureRf2(onReady) {
-  ensureScript("cljs-rf2-js", siblingUrl(RF2_BUNDLE_NAME), rf2Ready, onReady);
-}
-
-function loadPlayground() {
-  // Instant-nav teardown. Material's navigation.instant has
-  // already swapped <main>, discarding the OUTGOING page's live cells. Release
-  // that page's re-frame2 resources — every detached React root plus every
-  // page-owned frame — BEFORE mounting this page's cells, so roots don't
-  // accumulate and a colliding frame id can't reuse the prior page's state
-  // (its :initial-events seed skipped). Run it unconditionally when the bundle
-  // is present — INCLUDING when navigating to a cell-less page (which returns
-  // just below): a no-op on first load (bundle not yet injected) and whenever
-  // nothing was created.
+async function loadPlayground() {
+  // Instant navigation has already discarded the outgoing page's cells.
+  // Release their React roots, frames and registrations before this page's
+  // cells mount, including when this page has no cells at all.
   if (window.rf2sci && window.rf2sci.disposePage) {
     window.rf2sci.disposePage();
   }
-  if (!hasCells()) return;
-  // The re-frame2 bundle is independent of Scittle (it carries its own SCI +
-  // React). Plain ```cljs cells still need Scittle.
-  const needsScittle = document.querySelector("pre.language-cljs") !== null;
-  const finishScittlePath = () => {
-    if (hasRf2Cells()) ensureRf2(mountAll);
-    else mountAll();
-  };
-  if (needsScittle) {
-    ensureScittle(finishScittlePath);
-  } else if (hasRf2Cells()) {
-    // re-frame2-only page: skip Scittle entirely.
-    ensureRf2(mountAll);
+  const engines = [];
+  if (document.querySelector(EVAL_CELL)) {
+    engines.push(loadScript("cljs-scittle-js", SCITTLE_SRC, scittleReady));
   }
+  if (document.querySelector(RF2_CELL)) {
+    engines.push(loadScript("cljs-rf2-js", siblingUrl(RF2_BUNDLE_NAME), rf2Ready));
+  }
+  if (engines.length === 0) return;
+  // Mount even if an engine failed to load: the editors still work, and a
+  // cell that needs the missing engine shows the error when it runs.
+  await Promise.allSettled(engines);
+  mountAll();
 }
 
-// Subscribe ONCE to Material's document$ (emits on initial load AND every
-// instant nav). A global guard prevents stacking duplicate subscribers if
-// Material re-executes this module. Fall back to DOMContentLoaded when
-// instant-nav (document$) is absent.
+// Material's `document$` emits on the first load and on every instant
+// navigation. Subscribe once, even if Material re-executes this script.
 if (window.document$ && typeof window.document$.subscribe === "function") {
   if (!window.__rf2PlaygroundSubscribed) {
     window.__rf2PlaygroundSubscribed = true;
@@ -487,11 +301,9 @@ if (window.document$ && typeof window.document$.subscribe === "function") {
   document.addEventListener("DOMContentLoaded", loadPlayground);
 }
 
-// Expose for the test harness.
+// Hooks for test/smoke.test.mjs. `__rf2PlaygroundLoad` is the entry point the
+// smoke calls after swapping the cell DOM, as Material does on navigation.
 window.__rf2PlaygroundMountAll = mountAll;
 window.__rf2PlaygroundEvalCljs = evalCljs;
 window.__rf2PlaygroundRenderRf2 = renderComponentRf2;
-// The instant-nav entrypoint: the smoke drives a simulated
-// navigation.instant swap by replacing the cell DOM then calling this, exactly
-// as Material's document$ subscription does on a real page swap.
 window.__rf2PlaygroundLoad = loadPlayground;
