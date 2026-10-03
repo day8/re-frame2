@@ -756,44 +756,33 @@
            (rf.late-bind/get-fn :resources/drain-blocking-ssr!)))))
 
 ;; ===========================================================================
-;; 2c. SSR blocking drain ↔ WORK-LEDGER TERMINAL completion (EP-0011
-;;     §SSR, Preload, Hydration, And Restore / validation item
-;;     "SSR preload: blocking route resources settle through ledger terminal
-;;     statuses")
+;; 2c. SSR blocking drain over the REAL resource / work-ledger path
 ;; ===========================================================================
 ;;
-;; The §2b drain-loop tests above drive the loop with a pump that DIRECTLY
-;; flips the entry `:status` (or settles it via `settle-blocking-timeout`) — they
-;; prove the drain releases when the ENTRY settles, but they never exercise the
-;; real resource/work-ledger path, so they do NOT pin the drain to the WORK
-;; LEDGER reaching a terminal state. EP-0011 §SSR is explicit: "SSR waits for
-;; ledger rows associated with the current route/nav-token to become terminal"
-;; and "blocking route resources settle through ledger terminal statuses".
-;;
-;; These tests enqueue a blocking resource through the REAL `:rf.resource/ensure`
-;; event (which writes the entry `:loading`, a `:running` work-ledger row, AND a
-;; host-handle side-table slot) and settle it through the REAL
+;; The drain gates on the blocking ENTRY's `:status` alone (`blocking-settled?`
+;; reads `entry-settled?`); it never reads the work ledger. The §2b tests drive
+;; it with a pump that flips that status directly. These drive it through the
+;; REAL `:rf.resource/ensure` event (which writes the entry `:loading`, a
+;; `:running` work-ledger row, AND a host-handle side-table slot) and the REAL
 ;; `:rf.resource.internal/succeeded` reply (which moves the entry `:loaded`, the
 ;; ledger row terminal `:completed`, prunes terminal rows, and clears the host
-;; handle — `succeeded-handler`). The pump fires the real reply, so when the
-;; drain releases, the JOINED facts are asserted: the work-ledger row is
-;; TERMINAL and the host handle is CLEARED. The adversarial inverse pins the
-;; join the other way — a row that stays NON-terminal (entry never settles)
-;; keeps the drain blocked until the deadline, never releasing on a partial /
-;; wall-clock signal.
+;; handle — `succeeded-handler`). Because the reply settles the entry and its
+;; row in one write, a drain released by the entry leaves no live work behind
+;; the render: the row is TERMINAL and the host handle CLEARED. The adversarial
+;; inverse runs the same path with no reply, so the entry stays `:loading` (its
+;; row `:running`) and the drain holds until the deadline.
 
 (defn- ledger-row
   "The work-ledger record for `work-id` in `frame-id`'s live runtime-db, or nil."
   [frame-id work-id]
   (rf.resources.work-ledger/get-record (rf.frame/frame-runtime-db-value frame-id) work-id))
 
-(deftest drain-releases-only-when-work-ledger-row-terminal-real-path
+(deftest drain-release-on-the-real-path-leaves-the-ledger-row-terminal
   (reg! :article/by-slug)
   (testing "a blocking resource enqueued through the REAL resource
-            path settles the ENTRY and the WORK-LEDGER ROW together; when the
-            SSR drain releases, the associated ledger row is TERMINAL and the
-            host handle is cleared (EP-0011 §SSR: SSR waits for ledger rows to
-            become terminal)"
+            path settles the ENTRY and the WORK-LEDGER ROW together, so when the
+            SSR drain releases on the entry's settled status, the associated
+            ledger row is TERMINAL and the host handle is cleared"
     (let [fid :ssr/drain-ledger-terminal]
       (rf/make-frame {:id fid :doc "ssr ledger-terminal drain frame" :platform :server})
       ;; REAL ensure: writes the entry :loading + a :running ledger row + a host
@@ -832,7 +821,7 @@
             (is (true? (:settled? res)))
             (is (nil? (:route-blocking-failure res)) "no timeout — settled in time"))
           (testing "the JOIN: when the drain released, the entry is :loaded AND
-                    the work-ledger row is TERMINAL (the EP-0011 §SSR contract)"
+                    the work-ledger row is TERMINAL"
             (is (= :loaded (get-in (rf.frame/frame-runtime-db-value fid)
                                    (conj (rf.resources.state/entry-path gkey) :status)))
                 "the blocking entry settled :loaded")
@@ -850,11 +839,10 @@
 
 (deftest drain-blocks-while-work-ledger-row-non-terminal-real-path
   (reg! :article/by-slug)
-  (testing "ADVERSARIAL: while the work-ledger row stays NON-terminal
-            (the real reply never lands, so the entry stays :loading), the SSR
-            drain MUST NOT release — it blocks until the render deadline, then
-            settles the entry to a first-load failure (it never releases on a
-            partial / wall-clock signal while the row is non-terminal)"
+  (testing "ADVERSARIAL: while the real reply never lands, the entry stays
+            :loading (and its work-ledger row NON-terminal), so the SSR drain,
+            which reads the entry's status, MUST NOT release — it blocks until
+            the render deadline, then settles the entry to a first-load failure"
     (let [fid :ssr/drain-ledger-nonterminal]
       (rf/make-frame {:id fid :doc "ssr ledger-nonterminal drain frame" :platform :server})
       (rf/dispatch-sync [:rf.resource/ensure
@@ -1180,10 +1168,15 @@
                        :loaded-at 1000 :stale-at 9.0e15})
           rdb  (runtime-db-with {k e})
           proj (rf.resources.ssr/project-resources-runtime-db rdb)
+          hyd  (rf.resources.ssr/hydrate-runtime-db proj :app/main)
           m    (only-projection-metadata rdb)
           wk   (:projected-key m)]
       (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
           (str "the row does not ride: " (pr-str proj)))
+      (is (empty? (get-in hyd [rf.resources.state/resources-key :entries]))
+          "hydrating that projection installs no row")
+      (is (empty? (rf.resources.ssr/hydrate-refetch-plan hyd 5000))
+          "and plans nothing")
       (is (not= {:slug "s"} (nth wk 2)) "the sensitive params do not ride raw")
       (is (= :secret/thing (nth wk 1)) "the resource-id is preserved for refetch identity")
       (is (true? (:refetch-on-client? m))
