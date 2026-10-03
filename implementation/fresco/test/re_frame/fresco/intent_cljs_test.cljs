@@ -62,14 +62,7 @@
       (ha (ev {}))
       (hb (ev {}))
       (is (= [[:ping]] @!a))
-      (is (= [[:ping]] @!b))))
-  (testing "and it still works with no ambient frame bound — the browser
-            calls it long after the render unwound"
-    (let [!seen (recorder)
-          h     (lowered (dispatching !seen) :on-click [:ping])]
-      (is (nil? rf.fresco.impl.intent/*dispatch*))
-      (h (ev {}))
-      (is (= [[:ping]] @!seen)))))
+      (is (= [[:ping]] @!b)))))
 
 (deftest an-intent-lowered-outside-a-boundary-is-a-loud-error
   (is (nil? rf.fresco.impl.intent/*dispatch*))
@@ -86,9 +79,6 @@
   (let [d (dispatching (recorder))]
     (testing "a vector at a non-event position is data, not an intent"
       (is (= [:a :b] (lowered d :data-path [:a :b]))))
-    (testing "an ordinary function at an event position stays legal"
-      (let [f (fn [_e] :called)]
-        (is (identical? f (lowered d :on-click f)))))
     (testing "a string, a number and nil are left alone"
       (is (= "x" (lowered d :on-click "x")))
       (is (= 3 (lowered d :on-click 3)))

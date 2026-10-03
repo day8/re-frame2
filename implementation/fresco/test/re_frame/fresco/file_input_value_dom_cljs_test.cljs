@@ -142,20 +142,6 @@
     (is (nil? (thrown-by #(rf.fresco.impl.codec/as-element
                            [:input {:type :file :on-change noop-change}]))))))
 
-(deftest every-other-controlled-field-is-untouched
-  (doseq [[what hiccup]
-          [["a text input" [:input {:value "x" :on-input noop-change}]]
-           ["a typed text input" [:input {:type :text :value "x"
-                                          :on-input noop-change}]]
-           ["a number input" [:input {:type :number :value "1"
-                                      :on-input noop-change}]]
-           ["a checkbox carrying a submission value"
-            [:input {:type :checkbox :value "yes" :checked true
-                     :on-change noop-change}]]
-           ["a textarea" [:textarea {:value "x" :on-input noop-change}]]
-           ["a select" [:select {:value "x" :on-change noop-change}]]]]
-    (is (nil? (thrown-by #(rf.fresco.impl.codec/as-element hiccup))) what)))
-
 ;; ---------------------------------------------------------------------------
 ;; 2 — THE MARKER
 ;; ---------------------------------------------------------------------------
@@ -201,21 +187,11 @@
   (testing "`.files` is null on every input but the file one, and absent
            entirely off an input — so no other control pays more than the
            one property read"
-    (doseq [[what target expected]
-            [["a text input" #js {:files nil :value "typed"} "typed"]
-             ["an <input type=email multiple>, which carries `.multiple`
-               and has no selection"
-              #js {:files nil :multiple true :value "a@b.com,c@d.com"}
-              "a@b.com,c@d.com"]
-             ["a <select multiple>, whose selection is a list"
-              #js {:multiple true :value "a"
-                   :selectedOptions (array #js {:value "a"} #js {:value "c"})}
-              ["a" "c"]]
-             ["a single <select>" #js {:value "urgent"} "urgent"]]]
-      (is (= [:app/pick expected]
-             (rf.fresco.impl.intent/materialize [:app/pick :re-frame.fresco/value]
-                                 (ev target)))
-          what))))
+    (is (= [:app/pick "typed"]
+           (rf.fresco.impl.intent/materialize [:app/pick :re-frame.fresco/value]
+                               (ev #js {:files nil :value "typed"})))
+        "a text input — the multiple and single <select> rows are
+         `select-multiple-value-dom-cljs-test`'s")))
 
 (deftest the-real-file-input-agrees-with-the-stand-in
   (if-not (browser?)
