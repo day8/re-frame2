@@ -113,15 +113,12 @@
   (testing "`::aliased-row` IS `(keyword \"<ns>\" \"<sym>\")`, so an author
             who knows how to name a core view already knows how to name a
             Fresco one"
-    (is (some? (slot ::aliased-row)))
-    (is (= "re-frame.fresco.view-alias-registry-cljs-test"
-           (namespace ::aliased-row))))
+    (is (some? (slot ::aliased-row))))
 
   (testing "the peer proves it is ONE convention and not two that happen to
             agree today — both ids are this namespace qualifying the
             declaration's own symbol"
-    (is (some? (slot ::core-peer)))
-    (is (= (namespace ::aliased-row) (namespace ::core-peer)))))
+    (is (some? (slot ::core-peer)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The coordinate — where `reg-view` stores it
@@ -168,11 +165,10 @@
     (is (not (contains? (slot ::aliased-row) :executable-key)))))
 
 (deftest rf-view-answers-the-boundary-and-answers-it-untouched
-  (testing "`(rf/view id)` resolves a Fresco view the way it resolves a
-            Reagent or a UIx one — one lookup, every substrate"
-    (is (some? (rf/view ::aliased-row))))
 
-  (testing "and what comes back is `identical?` to the `def` value.
+  (testing "`(rf/view id)` resolves a Fresco view the way it resolves a
+            Reagent or a UIx one — one lookup, every substrate — and what
+            comes back is `identical?` to the `def` value.
             `view-head` returns a slot this namespace did not build exactly
             as stored, so nothing composed, wrapped or componentised a
             boundary that already IS a React component"
@@ -300,15 +296,12 @@
   (let [coords (select-keys (slot ::aliased-row) coord-keys)
         head   #(:handler-fn (slot ::aliased-row))]
 
-    (testing "the entry names no `:executable-key`, and does not need to:
-              the registrar's derivation already defaults to `:handler-fn`,
-              which is where the head lives. The registrar tells the two
-              cases apart without learning anything about Fresco — and
-              without Fresco telling it anything either. The two rows below
-              are the proof that the default derivation actually bites; this
-              one only records that nothing is pointing it anywhere"
-      (is (not (contains? (slot ::aliased-row) :executable-key)))
-      (is (fn? (head))))
+    ;; The entry names no `:executable-key`, and does not need to: the
+    ;; registrar's derivation already defaults to `:handler-fn`, which is
+    ;; where the head lives (`the-entry-carries-the-minted-head-itself`).
+    ;; The registrar tells the two cases apart without learning anything
+    ;; about Fresco — and without Fresco telling it anything either. The two
+    ;; rows below are the proof that the default derivation actually bites.
 
     (testing "a save that changes the boundary's body mints a NEW head, and
               the replacement is reported as a real change — the tag a

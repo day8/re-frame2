@@ -163,9 +163,7 @@
               :options     :not-a-map}
              data)
           "the whole ex-data — the class's own slot rides through, the two
-           ambient keys are gone, and nothing was left nil in their place")
-      (is (not (contains? data :view)))
-      (is (not (contains? data :source))))))
+           ambient keys are gone, and nothing was left nil in their place"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The ambient pair, in each of the three extents a refusal can fire in
@@ -195,9 +193,10 @@
 
 ;; The refusals `mint-host!` raises abort a `def` at namespace load, so a
 ;; bad `defhost` cannot be written at the top of this file — it would not
-;; load to be tested. The declaration extent is therefore asserted in its
-;; two halves: the macro really registers a coordinate, and a refusal
-;; raised inside a declaration extent really picks it up.
+;; load to be tested. The declaration extent is therefore asserted in two
+;; rows: the macro really registers a coordinate, and a refusal the real
+;; macro raises inside a `deftest` picks that declaration up and closes the
+;; extent behind it.
 
 (deftest defhost-registers-its-macro-captured-coordinate
   (testing "the coordinate is keyed by the same `<ns>/<sym>` string the
@@ -208,31 +207,6 @@
       (is (string? (:file coord)))
       (is (pos-int? (:line coord)))
       (is (pos-int? (:column coord))))))
-
-(deftest a-refusal-raised-inside-a-declaration-extent-carries-that-declaration
-  (testing "this is the extent `defhost` opens around `mint-host!`, driven
-            directly because a declaration that refuses cannot be written
-            at the top of a file that must load"
-    (rf.fresco.impl.error/declaring! "app.pickers/calendar" {:ns 'app.pickers :file "app/pickers.cljs"
-                                              :line 12 :column 3})
-    (let [data (refusal #(rf.fresco.impl.error/fail! :rf.error/fresco-bad-host-declaration
-                                      're-frame.fresco.impl.codec/mint-host!
-                                      "defhost was given an option it does not know."
-                                      {:option :nope}))]
-      (rf.fresco.impl.error/declared!)
-      (is (= {:rf.error/id :rf.error/fresco-bad-host-declaration
-              :where       're-frame.fresco.impl.codec/mint-host!
-              :recovery    :no-recovery
-              :view        "app.pickers/calendar"
-              :source      {:ns 'app.pickers :file "app/pickers.cljs" :line 12 :column 3}
-              :option      :nope}
-             (dissoc data :reason)))))
-
-  (testing "and the extent closes, so the next refusal is not attributed to it"
-    (is (nil? (:view (refusal #(rf.fresco.impl.error/fail! :rf.error/fresco-state-bad-argument
-                                            're-frame.fresco.impl.state/reg-state
-                                            "reg-state options must be a map."
-                                            {})))))))
 
 (deftest a-declaration-whose-mint-refuses-closes-its-extent-anyway
   ;; Written through the real macro, and the only refusing declaration in

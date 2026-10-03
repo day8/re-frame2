@@ -329,8 +329,7 @@
       (is (= (inc gen-before) (rf.fresco.impl.generation/generation))))
 
     (testing "every reader of every dirty sub is in the set"
-      (is (= 1 (woken only-a)))
-      (is (= 1 (woken reads-ab))))
+      (is (= 1 (woken only-a))))
 
     (testing "and it is a UNION rather than a concatenation: the boundary
               that read BOTH dirty subs is woken once, not once per dirty

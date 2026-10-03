@@ -118,7 +118,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-author-owns-the-slot-however-the-annotation-is-spelled
-  (doseq [[k framework-value] annotations
+  (doseq [[k _]               annotations
            :let               [slot  (rf.fresco.impl.codec/canonical-slot k)
                                other (first (remove #(= k %) (keys annotations)))]
           spelling            (spellings k)
@@ -131,9 +131,8 @@
              A second one leaves the winner to the map's iteration order,
              which is the defect this row exists to catch")
         (is (= author-value (emitted merged slot))
-            "and the value the codec emits into the slot is the author's")
-        (is (not= framework-value (emitted merged slot))
-            "never the framework's")
+            "and the value the codec emits into the slot is the author's,
+             never the framework's")
         (is (= (get annotations other) (emitted merged (rf.fresco.impl.codec/canonical-slot other)))
             "while the annotation the author did NOT write is still stamped —
              ownership is per slot, not a blanket refusal to annotate")))))

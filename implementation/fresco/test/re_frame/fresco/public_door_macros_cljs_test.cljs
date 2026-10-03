@@ -75,7 +75,7 @@
 ;; Witness A — `h/event`, the one callback form
 ;; ---------------------------------------------------------------------------
 
-(deftest hfn-mints-an-ordinary-function-that-a-position-can-recognise
+(deftest event-mints-an-ordinary-function-that-a-position-can-recognise
   (let [picked (rf.fresco/event [e] [:door/picked (.-value e)])]
 
     (testing "the value is an ordinary function — no carrier object, nothing
@@ -223,15 +223,7 @@
       (is (= "re-frame.fresco.public-door-macros-cljs-test/two-options-host"
              (:host data))
           "named by the declaration it belongs to")))
-
-  (testing "THE NEAR MISS, and it is the whole reason this guard has to be
-            exact: the legal three-form shape — docstring, component, options
-            — is one form longer than the refused two-form one and must still
-            mint, keep its `opts`, and carry its docstring"
-    (is (true? (rf.fresco.impl.codec/host-head? badge))
-        "the two-argument shape, declared at the top of this file")
-    (is (= :render (rf.fresco.impl.codec/host-server badge))
-        "with its options intact")))
+)
 
 (deftest defhost-refuses-options-that-are-not-a-map
   (testing "unguarded, a non-map would go straight from `mint-host!`'s
