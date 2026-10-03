@@ -12,7 +12,8 @@
       resource's OWN coarse `:sensitive?` / `:large?` claim governs its
       whole-entry disposition (`whole-entry-disposition`, frame-blind);
     - a resolver's `:rf.egress/output-sensitivity` claim is SILENTLY IGNORED
-      (not validated fail-closed — it is not a resolver key).
+      (not validated fail-closed — it is not a resolver key), which the
+      scope-registry suite's `output-sensitivity-claim-silently-ignored` pins.
 
   Controls: a resource declared `:sensitive?` redacts via its
   own owner claim; a resource that reads a sensitive input but declares nothing
@@ -99,29 +100,6 @@
 
 (defn- session-key [u page]
   (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :t/feed {:page page}))
-
-;; ===========================================================================
-;; 1. :rf.egress/output-sensitivity is SILENTLY IGNORED, not validated.
-;; ===========================================================================
-
-(deftest output-sensitivity-key-silently-ignored
-  (testing ":rf.egress/output-sensitivity on a resolver is silently ignored — it
-            does NOT throw (Spec 015 §No
-            propagation: the key is silently ignored if present)"
-    (is (= :t/with-claim
-           (rf/reg-resource-scope :t/with-claim
-             {:inputs {:username [:db [:auth :user :username]]}
-              :rf.egress/output-sensitivity :rf.egress/sensitive}
-             (fn [{:keys [username]} _] (when username [:rf.scope/session {:username username}]))))
-        "a resolver with :rf.egress/output-sensitivity registers cleanly")
-    (testing "the key is not stored on the canonical spec"
-      (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :t/with-claim}))))))
-    (testing "even a misspelled value is ignored (no fail-closed throw)"
-      (is (= :t/garbage-claim
-             (rf/reg-resource-scope :t/garbage-claim
-               {:inputs {:locale [:db [:i18n :locale]]}
-                :rf.egress/output-sensitivity :rf.egress/publik}   ;; a misspelled value
-               (fn [{:keys [locale]} _] (when locale [:rf.scope/locale {:locale locale}]))))))))
 
 ;; ===========================================================================
 ;; 2. Whole-entry disposition is the OWNER claim ALONE — no inheritance.

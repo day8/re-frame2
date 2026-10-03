@@ -90,7 +90,7 @@
     (is (= [:realworld/session] (keys (rf/registrations {:source :store :kind :resource-scope})))))
   (testing "scope-resolver-meta reads the canonical spec back"
     (let [m (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :realworld/session}))]
-      (is (fn? (:resolve m)))
+      (is (identical? session-resolve (:resolve m)) "the value-slot fn is stored as :resolve")
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (false? (:whole-db? m)))))
   (testing "clear-resource-scope removes the registration"
@@ -336,29 +336,3 @@
            (rf.resources/reg-resource-scope :s/was-typo-claim
                                          (assoc session-meta :rf.egress/output-sensitivity :rf.egress/publik)
                                          session-resolve)))))
-
-;; ===========================================================================
-;; 8. The canonical 3-slot registration grammar
-;; ===========================================================================
-
-(deftest reg-resource-scope-conforms-to-3-slot-grammar
-  ;; `reg-resource-scope` is `(reg-resource-scope scope-id
-  ;; metadata resolve-fn)`: the `:resolve` fn is the value slot, `:inputs`
-  ;; lives in the metadata middle slot, matching reg-resource / reg-mutation /
-  ;; reg-route.
-  (testing "the 3-arg form stores :inputs from the metadata slot and the value
-            fn as :resolve"
-    (rf.resources/reg-resource-scope :s/three-slot
-                                  {:doc "3-slot." :inputs {:username [:db [:auth :user :username]]}}
-                                  session-resolve)
-    (let [m (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/three-slot}))]
-      (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
-      (is (identical? session-resolve (:resolve m)))
-      (is (false? (:whole-db? m)))))
-  ;; The 3-slot grammar is the ONLY arity. The
-  ;; 2-arity and `:doc`-only spellings are pinned as loud registration errors
-  ;; by `inputs-is-required` above.
-  (testing "the resolver first arg is the resolved inputs map"
-    (is (= [:rf.scope/session {:username "jake"}]
-           (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
-                                             :s/three-slot)))))
