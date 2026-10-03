@@ -66,9 +66,8 @@
       ;; :* — :wildcard-action fires.
       (rf/dispatch-sync [:icj9t/same-level [:foo]])
       (is (= [:wildcard] @log)
-          "guard-blocked explicit :foo fell through to same-level :*")
-      (is (not (some #{:explicit} @log))
-          "the guard-blocked explicit action must NOT fire"))))
+          "guard-blocked explicit :foo fell through to same-level :*;
+           the guard-blocked explicit action must NOT fire"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (b) guard-blocked explicit AND no enabled same-level :* → parent :* fires
@@ -98,9 +97,8 @@
       ;; :authenticated, whose :* fires.
       (rf/dispatch-sync [:icj9t/parent-wild [:foo]])
       (is (= [:parent-wildcard] @log)
-          "blocked leaf explicit fell through past the (absent) leaf :* to the parent :*")
-      (is (not (some #{:leaf-explicit} @log))
-          "the guard-blocked leaf explicit action must NOT fire")))
+          "blocked leaf explicit fell through past the (absent) leaf :* to the parent :*;
+           the guard-blocked leaf explicit action must NOT fire")))
 
   (testing "blocked leaf explicit + guard-blocked leaf :* → walks to parent :*"
     (let [log (atom [])
@@ -124,9 +122,8 @@
       (reset! log [])
       (rf/dispatch-sync [:icj9t/parent-wild-blocked-leaf-star [:foo]])
       (is (= [:parent-wildcard] @log)
-          "both leaf candidates blocked ⇒ leaf yields nothing ⇒ parent :* fires")
-      (is (not (some #{:leaf-explicit :leaf-wildcard} @log))
-          "neither guard-blocked leaf candidate fires"))))
+          "both leaf candidates blocked ⇒ leaf yields nothing ⇒ parent :* fires;
+           neither guard-blocked leaf candidate fires"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c) nothing enabled anywhere → genuine no-op (state + log unchanged)
@@ -190,9 +187,8 @@
       (reset! log [])
       (rf/dispatch-sync [:icj9t/priority [:foo]])
       (is (= [:explicit] @log)
-          "enabled explicit fires; same-level :* is NOT consulted")
-      (is (not (some #{:wildcard} @log))
-          "the same-level :* must NOT fire when an explicit candidate is enabled"))))
+          "enabled explicit fires; same-level :* is NOT consulted;
+           the same-level :* must NOT fire when an explicit candidate is enabled"))))
 
 ;; ---------------------------------------------------------------------------
 ;; within-entry candidate-vector fallthrough — pinned here so the cross-key
@@ -221,9 +217,8 @@
       ;; reached because the explicit key DID yield an enabled candidate.
       (rf/dispatch-sync [:icj9t/within-entry [:foo]])
       (is (= [:second] @log)
-          "within-entry fallthrough fired the second candidate; :* not consulted")
-      (is (not (some #{:first :wildcard} @log))
-          "neither the blocked first candidate nor the wildcard fired"))))
+          "within-entry fallthrough fired the second candidate; :* not consulted;
+           neither the blocked first candidate nor the wildcard fired"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (e) compound coverage — leaf blocked explicit, leaf :*, parent :*
@@ -255,9 +250,8 @@
       ;; is shadowed.
       (rf/dispatch-sync [:icj9t/compound [:foo]])
       (is (= [:leaf-wildcard] @log)
-          "leaf :* fired before any parent walk — same-level priority")
-      (is (not (some #{:leaf-explicit :parent-wildcard} @log))
-          "neither the blocked leaf explicit nor the parent :* fired"))))
+          "leaf :* fired before any parent walk — same-level priority;
+           neither the blocked leaf explicit nor the parent :* fired"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (f) parallel-region coverage — each region resolves fallthrough
@@ -289,6 +283,5 @@
       ;; guard-blocked and falls through to that region's same-level :*.
       (rf/dispatch-sync [:icj9t/parallel [:foo]])
       (is (= #{:left-wildcard :right-wildcard} (set @log))
-          "both regions fell through their blocked explicit to their own :*")
-      (is (not (some #{:left-explicit :right-explicit} @log))
-          "neither region's guard-blocked explicit action fired"))))
+          "both regions fell through their blocked explicit to their own :*;
+           neither region's guard-blocked explicit action fired"))))

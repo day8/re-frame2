@@ -88,9 +88,8 @@
       ;; :keyboard/down → no :keyboard/* declared → total :* catches it.
       (rf/dispatch-sync [:z4t2v/ns-beats-total [:keyboard/down]])
       (is (= [:ns-any :total-any] @log)
-          ":mouse/* caught :mouse/down (beating :*); :* caught the un-namespaced-tier :keyboard/down")
-      (is (not (some #{:total-any} (take 1 @log)))
-          "the total :* must NOT fire when the namespace-wildcard is enabled"))))
+          ":mouse/* caught :mouse/down (beating :*); :* caught the un-namespaced-tier :keyboard/down;
+           the total :* must NOT fire when the namespace-wildcard is enabled"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c) guard-blocked exact :mouse/down falls through to :mouse/*
@@ -114,9 +113,8 @@
       ;; to the same-level :mouse/* (fallthrough across tiers).
       (rf/dispatch-sync [:z4t2v/blocked-exact->ns [:mouse/down]])
       (is (= [:ns-any] @log)
-          "guard-blocked exact :mouse/down fell through to :mouse/*")
-      (is (not (some #{:exact-down} @log))
-          "the guard-blocked exact action must NOT fire"))))
+          "guard-blocked exact :mouse/down fell through to :mouse/*;
+           the guard-blocked exact action must NOT fire"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (d) guard-blocked :mouse/* falls through to total :*, then to parent
@@ -139,9 +137,8 @@
       ;; :mouse/* matches :mouse/down but its guard fails ⇒ fall through to :*.
       (rf/dispatch-sync [:z4t2v/blocked-ns->total [:mouse/down]])
       (is (= [:total-any] @log)
-          "guard-blocked :mouse/* fell through to the total :*")
-      (is (not (some #{:ns-any} @log))
-          "the guard-blocked namespace-wildcard action must NOT fire")))
+          "guard-blocked :mouse/* fell through to the total :*;
+           the guard-blocked namespace-wildcard action must NOT fire")))
 
   (testing "guard-blocked leaf :mouse/* + no enabled leaf :* → walks to parent :*"
     (let [log (atom [])
@@ -165,9 +162,8 @@
       ;; parent :authenticated, whose :* fires.
       (rf/dispatch-sync [:z4t2v/blocked-ns->parent [:mouse/down]])
       (is (= [:parent-wildcard] @log)
-          "blocked leaf :mouse/* fell through past the (absent) leaf :* to the parent :*")
-      (is (not (some #{:leaf-ns} @log))
-          "the guard-blocked leaf :mouse/* action must NOT fire"))))
+          "blocked leaf :mouse/* fell through past the (absent) leaf :* to the parent :*;
+           the guard-blocked leaf :mouse/* action must NOT fire"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (e) :mouse/* does NOT match :keyboard/down (namespace isolation)
@@ -221,9 +217,8 @@
       (reset! log [])
       (rf/dispatch-sync [:z4t2v/compound [:mouse/down]])
       (is (= [:leaf-ns] @log)
-          "leaf :mouse/* fired before any parent walk — same-level priority")
-      (is (not (some #{:parent-ns} @log))
-          "the parent :mouse/* must NOT fire when the leaf handled the event")))
+          "leaf :mouse/* fired before any parent walk — same-level priority;
+           the parent :mouse/* must NOT fire when the leaf handled the event")))
 
   (testing "compound: blocked leaf exact → leaf :ns/* → walks to parent exact"
     (let [log (atom [])
@@ -249,9 +244,8 @@
       ;; satisfied so the walk stops — the parent's exact :mouse/down is shadowed.
       (rf/dispatch-sync [:z4t2v/compound-fallthrough [:mouse/down]])
       (is (= [:leaf-ns] @log)
-          "leaf :mouse/* fired before any parent walk — within-level tier priority")
-      (is (not (some #{:leaf-exact :parent-exact} @log))
-          "neither the blocked leaf exact nor the parent exact fired"))))
+          "leaf :mouse/* fired before any parent walk — within-level tier priority;
+           neither the blocked leaf exact nor the parent exact fired"))))
 
 (deftest parallel-region-ns-wildcard-resolves-per-region
   (testing "parallel: each region's :ns/* resolves independently under broadcast"
@@ -294,6 +288,5 @@
       ;; :mouse/down: left region's EXACT wins; right region's :mouse/* fires.
       (rf/dispatch-sync [:z4t2v/parallel-exact [:mouse/down]])
       (is (= #{:left-exact :right-ns} (set @log))
-          "left region's exact beat its :mouse/*; right region caught it via :mouse/*")
-      (is (not (some #{:left-ns} @log))
-          "left region's :mouse/* must NOT fire when its exact :mouse/down is enabled"))))
+          "left region's exact beat its :mouse/*; right region caught it via :mouse/*;
+           left region's :mouse/* must NOT fire when its exact :mouse/down is enabled"))))
