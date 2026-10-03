@@ -1,92 +1,29 @@
 /*
- * Playground smoke.
- * Real headless-Chromium run of the PRODUCTION bundles (docs/cljs/playground.js
- * + docs/cljs/playground-rf2.js) against a page that mimics the mkdocs-emitted
- * DOM: `<pre class="language-cljs">` and `<pre class="language-cljs-rf2">` cells.
+ * Playground smoke: headless Chromium runs the production bundles
+ * (docs/cljs/playground.js + docs/cljs/playground-rf2.js) against a page shaped
+ * like mkdocs output, with `<pre class="language-cljs">` and
+ * `<pre class="language-cljs-rf2">` cells. The page loads only playground.js,
+ * so the bootstrap's own loaders are under test: it must inject Scittle, and
+ * load its sibling playground-rf2.js (window.rf2sci) because the page has
+ * cljs-rf2 cells.
  *
- * Asserts the plain-cell contract:
- *   - The bootstrap auto-injects Scittle (we do NOT add a Scittle <script> to
- *     the test page — proving the production loader path works).
- *   - plain-eval cells mount as CM6 editors.
- *   - (+ 1 2 3) -> "=> 6".
- *   - defn + println + nested coll -> *out* captured + value rendered.
- *   - error cell renders an ERROR, does NOT crash; cell 1 still evals after.
- *   - no uncaught page errors (Scittle's console.error on eval-failure is
- *     expected diagnostic noise, NOT a page error — see spike gotcha #4).
+ * Checks, in page order:
+ *   - plain cells mount as CM6 editors and evaluate: a value, captured *out*,
+ *     and an ERROR result that leaves the next eval working.
+ *   - re-frame2 cells render live and re-render on dispatch: a counter, a
+ *     reg-machine toggle, an eager [:rf.machine/start], reg-view through the
+ *     SCI macro shim in a cell-created frame, a declared coeffect, a reg-flow,
+ *     a program cell mounted in two frames by a second cell, the views.md and
+ *     coeffects.md Try-it edits (each must run on its owning frame, not
+ *     :rf/default), and reg-app-schema.
+ *   - a plain cell evaluates alongside the loaded re-frame2 bundle.
+ *   - an instant-navigation swap releases the outgoing page's React roots,
+ *     destroys its frames and clears its registrations, and framework
+ *     registrations survive it.
+ *   - no uncaught page errors. Scittle reports a failed eval with
+ *     console.error, which is not a page error and is not counted.
  *
- * Asserts the re-frame2-cell contract:
- *   - A ```cljs-rf2 cell makes the bootstrap auto-load the self-contained
- *     re-frame2 SCI bundle (docs/cljs/playground-rf2.js -> window.rf2sci).
- *     We do NOT add that <script> — the loader must, resolving it as a
- *     sibling of playground.js.
- *   - A reagent2 component using re-frame2's OWN subscribe RENDERS live
- *     (re-frame.core v2 reg-event / reg-sub / dispatch-sync), and
- *     clicking a button DISPATCHES a re-frame2 event that re-renders it.
- *   - The plain cell on the SAME page still works alongside the
- *     re-frame2 bundle (Scittle + rf2sci coexist).
- *
- * Asserts the machines contract:
- *   - A second ```cljs-rf2 cell calls real rf/reg-machine against a two-state
- *     toggle machine, renders the state name via rf/subscribe [:rf/machine …],
- *     and clicking
- *     a button flips :on -> :off through reg-machine + dispatch + the :rf/machine
- *     framework sub — proving re-frame.machines's late-bind hooks register at
- *     bundle init (sci.cljs :require's the artefact) and its top-level
- *     (subs/reg-sub :rf/machine ...) + (fx/reg-fx :rf.machine/* ...) forms ran.
- *
- * Asserts the schemas contract:
- *   - A ```cljs-rf2 cell requires re-frame.schemas and calls real
- *     rf/reg-app-schema against a cell-created frame: a valid write installs,
- *     and a write the schema rejects leaves app-db unchanged — proving the
- *     schemas artefact's late-bind hooks and the Malli validator register at
- *     bundle init (sci.cljs :require's the artefact).
- *
- * Asserts the eager-creation-marker contract:
- *   - A fourth ```cljs-rf2 cell pins the quickstart shape: (ns ...) form,
- *     reg-view via the SCI macro shim (injected bare dispatch/subscribe),
- *     and a cell-created frame (make-frame + frame-provider {:frame ...}).
- *   - A third ```cljs-rf2 cell dispatches the eager creation marker
- *     [machine-id [:rf.machine/start]] (the reserved lifecycle keyword)
- *     against a machine
- *     whose :booting initial state holds an `:always` guard. A live
- *     :rf.machine/start runs the initial-entry cascade and settles the machine
- *     to :ready with no user event. The bundle is generated at each
- *     consumption boundary and never committed, so this smoke is the WHOLE
- *     SCI-bundle correctness gate: a stale build whose start kick no-ops
- *     would stick at :booting, and this assertion is what catches it.
- *
- * Asserts the instant-navigation isolation contract:
- *   - Simulating a Material navigation.instant swap (tear out the mounted
- *     cells, inject a "page 2", re-fire the bootstrap's document$ entrypoint)
- *     RELEASES the outgoing page's detached React roots (live root count is
- *     page-2's cell count, not the accumulated sum) and DESTROYS its frames, so
- *     a page-2 cell reusing a page-1 frame id re-seeds from scratch rather than
- *     inheriting the stale app-db. A fresh machine cell still resolves after the
- *     teardown, proving framework registrations (not page-owned) survive.
- *
- * Asserts the edited Core live-cell Try-it variants contract, guarding that
- * an edited cell re-runs on its OWNING frame, not :rf/default:
- *   - views.md :demo two-stepper: the Try-it edit keeps the :demo
- *     frame-root and nests the two steppers in its child
- *     [rf/frame-root {:id :demo …} [:div [qty-stepper] [qty-stepper]]]. BOTH
- *     steppers resolve the :demo frame (seeded :views.qty/value 1) through the
- *     context tier and read 1 — not blank, not inc-on-nil. Clicking one +
- *     moves BOTH (one shared :demo value). The regression this guards: if the
- *     edit dropped the frame-root (changing the LAST form to [:div …]), the
- *     steppers would mount on the harness default frame where the seed never
- *     ran and read nil → blank.
- *   - coeffects.md order-list injected-dispatch + :rf.cofx: the
- *     Try-it edit uses the reg-view-INJECTED (unqualified) dispatch with an
- *     opts 2nd arg — #(dispatch [:demo.order/place {:id (random-uuid)}]
- *     {:rf.cofx {:rf/time-ms N}}). The injected dispatch is locked to the
- *     render frame (:orders via frame-provider), so the placed order lands on
- *     :orders (the list updates) and the supplied :rf.cofx {:rf/time-ms N}
- *     wins over the enqueue stamp (placed-at == N). The regression this
- *     guards: the ns-level rf/dispatch targets :rf/default, so an edit using
- *     it would never land the order on the :orders sub — list empty.
- *
- * Run: node test/smoke.test.mjs   (after both bundles are built + `npm run
- * browsers`)
+ * Run: npm run smoke   (after `npm run build` and `npm run browsers`)
  */
 
 import { createServer } from "node:http";
@@ -116,10 +53,9 @@ if (!existsSync(rf2BundlePath)) {
   process.exit(1);
 }
 
-// A test page that mimics mkdocs output. The playground.js bootstrap is loaded
-// as extra_javascript would load it (a sibling <script src>), and resolves its
-// own URL via document.currentScript.src. We deliberately do NOT include a
-// Scittle <script> — the bootstrap must inject it.
+// playground.js loads as extra_javascript would load it (a <script src>) and
+// resolves its own URL from document.currentScript.src. The page has no
+// Scittle <script>: the bootstrap must inject it.
 const PAGE = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8" />
 <title>playground smoke</title></head>
@@ -223,7 +159,7 @@ const PAGE = `<!DOCTYPE html>
 [stamp-view]</pre>
   <h2>flow cell (reg-flow, rf2 flows artefact)</h2>
   <pre class="language-cljs-rf2">(require '[re-frame.core :as rf])
-;; Pins the flows artefact in the bundle (guide page 7): rf/reg-flow must
+;; Pins the flows artefact in the bundle: rf/reg-flow must
 ;; resolve, the flow must recompute at commit when its input changes, and
 ;; the output path must be readable as ordinary app-db state.
 (rf/reg-event :rf2smoke/flow-init
@@ -359,8 +295,6 @@ const PAGE = `<!DOCTYPE html>
   <script src="/playground.js"></script>
 </body></html>`;
 
-// Every route below writes its own `content-type` explicitly, so there is no
-// extension-to-MIME lookup to do.
 const server = createServer(async (req, res) => {
   try {
     const p = req.url.split("?")[0];
@@ -408,29 +342,19 @@ const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));
 
 /*
- * The navigation's OWN ceiling, named.
+ * The navigation names its own ceiling. Playwright's 30s default would be a
+ * budget nothing here can see, and its `Timeout 30000ms exceeded` line reads
+ * like the 20000ms assertion waits below. `networkidle` settles after `load`,
+ * so that default would bite sooner here than at a `load` site.
  *
- * Without a `timeout:` this `goto` would take Playwright's 30s default —
- * a budget nothing in this file can see or move, and one whose failure
- * line (`Timeout 30000ms exceeded`) is indistinguishable from the 20000ms
- * assertion waits immediately below it. That bites harder here than
- * elsewhere in the class because `networkidle` settles strictly LATER than
- * `load`, so the default bites sooner relative to what is being waited for.
+ * `networkidle` is on purpose: settling includes the bootstrap's Scittle fetch
+ * from cdn.jsdelivr.net (src/playground.mjs `SCITTLE_BASE`). Waiting for
+ * `load` or `commit` instead pushes that public-internet fetch onto the
+ * 20000ms `waitForFunction` below and makes the lane flakier.
  *
- * `networkidle` is deliberate, and this is the site where it matters most:
- * the page under test deliberately ships NO Scittle <script>, because the
- * contract being smoked is that the production bootstrap injects one — from
- * `https://cdn.jsdelivr.net/npm/scittle@…` (see src/playground.mjs
- * `SCITTLE_BASE`). So this page's settle genuinely depends on a fetch across
- * the public internet from a CI runner. Switching to `'load'` or `'commit'`
- * would push that CDN fetch onto the 20000ms `waitForFunction` below and make
- * the lane FLAKIER, not tighter.
- *
- * 60s, therefore: three times the assertion budgets it must stay
- * distinguishable from, and generous enough that a slow-but-working jsDelivr
- * is not read as a broken bootstrap: against a page whose subresource is
- * held 35s, a bare `goto{waitUntil:'networkidle'}` dies at the 30s default,
- * and the same call with `timeout: 60000` resolves.
+ * 60s is three times the assertion budgets, so a failure here is told apart
+ * from theirs, and a slow but working jsDelivr is not read as a broken
+ * bootstrap.
  */
 const NAV_TIMEOUT_MS = 60000;
 
@@ -506,8 +430,8 @@ assert(c1again.text.includes("=> 6"), `cell1 still evals to 6 after error (got $
 
 // --- live re-frame2 (v2) render cell -----------------------------------------
 
-// The bootstrap must auto-load the self-contained re-frame2 SCI bundle because
-// the page has a ```cljs-rf2 cell. We did NOT add that <script>.
+// The page has cljs-rf2 cells and no playground-rf2.js <script>, so the
+// bootstrap must load the re-frame2 SCI bundle itself.
 await page.waitForFunction(
   () => !!(window.rf2sci && window.rf2sci.renderLast),
   null,
@@ -578,10 +502,9 @@ assert(
 
 // --- live state-machine cell -----------------------------------------------
 //
-// The machines artefact is bundled (re-frame.machines is :require'd by the
-// SCI build, activating the :machines/* late-bind hooks at load time). A cell
-// that calls real rf/reg-machine + rf/subscribe [:rf/machine …] + rf/dispatch
-// must render the machine's state and flip across button-driven transitions.
+// The SCI build :require's re-frame.machines, which installs its late-bind
+// hooks at load. A cell calling real rf/reg-machine, rf/subscribe
+// [:rf/machine …] and rf/dispatch must render the state and flip it per click.
 await page.waitForSelector(".cljs-cell--rf2 #rf2-tog-state", { timeout: 20000 });
 const togBefore = (await page.locator("#rf2-tog-state").innerText()).trim();
 console.log("machine cell state (initial):", JSON.stringify(togBefore));
@@ -604,14 +527,11 @@ assert(
 
 // --- eager [:rf.machine/start] creation marker ------------------------------
 //
-// This cell dispatches the eager creation marker [machine-id
-// [:rf.machine/start]] (the reserved lifecycle keyword) — the xstate
-// createActor(m).start() equivalent — against a machine whose :booting initial
-// state carries a holding `:always` guard. A live :rf.machine/start must run
-// the initial-entry cascade and settle the machine straight to :ready with NO
-// user event. If the generated SCI bundle were stale, the start kick would
-// no-op and the view would stick at :booting — so this assertion is the
-// bundle's freshness guard.
+// [machine-id [:rf.machine/start]] runs the initial-entry cascade with no user
+// event, so the :booting state's holding `:always` guard settles the machine
+// straight to :ready. playground-rf2.js is generated at build time and never
+// committed; a stale build's start kick no-ops and the view sticks at
+// :booting, which this assertion catches.
 await page.waitForSelector(".cljs-cell--rf2 #rf2-eager-state", { timeout: 20000 });
 const eagerState = (await page.locator("#rf2-eager-state").innerText()).trim();
 console.log("eager-start machine cell state:", JSON.stringify(eagerState));
@@ -622,14 +542,12 @@ assert(
 
 // --- reg-view SCI macro shim ------------------------------------------------
 //
-// reg-view is macro-only on the public surface; the SCI bundle shims it
-// (sci.cljs sci-reg-view) mirroring the real expansion: reg-view* under a
-// :user/<sym> id, injected `dispatch` / `subscribe` locals from a render-time
-// make-capture-frame, and a def'd var. This cell also pins the (ns ...) form
-// and a cell-created frame (make-frame + frame-provider {:frame ...}): the
-// injected ops must resolve :rf2smoke/frame through the context tier, so the
-// seed lands and the clicks move the count IN THAT frame. If any of it
-// regressed, this cell errors or the clicks below do nothing.
+// reg-view is macro-only on the public surface, so the SCI bundle shims it
+// (sci.cljs sci-reg-view) the way the macro expands: reg-view* under a
+// :user/<sym> id, `dispatch` / `subscribe` locals injected from a render-time
+// make-capture-frame, and a def'd var. The cell also uses an (ns ...) form and
+// a cell-created frame, so the injected ops must resolve :rf2smoke/frame
+// through the context tier for the seed to land and the clicks to count.
 await page.waitForSelector(".cljs-cell--rf2 #rf2-rv-cnt", { timeout: 20000 });
 const rvBefore = (await page.locator("#rf2-rv-cnt").innerText()).trim();
 console.log("reg-view cell count (initial):", JSON.stringify(rvBefore));
@@ -701,19 +619,16 @@ assert(twoB2 === "0", `clicking frame :app-a leaves :app-b untouched (got ${JSON
 
 // --- edited :demo two-stepper (views.md Try-it) -----------------------------
 //
-// The views.md Try-it edit keeps the :demo frame-root and nests the
-// two steppers in its child [:div [qty-stepper] [qty-stepper]]. BOTH steppers
-// resolve :demo (seeded :views.qty/value 1) through the context tier, so both
-// read 1 — not blank, not inc-on-nil. Clicking one + moves BOTH (one shared
-// :demo value). Regression guard: dropping the frame-root would mount the
-// steppers on the harness default frame (no seed) and they would read blank.
+// Both steppers sit inside the :demo frame-root, so both resolve :demo through
+// the context tier, read its seed (1), and move together on one +. Without
+// the frame-root they mount on the harness default frame, where the seed never
+// ran, and read blank.
 const rf2StepperErr = await rf2Cells[8].$eval(".cljs-result", (el) =>
   el.classList.contains("cljs-result--err")
 );
 assert(!rf2StepperErr, "two-stepper cell not flagged error");
-// `attached` (not `visible`): a blank span (the dropped-frame-root regression)
-// IS in the DOM but has no box, so waiting for visibility would time out with a
-// crash instead of the legible "both steppers read blank" assert FAIL below.
+// `attached`, not `visible`: a blank span is in the DOM but has no box, so a
+// visibility wait would time out instead of reaching the "not blank" assert.
 await page.waitForSelector(".cljs-cell--rf2 .rf2-qty-val", {
   state: "attached",
   timeout: 20000,
@@ -753,13 +668,11 @@ assert(
 
 // --- edited order-list injected-dispatch + :rf.cofx -------------------------
 //
-// The coeffects.md Try-it edit uses the reg-view-injected dispatch
-// with an opts 2nd arg: #(dispatch [:demo.order/place {:id (random-uuid)}]
-// {:rf.cofx {:rf/time-ms 1735732800000}}). The injected dispatch is locked to
-// the render frame (:orders), so the placed order lands on :orders (the list
-// updates) and the supplied :rf.cofx {:rf/time-ms N} is honoured (placed-at ==
-// N). Regression guard: the ns-level rf/dispatch would target :rf/default and
-// the :orders list would never update.
+// The button calls the reg-view-injected dispatch with an opts arg carrying
+// {:rf.cofx {:rf/time-ms 1735732800000}}. Injected dispatch is bound to the
+// render frame (:orders), so the order lands in the :orders list and the
+// supplied time wins over the enqueue stamp. The ns-level rf/dispatch targets
+// :rf/default, where the order never reaches the :orders list.
 const rf2OrderErr = await rf2Cells[9].$eval(".cljs-result", (el) =>
   el.classList.contains("cljs-result--err")
 );
@@ -801,11 +714,10 @@ assert(
 
 // --- schemas artefact (reg-app-schema) --------------------------------------
 //
-// The schemas artefact is bundled (re-frame.schemas is :require'd by the SCI
-// build, registering its late-bind hooks and the Malli validator at load). The
-// cell registers [:maybe [:int {:min 0}]] at [:sv]; a valid write installs, a
-// -1 write is rejected, and the follow-up inc then reads 6 — an installed -1
-// would read 0.
+// The SCI build :require's re-frame.schemas, which installs its late-bind
+// hooks and the Malli validator at load. The cell's schema at [:sv] is
+// [:maybe [:int {:min 0}]]: 5 installs, -1 is rejected, and the following inc
+// reads 6 (an installed -1 would read 0).
 const rf2SchemaErr = await rf2Cells[10].$eval(".cljs-result", (el) =>
   el.classList.contains("cljs-result--err")
 );
@@ -835,8 +747,8 @@ assert(
   `the schema rejects the -1 write, so inc reads 6 (got ${JSON.stringify(svAfterBad)})`
 );
 
-// A plain eval cell on the SAME page still works alongside the re-frame2 bundle
-// (Scittle + window.rf2sci coexist without interference).
+// Scittle and window.rf2sci coexist: a plain cell evaluates alongside the
+// loaded re-frame2 bundle.
 const c1afterRf2 = await evalCell(0);
 assert(
   c1afterRf2.text.includes("=> 6"),
@@ -846,45 +758,27 @@ assert(
 // --- instant-navigation isolation -------------------------------------------
 //
 // Material's navigation.instant swaps <main> and re-fires window.document$
-// WITHOUT reloading the page, so the playground bootstrap re-scans the fresh
-// DOM but every prior page's React root + re-frame2 frame + registration is
-// still alive process-globally. This section simulates one such nav: it (1)
-// registers a page-owned event id (:page1/stale) and records the live root
-// count from page 1, (2) tears the page-1 cell DOM out and injects a "page 2"
-// whose cells REUSE a page-1 frame id (:rf2smoke/frame) with a fresh seed,
-// register a fresh machine, AND dispatch :page1/stale without re-registering it,
-// then (3) drives the SAME entrypoint a real document$ emission would
-// (window.__rf2PlaygroundLoad).
+// without a reload, so every React root, frame and registration from the
+// previous page lives on in the same JS realm until the bootstrap's
+// disposePage tears it down. This section registers a page-owned event on
+// page 1, swaps in a "page 2", and calls the entrypoint a real document$
+// emission calls (window.__rf2PlaygroundLoad). Page 2 then checks:
+//   - roots released: the live root count is page 2's 3 cells, not 12 + 3.
+//   - frames destroyed: page 2 re-makes :rf2smoke/frame (left at {:rv 2} by
+//     page 1) with a fresh seed. make-frame on a live id keeps its app-db and
+//     skips :initial-events (Spec 002 §Duplicate id), so only a destroyed frame
+//     replays the seed and renders "label: page2-fresh".
+//   - page-owned registrations cleared: page 2 dispatches :page1/stale without
+//     registering it. A surviving handler writes {:leaked-registration true};
+//     a cleared one leaves the dispatch a no-op, so the probe reads "leaked:".
+//   - framework registrations survive: disposePage clears only what was
+//     registered after the baseline captured before the first cell ran, so the
+//     machines artefact's :rf/machine sub and :rf.machine/* fxs resolve for a
+//     fresh reg-machine cell even though every frame, :rf/default included, was
+//     destroyed.
 //
-// Proves:
-//   - Detached roots released: post-nav live root count is page-2's
-//     cell count (3), NOT the accumulated 12 + 3 = 15. Without disposePage the
-//     roots leak.
-//   - Frame isolation / seed replay: :rf2smoke/frame carried {:rv 2}
-//     from page 1; page 2 re-`make-frame`s the SAME id with :initial-events.
-//     Idempotent replacement PRESERVES durable app-db and never REPLAYS the seed
-//     (Spec 002 §Duplicate id policy), so without the destroy-frame! in
-//     disposePage the :label seed is skipped and the cell renders "label: ".
-//     With it the frame is destroyed on nav, recreated fresh, and the seed
-//     replays.
-//   - Page-owned registrations cleared: page 2 dispatches
-//     :page1/stale (an id ONLY page 1 registered) into its own fresh frame
-//     WITHOUT re-registering it. disposePage cleared the page-owned registration,
-//     so the dispatch is a no-op and the leaked-value probe reads "leaked:"
-//     (nil), not "leaked: true". Without that clearing the leaked handler would
-//     run and the probe would read "leaked: true" — the isolation break this
-//     guards.
-//   - Framework registrations survive: a fresh machine cell resolves
-//     reg-machine + the :rf/machine sub after dispose cleared page-owned
-//     registrations and destroyed every frame (incl. :rf/default) — disposePage
-//     reaps page-owned frames + registrations but PRESERVES the machines
-//     artefact's bundle-init framework baseline (:rf/machine sub, :rf.machine/*
-//     fxs, captured before any cell ran).
-// Register a PAGE-OWNED event id (:page1/stale) as a real page-1
-// cell BEFORE the nav. It is post-baseline (the framework baseline was snapshotted
-// at the first cell mount), so disposePage must clear it on the instant nav — the
-// page-2 leak-probe cell below dispatches it WITHOUT re-registering and must not
-// reach this handler. Mounting it adds one live root (page 1 now holds 12).
+// Page 1: register :page1/stale from a real cell. It lands after the baseline,
+// so it is page-owned. Its cell is page 1's 12th live root.
 await page.evaluate(() => {
   const host = document.createElement("div");
   const cell = document.createElement("pre");
@@ -909,8 +803,8 @@ assert(
 );
 
 await page.evaluate(() => {
-  // Mimic navigation.instant: discard every mounted cell (Material replaces the
-  // whole <main>), then inject page 2's cells as fresh, unmounted <pre> nodes.
+  // navigation.instant replaces the whole <main>: discard every mounted cell,
+  // then inject page 2's cells as fresh, unmounted <pre> nodes.
   document.querySelectorAll(".cljs-cell").forEach((el) => el.remove());
   const host = document.createElement("div");
   const cellA = document.createElement("pre");
@@ -939,13 +833,9 @@ await page.evaluate(() => {
     "    [:div [:span#rf2-nav-tog \"tog: \" (str (:state snap))]]))",
     "[tog2]",
   ].join("\n");
-  // Leak-probe: page 2 dispatches :page1/stale (page 1's id) WITHOUT
-  // re-registering it, into its OWN fresh frame, then reads back through a
-  // page-2-owned sub whether the leaked handler ran. If page 1's registration
-  // survived the nav, the handler writes {:leaked-registration true} and the
-  // probe renders "leaked: true"; once disposePage has cleared the
-  // page-owned :page1/stale, the dispatch is a no-op (:rf.error/no-such-handler
-  // recovers), and the probe renders "leaked:".
+  // Leak probe: dispatch page 1's :page1/stale into a fresh frame without
+  // registering it, then read back whether its handler ran. With the handler
+  // cleared, :rf.error/no-such-handler is recovered and nothing is written.
   const cellC = document.createElement("pre");
   cellC.className = "language-cljs-rf2";
   cellC.textContent = [
@@ -985,9 +875,6 @@ assert(
   `machine framework registrations survive dispose (got ${JSON.stringify(navTog)})`
 );
 
-// The page-owned :page1/stale registration was cleared on the nav, so
-// page 2's dispatch through it never reaches page 1's handler — the leaked value
-// does NOT land. "leaked:" (nil) proves isolation; "leaked: true" is the leak.
 const navLeak = (await page.locator("#rf2-nav-leak").innerText()).trim();
 console.log("page 2 leak-probe cell:", JSON.stringify(navLeak));
 assert(

@@ -1,319 +1,188 @@
-# docs/cljs playground (rf2-y99zt Phase 1; rf2-j06sy Phase 1b cutover; rf2-00zvt Phase 3)
+# Live code cells
 
-The roll-your-own live-ClojureScript-cell playground for the `docs/cljs` page —
-the production replacement for Klipse. It turns ` ```cljs ` fenced blocks in
-mkdocs prose into CodeMirror 6 editors that evaluate plain CLJS in the browser
-via Scittle (SCI), instant-nav-safe.
+The docs site turns ` ```cljs ` and ` ```cljs-rf2 ` fenced blocks into editable
+cells that run in the reader's browser. This folder builds the code behind
+them.
 
-Phase 3 (rf2-00zvt) adds a second cell kind for live re-frame2
-components that evaluate re-frame2's OWN public API — see
-[Cell kinds](#cell-kinds) below.
+## Writing a cell
 
-rf2-ldgpd extends the Phase-3 bundle with the optional
-`day8/re-frame2-machines` artefact: `re-frame.machines` is `:require`d
-by the SCI bundle namespace, which fires the artefact's `:machines/*`
-late-bind hook installs at bundle init and registers the
-`:rf/machine` / `:rf.machine/has-tag?` framework subs +
-`:rf.machine/spawn` / `:rf.machine/destroy` (and others) reserved fxs from
-its top-level forms. Those hook installs are what make the machine
-helpers live — `reg-machine*` / `make-machine-handler` /
-`machine-transition`. They sit on
-`re-frame.machines`, NOT on the
-`re-frame.core` façade: the front-porch shrink (rf2-wad2fl) left the
-façade's machine surface as the `reg-machine` / `defmachine` macros
-alone, and `reg-machine` is a JVM-only macro (per-element source-coord
-stamping at expansion time). So the SCI namespace binds `reg-machine` to
-the `re-frame.machines/reg-machine*` fn-alias, and cells write the same
-`(rf/reg-machine ...)` they would in real code.
-Used by ch12 of the guide to demo a real `reg-machine` +
-`subscribe [:rf/machine …]` turnstile.
+A plain ` ```cljs ` cell evaluates ClojureScript and prints the last value.
+The reader presses Mod-Enter (Ctrl-Enter or Cmd-Enter) to run it.
 
-> A short-lived Phase 2 (rf2-bujlr) shipped a third `cljs-render` cell kind for
-> live stock reagent/re-frame demos via the Scittle plugins. It was removed:
-> the guide teaches re-frame2's own API, so no docs page ever used it, and it
-> carried a React-18 CDN surface that exists nowhere else in the repo.
+```cljs
+(defn greet [n] (str "Hello, " n))
+(greet "re-frame2")
+```
 
-## Cell kinds
+```text
+=> "Hello, re-frame2"
+```
 
-| Fence | Class emitted | Behaviour |
-|---|---|---|
-| ` ```cljs ` | `language-cljs` | **plain-eval cell** — evaluates the source and `pr-str`s the last form's value into the result div (Phase 1). |
-| ` ```cljs-rf2 ` | `language-cljs-rf2` | **re-frame2 render cell** — evaluates the source against **re-frame2's OWN public API** (`re-frame.core` v2) and **mounts the last form's value as a reagent2 component** into the result div (Phase 3). Backed by a self-contained SCI bundle (`sci/` → `docs/cljs/playground-rf2.js`), NOT Scittle. |
-
-### re-frame2 cells (` ```cljs-rf2 `, Phase 3)
-
-A `cljs-rf2` cell evaluates against re-frame2's own public API — the v2
-`re-frame.core` (`reg-event` / `reg-sub` / `dispatch` / `subscribe`), rendered
-via reagent2 (the reagent-slim rewrite re-frame2 actually renders through),
-NOT stock re-frame. The last form must be a reagent renderable (a hiccup
-vector `[:div ...]` or a component vector `[my-component]`); the cell
-auto-renders on load and re-renders on Mod-Enter after edits. Its source is
-evaluated at the SCI top level (NOT wrapped in `(do ...)`) so a leading
-`(require ...)`'s aliases reach its sibling top-level forms.
+A ` ```cljs-rf2 ` cell runs against re-frame2's public API and renders its last
+form as a component. It runs when the page loads, and again on Mod-Enter after
+an edit.
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
-(rf/reg-event :init (fn [_ _] {:db {:n 0}}))
-(rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-(rf/reg-sub      :n    (fn [db _] (:n db)))
+
+(rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+(rf/reg-sub   :n   (fn [db _] (:n db 0)))
+
 (rf/reg-view counter []
-  [:div
-   [:span "count: " @(subscribe [:n])]
-   [:button {:on-click #(dispatch [:inc])} "inc"]])
-[rf/frame-root {:id :demo :initial-events [[:init]]}
+  [:button {:on-click #(dispatch [:inc])}
+   "Clicked " @(subscribe [:n]) " times"])
+
+[rf/frame-root {:id :counter}
  [counter]]
 ```
 
-Why this is NOT a Scittle plugin. Scittle's `scittle.reagent.js` /
-`scittle.re-frame.js` plugins ship STOCK reagent + re-frame, and there is no
-published `scittle.core` artefact a standalone plugin build could `:require`
-(Scittle is a monorepo module-graph build). So Phase 3 is a self-contained SCI
-eval bundle (findings doc §6 option B): the `sci/` sub-project is a shadow-cljs
-`:browser` `:advanced` build that depends on `org.babashka/sci` + re-frame2 core
-+ reagent-slim, builds an SCI context via `sci/copy-ns` over `re-frame.core`, and
-installs `window.rf2sci.renderLast`. The bootstrap loads it as a classic
-`<script>` only on pages with a ` ```cljs-rf2 ` cell.
-
-How re-frame2's API reaches a cell:
-
-- In compiled CLJS, `re-frame.core` carries plain-fn aliases for every
-  `reg-*` registration (the macro forms are JVM-only and only add source-coord
-  capture, which a browser cell does not need), so `sci/copy-ns` exposes them
-  under their plain names.
-- `dispatch` / `dispatch-sync` / `subscribe` are macro-in-call-position /
-  fn-in-value-position on CLJS (Convention A), so `sci/copy-ns` already
-  brings the plain-fn form in under their own names; the SCI config still
-  overrides those three entries with playground-local wrappers so a
-  frame-less cell's dispatch/subscribe still resolve to the playground's
-  single frame. That is a fallback, not the shape to copy: a cell that
-  establishes its own frame (`frame-root` + `reg-view`, as the docs' cells do)
-  routes through it unchanged, exactly as a real app would — its `:on-*`
-  callbacks fire against the frame captured at render, not the harness default.
-
-React 19 is bundled, not global. reagent2 targets React 19, which dropped
-its UMD build — so the Phase-2 global-`React`-from-CDN trick is unavailable.
-The `sci/` bundle therefore bundles `react`/`react-dom`@19 (the impl-pinned
-versions) directly: `playground-rf2.js` is one fully self-contained file (no
-external React, no CDN, no version-mismatch risk). ~1.95 MB raw / ~534 KB
-gzipped (1,945,762 / 533,648 bytes, measured on 2026-09-26 on a local
-`shadow-cljs release rf2` build with core, reagent-slim, machines, flows and
-schemas baked in; gzip at its default level).
-
-This is option B from the findings doc
-(`ai/findings/2026-05-21-roll-your-own-cljs-playground.md` §6) realised as a
-self-contained `tools/` artefact. The bootstrap + CM6 editor are plain JS bundled
-by esbuild; the Phase-3 re-frame2 eval engine is the CLJS + shadow-cljs
-sub-build under `sci/`. (This artefact ships its own `sci/shadow-cljs.edn` +
-`sci/deps.edn`, built and run from `sci/` — it adds nothing to the tool
-tier's own build configuration.)
-
-## Stack (pinned)
-
-| Dependency | Version | Role |
+| | ` ```cljs ` | ` ```cljs-rf2 ` |
 |---|---|---|
-| `@nextjournal/clojure-mode` | 0.3.3 | Lezer CLJS mode: syntax, brackets, paredit, `default_extensions` + `complete_keymap` |
-| `@codemirror/state` | ^6.6.0 | CM6 editor state (`EditorState`, `Prec`) |
-| `@codemirror/view` | ^6.43.0 | CM6 view (`EditorView`, `keymap`, `lineNumbers`) |
-| `@codemirror/commands` | ^6.10.3 | history + default keymaps |
-| `@codemirror/language` + `@lezer/highlight` | ^6.12.3 / ^1.2.3 | the `HighlightStyle` + Lezer tags that paint clojure-mode's syntax (rf2-wj623) |
-| Scittle | 0.8.31 | plain-cell SCI eval engine — loaded as a classic `<script>` global from jsDelivr (NOT bundled, NOT an ES module) |
-| esbuild | ^0.28.0 | bundler (IIFE) for the bootstrap |
-| playwright | ^1.60.0 | smoke harness (chromium) |
+| Runs on | [Scittle](https://github.com/babashka/scittle) 0.8.31, from jsDelivr | `docs/cljs/playground-rf2.js`, built from `sci/` |
+| Shows | Printed output and `=> <value>` | The last form, rendered |
+| Runs | On Mod-Enter | On page load and on Mod-Enter |
+| Can `require` | No | Yes |
 
-The Phase-3 re-frame2 eval bundle (`sci/`) pins:
+### What a re-frame2 cell can use
 
-| Dependency | Version | Role |
-|---|---|---|
-| `org.babashka/sci` | 0.11.51 (git) | the SCI interpreter — the re-frame2 cells' eval engine |
-| `day8/re-frame2` (core) | `:local/root` | the public API exposed to cells (`re-frame.core` v2) |
-| `day8/reagent-slim` | `:local/root` | reagent2 (the render substrate) + the `reagent-slim` adapter |
-| `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine artefact (rf2-ldgpd) — activates `reg-machine` / `subscribe [:rf/machine …]` (and the `[:rf.machine/has-tag? …]` sub) for ch12 live cells |
-| `day8/re-frame2-flows` | `:local/root` | Spec 007 flows artefact — activates `reg-flow` for live cells |
-| `day8/re-frame2-schemas` | `:local/root` | Spec 010 schemas artefact, which pulls in Malli — activates `reg-app-schema` and exposes the `re-frame.schemas` namespace to live cells |
-| `react` + `react-dom` | 19.3.0 | **bundled** into `playground-rf2.js` (React 19 has no UMD) |
-| `shadow-cljs` | 3.4.10 | the CLJS → `:advanced` browser bundler |
+- `re-frame.core`, including `reg-view`, `reg-machine`, `reg-flow` and
+  `reg-app-schema`
+- `re-frame.schemas`
+- `reagent2.core` (also available as `reagent.core`), `reagent2.ratom` and
+  `reagent2.dom.client`
+
+Fresco, routing, HTTP and resources are not in the bundle. A cell that
+requires one of them fails because the namespace is not found.
+
+### Rules
+
+- **A plain cell cannot `require`.** Its body is wrapped in one `(do ...)` so
+  the cell can capture `*out*`, and SCI applies a `require`'s aliases only to
+  the top-level forms after it. Use a ` ```cljs-rf2 ` cell for anything that
+  needs a library.
+- **End a re-frame2 cell with a vector.** Hiccup (`[:p "hi"]`) and component
+  vectors (`[counter]`) render. Any other value is shown with `pr-str`, so a
+  cell that ends in a `reg-*` call shows the registered id.
+- **Frames are optional.** A cell that never creates a frame uses
+  `:rf/default`, and `dispatch` and `subscribe` default to it. A cell that
+  creates its own frame with `frame-root` uses that frame, as a real app does.
+- **Cells on one page share state.** Every cell registers into the same
+  registrar, so a later cell can render a view an earlier one registered.
+- **Leaving a page clears it.** On navigation the outgoing page's components
+  unmount, its frames are destroyed and its registrations are removed. Each
+  page registers what it uses.
 
 ## Build
 
 ```bash
 cd docs/tools/playground
 npm install
-npm run build          # builds BOTH bundles (bootstrap + re-frame2 SCI)
-# npm run build:bootstrap   # just the esbuild bootstrap
-# npm run build:rf2         # just the sci/ shadow-cljs re-frame2 bundle
-# npm run build:dev         # unminified bootstrap, for debugging
+npm run build
 ```
 
-`npm run build` produces three deployed assets, under two different
-version-control policies:
+`npm run build` writes three files:
 
-- `docs/cljs/playground.js` — the esbuild IIFE bundle (CM6 + clojure-mode + the
-  instant-nav bootstrap). Committed (vendored prebuilt; bump = re-bundle).
-- `docs/cljs/playground.css` — hand-authored cell styles, copied verbatim.
-  Committed.
-- `docs/cljs/playground-rf2.js` — the shadow-cljs `:advanced` re-frame2 SCI
-  bundle (Phase 3). Built from `sci/` (`shadow-cljs release rf2` → copied from
-  `sci/out/`). NOT committed — generated output, `.gitignored` (rf2-tzy13).
+| File | Built from | Committed |
+|---|---|---|
+| `docs/cljs/playground.js` | `src/playground.mjs`, bundled by esbuild | Yes |
+| `docs/cljs/playground.css` | `src/playground.css`, copied | Yes |
+| `docs/cljs/playground-rf2.js` | `sci/`, built by shadow-cljs | No |
 
-### Local contract (rf2-tzy13)
+The other scripts:
 
-A fresh clone has the two bootstrap assets but no `playground-rf2.js` — you
-build it:
+- `npm run build:bootstrap` builds the two committed files. It needs only
+  Node.
+- `npm run build:rf2` builds the re-frame2 engine. It needs Java and the
+  Clojure CLI, and it runs shadow-cljs, so in this repo it uses the
+  machine-wide build lane (see `AGENTS.md`).
+- `npm run build:dev` builds an unminified `playground.js` for debugging.
 
-- `mkdocs build` alone builds the static docs fine. Every page renders; only the
-  live ` ```cljs-rf2 ` cells have no engine to load.
-- To exercise those cells locally (or to run `npm run smoke`), run `npm run
-  build` — or `npm run build:rf2` for just the SCI bundle — in
-  `docs/tools/playground` first. The smoke fails with an actionable
-  "bundle not found — build it" error if you skip this.
-- Pulling the rf2-tzy13 cutover commit deletes your formerly-tracked copy of
-  the file. The next build recreates it as ignored output; nothing else is
-  needed.
-
-Why it is not committed: the bundle bakes in re-frame2 core + reagent-slim +
-machines + flows + schemas, so every PR touching any of those had to regenerate the
-same ~1.7 MB binary — and two such PRs always conflicted on it. On one day the
-file was rewritten nine times on `main` in seven hours, one P2 correctness fix
-needed five rebase cycles to land, and workers began scoping real work out of
-PRs to dodge the rebuild. Source, config, and locks are the single authority
-now; the artefact is generated at each consumption boundary (PR CI, docs
-deploy, local build).
-
-Neither Scittle nor the re-frame2 bundle is loaded eagerly — the bootstrap
-injects each `<script>` at eval time, only on pages that have the relevant cell
-kind (Scittle for ` ```cljs `; `playground-rf2.js` for ` ```cljs-rf2 `), the
-same guarded, lazy-load pattern the deleted Klipse bootstrap used for its plugin.
+`playground-rf2.js` is not committed. It bundles re-frame2 core and four
+artefacts, so committing it would mean every PR touching any of them
+rebuilds the same 2 MB file, and two such PRs always conflict. CI builds it
+where it is used. `mkdocs build` works without it; re-frame2 cells then show
+an error in place of their output.
 
 ## Test
 
 ```bash
-npm run browsers       # one-time: playwright install chromium
-npm run smoke          # headless chromium drives all cells against the built bundles
+npm run browsers   # once: installs Playwright's Chromium
+npm run smoke
 ```
 
-The smoke loads BOTH production bundles (`docs/cljs/playground.js` +
-`docs/cljs/playground-rf2.js`) against a page that mimics the mkdocs-emitted DOM
-(`<pre class="language-cljs">` + `<pre class="language-cljs-rf2">`), proves the
-bootstrap auto-injects each engine on demand, then asserts:
+The smoke serves both built bundles to headless Chromium on a page shaped
+like mkdocs output. It checks that the bootstrap loads each engine on demand,
+that plain cells evaluate and report errors, that re-frame2 cells render and
+re-render on dispatch (including machine, flow, schema and multi-frame
+cells), and that navigating away releases the outgoing page's React roots,
+frames and registrations. Build both bundles first.
 
-- Phase 1: `(+ 1 2 3) => 6`; a `defn`/`println`/nested-coll cell captures
-  `*out*` and renders the value; an error cell renders `ERROR` without crashing
-  (and cell 1 still evals after).
-- Phase 3: a ` ```cljs-rf2 ` cell makes the bootstrap auto-load the
-  self-contained re-frame2 SCI bundle (`window.rf2sci`); a reagent2 component
-  using re-frame2's OWN `subscribe` renders live; clicking its button
-  `dispatch`es a re-frame2 event and the v2 subscription updates (count 0 → 2);
-  the Phase-1 plain cell on the same page still works alongside it.
-- rf2-ldgpd (machines): a second ` ```cljs-rf2 ` cell calls real
-  `rf/reg-machine` against a two-state toggle machine, renders the state name
-  via `rf/subscribe [:rf/machine …]`, and flips `:on` → `:off` on a button click — proving
-  the machines artefact's `:machines/*` late-bind hooks (`reg-machine*`,
-  `make-machine-handler`, `machine-transition`) and the `:rf/machine`
-  framework sub all activate at bundle init.
+## How it works
 
-Build both bundles first: `npm run build` (or `npm run build:rf2` for just the
-re-frame2 one).
+`mkdocs.yml` declares the two fences under `pymdownx.superfences`, which emit
+`<pre class="language-cljs">` and `<pre class="language-cljs-rf2">`, and
+loads `playground.js` and `playground.css` on every page through
+`extra_javascript` and `extra_css`. It also excludes this folder from the
+site.
 
-### CI
+**The bootstrap** (`src/playground.mjs`) runs on every page. On each Material
+`document$` emission, the first load and every instant navigation, it:
 
-The bundles are gated at two consumption boundaries, and since rf2-tzy13
-that is the whole story — there is no committed SCI snapshot to keep honest, so
-there is no third, snapshot-shaped gate.
+1. calls `window.rf2sci.disposePage()` to release the previous page's cells;
+2. injects the engine for each cell kind on the page, once per document;
+3. replaces each `<pre>` with a CodeMirror 6 editor and a result area.
 
-PR time — `tools-playground` in `.github/workflows/test.yml`, fired by the
-`playground` changed-surface in `.github/scripts/report-changed-surfaces.sh`.
-It builds both bundles, runs the headless-Chromium smoke against them, verifies
-the committed `playground.js` + `.css` are byte-identical to that fresh
-build (`git diff --exit-code`), and structurally validates the generated
-`playground-rf2.js` (non-empty, `shadow$provide`, `rf2sci`, size floor) so a
-build that "succeeded" while emitting a wrong or truncated artefact still fails
-the PR. The surface that fires it now includes every baked-in tree — `core`,
-`adapters/reagent-slim`, `machines`, `flows`, `schemas` — plus the playground itself. That
-widening is affordable because of the untracking: firing the heavy job on
-every core change used to also mean forcing a bundle rebuild + recommit on
-every core PR, which was the write lock rf2-tzy13 removed.
+The re-frame2 engine's URL resolves relative to `playground.js`, so the site
+works both at a domain root and under `/re-frame2/`. Plain-cell pages never load the
+re-frame2 engine, and re-frame2-only pages never load Scittle.
 
-Deploy time — the `build` job in `.github/workflows/docs.yml`. It rebuilds
-both bundles fresh from the checked-out `main` (`npm ci` + `npm run build`, JVM
-+ Clojure + Node) before `mkdocs build` stages `site/`, then — on non-PR
-events only — runs the Chromium smoke against what it just built, and
-`git diff --exit-code`s the committed bootstrap. The artifact that ships is
-the artifact that was smoked. That matters specifically because PRs merge by
-rebase: PR CI validated the pre-rebase tree, not the tree that landed. The
-retired post-merge canary used to cover that gap; running the smoke on the
-deploy path covers it at the exact point of consumption instead, and keeps
-main-push CI to one heavy bundle build rather than two.
+**The re-frame2 engine** (`sci/src/rf2_playground/sci.cljs`) is an SCI
+interpreter with re-frame2 compiled in. It exposes `re-frame.core` with
+`sci/copy-ns` and replaces the JVM-only macros `reg-view`, `reg-machine` and
+`reg-flow` with an SCI macro and runtime fns, so cells write the same calls
+as real code. It installs `window.rf2sci` with `renderLast` and
+`disposePage`. Two build settings matter:
 
-Provenance stamp (rf2-i3e3q; rescoped by rf2-tzy13). Every generated bundle
-carries an unminified `//# rf2-sci-input-digest=<hex>` marker:
+- React 19 has no UMD build, so `react` and `react-dom` are bundled in from
+  `sci/package.json`.
+- `goog.DEBUG` stays true. Cells register handlers and dispatch in the same
+  eval, which needs the dev-mode live registrar.
 
-- `scripts/playground-sci-input-digest.mjs` hashes the declared input roster —
-  the `core` / `reagent-slim` / `machines` / `flows` / `schemas` source trees + their
-  `deps.edn`, the SCI bundle source, the shadow build config, the npm lock, the
-  `copy-bundle.mjs` postprocess step, and the digest script itself — into one
-  deterministic 64-hex digest (each file via `git hash-object`, so the digest is
-  identical on a Windows checkout and a Linux runner). The last two entries are
-  there because they change the emitted bytes or the meaning of the marker:
-  omitting them would let the stamp attest to a tree that no longer describes
-  the file (rf2-nyjml).
-- `docs/tools/playground/sci/scripts/copy-bundle.mjs` stamps it into the bundle
-  it emits, so any artefact records the input set it was compiled from.
+## Adding an artefact to re-frame2 cells
 
-The roster is declared, not derived — deriving it would mean resolving the CLJS
-require graph plus the `deps.edn` classpath. Two checks keep the declaration
-honest: the digest fails if any entry stops matching tracked files (so a
-renamed tree REDs instead of silently leaving the digest), and
-`implementation/scripts/_playground-sci-inputs.test.cjs` expands the real roster
-to prove every declared input selects the `playground` CI job, so the digest's
-inputs and the job that rebuilds the bundle cannot drift apart.
+1. Add it to `sci/deps.edn` as a `:local/root` dep.
+2. Require it in `sci.cljs`, so its late-bind hooks install at load. If cells
+   should `require` one of its namespaces, add an SCI namespace for it the
+   way `re-frame.schemas` is added. Give each JVM-only macro an SCI stand-in.
+3. Add its source tree to the roster in `scripts/playground-sci-input-digest.mjs`
+   and to the `playground` surface in `.github/scripts/report-changed-surfaces.sh`.
+   `implementation/scripts/_playground-sci-inputs.test.cjs` fails if a roster
+   entry does not trigger the `playground` job.
+4. Add a cell to the smoke.
 
-This is diagnostics, not a gate. It answers "which tree produced this
-file?" for a deployed or downloaded copy. It used to be a freshness authority —
-`check-playground-sci-freshness.sh` compared the marker in the committed
-bundle against a fresh digest of the inputs — but a generated-in-run artefact
-cannot lag its source, so that verifier was deleted along with the snapshot it
-verified. Freshness is now structural: the bundle CI ships is one CI just built
-from that same checkout.
+## CI
 
-## mkdocs wiring
+- **`tools-playground` in `.github/workflows/test.yml`** runs on PRs that touch
+  this folder or any artefact the engine bundles. It builds both bundles, runs
+  the smoke, requires the committed `playground.js` and `playground.css` to
+  match a fresh build byte for byte, and checks that `playground-rf2.js` is a
+  plausible bundle.
+- **The `build` job in `.github/workflows/docs.yml`** rebuilds both bundles
+  before `mkdocs build`. Outside PRs it also runs the smoke, so the deployed
+  engine is the one that was tested.
 
-`mkdocs.yml` declares a `cljs` custom fence (`pymdownx.superfences` →
-`<pre class="language-cljs">`) and loads `playground.js` / `playground.css` via
-`extra_javascript` / `extra_css`. Material re-runs `extra_javascript` on every
-instant nav; the bootstrap subscribes once to `window.document$` and re-scans
-the swapped DOM (idempotent via `data-cljs-mounted`). Sub-path (`/re-frame2/`)
-asset resolution uses `document.currentScript.src`.
+`sci/scripts/copy-bundle.mjs` appends
+`//# rf2-sci-input-digest=<hex>` to `playground-rf2.js`: a hash of the inputs
+listed in `scripts/playground-sci-input-digest.mjs`. It records which source
+produced a deployed bundle. Nothing gates on it.
 
-## Cutover (Phase 1b, rf2-j06sy)
+## Troubleshooting
 
-Phase 1 shipped behind a new fence class (`language-cljs`) so it could
-coexist with Klipse during the transition. Phase 1b cut over: the
-`docs/cljs/index.md` cells are now `cljs` fences rendered here, Klipse's
-`extra_javascript` line + `klipse` custom fence were removed from `mkdocs.yml`,
-and the vendored Klipse assets (`docs/klipse/klipse_plugin.js` ~7.4 MB,
-`klipse-bootstrap.js`, `codemirror.css`) were deleted. All ~87 cells were
-spot-checked under the playground first (eval-result + error fidelity vs
-Klipse — Risk #1). One fidelity fix landed in the cutover: a top-level
-`def`/`defn` returns a var, so the renderer derefs it to show the bound value
-(matching Klipse's friendlier display) rather than `#'user/x`.
-
-## Three gotchas honoured (from the Phase 0 spike, rf2-qk3sh)
-
-1. SCI has no JVM classes — capture `*out*` via `with-out-str`, not
-   `java.io.StringWriter`.
-2. A CLJS vector returned to JS is a `PersistentVector` object, not a JS Array —
-   wrap the eval return in `(clj->js ...)`.
-3. The Mod-Enter eval keymap is swallowed unless wrapped in
-   `Prec.highest(keymap.of([...]))`.
-
-## Plain `cljs` cells cannot `(require ...)`
-
-A plain ` ```cljs ` cell wraps its whole body in one `(do ...)` form (so the
-`*out*` capture + last-form return work), and SCI only propagates a
-`require`'s aliases to its sibling top-level forms — so a leading
-`(require '[x :as y]) … (y/foo)` inside a plain cell fails to resolve `y/foo`.
-Plain cells are for framework-free ClojureScript (data literals, evaluation
-rules, builtins); a cell that needs `require` + reagent/re-frame is a
-` ```cljs-rf2 ` cell, whose source is NOT do-wrapped precisely so its
-`require` aliases reach sibling forms. (No plain cell in the docs uses
-`require` today — this note is for future authors.)
+| Symptom | Cause | Fix |
+|---|---|---|
+| A re-frame2 cell shows `ERROR: re-frame2 SCI bundle not loaded` | `docs/cljs/playground-rf2.js` was not built | `npm run build:rf2` |
+| CI: `Committed docs/cljs/playground.{js,css} are stale` | `src/` changed without a rebuild | `npm run build:bootstrap`, then commit both files |
+| A plain cell cannot resolve an alias it just required | Plain cells cannot `require` | Make it a ` ```cljs-rf2 ` cell |
+| A cell raises `:rf.error/no-such-handler` for an id another page registered | Navigation clears the previous page's registrations | Register the handler on this page |
+| A re-frame2 cell shows a printed value instead of a component | Its last form is not a vector | End the cell with hiccup or a component vector |
+| The smoke fails with `playground-rf2.js not found` | The engine was not built | `npm run build` |
