@@ -520,6 +520,144 @@ The table and the event handlers it needs. The view above supplies credentials;
     {:fx [[:dispatch [:auth.login/flow [:auth.login/submit credentials]]]]}))
 ```
 
+## Run it
+
+The cell registers the complete machine and mounts a cut-down Step 5 view,
+with fixed credentials in place of the form, in two frames. Neither frame
+sends a request over the network: the first answers `/api/login` with a
+token, and the second fails every request. **Sign in** in the first reaches
+`:authed` and stores the token in app-db. In the second, each failure shows
+the error; **Try again** and sign in twice more, and the third failure locks
+the account. **Sign in with empty fields** leaves the machine in `:idle`,
+because `:form-valid?` refuses the submit.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+;; The first frame's server: every login succeeds with a token.
+(http-test-support/install-managed-request-stubs!
+  {[:post "/api/login"] {:reply {:ok {:token "demo-token"}}}})
+
+(rf/reg-event :auth.session/store
+  (fn [{:keys [db]} [_ {:keys [token]}]]
+    {:db (assoc-in db [:auth :session :token] token)}))
+
+(rf/reg-machine :auth.login/flow
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+
+   :guards
+   {:form-valid?
+    (fn [{[_ creds] :event}]
+      (and (seq (:email creds)) (seq (:password creds))))
+    :under-retry-limit
+    (fn [{data :data}] (< (:attempts data) 2))}
+
+   :actions
+   {:clear-error
+    (fn [_] {:data {:error nil}})
+
+    :record-error
+    (fn [{data :data [_ {:keys [error]}] :event}]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc  :error (or (:message error) "Login failed.")))})
+
+    :store-session
+    (fn [{[_ {:keys [value]}] :event}]
+      {:fx [[:dispatch [:auth.session/store {:token (:token value)}]]]})
+
+    :issue-request
+    (fn [{[_ creds] :event}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/login" :body creds
+                           :request-content-type :json}
+              :request-id :auth.login/request
+              :decode     :json
+              :on-success [:auth.login/flow [:auth.login/success]]
+              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
+
+    :record-timeout
+    (fn [{data :data}]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc  :error "Server took too long."))})}
+
+   :states
+   {:idle
+    {:on {:auth.login/submit {:target :submitting
+                              :guard  :form-valid?
+                              :action :clear-error}}}
+
+    :submitting
+    {:tags  #{:auth/busy}
+     :entry :issue-request
+     :after {8000 [{:target :error-shown
+                    :guard  :under-retry-limit
+                    :action :record-timeout}
+                   {:target :locked-out
+                    :action :record-timeout}]}
+     :on    {:auth.login/success {:target :authed :action :store-session}
+             :auth.login/failure [{:target :error-shown
+                                   :guard  :under-retry-limit
+                                   :action :record-error}
+                                  {:target :locked-out
+                                   :action :record-error}]}}
+
+    :error-shown
+    {:on {:auth.login/dismiss {:target :idle}
+          :auth.login/submit  {:target :submitting
+                               :guard  :form-valid?
+                               :action :clear-error}}}
+
+    :authed     {:meta {:terminal? true}}
+    :locked-out {:meta {:terminal? true}}}})
+
+(rf/reg-event :login/submit
+  (fn [_ [_ credentials]]
+    {:fx [[:dispatch [:auth.login/flow [:auth.login/submit credentials]]]]}))
+
+(rf/reg-sub :auth.login/state {:inputs [[:rf/machine :auth.login/flow]]}
+  (fn [[m] _] (:state m)))
+
+(rf/reg-sub :auth.login/error {:inputs [[:rf/machine :auth.login/flow]]}
+  (fn [[m] _] (get-in m [:data :error])))
+
+(rf/reg-sub :auth.session/token
+  (fn [db _] (get-in db [:auth :session :token])))
+
+;; Step 5's view, with fixed credentials in place of the form.
+(rf/reg-view login-view [server]
+  (let [state @(subscribe [:auth.login/state])
+        error @(subscribe [:auth.login/error])]
+    [:div
+     [:p [:strong server] " · state: " (pr-str state)]
+     (case state
+       :error-shown [:div
+                     [:p error]
+                     [:button {:on-click #(dispatch [:auth.login/flow [:auth.login/dismiss]])}
+                      "Try again"]]
+       :authed      [:p "Welcome back. Session token: " @(subscribe [:auth.session/token])]
+       :locked-out  [:p "Account locked"]
+       [:div
+        [:button {:on-click #(dispatch [:login/submit {:email "a@b.com" :password "secret"}])}
+         "Sign in"]
+        [:button {:on-click #(dispatch [:login/submit {:email "" :password ""}])}
+         "Sign in with empty fields"]])]))
+
+;; :fx-overrides answers each frame's requests without a network.
+;; A real app leaves it out.
+[:div
+ [rf/frame-root {:id :auth.login/accepting
+                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+  [login-view "Server accepts"]]
+ [rf/frame-root {:id :auth.login/rejecting
+                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+  [login-view "Server rejects"]]]
+```
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
