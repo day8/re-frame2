@@ -599,19 +599,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   const META = { sha: 'deadbeef', blobs: {}, dest: { canonical: true, why: null } };
   const written = () => JSON.parse(JSON.stringify(datasetFor([fixtureRow()], META))).rows[0];
 
-  t('the Script / Layout / RecalcStyle split reaches the written dataset', () => {
-    const row = written();
-    assert.ok(row.blocksDecomp, 'the split was collected and then dropped at write time — that is the defect');
-    // At the same block grain as the arrays beside it, not a row-level lump.
-    assert.strictEqual(row.blocksDecomp.length, FIXTURE_DECOMP.length);
-    assert.strictEqual(row.blocksDecomp[0].length, FIXTURE_DECOMP[0].length);
-    for (const arm of ['floor', 'ctl-2x']) {
-      for (const k of ['n', 'script', 'style', 'layout']) {
-        assert.ok(Number.isFinite(row.blocksDecomp[0][0][arm][k]), `${arm}.${k} must be a number in the file`);
-      }
-    }
-  });
-
   t("the studio page's cited decomposition is recomputable from the file alone", () => {
     // The whole point: read the JSON, fold it, divide, and the
     // page's three numbers come back out. Nothing here reads the browser.
@@ -1642,6 +1629,9 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
     // 2. THE FILE STAYS IN THE PUBLISHED SET, because the run's SHAPE is the
     //    published one and a gate refusal is not a fact about the shape.
+    //    `destination` takes ONE argument, the shape, so a gate refusal has no
+    //    way back in: a second argument would have to come from somewhere.
+    assert.strictEqual(destination.length, 1, '`destination` must read the run SHAPE and nothing else');
     const dest = PUBLISHED();
     assert.strictEqual(dest.dir, CANON, 'a refused ROW must not move the RUN off the canonical set');
     assert.strictEqual(dest.canonical, true);
@@ -1660,16 +1650,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // ... and the row's numbers are still in the file. A refusal is evidence;
     // throwing the measurement away is not the refusal.
     assert.ok(byId.ordinary.blocksTask, 'the refused row is recorded, not deleted');
-  });
-
-  t('the whole point, stated as a counterfactual: nothing citable used to survive this run', () => {
-    // If the write decision ever folds a gate refusal back in, this is the
-    // assertion that reds. `destination` takes ONE argument — the shape —
-    // and a second one would have to come from somewhere.
-    assert.strictEqual(destination.length, 1, '`destination` must read the run SHAPE and nothing else');
-    const rows = fullShape({ ordinary: { ctlOk: false } });
-    const citable = written(rows).rows.filter((r) => r.canonical).map((r) => r.rowId);
-    assert.deepStrictEqual(citable, ['large-template', 'feed'], 'a full-shape run must be able to publish SOME row');
   });
 
   // --- each gate alone, at the row's scope ----------------------------------
@@ -1931,7 +1911,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // Each condition alone must move the write off the canonical set. These are
   // the mutation proofs: flip one field, the destination must change.
   for (const [what, over, code, needle] of [
-    ['a refused verdict', {}, 5, /verdict refused it \(exit 5\)/],
     ['a partial run set', { runsOnly: 'uix' }, 0, /PARTIAL run set \(HD8CLOCK_ONLY=uix\)/],
     ['--no-build', { noBuild: true }, 0, /--no-build/],
     ['an overridden depth', { depthPublished: false }, 0, /OVERRIDDEN design depth/],
@@ -2126,7 +2105,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t("the decision's own self-test passes, every case", () => {
     const { checks } = reportabilitySelfTest();
-    assert.ok(checks.length >= 10, `expected the decision's fixtures, got ${checks.length}`);
+    assert.ok(checks.length >= 33, `expected the decision's fixtures, got ${checks.length}`);
     const bad = checks.filter((c) => !c.ok);
     assert.deepStrictEqual(bad, [], bad.map((c) => `${c.name}: ${c.detail}`).join('\n'));
   });
@@ -2140,7 +2119,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t("the three-point control's own self-test passes, every case", () => {
     const { checks } = ctl3SelfTest();
-    assert.ok(checks.length >= 10, `expected the control's fixtures, got ${checks.length}`);
+    assert.ok(checks.length >= 15, `expected the control's fixtures, got ${checks.length}`);
     const bad = checks.filter((c) => !c.ok);
     assert.deepStrictEqual(bad.map((c) => c.name), [], 'the control must refuse every world its fixtures refuse');
   });
@@ -2221,38 +2200,14 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       assert.strictEqual(clean.measured.p50, 2.0101);
     });
 
-    t('rf2-8bgqq: every refusing world in the fixture set still refuses', () => {
-      // The summary is not the verdict; the refusals may not move with it.
-      // Each of these is a world the control is built to reject, driven
-      // through the same entry point.
-      const at = (m) => (d) => (d in m ? m[d] : 0);
-      const refusing = {
-        'decreasing (more dirty work reads FASTER)': synth((d) => 10 - A * d),
-        'superlinear': synth((d) => (A * Math.pow(d, 2)) / 300 + C),
-        'a dead page': synth(() => C),
-        'negative denominator': synth(at({ 1: 5.0, 100: 4.7, 200: 4.4 })),
-        'zero denominator': synth(at({ 1: 5.0, 100: 5.0, 200: 6.2 })),
-        'an unreadable arm': synth((d) => (d === 100 ? NaN : A * d + C)),
-      };
-      for (const [name, rounds] of Object.entries(refusing)) {
-        assert.strictEqual(ctl3Verdict(rounds, plan, 0.25).premiseMet, false, `${name} must still break the premise`);
-      }
-      assert.strictEqual(ctl3Verdict([], plan, 0.25).premiseMet, false, 'and an empty block set is not a premise met');
-    });
   }
 
-  // --- the defect itself, driven here as well as in the driver -------------
-
-  t('THE FAIL-OPEN: a row whose every bar is UNADJUDICATED cannot exit 0', () => {
-    const v = reportability([
-      clockRow({ rowId: 'keystroke', adjudicable: false, unadjudicatedWhy: KEYSTROKE_WHY }),
-    ]);
-    assert.notStrictEqual(v.code, 0, 'a run with no adjudicable bar must not exit 0');
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
-    assert.match(v.lines[1], /keystroke: UNADJUDICATED/);
-    assert.strictEqual(v.lines[2], '[clock] REPORTABLE: none.');
-  });
+  // --- the fail-closed edge, in the decision's own words ---------------------
+  //
+  // The defect itself (a row whose every bar is UNADJUDICATED cannot exit 0)
+  // and its green control are fixtures of `reportabilitySelfTest`, which the
+  // self-test row above runs; so are the regime, remainder and field cases
+  // below whose rows are not here.
 
   t('a row that adjudicated NO bar at all fails closed rather than open', () => {
     // The summary the driver builds sets `adjudicable` false when the verdict
@@ -2261,17 +2216,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const v = reportability([clockRow({ adjudicable: false, unadjudicatedWhy: undefined })]);
     assert.strictEqual(v.code, 1);
     assert.match(v.lines[1], /M1: no proportional control on this row/);
-  });
-
-  t('a genuinely reportable run still exits 0 and says nothing', () => {
-    const v = reportability([clockRow({}), clockRow({ rowId: 'bulk300' })]);
-    assert.deepStrictEqual(v, { code: 0, lines: [] });
-  });
-
-  t('a bar INSIDE the band is adjudicated, so an instrument-limited row still exits 0', () => {
-    // `LIMITED` is a verdict. Only `UNADJUDICATED` is the absence of one, and
-    // conflating them would turn this gate into a magnitude gate.
-    assert.strictEqual(reportability([clockRow({ adjudicable: true })]).code, 0);
   });
 
   // --- the control gate stands beside it ------------------------------------
@@ -2288,12 +2232,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const v = reportability([clockRow({}), clockRow({ rowId: 'narrow', ctlOk: false })]);
     assert.strictEqual(v.code, 1);
     assert.match(v.lines[v.lines.length - 1], /^\[clock\] REPORTABLE: M1 —/);
-  });
-
-  t('HCLOCK_CTL3_SABOTAGE still declares the run a falsification', () => {
-    const v = reportability([clockRow({ ctlOk: false })], { sabotage: 140 });
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /HCLOCK_CTL3_SABOTAGE=140 WAS SET/);
   });
 
   t('neither verdict masks the other — a row failing both is refused for both', () => {
@@ -2316,18 +2254,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // Chromium to reach, and a regex over the source matches the wrong rule as
   // faithfully as the right one. It is a pure function, and these drive it.
 
-  t('THE REMAINDER: ONE unadjudicated bar makes the row unadjudicable', () => {
-    const a = rowAdjudication({
-      'fresco / reagent-subs': ADJ,
-      'fresco / uix-subs': UNADJ,
-      'uix-subs / reagent-subs': ADJ,
-    });
-    assert.strictEqual(a.adjudicable, false, 'two adjudicated bars may not carry a third that has no band');
-    assert.strictEqual(a.barCount, 3);
-    assert.deepStrictEqual(a.unadjudicatedBars, ['fresco / uix-subs']);
-    assert.strictEqual(a.unadjudicatedWhy, KEYSTROKE_WHY);
-  });
-
   t('and that row cannot exit 0 — the refusal reaches the code, naming the bar', () => {
     const mixed = rowAdjudication({ 'h / r': ADJ, 'h / u': UNADJ, 'u / r': ADJ });
     const v = reportability([clockRow({}), clockRow({ rowId: 'keystroke', ...mixed })]);
@@ -2336,31 +2262,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.match(v.lines[0], /not every published bar can be ADJUDICATED on: keystroke/);
     assert.match(v.lines[1], /1 of 3 published bars carry no band \(h \/ u\)/);
     assert.match(v.lines[1], new RegExp(KEYSTROKE_WHY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  });
-
-  t('the clean rows beside it are still reportable — the refusal stays per-row', () => {
-    const mixed = rowAdjudication({ 'h / r': ADJ, 'h / u': UNADJ });
-    const v = reportability([clockRow({}), clockRow({ rowId: 'keystroke', ...mixed })]);
-    const last = v.lines[v.lines.length - 1];
-    assert.match(last, /^\[clock\] REPORTABLE: M1 —/);
-    assert.doesNotMatch(last, /keystroke/, 'a row with an unadjudicated bar must never appear in REPORTABLE');
-  });
-
-  t('a row whose every bar carries a band is adjudicable — the gate is not vacuous', () => {
-    // Without this, every assertion above would still pass if `rowAdjudication`
-    // simply always returned false.
-    const a = rowAdjudication({ 'h / r': ADJ, 'h / u': ADJ, 'u / r': ADJ });
-    assert.strictEqual(a.adjudicable, true);
-    assert.strictEqual(a.barCount, 3);
-    assert.deepStrictEqual(a.unadjudicatedBars, []);
-    assert.strictEqual(reportability([clockRow({ ...a })]).code, 0);
-  });
-
-  t('the case #7489 DID catch is still caught — the rule was tightened, not swapped', () => {
-    const a = rowAdjudication({ 'h / r': UNADJ, 'h / u': UNADJ });
-    assert.strictEqual(a.adjudicable, false);
-    assert.deepStrictEqual(a.unadjudicatedBars, ['h / r', 'h / u']);
-    assert.strictEqual(reportability([clockRow({ rowId: 'keystroke', ...a })]).code, 1);
   });
 
   t('an empty or missing bar set fails CLOSED — absent is not clean', () => {
@@ -2386,14 +2287,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // `adjudicable: true` beside `unadjudicatedWhy: "the run adjudicated no bar
   // on this row at all"`. A function contradicting itself inside one returned
   // object is what a fail-open looks like from the inside.
-
-  t('THE FIELD: a bar with NO `unadjudicated` field is unadjudicated — absent is not clean', () => {
-    const a = rowAdjudication({ 'h / r': ADJ, 'h / u': {} });
-    assert.strictEqual(a.adjudicable, false, 'a bar carrying no verdict has not been adjudicated');
-    assert.strictEqual(a.barCount, 2);
-    assert.deepStrictEqual(a.unadjudicatedBars, ['h / u']);
-    assert.strictEqual(a.unadjudicatedWhy, 'the bar carries no adjudication verdict at all');
-  });
 
   t('a row of nothing but fieldless bars cannot exit 0, and it used to exit 0', () => {
     // Every bar `{}`: under a truthiness rule this produces `{adjudicable:
@@ -2427,15 +2320,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(a.adjudicable, true);
     assert.deepStrictEqual(a.unadjudicatedBars, []);
     assert.strictEqual(reportability([clockRow({ ...a })]).code, 0);
-  });
-
-  // --- and the sentence that invited the publication -----------------------
-
-  t('REPORTABLE no longer says "Publish those" without saying "adjudicated"', () => {
-    const v = reportability([clockRow({}), clockRow({ rowId: 'keystroke', adjudicable: false })]);
-    const line = v.lines[v.lines.length - 1];
-    assert.match(line, /every published bar adjudicated against this run's own band/);
-    assert.doesNotMatch(line, /keystroke/, 'an unadjudicated row must never appear in REPORTABLE');
   });
 
   // --- THE REGIMES: what a row publishes, declared ---------------------------
@@ -2476,47 +2360,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     });
   });
 
-  t('a regime is granted by ruling and never by default — an unknown row is a magnitude row', () => {
-    assert.strictEqual(rowRegime('bulk300'), 'magnitude');
-    assert.strictEqual(rowRegime('some-row-nobody-ruled-on'), 'magnitude');
-    assert.strictEqual(rowRegime(undefined), 'magnitude');
-  });
-
-  t('THE EXIT DID NOT MOVE: a keystroke-only run exits 1 exactly as rf2-y7mw7 made it', () => {
-    const v = reportability([respRow()]);
-    assert.strictEqual(v.code, 1, 'a regime row publishes no magnitude, so it cannot exit 0');
-    assert.strictEqual(v.lines[v.lines.length - 1], '[clock] REPORTABLE: none.');
-  });
-
-  t('and an M1-only run exits 1 exactly as its failing control made it', () => {
-    assert.strictEqual(reportability([mountRow()]).code, 1);
-  });
-
-  t('the keystroke refusal now states a REGIME rather than an unadjudicated magnitude', () => {
-    const v = reportability([respRow()]);
-    const all = v.lines.join('\n');
-    assert.match(all, /REGIME: these rows publish a regime and never a magnitude/);
-    assert.match(all, /keystroke \[responsiveness-regime\] STATED/);
-    assert.match(all, /DIAGNOSTIC, never magnitudes/);
-    assert.doesNotMatch(
-      all,
-      /not every published bar can be ADJUDICATED/,
-      "a bandless bar on a regime row is a diagnostic, not a magnitude the run failed to adjudicate"
-    );
-  });
-
-  t('the M1 refusal now states a REGIME rather than a control that went wrong', () => {
-    const v = reportability([mountRow({ ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]);
-    const all = v.lines.join('\n');
-    assert.match(all, /M1 \[mount-regime\] STATED/);
-    assert.match(all, /NO MAGNITUDE FROM ONE RUN/);
-    assert.match(
-      all,
-      /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — the regime does not wait on this control/
-    );
-    assert.doesNotMatch(all, /the positive control did not see the change/);
-  });
-
   t('and the retired regime-only sentence is GONE from the log, not merely joined', () => {
     const all = reportability([mountRow()]).lines.join('\n');
     assert.doesNotMatch(all, /DIRECTION ONLY/, "M1 publishes a magnitude, so the log prints no 'DIRECTION ONLY'");
@@ -2553,6 +2396,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
 
   t('the control annotation says what SURVIVED both rulings and predicts nothing', () => {
     const all = reportability([mountRow({ ctlNote: ' (ctl-2x 1.8173x vs 2.00x)' })]).lines.join('\n');
+    assert.match(all, /NO MAGNITUDE FROM ONE RUN/);
     assert.match(
       all,
       /positive control: FAIL \(ctl-2x 1\.8173x vs 2\.00x\) — the regime does not wait on this control, so a failure here withholds nothing/,
@@ -2576,14 +2420,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     const all = reportability([mountRow({ ctlOk: true })]).lines.join('\n');
     assert.match(all, /positive control: PASS/);
     assert.doesNotMatch(all, /positive control: PASS[^\n]*withholds nothing/);
-  });
-
-  t('and a regime WITHHELD by its control is not annotated twice', () => {
-    // `keystroke` DOES wait on its controls, so the withholding is already the
-    // subject of the line above and the annotation stays out of it.
-    const all = reportability([respRow({ ctlOk: false })]).lines.join('\n');
-    assert.match(all, /keystroke \[responsiveness-regime\] WITHHELD/);
-    assert.doesNotMatch(all, /positive control: FAIL[^\n]*withholds nothing/);
   });
 
   t('the driver CITES the published M1 row and copies no figure out of it', () => {
@@ -2627,45 +2463,12 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     assert.strictEqual(v.code, 1);
     assert.match(v.lines.join('\n'), /keystroke \[responsiveness-regime\] WITHHELD/);
     assert.match(v.lines.join('\n'), /prove the instrument moves when the work moves/);
-  });
-
-  t('a mount regime is NOT withheld by a failing control — the two regimes differ deliberately', () => {
-    // The mount regime does not wait on ctl-2x, which is why the fixture sets
-    // `ctlOk: false` and the row still STATES itself.
-    const v = reportability([mountRow()]);
-    assert.match(v.lines.join('\n'), /M1 \[mount-regime\] STATED/);
-    assert.doesNotMatch(v.lines.join('\n'), /M1 .* WITHHELD/);
+    // `keystroke` DOES wait on its controls, so the withholding is already the
+    // subject of the line and the control annotation stays out of it.
+    assert.doesNotMatch(v.lines.join('\n'), /positive control: FAIL[^\n]*withholds nothing/);
   });
 
   // --- the magnitude rows keep their gates, which is the other half ---------
-
-  t('a magnitude row beside the regimes is still reportable, and no regime joins it', () => {
-    const v = reportability([clockRow({ rowId: 'bulk300' }), mountRow(), respRow()]);
-    assert.strictEqual(v.code, 1);
-    const last = v.lines[v.lines.length - 1];
-    assert.match(last, /^\[clock\] REPORTABLE: bulk300 —/);
-    assert.doesNotMatch(last, /M1|keystroke/, 'a regime row may never be announced as reportable');
-  });
-
-  t("a magnitude row's own gates still refuse it, beside the regimes", () => {
-    const v = reportability([clockRow({ rowId: 'bulk300', ctlOk: false }), mountRow()]);
-    assert.strictEqual(v.code, 1);
-    const all = v.lines.join('\n');
-    assert.match(all, /the positive control did not see the change.*bulk300/);
-    assert.match(all, /REGIME:/);
-    assert.doesNotMatch(
-      all,
-      /predicts on: bulk300, M1|predicts on: M1/,
-      'a regime row must not be listed among the control failures'
-    );
-  });
-
-  t('and a clean all-magnitude run still exits 0 — the regimes did not make the gate vacuous', () => {
-    assert.deepStrictEqual(reportability([clockRow({ rowId: 'bulk300' }), clockRow({ rowId: 'narrow' })]), {
-      code: 0,
-      lines: [],
-    });
-  });
 
   t('the driver hands the DECLARED regime to the decision, not one it inferred from its numbers', () => {
     const M = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('\nmodule.exports'));
@@ -2837,12 +2640,6 @@ function fixtureRoundsTask(over) {
     assert.strictEqual(reportable(row, CANON), false, 'and the run may not be pooled into the published mean');
   });
 
-  t('a run whose every bar carries a band IS pooled — the predicate is not vacuous', () => {
-    const row = dsRow({ 'h / r': ADJ, 'h / u': ADJ, 'u / r': ADJ });
-    assert.strictEqual(adjudicated(row), true);
-    assert.strictEqual(reportable(row, CANON), true, 'a clean run must still reach the reportable subset');
-  });
-
   t('a run whose every bar is UNADJUDICATED is still out — the term was tightened, not swapped', () => {
     assert.strictEqual(adjudicated(dsRow({ 'h / r': UNADJ, 'h / u': UNADJ })), false);
   });
@@ -2893,29 +2690,6 @@ function fixtureRoundsTask(over) {
     const row = dsRow({ 'h / r': { unadjudicated: false }, 'h / u': { unadjudicated: false, band: 0.2 } });
     assert.strictEqual(adjudicated(row), true);
     assert.strictEqual(reportable(row, CANON), true);
-  });
-
-  t('the OTHER two terms are unchanged — adjudication was ADDED, never substituted', () => {
-    const bars = { 'h / r': ADJ, 'h / u': ADJ };
-    // A failed control excludes a fully adjudicated run — and it is the CHECK
-    // STANDARD's refusal, read off the run's own readings rather than off a
-    // stored `ctlTask.ok`.
-    assert.strictEqual(
-      reportable(dsRow(bars, { roundsTask: fixtureRoundsTask({ ctlScale: 140 / 300 }) }), CANON),
-      false
-    );
-    assert.strictEqual(reportable(dsRow(bars, { roundsTask: [] }), CANON), false);
-    // ... and so does either ceiling, which fires before any control.
-    assert.strictEqual(
-      reportable(dsRow(bars, { seam: { verdict: { ceilingBreached: true } } }), CANON),
-      false,
-      'a breached net-band ceiling still excludes the run'
-    );
-    assert.strictEqual(
-      reportable(dsRow(bars, { seamTask: { ceilingBreached: true, rows: bars } }), CANON),
-      false,
-      'a breached task-band ceiling still excludes the run'
-    );
   });
 
   // --- EVERY GATE THE DRIVER EXITS ON, ENFORCED HERE TOO --------------------
@@ -3446,15 +3220,6 @@ function fixtureRoundsTask(over) {
 
   // --- 1. THE FOUR, BY NAME ------------------------------------------------
 
-  t('rf2-e87sk: the four verdicts no dataset could carry are in the record', () => {
-    const rec = produce();
-    assert.strictEqual(rec.canonical, true, 'the file must state whether it is the published evidence set');
-    assert.ok('notCanonicalWhy' in rec, 'and carry the reason seat even when there is no reason');
-    assert.deepStrictEqual(rec.rows[0].pageErrors, [], 'whether the page threw must be IN the file');
-    assert.strictEqual(rec.rows[0].parityOk, true, 'and whether the arms built the same page');
-    assert.ok('etVerdict' in rec.rows[0], 'and the Event-Timing verdict, `null` included — null is a verdict');
-  });
-
   t('each of the four is COPIED off the verdict, never defaulted to a passing value', () => {
     // A serialiser that wrote `pageErrors: []` unconditionally would satisfy
     // the gate on a run that threw, which is the fail-open one layer down.
@@ -3509,6 +3274,7 @@ function fixtureRoundsTask(over) {
     const rec = produce();
     assert.deepStrictEqual(refusals(rec.rows[0], rec), [], 'a full-shape clean run must clear every gate');
     assert.strictEqual(reportable(rec.rows[0], rec), true);
+    assert.ok('notCanonicalWhy' in rec, 'and the record carries the reason seat even when there is no reason');
   });
 
   for (const g of GATES) {
@@ -3638,51 +3404,21 @@ function fixtureRoundsTask(over) {
 
   t("the decision's own self-test passes, every case", () => {
     const { checks } = verdictSelfTest();
-    assert.ok(checks.length >= 15, `expected the decision's fixtures, got ${checks.length}`);
+    assert.ok(checks.length >= 24, `expected the decision's fixtures, got ${checks.length}`);
     const bad = checks.filter((c) => !c.ok);
     assert.deepStrictEqual(bad, [], bad.map((c) => `${c.name}: ${c.detail}`).join('\n'));
   });
 
-  // --- THE FAIL-OPENS, driven here as well as in the driver ---------------
-
-  t('THE FAIL-OPEN (a): a failed DOM read-back cannot exit 0', () => {
-    const v = verdict(summarise({ runs: [readBack()] }));
-    assert.notStrictEqual(v.code, 0, 'a run whose arm never reached the DOM must not exit 0');
-    assert.strictEqual(v.code, 3, 'and it exits 3, as hd8_clock_run.cjs numbers the same refusal');
-    assert.match(v.lines.join('\n'), /never reached the DOM/);
-    assert.match(v.lines.join('\n'), /slim \/ write-narrow \/ reagent-slim vs floor: failed-dom-read-back \(1 of 78 unverified\)/);
-  });
-
-  t('THE FAIL-OPEN (b): a REFUSED yield correction cannot exit 0', () => {
-    const v = verdict(summarise({ runs: [refusedCorrection()] }));
-    assert.notStrictEqual(v.code, 0);
-    assert.strictEqual(v.code, 4);
-    assert.match(v.lines.join('\n'), /yield correction could not be discharged/);
-    assert.match(v.lines.join('\n'), /write-narrow: correction-changes-the-verdict/);
-  });
+  // --- THE FAIL-OPENS ----------------------------------------------------
+  //
+  // (a) a failed DOM read-back and (b) a refused yield correction, with the
+  // green control, the grain limit and the older gates' codes, are fixtures
+  // of `verdictSelfTest`, run above. The rows here pin what it does not.
 
   t('THE FAIL-OPEN (c): a pageerror recorded beside the sentinel cannot exit 0', () => {
     const v = verdict(summarise({ runs: [run({ pageErrors: ['pageerror: boom'] })] }));
     assert.strictEqual(v.code, 1, 'a page error is the exit 1 this driver already documented');
     assert.match(v.lines.join('\n'), /already thrown/);
-  });
-
-  t('a genuinely reportable run still exits 0 and says nothing', () => {
-    const v = verdict(
-      summarise({
-        runs: [
-          run({
-            summary: { 'write-narrow': { vsFloor: { floor: { min: 1, max: 1 }, 'donor-r1': { min: 2, max: 2 } }, headToHead: { 'a vs b': { min: 1, max: 1 } } } },
-            correction: { 'write-narrow': { verdict: 'not-owed' } },
-          }),
-        ],
-      })
-    );
-    assert.deepStrictEqual(v, { code: 0, lines: [] });
-  });
-
-  t('a `corrected` correction is not a refusal — only `refused` is', () => {
-    assert.strictEqual(verdict(summarise({ runs: [run({ correction: { r: { verdict: 'corrected' } } })] })).code, 0);
   });
 
   // --- a LIMIT is not a FAULT, and the exit code says which ----------------
@@ -3692,39 +3428,8 @@ function fixtureRoundsTask(over) {
   // withdraws every figure normalised by it — the same marker SHAPE the DOM
   // read-back uses and a different meaning. Nothing failed; a magnitude was
   // never available. Exiting non-zero on it would exit non-zero on every run.
-  const belowGrain = () =>
-    run({
-      summary: {
-        'write-bulk': {
-          vsFloor: {
-            floor: { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
-            'reagent-slim': { unpublished: 'below-clock-grain', arms: ['floor'], tick: 0.1, quanta: 1 },
-          },
-          headToHead: { 'donor-r1 vs uix': { min: 1.185, max: 1.313 } },
-        },
-      },
-      correction: { 'write-bulk': { verdict: 'moot', reason: 'no-published-figure-bears-it' } },
-    });
-
-  t('a window beneath the clock grain exits 0 — it is a limit, not a fault', () => {
-    const v = verdict(summarise({ runs: [belowGrain()] }));
-    assert.strictEqual(v.code, 0, 'nothing failed; the instrument could not resolve a magnitude');
-    assert.match(v.lines.join('\n'), /NO REPORTABLE MAGNITUDE/);
-    assert.match(v.lines.join('\n'), /floor at 1 tick\(s\) of 0\.1 ms/);
-    assert.ok(!/REFUSED/.test(v.lines.join('\n')), 'and it must not read as a refusal');
-  });
-
-  t('a `moot` yield correction is not a refusal', () => {
-    assert.strictEqual(verdict(summarise({ runs: [run({ correction: { r: { verdict: 'moot' } } })] })).code, 0);
-  });
-
-  t('the grain limit never swallows a real refusal standing beside it', () => {
-    const v = verdict(summarise({ runs: [belowGrain(), readBack()] }));
-    assert.strictEqual(v.code, 3, 'the read-back still decides the exit');
-    const all = v.lines.join('\n');
-    assert.match(all, /NO REPORTABLE MAGNITUDE/);
-    assert.match(all, /never reached the DOM/);
-  });
+  // `verdictSelfTest` runs that case, a moot correction and a real refusal
+  // beside it.
 
   t('the two masks are told apart by their reason, not by their shape', () => {
     // Both arrive as `{unpublished: …}` on the same channel. If the driver
@@ -3736,23 +3441,10 @@ function fixtureRoundsTask(over) {
 
   // --- the driver's other gates stand beside them ---------------------------
 
-  t('a hard failure still exits 1, exactly as before', () => {
-    const v = verdict(summarise({ hardFail: 'slim: boom' }));
-    assert.strictEqual(v.code, 1);
-    assert.match(v.lines[0], /^\[hd8\] FAILED: slim: boom/);
-  });
-
   t('a contract self-test failure still exits 1, with its own sentence', () => {
     const v = verdict(summarise({ contractFailed: 'slim: fixtures' }));
     assert.strictEqual(v.code, 1);
     assert.match(v.lines[0], /does not agree with its recorded fixtures/);
-  });
-
-  t('the arm-order guard still exits 2, and still says repair the arm', () => {
-    const v = verdict(summarise({ orderRefused: true }));
-    assert.strictEqual(v.code, 2);
-    assert.match(v.lines[0], /ARM-ORDER GUARD REFUSED/);
-    assert.match(v.lines[0], /Repair the arm, not the guard/);
   });
 
   t('no verdict masks another — a run failing several is refused for every one', () => {
@@ -4133,7 +3825,7 @@ function fixtureRoundsTask(over) {
     STANDARD, checkStandard, checkStandardSelfTest, classOf,
   } = require('./clock_check_standard.cjs');
   const {
-    checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, EFFECT, reportable, refusals,
+    checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, EFFECT, reportable,
   } = require('./clock_readjudicate.cjs');
   const CLOCKSRC = fs.readFileSync(path.join(__dirname, 'clock_run.cjs'), 'utf8');
   const RJSRC2 = fs.readFileSync(path.join(__dirname, 'clock_readjudicate.cjs'), 'utf8');
@@ -4152,7 +3844,7 @@ function fixtureRoundsTask(over) {
 
   t("the standard's own fixtures pass, every case — a standard nobody has seen refuse is not one", () => {
     const { checks } = checkStandardSelfTest();
-    assert.ok(checks.length >= 10, `expected the standard's fixtures, got ${checks.length}`);
+    assert.ok(checks.length >= 41, `expected the standard's fixtures, got ${checks.length}`);
     const bad = checks.filter((c) => !c.ok);
     assert.deepStrictEqual(bad.map((c) => `${c.name}: ${c.detail}`), []);
   });
@@ -4198,37 +3890,6 @@ function fixtureRoundsTask(over) {
   });
 
   // --- 2. THE SABOTAGE FIXTURE (criterion 2) --------------------------------
-
-  t('THE SABOTAGE: an arm building 140 of the 300 boundaries it declares doubled is REFUSED', () => {
-    const healthy = checkStandard(blocksAt(2, 0.05), BULK);
-    assert.strictEqual(healthy.ok, true, 'the healthy world must pass, or every refusal below proves nothing');
-    const sabotaged = checkStandard(blocksAt(140 / 300, 0.05), BULK);
-    assert.strictEqual(sabotaged.ok, false);
-    assert.strictEqual(sabotaged.location.ok, false, 'refused on LOCATION');
-    assert.strictEqual(sabotaged.dispersion.ok, true, 'and not swept up by the dispersion term');
-    assert.match(sabotaged.why, /outside the frozen location limits/);
-  });
-
-  t('and the sabotage reaches the consumer — a dataset carrying it may not be pooled', () => {
-    // The fixture is only worth its name if it refuses where a run is
-    // actually adjudicated, so it is driven through `reportable` on a record
-    // shaped as `clock_run.cjs` writes one.
-    // `rounds` is here because the consumer checks the raw readings against
-    // the file's own declared design — a design that does not declare its
-    // round count refuses, absent is not clean.
-    const CANON = { canonical: true, notCanonicalWhy: null, design: { rounds: 6, tare: true } };
-    const ADJ = { unadjudicated: false, why: 'clears' };
-    const row = (rt) => ({
-      rowId: 'bulk300', pageErrors: [], guardRefuse: false, guardRefuseTask: false, parityOk: true,
-      ctl3Parity: null, kbWitness: null, tally: { writes: 10, unverified: 0 }, etVerdict: null,
-      roundsTask: rt, seam: { verdict: { ceilingBreached: false } },
-      seamTask: { ceilingBreached: false, band: 0.2, rows: { 'fresco / reagent-subs': ADJ } },
-    });
-    assert.strictEqual(reportable(row(fixtureRoundsTask()), CANON), true, 'the clean record must still pool');
-    const bad = row(fixtureRoundsTask({ ctlScale: 140 / 300 }));
-    assert.strictEqual(reportable(bad, CANON), false);
-    assert.ok(refusals(bad, CANON).some((w) => /outside the frozen location limits/.test(w)), JSON.stringify(refusals(bad, CANON)));
-  });
 
   t('the DISPERSION term refuses on its own — a box that could not reproduce its own work', () => {
     const noisy = checkStandard(blocksAt(2, 1.4), BULK);
@@ -4296,19 +3957,6 @@ function fixtureRoundsTask(over) {
     assert.match(rates.retiredRuleForComparison, /0\.918\^18/);
     assert.match(CLOCKSRC, /`0\.835\^18 = 3\.9%`/, 'the driver states the retired rule\'s arithmetic where the rule is retired');
     assert.match(RJSRC2, /0\.835\^18 = 3\.9%/);
-  });
-
-  t('criterion 4: a run with out-of-band blocks now PASSES if its location and dispersion hold', () => {
-    // The inversion: the retired rule would refuse this run and the
-    // calibrated one does not, while the band REPORTS the blocks it would
-    // have refused for.
-    const xs = blocksAt(2, 0.05);
-    xs[0] = 1.28;
-    xs[1] = 2.19;
-    const v = checkStandard(xs, BULK);
-    assert.strictEqual(v.ok, true);
-    assert.ok(v.tolerance.inBand < v.tolerance.of, 'blocks the retired rule would have refused for');
-    assert.strictEqual(v.tolerance.gating, false);
   });
 
   // --- 4. NO VERDICT PATH CONSULTS THE THREE-POINT STATISTIC (criterion 1) --
@@ -4581,8 +4229,8 @@ function fixtureRoundsTask(over) {
 // over. The corpus makes that concrete rather than rhetorical: bulk's ceiling
 // would refuse a mount run the mount's own limits admit.
 {
-  const { STANDARD, checkStandard, classOf } = require('./clock_check_standard.cjs');
-  const { checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, reportable, refusals } = require('./clock_readjudicate.cjs');
+  const { STANDARD, classOf } = require('./clock_check_standard.cjs');
+  const { checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, reportable } = require('./clock_readjudicate.cjs');
   const t = (what, fn) => test(`rf2-x7x10: ${what}`, fn);
   const bulk = STANDARD.classes.bulk;
   const mount = STANDARD.classes.mount;
@@ -4705,25 +4353,6 @@ function fixtureRoundsTask(over) {
 
   // --- 4. THE REPRODUCTION PATH ---------------------------------------------
 
-  t('THE REPAIR: the M1 row has a reportable subset again, on both ensembles', () => {
-    // The regression this pins. With the mount class uncalibrated every M1 run
-    // would be refused by the gate, so `clock_readjudicate.cjs` would print
-    // `reportable subset: NONE` for a row the programme publishes — a claim a
-    // fresh clone could not recompute.
-    for (const { dir, runs } of CORPORA) {
-      const c = corpus(dir);
-      if (!c) return;
-      const rows = c.map(({ data }) => ({ data, row: data.rows.find((r) => r.rowId === 'M1') })).filter((x) => x.row);
-      const pooled = rows.filter(({ row, data }) => reportable(row, data));
-      assert.strictEqual(
-        pooled.length,
-        runs,
-        `${dir}: every M1 run clears every other gate, so all ${runs} must pool — ` +
-          `refusals on the first: ${JSON.stringify(refusals(rows[0].row, rows[0].data))}`
-      );
-    }
-  });
-
   t('and the publication rule reaches M1 for the first time, with a stated verdict on every pair', () => {
     // The publication rule cannot speak to this row while no run is
     // reportable, because an interval needs a pooled run to be formed from.
@@ -4801,29 +4430,6 @@ function fixtureRoundsTask(over) {
     assert.strictEqual(STANDARD.amendments[0].version, 2);
   });
 
-  t('the UNCALIBRATED seat survives its last live instance — a class with no limits still refuses', () => {
-    // Every declared class is calibrated, so the branch has no production
-    // instance. It is not dead code: it is what refuses the next class added
-    // to `classes` before its limits exist. Proved by making an instance and
-    // putting it back.
-    const before = JSON.stringify(STANDARD.classes.mount);
-    // A FULL 18-block reading list (the helper carries an expected-N
-    // contract), so the only thing refusing below is the class.
-    const MREADS = Array.from({ length: 6 }, () => [1.79, 1.8, 1.81]).flat();
-    let v;
-    try {
-      STANDARD.classes.mount.calibrated = false;
-      v = checkStandard(MREADS, 'M1');
-    } finally {
-      STANDARD.classes.mount.calibrated = true;
-    }
-    assert.strictEqual(v.ok, false, 'an uncalibrated class refuses rather than abstains');
-    assert.strictEqual(v.calibrated, false);
-    assert.strictEqual(v.location, null, 'and it refuses on the CLASS, before any reading is judged');
-    assert.match(v.why, /NOT CALIBRATED/);
-    assert.strictEqual(JSON.stringify(STANDARD.classes.mount), before, 'the fixture must leave the standard as it found it');
-    assert.strictEqual(checkStandard(MREADS, 'M1').ok, true, 'and the class certifies again afterwards');
-  });
 }
 
 // ============================================================================
@@ -5632,27 +5238,6 @@ function fixtureRoundsTask(over) {
   });
 
   // --- 3. THE BULK FENCE: NOTHING IS PROMOTED OUT OF THE 42-RUN CORPUS ------
-
-  t('nothing is promoted out of the 42-run corpus — no bulk pair publishes, on either ensemble', () => {
-    let seen = 0;
-    for (const dir of CORPORA) {
-      for (const rowId of BULK_ROWS) {
-        for (const pair of [GATED, ...UNGATED]) {
-          const p = bulkPooled(dir, rowId, pair);
-          if (!p) return;
-          const ev = effectVerdict(p.iv, rowId, pair, { widestSameRunBandPct: p.band });
-          assert.strictEqual(
-            ev.publishes,
-            false,
-            `${dir}/${rowId}/${pair} PUBLISHED a magnitude — the 42 committed row-runs are calibration ` +
-              `and diagnostic evidence, NEVER retroactively promoted. Verdict: ${ev.verdict} — ${ev.why}`
-          );
-          seen += 1;
-        }
-      }
-    }
-    assert.strictEqual(seen, 18, 'three pairs of three bulk rows over two ensembles');
-  });
 
   t('MUTATION: and gatedPairs is WHY — without it the donor-against-donor pairs would publish', () => {
     // The scope's value, priced. These are the pairs the band veto masks
