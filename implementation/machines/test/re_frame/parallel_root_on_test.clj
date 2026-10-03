@@ -26,8 +26,11 @@
   region-qualified targets, action/fx-only timeouts, guard suppression, and
   cancel-on-exit via the root epoch.
 
-  These JVM tests pair with the conformance fixtures
-  spec/conformance/fixtures/parallel-root-on-*.edn."
+  The GO, ONE, region-wins and multi-region cases (the root `:action` running
+  once among them) run as the conformance fixtures
+  spec/conformance/fixtures/parallel-root-on-*.edn through
+  machines-conformance-test, on the same `machine-transition`; these JVM tests
+  pin the rest."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -41,52 +44,7 @@
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
-;; ---- 1. root :on, no region handles -> root fires (GO -> {a:two b:two}) ----
-
-(deftest root-on-fires-when-no-region-handles
-  (testing "GO: no region declares :go-all; the root :on moves both regions"
-    (let [m {:type    :parallel
-             :data    {}
-             :on      {:go-all {:target [[:a :two] [:b :two]]}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}}}
-          initial {:state {:a :one :b :one} :data {}}
-          {snap :snapshot} (rf.machines/machine-transition m initial [:go-all])]
-      (is (= {:a :two :b :two} (:state snap))
-          "root :on fired; both targeted regions moved (v5: GO -> {a:two,b:two})"))))
-
-;; ---- 2. root :on targeting ONE region (ONE -> {a:two b:one}) ---------------
-
-(deftest root-on-single-region-target
-  (testing "ONE: root :on targets only :a; :b stays unchanged"
-    (let [m {:type    :parallel
-             :data    {}
-             :on      {:one {:target [:a :two]}}    ; single region-qualified target
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}}}
-          initial {:state {:a :one :b :one} :data {}}
-          {snap :snapshot} (rf.machines/machine-transition m initial [:one])]
-      (is (= {:a :two :b :one} (:state snap))
-          "root :on moved :a; :b untargeted -> unchanged (v5: ONE -> {a:two,b:one})"))))
-
-;; ---- 3. region-local AND root both match -> region wins, root SUPPRESSED ---
-
-(deftest region-match-suppresses-root-entirely
-  (testing "GO: region :a handles :go locally; the root :go is suppressed ENTIRELY"
-    (let [m {:type    :parallel
-             :data    {}
-             ;; root would move BOTH if consulted — but :a handles :go locally,
-             ;; so the root is suppressed and :b (which has NO :go) stays put.
-             :on      {:go {:target [[:a :two] [:b :two]]}}
-             :regions {:a {:initial :one :states {:one {:on {:go :two}} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}}}
-          initial {:state {:a :one :b :one} :data {}}
-          {snap :snapshot} (rf.machines/machine-transition m initial [:go])]
-      (is (= {:a :two :b :one} (:state snap))
-          (str "region :a handled :go (deeper wins); the root :on was NOT merged "
-               "in -> :b stays :one (v5: GO -> {a:two,b:one})")))))
-
-;; ---- 4. COMPETING-MULTI-REGION SUPPRESSION — the non-decomposable case -----
+;; ---- 1. COMPETING-MULTI-REGION SUPPRESSION — the non-decomposable case -----
 ;;
 ;; The definitive parity fixture. Broadcast decomposition would
 ;; give {a:special, b:initial}; v5 / the atomic ancestor fallback gives
@@ -110,38 +68,7 @@
                ":resting (NOT :initial). Broadcast decomposition would wrongly give "
                "{a:special, b:initial}.")))))
 
-;; ---- 5. multi-region root target — atomic update of all named regions ------
-
-(deftest multi-region-target-atomic
-  (testing "a root :on with [[:a :x] [:b :y]] updates both named regions atomically"
-    (let [m {:type    :parallel
-             :data    {}
-             :on      {:advance {:target [[:a :x] [:b :y]]}}
-             :regions {:a {:initial :one :states {:one {} :x {}}}
-                       :b {:initial :one :states {:one {} :y {}}}
-                       :c {:initial :one :states {:one {}}}}}     ; untargeted
-          initial {:state {:a :one :b :one :c :one} :data {}}
-          {snap :snapshot} (rf.machines/machine-transition m initial [:advance])]
-      (is (= {:a :x :b :y :c :one} (:state snap))
-          ":a and :b moved to their named targets; :c (untargeted) unchanged"))))
-
-;; ---- 6. root :on runs its :action ONCE (not per region) --------------------
-
-(deftest root-on-action-runs-once
-  (testing "the root transition's :action fires exactly once against the shared :data"
-    (let [m {:type    :parallel
-             :data    {:count 0}
-             :actions {:bump (fn [{d :data}] {:data (update d :count inc)})}
-             :on      {:tick {:target [[:a :two] [:b :two]] :action :bump}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}}}
-          initial {:state {:a :one :b :one} :data {:count 0}}
-          {snap :snapshot} (rf.machines/machine-transition m initial [:tick])]
-      (is (= {:a :two :b :two} (:state snap)) "both regions moved")
-      (is (= 1 (get-in snap [:data :count]))
-          "root :action ran ONCE (not once per targeted region)"))))
-
-;; ---- 7. targetless / action-only root :on ----------------------------------
+;; ---- 2. targetless / action-only root :on ----------------------------------
 
 (deftest root-on-action-only
   (testing "a targetless root :on runs its action; no region moves"
@@ -156,9 +83,9 @@
       (is (= {:a :one :b :one} (:state snap)) "no region moved (targetless)")
       (is (= [:noted] (get-in snap [:data :log])) "the root action ran once"))))
 
-;; ---- 8. root :on guard — selected against the frozen pre-event snapshot ----
+;; ---- 3. root :on guard — selected against the frozen pre-event snapshot ----
 
-(deftest root-on-guard-frozen-selection
+(deftest root-on-guard-gates-the-root-transition
   (testing "the root :on guard reads the pre-event :data; a failing guard declines the root"
     (let [m {:type    :parallel
              :data    {:armed? false}
@@ -177,7 +104,7 @@
                                      [:fire])]
           (is (= {:a :two :b :two} (:state snap)) "guard true -> root :on moves both"))))))
 
-;; ---- 9. moved region settles its :always after the root transition --------
+;; ---- 4. moved region settles its :always after the root transition --------
 
 (deftest root-on-moved-region-settles-always
   (testing "a region moved by the root :on settles its target's :always in the same macrostep"
@@ -196,7 +123,7 @@
       (is (= :one (get-in snap [:state :b])) ":b unchanged")
       (is (= #{:a/done} (:tags snap)) "tag union reflects the settled :done state"))))
 
-;; ---- 10. registration validation: root-parallel transition refs + shape ----
+;; ---- 5. registration validation: root-parallel transition refs + shape ----
 
 (deftest root-parallel-validation
   (testing "a dangling guard ref on a root parallel :on is rejected at registration"
@@ -219,26 +146,9 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}}}))
         "root-parallel transition action refs are validated"))
 
-  (testing "a bare-keyword (non-region-qualified) root :on target is rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/machine-parallel-root-on-bad-target"
-          (rf.machines/make-machine-handler
-            {:type    :parallel
-             :on      {:go :somewhere}     ; bare keyword — no flat sibling state
-             :regions {:a {:initial :one :states {:one {}}}}}))
-        "the root has no flat sibling state for a bare keyword target"))
-
-  (testing "a root :on target whose head is not a declared region is rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/machine-parallel-root-on-bad-target"
-          (rf.machines/make-machine-handler
-            {:type    :parallel
-             :on      {:go {:target [:nonregion :x]}}
-             :regions {:a {:initial :one :states {:one {} :x {}}}}}))
-        ":nonregion is not a declared region"))
-
+  ;; A bare-keyword root :on target and a single target whose head is not a
+  ;; declared region are machine-reg-error-parallel-root-on.edn's calls (1)
+  ;; and (2).
   (testing "a multi-region target with a non-region head is rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
@@ -261,7 +171,7 @@
                            :b {:initial :one :states {:one {} :two {}}}}}))
         "region-qualified targets + resolvable refs pass")))
 
-;; ---- 11. ROOT-LEVEL :after on a parallel root -----------------------------
+;; ---- 6. ROOT-LEVEL :after on a parallel root -----------------------------
 ;;
 ;; XState v5 / SCXML: `after` may be declared at any level, including a
 ;; <parallel> node. A parallel-ROOT `:after` is ROOT-OWNED — scheduled at
@@ -293,15 +203,8 @@
         "multi-region, action-only, bare-vector and candidate-vector forms pass")))
 
 (deftest root-after-bad-target-rejected
-  (testing "a non-region-qualified root :after :target is rejected (same keyword as root :on)"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/machine-parallel-root-on-bad-target"
-          (rf.machines/make-machine-handler
-            {:type    :parallel
-             :after   {1000 {:target :two}}    ; bare keyword — no flat sibling
-             :regions {:a {:initial :one :states {:one {} :two {}}}}}))
-        "a bare-keyword root :after target has no flat sibling to land on"))
+  ;; A bare-keyword root :after target is machine-reg-error-parallel-root-on.edn's
+  ;; call (3); the same id refuses a non-region head.
   (testing "a root :after target whose head is not a declared region is rejected"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
@@ -311,27 +214,14 @@
              :after   {1000 {:target [:nonregion :x]}}
              :regions {:a {:initial :one :states {:one {:on {}} :x {}}}}})))))
 
-;; ---- 12. root :after FIRES — moves the targeted region(s), via pure-fn -----
+;; ---- 7. root :after FIRES — moves the targeted region(s), via pure-fn -----
 ;;
 ;; The pure `machine-transition` apply path: a root-after-elapsed event with
 ;; the empty `[]` decl-path routes to the root `:on` apply grammar. The epoch
 ;; on the snapshot matches the carried epoch, so the timer is live and fires.
 
 (deftest root-after-fires-moves-targeted-regions
-  (testing "a live root :after firing moves its region-qualified target(s)"
-    (let [m {:type    :parallel
-             :data    {}
-             :after   {1000 {:target [[:a :two] [:b :two]]}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}}}
-          ;; root epoch 1 (as birth would seed) at the flat root slot.
-          initial {:state {:a :one :b :one}
-                   :data  {:rf/after-epoch {[] 1}}}
-          {snap :snapshot}
-          (rf.machines/machine-transition
-            m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
-      (is (= {:a :two :b :two} (:state snap))
-          "live root :after (matching epoch) moved BOTH targeted regions")))
+  ;; A two-region root :after firing is root-after-end-to-end-birth-schedule-and-fire's.
   (testing "a root :after targeting ONE region leaves untargeted regions unchanged"
     (let [m {:type    :parallel
              :data    {}
@@ -378,7 +268,7 @@
       (is (= {:a :one :b :one} (:state snap))
           "guard false -> the root :after timer fires-and-discards; no region moved"))))
 
-;; ---- 13. ADVERSARIAL: root :after cancels-on-exit via epoch ----------------
+;; ---- 8. ADVERSARIAL: root :after cancels-on-exit via epoch ----------------
 ;;
 ;; Adversarial coverage: the root :after is ROOT-OWNED and stale-gated by the
 ;; root's OWN per-path epoch. A timer carrying a STALE epoch (the root was torn
@@ -402,7 +292,7 @@
       (is (= {:a :one :b :one} (:state snap))
           "stale-epoch root :after dropped; no region moved (cancel-on-exit via epoch)"))))
 
-;; ---- 14. root :after end-to-end through registration + birth ---------------
+;; ---- 9. root :after end-to-end through registration + birth ---------------
 ;;
 ;; The live runtime path: registration runs the BIRTH cascade, which schedules
 ;; the root :after (seeds the root epoch at the flat `[]` slot AND emits the
