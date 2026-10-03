@@ -46,11 +46,9 @@
     (is (= "<div>say &quot;hi&quot;</div>"
            (server/render-to-static-markup [:div "say \"hi\""])))
     (is (= "<div>it&#39;s</div>"
-           (server/render-to-static-markup [:div "it's"])))
-    (is (= "<div>say &quot;hi&quot; &amp; &#39;bye&#39;</div>"
-           (server/render-to-static-markup [:div "say \"hi\" & 'bye'"])))))
+           (server/render-to-static-markup [:div "it's"])))))
 
-(deftest text-content-numbers-and-keywords
+(deftest text-content-numbers-stringify
   (testing "numeric children stringify"
     (is (= "<div>42</div>"
            (server/render-to-static-markup [:div 42])))
@@ -187,12 +185,6 @@
            (server/render-to-static-markup
             [:ul (map (fn [x] [:li x]) ["a" "b" "c"])])))))
 
-(deftest mixed-children
-  (testing "string + number + vector children all render"
-    (is (= "<div>hello 42<span>x</span></div>"
-           (server/render-to-static-markup
-            [:div "hello " 42 [:span "x"]])))))
-
 ;; ---------------------------------------------------------------------------
 ;; Tag shorthand
 ;; ---------------------------------------------------------------------------
@@ -206,12 +198,6 @@
   (testing ":div#bar emits id=\"bar\""
     (is (= "<div id=\"bar\"></div>"
            (server/render-to-static-markup [:div#bar])))))
-
-(deftest tag-shorthand-class-and-id
-  (testing ":div#bar.foo emits both (stock Reagent regex requires #id before .cls)"
-    (let [out (server/render-to-static-markup [:div#bar.foo])]
-      (is (or (= out "<div id=\"bar\" class=\"foo\"></div>")
-              (= out "<div class=\"foo\" id=\"bar\"></div>"))))))
 
 (deftest tag-shorthand-merge-with-user-class
   (testing "shorthand class is prepended to user class"

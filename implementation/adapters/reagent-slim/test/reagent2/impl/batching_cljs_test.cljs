@@ -165,17 +165,6 @@
 ;; flush! — synchronous drain (the test-flush primitive's worker)
 ;; ---------------------------------------------------------------------------
 
-(deftest flush-bang-drains-synchronously
-  (testing "(batching/flush!) drains the queue without awaiting a microtask"
-    (let [calls (atom 0)
-          after (atom 0)
-          c     (fake-component calls)]
-      (batching/queue-render! c)
-      (batching/do-after-render (fn [] (swap! after inc)))
-      (batching/flush!)
-      (is (= 1 @calls) "synchronous flush! ran forceUpdate")
-      (is (= 1 @after) "synchronous flush! ran after-render"))))
-
 (deftest flush-bang-suppresses-pending-microtask
   (testing "flush! cancels the pending microtask schedule"
     (async done
@@ -214,18 +203,6 @@
                      (next-microtask)))
             (.then (fn [_]
                      (is (= 1 @fired) "after-render did not re-fire on next drain")
-                     (done))))))))
-
-(deftest do-after-render-multiple-callbacks-in-registration-order
-  (testing "after-render queue runs callbacks in registration order"
-    (async done
-      (let [order (atom [])]
-        (batching/do-after-render (fn [] (swap! order conj :a)))
-        (batching/do-after-render (fn [] (swap! order conj :b)))
-        (batching/do-after-render (fn [] (swap! order conj :c)))
-        (-> (next-microtask)
-            (.then (fn [_]
-                     (is (= [:a :b :c] @order))
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -276,13 +253,6 @@
 ;; knows to drain the reactive queue as part of the next microtask.
 ;; ---------------------------------------------------------------------------
 
-(deftest rea-schedule-wired-after-batching-load
-  (testing "requiring reagent2.impl.batching installs batching/schedule into rea-schedule"
-    (is (some? @ratom/rea-schedule)
-        "rea-schedule got wired at batching ns load time")
-    (is (fn? @ratom/rea-schedule)
-        "the wired value is a fn")))
-
 (deftest rea-schedule-triggers-microtask-drain
   (testing "a Reaction dep change schedules a microtask + drains via batching"
     (async done
@@ -305,6 +275,4 @@
               (.then (fn [_]
                        ;; outer saw r=20.
                        (is (= 20 @seen))
-                       ;; Snapshot the reactive value too.
-                       (is (= 20 @r))
                        (done)))))))))

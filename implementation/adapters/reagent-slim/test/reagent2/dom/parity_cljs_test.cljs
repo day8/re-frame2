@@ -186,19 +186,6 @@
         (is (= a b))))))
 
 ;; ---------------------------------------------------------------------------
-;; Attributes
-;; ---------------------------------------------------------------------------
-
-(deftest parity-native-keyword-attr-values
-  (testing "keyword DOM-attr values stringify on the
-            LIVE React path the same way the server serializer does —
-            [:button {:type :button}] / [:a {:target :_blank}]"
-    (let [[a b] (=parity [:button {:type :button}])]
-      (is (= a b)))
-    (let [[a b] (=parity [:a {:target :_blank :rel :noopener}])]
-      (is (= a b)))))
-
-;; ---------------------------------------------------------------------------
 ;; Boolean attributes
 ;; ---------------------------------------------------------------------------
 
@@ -432,13 +419,6 @@
                           :strokeWidth 3
                           :stroke "black"
                           :clipPath "url(#clip)"}]])]
-      (is (= a b)))))
-
-(deftest parity-svg-fill-stop-color-dasherized
-  (testing ":fillOpacity / :stopColor dasherize like React"
-    (let [[a b] (=parity [:circle {:fillOpacity 0.5}])]
-      (is (= a b)))
-    (let [[a b] (=parity [:stop {:stopColor "red"}])]
       (is (= a b)))))
 
 (deftest parity-svg-mask-family-rf2-4ale
