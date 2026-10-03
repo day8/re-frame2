@@ -59,6 +59,73 @@ Signed out, click **Settings**: login opens. Click **Sign in as Ada**: settings
 opens for Ada. Repeat with a pasted `/settings#privacy` URL; the return trip
 keeps the fragment too.
 
+The cell below runs the whole flow on an in-memory frame. **Privacy settings**
+links to `/settings#privacy`, and the line under the page shows the route and
+fragment after the return trip. **Sign out** clears the user and navigates to a
+public page, so you can start again:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing])
+
+(rf/reg-route :app/home {} "/")
+(rf/reg-route :app/articles {} "/articles")
+(rf/reg-route :app/login {} "/login")
+(rf/reg-route :app/settings
+  {:can-enter [:auth/signed-in?]}
+  "/settings")
+
+(rf/reg-sub :auth/user (fn [db _] (:auth/user db)))
+(rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
+  (fn [[user] _] (some? user)))
+
+(rf/reg-event :rf.route/entry-denied
+  (fn [{:keys [db]} [_ {:keys [destination]}]]
+    {:db (assoc db :auth/return-to destination)
+     :fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
+
+(rf/reg-event :auth/sign-in
+  (fn [{:keys [db]} [_ user]]
+    (let [return-to (:auth/return-to db)]
+      {:db (-> db (assoc :auth/user user) (dissoc :auth/return-to))
+       :fx [[:dispatch [:rf.route/navigate
+                        (assoc (or return-to {:to :app/articles}) :replace? true)]]]})))
+
+(rf/reg-event :auth/sign-out
+  (fn [{:keys [db]} _]
+    {:db (dissoc db :auth/user)
+     :fx [[:dispatch [:rf.route/navigate {:to :app/home}]]]}))
+
+(rf/reg-view login-page []
+  [:div
+   [:h1 "Sign in"]
+   [:button {:on-click #(dispatch [:auth/sign-in {:name "Ada"}])}
+    "Sign in as Ada"]])
+
+(rf/reg-view settings-page []
+  [:div
+   [:h1 (str "Settings for " (:name @(subscribe [:auth/user])))]
+   [:button {:on-click #(dispatch [:auth/sign-out])} "Sign out"]])
+
+(rf/reg-view signed-in-app []
+  (let [{:keys [route-id fragment]} @(subscribe [:rf/route])]
+    [:div
+     [:nav [rf/route-link {:to :app/home} "Home"] " · "
+           [rf/route-link {:to :app/settings} "Settings"] " · "
+           [rf/route-link {:to :app/settings :fragment "privacy"} "Privacy settings"]]
+     (case route-id
+       :app/home     [:h1 "Home"]
+       :app/articles [:h1 "Articles"]
+       :app/login    [login-page]
+       :app/settings [settings-page]
+       nil)
+     [:p [:code (pr-str {:route-id route-id :fragment fragment})]]]))
+
+[rf/frame-root {:id             :app
+                :initial-events [[:rf.route/navigate {:to :app/home}]]}
+ [signed-in-app]]
+```
+
 ## How the guard works
 
 `:can-enter` names a subscription. The runtime checks it on every way into the route —
