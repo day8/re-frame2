@@ -103,6 +103,149 @@ request; success, failure, timeout or cancel leaves `:submitting` and cleans
 up that instance. The session handler still stores the token in app-db,
 while the login machine keeps only its attempt count and error.
 
+The cell below registers both machines and mounts the login flow in two
+frames. In the first, the server answers: **Sign in** spawns a request actor,
+which finishes at once and leaves the token in app-db. In the second, the
+server never answers, so the actor stays in `:running` under its allocated
+id. **Cancel** leaves `:submitting` and destroys it, and the next **Sign in**
+spawns a new instance with a new id. Wait eight seconds instead, and the
+deadline destroys the actor and shows the error.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+;; The first frame's server answers every login with a token.
+(http-test-support/install-managed-request-stubs!
+  {[:post "/api/login"] {:reply {:ok {:token "demo-token"}}}})
+
+;; The second frame's server never answers, so its request stays in flight.
+(rf/reg-fx :auth.demo/no-reply (fn [_ _] nil))
+
+(rf/reg-event :auth.session/store
+  (fn [{:keys [db]} [_ {:keys [token]}]]
+    {:db (assoc-in db [:auth :session :token] token)}))
+
+(rf/reg-sub :auth.session/token
+  (fn [db _] (get-in db [:auth :session :token])))
+
+(rf/reg-machine :auth/request
+  {:initial :running
+   :data {}
+   :sensitive [[:data :credentials] [:data :token]]
+
+   :actions
+   {:issue-request
+    (fn [{:keys [data]}]
+      {:fx [[:rf.http/managed
+             {:request {:method :post :url "/api/login"
+                        :body (:credentials data)
+                        :request-content-type :json
+                        :sensitive? true}
+              :decode :json
+              :on-success [(:rf/self-id data) [:server-ok]]
+              :on-failure [(:rf/self-id data) [:server-err]]}]]})
+    :keep-token
+    (fn [{[_ reply] :event}]
+      {:data {:token (get-in reply [:value :token])}})
+    :keep-error
+    (fn [{[_ reply] :event}]
+      {:data {:reason (:error reply)}})}
+
+   :states
+   {:running {:entry :issue-request
+              :on {:server-ok {:target :done :action :keep-token}
+                   :server-err {:target :failed :action :keep-error}}}
+    :done   {:final? true :output-key :token}
+    :failed {:final? true :error? true :output-key :reason}}})
+
+;; The tutorial's login-flow, with the :submitting node and parent actions above.
+(rf/reg-machine :auth.login/flow
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+
+   :guards
+   {:form-valid?
+    (fn [{[_ creds] :event}]
+      (and (seq (:email creds)) (seq (:password creds))))
+    :under-retry-limit
+    (fn [{data :data}] (< (:attempts data) 2))}
+
+   :actions
+   {:clear-error
+    (fn [_] {:data {:error nil}})
+    :record-timeout
+    (fn [{data :data}]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc  :error "Server took too long."))})
+    :store-child-session
+    (fn [{event :event}]
+      {:fx [[:dispatch [:auth.session/store
+                        {:token (:result (nth event 2))}]]]})
+    :record-child-error
+    (fn [{data :data event :event}]
+      (let [reason (nth event 2)]
+        {:data {:attempts (inc (:attempts data))
+                :error (or (:message reason) "Login failed.")}}))}
+
+   :states
+   {:idle
+    {:on {:auth.login/submit {:target :submitting
+                              :guard  :form-valid?
+                              :action :clear-error}}}
+
+    :submitting
+    {:tags #{:auth/busy}
+     :spawn {:machine-id :auth/request
+             :data (fn [{:keys [event]}]
+                     {:credentials (second event)})
+             :on-done {:target :authed :action :store-child-session}
+             :on-error [{:target :error-shown
+                         :guard :under-retry-limit
+                         :action :record-child-error}
+                        {:target :locked-out :action :record-child-error}]
+             :timeout "PT8S"
+             :on-timeout [{:target :error-shown
+                           :guard :under-retry-limit
+                           :action :record-timeout}
+                          {:target :locked-out :action :record-timeout}]}
+     :on {:auth.login/cancel :idle}}
+
+    :error-shown
+    {:on {:auth.login/dismiss :idle}}
+
+    :authed     {:meta {:terminal? true}}
+    :locked-out {:meta {:terminal? true}}}})
+
+(rf/reg-view login-actors-view [server]
+  (let [{:keys [state data]} @(subscribe [:rf/machine :auth.login/flow])
+        child-id (get-in data [:rf/spawned [:submitting]])
+        child    (when child-id @(subscribe [:rf/machine child-id]))]
+    [:div
+     [:p [:strong server]]
+     [:p "login-flow: " (pr-str state) " " (pr-str (select-keys data [:attempts :error]))]
+     [:p "request actor: " (if child-id
+                             (str (pr-str child-id) " in " (pr-str (:state child)))
+                             "none")]
+     [:p "session token: " (pr-str @(subscribe [:auth.session/token]))]
+     [:button {:on-click #(dispatch [:auth.login/flow
+                                     [:auth.login/submit {:email "a@b.com" :password "secret"}]])}
+      "Sign in"]
+     [:button {:on-click #(dispatch [:auth.login/flow [:auth.login/cancel]])} "Cancel"]
+     [:button {:on-click #(dispatch [:auth.login/flow [:auth.login/dismiss]])} "Dismiss"]]))
+
+;; :fx-overrides points each frame's requests at its server. A real app leaves it out.
+[:div
+ [rf/frame-root {:id :auth.login/answering
+                 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+  [login-actors-view "Server answers"]]
+ [rf/frame-root {:id :auth.login/silent
+                 :fx-overrides {:rf.http/managed :auth.demo/no-reply}}
+  [login-actors-view "Server never answers"]]]
+```
+
 Put `:spawn` on a [compound parent](hierarchical-states.md#parent-lifecycle-spans-child-states)
 when one child should span several states. On the
 [machine root](hierarchical-states.md#the-machine-root), it lasts for the
