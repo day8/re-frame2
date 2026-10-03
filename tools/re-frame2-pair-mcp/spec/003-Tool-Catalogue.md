@@ -3743,8 +3743,22 @@ with no shadow build running gets the onboarding text rather than a
 ```clojure
 {:ok? true
  :tool "get-re-frame2-pair-instructions"
+ :tool-contract "<tool-count>-<8 hex>"
  :text "<prose>"}
 ```
+
+`:tool-contract` is `registry/tool-contract`: a sha256 fingerprint of
+every registered tool name with the argument keys its inputSchema
+declares, sorted, so it moves when a tool or an argument key does and
+not when prose does. The `serverInfo` version stays put across builds,
+and an MCP host keeps the process it launched however often the source
+is rebuilt, so this is how an agent tells a stale running server from a
+current one. The re-frame2-pair skill states the value it was written
+against and compares the two in its opening step, before `discover-app`;
+an absent or different value sends the user to rebuild and restart the
+server rather than letting a missing tool read as an application finding.
+`test/re_frame2_pair_mcp/tool_contract_test.cljs` holds the skill's stated
+value to the registry's.
 
 The `:text` slot is a single string the agent host renders
 verbatim. It carries no `:rf.size/large-elided` markers (no app-db
