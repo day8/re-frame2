@@ -27,6 +27,9 @@
  *   - an instant-navigation swap releases the outgoing page's React roots,
  *     destroys its frames and clears its registrations, and framework
  *     registrations survive it.
+ *   - a fragment link and an href-less link in a cell run their handlers
+ *     without reaching document.body, where instant navigation listens, and
+ *     without navigating; a fragment link in prose still reaches it.
  *   - no uncaught page errors. Scittle reports a failed eval with
  *     console.error, which is not a page error and is not counted.
  *
@@ -1005,6 +1008,60 @@ console.log("live roots after nav:", rootsAfterNav);
 assert(
   rootsAfterNav === 3,
   `detached page-1 roots released — count is page-2 cells only (nav-view + machine + leak-probe = 3), not accumulated (got ${rootsAfterNav})`
+);
+
+// --- links inside a cell -------------------------------------------------
+//
+// Material's navigation.instant handles link clicks at document.body and
+// ignores preventDefault, so a fragment link that reaches it re-fetches the
+// page and re-runs every cell. A cell's fragment and href-less links must stop
+// at the cell without navigating, while a prose link still reaches body.
+await page.evaluate(() => {
+  window.__rf2BodyLinkClicks = [];
+  document.body.addEventListener("click", (ev) => {
+    const a = ev.target instanceof Element ? ev.target.closest("a") : null;
+    if (a) window.__rf2BodyLinkClicks.push(a.id);
+  });
+  const host = document.createElement("div");
+  const prose = document.createElement("a");
+  prose.id = "prose-frag";
+  prose.href = "#prose-target";
+  prose.textContent = "a prose fragment link";
+  host.appendChild(prose);
+  const cell = document.createElement("pre");
+  cell.className = "language-cljs-rf2";
+  cell.textContent = [
+    "(require '[re-frame.core :as rf])",
+    "(rf/reg-event :frag/inc (fn [{:keys [db]} _] {:db (update db :frag (fnil inc 0))}))",
+    "(rf/reg-sub :frag/n (fn [db _] (:frag db 0)))",
+    "(defn frag-view []",
+    "  [:div",
+    '   [:a#frag-hash {:href "#" :on-click #(rf/dispatch [:frag/inc])} "hash"]',
+    '   [:a#frag-nohref {:on-click #(rf/dispatch [:frag/inc])} "no href"]',
+    '   [:span#frag-n "n: " @(rf/subscribe [:frag/n])]])',
+    "[frag-view]",
+  ].join("\n");
+  host.appendChild(cell);
+  document.body.appendChild(host);
+  window.__rf2PlaygroundMountAll();
+});
+await page.waitForSelector("#frag-n", { timeout: 20000 });
+await page.click("#frag-hash");
+await waitText("#frag-n", "n: 1");
+await page.click("#frag-nohref");
+await waitText("#frag-n", "n: 2");
+const fragN = await frescoText("#frag-n");
+assert(fragN === "n: 2", `a cell's fragment and href-less links run their handlers (got ${JSON.stringify(fragN)})`);
+const hrefAfterCellLinks = await page.evaluate(() => location.href);
+assert(
+  hrefAfterCellLinks === url,
+  `a cell's fragment link does not navigate the page (got ${JSON.stringify(hrefAfterCellLinks)})`
+);
+await page.click("#prose-frag");
+const bodyLinkClicks = await page.evaluate(() => window.__rf2BodyLinkClicks);
+assert(
+  JSON.stringify(bodyLinkClicks) === JSON.stringify(["prose-frag"]),
+  `only the prose link reaches document.body (got ${JSON.stringify(bodyLinkClicks)})`
 );
 
 assert(pageErrors.length === 0, `no uncaught page errors (saw: ${JSON.stringify(pageErrors)})`);

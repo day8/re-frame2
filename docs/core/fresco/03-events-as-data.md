@@ -258,11 +258,8 @@ hrefs.
     [:button {:type :submit} "Add todo"]]
    [:p
     (for [showing [:all :active :done]]
-      ;; :target only stops this docs site's instant navigation from
-      ;; claiming the link; an application leaves it out.
       [:a {:key      showing
            :href     "#"
-           :target   "_self"
            :style    {:margin-right "1em"}
            :on-click [::h/prevent [:todo/set-showing showing]]}
        (name showing)])
