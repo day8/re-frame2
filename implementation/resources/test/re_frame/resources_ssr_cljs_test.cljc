@@ -770,7 +770,10 @@
 ;; row in one write, a drain released by the entry leaves no live work behind
 ;; the render: the row is TERMINAL and the host handle CLEARED. The adversarial
 ;; inverse runs the same path with no reply, so the entry stays `:loading` (its
-;; row `:running`) and the drain holds until the deadline.
+;; row `:running`) and the drain holds until the deadline. The deadline's
+;; timeout settle then fails the entry and settles its row terminal `:timed-out`
+;; in the same write, and clears the host handle, so the timeout path leaves no
+;; live work behind the render either.
 
 (defn- ledger-row
   "The work-ledger record for `work-id` in `frame-id`'s live runtime-db, or nil."
@@ -868,6 +871,42 @@
                     first-load :error in the frame (not left hung :loading)"
             (is (= :error (get-in (rf.frame/frame-runtime-db-value fid)
                                   (conj (rf.resources.state/entry-path gkey) :status)))))))
+      (rf.frame/destroy-frame! fid))))
+
+(deftest drain-timeout-on-the-real-path-leaves-the-ledger-row-timed-out
+  (reg! :article/by-slug)
+  (testing "the render-deadline timeout settles the abandoned attempt's
+            work-ledger row terminal :timed-out in the same write that fails its
+            entry, and clears its host handle, so a timed-out drain leaves no
+            live work behind the render"
+    (let [fid :ssr/drain-ledger-timed-out]
+      (rf/make-frame {:id fid :doc "ssr ledger-timed-out drain frame" :platform :server})
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :article/by-slug :scope :rf.scope/global
+                          :params {:slug "x"} :owner [:ssr "req-4" "nav-4"]}]
+                        {:frame fid})
+      (rf.frame/swap-runtime-db! fid with-blocking-slot "nav-4" [gkey])
+      (let [wid (get-in (rf.frame/frame-runtime-db-value fid) (conj (rf.resources.state/entry-path gkey) :current-work))
+            ;; deterministic clock that jumps past the deadline; pump! is a no-op
+            ;; (the real reply never lands).
+            clk (atom 0)
+            clock-fn (fn [] (let [v @clk] (swap! clk + 100) v))]
+        (testing "the real ensure path armed a live row and a host handle"
+          (is (= :running (:status (ledger-row fid wid))))
+          (is (some? (rf.resources.work-ledger/get-handle fid wid))))
+        (let [res (rf.resources.ssr/drain-blocking-resources!
+                    fid {:pump! (fn [_] nil) :deadline-ms 50 :clock-fn clock-fn})
+              row (ledger-row fid wid)]
+          (is (false? (:settled? res)) "the drain timed out")
+          (is (= :error (get-in (rf.frame/frame-runtime-db-value fid)
+                                (conj (rf.resources.state/entry-path gkey) :status)))
+              "the blocking entry settled to a first-load failure")
+          (testing "the abandoned attempt's row is terminal :timed-out, with the
+                    deadline in its outcome"
+            (is (= :timed-out (:status row)))
+            (is (= {:reason :ssr-blocking-timeout :limit-ms 50} (:outcome row))))
+          (testing "the host handle is cleared"
+            (is (nil? (rf.resources.work-ledger/get-handle fid wid))))))
       (rf.frame/destroy-frame! fid))))
 
 (deftest hydration-projection-ships-no-work-ledger-rows
