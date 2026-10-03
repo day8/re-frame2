@@ -54,8 +54,8 @@
   red on the fallback missing from the server HTML — the gate would
   swallow the prop before the component that renders it ever ran. Lower
   the children anywhere but the writing window and
-  [[an-intent-inside-a-portal-fires-into-the-owners-frame]] goes red on
-  the loud `:rf.error/fresco-intent-outside-boundary`. Replace
+  [[a-click-inside-the-portal-reaches-a-react-ancestor-that-is-no-dom-ancestor]]
+  goes red on the loud `:rf.error/fresco-intent-outside-boundary`. Replace
   `createPortal` with an ordinary element and
   [[the-subtree-renders-into-the-target-and-not-into-the-root]] goes red
   on the toast appearing in the root container, while
@@ -304,28 +304,6 @@
             (rf.fresco.impl.mount/settle!)
             (is (nil? (query-node rack ".toast"))
                 "the target container is empty after unmount"))
-          (finally
-            (rf.fresco.impl.mount/release! h)
-            (drop-rack! rack)))))))
-
-(deftest an-intent-inside-a-portal-fires-into-the-owners-frame
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (let [rack (rack!)
-            h    (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [toast-page {:target rack}])]
-        (try
-          (testing "THE FRAME IS PRESERVED. The children are lowered in the
-                    render window of the boundary that wrote the crossing, so
-                    an intent inside the portal closes over that boundary's
-                    frame-locked dispatch — exactly as an intent in an
-                    ordinary child does. A subtree lowered anywhere else
-                    would raise `:rf.error/fresco-intent-outside-boundary`
-                    instead of dispatching"
-            (click! (query-node rack ".toast"))
-            (is (some #{"toast"} (log))
-                (str "the intent reached the owner's frame: " (pr-str (log)))))
           (finally
             (rf.fresco.impl.mount/release! h)
             (drop-rack! rack)))))))

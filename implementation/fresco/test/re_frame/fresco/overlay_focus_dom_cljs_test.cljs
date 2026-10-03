@@ -10,11 +10,9 @@
 
   `overlay-dom-cljs-test` establishes the module's posture: the top
   layer, the LIFO stack, light dismiss, the imperative call, the
-  listener census. It also asserts inertness — by focusing ONE control
-  behind an open modal and finding that it will not take focus. This
-  file finishes that claim, because *one control refused focus* and *the
-  page behind is unreachable* are different statements and only the
-  second is the thing a modal is bought for.
+  listener census. This file owns inertness, and states it as *the page
+  behind is unreachable* rather than as *one control refused focus*,
+  because only the first is the thing a modal is bought for.
 
   ## The three claims, and why the middle one is what makes the others mean
   ## anything

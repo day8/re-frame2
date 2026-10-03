@@ -25,7 +25,7 @@
   | a compass word is a `position-area`, and a misspelt one is not silently some other place | [[a-compass-word-is-a-position-area-and-an-unknown-one-passes-through]] |
   | an overlay's contents are ordinary markup, and the a11y kit's projections read them | [[an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them]] |
   | the top layer escapes an ancestor that clips and stacks | [[an-overlay-escapes-an-ancestor-that-clips-and-out-stacks-it]] |
-  | a modal makes the rest of the document inert | [[a-modal-makes-the-document-behind-it-unfocusable]] |
+  | a modal makes the rest of the document inert | [[re-frame.fresco.overlay-focus-dom-cljs-test/an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] |
   | closing through the platform's door returns focus | [[closing-through-the-platform-door-returns-focus-to-the-trigger]] |
   | the stack is LIFO, and not DOM order | [[the-top-layer-stacks-last-in-first-out-not-in-dom-order]] |
   | an auto popover joins the LIFO stack; a manual one does not | [[an-unrelated-auto-popover-dismisses-the-open-one-and-a-manual-one-is-immune]] |
@@ -70,8 +70,9 @@
 
   - REMOVE the behaviour — `showModal` → `show` (a legal call on the same
     element that opens the same dialog and fires the same events, and
-    which leaves the page behind it live) reds the top-layer, inertness
-    and stacking rows; dropping `close()` from the ref cleanup reds the
+    which leaves the page behind it live) reds the top-layer and stacking
+    rows here and `overlay-focus-dom-cljs-test`'s reachability row;
+    dropping `close()` from the ref cleanup reds the
     focus row; a `document` listener added while open reds the census row.
   - WIDEN the guard — deleting the `newState` filter in
     `dismissal-handler` leaves a handler with the correct SHAPE (the
@@ -375,39 +376,6 @@
                     (str "its painted box is not contained by the 20px box that "
                          "clips it. dialog=[" (.-top d) "," (.-bottom d) "] "
                          "clip=[" (.-top c) "," (.-bottom c) "]")))))
-          (finally (rf.fresco.impl.mount/release! handle)))))))
-
-(deftest a-modal-makes-the-document-behind-it-unfocusable
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no inertness, because it has no modal dialog")
-    (do
-      (fresh!)
-      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [clipped-page {}])]
-        (try
-          (rf.fresco.impl.mount/settle!)
-          (let [outside ($ "#outside")]
-            (testing "premise: with no modal open the same control takes focus —
-                      so the claim below is about the modal and not about the
-                      control"
-              (.focus outside)
-              (is (identical? outside (.-activeElement js/document))))
-
-            (go! [::opened :m])
-
-            (testing "INERTNESS: the engine refuses focus to everything outside
-                      the dialog — a property of the platform's modality, not of
-                      a key handler this module wrote"
-              (.focus outside)
-              (is (not (identical? outside (.-activeElement js/document)))
-                  "the outside control cannot take focus while the modal is open")
-              (is (.contains (or (.-parentNode ($ "dialog")) js/document.body)
-                             (.-activeElement js/document))
-                  "and focus is somewhere inside the dialog's tree"))
-
-            (testing "and it comes back when the modal goes"
-              (go! [::closed :m])
-              (.focus outside)
-              (is (identical? outside (.-activeElement js/document)))))
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- focus restore ---------------------------------------------------------
