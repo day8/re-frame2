@@ -23,9 +23,21 @@ Without the require, using the effect reports `:rf.error/no-such-fx` and sends n
 
 ## Step 1 — the smallest request that works
 
-Issuing a request takes two kinds of handler: one to send, one to receive. Here is the whole thing — three registrations:
+Issuing a request takes two kinds of handler: one to send, one to receive. Here is the whole thing — three registrations.
 
-```clojure
+This page has no server, so the cell starts by installing stubs for the
+article URLs the tutorial uses, and ends with a button that dispatches the load
+and a readout of `[:article]`:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/articles/intro"]  {:reply {:ok {:slug "intro" :title "Welcome" :body "Your first article."}}}
+   [:get "/api/articles/broken"] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}})
+
 ;; Send: return the request as data. The handler finishes immediately.
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
@@ -47,6 +59,18 @@ Issuing a request takes two kinds of handler: one to send, one to receive. Here 
     {:db (-> db
              (assoc-in [:article :status] :error)
              (assoc-in [:article :error]  error))}))
+
+;; Show the [:article] slice, and dispatch the load from a button.
+(rf/reg-sub :tutorial/article (fn [db _] (:article db)))
+
+(rf/reg-view step-1-view []
+  [:div
+   [:button {:on-click #(dispatch [:article/load "intro"])} "Load intro"]
+   [:pre (pr-str @(subscribe [:tutorial/article]))]])
+
+;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
+[rf/frame-root {:id :tutorial/step-1 :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [step-1-view]]
 ```
 
 Walk the send handler first. It wrote a `:loading` status into [app-db](../core/app-db.md), returned an effect *describing* the request, and **finished**. It never paused to wait for the server. Inside `:request`, `:url` is the only required key; `:method` defaults to `:get`.
@@ -60,13 +84,15 @@ When the response lands — milliseconds or seconds later — the runtime dispat
 
 That map is the **reply map**, using the framework's [uniform reply](../core/glossary.md#the-uniform-reply) shape. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you according to its Content-Type (JSON, for this API), and JSON object keys arrive as keywords.
 
-**What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map.
+**What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map. The stub answers at once, so the cell's readout goes straight to `:loaded`.
 
 ## Step 2 — turn the failure into something a user can read
 
 The failure map (under the reply's `:error`) always carries a `:kind` — a keyword from a closed, framework-reserved set of eight categories (`:rf.http/timeout`, `:rf.http/transport`, `:rf.http/http-4xx`, …). Never a stringified exception. Because [the set is closed](http.md#failures-are-a-closed-set), your handler can branch with a plain `case`:
 
-```clojure
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
 (defn failure->message [failure]
   (case (:kind failure)
     :rf.http/timeout    "The server took too long. Try again."
@@ -85,27 +111,38 @@ The failure map (under the reply's `:error`) always carries a `:kind` — a keyw
     {:db (-> db
              (assoc-in [:article :status]  :error)
              (assoc-in [:article :message] (failure->message error)))}))
+
+;; Try another :kind, then press Ctrl-Enter (Cmd-Enter on macOS).
+[:p (failure->message {:kind :rf.http/http-5xx})]
 ```
 
-Register a subscription alongside the handlers:
-
-```clojure
-(rf/reg-sub :article/view-state
-  (fn [db _] (:article db)))
-```
-
-The browser view displays the result and provides a way to load it:
+Register a subscription alongside the handlers, and add a browser view that
+displays the result and provides a way to load it. The view goes in its own
+namespace, which requires `app.article` so the registrations load first:
 
 ```clojure
 ;; src/app/article_view.cljs
 (ns app.article-view
   (:require [re-frame.core :as rf]
             [app.article]))
+```
 
+The cell runs both against Step 1's stubs. Its second button loads an article
+whose stub answers 503:
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+;; In app.article, beside the handlers:
+(rf/reg-sub :article/view-state
+  (fn [db _] (:article db)))
+
+;; In app.article-view:
 (rf/reg-view article-view []
   (let [{:keys [status data message]} @(subscribe [:article/view-state])]
     [:section
      [:button {:on-click #(dispatch [:article/load "intro"])} "Load article"]
+     [:button {:on-click #(dispatch [:article/load "broken"])} "Load a broken article"]
      (case status
        :loading [:p "Loading…"]
        :loaded  [:article [:h1 (:title data)] [:p (:body data)]]
@@ -113,12 +150,13 @@ The browser view displays the result and provides a way to load it:
        [:p "Choose an article."])]))
 
 ;; Mount this tree with your app's adapter. The frame supplies dispatch context.
-[rf/frame-root {:id :app/articles}
+;; :fx-overrides sends its requests to Step 1's stubs; a real app leaves it out.
+[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
  [article-view]]
 ```
 
-Disconnect the network or return a 503 from the server and the error replaces the
-loading message. A cross-origin connection failure can be classified as
+Against a real server, disconnect the network or return a 503 and the error
+replaces the loading message. A cross-origin connection failure can be classified as
 `:rf.http/cors` even when CORS configuration is correct: the browser does not
 distinguish it from other cross-origin network failures.
 
