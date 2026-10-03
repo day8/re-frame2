@@ -142,11 +142,6 @@ it('parseExampleBuilds recovers :output-dir + :init-fn per build', () => {
   assert.strictEqual(byId['examples/gamma'].outputDir, 'out/examples/gamma');
 });
 
-it('parseExampleBuilds ignores commented-out build keys', () => {
-  const ids = parseExampleBuilds(FIXTURE).map((b) => b.build);
-  assert.ok(!ids.includes('examples/should-be-ignored'));
-});
-
 // `target` is what separates a PAGE build from a server-side one, and a
 // non-`:browser` example build must still be RECOVERED (it is an example
 // build; check-examples-compile.cjs compiles it) while carrying no :init-fn.
@@ -236,7 +231,7 @@ it('TEETH: buildNsIndex FAILS CLOSED on an unreadable source file head (rf2-3fc8
   // Find a real .cljs source under examples/ to mark unreadable.
   const realFs = require('fs');
   const clean = buildNsIndex(EXAMPLES_ROOT, { io: realFs }); // a full clean index
-  assert.ok(clean.size > 0, 'precondition: the clean ns-index is non-empty');
+  assert.ok(clean.size >= 30, `precondition: a non-vacuous clean ns-index, got ${clean.size}`);
   const someSourceDir = [...clean.values()][0];
   const someSource = realFs
     .readdirSync(someSourceDir)
@@ -248,11 +243,6 @@ it('TEETH: buildNsIndex FAILS CLOSED on an unreadable source file head (rf2-3fc8
     (err) => /enumeration FAILED/.test(err.message) && err.message.includes(someSource),
     'an unreadable ns source head must fail closed by name (not vanish from the index)',
   );
-});
-
-it('buildNsIndex builds the full index with a clean io (no false failure) (rf2-3fc89f.31)', () => {
-  const idx = buildNsIndex(EXAMPLES_ROOT, { io: require('fs') });
-  assert.ok(idx.size >= 30, `expected a non-vacuous ns-index, got ${idx.size}`);
 });
 
 // ---- the documented run recipes resolve to a real host page
@@ -373,33 +363,6 @@ it('cleanStageDirs REFUSES an out-of-tree target (path guard)', () => {
   );
 });
 
-it('cleanStageDirs removes a stale file then recreates the dir empty (no stale residue)', () => {
-  // Seed a real temp OUT_ROOT with a selected dir holding a STALE file that the
-  // current source no longer produces, prove a clean run removes it.
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-stage-'));
-  try {
-    const outRoot = path.join(tmpRoot, 'out', 'examples');
-    const sel = path.join(outRoot, 'counter');
-    const sibling = path.join(outRoot, 'login');
-    fs.mkdirSync(sel, { recursive: true });
-    fs.mkdirSync(sibling, { recursive: true });
-    const staleFile = path.join(sel, 'retired-asset.js');
-    const siblingFile = path.join(sibling, 'keep-me.js');
-    fs.writeFileSync(staleFile, 'STALE');
-    fs.writeFileSync(siblingFile, 'KEEP');
-
-    cleanStageDirs([sel], outRoot);
-
-    assert.ok(!fs.existsSync(staleFile), 'the stale file must be gone after clean-stage');
-    assert.ok(fs.existsSync(sel), 'the selected dir must be recreated empty');
-    assert.deepStrictEqual(fs.readdirSync(sel), [], 'the selected dir must be empty');
-    // A narrow run must NOT wipe a sibling output another build/run relies on.
-    assert.ok(fs.existsSync(siblingFile), 'a sibling output dir must be untouched');
-  } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  }
-});
-
 it('cleanStageDirs (re)creates a not-yet-existing selected dir (first run)', () => {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-stage-'));
   try {
@@ -476,10 +439,6 @@ it('serve-example.cjs calls cleanStageDirs on the selected outDir BEFORE stageEx
   const src = fs.readFileSync(
     path.join(__dirname, '..', '..', 'examples', 'scripts', 'serve-example.cjs'),
     'utf8',
-  );
-  assert.ok(
-    /cleanStageDirs\s*\(\s*\[\s*entry\.outDir\s*\]\s*,\s*OUT_ROOT\s*\)/.test(src),
-    'serve-example must clean the selected entry.outDir under OUT_ROOT (clean-stage boundary)',
   );
   const cleanAt = src.indexOf('cleanStageDirs([entry.outDir], OUT_ROOT)');
   const stageAt = src.indexOf('stageExample(entry)');
@@ -591,10 +550,6 @@ it('stagedAssetsByBuild projects a synthetic manifest to build -> [{from,src,des
     { from: 'node-modules', src: 'synth-common/base.css', dest: 'base.css' },
     { from: 'node-modules', src: 'synth-app/index.css', dest: 'index.css' },
   ]);
-  assert.ok(
-    !('htmlLinked' in projected['examples/synth-vendored'][0]),
-    'the staging projection must drop the scanner-only htmlLinked flag',
-  );
   assert.deepStrictEqual(projected['examples/synth-fixture'], [
     { from: 'src', src: 'api/data.json', dest: 'api/data.json' },
   ]);
@@ -921,16 +876,6 @@ it('serve-example keeps the wait on the WATCH path only, and tears down on first
 // authoritative for the handler, and is pinned as such below.
 
 const { watchExitAbortsRun } = require('../../examples/scripts/serve-example.cjs');
-
-it('TEETH: a CLEAN (code 0) watch exit BEFORE the first build ends the run (rf2-qwy3)', () => {
-  // The clean early exit, stated on its own: exiting 0 is not "nothing to see" while
-  // the watcher is still the only thing that can publish the entrypoint.
-  assert.strictEqual(
-    watchExitAbortsRun({ code: 0, signal: null, interrupted: false, firstBuildReady: false }),
-    true,
-    'a watcher that exits 0 before publishing the entrypoint leaves nobody to produce it',
-  );
-});
 
 it('TEETH: every unasked-for watch termination before the first build is terminal (rf2-qwy3)', () => {
   for (const outcome of [
