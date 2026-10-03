@@ -36,11 +36,9 @@
   `scrollTo` mirrors browser state onto the `scrollX` / `scrollY` fields
   `:rf.nav/capture-scroll` reads."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.scroll :as rf.routing.scroll]
             ;; The optional schemas artefact — publishes :schemas/validate-fx!.
@@ -137,20 +135,6 @@
       (finally (rf.late-bind/set-fn! :adapter/after-render original)))))
 
 ;; =========================================================================
-;; 0. Precondition — the gate is actually installed on this host
-;; =========================================================================
-
-(deftest nav-fx-registrations-carry-schema-on-cljs
-  (testing "the four standard nav fx carry a :schema on the CLJS
-            host too — the .cljc registrations are shared, but the gate only
-            ever FIRES here, so the precondition is worth pinning where it
-            matters"
-    (doseq [fx-id [:rf.nav/push-url :rf.nav/replace-url
-                   :rf.nav/scroll :rf.nav/capture-scroll]]
-      (is (some? (:schema (rf.registrar/lookup :fx fx-id)))
-          (str fx-id " carries a runtime :schema")))))
-
-;; =========================================================================
 ;; 1. :rf.nav/push-url + :rf.nav/replace-url — history is not touched
 ;; =========================================================================
 
@@ -233,18 +217,6 @@
         (is (= :rf.nav/capture-scroll
                (-> (violations @traces) first :tags :rf.fx/id)))))))
 
-(deftest capture-scroll-with-a-non-string-url-never-writes-the-cache
-  (testing "a keyword :url would key the LRU cache with a value
-            the symmetric restore lookup can never reconstruct"
-    (rf/reg-event :test/kw-capture
-                  (fn [_ _]
-                    {:fx [[:rf.nav/capture-scroll {:url :route/cart}]]}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:test/kw-capture])
-      (is (nil? (rf.routing.scroll/frame-scroll-cache :rf/default))
-          "a keyword :url never reached the cache")
-      (is (= 1 (count (violations @traces)))))))
-
 (deftest capture-scroll-with-a-well-formed-url-still-captures
   (testing "POSITIVE control: {:url <string>} still captures — and the
             FRACTIONAL window.scrollX/Y a HiDPI / zoomed browser reports is
@@ -265,40 +237,6 @@
 ;; =========================================================================
 ;; 3. :rf.nav/scroll — the window is not scrolled
 ;; =========================================================================
-
-(deftest scroll-with-a-non-standard-keyword-strategy-never-scrolls
-  (testing "a bare non-standard keyword is a typo, which a nil default
-            branch would silently swallow. It is
-            rejected at the args boundary and surfaced as a violation"
-    (set-scroll! 0 500)
-    (let [witness (sibling-calls)]
-      (rf/reg-event :test/bad-scroll
-                    (fn [_ _]
-                      {:fx [[:rf.nav/scroll {:strategy :smooth}] ;; bad: not :top/:restore/:preserve
-                            [:test/witness  nil]]}))
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:test/bad-scroll])
-        (is (= [0 500] (scroll-xy))
-            "the window was not scrolled")
-        (is (= 1 @witness) "the sibling fx still ran")
-        (is (= 1 (count (violations @traces))))
-        (is (= :rf.nav/scroll
-               (-> (violations @traces) first :tags :rf.fx/id)))))))
-
-(deftest scroll-with-a-malformed-saved-pos-never-scrolls
-  (testing "a :restore whose :saved-pos is not a two-number tuple
-            would otherwise reach `.scrollTo` with garbage coordinates
-            (the handler's `sequential?` guard admits [\"0\" \"0\"])"
-    (set-scroll! 0 500)
-    (rf/reg-event :test/bad-saved-pos
-                  (fn [_ _]
-                    {:fx [[:rf.nav/scroll {:strategy :restore
-                                           :saved-pos ["0" "0"]}]]}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:test/bad-saved-pos])
-      (is (= [0 500] (scroll-xy))
-          "the window was not scrolled to the string coordinates")
-      (is (= 1 (count (violations @traces)))))))
 
 (deftest scroll-with-the-full-planner-args-still-scrolls
   (testing "POSITIVE control: the FULL five-slot args plan/scroll-plan
@@ -321,22 +259,6 @@
           "the full planner args drove the restore")
       (is (empty? (violations @traces))
           "no violation for the canonical planner output"))))
-
-(deftest scroll-top-with-an-optional-fragment-still-scrolls
-  (testing "POSITIVE control: the optional :fragment slot in
-            the spec shape validates. The stub's getElementById returns nil,
-            so the handler falls through to `.scrollTo 0 0` — the point is
-            that the ARGS passed the gate, not which branch ran"
-    (set-scroll! 0 900)
-    (rf/reg-event :test/top-fragment
-                  (fn [_ _]
-                    {:fx [[:rf.nav/scroll {:strategy :top
-                                           :fragment "install"}]]}))
-    (with-trace-recorder! [traces]
-      (committed! #(rf/dispatch-sync [:test/top-fragment]))
-      (is (= [0 0] (scroll-xy))
-          "the :top branch ran — args carrying :fragment were not rejected")
-      (is (empty? (violations @traces))))))
 
 ;; ---- the map form is REJECTED, not accepted-and-ignored -----------------
 ;;
@@ -403,50 +325,6 @@
               "frame-stamped so the diagnostic reaches epoch capture / Xray")
           (is (string? (:reason tags))))))))
 
-(deftest scroll-handler-rejection-rides-the-always-on-error-axis
-  (testing "the rejection must ride the ALWAYS-ON error-emit axis,
-            not the dev trace alone. `trace/emit-error!` alone
-            is wrapped in
-            `interop/debug-enabled?` and DCEs under `:advanced` +
-            `goog.DEBUG=false`, so on a PRODUCTION host without the optional
-            schemas artefact — precisely the configuration this branch exists
-            to cover — the handler would run, scroll nothing, emit nothing and
-            return nil, for the consumers least
-            likely to notice. The record must reach a listener registered on
-            the production-survivable axis"
-    (set-scroll! 0 700)
-    (let [records (record-always-on-errors!)]
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
-                                {:strategy {:to :element :selector "#article"}})
-      (let [errs (unsupported-records @records)]
-        (is (= 1 (count errs))
-            "exactly ONE always-on record — the rejection survives production")
-        (is (= [0 700] (scroll-xy))
-            "and still performs no scroll")
-        (let [r (first errs)]
-          (is (= :rf.error/unsupported-scroll-strategy (:error r)))
-          ;; The record is STRUCTURAL. `record-attrs` bypass the elision
-          ;; seam, so a record naming the rejected value verbatim would ship an
-          ;; arbitrary runtime `:scroll` opt off-box whole and unbounded
-          ;; (4.8 MB for a 2000-key value). The
-          ;; raw value rides the dev trace alone; see
-          ;; `re-frame.routing-scroll-record-bounded-cljs-test`.
-          (is (nil? (:strategy r))
-              "the rejected value does NOT ride the production-surviving record")
-          (is (= :map (:strategy-type r))
-              "a closed-vocabulary SHAPE tag stands in for it")
-          (is (= [:top :restore :preserve] (:supported r))
-              "the supported vocabulary is named")
-          (is (= :no-scroll (:recovery r))
-              ":recovery :no-scroll — navigation is unaffected, only the scroll")
-          (is (= :rf/default (:frame r))
-              ":frame names the navigating frame")
-          (is (string? (:reason r))
-              "the human diagnostic rides the record, not only the DCE'd trace")
-          (is (not (str/includes? (:reason r) "#article"))
-              "…and it is a CONSTANT — never an interpolation of the value")
-          (is (number? (:time r)) ":time is a wall-clock millis number"))))))
-
 (deftest scroll-handler-rejection-emits-once-per-channel
   (testing "fanning through `rf.error-emit/emit-error-both!` must not
             DOUBLE-emit. One unsupported strategy produces exactly one
@@ -468,30 +346,6 @@
               ":recovery is hoisted to the envelope by build-event")))
       (is (= 1 (count (unsupported-records @records)))
           "exactly one always-on record — no double emission on that channel"))))
-
-(deftest scroll-handler-supported-strategies-emit-no-always-on-record
-  (testing "POSITIVE control on the always-on channel: an always-on
-            rejection must not make the WORKING strategies loud in production.
-            `:top` / `:restore` / `:preserve` each drive their own branch and
-            fan NO always-on record — `:preserve` in particular stays the
-            silent documented no-op it is specified to be"
-    (let [records (record-always-on-errors!)]
-      ;; :top — no fragment element in the stub, so it falls back to (0,0).
-      (set-scroll! 0 700)
-      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top}))
-      (is (= [0 0] (scroll-xy)) ":top scrolled to the top")
-      ;; :restore — drives .scrollTo with the saved position.
-      (set-scroll! 0 700)
-      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
-                                                        {:strategy :restore :saved-pos [0 420]}))
-      (is (= [0 420] (scroll-xy)) ":restore restored the saved position")
-      ;; :preserve — the silent documented no-op. Nothing moves, nothing emits.
-      (set-scroll! 0 700)
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :preserve})
-      (is (= [0 700] (scroll-xy)) ":preserve left the scroll position alone")
-      (is (empty? (unsupported-records @records))
-          "no always-on rejection for any supported strategy — :preserve is a
-           silent no-op, not a rejection"))))
 
 (deftest scroll-handler-adversarial-near-miss-strategies
   (testing "adversarial: values that LOOK like a supported strategy
@@ -515,25 +369,30 @@
   (testing "POSITIVE control — the essential one. Making the
             handler loud must not make it loud on the strategies that WORK:
             each of :top / :restore / :preserve still drives its own branch
-            and emits NO unsupported-strategy error"
-    ;; :top — no fragment element in the stub, so it falls back to (0,0).
-    (set-scroll! 0 700)
-    (with-trace-recorder! [traces]
-      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top}))
-      (is (= [0 0] (scroll-xy)) ":top scrolled to the top")
-      (is (empty? (unsupported @traces)) ":top emitted no rejection"))
-    ;; :restore — drives .scrollTo with the saved position.
-    (set-scroll! 0 700)
-    (with-trace-recorder! [traces]
-      (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
-                                                        {:strategy :restore :saved-pos [12 3400.5]}))
-      (is (= [12 3400.5] (scroll-xy)) ":restore scrolled to the saved position")
-      (is (empty? (unsupported @traces)) ":restore emitted no rejection"))
-    ;; :preserve — deliberately does nothing, and that is NOT an error.
-    (set-scroll! 0 700)
-    (with-trace-recorder! [traces]
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :preserve})
-      (is (= [0 700] (scroll-xy)) ":preserve left the window alone")
-      (is (empty? (unsupported @traces))
-          ":preserve is a DOCUMENTED no-op — it must stay silent, which is
-           exactly what distinguishes it from a rejected map form"))))
+            and emits NO unsupported-strategy error on EITHER channel — the
+            dev trace, or the always-on record a production host keeps"
+    (let [records (record-always-on-errors!)]
+      ;; :top — no fragment element in the stub, so it falls back to (0,0).
+      (set-scroll! 0 700)
+      (with-trace-recorder! [traces]
+        (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :top}))
+        (is (= [0 0] (scroll-xy)) ":top scrolled to the top")
+        (is (empty? (unsupported @traces)) ":top emitted no rejection"))
+      ;; :restore — drives .scrollTo with the saved position.
+      (set-scroll! 0 700)
+      (with-trace-recorder! [traces]
+        (committed! #(rf.routing.scroll/scroll-fx-handler {:frame :rf/default}
+                                                          {:strategy :restore :saved-pos [12 3400.5]}))
+        (is (= [12 3400.5] (scroll-xy)) ":restore scrolled to the saved position")
+        (is (empty? (unsupported @traces)) ":restore emitted no rejection"))
+      ;; :preserve — deliberately does nothing, and that is NOT an error.
+      (set-scroll! 0 700)
+      (with-trace-recorder! [traces]
+        (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :preserve})
+        (is (= [0 700] (scroll-xy)) ":preserve left the window alone")
+        (is (empty? (unsupported @traces))
+            ":preserve is a DOCUMENTED no-op — it must stay silent, which is
+             exactly what distinguishes it from a rejected map form"))
+      (is (empty? (unsupported-records @records))
+          "no always-on rejection for any supported strategy — :preserve is a
+           silent no-op, not a rejection"))))

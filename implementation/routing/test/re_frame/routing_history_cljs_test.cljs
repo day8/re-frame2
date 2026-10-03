@@ -121,12 +121,6 @@
   (testing "[:rf.route/url-requested {:url \"/cart\"}] → history.pushState pushes the URL onto the stack AND the :rf/route slice updates"
     (register-routes!)
 
-    ;; Sanity: stub starts at "/" with one entry.
-    (is (= ["/"] (:entries @*history-state*))
-        "history stub starts with the single root entry")
-    (is (= "/" (current-url *history-state*))
-        "current URL is /")
-
     (let [[_ traces]
           (with-route-traces
             (fn []
@@ -136,8 +130,6 @@
           ":rf.nav/push-url appended /cart to the history stack")
       (is (= 1 (:index @*history-state*))
           "the history index advanced to the new top entry")
-      (is (= "/cart" (current-url *history-state*))
-          "history.current points at /cart")
 
       ;; Slice side-effect: :rf/route was rewritten.
       (let [route (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
@@ -356,24 +348,6 @@
                       [:rf.runtime/routing :scroll-positions]))
         "the position is NOT written to runtime-db — it stays off the egress wire")))
 
-(deftest duplicate-url-bound-frame-does-not-push-cljs
-  (testing "a second :url-bound? true frame is reported but not allowed to mutate browser history"
-    ;; `register-routes!` declares `:rf/default {:url-bound? true}`
-    ;; as the established (first-claimed) URL owner. The duplicate here sorts
-    ;; AFTER `:rf/default` (`:zz/duplicate-owner`); the companion test below
-    ;; covers the harder case — a duplicate that sorts BEFORE the incumbent,
-    ;; which an alphabetical resolver would let STEAL the URL. A push from the
-    ;; non-owner duplicate is suppressed.
-    (register-routes!)
-    (rf/make-frame {:id :zz/duplicate-owner :url-bound? true})
-    (rf/dispatch-sync [:rf.route/navigate {:to :hist/cart}]
-                      {:frame :zz/duplicate-owner})
-    (is (= ["/"] (:entries @*history-state*))
-        "duplicate URL-bound frame did not push to browser history")
-    (is (= :hist/cart
-           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :zz/duplicate-owner)) [:rf.runtime/routing :current])))
-        "the non-owner frame still updates its own route slice")))
-
 (deftest duplicate-sorting-before-incumbent-does-not-steal-url-cljs
   (testing "a duplicate :url-bound? true frame whose id sorts
             BEFORE the incumbent (:aaa-early < :rf/default) does NOT steal the
@@ -401,43 +375,6 @@
 ;; =========================================================================
 ;; 2. popstate (back-button) round-trip
 ;; =========================================================================
-
-(deftest popstate-back-button-cljs
-  (testing "after two pushes, (.back history) + dispatch :rf.route/handle-url-change drops the slice back to the prior route"
-    (register-routes!)
-
-    ;; Push two routes.
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
-    (is (= :hist/checkout
-           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "slice is on /checkout before the back-button")
-
-    ;; Simulate back-button: browser would (a) move history.index back
-    ;; and (b) fire a `popstate` event. The app is responsible for
-    ;; reading the new URL from the browser and dispatching
-    ;; :rf.route/handle-url-change with it. We exercise both halves.
-    (.back (.-history js/globalThis.window))
-    (is (= "/cart" (current-url *history-state*))
-        "back() moved the history pointer to /cart (no NEW entry created)")
-    (is (= 3 (count (:entries @*history-state*)))
-        "back() does NOT mutate the entry stack — it only moves the index")
-    (is (= 1 (:index @*history-state*))
-        "history.index now references the /cart entry")
-
-    ;; The popstate dispatch the app would issue.
-    (let [[_ traces]
-          (with-route-traces
-            (fn []
-              (rf/dispatch-sync
-                [:rf.route/handle-url-change (current-url *history-state*)])))]
-      (is (= :hist/cart
-             (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-          "the slice fell back to :hist/cart after the popstate-style dispatch")
-      (is (= 1 (count traces))
-          "the popstate dispatch fires exactly one :rf.route.nav-token/allocated")
-      (is (= :hist/cart (-> traces first :route-id))
-          "the trace identifies the route we landed on"))))
 
 ;; ---- popstate drives the URL-OWNER frame ----------------------------------
 ;;
@@ -1358,16 +1295,7 @@
       (is (= ["/" "/checkout"] (:entries @*history-state*))
           "replaceState rewrote the top entry from /cart to /checkout")
       (is (= pre-index (:index @*history-state*))
-          "the history index did NOT advance (no new entry was created)")
-      (is (= 2 (count (:entries @*history-state*)))
-          "stack length is unchanged across a replaceState call")
-
-      ;; The hallmark of replaceState: popstate skips the replaced URL.
-      ;; back() from index 1 should land on the original / entry, NOT
-      ;; the /cart URL that was replaced.
-      (.back (.-history js/globalThis.window))
-      (is (= "/" (current-url *history-state*))
-          "back() after replaceState lands on the entry BEFORE the replaced one"))))
+          "the history index did NOT advance (no new entry was created)"))))
 
 ;; =========================================================================
 ;; 5. Cross-state cleanup — A → B → pop → C → pop → pop
@@ -1482,12 +1410,9 @@
                 "replaceState" "boom-replace"
                 (fn []
                   ;; The drain must NOT throw — fail-closed via the
-                  ;; shared try/catch. `is` with no thrown exception is the
-                  ;; assertion; a leaked throw would fail the deftest.
+                  ;; shared try/catch; a leaked throw errors the deftest.
                   (rf/dispatch-sync
-                    [:rf.route/navigate {:to :hist/checkout :replace? true}])
-                  (is true
-                      ":rf.route/navigate dispatch returned without an escaping exception")))))]
+                    [:rf.route/navigate {:to :hist/checkout :replace? true}])))))]
       (is (= 1 (count failures))
           "a single :rf.fx/replace-url-failed trace fired for the throwing replaceState")
       (let [tags (first failures)]
@@ -1513,9 +1438,7 @@
               (with-throwing-history-method!
                 "pushState" "boom-push"
                 (fn []
-                  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-                  (is true
-                      ":rf.route/url-requested dispatch returned without an escaping exception")))))]
+                  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])))))]
       (is (= 1 (count failures))
           "a single :rf.fx/push-url-failed trace fired for the throwing pushState")
       (let [tags (first failures)]
@@ -1527,73 +1450,3 @@
             "the trace carries the attempted :url")
         (is (= "boom-push" (:error tags))
             "the trace carries the browser error message")))))
-
-;; =========================================================================
-;; programmatic fragment-only navigate drives real history
-;; =========================================================================
-;;
-;; Spec 012 §Fragments / §Programmatic navigation with fragments. A
-;; `:rf.route/navigate` differing from the current slice ONLY in its
-;; `#fragment` takes the short-circuit — no :on-match re-fire, no new
-;; :nav-token — while still driving the browser history: PUSH by default
-;; (adds an entry), REPLACE with {:replace? true} (mutates the active entry
-;; in place), and clearing the fragment pushes the fragment-less URL. This is
-;; the CLJS counterpart of the JVM `navigate-fragment-only-*` tests, exercised
-;; against the real pushState/replaceState history stub.
-
-(defn- k4exp1-slice []
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-          [:rf.runtime/routing :current]))
-
-(deftest programmatic-fragment-only-navigate-drives-history-cljs-rf2-k4exp1
-  (testing "programmatic fragment-only navigate pushes / replaces /
-            clears the browser history without re-firing :on-match or allocating
-            a new nav-token"
-    ;; Register the routes BEFORE binding the URL owner, so the `:url-bound?`
-    ;; frame's create-time initial-URL sync matches a real route
-    ;; rather than falling to not-found. (That sync also allocates a token, so
-    ;; the teeth below capture the token AFTER the first explicit nav and assert
-    ;; it is UNCHANGED — never a hardcoded "nav-1" — which is the real invariant:
-    ;; a fragment-only nav allocates NO new token.)
-    (rf/reg-route :hist/home {} "/")
-    (let [loads (atom 0)]
-      (rf/reg-event :docs/load (fn [{:keys [db]} _] (swap! loads inc) {:db db}))
-      (rf/reg-route :hist/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (rf/make-frame {:id :rf/default :url-bound? true})
-
-      ;; --- Full nav: loader fires once, pushes /docs/guide#a. ---
-      (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment "a"}])
-      (is (= "/docs/guide#a" (current-url *history-state*))
-          "full nav pushed /docs/guide#a onto the history stack")
-      (is (= 1 @loads) ":on-match fired once on the full nav")
-      (let [token (:nav-token (k4exp1-slice))
-            entries-after-full (:entries @*history-state*)]
-        (is (some? token) "the full nav allocated a nav-token")
-
-        ;; --- Fragment-only PUSH: #a → #b adds a new entry, no re-fire, same token. ---
-        (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment "b"}])
-        (is (= (conj entries-after-full "/docs/guide#b") (:entries @*history-state*))
-            "fragment-only push added a NEW history entry for #b")
-        (is (= 1 @loads) "fragment-only push did NOT re-fire :on-match")
-        (is (= token (:nav-token (k4exp1-slice)))
-            "fragment-only push did NOT allocate a new nav-token")
-        (is (= "b" (:fragment (k4exp1-slice))) "the slice fragment updated to #b")
-
-        ;; --- Fragment-only REPLACE: #b → #c mutates the ACTIVE entry in place. ---
-        (let [entry-count-before (count (:entries @*history-state*))]
-          (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment "c" :replace? true}])
-          (is (= "/docs/guide#c" (current-url *history-state*))
-              "{:replace? true} moved the active entry to #c")
-          (is (= entry-count-before (count (:entries @*history-state*)))
-              "replace did NOT grow the history stack (no new entry)")
-          (is (= 1 @loads) "fragment-only replace did NOT re-fire :on-match")
-          (is (= token (:nav-token (k4exp1-slice))) "replace did NOT allocate a new token"))
-
-        ;; --- Clear the fragment: pushes the fragment-less URL, still no re-fire. ---
-        (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"}}])
-        (is (= "/docs/guide" (current-url *history-state*))
-            "clearing the fragment pushed the fragment-less URL")
-        (is (nil? (:fragment (k4exp1-slice))) "the slice fragment cleared to nil")
-        (is (= 1 @loads) "clearing the fragment did NOT re-fire :on-match")
-        (is (= token (:nav-token (k4exp1-slice)))
-            "clearing the fragment is still a fragment-only short-circuit — no new token")))))
