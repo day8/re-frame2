@@ -10,10 +10,9 @@
     - Race: whichever transition fires first wins; others go stale via
       the per-machine :rf/after-epoch counter.
     - A state with :after but no :spawn is a pure timed-transition state.
-    - There is no :timeout-ms slot on :spawn / :spawn-all;
-      registration throws :rf.error/spawn-timeout-ms-removed. (The
-      first-class EP-0029 A4 :timeout / :on-timeout grammar — which
-      desugars onto :after — is covered by timeout_test.clj.)
+    - The first-class EP-0029 A4 :timeout / :on-timeout grammar desugars
+      onto :after; timeout_cljs_test.cljc covers it, and the rejected
+      :timeout-ms slot on :spawn / :spawn-all, on both hosts.
 
   These JVM tests dispatch the synthetic
   [:rf.machine.timer/after-elapsed delay-key epoch decl-path] event
@@ -36,45 +35,6 @@
 ;; runtime-db / snapshot lookup via the shared machines test-support.
 (def ^:private frame-db rf.machines.test-support/runtime-db)
 (def ^:private snapshot rf.machines.test-support/snapshot)
-
-;; ---- registration-time handling of a :timeout-ms slot ----------------------
-;;
-;; Spawn-level :timeout / :on-timeout is first-class grammar (EP-0029 A4;
-;; see timeout_test.clj for that). There is no :timeout-ms slot —
-;; `:timeout-ms` on :spawn / :spawn-all throws
-;; :rf.error/spawn-timeout-ms-removed; use :timeout. A bare :on-timeout (no
-;; :timeout) is the A4 pairing error, NOT the :timeout-ms error.
-
-(deftest spawn-timeout-ms-rejected
-  (testing ":timeout-ms on :spawn fails registration"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :r}}
-                         :r    {:spawn {:machine-id :stub
-                                         :timeout-ms 1000}}}}]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"spawn-timeout-ms-removed"
-                            (rf/reg-machine :rmv/bad bad))
-          "registration emits the removed-slot error category")))
-  (testing ":on-timeout alone on :spawn is the A4 pairing error"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :r}}
-                         :r    {:spawn {:machine-id :stub
-                                         :on-timeout [:never]}}}}]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"machine-on-timeout-without-timeout"
-                            (rf/reg-machine :rmv/bad2 bad))
-          "a spawn :on-timeout with no :timeout fails per EP-0029 A4")))
-  (testing ":timeout-ms on :spawn-all is rejected"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :h}}
-                         :h    {:spawn-all
-                                {:children        [{:id :a :machine-id :stub}]
-                                 :join            :all
-                                 :on-all-complete [:done!]
-                                 :timeout-ms      5000}}}}]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"spawn-timeout-ms-removed"
-                            (rf/reg-machine :rmv/bad3 bad))))))
 
 ;; ---- single-delay :after on entry / fire -----------------------------------
 

@@ -14,8 +14,9 @@
     - State-level `:after` on a `:spawn`-bearing state:
       synthetic timer-elapsed cancels the child via the standard exit
       cascade and transitions the parent.
-    - `:timeout-ms` on `:spawn` / `:spawn-all` is rejected at registration
-      with `:rf.error/spawn-timeout-ms-removed`.
+
+  The rejected `:timeout-ms` spawn slot is timeout-cljs-test's, on both
+  hosts.
 
   The `:spawn :data` fn form is pinned on both hosts by
   `spawn_ordering_ep0029_cljs_test`.
@@ -186,40 +187,3 @@
                           [:rf.runtime/machines :snapshots child-id]))
             "child machine snapshot torn down by the standard exit cascade"))
       (rf.trace.tooling/unregister-listener! ::ato))))
-
-;; ---- :timeout-ms is not a spawn key -------------------------------------
-;;
-;; Spawn-level timeouts are the first-class :timeout / :on-timeout grammar
-;; (EP-0029 A4; covered by machines_timeout_cljs_test.cljs). :timeout-ms is
-;; not a spawn key and is rejected with its own error; a bare :on-timeout
-;; (no :timeout) is the A4 pairing error, NOT the :timeout-ms error.
-
-(deftest machine-spawn-timeout-ms-removed-cljs
-  (testing ":timeout-ms on :spawn is rejected with :rf.error/spawn-timeout-ms-removed"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :running}}
-                         :running {:spawn {:machine-id :stub
-                                            :timeout-ms 1000}}}}]
-      (is (thrown-with-msg? js/Error
-                            #"spawn-timeout-ms-removed"
-                            (rf/reg-machine :rmv/bad-invoke bad)))))
-  (testing ":on-timeout alone on :spawn is the A4 pairing error"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :running}}
-                         :running {:spawn {:machine-id :stub
-                                            :on-timeout [:never]}}}}]
-      (is (thrown-with-msg? js/Error
-                            #"machine-on-timeout-without-timeout"
-                            (rf/reg-machine :rmv/bad-on-to bad)))))
-  (testing ":timeout-ms on :spawn-all is rejected"
-    (let [bad {:initial :idle
-               :states  {:idle {:on {:go :h}}
-                         :h    {:spawn-all
-                                {:children
-                                 [{:id :a :machine-id :stub}]
-                                 :join             :all
-                                 :on-all-complete  [:done!]
-                                 :timeout-ms       5000}}}}]
-      (is (thrown-with-msg? js/Error
-                            #"spawn-timeout-ms-removed"
-                            (rf/reg-machine :rmv/bad-invoke-all bad))))))

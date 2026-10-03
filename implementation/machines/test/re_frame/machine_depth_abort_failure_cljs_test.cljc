@@ -1,4 +1,4 @@
-(ns re-frame.machine-depth-abort-failure-test
+(ns re-frame.machine-depth-abort-failure-cljs-test
   "A bounded-depth abort (`:always` / `:raise` depth limit tripped on a
   runaway cycle) surfaces as a FAILED macrostep, NOT a silent benign no-op.
   A runaway `a →:always b →:always a` cycle must be DISTINGUISHABLE from a
@@ -14,17 +14,22 @@
   `:rf.machine.event/unhandled-no-op` — so the runaway is DISTINGUISHABLE
   from a guard-blocked no-op.
 
-  JVM-only — the dynamic-var listener path is platform-agnostic."
+  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
+  `:node-test` build on `cljs-test$`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading `re-frame.machines` installs the late-bind hooks +
             ;; reserved fxs `reg-machine` relies on.
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
+            #?(:clj  [re-frame.substrate.plain-atom :as substrate-adapter]
+               :cljs [re-frame.adapter.reagent :as substrate-adapter]))
+  ;; `with-trace-capture` is a `#?(:clj (defmacro …))` in the `.cljc` support
+  ;; ns, so CLJS needs it required as a MACRO ns under the same alias.
+  #?(:cljs (:require-macros [re-frame.machines.test-support :as rf.machines.test-support])))
 
 (use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
 
 (defn- record-traces! [body-fn]
   (rf.machines.test-support/with-trace-capture seen
