@@ -36,41 +36,22 @@
   (try (rf/reg-machine machine-id machine) nil
        (catch clojure.lang.ExceptionInfo e e)))
 
-;; ---- (1) unresolved KEYWORD root :on target --------------------------------
+;; ---- an unresolved or malformed root :on target fails registration ------
 
-(deftest root-on-unresolved-keyword-target-rejected-at-registration
-  (testing "a root :on keyword target naming no declared state fails registration"
-    (let [m {:initial :a
-             :on      {:go :missing}
-             :states  {:a {}}}
-          thrown (registration-throws? :rf.root-on-tv/unresolved-kw m)]
-      (is (some? thrown) "an unresolved root :on target SHOULD fail registration, not just at dispatch")
-      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))
-          "error category names the unresolved-target contract")
-      (is (= :missing (:target (ex-data thrown)))
-          "ex-data carries the offending target")
-      (is (= :rf/root (:state (ex-data thrown)))
-          "ex-data attributes the failure to the machine root"))))
+(deftest root-on-bad-targets-are-rejected-at-registration
+  (doseq [[label machine-id target expected]
+          [["an unresolved KEYWORD target: the ex-data carries the target and attributes the failure to the machine root"
+            :rf.root-on-tv/unresolved-kw :missing
+            {:rf.error/id :rf.error/machine-unresolved-target :target :missing :state :rf/root}]
+           ["an unresolved absolute-VECTOR target"
+            :rf.root-on-tv/unresolved-vec [:a :nowhere]
+            {:rf.error/id :rf.error/machine-unresolved-target}]
+           ["a target that is neither keyword nor vector is malformed shape, not unresolved"
+            :rf.root-on-tv/malformed {:target 42}
+            {:rf.error/id :rf.error/machine-bad-target}]]]
+    (let [data (ex-data (registration-throws? machine-id {:initial :a
+                                                          :on      {:go target}
+                                                          :states  {:a {}}}))]
+      (is (= expected (select-keys data (keys expected)))
+          (str label " — at registration, not just at dispatch")))))
 
-;; ---- (2) unresolved VECTOR root :on target ---------------------------------
-
-(deftest root-on-unresolved-vector-target-rejected-at-registration
-  (testing "a root :on absolute-vector target naming no declared state fails registration"
-    (let [m {:initial :a
-             :on      {:go [:a :nowhere]}
-             :states  {:a {}}}
-          thrown (registration-throws? :rf.root-on-tv/unresolved-vec m)]
-      (is (some? thrown))
-      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data thrown)))))))
-
-;; ---- (3) malformed-shape root :on target -----------------------------------
-
-(deftest root-on-malformed-target-rejected-at-registration
-  (testing "a root :on target that is neither keyword nor vector is malformed shape"
-    (let [m {:initial :a
-             :on      {:go {:target 42}}
-             :states  {:a {}}}
-          thrown (registration-throws? :rf.root-on-tv/malformed m)]
-      (is (some? thrown))
-      (is (= :rf.error/machine-bad-target (:rf.error/id (ex-data thrown)))
-          "a non-keyword/non-vector target is malformed shape, not unresolved"))))

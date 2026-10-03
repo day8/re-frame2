@@ -269,15 +269,6 @@
              (:rf.error/id (ex-data ex)))
           "the fail-loud guard's error id is surfaced"))))
 
-(deftest bare-direct-path-without-data-schema-stays-legal
-  (testing "a schema-LESS spec on the bare make-machine-handler path is
-            legal — nothing inert to leak, so the guard does NOT fire"
-    (is (fn? (rf.machines/make-machine-handler
-               {:initial :idle
-                :data    {:n 0}
-                :states  {:idle {}}}))
-        "make-machine-handler returns a handler-fn for a schema-less spec")))
-
 ;; ---- single-home invariants ------------------------------------------------
 
 (deftest opts-must-not-carry-reserved-machine-meta

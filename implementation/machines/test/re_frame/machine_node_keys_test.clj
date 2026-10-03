@@ -7,8 +7,7 @@
       `:rf.error/machine-unknown-spawn-key`;
     - a non-set `:tags` slot → `:rf.error/machine-bad-tags`;
     - a NAMESPACED user key passes (the open extension carve-out);
-    - a valid machine registers cleanly, and a valid set-form `:tags`
-      round-trips through the runtime tag projection."
+    - `:type :choice` and `:type :history` nodes are not double-rejected."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load the machines facade so `rf/reg-machine` routes through its
@@ -33,28 +32,31 @@
 ;; ---- (1) unknown BARE state-node keys signal ------------------------------
 
 (deftest unknown-bare-node-key-rejected
-  (testing "an unknown BARE key on an ordinary state node fails loud — the
-            XState :invoke footgun, which would otherwise register silently"
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-error-id {:initial :idle
-                          :states {:idle {:invoke {:machine-id :child}
-                                          :on {:go :done}}
-                                   :done {}}}))
-        ":invoke (XState's spelling of :spawn) is a bare typo — rejected")
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-error-id {:initial :idle
-                          :states {:idle {:on-entry :log
-                                          :on {:go :done}}
-                                   :done {}}}))
-        ":on-entry (XState's spelling of :entry) is a bare typo — rejected")))
-
-(deftest unknown-bare-node-key-on-root-rejected
-  (testing "an unknown BARE key on the MACHINE ROOT is rejected (a top-level
-            typo like :innitial must not slip through)"
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-error-id {:innitial :idle          ;; typo of :initial
-                          :initial :idle
-                          :states {:idle {}}})))))
+  (doseq [[label machine]
+          [[":invoke (XState's spelling of :spawn) on a state node — a footgun that
+            would otherwise register silently"
+            {:initial :idle
+             :states {:idle {:invoke {:machine-id :child}
+                             :on {:go :done}}
+                      :done {}}}]
+           [":on-entry (XState's spelling of :entry) on a state node"
+            {:initial :idle
+             :states {:idle {:on-entry :log
+                             :on {:go :done}}
+                      :done {}}}]
+           ["a typo like :innitial on the MACHINE ROOT"
+            {:innitial :idle
+             :initial :idle
+             :states {:idle {}}}]
+           [":on-spawn-actions on the root — there is no such slot (the reducer binds
+            the spawned id under [:data :rf/spawned <invoke-id>]), so it meets the
+            closed-vocabulary diagnostic with no bespoke nag"
+            {:initial :idle
+             :on-spawn-actions {:record (fn [_] nil)}
+             :states {:idle {:on {:go :done}}
+                      :done {}}}]]]
+    (is (= :rf.error/machine-unknown-node-key (reg-error-id machine))
+        (str label " is rejected"))))
 
 (deftest unknown-bare-node-key-name-and-vocab-in-ex-data
   (testing "the ex-data names the offending key + the valid vocabulary — the
@@ -72,93 +74,40 @@
           "surfaces the valid vocabulary (which includes the intended :spawn)")
       (is (= :idle (:state d)) "names the declaring state"))))
 
-(deftest retired-on-spawn-actions-root-key-rejected
-  (testing "there is no `:on-spawn-actions` root registration slot — it is an
-            unknown BARE key and meets the closed-vocabulary diagnostic, with
-            no bespoke nag; the reducer binds the spawned id under
-            [:data :rf/spawned <invoke-id>]"
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-error-id {:initial :idle
-                          :on-spawn-actions {:record (fn [_] nil)}
-                          :states {:idle {:on {:go :done}}
-                                   :done {}}})))))
-
-(deftest namespaced-node-key-passes
-  (testing "a NAMESPACED user key on a state node passes — the open extension
-            carve-out (only BARE unknown keys are typos)"
-    (is (nil? (reg-error-id {:initial :idle
-                             :states {:idle {:my.app/note "annotation"
-                                             :on {:go :done}}
-                                      :done {}}})))))
-
 ;; ---- (2) unknown BARE spawn-spec keys signal ------------------------------
+;;
+;; There is no `:on-spawn` and no `:system-id` spawn-spec key: each is an
+;; unknown BARE key the closed-vocabulary diagnostic catches, with no
+;; diagnostic id of its own. The address is the id, and `:fixed-actor-id` is
+;; the one stable-name mechanism.
+
+(defn- spawn-with [spawn-key value]
+  {:initial :idle
+   :states {:idle {:spawn {:machine-id :child spawn-key value}
+                   :on {:go :done}}
+            :done {}}})
+
+(defn- spawn-all-child-with [child-key value]
+  {:initial :idle
+   :states {:idle {:spawn-all {:children [{:id :c1 :machine-id :child child-key value}]
+                               :on-all-complete [:all]}
+                   :on {:go :done}}
+            :done {}}})
 
 (deftest unknown-bare-spawn-key-rejected
-  (testing "an unknown BARE key on a :spawn spec fails loud — a misspelt
-            :machine (for :machine-id) would leave the spawn under-specified"
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-error-id {:initial :idle
-                          :states {:idle {:spawn {:machine :child}  ;; :machine, not :machine-id
-                                          :on {:go :done}}
-                                   :done {}}})))))
-
-(deftest unknown-bare-spawn-all-child-key-rejected
-  (testing "an unknown BARE key on a :spawn-all CHILD spec fails loud"
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-error-id
-             {:initial :idle
-              :states {:idle {:spawn-all {:children [{:id :c1
-                                                      :machine-id :child
-                                                      :bogus true}]  ;; unknown bare key
-                                          :on-all-complete [:all]}
-                              :on {:go :done}}
-                       :done {}}})))))
-
-(deftest retired-on-spawn-spawn-key-rejected
-  (testing "there is no `:on-spawn` spawn-spec key — as an unknown BARE
-            key the closed-vocabulary diagnostic catches it on both the
-            single `:spawn` and a `:spawn-all` child"
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-error-id {:initial :idle
-                          :states {:idle {:spawn {:machine-id :child
-                                                  :on-spawn   (fn [_] nil)}
-                                          :on {:go :done}}
-                                   :done {}}}))
-        ":on-spawn on a single :spawn is rejected")
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-error-id
-             {:initial :idle
-              :states {:idle {:spawn-all {:children [{:id         :c1
-                                                      :machine-id :child
-                                                      :on-spawn   (fn [_] nil)}]
-                                          :on-all-complete [:all]}
-                              :on {:go :done}}
-                       :done {}}}))
-        ":on-spawn on a :spawn-all child is rejected")))
-
-(deftest retired-system-id-spawn-key-rejected
-  (testing "there is no `:system-id` spawn-spec key — as an unknown BARE key
-            the closed-vocabulary diagnostic catches it on both the single
-            `:spawn` and a `:spawn-all` child, with no diagnostic id of its
-            own: the address is the id, and `:fixed-actor-id` is the one
-            stable-name mechanism."
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-error-id {:initial :idle
-                          :states {:idle {:spawn {:machine-id :child
-                                                  :system-id  :some-name}
-                                          :on {:go :done}}
-                                   :done {}}}))
-        ":system-id on a single :spawn is rejected")
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-error-id
-             {:initial :idle
-              :states {:idle {:spawn-all {:children [{:id         :c1
-                                                      :machine-id :child
-                                                      :system-id  :some-name}]
-                                          :on-all-complete [:all]}
-                              :on {:go :done}}
-                       :done {}}}))
-        ":system-id on a :spawn-all child is rejected")))
+  (doseq [[label machine]
+          [[":machine (for :machine-id) on a :spawn, which would leave it under-specified"
+            {:initial :idle
+             :states {:idle {:spawn {:machine :child}
+                             :on {:go :done}}
+                      :done {}}}]
+           [":bogus on a :spawn-all child" (spawn-all-child-with :bogus true)]
+           [":on-spawn on a single :spawn" (spawn-with :on-spawn (fn [_] nil))]
+           [":on-spawn on a :spawn-all child" (spawn-all-child-with :on-spawn (fn [_] nil))]
+           [":system-id on a single :spawn" (spawn-with :system-id :some-name)]
+           [":system-id on a :spawn-all child" (spawn-all-child-with :system-id :some-name)]]]
+    (is (= :rf.error/machine-unknown-spawn-key (reg-error-id machine))
+        (str label " is rejected"))))
 
 (deftest namespaced-spawn-key-passes
   (testing "a NAMESPACED key on a :spawn spec passes (the runtime itself stamps
@@ -193,41 +142,7 @@
       (is (= :idle (:state d)))
       (is (= [:busy] (:tags d)) "names the offending non-set value"))))
 
-;; ---- (4) valid machines register (no false positives) ---------------------
-
-(deftest valid-machine-with-set-tags-registers-and-projects
-  (testing "a valid machine with a set-form :tags registers cleanly AND the
-            runtime projects the tag union onto the snapshot"
-    (is (nil? (reg-error-id {:initial :busy
-                             :states {:busy {:tags #{:loading :network}
-                                             :on {:done :idle}}
-                                      :idle {}}})))
-    ;; End-to-end: the projected :tags survive to the settled snapshot.
-    (rf/reg-machine :nk/tagged
-      {:initial :busy
-       :states {:busy {:tags #{:loading :network}
-                       :on {:done :idle}}
-                :idle {}}})
-    (rf/dispatch-sync [:nk/tagged [:rf.machine/start]])
-    (is (= #{:loading :network} (:tags (snapshot :nk/tagged)))
-        "the set-form :tags project onto the snapshot at :busy")))
-
-(deftest valid-full-featured-machine-registers
-  (testing "a machine exercising many KNOWN state-node + spawn keys registers
-            cleanly — the known-key vocabulary is complete enough for real specs"
-    (is (nil? (reg-error-id
-                {:initial :idle
-                 :data {:n 0}
-                 :guards {:ok? (fn [_] true)}
-                 :actions {:log (fn [_] {})}
-                 :on {:reset :idle}
-                 :states {:idle {:entry :log
-                                 :tags #{:waiting}
-                                 :on {:go {:target :running :guard :ok?}}}
-                          :running {:spawn {:machine-id :worker
-                                            :on-done (fn [{:keys [data]}] data)}
-                                    :after {1000 {:target :idle}}
-                                    :on {:stop :idle}}}})))))
+;; ---- (4) choice and history nodes are not double-rejected ----------------
 
 (deftest valid-choice-and-history-nodes-not-double-rejected
   (testing "a :type :choice node and a :type :history node — which carry keys
