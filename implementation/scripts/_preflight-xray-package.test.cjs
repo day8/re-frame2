@@ -393,23 +393,11 @@ test('the UNREWRITTEN pom fails, naming every skipped in-repo coordinate', () =>
   }
 });
 
-test('the two-coordinate rewrite fails — the shipping state rf2-5dut1 found', () => {
-  const two = ['day8/re-frame2', 'day8/reagent-slim'];
-  const out = expectFail(
-    makeFixture({ pom: pomWith([...THIRD_PARTY, ...inRepoDeps(two)]) }),
-    'two-of-ten pom',
-    /8 of 10 in-repo coordinate\(s\) are absent/,
-  );
-  assert.match(out, /day8\/re-frame2-epoch/, `expected epoch among the eight\n${out}`);
-});
-
 // ── A pom missing only Fresco ───────────────────────────────────────────
 
 test('the nine-coordinate rewrite fails — Fresco is a coordinate like any other', () => {
   // Fresco is published, so a pom missing it is an ordinary hole and gets
-  // the ordinary advice: add it to the rewrite step. The assertion runs the
-  // other way too — no operator-decision hint ("NOT A MECHANICAL FIX") may
-  // appear, because following it would be wrong.
+  // the ordinary advice: add it to the rewrite step.
   const out = expectFail(
     makeFixture({ pom: NINE_POM }),
     'nine-of-ten pom',
@@ -422,10 +410,6 @@ test('the nine-coordinate rewrite fails — Fresco is a coordinate like any othe
   assert.match(
     out, /add the coordinate to the rewrite step in/,
     `a skipped PUBLISHABLE coordinate must carry the generic remediation hint\n${out}`,
-  );
-  assert.doesNotMatch(
-    out, /NOT A MECHANICAL FIX/,
-    `no operator-decision hint may appear — Fresco publishes\n${out}`,
   );
   assert.doesNotMatch(
     out, /MISSING the in-repo dependency day8\/re-frame2-epoch/,

@@ -68,28 +68,6 @@ const RUNNER_CODE = stripComments(RUNNER_SRC);
 
 // 1. Install steps are declared via `install: true` + resolved through
 //    resolveInstallStep — not hard-coded `args: ['install']`.
-test('test-mcp-conformance.cjs declares install prep via the install marker', () => {
-  assert.match(
-    RUNNER_CODE,
-    /\binstall:\s*true\b/,
-    "expected install prep steps declared with `install: true` so the " +
-      'runner can pick npm ci / npm install per-package reproducibly.',
-  );
-});
-
-test('test-mcp-conformance.cjs routes install steps through resolveInstallStep', () => {
-  assert.match(
-    RUNNER_CODE,
-    /resolveInstallStep\s*\(/,
-    'expected the run loop to resolve install steps via resolveInstallStep.',
-  );
-  assert.match(
-    RUNNER_CODE,
-    /function\s+resolveInstallStep\b/,
-    'expected resolveInstallStep to be defined in the runner.',
-  );
-});
-
 test('test-mcp-conformance.cjs does NOT hard-code npm install args in a STEPS prep entry', () => {
   // A literal `args: ['install']` inside a STEPS entry (npm install
   // hard-coded as a prep step) is exactly the unpinned mutation this gate

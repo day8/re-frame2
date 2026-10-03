@@ -376,33 +376,20 @@ test('dependency with a missing <artifactId> → FAILED', () => {
 
 // ── Unexpected extras (see the script's ALLOWED-set rationale) ──────────
 
-test('unexpected extra dependency → FAILED', () => {
-  try {
-    const pom = withExtraDependency(depBlock({ groupId: 'com.example', artifactId: 'surprise', version: '1.0.0' }));
-    expectFail(makeFixture({ pom }), 'extra dependency', /com\.example\/surprise|unexpected/i);
-  } finally {
-    cleanup();
-  }
-});
-
-// Guards for the two shapes the script gives a dedicated hint. Both fall
-// out of the ALLOWED-set check rather than being special-cased greps — but
-// they are the most dangerous shapes, so pin them.
-test('DIRECT day8/re-frame2-reagent bridge dep → FAILED', () => {
-  try {
-    const pom = withExtraDependency(depBlock({ groupId: 'day8', artifactId: 're-frame2-reagent', version: '0.0.1.alpha' }));
-    expectFail(makeFixture({ pom }), 'bridge adapter dep', /re-frame2-reagent/);
-  } finally {
-    cleanup();
-  }
-});
-
-test('DIRECT stock-reagent dep → FAILED', () => {
-  try {
-    const pom = withExtraDependency(depBlock({ groupId: 'reagent', artifactId: 'reagent', version: '1.2.0' }));
-    expectFail(makeFixture({ pom }), 'stock reagent dep', /reagent\/reagent/);
-  } finally {
-    cleanup();
+// The bridge and stock-reagent rows are the two shapes the script gives a
+// dedicated hint. Both fall out of the ALLOWED-set check rather than being
+// special-cased greps — but they are the most dangerous shapes, so pin them.
+test('an unexpected extra dependency → FAILED, naming it (generic, DIRECT bridge adapter, DIRECT stock reagent)', () => {
+  for (const [what, dep, pattern] of [
+    ['extra dependency', { groupId: 'com.example', artifactId: 'surprise', version: '1.0.0' }, /com\.example\/surprise|unexpected/i],
+    ['bridge adapter dep', { groupId: 'day8', artifactId: 're-frame2-reagent', version: '0.0.1.alpha' }, /re-frame2-reagent/],
+    ['stock reagent dep', { groupId: 'reagent', artifactId: 'reagent', version: '1.2.0' }, /reagent\/reagent/],
+  ]) {
+    try {
+      expectFail(makeFixture({ pom: withExtraDependency(depBlock(dep)) }), what, pattern);
+    } finally {
+      cleanup();
+    }
   }
 });
 

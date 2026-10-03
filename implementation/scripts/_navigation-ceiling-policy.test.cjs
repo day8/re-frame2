@@ -416,7 +416,7 @@ test('a runner that ALIASES its navigation ceiling says so, and never disclaims 
  * So this asserts REACHABILITY, not exemption: the paths that carried the
  * defect are inside the sweep's own file list, and clean. Zero, by name.
  */
-test('the six formerly-waived paths are still inside the sweep, and still at zero (rf2-p9fa3, rf2-rbyyx)', () => {
+test('the formerly-waived paths are still inside the sweep, and still at zero (rf2-p9fa3, rf2-rbyyx)', () => {
   const scanned = new Set(scannedFiles());
   const problems = [];
 
