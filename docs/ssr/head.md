@@ -37,7 +37,7 @@ the `:articles` vector, whose entries here also carry a `:summary` and an `:imag
    :head   :head/article}      ;; which head this route uses
   "/articles/:id")             ;; the path is the third argument, not a metadata key
 
-;; Stand-ins for a request: seed one article, then build the head /articles/1 gets.
+;; Stand-ins for a request: seed an article, then build the /articles/1 head.
 (rf/reg-event :articles/seed
   (fn [{:keys [db]} [_ articles]]
     {:db (assoc db :articles articles)}))
@@ -47,9 +47,10 @@ the `:articles` vector, whose entries here also carry a `:summary` and an `:imag
                                     :summary "Crawlers read the first response."
                                     :image   "/img/head-tags.png"}]])
 
-[:pre (ssr/head-model->html
-        (ssr/head-model :rf/default                    ;; the frame this page's cells share
-                        {:route {:route-id :articles/show :params {:id "1"}}}))]
+[:pre {:style {:white-space "pre-wrap"}}
+ (ssr/head-model->html
+   (ssr/head-model :rf/default            ;; the frame this page's cells share
+                   {:route {:route-id :articles/show :params {:id "1"}}}))]
 ```
 
 On a server, `:rf/server-init` seeds `:articles` and hands the URL to routing, as in
