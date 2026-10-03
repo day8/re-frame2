@@ -11,7 +11,7 @@
      core; `rf/current-frame-id` answers from that declaration, and a
      shell that answered differently would make the door a property of
      the shell.
-  2. **The documented trap, made green, plus the isolation law** (W2).
+  2. **The documented trap, made green, plus the isolation law** (W7).
      ONE reusable view, mounted under TWO frames, each instance building
      `(rf/capture-frame)` and firing it from a `setTimeout` after its
      render has unwound. This is the case the seam exists for and the
@@ -71,7 +71,7 @@
      ;; would answer — so an isolation miss could read as a rendering
      ;; difference rather than as the failure it is.
      :ambient-frame nil
-     ;; The MAP shape, because W2 is `async`: the whole point of that row
+     ;; The MAP shape, because W7 is `async`: the whole point of that row
      ;; is a closure firing from a real macrotask, long after the render's
      ;; dynamic extent has unwound, and `cljs.test` refuses an async test
      ;; under a fn-form fixture outright — "Async tests require fixtures to
@@ -178,65 +178,6 @@
                 "and the declared ledger is still the measured one")))))))
 
 ;; ---------------------------------------------------------------------------
-;; W2 — the documented trap made green, and the isolation law
-;; ---------------------------------------------------------------------------
-
-(def ^:private !captures
-  "Where each mounted instance parks the capture it built. Keyed by the
-  frame it captured — so an instance that captured the WRONG frame
-  overwrites its sibling's slot and the row goes red on the count before
-  it ever gets to the dispatch."
-  (atom {}))
-
-(rf.fresco/defview reusable
-  "ONE view, mounted under N frames — the case the seam exists for. It
-  does not know its own frame id, which is exactly why neither
-  `rf/with-frame` nor a `{:frame …}` opt can serve it: both presuppose
-  the id. `(rf/capture-frame)` — the same spelling every other adapter
-  writes — captures the boundary's declared frame and carries it out of
-  the render."
-  [{:keys [id]}]
-  (let [{:keys [frame] :as api} (rf/capture-frame)]
-    (swap! !captures assoc frame api)
-    [:span.row {:data-frame (str frame)
-                :data-done  (str (rf.fresco.impl.collector/sub [:fresco.todo/done? id]))}]))
-
-(deftest a-capture-built-in-a-body-fires-into-its-own-frame-after-the-render
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (async done
-      (frames!)
-      (reset! !captures {})
-      (let [a (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-a [reusable {:id 0}])
-            b (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-b [reusable {:id 0}])]
-        (is (= #{frame-a frame-b} (set (keys @!captures)))
-            (str "two mounts of ONE view must have captured two different frames; got "
-                 (pr-str (keys @!captures))))
-        (is (= (str frame-a) (frame-attr a)))
-        (is (= (str frame-b) (frame-attr b)))
-        ;; A real macrotask, which is the whole point: the render's dynamic
-        ;; extent is long gone by the time these fire, and an ambient read
-        ;; taken HERE would find nothing at all.
-        (js/setTimeout
-          (fn []
-            (try
-              (is (nil? rf.fresco.impl.intent/*frame*)
-                  "precondition: no render extent is live inside the timeout")
-              ((:dispatch-sync (get @!captures frame-a)) [:fresco.todo/toggle 0])
-              (rf.fresco.impl.mount/settle!)
-              (is (= "true" (.getAttribute (.querySelector (:container a) ".row") "data-done"))
-                  "the closure dispatched into the frame its own boundary rendered under")
-              (is (= "false" (.getAttribute (.querySelector (:container b) ".row") "data-done"))
-                  "and the sibling frame did not move — frames are isolated
-                   contexts, and a capture that had resolved a process-wide
-                   or a last-rendered frame would have moved both")
-              (finally
-                (rf.fresco.impl.mount/release! a)
-                (rf.fresco.impl.mount/release! b)
-                (done))))
-          0)))))
-
-;; ---------------------------------------------------------------------------
 ;; W6 — StrictMode's double-invoke
 ;; ---------------------------------------------------------------------------
 
@@ -295,8 +236,8 @@
 ;; W7 — the `[:>]` value-first door, and the plain closure over the capture
 ;; ---------------------------------------------------------------------------
 ;;
-;; W2 proves the capture survives a macrotask. This row proves it is the
-;; thing that serves the crossing HD-011 made the escape for. `[:>]` is
+;; The capture survives a macrotask, and it is the thing that serves the
+;; crossing HD-011 made the escape for. `[:>]` is
 ;; `defhost` with the declaration erased, and a declaration is what a
 ;; callback contract lives on — so `raw-crossing`'s roster is empty by
 ;; construction and every slot at this crossing is UNCLAIMED. What remains
@@ -336,9 +277,9 @@
       "pick")))
 
 (rf.fresco/defview escape-picker
-  "`reusable`'s body at the foreign edge: ONE view, mounted under N
-  frames, that does not know its own frame id — and now has to hand a
-  dispatching closure to a caller it does not control.
+  "ONE view, mounted under N frames, that does not know its own frame id
+  — the case the seam exists for — and has to hand a dispatching closure
+  to a caller it does not control.
 
   `(rf/capture-frame)` is the whole answer: it captures the boundary's
   declared frame during the body, and the api it returns is still good

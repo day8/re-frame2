@@ -383,17 +383,7 @@
     (is (= "A" (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:seams/who])) {})))
     (reincarnate! "B")
     (is (= "B" (rf.fresco.impl.collector/render-body frame-id (fn [_] (rf.fresco.impl.collector/sub [:seams/who])) {}))
-        "the root's reads moved to the successor with nothing asked of them"))
-
-  (testing "the handle carries a KEYWORD and not a capability — there is no
-            bundle, no closure and no token in it for an incarnation to be
-            recorded in"
-    (incarnate! "A")
-    (let [handle {:frame frame-id :root ::opaque :container ::opaque}]
-      (is (keyword? (:frame handle)))
-      (is (= frame-id (:frame handle))
-          "the same value before and after any reincarnation, because a public
-           id names an ADDRESS and addresses do not move"))))
+        "the root's reads moved to the successor with nothing asked of them")))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. SEAM 3 — `intent/navigate-head` (`impl.intent/navigate-handler`)

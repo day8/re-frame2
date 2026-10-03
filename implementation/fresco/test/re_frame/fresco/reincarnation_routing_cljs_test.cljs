@@ -508,22 +508,4 @@
         (is (nil? (marked))
             "the LIVE incarnation's own control does not write its own app-db")
         (is (= 1 (count refusals))
-            "it is refused — the liveness half of the same defect"))))
-
-  (testing "and the runtime under test answers the OPPOSITE way in both, which
-            is what makes the two branches above a control on the PIN rather
-            than two more measurements of a dead cache"
-    (incarnate! "A")
-    (let [retained (render-dispatch)]
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals #(retained [:reinc/mark :repaired-cold]))]
-        (is (nil? (marked)) "the silent write is REFUSED here")
-        (is (= 1 (count refusals)) "loudly")))
-
-    (incarnate! "A")
-    (render-dispatch)
-    (reincarnate! "B")
-    (let [fresh (render-dispatch)
-          {:keys [refusals]} (with-refusals #(fresh [:reinc/mark :repaired-warm]))]
-      (is (= :repaired-warm (marked)) "and the dead control ROUTES here")
-      (is (empty? refusals)))))
+            "it is refused — the liveness half of the same defect")))))

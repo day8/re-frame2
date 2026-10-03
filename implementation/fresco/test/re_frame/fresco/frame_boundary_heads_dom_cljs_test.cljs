@@ -157,12 +157,9 @@
                   here is the render `h/render!` itself performed — the
                   layout-phase flip inside `flushSync`, not a second turn"
           (is (= "second" (text-at ca ".label"))
-              (str "the first paint did not carry the `:initial-events` seed; "
+              (str "the first paint did not carry the `:initial-events` seed, "
+                   "or its steps ran out of order (`::relabel` runs last); "
                    "got " (pr-str (text-at ca ".label")))))
-
-        (testing "the steps ran IN ORDER — `::relabel` last"
-          (is (not= "first" (text-at ca ".label"))
-              ":initial-events ran out of order"))
 
         (testing "the root is ordinarily wired afterwards — the ensured frame
                   is a real frame, not a one-shot seeding trick"

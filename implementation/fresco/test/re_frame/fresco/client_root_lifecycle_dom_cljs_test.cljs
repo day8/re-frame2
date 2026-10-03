@@ -31,10 +31,10 @@
   `render` slot — so a Fresco application may perfectly well install UIx
   or Reagent. `rf/destroy-adapter!` reaches the package's root drain
   through core's `:fresco/drain-client-roots!` late-bind hook, which is
-  the PROCESS teardown boundary and therefore adapter-independent. W4
-  reads that guarantee with Fresco's own adapter installed and W7 reads
-  it with UIx and with Reagent; the rest of the file installs UIx, as the
-  rest of this package's suites do.
+  the PROCESS teardown boundary and therefore adapter-independent. W7
+  reads that guarantee under each in turn — Fresco's own adapter, UIx and
+  Reagent; the rest of the file installs UIx, as the rest of this
+  package's suites do.
 
   ## The readings
 
@@ -255,69 +255,6 @@
           (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W4 — `rf/destroy-adapter!` RELEASES a live Fresco root
-;; ---------------------------------------------------------------------------
-;;
-;; A Fresco `createRoot` outside every active-root set would leave
-;; `rf/destroy-adapter!` releasing no Fresco root at all. This row reads the guarantee with FRESCO's
-;; own adapter installed — the composition an all-Fresco application has — and
-;; W7 reads the same guarantee under UIx and under Reagent.
-;;
-;; `exactly once` is the half a count cannot show, so it is read the way Spec
-;; 006 states the rule: the drain empties the active set, the handle's own
-;; `unmount!` then finds nothing left to do and reaches React's
-;; `root.unmount()` no second time, and a `render!` afterwards mounts afresh.
-
-(deftest destroy-adapter-releases-a-live-handle-once-and-a-later-render-mounts-afresh
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [ca (rf.fresco.impl.mount/fresh-container!)
-          a  (rf.fresco/client-root)]
-      (try
-        ;; The fixture seated UIx; this row is the all-Fresco composition,
-        ;; so it seats Fresco's own adapter.
-        (rf/destroy-adapter!)
-        (rf/init! rf.fresco.substrate/adapter)
-        (fresh!)
-        (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "a"}]] ca)
-
-        (testing "premise: a live Fresco root, painted, under the Fresco
-                  adapter"
-          (is (some? @a))
-          (is (= "alpha" (text-at ca ".label"))))
-
-        (rf/destroy-adapter!)
-
-        (testing "the adapter teardown released this root: React emptied the
-                  container, and the caller's node is still in the document"
-          (is (= "" (.-innerHTML ca))
-              "`rf/destroy-adapter!` left a live Fresco root mounted — as it
-               would with Fresco's `createRoot` outside every active-root
-               set")
-          (is (true? (.-isConnected ca))))
-
-        (testing "and the handle's own `unmount!` finds nothing left to do, so
-                  the host unmount is reached exactly ONCE per root whichever
-                  caller gets there first"
-          (is (nil? (rf.fresco/unmount! a)))
-          (is (nil? @a)))
-
-        (testing "a render after the release mounts afresh"
-          (rf/init! rf.fresco.substrate/adapter)
-          (rf/make-frame {:id frame-a})
-          (rf/with-frame frame-a (rf/dispatch-sync [::seed "beta"]))
-          (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "b"}]] ca)
-          (is (= "b" (.getAttribute (node-at ca ".panel") "data-tag")))
-          (is (= "beta" (text-at ca ".label"))))
-
-        (finally
-          (rf.fresco/unmount! a)
-          (detach! ca)
-          (rf.fresco.impl.collector/reset-runtime!)
-          ;; Hand the page back to the fixture's adapter, whatever this row did.
-          (try (rf/destroy-adapter!) (catch :default _ nil)))))))
-
-;; ---------------------------------------------------------------------------
 ;; W5 — HYDRATE ONCE, then UPDATE; a later `{:hydrate? true}` is IGNORED
 ;; ---------------------------------------------------------------------------
 ;;
@@ -446,10 +383,21 @@
           (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
-;; W7 — `rf/destroy-adapter!` releases a Fresco root under a NON-Fresco adapter
+;; W7 — `rf/destroy-adapter!` RELEASES a live Fresco root, under every adapter
 ;; ---------------------------------------------------------------------------
 ;;
-;; The composition W4 cannot cover: `h/render!` reaches `createRoot` through
+;; A Fresco `createRoot` outside every active-root set would leave
+;; `rf/destroy-adapter!` releasing no Fresco root at all. The first pass reads
+;; the guarantee with FRESCO's own adapter installed — the composition an
+;; all-Fresco application has.
+;;
+;; `exactly once` is the half a count cannot show, so it is read the way Spec
+;; 006 states the rule: the drain empties the active set, the handle's own
+;; `unmount!` then finds nothing left to do and reaches React's
+;; `root.unmount()` no second time, and a `render!` afterwards mounts afresh.
+;;
+;; The other two passes are the composition a Fresco-only row cannot cover:
+;; `h/render!` reaches `createRoot` through
 ;; `re-frame.fresco.impl.mount` whatever adapter is installed, so a Fresco
 ;; root is the PACKAGE's rather than any adapter's. Fresco over UIx or over
 ;; Reagent is supported use, not malformed input — the HMR testbed installs
@@ -474,8 +422,8 @@
 ;; it.
 
 (defn- destroy-adapter-releases-fresco-roots!
-  "W7's body for one non-Fresco adapter. `label` names it in the failure
-  messages; `adapter` is the spec map to install.
+  "W7's body for one adapter. `label` names it in the failure messages;
+  `adapter` is the spec map to install.
 
   Two handles, because the two claims cannot share one: `a` takes the
   NO-INTERVENING-UNMOUNT path (destroy, re-init, render straight through the
@@ -551,9 +499,10 @@
         ;; Hand the page back to the fixture's adapter, whatever this pass did.
         (try (rf/destroy-adapter!) (catch :default _ nil))))))
 
-(deftest destroy-adapter-releases-fresco-roots-under-uix-and-reagent
+(deftest destroy-adapter-releases-fresco-roots-under-every-adapter
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
+      (destroy-adapter-releases-fresco-roots! "the Fresco adapter" rf.fresco.substrate/adapter)
       (destroy-adapter-releases-fresco-roots! "the UIx adapter" rf.adapter.uix/adapter)
       (destroy-adapter-releases-fresco-roots! "the Reagent adapter" rf.adapter.reagent/adapter))))
