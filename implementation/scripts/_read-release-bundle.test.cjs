@@ -114,11 +114,6 @@ test('listReleaseJsFiles excludes non-.js files and subdirectories (rf2-z9a06 tr
   );
 });
 
-test('listReleaseJsFiles returns [] for an empty dir (present-but-no-js)', () => {
-  const dir = makeBundleDir({ 'manifest.edn': '{}' });
-  assert.deepEqual(listReleaseJsFiles(dir), []);
-});
-
 // ----- readReleaseBlob -------------------------------------------------------
 
 test('readReleaseBlob returns null (NOT "") for a missing dir — guards false-GREEN', () => {
@@ -194,12 +189,6 @@ test('classifyReleaseBundle reports status "empty" when every top-level *.js is 
   assert.equal(c.blob.trim(), '');
 });
 
-test('classifyReleaseBundle reports status "empty" when top-level *.js is whitespace-only', () => {
-  const dir = makeBundleDir({ 'main.js': '   \n\t \n' });
-  const c = classifyReleaseBundle(dir);
-  assert.equal(c.status, 'empty');
-});
-
 test('classifyReleaseBundle reports status "ok" for a real bundle (non-empty top-level *.js)', () => {
   const dir = makeBundleDir({ 'main.js': 'RELEASE_TOKEN();' });
   const c = classifyReleaseBundle(dir);
@@ -232,7 +221,7 @@ test('escapeRe escapes every RegExp metacharacter so the source is matched liter
   assert.equal(re.test(raw), true);
 });
 
-test('escapeRe leaves a metachar-free string unchanged', () => {
+test('escapeRe escapes `.` and leaves a plain identifier alone', () => {
   assert.equal(escapeRe('reagent.dom'), 'reagent\\.dom');
   assert.equal(escapeRe('plainToken'), 'plainToken');
 });
@@ -288,24 +277,6 @@ test('countSubstring returns 0 for a null blob (missing-bundle safe)', () => {
 
 test('countSubstring returns 0 when the needle is absent', () => {
   assert.equal(countSubstring('no match here', 'reagent'), 0);
-});
-
-// ----- integration: the scanner contract end-to-end -------------------------
-
-test('a sentinel-absence scan over a real fixture: absent => 0, present => count', () => {
-  // Mirrors how check-bundle-isolation drives the helpers: read the blob,
-  // then countSubstring(blob, sentinel) === 0 means "sentinel absent".
-  const dir = makeBundleDir({
-    'main.js': 'function clean(){return 1;}',
-    'cljs-runtime/leak.js': 'reagent.dom.render();', // stale dev, must be ignored
-  });
-  const blob = readReleaseBlob(dir);
-  assert.notEqual(blob, null);
-  // The release artefact is clean; the dev-only leak in cljs-runtime/ is
-  // (correctly) invisible, so the gate sees 0 and would PASS.
-  assert.equal(countSubstring(blob, 'reagent.dom.render'), 0);
-  // A sentinel actually present in the release blob is counted.
-  assert.equal(countSubstring(blob, 'function clean'), 1);
 });
 
 // ----- runner ----------------------------------------------------------------

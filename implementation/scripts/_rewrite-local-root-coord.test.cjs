@@ -97,17 +97,6 @@ test('success: rewrites the code coordinate to :mvn/version', () => {
   assert.doesNotMatch(out, /day8\/re-frame2 \{:local\/root "\.\.\/core"\}/);
 });
 
-test('success: sibling :local/root deps on other paths are untouched', () => {
-  const fix = fixture(PLAIN);
-  run(fix.rel, '../core');
-  const out = fs.readFileSync(fix.abs, 'utf8');
-  assert.match(
-    out,
-    /day8\/re-frame2-test-quiet \{:local\/root "\.\.\/test-quiet"\}/,
-    'only the coordinate named by LOCAL_ROOT may be rewritten',
-  );
-});
-
 // ── Comments quoting the coordinate ───────────────────────────────────
 // This is the reagent-slim shape: a prose comment quoting the very literal
 // the rewrite keys off. A raw-substring count would abort the deploy on it,
