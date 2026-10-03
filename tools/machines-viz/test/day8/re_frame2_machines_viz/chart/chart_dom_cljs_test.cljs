@@ -248,7 +248,7 @@
           (is (= "4" (.getAttribute root "data-node-count"))
               "data-node-count reflects the state count"))))))
 
-(deftest chart-renders-an-edge-per-transition
+(deftest chart-data-edge-count-reflects-transition-count
   (testing "the chart's edge count reflects the transitions.
 
             Edge DOM needs xyflow to have measured both endpoint nodes,
@@ -308,26 +308,22 @@
 
 ;; ---- Controls / MiniMap / Background presence ---------------------------
 
-(deftest chart-shows-controls-by-default
-  (testing "xyflow Controls render by default"
+(deftest chart-shows-controls-unless-disabled
+  (testing "xyflow Controls render by default; :show-controls? false drops them"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/flow :definition idle-loading-done}
-        (fn [_root node]
-          (is (pos? (count-sel node ".react-flow__controls"))
-              "xyflow Controls present by default"))))))
-
-(deftest chart-hides-controls-when-disabled
-  (testing ":show-controls? false drops the Controls"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/flow :definition idle-loading-done
-         :show-controls? false}
-        (fn [_root node]
-          (is (zero? (count-sel node ".react-flow__controls"))
-              "no Controls when :show-controls? false"))))))
+      (do
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done}
+          (fn [_root node]
+            (is (pos? (count-sel node ".react-flow__controls"))
+                "xyflow Controls present by default")))
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done
+           :show-controls? false}
+          (fn [_root node]
+            (is (zero? (count-sel node ".react-flow__controls"))
+                "no Controls when :show-controls? false")))))))
 
 (deftest chart-shows-minimap-when-enabled
   (testing ":show-minimap? true mounts the MiniMap (off by
@@ -359,32 +355,19 @@
 
 ;; ---- :density prop ------------------------------------------------------
 
-(deftest chart-data-density-defaults-to-regular
-  (testing "omitting :density surfaces data-density=\"regular\"
-            on the chart root (nil ≡ regular, the default)"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/flow :definition idle-loading-done}
-        (fn [root _node]
-          (is (= "regular" (.getAttribute root "data-density"))
-              "data-density defaults to regular"))))))
-
 (deftest chart-data-density-reflects-prop
-  (testing ":density :compact / :cosy surface the matching
-            data-density on the root, so hosts + tests read the active
-            density without re-reading the bound prop"
+  (testing ":density surfaces the matching data-density on the chart root, so
+            hosts + tests read the active density without re-reading the
+            bound prop; omitting it surfaces the \"regular\" default"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
-      (do
+      (doseq [[label density-prop expected] [["omitted"  {}                  "regular"]
+                                             [":compact" {:density :compact} "compact"]
+                                             [":cosy"    {:density :cosy}    "cosy"]]]
         (with-mounted-chart
-          {:machine-id :test/flow :definition idle-loading-done :density :compact}
+          (merge {:machine-id :test/flow :definition idle-loading-done} density-prop)
           (fn [root _node]
-            (is (= "compact" (.getAttribute root "data-density")))))
-        (with-mounted-chart
-          {:machine-id :test/flow :definition idle-loading-done :density :cosy}
-          (fn [root _node]
-            (is (= "cosy" (.getAttribute root "data-density")))))))))
+            (is (= expected (.getAttribute root "data-density")) label)))))))
 
 ;; ---- :theme prop + root chrome ------------------------------------------
 
@@ -483,9 +466,9 @@
             (is (= "1" (.getAttribute n "data-tag-count"))
                 "data-tag-count reflects the tag set's size")))))))
 
-(deftest chart-empty-tag-set-omits-attr
+(deftest chart-empty-tag-set-renders-empty-tags-attr
   (testing "a state with no declared tags renders an empty
-            `data-tags` attr + no `title` (tags-driven tooltip). The
+            `data-tags` attr and a `data-tag-count` of 0. The
             empty-attr posture means DOM tests can pin presence-or-
             absence by attribute equality without an extra
             `hasAttribute` round-trip."
@@ -659,34 +642,16 @@
             (is (> reserved-top (+ (:container-title-height vc-map)
                                    (:container-body-pad vc-map)))
                 "the reserved top includes the Context-band height")
+            ;; The rendered header itself overflows that plain title+body-pad
+            ;; band, which is what the band allowance is for.
+            (is (> (.-offsetHeight header) (+ (:container-title-height vc-map)
+                                              (:container-body-pad vc-map)))
+                "the rendered header overflows a title+body-pad top padding")
             ;; The whole rendered header (title strip + band) fits inside the
             ;; reserved ELK top padding — so a child laid out at the reserved
             ;; content edge starts BELOW the header, never under it.
             (is (<= (.-offsetHeight header) reserved-top)
                 "the rendered header height fits within the reserved ELK top padding")))))))
-
-(deftest chart-context-band-overflows-plain-title-reservation
-  (testing "the premise: with a non-trivial Context band the
-            rendered header is TALLER than a title-strip+body-pad band, so a
-            top padding without the band allowance would lay the first child
-            UNDER the band (what the band reservation is for)"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/ctx :definition context-rich-machine
-         :context-band {:hits "number" :seen "vector" :note "string"}}
-        (fn [_root node]
-          (let [header (.querySelector node
-                         "[data-testid^=\"rf-mv-chart-root-container-header-\"]")
-                vc-map vc/chart-regular
-                ;; A top reservation of title strip + body-pad only — no
-                ;; Context-band allowance.
-                old-top (+ (:container-title-height vc-map)
-                           (:container-body-pad vc-map))]
-            (is (some? header) "the root-container header mounted")
-            (is (> (.-offsetHeight header) old-top)
-                "the rendered header overflows a title+body-pad top padding —
-                 without the band allowance the band would sit over the first child")))))))
 
 ;; ---- empty / nil definition placeholders --------------------------------
 
@@ -731,9 +696,7 @@
           ;; Four states total (2 per region) — region containers are
           ;; NOT counted as states.
           (is (= 4 (count-sel node "[data-testid^=\"rf-mv-chart-node-\"]"))
-              "all four region states render")
-          (is (= "4" (.getAttribute root "data-node-count"))
-              "data-node-count excludes the region containers"))))))
+              "all four region states render"))))))
 
 ;; ---- state-count excludes synthetic anchors + history -------------------
 ;;
@@ -744,47 +707,25 @@
 ;; pseudo-state (never occupiable, Spec 005 §History states) ride along as
 ;; +1 over-counts in BOTH `data-node-count` and the aria-label.
 
-(deftest chart-node-count-excludes-machine-root-anchor
-  (testing "a machine-level :on fallback mints a synthetic
-            :machine-root? anchor chip; data-node-count + the aria-label
-            must count only the 2 real states (:a, :b), not the anchor"
+(deftest chart-node-count-excludes-synthetic-anchors-and-history
+  (testing "data-node-count + the aria-label count only REAL states: a
+            machine-level :on fallback's synthetic :machine-root? chip, a
+            parallel-root :on fallback's synthetic :parallel-root? chip and a
+            `:type :history` pseudo-state (NEVER occupiable, Spec 005 §History
+            states) are all excluded"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/root-fallback :definition machine-level-on-machine}
-        (fn [root _node]
-          (is (= "2" (.getAttribute root "data-node-count"))
-              "data-node-count excludes the machine-root anchor chip")
-          (is (str/includes? (.getAttribute root "aria-label") "with 2 states")
-              "the aria-label excludes the machine-root anchor chip"))))))
-
-(deftest chart-node-count-excludes-parallel-root-anchor
-  (testing "a parallel-root :on fallback mints a synthetic
-            :parallel-root? anchor chip; data-node-count + the aria-label
-            must count only the 4 real region states, not the anchor"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/parallel-root-fallback :definition parallel-root-fallback-machine}
-        (fn [root _node]
-          (is (= "4" (.getAttribute root "data-node-count"))
-              "data-node-count excludes the parallel-root anchor chip")
-          (is (str/includes? (.getAttribute root "aria-label") "with 4 states")
-              "the aria-label excludes the parallel-root anchor chip"))))))
-
-(deftest chart-node-count-excludes-history-pseudo-state
-  (testing "a `:type :history` pseudo-state is NEVER
-            occupiable (Spec 005 §History states); data-node-count + the
-            aria-label must count only the 4 real states, not the marker"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/history :definition history-machine}
-        (fn [root _node]
-          (is (= "4" (.getAttribute root "data-node-count"))
-              "data-node-count excludes the history pseudo-state")
-          (is (str/includes? (.getAttribute root "aria-label") "with 4 states")
-              "the aria-label excludes the history pseudo-state"))))))
+      (doseq [[label machine-id definition n]
+              [["machine-root anchor"  :test/root-fallback          machine-level-on-machine       2]
+               ["parallel-root anchor" :test/parallel-root-fallback parallel-root-fallback-machine 4]
+               ["history pseudo-state" :test/history                history-machine                4]]]
+        (with-mounted-chart
+          {:machine-id machine-id :definition definition}
+          (fn [root _node]
+            (is (= (str n) (.getAttribute root "data-node-count"))
+                (str label ": data-node-count excludes it"))
+            (is (str/includes? (.getAttribute root "aria-label") (str "with " n " states"))
+                (str label ": the aria-label excludes it"))))))))
 
 ;; ---- compound substate parent linkage (visual-pin) ----------------------
 ;;
@@ -891,24 +832,6 @@
             (is (= "false" (.getAttribute display "data-active"))
                 ":display container stays inactive (no active leaf)")))))))
 
-(deftest chart-parallel-both-active-regions-light-their-containers
-  (testing "G4 — when BOTH regions have an active leaf, BOTH
-            region containers carry data-active=true simultaneously (the
-            N-active-at-once read at the container level)"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id    :test/parallel
-         :definition    parallel-machine
-         :current-state {:audio :paused :display :off}}
-        (fn [_root node]
-          (let [containers (.querySelectorAll node
-                             "[data-testid^=\"rf-mv-chart-region-\"]")]
-            (is (= 2 (.-length containers)) "two region containers")
-            (is (every? #(= "true" (.getAttribute % "data-active"))
-                        (array-seq containers))
-                "both region containers read active when both regions have an active leaf")))))))
-
 ;; ---- parallel multi-active highlight (G1) -------------------------------
 ;;
 ;; The parity capability: a PARALLEL machine's `:current-state` is a
@@ -938,7 +861,7 @@
             (is (= 2 (count ids))
                 "exactly the two active region leaves, no more")))))))
 
-(deftest chart-flat-current-state-single-active-back-compat
+(deftest chart-flat-current-state-surfaces-one-highlight-id
   (testing "a flat (single-active) :current-state surfaces
             ONE id on data-highlight-ids"
     (if-not (browser?)
@@ -1267,51 +1190,34 @@
             rf-mv-chart-event-fork-badge-*) carrying data-fork-order 1, 2,
             and 3 — the visible affordance the projection :forkOrder pins
             cannot see. EXACTLY three badges render (one per branch), with
-            the full {1 2 3} priority set."
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/gate :definition gate-fork-machine}
-        (fn [_root node]
-          (let [badges (.querySelectorAll
-                         node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]")
-                orders (set (mapv (fn [i] (.getAttribute (aget badges i) "data-fork-order"))
-                                  (range (.-length badges))))]
-            ;; Badges are part of the node body (layout-independent); they
-            ;; mount on the first commit.
-            (is (= 3 (.-length badges))
-                "exactly three fork-priority badges (one per :gate/check branch)")
-            (is (= #{"1" "2" "3"} orders)
-                "the three branches carry data-fork-order 1, 2, and 3")))))))
-
-(deftest chart-non-fork-event-nodes-render-no-priority-badge
-  (testing "non-fork event-nodes render NO priority badge: the
-            gate's SEPARATE `:gate/set` trigger and the three single
-            `:gate/reset` transitions carry no badge, and a plain machine
-            with no guarded fork renders zero badges at all."
+            the full {1 2 3} priority set and fewer badges than event-nodes:
+            the SEPARATE `:gate/set` trigger and the three single
+            `:gate/reset` transitions carry none. A machine with no guarded
+            fork renders zero badges at all."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (do
-        ;; A machine with NO guarded fork: zero badges anywhere.
+        (with-mounted-chart
+          {:machine-id :test/gate :definition gate-fork-machine}
+          (fn [_root node]
+            (let [badges   (.querySelectorAll
+                             node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]")
+                  orders   (set (mapv (fn [i] (.getAttribute (aget badges i) "data-fork-order"))
+                                      (range (.-length badges))))
+                  ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")]
+              ;; Badges are part of the node body (layout-independent); they
+              ;; mount on the first commit.
+              (is (= 3 (.-length badges))
+                  "exactly three fork-priority badges (one per :gate/check branch)")
+              (is (= #{"1" "2" "3"} orders)
+                  "the three branches carry data-fork-order 1, 2, and 3")
+              (is (< (.-length badges) ev-nodes)
+                  "fewer badges than event-nodes — the non-fork :gate/set + :gate/reset nodes carry none"))))
         (with-mounted-chart
           {:machine-id :test/flow :definition idle-loading-done}
           (fn [_root node]
             (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]"))
-                "a fork-free machine renders no priority badges")))
-        ;; The gate machine: badges appear ONLY on the three :gate/check
-        ;; branches, never on the non-fork `:gate/set` / `:gate/reset` nodes.
-        ;; Pin it via the event-node↔badge ratio: there are more event-nodes
-        ;; than the 3 fork branches, so exactly 3 badges with strictly fewer
-        ;; badges than event-nodes proves the non-fork nodes are un-badged.
-        (with-mounted-chart
-          {:machine-id :test/gate :definition gate-fork-machine}
-          (fn [_root node]
-            (let [badges (count-sel node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]")
-                  ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")]
-              (is (= 3 badges)
-                  "only the three fork branches are badged")
-              (is (< badges ev-nodes)
-                  "fewer badges than event-nodes — the non-fork :gate/set + :gate/reset nodes carry none"))))))))
+                "a fork-free machine renders no priority badges")))))))
 
 ;; ---- fork connector renderer styling ------------------------------------
 ;; The projection suite proves `:forkConnector` edges EXIST + carry the
@@ -1407,22 +1313,29 @@
             fill + `:state-border` border + the density `:action-pill-radius`
             rounding / `:action-pill-height` height / `:action-pill-pad-x`
             padding) so it reads as a contained annotation — not loose
-            free-floating text."
+            free-floating text. The action-free `:gate/check` / `:gate/reset`
+            event-nodes carry NO chip, and a machine with no action-bearing
+            transition renders zero chips at all (the chip is strictly an
+            action affordance, never decoration)."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/gate :definition gate-fork-machine}
-        (fn [_root node]
-          (let [chips (.querySelectorAll
-                        node "[data-testid^=\"rf-mv-chart-event-action-\"]")
-                ct    (tokens/chart-tokens)
-                {:keys [action-pill-height action-pill-pad-x
-                        action-pill-radius]} vc/chart-regular]
-            ;; The action chip mounts on the first commit (node body).
-            ;; EXACTLY one action-bearing event-node: the gate's :gate/set.
-            (is (= 1 (.-length chips))
-                "exactly one enclosed action chip (only :gate/set bears an action)")
-            (when-let [chip (aget chips 0)]
+      (do
+        (with-mounted-chart
+          {:machine-id :test/gate :definition gate-fork-machine}
+          (fn [_root node]
+            (let [chips    (.querySelectorAll
+                             node "[data-testid^=\"rf-mv-chart-event-action-\"]")
+                  ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")
+                  ct       (tokens/chart-tokens)
+                  {:keys [action-pill-height action-pill-pad-x
+                          action-pill-radius]} vc/chart-regular]
+              ;; The action chip mounts on the first commit (node body).
+              ;; EXACTLY one action-bearing event-node: the gate's :gate/set.
+              (is (= 1 (.-length chips))
+                  "exactly one enclosed action chip (only :gate/set bears an action)")
+              (is (< (.-length chips) ev-nodes)
+                  "fewer chips than event-nodes — the action-free nodes carry none")
+              (when-let [chip (aget chips 0)]
                 (is (= "set-level" (.getAttribute chip "data-action"))
                     "data-action carries the action name")
                 ;; ENCLOSED styling — fill + border + rounding (a contained
@@ -1445,35 +1358,12 @@
                 (is (= (str action-pill-height "px") (.. chip -style -height))
                     "density-aware chip height")
                 (is (str/includes? (.. chip -style -padding) (str action-pill-pad-x "px"))
-                    "density-aware horizontal padding"))))))))
-
-(deftest chart-non-action-event-nodes-render-no-action-chip
-  (testing "event-nodes WITHOUT an action render NO action chip.
-            The gate's `:gate/check` branches + `:gate/reset` transitions are
-            action-free, and a plain machine with no action-bearing
-            transition renders zero action chips at all (so the chip is
-            strictly an action affordance, never decoration)."
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (do
-        ;; A machine with NO action-bearing transition: zero chips anywhere.
+                    "density-aware horizontal padding")))))
         (with-mounted-chart
           {:machine-id :test/flow :definition idle-loading-done}
           (fn [_root node]
             (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-event-action-\"]"))
-                "an action-free machine renders no action chips")))
-        ;; The gate machine: chips appear ONLY on the one action-bearing
-        ;; :gate/set node, never on the action-free :gate/check / :gate/reset
-        ;; event-nodes (far more event-nodes than the single chip).
-        (with-mounted-chart
-          {:machine-id :test/gate :definition gate-fork-machine}
-          (fn [_root node]
-            (let [chips    (count-sel node "[data-testid^=\"rf-mv-chart-event-action-\"]")
-                  ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")]
-              (is (= 1 chips)
-                  "only the single :gate/set action-bearing node carries a chip")
-              (is (< chips ev-nodes)
-                  "fewer chips than event-nodes — the action-free nodes carry none"))))))))
+                "an action-free machine renders no action chips")))))))
 
 ;; ---- :on-state-click contract: leaf body + compound title strip --------
 ;; `:on-state-click` fires for REAL statechart-
