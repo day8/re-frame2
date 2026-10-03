@@ -127,7 +127,10 @@
            ["a :loading entry carrying a first-load :error envelope (no data) → :error, retaining the envelope"
             {:status :loading :data nil :error {:kind :rf.http/http-5xx}
              :current-work [:rf.work/resource gkey 5]}
-            :error {:error {:kind :rf.http/http-5xx}}]]]
+            :error {:error {:kind :rf.http/http-5xx}}]
+           ["a :loading entry that already holds data → :loaded, keeping it"
+            {:status :loading :data {:title "kept"} :current-work [:rf.work/resource gkey 6]}
+            :loaded {:data {:title "kept"}}]]]
     (testing label
       (let [e   (entry (assoc fields :resource-id :article/by-slug))
             out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
@@ -153,20 +156,6 @@
       (is (= :loaded (:status (es (rf.resources.state/key-id ka)))))
       (is (= :error  (:status (es (rf.resources.state/key-id kb)))))
       (is (= :idle   (:status (es (rf.resources.state/key-id kc))))))))
-
-(deftest settle-entry-to-last-stable-resolutions
-  (testing "settle-entry-to-last-stable: the three in-flight resolutions + pass-through"
-    (is (= :idle   (:status (rf.resources.ssr/settle-entry-to-last-stable
-                              (entry {:resource-id :a :status :loading :data nil})))))
-    (is (= :loaded (:status (rf.resources.ssr/settle-entry-to-last-stable
-                              (entry {:resource-id :a :status :fetching :data {:x 1}})))))
-    (is (= :loaded (:status (rf.resources.ssr/settle-entry-to-last-stable
-                              (entry {:resource-id :a :status :loading :data {:x 1}})))))
-    (is (= :error  (:status (rf.resources.ssr/settle-entry-to-last-stable
-                              (entry {:resource-id :a :status :loading :data nil
-                                      :error {:kind :x}})))))
-    (is (= :loaded (:status (rf.resources.ssr/settle-entry-to-last-stable
-                              (entry {:resource-id :a :status :loaded :data {:x 1}})))))))
 
 (deftest restore-does-not-re-read-the-live-clock-for-durable-entry-timestamps
   ;; ADVERSARIAL guard for EP-0010 §Restore/Replay: "Restore
@@ -655,7 +644,6 @@
 
 (deftest commit-hook-published
   (testing "the :resources/commit-restore-reconcile! hook is published"
-    (is (some? (rf.late-bind/get-fn :resources/commit-restore-reconcile!)))
     (is (= rf.resources.ssr/commit-restore-reconcile-traces!
            (rf.late-bind/get-fn :resources/commit-restore-reconcile!)))))
 
@@ -988,6 +976,5 @@
 
 (deftest reconcile-on-restore-hook-published
   (testing "the :resources/reconcile-on-restore hook is published by the façade"
-    (is (some? (rf.late-bind/get-fn :resources/reconcile-on-restore)))
     (is (= rf.resources.ssr/reconcile-on-restore
            (rf.late-bind/get-fn :resources/reconcile-on-restore)))))

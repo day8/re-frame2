@@ -752,7 +752,6 @@
 
 (deftest drain-hook-published
   (testing "the :resources/drain-blocking-ssr! late-bind hook is published by the façade"
-    (is (some? (rf.late-bind/get-fn :resources/drain-blocking-ssr!)))
     (is (= rf.resources.ssr/drain-blocking-resources!
            (rf.late-bind/get-fn :resources/drain-blocking-ssr!)))))
 
@@ -843,10 +842,7 @@
               ;; non-terminal. The load-bearing assertion is that NO non-terminal
               ;; row for the work survives once the drain releases.
               (is (or (nil? row) (rf.resources.work-ledger/terminal? (:status row)))
-                  "the associated work-ledger row is terminal (or pruned), never non-terminal"))
-            (is (not (contains? rf.resources.work-ledger/non-terminal-statuses
-                                (:status (ledger-row fid wid))))
-                "no NON-terminal ledger row survives the released drain"))
+                  "the associated work-ledger row is terminal (or pruned), never non-terminal")))
           (testing "the host handle is cleared (no live host work behind a
                     released SSR render)"
             (is (nil? (rf.resources.work-ledger/get-handle fid wid)))))
@@ -977,7 +973,6 @@
       (is (= :idle (:status se)) "loading-with-no-data → :idle, never a dangling :loading")
       (let [plan (->> (rf.resources.ssr/hydrate-refetch-plan out 5000)
                       (into {} (map (juxt :resource/key identity))))]
-        (is (contains? plan gkey) "the settled :idle entry (no data) is refetched")
         (is (= :no-data (:reason (plan gkey))))))))
 
 (deftest hydrate-settles-fetching-fresh-data-to-loaded-no-double-fetch
@@ -1061,17 +1056,6 @@
 ;;    `refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh`, 4b)
 ;; ===========================================================================
 
-(deftest entry-needs-refetch-predicate
-  (testing "entry-needs-refetch? is false ONLY for fresh-with-data"
-    (is (false? (rf.resources.ssr/entry-needs-refetch?
-                  (entry {:resource-id :a :data {:x 1} :loaded-at 1 :stale-at 9.0e15}) 100)))
-    (is (true?  (rf.resources.ssr/entry-needs-refetch?
-                  (entry {:resource-id :a :data {:x 1} :loaded-at 1 :stale-at 50}) 100))
-        "stale-with-data → refetch")
-    (is (true?  (rf.resources.ssr/entry-needs-refetch?
-                  (entry {:resource-id :a :data nil}) 100))
-        "no-data (metadata-only) → refetch")))
-
 ;; ===========================================================================
 ;; 4a-bis. Empty infinite feed hydrates into a REFETCH, not fresh-forever
 ;; ===========================================================================
@@ -1113,7 +1097,6 @@
             WITH a page stays ABSENT from the plan (the SSR win, no double-fetch)"
     (let [loaded-feed (infinite-entry* {:resource-id :feed/timeline :status :loaded
                                         :data [{:items [1 2 3]}] :loaded-at 1000 :stale-at 9.0e15})]
-      (is (false? (rf.resources.ssr/entry-needs-refetch? loaded-feed 5000)))
       (let [plan (->> (rf.resources.ssr/hydrate-refetch-plan (runtime-db-with {fkey loaded-feed}) 5000)
                       (into {} (map (juxt :resource/key identity))))]
         (is (not (contains? plan fkey))
@@ -1131,7 +1114,6 @@
       (is (= [] (:data se)) "the empty page vector is preserved")
       (let [plan (->> (rf.resources.ssr/hydrate-refetch-plan out 5000)
                       (into {} (map (juxt :resource/key identity))))]
-        (is (contains? plan fkey) "the settled empty infinite feed IS refetched")
         (is (= :no-data (:reason (plan fkey))))))))
 
 ;; ===========================================================================
@@ -1255,15 +1237,6 @@
 ;; ===========================================================================
 ;; 6. End-to-end through the :rf/hydrate reconcile hook
 ;; ===========================================================================
-
-(deftest hooks-are-published
-  (testing "both SSR late-bind hooks are published by the façade"
-    (is (some? (rf.late-bind/get-fn :ssr/extend-runtime-db-projection)))
-    (is (some? (rf.late-bind/get-fn :resources/hydrate-runtime-db)))
-    (is (= rf.resources.ssr/project-resources-runtime-db
-           (rf.late-bind/get-fn :ssr/extend-runtime-db-projection)))
-    (is (= rf.resources.ssr/hydrate-runtime-db
-           (rf.late-bind/get-fn :resources/hydrate-runtime-db)))))
 
 (deftest project-runtime-db-merges-resource-slice
   (reg! :article/by-slug)
