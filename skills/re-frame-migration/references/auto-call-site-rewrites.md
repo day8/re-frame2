@@ -572,7 +572,11 @@ clojure -Srepro \
   -M -m re-frame.migration.reg-event-codemod PATH ...
 ```
 
-As written it scans: it reports every retired-registrar site and writes nothing. Put `--rewrite` before `PATH` for a dry run (print the findings, write nothing), and `--rewrite --write` to apply in place (flagged sites stay untouched). The first run fetches the codemod and rewrite-clj, printing one `Checking out: …` line on stderr. The sha is the one `reagent-migration`'s reporter pins; substitute a later pushed re-frame2 sha if you want one. The pinned corpus checkout ([`setup.md` §Pin the migration corpus](setup.md#pin-the-migration-corpus-before-reading-it)) is still where you read the rules; the codemod does not need it. The mechanical (Type A) cases:
+As written it scans: it reports every retired-registrar site and writes nothing. Put `--rewrite` before `PATH` for a dry run (print the findings, write nothing), and `--rewrite --write` to apply in place (flagged sites stay untouched). The first run fetches the codemod and rewrite-clj, printing one `Checking out: …` line on stderr. The sha is the one `reagent-migration`'s reporter pins; substitute a later pushed re-frame2 sha if you want one. The pinned corpus checkout ([`setup.md` §Pin the migration corpus](setup.md#pin-the-migration-corpus-before-reading-it)) is still where you read the rules; the codemod does not need it.
+
+**Check the dry run's file count before a broad `--write`.** Only a `rewrite` or `rename` finding changes a file, so the dry run's closing `N file(s) would change (dry run)` must equal the number of distinct files those findings name. A larger N is churn the write would add to the review, which at the sha above means CRLF files with no accepted change being rewritten to LF: narrow `PATH` to the files the findings name, or pin a later sha. After the write, confirm a rewritten CRLF file kept its endings by counting bytes (`open(p, 'rb').read().count(b'\r\n')` in Python), not with `grep` or `sed`.
+
+The mechanical (Type A) cases:
 
 **`reg-event-fx` → `reg-event` — pure rename.** The handler is byte-for-byte unchanged.
 
