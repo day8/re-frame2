@@ -76,21 +76,11 @@
 
     ;; 3. Try to leave. Guard rejects → pending slot is set; URL unchanged.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
+    ;; The slot's fields are pinned by `pending-navigation-slot-shape`, which
+    ;; blocks the same request from the same editor state.
     (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
       (is (some? pending)
           ":rf/pending-navigation is populated on guard rejection")
-      (is (= "/cart" (:requested-url pending))
-          "the requested URL is captured for resume")
-      (is (= :editor/article (:rejecting-route pending))
-          ":rejecting-route names the route whose guard ran")
-      (is (= :editor/can-leave? (:rejecting-guard pending))
-          ":rejecting-guard names the sub-id that rejected")
-      (is (= {:to :route/cart} (:destination pending))
-          ":destination is the replayable RouteDestination (EP-0037 R4)")
-      (is (= :link (:cause pending))
-          ":cause names the door the blocked navigation came through")
-      (is (= {} (:policy pending))
-          ":policy is {} when the caller authored no :replace? / :scroll")
       (is (= :editor/article
              (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
           "the :rf/route slice does NOT change when blocked"))
@@ -184,6 +174,8 @@
              (:target pending))
           ":target is the resolved target the guards saw")
       (is (= :link (:cause pending)) ":cause names the door")
+      (is (= {} (:policy pending))
+          ":policy is {} when the caller authored no :replace? / :scroll")
       (is (nil? (:reason pending))
           "the leave-only slot carries no :reason discriminator — it is always a leave")
       (is (nil? (:direction pending))
@@ -191,12 +183,7 @@
       (is (nil? (:enter-attempts pending))
           "…and no :enter-attempts key"))))
 
-;; ---- :rf.route/continue re-issues :rf.route/url-requested ----------------
-;;
-;; Per Spec 012 §Navigation blocking — pending-nav protocol continue must
-;; "re-issue the original navigation request, *bypassing* the leave guard".
-;; Dispatching the URL-change door + :rf.nav/push-url directly would skip
-;; the :rf.route/url-requested policy chain.
+;; ---- :can-leave query vectors, and the leave guard on every door ---------
 
 (deftest can-leave-query-vector-blocks-url-requested
   (testing "Spec-shaped :can-leave query vectors are subscribed directly"
@@ -338,49 +325,14 @@
       (is (= :editor/can-leave? (:rejecting-guard @seen))
           "pending-nav names the rejecting guard sub-id"))))
 
-(deftest can-leave-non-boolean-trace-tags-real-route-id
-  (testing ":rf.error/can-leave-non-boolean tags :route-id
-            with the route-id KEYWORD, not the :path pattern string"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave [:editor/leave?]} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/set-dirty
-                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    ;; Polarity bug: returns a truthy non-boolean (42).
-    (rf/reg-sub :editor/leave? (fn [db _] (get-in db [:editor :dirty?])))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/set-dirty 42])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::nb-id (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (rf/unregister-listener! :trace ::nb-id)
-      ;; SEMANTIC, posture-independent: the "route-id keyword, not
-      ;; the :path pattern string" fact has a production-visible restatement —
-      ;; the pending-nav slot's `:rejecting-route` is written from the same
-      ;; `(:route-id current)` the trace tags.
-      (is (= :editor/article
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     [:rf.runtime/routing :pending-navigation :rejecting-route]))
-          ":rejecting-route is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [nb (first (filter #(= :rf.error/can-leave-non-boolean (:operation %))
-                                @traces))]
-          (is (some? nb) ":rf.error/can-leave-non-boolean fired")
-          (is (= :editor/article (-> nb :tags :route-id))
-              ":route-id is the route-id KEYWORD, not the \"/editor/articles/:id\" path string"))))))
-
 ;; ============================================================================
 ;; :can-leave non-boolean → BLOCK + :rf.error/can-leave-non-boolean
 ;; ============================================================================
 
 (deftest can-leave-non-boolean-blocks-navigation
   (testing "a :can-leave sub that returns a non-boolean truthy value
-            BLOCKS navigation and emits :rf.error/can-leave-non-boolean.
+            BLOCKS navigation and emits :rf.error/can-leave-non-boolean,
+            tagged with the route-id keyword rather than the :path pattern.
             Closed contract — blocking ensures the polarity
             bug (returning the dirty-flag value rather than (not dirty?))
             cannot silently strand form state."
@@ -415,13 +367,19 @@
             "navigation BLOCKED — slice still on the source route")
         (is (some? pending)
             ":rf/pending-navigation slot is populated (block path)")
+        ;; `:rejecting-route` is written from the same `(:route-id current)`
+        ;; the trace tags, so it restates the route-id fact in both postures.
+        (is (= :editor/article (:rejecting-route pending))
+            ":rejecting-route is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
         ;; Dev-instrumentation arm (see ns docstring). The
-        ;; fail-CLOSED semantics this deftest exists for are pinned by the two
+        ;; fail-CLOSED semantics this deftest exists for are pinned by the three
         ;; runtime-db assertions above, which are posture-independent.
         (when rf.interop/debug-enabled?
           (is (= :rf.error/can-leave-non-boolean
                  (-> nb-traces first :operation))
               ":rf.error/can-leave-non-boolean trace fired")
+          (is (= :editor/article (-> nb-traces first :tags :route-id))
+              ":route-id is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
           (is (= 42 (-> nb-traces first :tags :value))
               "trace carries the offending non-boolean value")
           (is (= :blocked-navigation (-> nb-traces first :recovery))

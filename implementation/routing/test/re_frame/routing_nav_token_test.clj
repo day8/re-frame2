@@ -28,7 +28,7 @@
   Four are NEGATIVE over the trace and would pass vacuously under the gate —
   `(not (contains? (:tags stale) :event-id))`, `(not (contains? (:tags stale)
   :completed-at))`, the `not-any?` mis-attribution guard, and the `not-any?
-  :rf.error/fx-handler-exception` leg. They are inside the arm. The three
+  :rf.error/fx-handler-exception` leg. They are inside the arm. The two
   `:completed-at` deftests each carry, outside the arm,
   the production witness the suppression actually is: the stale payload never
   reaches app-db."
@@ -116,8 +116,6 @@
                        (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)))
                        first)]
         (is (some? stale) "a stale-suppressed trace fired")
-        (is (= :article/loaded (-> stale :tags :rf.trace/event-id))
-            "the canonical :rf.trace/event-id tag carries the suppressed event-id")
         (is (not (contains? (:tags stale) :event-id))
             "no bare :event-id tag in the raw trace :tags"))
 
@@ -285,19 +283,6 @@
                 @traces)
           "stale :rf/reply-to produced :rf.route.nav-token/stale-suppressed with the target's event-id")
 
-      ;; The production fx path joins the suppression
-      ;; trace to the route work-id. `route-id` is the
-      ;; CAPTURED id (`:route/article`, carried with the nav-token at request
-      ;; time), NOT the live slice id at stale-arrival; `nav-token` is the
-      ;; carried (stale) token "nav-1"; `loader-id` is the suppressed
-      ;; `:rf/reply-to` target's event-id.
-      (is (some (fn [ev]
-                  (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
-                       (= [:rf.work/route :route/article "nav-1" :article/loaded]
-                          (-> ev :tags :rf.reply/work-id))))
-                @traces)
-          "the production :rf.route/with-nav-token suppression is joined to the route :work/id")
-
       ;; The PRODUCTION stale trace carries the canonical
       ;; EP-0011 reply-envelope vocabulary, NOT only the route-specific
       ;; carried/current tokens. A superseded route loader is a managed
@@ -327,11 +312,18 @@
               "carried gate = the captured (stale) nav-token")
           (is (= {:route/nav-token "nav-2"} (:rf.reply/current tags))
               "current gate = the live nav-token that superseded it")
-          ;; the work-id is the join key — present here under the canonical
-          ;; bare :work/id (EP-0011 §Work-id correlation).
+          ;; the work-id is the join key (EP-0011 §Work-id correlation):
+          ;; `route-id` is the CAPTURED id (`:route/article`, carried with the
+          ;; nav-token at request time), NOT the live slice id at stale-arrival;
+          ;; `nav-token` is the carried (stale) token "nav-1"; `loader-id` is
+          ;; the suppressed `:rf/reply-to` target's event-id.
           (is (= [:rf.work/route :route/article "nav-1" :article/loaded]
                  (:rf.reply/work-id tags))
-              "canonical :work/id correlation rides the production stale trace")))
+              "canonical :work/id correlation rides the production stale trace")
+          ;; This completion sourced no completion time, so the optional slot
+          ;; is absent rather than a nil placeholder.
+          (is (not (contains? tags :completed-at))
+              "no :completed-at tag when none was sourced (slot is optional)")))
 
       ;; Negative: no spurious suppressed-trace for the fresh path.
       (is (= 1 (count (filter (fn [ev]
@@ -407,48 +399,6 @@
           (is (some? stale) "a production stale-suppressed trace fired")
           (is (= completion-ts (-> stale :tags :completed-at))
               "the stale trace carries the threaded reply completion time"))))))
-
-(deftest with-nav-token-fx-stale-omits-completed-at-when-absent
-  (testing "when no completion time is threaded, the stale trace
-            omits `:completed-at` (a loader that sourced none) — the slot is
-            optional, never a nil placeholder"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
-    (rf/reg-event :article/loaded-via-nav-token
-                     (fn [_ctx [_ {:keys [carried-token carried-route-id id payload]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to [:article/loaded id payload]
-                               :nav-token   carried-token
-                               :route-id    carried-route-id}]]}))
-
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::no-completed-at (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:article/loaded-via-nav-token
-                         {:carried-token    "nav-1"
-                          :carried-route-id :route/article
-                          :id               "A"
-                          :payload          "A-payload"}])
-      (rf/unregister-listener! :trace ::no-completed-at)
-      ;; SEMANTIC, posture-independent: the suppression really
-      ;; happened. Without it this deftest would execute nothing under the
-      ;; gate — and its second leg below is NEGATIVE over the ring, so with a
-      ;; nil `stale` it would pass vacuously.
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "the stale completion was suppressed — no app-db write")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [stale (some (fn [ev]
-                            (when (= :rf.route.nav-token/stale-suppressed
-                                     (:operation ev))
-                              ev))
-                          @traces)]
-          (is (some? stale) "a stale-suppressed trace fired")
-          (is (not (contains? (:tags stale) :completed-at))
-              "no :completed-at tag when none was sourced (slot is optional)"))))))
 
 (deftest simulate-http-resolution-stale-preserves-completed-at
   (testing "the test fixture `:rf.test/simulate-http-resolution`
@@ -562,10 +512,7 @@
           (is (some? stale) "A's stale completion produced a suppression trace")
           (let [wid (-> stale :tags :rf.reply/work-id)]
             (is (= [:rf.work/route :route/article "nav-1" :article/loaded] wid)
-                "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")
-            (is (not (nil? (second wid)))
-                "the route-id component is non-nil (the documented path
-                 cannot emit a nil-route route work-id)")))))))
+                "the work-id carries the COMPLETE captured tuple — route-id is NOT nil")))))))
 
 ;; ---- with-nav-token continuations lower through :rf/reply-to --------------
 ;;
@@ -722,6 +669,4 @@
         (is (= :idle (:transition slice))
             ":on-match never drives readiness — the route stays :idle despite the throw")
         (is (nil? (:error slice))
-            ":rf.route/error stays nil — an :on-match throw is not a route error")
-        (is (nil? (:rf.route/on-match-id (:error slice)))
-            "no retired on-match attribution slot is written")))))
+            ":rf.route/error stays nil — an :on-match throw is not a route error, and carries no on-match attribution")))))
