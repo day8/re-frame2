@@ -160,6 +160,99 @@ An action trace tells you:
 
 Those records are what Xray renders. You can also tap the stream yourself in development with `(rf/register-listener! :trace …)`.
 
+A frame also keeps its recent trace events, and
+[`rf/trace-buffer`](../core/observability.md#the-trace-buffer) returns them.
+The cell below runs the login table against a server that fails every
+request, and lists the newest guard, action and transition records under the
+snapshot. **Sign in** three times: `:under-retry-limit` passes on the first
+two failures, and on the third it fails, so the unguarded candidate moves the
+machine to `:locked-out`.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support])
+
+;; The tutorial's login table, without its deadline and session handler.
+(rf/reg-machine :auth.login/flow
+  {:initial :idle
+   :data    {:attempts 0 :error nil}
+
+   :guards
+   {:form-valid?
+    (fn [{[_ creds] :event}]
+      (and (seq (:email creds)) (seq (:password creds))))
+    :under-retry-limit
+    (fn [{data :data}] (< (:attempts data) 2))}
+
+   :actions
+   {:clear-error
+    (fn [_] {:data {:error nil}})
+    :record-error
+    (fn [{data :data [_ {:keys [error]}] :event}]
+      {:data (-> data
+                 (update :attempts inc)
+                 (assoc  :error (or (:message error) "Login failed.")))})
+    :issue-request
+    (fn [{[_ creds] :event}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/login" :body creds
+                           :request-content-type :json}
+              :request-id :auth.login/request
+              :decode     :json
+              :on-success [:auth.login/flow [:auth.login/success]]
+              :on-failure [:auth.login/flow [:auth.login/failure]]}]]})}
+
+   :states
+   {:idle
+    {:on {:auth.login/submit {:target :submitting
+                              :guard  :form-valid?
+                              :action :clear-error}}}
+    :submitting
+    {:tags  #{:auth/busy}
+     :entry :issue-request
+     :on    {:auth.login/success :authed
+             :auth.login/failure [{:target :error-shown
+                                   :guard  :under-retry-limit
+                                   :action :record-error}
+                                  {:target :locked-out
+                                   :action :record-error}]}}
+    :error-shown
+    {:on {:auth.login/submit {:target :submitting
+                              :guard  :form-valid?
+                              :action :clear-error}}}
+    :authed     {:meta {:terminal? true}}
+    :locked-out {:meta {:terminal? true}}}})
+
+(def machine-ops
+  #{:rf.machine/guard-evaluated :rf.machine/action-ran :rf.machine/transition})
+
+(defn summary [{:keys [operation tags]}]
+  (case operation
+    :rf.machine/guard-evaluated [(:guard-id tags) (:outcome tags)]
+    :rf.machine/action-ran      [(:action-id tags) (:phase tags)]
+    :rf.machine/transition      [(get-in tags [:before :state]) '-> (get-in tags [:after :state])]))
+
+(rf/reg-view inspect-view []
+  (let [snapshot @(subscribe [:rf/machine :auth.login/flow])
+        ;; The trace ring is not reactive. This view re-renders when the snapshot changes.
+        records  (->> (rf/trace-buffer :auth.login/inspect {:flat true})
+                      (filter #(machine-ops (:operation %)))
+                      (take-last 7))]
+    [:div
+     [:button {:on-click #(dispatch [:auth.login/flow
+                                     [:auth.login/submit {:email "a@b.com" :password "x"}]])}
+      "Sign in"]
+     [:p "snapshot: " (pr-str (some-> snapshot (select-keys [:state :data :tags])))]
+     [:ol (for [r records]
+            ^{:key (:id r)} [:li (pr-str (:operation r)) " " (pr-str (summary r))])]]))
+
+;; :fx-overrides fails every request this frame sends. A real app leaves it out.
+[rf/frame-root {:id :auth.login/inspect
+                :fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}}
+ [inspect-view]]
+```
+
 ### Jump to source with `handler-meta`
 
 Machine guards and actions are addressable through handler metadata.
