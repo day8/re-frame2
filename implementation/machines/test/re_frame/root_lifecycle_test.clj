@@ -11,8 +11,9 @@
   - The root NEVER exits or enters on a transition — a root `:on` target, a
     root `:same-state` target and a root `:reenter? true` target all leave
     the root's `:entry` / `:exit` unrun.
-  - A parallel root runs its `:entry` before every region's entry and its
-    `:exit` after every region's exit; a parallel root with an `:on-done`
+  - A parallel root runs its `:exit` after every region's exit (its `:entry`
+    runs before every region's, as region-lifecycle-test pins); a parallel
+    root with an `:on-done`
     rests in its all-final configuration without running its `:exit`.
   - A hydrated snapshot is not re-born, so root `:entry` does not re-run.
 
@@ -228,15 +229,6 @@
     (is (= :a (:state (snapshot :rl/guard))))))
 
 ;; ---- parallel root ---------------------------------------------------------
-
-(deftest parallel-root-entry-precedes-every-region
-  (let [log (atom [])]
-    (rf/reg-machine :rl/par (parallel-machine log {}))
-    (rf/dispatch-sync [:rl/par [:rf.machine/start]])
-    (is (= [:root-in :x1-in :y1-in] @log)
-        "root :entry first, then each region's initial entry in declaration order")
-    (is (= #{:whole :at-x1} (:tags (snapshot :rl/par)))
-        "the root's :tags join the regions' union")))
 
 (deftest parallel-root-exit-follows-every-region-at-finality
   (let [log (atom [])]

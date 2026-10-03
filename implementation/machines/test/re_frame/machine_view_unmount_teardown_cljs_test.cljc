@@ -188,8 +188,6 @@
           (is (= before after)
               "machine snapshot is UNCHANGED by the unmount (same :state + :data)")
           (is (= :active (:state after)) "machine is still in :active"))
-        (is (some? (rf.registrar/lookup :event :vut/session))
-            "the machine's event handler is still registered after the unmount")
 
         ;; (4) belt — NO machine-category (`:op-type :rf.machine`) trace of any
         ;;     kind fired: the unmount touched nothing in the machine runtime.

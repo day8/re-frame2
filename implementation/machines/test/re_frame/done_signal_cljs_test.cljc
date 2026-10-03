@@ -67,9 +67,8 @@
         :next {}}})
     (rf/dispatch-sync [:rf2-zlmz7/flow [:finish]])
     (is (= [:next] (:state (snapshot :rf2-zlmz7/flow)))
-        "the compound :flow reached its final child; :on-done advanced to :next")
-    (is (some? (snapshot :rf2-zlmz7/flow))
-        "the machine snapshot is INTACT — embedded final did NOT auto-destroy")))
+        "the compound :flow reached its final child and :on-done advanced to :next;
+         the snapshot is INTACT — the embedded final did NOT auto-destroy")))
 
 (deftest compound-done-no-on-done-rests-without-destroy
   (testing "an embedded :final? leaf with NO enclosing :on-done is a benign

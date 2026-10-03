@@ -51,6 +51,13 @@
 (defn- definition? [id]
   (:rf/machine? (rf.registrar/lookup :event id)))
 
+(defn- store-meta [id]
+  (rf/handler-meta {:source :store :kind :event :id id}))
+
+(defn- registered-machine-ids []
+  (set (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
+                   (rf/registrations {:source :store :kind :event})))))
+
 ;; ===========================================================================
 ;; (1) The shipped start / stop / start flow
 ;;
@@ -243,35 +250,11 @@
 
 ;; ===========================================================================
 ;; (3) The companion rule — a definition-bearing entry is NOT a liveness
-;;     signal. Exactly ONE teardown for a repeated destroy; ZERO for a
-;;     never-started one. This is the silent idempotence the companion rule
-;;     exists for.
+;;     signal: ZERO teardowns for a never-started singleton. Exactly ONE
+;;     teardown for a repeated destroy is destroy-silent-idempotent-cljs-test's
+;;     double-explicit-destroy-is-silent-no-op. This is the silent idempotence
+;;     the companion rule exists for.
 ;; ===========================================================================
-
-(deftest repeated-destroy-of-a-singleton-runs-exactly-one-teardown
-  (testing "with the definition preserved, a second [:rf.machine/destroy <id>]
-            must NOT see the surviving registration as liveness and re-run the
-            teardown: exactly ONE :rf.machine/destroyed, and the authored :exit
-            runs exactly once"
-    (let [exits  (atom 0)
-          traces (capture-traces ::repeat-destroy)]
-      (try
-        (rf/reg-machine :xjee/once
-          {:initial :running
-           :data    {}
-           :states  {:running {:exit (fn [_] (swap! exits inc) {})}}})
-        (rf/reg-event :xjee/kill-once
-          (fn [_ _] {:fx [[:rf.machine/destroy :xjee/once]]}))
-        (rf/dispatch-sync [:xjee/once [:kick]])
-        (is (some? (snapshot :xjee/once)))
-        (rf/dispatch-sync [:xjee/kill-once])
-        (rf/dispatch-sync [:xjee/kill-once])
-        (rf/dispatch-sync [:xjee/kill-once])
-        (is (= 1 (destroyed-count traces))
-            "exactly ONE :rf.machine/destroyed across three destroys")
-        (is (= 1 @exits) "the authored :exit ran exactly once")
-        (is (definition? :xjee/once) "and the definition still stands")
-        (finally (rf.trace.tooling/unregister-listener! ::repeat-destroy))))))
 
 (deftest destroying-a-never-started-singleton-is-a-genuine-no-op
   (testing "a registered-but-never-started singleton has a DEFINITION and no
@@ -337,7 +320,16 @@
     (rf/dispatch-sync [:xjee/clearable [:kick]])
     (rf/dispatch-sync [:xjee/kill-clearable])
     (is (definition? :xjee/clearable) "destroy left the definition standing")
+    (testing "and every public registrar query still reports it"
+      (is (true? (:rf/machine? (store-meta :xjee/clearable))))
+      (is (= :running (get-in (store-meta :xjee/clearable) [:rf/machine :initial]))
+          "handler-meta still carries the machine's spec")
+      (is (contains? (registered-machine-ids) :xjee/clearable)
+          "registrations still lists it among the machines"))
     (rf/clear :event :xjee/clearable)
     (is (nil? (rf.registrar/lookup :event :xjee/clearable))
         "clear removed it permanently — with no definition, the address is no
-         longer creatable")))
+         longer creatable")
+    (is (nil? (store-meta :xjee/clearable)) "handler-meta no longer reports it")
+    (is (not (contains? (registered-machine-ids) :xjee/clearable))
+        "registrations no longer lists it")))

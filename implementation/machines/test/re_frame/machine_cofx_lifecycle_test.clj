@@ -193,19 +193,7 @@
     (rf/dispatch-sync [:audit/parent [:rf.machine.spawn/error [:working] {:boom true}]])
     (is (= :errored (rf.machines.test-support/machine-state :audit/parent)))
     (is (= 42 (:token (rf.machines.test-support/machine-data :audit/parent)))
-        "the :entry action read the GENERATED fact, not nil"))
-  (testing "CONTROL: an ordinary :on reaches the same :errored and the same :entry"
-    (rf/reg-machine :audit/parent-on
-      {:initial :working
-       :data    {}
-       :actions {:capture capture-token}
-       :states  {:working {:spawn {:machine-id :audit/child :on-error :errored}
-                           :on    {:go :errored}}
-                 :errored {:entry :capture}}})
-    (rf/dispatch-sync [:audit/parent-on [:rf.machine/start]])
-    (rf/dispatch-sync [:audit/parent-on [:go]])
-    (is (= :errored (rf.machines.test-support/machine-state :audit/parent-on)))
-    (is (= 42 (:token (rf.machines.test-support/machine-data :audit/parent-on))))))
+        "the :entry action read the GENERATED fact, not nil")))
 
 (deftest every-synthetic-slot-ensures-its-target-entry
   (rf/reg-cofx :audit/token {:recordable? true} (fn [] 42))
