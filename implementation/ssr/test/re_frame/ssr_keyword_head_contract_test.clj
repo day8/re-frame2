@@ -126,18 +126,16 @@
             the same strings from the other side."
     (are [expected tree] (= expected (rf.ssr.emit/render-to-string tree nil))
       "<div>revenue</div>" [:div :revenue]
+      ;; The namespace is DROPPED, not rendered — the case a
+      ;; colon-stripping rule gets wrong. Reagent routes a named child
+      ;; through `(name x)` rather than trimming the printed form, so
+      ;; `:a/b` paints `b`, never `a/b`.
       "<div>b</div>"       [:div :a/b]
       "<div>leaf</div>"    [:div :ns.deep/leaf]
       "<div>sym</div>"     [:div 'sym]
       "<div>b</div>"       [:div 'a/b]
       "<div>revenue growth</div>" [:div :revenue " " :growth]
       "<div>1a</div>"      [:div 1 :a]))
-
-  (testing "the namespace is DROPPED, not rendered — the case a
-            colon-stripping rule gets wrong. `:a/b` paints `b`,
-            never `a/b`, because Reagent routes a named child through
-            `(name x)` rather than trimming the printed form."
-    (is (= "<div>b</div>" (rf.ssr.emit/render-to-string [:div :a/b] nil))))
 
   (testing "escaping still applies to the NAME — spelling a child by
             `name` must not become an escape bypass"
@@ -149,15 +147,7 @@
       "<div>plain</div>" [:div "plain"]
       "<div>9</div>"     [:div 9]
       "<div></div>"      [:div nil]
-      "<div></div>"      [:div true]))
-
-  (testing "the streaming walker agrees — its scalar arm delegates to the
-            standard emitter, so this is a delegation pin, not a second
-            implementation"
-    (doseq [tree [[:div :revenue] [:div :a/b] [:div 'a/b] [:dashboard/card :revenue]]]
-      (is (= (rf.ssr.emit/render-to-string tree nil)
-             (:shell-html (rf.ssr.streaming/render-shell tree)))
-          (str "emitter/walker divergence on " (pr-str tree))))))
+      "<div></div>"      [:div true])))
 
 (deftest keyword-head-carries-ordinary-element-syntax
   (testing "the element branch is the ORDINARY element branch:
@@ -225,12 +215,12 @@
   (testing "the shell walker obeys the same one grammar. It has its
             OWN keyword branch, so a `(registrar/lookup :view head)` probe
             there would leave the streaming path diverging from every
-            client substrate even with the standard emitter aligned."
-    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [:dashboard/card :revenue])]
-      (is (= "<card>revenue</card>" shell-html))))
-
-  (testing "and still recurses through the element into nested children,
-            so a suspense boundary underneath a keyword head is reachable"
+            client substrate even with the standard emitter aligned.
+            `both-emitters-agree-on-the-same-head` pins the walker's bytes
+            to the standard emitter's for keyword and callable heads; this
+            pins that the walker still recurses through the element into
+            nested children, so a suspense boundary underneath a keyword
+            head is reachable"
     (let [{:keys [shell-html continuations]}
           (rf.ssr.streaming/render-shell
             [:dashboard/card
@@ -239,12 +229,7 @@
       (is (= 1 (count continuations))
           "the boundary under an element head must still be recorded")
       (is (str/starts-with? shell-html "<card>")
-          "the element head is emitted, not resolved away")))
-
-  (testing "callable heads resolve in the walker exactly as in the
-            standard emitter"
-    (let [{:keys [shell-html]} (rf.ssr.streaming/render-shell [card-view :revenue])]
-      (is (= "<div class=\"card\"><h3>:revenue</h3></div>" shell-html)))))
+          "the element head is emitted, not resolved away"))))
 
 ;; ===========================================================================
 ;; Unrecognised reserved `:rf/*` heads fail loud
@@ -310,8 +295,8 @@
   (testing "an ORDINARY namespaced keyword is NOT reserved — the guard is
             scoped to `:rf/*` and must not capture app namespaces, which
             are exactly the heads that render as custom elements"
-    (is (= "<card>revenue</card>"
-           (rf.ssr.emit/render-to-string [:dashboard/card :revenue] nil)))
+    ;; `keyword-head-is-an-element-not-a-view` pins the app-namespaced
+    ;; `:dashboard/card` head; this pins the `rf`-prefixed near miss.
     (is (= "<widget></widget>"
            (rf.ssr.emit/render-to-string [:rfid/widget] nil))
         "`:rfid/widget` starts with `rf` but is NOT the reserved scheme —
@@ -321,11 +306,16 @@
 (deftest both-emitters-agree-on-the-same-head
   (testing "the two JVM emitters are separate implementations;
             pin that they produce the SAME bytes for the same head,
-            so an edit to one cannot silently re-fork them"
+            so an edit to one cannot silently re-fork them. The scalar-child
+            rows are a delegation pin: the walker's scalar arm delegates to
+            the standard emitter rather than implementing the spelling twice"
     (doseq [tree [[:dashboard/card :revenue]
                   [:never-registered/card :revenue]
                   [card-view :revenue]
-                  [(rf/view :dashboard/card) :revenue]]]
+                  [(rf/view :dashboard/card) :revenue]
+                  [:div :revenue]
+                  [:div :a/b]
+                  [:div 'a/b]]]
       (is (= (rf.ssr.emit/render-to-string tree nil)
              (:shell-html (rf.ssr.streaming/render-shell tree)))
           (str "emitter/walker divergence on " (pr-str tree))))))

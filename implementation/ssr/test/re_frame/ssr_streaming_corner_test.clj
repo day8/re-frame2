@@ -1,13 +1,14 @@
 (ns re-frame.ssr-streaming-corner-test
-  "Corner-matrix coverage for the streaming SSR shell walker, continuation
-  drain, and final-payload build paths.
+  "Corner-matrix coverage for the streaming SSR shell walker and
+  continuation drain.
   `ssr_streaming_test.clj` pins the common shapes (single boundary,
   wire-id collision, failed continuation, payload shape); this ns pins the
   composition corners — `n=0`/`n>=2` body children, nested boundaries,
   boundaries inside view-refs and fragments, fallback-render-throw
-  recovery, delta capturing a real change, final-payload-build throw
-  composition with the writer's catch arm, and the allowlist projection
-  on the final payload.
+  recovery, a drain against a destroyed frame, delta capturing a real
+  change — plus the request/response side-channel invariants. The final
+  payload's allowlist projection is pinned by
+  `re-frame.ssr-streaming-hydration-egress-test`.
 
   Why a sibling ns rather than appending to `ssr_streaming_test`. Each
   test here pins a documented invariant that's downstream of the basic
@@ -329,82 +330,50 @@
       (is (str/includes? shell-html "fragment loading")
           "the buried boundary's fallback materialised inline"))))
 
-(deftest fragment-props-map-is-not-a-child-in-the-streaming-walker
-  (testing "A `:<>` fragment's PROPS MAP at slot 1 is not a
-            child, on the STREAMING path too. With a plain
-            `(rest element)` arm the map itself would be walked as a child,
-            fall through to `emit/emit-element` → `escape-html`, and put its
-            EDN in the streamed shell bytes. `[:<> {:key i} …]` inside a
-            `for` is the canonical fragment idiom, so this is reachable from
-            ordinary application markup. The non-streaming emitter skips the
-            slot the same way, so the two paths agree on the same input."
-    (testing "the three spellings agree on this path"
-      ;; Walking slot 1 as a child would give:
-      ;;   [:<> {:key "k"} [:div "x"]] => "{:key &quot;k&quot;}<div>x</div>"
-      ;;   [:<> {}         [:div "x"]] => "{}<div>x</div>"
-      ;;   [:<>            [:div "x"]] => "<div>x</div>"
-      ;; Only the third is right; all three stream the same markup.
-      (is (= "<div>x</div>"
-             (:shell-html (rf.ssr.streaming/render-shell [:<> {:key "k"} [:div "x"]])))
-          "a keyed fragment streams its children and nothing else")
-      (is (= "<div>x</div>"
-             (:shell-html (rf.ssr.streaming/render-shell [:<> {} [:div "x"]])))
-          "an EMPTY props map is still a props map, not a child")
-      (is (= "<div>x</div>"
-             (:shell-html (rf.ssr.streaming/render-shell [:<> [:div "x"]])))
-          "the no-props spelling streams the same markup"))
-    (testing "no EDN of the props map survives anywhere in the shell bytes"
-      (let [html (:shell-html
-                   (rf.ssr.streaming/render-shell
-                     [:<> {:key "k" :data-x "v"} [:p "body"]]))]
-        (is (= "<p>body</p>" html) (str "got: " html))
-        (is (not (str/includes? html ":key")) "no keyword EDN on the wire")
-        (is (not (str/includes? html "&quot;")) "no escaped EDN string on the wire")))
-    (testing "a fragment that is ONLY a props map streams nothing"
-      (is (= "" (:shell-html (rf.ssr.streaming/render-shell [:<> {:key "k"}]))))
-      (is (= "" (:shell-html (rf.ssr.streaming/render-shell [:<>])))))
-    (testing "The same rule holds here — a NON-`:key` fragment attribute
-              is DROPPED, silently, not refused. A fragment is not an
-              element, so no attribute on one has a wire representation."
-      (is (= "<div>x</div>"
-             (:shell-html
-               (rf.ssr.streaming/render-shell
-                 [:<> {:class "nope" :id "nope" :onClick "alert(1)"} [:div "x"]])))
-          "non-:key fragment attrs stream nothing and throw nothing"))
-    (testing "ONLY a map at slot 1 is skipped — a string / vector / seq
-              there is a genuine first child"
-      (is (= "text<div></div>"
-             (:shell-html (rf.ssr.streaming/render-shell [:<> "text" [:div]])))
-          "a string at slot 1 is a child")
-      (is (= "<span>a</span><div>b</div>"
-             (:shell-html (rf.ssr.streaming/render-shell [:<> [:span "a"] [:div "b"]])))
-          "a hiccup vector at slot 1 is a child")
-      (is (= "<div>a</div><div>b</div>"
-             (:shell-html
-               (rf.ssr.streaming/render-shell [:<> (list [:div "a"]) [:div "b"]])))
-          "a seq at slot 1 is a child, not props"))))
-
 (deftest streaming-and-non-streaming-fragments-agree-byte-for-byte
   (testing "The pin that stops these two arms drifting apart: a change
             to one `:<>` arm without the other would render the SAME hiccup
             one way through `render-to-string` and another through
             `render-shell`. A boundary-free tree contains nothing the
             streaming walker is FOR, so its shell HTML must equal what the
-            non-streaming emitter produces, byte for byte."
-    (doseq [tree [[:<> {:key "k"} [:div "x"]]
-                  [:<> {} [:div "x"]]
-                  [:<> [:div "x"]]
-                  [:<> {:key "k"}]
-                  [:<>]
-                  [:<> "text" [:div]]
-                  [:<> {:key "k" :data-x "v"} [:p "body"]]
-                  [:<> {:class "nope" :onClick "alert(1)"} [:div "x"]]
-                  [:<> {:key "outer"} [:<> {:key "inner"} [:div "y"]]]
-                  [:main [:<> {:key "k"} [:span "a"] [:span "b"]]]
-                  (into [:<>] (for [i [1 2]] [:<> {:key i} [:li i]]))]]
+            non-streaming emitter produces, byte for byte.
+            `re-frame.ssr-emit-test/fragment-props-map-is-not-a-child` pins
+            the emitter's literal bytes for these inputs — a props map at
+            slot 1 is not a child, a non-`:key` fragment attribute is
+            dropped silently rather than refused, and a string / vector /
+            seq at slot 1 is a genuine child — so the two together pin the
+            streamed bytes."
+    (doseq [[label tree]
+            [["a keyed fragment streams only its children"
+              [:<> {:key "k"} [:div "x"]]]
+             ["an EMPTY props map is still a props map, not a child"
+              [:<> {} [:div "x"]]]
+             ["the no-props spelling"
+              [:<> [:div "x"]]]
+             ["a fragment that is ONLY a props map streams nothing"
+              [:<> {:key "k"}]]
+             ["a bare fragment streams nothing"
+              [:<>]]
+             ["a string at slot 1 is a child"
+              [:<> "text" [:div]]]
+             ["a hiccup vector at slot 1 is a child"
+              [:<> [:span "a"] [:div "b"]]]
+             ["a seq at slot 1 is a child, not props"
+              [:<> (list [:div "a"]) [:div "b"]]]
+             ["no EDN of a multi-key props map reaches the wire"
+              [:<> {:key "k" :data-x "v"} [:p "body"]]]
+             ["non-:key fragment attrs stream nothing and throw nothing"
+              [:<> {:class "nope" :id "nope" :onClick "alert(1)"} [:div "x"]]]
+             ["nested keyed fragments"
+              [:<> {:key "outer"} [:<> {:key "inner"} [:div "y"]]]]
+             ["a keyed fragment inside an element"
+              [:main [:<> {:key "k"} [:span "a"] [:span "b"]]]]
+             ["keyed fragments built by a `for`"
+              (into [:<>] (for [i [1 2]] [:<> {:key i} [:li i]]))]]]
       (is (= (rf.ssr.emit/render-to-string tree {})
              (:shell-html (rf.ssr.streaming/render-shell tree)))
-          (str "streaming and non-streaming disagree on " (pr-str tree))))))
+          (str label " — streaming and non-streaming disagree on "
+               (pr-str tree))))))
 
 (deftest fragment-props-map-does-not-displace-a-suspense-boundary
   (testing "The STREAMING-SPECIFIC analogue of the non-streaming
@@ -628,33 +597,6 @@
               ":failed? key is present")
           (is (contains? result :html)
               ":html key is present"))))))
-
-;; ===========================================================================
-;; build-final-payload — allowlist projection composition
-;; ===========================================================================
-
-(deftest build-final-payload-allowlist-drops-unpermitted-keys
-  (testing "The streaming build-final-payload MUST honour
-            :payload allowlist projection — same contract as
-            non-streaming build-payload (the streaming + non-streaming
-            payload builders share re-frame.ssr.payload-policy/apply-
-            policy). Pin that an un-permitted key on
-            app-db does NOT ride the wire under the streaming path."
-    (let [fid (make-server-frame {:public/articles [{:id "a"}]
-                                  :server-only/auth-token "RF2_U91HB_LEAK_PROBE_xyz"
-                                  :server-only/admin-flag true})
-          payload (rf.ssr.streaming/build-final-payload
-                    fid "deadbeef"
-                    {:version 1
-                     :payload [:public/articles]})]
-      (is (= [{:id "a"}] (get-in payload [:rf/app-db :public/articles]))
-          "the public slice IS on the wire (sanity)")
-      (is (not (contains? (:rf/app-db payload) :server-only/auth-token))
-          "the un-permitted :server-only/auth-token key does NOT
-           appear in the streaming final payload — the
-           fail-closed proof on the STREAMING path")
-      (is (not (contains? (:rf/app-db payload) :server-only/admin-flag))
-          "belt-and-braces over a second un-permitted slot"))))
 
 ;; ===========================================================================
 ;; clear-request! / clear-response! — idempotent no-ops on unpopulated

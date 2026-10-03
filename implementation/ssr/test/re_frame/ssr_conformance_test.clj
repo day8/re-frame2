@@ -1102,12 +1102,9 @@
       ;; below passes GREEN over an empty / fully-skipped / orphaned
       ;; corpus (wrong cwd, fixtures-dir rename, or a capability-vocab
       ;; rename that orphans every ssr-* fixture) — verifying NOTHING.
-      ;; Assert that fixtures actually executed:
-      ;;   - (pos? (count run)) catches the fully-empty case;
-      ;;   - the expected-minimum (>= 10) catches partial mass-orphaning
-      ;;     without pinning an exact count (the ssr-*.edn set grows).
-      (is (pos? (count run))
-          "at least one claim-runnable ssr-*.edn fixture must have executed")
+      ;; The expected-minimum (>= 10) catches the fully-empty case and
+      ;; partial mass-orphaning alike, without pinning an exact count (the
+      ;; ssr-*.edn set grows).
       (is (>= (count run) 10)
           (str "ssr corpus runnable-fixture floor (>= 10): only "
                (count run) " executed — a fixtures-dir/cwd fault or a "

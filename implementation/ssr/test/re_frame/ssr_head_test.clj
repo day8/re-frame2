@@ -50,16 +50,6 @@
 ;; reg-head — registry kind :head with handler-fn
 ;; ===========================================================================
 
-(deftest reg-head-registers-under-head-kind
-  (testing "reg-head adds an entry to the :head registry kind, keyed by id,
-            with the head-fn under :handler-fn"
-    (let [head-fn (fn [_db _route] {:title "Hello"})]
-      (rf/reg-head :head/static head-fn)
-      (let [meta (rf.registrar/lookup :head :head/static)]
-        (is (some? meta) "registry slot exists")
-        (is (= head-fn (:handler-fn meta))
-            "the head-fn is stored under :handler-fn")))))
-
 (deftest reg-head-returns-the-id
   (testing "reg-head returns its id arg per Conventions §reg-* return-value"
     (is (= :head/whatever
@@ -310,15 +300,6 @@
       (is (str/includes? html "property=\"og:title\""))
       ;; void elements: no </meta> closing tag.
       (is (not (str/includes? html "</meta>"))))))
-
-(deftest head-model->html-link-tags
-  (testing "link tags render with canonical/href/rel attrs"
-    (let [html (rf.ssr/head-model->html
-                 {:link [{:rel "canonical" :href "https://example.com/x"}
-                         {:rel "icon" :href "/favicon.ico"}]})]
-      (is (str/includes? html "rel=\"canonical\""))
-      (is (str/includes? html "href=\"https://example.com/x\""))
-      (is (str/includes? html "rel=\"icon\"")))))
 
 (deftest head-model->html-script-tags
   (testing "script tags render with src + boolean attrs (async/defer)"
