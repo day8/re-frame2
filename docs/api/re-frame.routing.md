@@ -474,6 +474,48 @@ Declare these on a handler with `:rf.cofx/requires`. Each value is delivered und
   (rf.routing/match-url "/no/such/path")  ;; => nil
   ```
 
+The cell below registers four routes and shows what `match-url` returns for each
+sample URL; add your own to `samples` and press Mod-Enter. `/articles/new` beats
+`/articles/:id` on literal segments, the optional slug group matches with or
+without its segment, `:id` is coerced to an integer, an undeclared query key stays
+a string, and a non-integer id is flagged `:validation-failed?`.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing :as rf.routing])
+
+(rf/reg-route :app/home        {} "/")
+(rf/reg-route :app/article-new {} "/articles/new")
+(rf/reg-route :app/article
+  {:params [:map [:id :int] [:slug {:optional true} :string]]}
+  "/articles/:id{/:slug}?")
+(rf/reg-route :app/file        {} "/files/*rest")
+
+(def samples
+  ["/articles/7/intro?tab=comments" "/articles/new" "/articles/7"
+   "/articles/seven" "/files/a/b.txt" "/no/such/path"])
+
+(rf/reg-event :url-demo/pick
+  (fn [{:keys [db]} [_ url]]
+    {:db (assoc db :url-demo/url url)}))
+
+(rf/reg-sub :url-demo/url (fn [db _] (:url-demo/url db (first samples))))
+
+(rf/reg-view url-matcher []
+  (let [url @(subscribe [:url-demo/url])]
+    [:div
+     (for [sample samples]
+       [:button {:key      sample
+                 :style    {:margin "0 0.5em 0.5em 0"}
+                 :on-click #(dispatch [:url-demo/pick sample])}
+        sample])
+     [:p [:code (pr-str (list 'rf.routing/match-url url))]]
+     [:pre {:style {:white-space "pre-wrap"}}
+      (pr-str (rf.routing/match-url url))]]))
+
+[url-matcher]
+```
+
 ### `route-url`
 
 - **Kind**: function
