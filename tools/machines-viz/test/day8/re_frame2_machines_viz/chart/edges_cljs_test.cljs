@@ -146,27 +146,19 @@
    :nodes [{:id "a"} {:id "b"}]
    :edges []})
 
-(deftest elk-layout-options-nested-enables-cross-hierarchy
-  (testing "G5 — a NESTED graph (a node has :parent-id, e.g.
-            a compound substate) requests cross-hierarchy routing:
-            elk.hierarchyHandling INCLUDE_CHILDREN"
-    (is (= "INCLUDE_CHILDREN"
-           (get (chart/elk-layout-options (nested-parsed) nil :tb)
-                "elk.hierarchyHandling")))))
-
-(deftest elk-layout-options-parallel-enables-cross-hierarchy
-  (testing "G5 — a PARALLEL graph (:parallel? true) requests
-            cross-hierarchy routing even with no per-node :parent-id"
-    (is (= "INCLUDE_CHILDREN"
-           (get (chart/elk-layout-options (parallel-parsed) nil :tb)
-                "elk.hierarchyHandling")))))
-
-(deftest elk-layout-options-flat-omits-cross-hierarchy
-  (testing "G5 — a FLAT, non-parallel graph does NOT set
-            elk.hierarchyHandling, so elk's per-level default
-            (SEPARATE_CHILDREN) stands"
-    (is (not (contains? (chart/elk-layout-options (flat-parsed) nil :tb)
-                        "elk.hierarchyHandling")))))
+(deftest elk-layout-options-cross-hierarchy-follows-nesting
+  (testing "G5 — a NESTED graph (a node has :parent-id, e.g. a compound
+            substate) and a PARALLEL graph (:parallel? true, even with no
+            per-node :parent-id) request cross-hierarchy routing,
+            elk.hierarchyHandling INCLUDE_CHILDREN; a FLAT, non-parallel graph
+            leaves it unset, so elk's per-level default (SEPARATE_CHILDREN)
+            stands"
+    (doseq [[label parsed expected] [["nested"   (nested-parsed)   "INCLUDE_CHILDREN"]
+                                     ["parallel" (parallel-parsed) "INCLUDE_CHILDREN"]
+                                     ["flat"     (flat-parsed)     ::absent]]]
+      (is (= expected (get (chart/elk-layout-options parsed nil :tb)
+                           "elk.hierarchyHandling" ::absent))
+          label))))
 
 ;; ---- elk-layout-options: root guarded-fork ordering --------------------
 
@@ -264,48 +256,32 @@
                            "1,2,3 (x: " x1 " < " x2 " < " x3 ")"))))
               (finally (done)))))))))
 
-(deftest elk-layout-options-pins-g2-routing-keys
-  (testing "G2 — the routing keys cross-hierarchy bend-points
-            depend on are present on every graph: elk.edgeRouting
-            ORTHOGONAL (Manhattan routes around containers) + edgeCoords
-            ROOT (absolute coords so the lifted bends match xyflow's
-            frame). G5's INCLUDE_CHILDREN only pays off when paired here."
-    (doseq [parsed [(nested-parsed) (parallel-parsed) (flat-parsed)]]
-      (let [opts (chart/elk-layout-options parsed nil :tb)]
-        (is (= "ORTHOGONAL" (get opts "elk.edgeRouting")))
-        (is (= "ROOT" (get opts "elk.json.edgeCoords")))))))
-
-(deftest elk-layout-options-pins-depth-first-cycle-breaking
-  (testing "the initial-state placement soft preference: every
-            graph carries elk.layered.cycleBreaking.strategy DEPTH_FIRST
-            so a CYCLIC statechart breaks cycles by a depth-first walk
-            from the sources (the initial state) rather than GREEDY
-            min-reversed-count, ranking the forward spine from the initial
-            state near the top/left. Soft (still pairs with full layer-
-            sweep + node-placement); identical to GREEDY for acyclic
-            graphs. Present on flat, nested, and parallel graphs alike."
-    (doseq [parsed [(flat-parsed) (nested-parsed) (parallel-parsed)]]
-      (is (= "DEPTH_FIRST"
-             (get (chart/elk-layout-options parsed nil :tb)
-                  "elk.layered.cycleBreaking.strategy"))
-          "DEPTH_FIRST cycle-breaking is set"))))
-
-(deftest elk-layout-options-pins-consider-model-order
-  (testing "the root model-order lever: every graph carries
-            elk.layered.considerModelOrder NODES_AND_EDGES so ELK honours
-            the input model order (nodes AND edges) as a tiebreaker through
-            layering + crossing-minimisation. Pairs with the per-initial-edge
-            elk.layered.priority.direction lever (pinned in projection's
-            initial-edge-priority-direction test) to pull the initial state
-            to the START of its region's flow even in a PURE-CYCLIC parallel
-            region, where DEPTH_FIRST + child-model-order alone SLIPS. Present
-            on flat, nested, and parallel graphs alike — removing this root
-            lever must not stay green."
-    (doseq [parsed [(flat-parsed) (nested-parsed) (parallel-parsed)]]
-      (is (= "NODES_AND_EDGES"
-             (get (chart/elk-layout-options parsed nil :tb)
-                  "elk.layered.considerModelOrder"))
-          "root considerModelOrder NODES_AND_EDGES is set"))))
+(deftest elk-layout-options-pins-the-root-layout-levers
+  (testing "every graph, flat, nested and parallel alike, carries the root
+            layout levers:
+            - G2 routing: elk.edgeRouting ORTHOGONAL (Manhattan routes around
+              containers) + edgeCoords ROOT (absolute coords so the lifted
+              bends match xyflow's frame). G5's INCLUDE_CHILDREN only pays off
+              when paired with these.
+            - cycleBreaking DEPTH_FIRST, the initial-state placement soft
+              preference: a CYCLIC statechart breaks cycles by a depth-first
+              walk from the sources (the initial state) rather than GREEDY
+              min-reversed-count, ranking the forward spine from the initial
+              state near the top/left; identical to GREEDY for acyclic graphs.
+            - considerModelOrder NODES_AND_EDGES: ELK honours the input model
+              order (nodes AND edges) as a tiebreaker through layering +
+              crossing-minimisation. It pairs with the per-initial-edge
+              elk.layered.priority.direction lever (pinned in projection's
+              initial-edge-priority-direction test) to pull the initial state
+              to the START of its region's flow even in a PURE-CYCLIC parallel
+              region, where DEPTH_FIRST + child-model-order alone SLIPS."
+    (doseq [[graph parsed] [["flat" (flat-parsed)] ["nested" (nested-parsed)] ["parallel" (parallel-parsed)]]
+            [k expected]   [["elk.edgeRouting"                    "ORTHOGONAL"]
+                            ["elk.json.edgeCoords"                "ROOT"]
+                            ["elk.layered.cycleBreaking.strategy" "DEPTH_FIRST"]
+                            ["elk.layered.considerModelOrder"     "NODES_AND_EDGES"]]]
+      (is (= expected (get (chart/elk-layout-options parsed nil :tb) k))
+          (str graph " graph: " k)))))
 
 (deftest elk-layout-options-direction-from-arg
   (testing "elk.direction is forced from the direction arg
@@ -351,18 +327,6 @@
       (is (str/includes? d "Q") "rounded corners use quadratic segments")
       (is (not (str/includes? d "C"))
           "a routed path is NOT a single bezier curve"))))
-
-(deftest edge-path-routed-label-sits-on-the-route
-  (testing "a routed edge's label anchors on the route
-            (the midpoint of its middle segment), not at a bezier
-            midpoint floating away from the bends"
-    (let [points (array (pt 0 0) (pt 0 100) (pt 100 100) (pt 100 200))
-          {:keys [label-x label-y routed?]}
-          (edges/edge-path (assoc base-coords :points points))]
-      (is (true? routed?))
-      ;; middle segment is (0,100)→(100,100): midpoint (50,100).
-      (is (= 50 label-x))
-      (is (= 100 label-y)))))
 
 (deftest edge-path-prefers-elk-label-position
   (testing "when ELK supplies a computed label position

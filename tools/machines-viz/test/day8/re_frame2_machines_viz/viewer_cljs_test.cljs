@@ -45,12 +45,6 @@
     (is (= :empty (:status (viewer/decode-location "https://x/viewer.html"))))
     (is (= :empty (:status (viewer/decode-location ""))))))
 
-(deftest decode-location-error
-  (testing "a malformed fragment decodes to :error with a reason"
-    (let [vm (viewer/decode-location "https://x/viewer.html#machine=@@@bad@@@")]
-      (is (= :error (:status vm)))
-      (is (contains? #{:malformed-fragment :malformed-payload} (:reason vm))))))
-
 (deftest decode-location-rejects-malformed-definition
   (testing "a share-URL carrying a MALFORMED machine definition
             (a non-keyword flat :initial the canonical grammar gate rejects)

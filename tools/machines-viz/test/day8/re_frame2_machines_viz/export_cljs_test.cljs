@@ -71,22 +71,17 @@
    :regions {:data {:initial :clean :states {:clean {} :dirty {}}}
              :form {:initial :idle  :states {:idle {} :busy {}}}}})
 
-(deftest share-url-compound-current-state-rides-through
-  (testing "a COMPOUND vector-path :current-state on the seam round-trips"
-    (let [el  (stub-element (assoc seam
-                                   :definition compound-definition
-                                   :current-state [:authenticated :cart :browsing]))
-          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el {:host test-host})))]
-      (is (= {:state [:authenticated :cart :browsing]} (:snapshot cs))))))
-
-(deftest share-url-parallel-current-state-rides-through
-  (testing "a PARALLEL region-map :current-state on the seam round-trips"
-    (let [el  (stub-element (assoc seam
-                                   :definition parallel-definition
-                                   :region-count 2
-                                   :current-state {:data :dirty :form :busy}))
-          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el {:host test-host})))]
-      (is (= {:state {:data :dirty :form :busy}} (:snapshot cs))))))
+(deftest share-url-compound-and-parallel-current-states-ride-through
+  (testing "a COMPOUND vector-path and a PARALLEL region-map :current-state on
+            the seam each round-trip as the snapshot :state"
+    (doseq [[label overrides state]
+            [["compound vector path" {:definition compound-definition}
+              [:authenticated :cart :browsing]]
+             ["parallel region-map"  {:definition parallel-definition :region-count 2}
+              {:data :dirty :form :busy}]]]
+      (let [el (stub-element (merge seam overrides {:current-state state}))
+            cs (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el {:host test-host})))]
+        (is (= {:state state} (:snapshot cs)) label)))))
 
 (deftest share-url-honours-host-and-frame
   (testing ":host + :frame-id opts thread through"

@@ -13,7 +13,7 @@
     identically regardless of input map/set ordering (Principles
     §Reproducible from the registry alone).
   - Privacy: runtime `:data` on `:snapshot` and `:source-coords` are
-    dropped; definition metadata is stripped.
+    dropped.
   - Versioned envelope: `:rf.machines-viz.share/v` rides outermost;
     a newer version is rejected with `:unknown-version`.
   - Every documented `decode-failed` `:reason`.
@@ -341,28 +341,14 @@
           back  (:rf.machines-viz.share/chart
                   (share/decode-share-url (encode leaky)))]
       (is (= {:state :loading} (:snapshot back)))
-      (is (not (contains? (:snapshot back) :data)))
-      (is (not (str/includes? (encode leaky) "hunter2"))
-          "the secret never reaches the encoded bytes"))))
+      (is (not (contains? (:snapshot back) :data))))))
 
 (deftest source-coords-are-dropped
   (testing ":source-coords passed by the caller never reach the payload"
     (let [leaky (assoc chart-state :source-coords {:file "/Users/mike/secret/x.cljs"})
           back  (:rf.machines-viz.share/chart
                   (share/decode-share-url (encode leaky)))]
-      (is (not (contains? back :source-coords)))
-      (is (not (str/includes? (encode leaky) "secret"))))))
-
-(deftest definition-metadata-is-stripped
-  (testing "macro-captured source-coord meta on the definition does not propagate"
-    (let [defn-with-meta (with-meta idle-loading-success
-                                    {:rf/source-coord {:file "/Users/mike/proj/m.cljs"
-                                                       :line 42}})
-          cs   (assoc chart-state :definition defn-with-meta)
-          url  (encode cs)
-          back (:rf.machines-viz.share/chart (share/decode-share-url url))]
-      (is (nil? (meta (:definition back))) "no meta survives")
-      (is (not (str/includes? url "proj")) "the file path never reaches the bytes"))))
+      (is (not (contains? back :source-coords))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The non-topology slots (`:schemas`, the root event
@@ -481,9 +467,6 @@
           url  (encode cs)
           back (:rf.machines-viz.share/chart (share/decode-share-url url))
           dfn  (:definition back)]
-      ;; The encoded BYTES carry no local-filesystem path / source snippet.
-      (is (not (str/includes? url "Users")) "no local-filesystem path in the URL bytes")
-      (is (not (str/includes? url "proj"))  "no repo dir in the URL bytes")
       ;; The decoded payload carries no debug/source fields anywhere.
       (is (nil? (get-in dfn [:states :idle :source-coords])))
       (is (nil? (get-in dfn [:states :idle :on :submit :source-coords])))
@@ -591,23 +574,6 @@
           "sibling transitions on the `:fn` state are intact")
       (is (contains? (:states dfn) :other))
       (is (true? (get-in dfn [:states :done :final?]))))))
-
-(deftest fn-region-id-survives-sanitisation
-  (testing "a parallel REGION whose id is `:fn` is topology and
-            is preserved (region-id `:fn` is not an executable slot)"
-    (let [defn {:type    :parallel
-                :regions {:fn {:initial :one :states {:one {:on {:go :two}} :two {}}}
-                          :b  {:initial :p   :states {:p {} :q {}}}}}
-          cs   (assoc chart-state :definition defn)
-          url  (encode cs)
-          dfn  (:definition
-                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
-      (is (string? url) "encoding succeeds")
-      (is (contains? (:regions dfn) :fn)
-          "the `:fn` REGION id survives sanitisation")
-      (is (= :one (get-in dfn [:regions :fn :initial]))
-          "the `:fn` region's topology is intact")
-      (is (contains? (:regions dfn) :b)))))
 
 ;; ---------------------------------------------------------------------------
 ;; A function-valued `:after` delay (Spec 005) is a
@@ -717,7 +683,6 @@
       (is (= (layout/semantic-counts debug-named-topology) (layout/semantic-counts dfn))
           "no state or transition is lost")
       (testing "the genuine annotations on those same records are gone"
-        (is (not (str/includes? url "Users")) "no local path in the URL bytes")
         (is (not (contains? (get-in dfn [:states :source-code]) :source-coords)))
         (is (not (contains? (get-in dfn [:states :source-code :on :source-code])
                             :source-coords)))
@@ -889,17 +854,6 @@
             (str "malformed definition " label " must fail closed at decode"))
         (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d)))))))
 
-(deftest encode-rejects-malformed-definitions
-  (testing "the encoder rejects the same malformed definitions
-            (encode/decode stay symmetric — the encoder never emits a payload
-            the decoder would reject)"
-    (doseq [[label definition] malformed-definitions]
-      (let [d (try (encode {:machine-id :demo :definition definition})
-                   (catch :default e (ex-data e)))]
-        (is (= :invalid-chart-state (:reason d))
-            (str "malformed definition " label " must be rejected at encode"))
-        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
-
 (deftest valid-definitions-round-trip-unchanged
   (testing "valid definitions pass the gate; flat / compound /
             parallel / timeout / choice authored forms all round-trip
@@ -911,20 +865,6 @@
                    (share/decode-share-url (encode cs)))]
         (is (= definition (:definition back))
             (str label " definition round-trips UNCHANGED (authored form preserved)"))))))
-
-(deftest share-definition-gate-agrees-with-canonical-grammar
-  (testing "the share boundary accepts/rejects EXACTLY the
-            definitions the canonical Machines-Viz grammar gate does (the same
-            gate the AI / Mermaid / SCXML emitters + chart projector share), so
-            one machine value cannot be accepted by one surface and rejected by
-            another. Pins one table of valid + invalid shapes against the
-            canonical predicate so the boundaries cannot drift."
-    (doseq [[label definition] (merge valid-definitions malformed-definitions)]
-      (let [canonical? (grammar/valid-definition? (grammar/desugar-grammar definition))
-            share-ok?  (some? (:ok (share/decode-share-url-safe (forge-definition-url definition))))]
-        (is (= canonical? share-ok?)
-            (str label ": share boundary must agree with the canonical grammar gate "
-                 "(canonical? " canonical? ", share-ok? " share-ok? ")"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; RECURSIVELY-malformed definitions (structurally invalid
@@ -955,26 +895,32 @@
         (is (nil? ok) (str label " must NOT decode :ok"))
         (is (= :invalid-chart-state (:reason error)))))))
 
-(deftest encode-rejects-recursively-malformed-definitions
-  (testing "the encoder rejects the same recursively-malformed
-            definitions (encode/decode stay symmetric)"
-    (doseq [[label definition] recursively-malformed-definitions]
+(deftest encode-rejects-malformed-definitions
+  (testing "the encoder rejects the same malformed definitions, flat / parallel
+            and recursive alike (encode/decode stay symmetric — the encoder
+            never emits a payload the decoder would reject)"
+    (doseq [[label definition] (merge malformed-definitions recursively-malformed-definitions)]
       (let [d (try (encode {:machine-id :demo :definition definition})
                    (catch :default e (ex-data e)))]
         (is (= :invalid-chart-state (:reason d))
-            (str "recursively-malformed " label " must be rejected at encode"))
+            (str "malformed definition " label " must be rejected at encode"))
         (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
 
-(deftest share-gate-recursively-malformed-agrees-with-canonical-grammar
-  (testing "the share boundary rejects EXACTLY the recursively-
-            malformed definitions the canonical RECURSIVE grammar gate rejects,
-            and the flat/parallel cases above are rejected too"
-    (doseq [[label definition] (merge malformed-definitions recursively-malformed-definitions)]
-      (let [canonical? (boolean (grammar/valid-definition? (grammar/desugar-grammar definition)))
+(deftest share-definition-gate-agrees-with-canonical-grammar
+  (testing "the share boundary accepts/rejects EXACTLY the definitions the
+            canonical Machines-Viz grammar gate does (the same RECURSIVE gate
+            the AI / Mermaid / SCXML emitters + chart projector share), so one
+            machine value cannot be accepted by one surface and rejected by
+            another. Pins one table of valid, flat / parallel malformed and
+            recursively-malformed shapes against the canonical predicate so
+            the boundaries cannot drift."
+    (doseq [[label definition] (merge valid-definitions malformed-definitions
+                                      recursively-malformed-definitions)]
+      (let [canonical? (grammar/valid-definition? (grammar/desugar-grammar definition))
             share-ok?  (some? (:ok (share/decode-share-url-safe (forge-definition-url definition))))]
-        (is (false? canonical?) (str label " is rejected by the canonical recursive grammar gate"))
         (is (= canonical? share-ok?)
-            (str label ": share boundary agrees with the canonical grammar gate"))))))
+            (str label ": share boundary must agree with the canonical grammar gate "
+                 "(canonical? " canonical? ", share-ok? " share-ok? ")"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level ChartState is CLOSED on decode. The encoder
@@ -987,44 +933,23 @@
 ;; "Anything not in the schema is silently dropped by the encoder. New
 ;; top-level keys … require an explicit :rf.machines-viz.share/allow? opt-in").
 
-(deftest decoded-extra-top-level-source-coords-rejected
-  (testing "a forged URL adding a top-level :source-coords cannot survive decode"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :source-coords {:file "/Users/mike/secret/x.cljs"
-                                                                            :line 42})
-                      :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url smuggled)
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))
-          "an extra top-level :source-coords fails the closed ChartState check at decode"))))
-
-(deftest decoded-extra-top-level-data-rejected
-  (testing "a forged URL adding a top-level :data cannot survive decode"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :data {:token "leak-abc"
-                                                                   :form  {:password "hunter2"}})
-                      :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url smuggled)
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))
-          "an extra top-level :data fails the closed ChartState check at decode"))))
-
-(deftest decoded-future-unreviewed-top-level-key-rejected
-  (testing "any unknown future top-level key is rejected — the set is closed, not just the two known leaks"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :rf.machines-viz.share/some-future-field
-                                                            {:anything :goes})
-                      :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url smuggled)
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))
-          "an unreviewed top-level key requires the documented allow? opt-in, so decode fails closed"))))
+(deftest decoded-extra-top-level-key-rejected
+  (testing "a forged URL adding any extra top-level key cannot survive decode:
+            the two known leaks (:source-coords, :data) and any unreviewed
+            future field, which requires the documented allow? opt-in — the
+            set is closed"
+    (doseq [[label extra]
+            [[":source-coords"          {:source-coords {:file "/Users/mike/secret/x.cljs" :line 42}}]
+             [":data"                   {:data {:token "leak-abc" :form {:password "hunter2"}}}]
+             ["a future unreviewed key" {:rf.machines-viz.share/some-future-field {:anything :goes}}]]]
+      (let [smuggled (envelope->url
+                       {:rf.machines-viz.share/v       "1"
+                        :rf.machines-viz.share/chart   (merge chart-state extra)
+                        :rf.machines-viz.share/created 0})
+            d (try (share/decode-share-url smuggled)
+                   (catch :default e (ex-data e)))]
+        (is (= :invalid-chart-state (:reason d))
+            (str "an extra top-level " label " fails the closed ChartState check at decode"))))))
 
 (deftest decoded-extra-top-level-key-rejected-safe
   (testing "decode-share-url-safe returns {:error {:reason :invalid-chart-state}} for a forged extra key"

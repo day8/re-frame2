@@ -35,21 +35,15 @@
           "the element's type is the reactified MachineChart class"))))
 
 (deftest chart-element-carries-props-through-argv
-  (testing "props ride on the Reagent `argv` prop at index 1 (the
-            reactified Reagent component reads its render arg there)"
+  (testing "props ride on the Reagent `argv` prop at index 1 (the reactified
+            Reagent component reads its render arg there); nil props degrade
+            to an empty map"
     (let [props {:machine-id :auth/flow :definition sample-machine
-                 :current-state :loading}
-          el    (react-chart/chart-element props)
-          argv  (.. el -props -argv)]
-      (is (= props (aget argv 1))
-          "the props map sits at argv[1]"))))
-
-(deftest chart-element-tolerates-nil-props
-  (let [el (react-chart/chart-element nil)]
-    (is (react/isValidElement el)
-        "nil props still build a valid element")
-    (is (= {} (aget (.. el -props -argv) 1))
-        "nil props degrade to an empty map at argv[1]")))
+                 :current-state :loading}]
+      (doseq [[label in expected] [["a props map" props props]
+                                   ["nil props"   nil   {}]]]
+        (is (= expected (aget (.. (react-chart/chart-element in) -props -argv) 1))
+            label)))))
 
 ;; ---- substrate shells ---------------------------------------------------
 
