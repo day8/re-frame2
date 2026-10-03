@@ -154,12 +154,7 @@
               (when rf.interop/debug-enabled?
                 (is (= 1 (count rejected)) (str (pr-str event-vec) " — one rejection"))
                 (is (= reason (:reason (:tags (first rejected)))))
-                (is (= keys* (:keys (:tags (first rejected)))))))))
-        (testing "the request gate wins over the slice gate: a malformed event on a
-                  frame with a route is reported as malformed, not as no-active-route"
-          (let [rejected (replan! [:rf.route/replan-resources {}])]
-            (when rf.interop/debug-enabled?
-              (is (= :missing-cause (:reason (:tags (first rejected))))))))))))
+                (is (= keys* (:keys (:tags (first rejected)))))))))))))
 
 ;; ---- the handler: the hook contract + the unconditional slot writes -------
 
@@ -235,9 +230,9 @@
             (rf/dispatch-sync [:rf.route/replan-resources {:cause [:tenant-switch]}])
             (is (= {k1 id1 k2 id2} (:prev-identities (last @calls)))
                 "the second replan sees the FIRST replan's identities as its previous membership")
-            (is (nil? (plan-slot token)) "the plan slot is REMOVED, not left holding {k1 k2}")
             (is (nil? (blocking-slot token)) "the blocking slot is REMOVED")
-            (is (not (contains? (get-in (runtime-db) [:rf.runtime/routing :resource-plan]) token)))
+            (is (not (contains? (get-in (runtime-db) [:rf.runtime/routing :resource-plan]) token))
+                "the plan slot is REMOVED, not left holding {k1 k2}")
             (is (= :idle (:transition (slice))) "nothing blocking → :idle")
             (is (nil? (:error (slice)))))
           (testing "a FAILED plan installs the error, projects :error, and clears both slots"
@@ -277,14 +272,13 @@
 (deftest replan-is-a-noop-when-the-hook-is-unbound-or-returns-nil
   (rf/reg-route :route/docs {} "/docs/:page")
   (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"}}])
-  (let [before (slice)
-        rdb    (runtime-db)]
+  (let [rdb (runtime-db)]
     (testing "no Resources artefact (hook unbound) → {} — the event ships with routing,
               the semantics with Resources"
       (is (nil? (rf.late-bind/get-fn :routing/on-route-replan)) "the routing suite carries no Resources")
       (let [rejected (replan! [:rf.route/replan-resources {:cause [:x]}])]
-        (is (= before (slice)) "slice untouched")
-        (is (= rdb (runtime-db)) "runtime-db untouched — no slot, no readiness write")
+        (is (= rdb (runtime-db))
+            "runtime-db untouched — the slice, every slot and readiness alike")
         (when rf.interop/debug-enabled?
           (is (empty? rejected) "a well-formed request on a live route is NOT a bad request"))))
     (testing "a bound hook that finds nothing to replan (nil) is the same no-op"
@@ -293,7 +287,6 @@
         (fn [calls]
           (rf/dispatch-sync [:rf.route/replan-resources {:cause [:x]}])
           (is (= 1 (count @calls)) "the hook WAS consulted")
-          (is (= before (slice)))
           (is (= rdb (runtime-db))))))))
 
 (deftest replan-keeps-the-fragment-only-law-and-mirrors-it

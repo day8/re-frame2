@@ -123,10 +123,14 @@
             Returning nil for it would make `:prefetch :render` and a plain typo
             indistinguishable from a link that never asked to prefetch."
     (doseq [v [true false nil :render :viewport :hover "intent" 1]]
+      (is (= :rf.error/route-link-bad-prefetch
+             (:rf.error/id (bad-prefetch-ex-data rf.routing.link/prefetch-payload
+                                                 {:to :route/article :prefetch v})))
+          (str "prefetch value " (pr-str v) " must fail loud")))
+    (testing "the ONE throw site names the slot, the accepted value and the
+              surface, whichever value it refused"
       (let [data (bad-prefetch-ex-data rf.routing.link/prefetch-payload
-                                       {:to :route/article :prefetch v})]
-        (is (= :rf.error/route-link-bad-prefetch (:rf.error/id data))
-            (str "prefetch value " (pr-str v) " must fail loud"))
+                                       {:to :route/article :prefetch :render})]
         (is (= :prefetch (:slot data)))
         (is (= :intent (:accepted data)))
         (is (= 'rf/route-link (:where data)))))
@@ -293,13 +297,10 @@
         (reset! calls [])
         (let [{:keys [rejected]} (prefetch! {:url "/probe/7"})]
           ;; SEMANTIC, posture-independent: the STRUCTURAL gate
-          ;; (`rf.routing.address/prefetch-address-error`) is always-on, so it rejects a
-          ;; `:url`-bearing prefetch request in both postures — the warm hook
-          ;; is never reached, and the gate names the offending key itself.
+          ;; (`rf.routing.address/prefetch-address-error`, whose verdicts the
+          ;; first deftest pins) is always-on, so it rejects a `:url`-bearing
+          ;; prefetch request in both postures — the warm hook is never reached.
           (is (empty? @calls) "the structural gate refused before any planning")
-          (is (= :unknown-keys
-                 (:reason (rf.routing.address/prefetch-address-error {:url "/probe/7"})))
-              "the always-on structural gate classifies it :unknown-keys")
           ;; Dev-instrumentation arm (see ns docstring).
           (when rf.interop/debug-enabled?
             (is (= :unknown-keys (:reason (:tags (first rejected)))))))))))
@@ -333,8 +334,7 @@
               ;; real — the non-conforming address never reached the warm plan,
               ;; so `SECRET-100` never became a warmed resource identity. The
               ;; conforming case above proves this atom does fill.
-              (is (empty? @calls))
-              (is (not (re-find #"SECRET-100" (pr-str @calls)))
+              (is (empty? @calls)
                   "the offending param value never reached the warm plan")
               ;; …and the HAZARD the redaction exists for is real in BOTH
               ;; postures: `route-url` itself throws ex-data carrying the raw
@@ -447,10 +447,8 @@
           (is (= [expected] @warm)
               "the warm plan is handed the canonical resolved identity")
           (is (= [expected] activated)
-              "and the click's activation is handed the same one")
-          (is (= @warm activated)
-              "so hovering then clicking ONE link warms ONE cache entry — the
-               warm entry is reused, not orphaned"))))))
+              "and the click's activation is handed the same one — so hovering
+               then clicking ONE link warms ONE cache entry, reused, not orphaned"))))))
 
 (deftest prefetch-warms-the-identity-a-programmatic-navigation-commits
   ;; The named-address pairing, which additionally reaches the empty-fragment
@@ -478,5 +476,4 @@
           (rf/dispatch-sync [:rf.route/navigate address])
           (let [activated (filterv #(= :route/probe (:route-id %)) @entry)]
             (is (= [expected] @warm))
-            (is (= [expected] activated))
-            (is (= @warm activated))))))))
+            (is (= [expected] activated))))))))
