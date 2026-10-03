@@ -190,7 +190,136 @@ Favoriting behaves the same everywhere, because the consequences live on the wri
 
 ### Watch it happen
 
-Sign in and click a heart. The count changes when the server replies — that's `:populates` — and a moment later the lists and your feed refetch. In [Xray](../../core/glossary.md#xray), click another heart and follow the chain: the `:ui/favorite` dispatch, `:rf.mutation/started`, the HTTP request, `succeeded` carrying the invalidation evidence (which tags went stale, in which scopes), and the refetches of stale reads still on screen. When a list refreshes "by itself" months from now, this trace tells you which write did it.
+The cell below runs both writes, `:ui/favorite` and the button against canned
+replies, signed in as alice, and lists each request. Click the first heart:
+the count changes when the reply arrives, and no GET follows the POST,
+because `:populates` stored the reply. Click it again to unfavorite. The
+server rejects the second article's favorite, so its button shows the error.
+
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.resources]
+         '[re-frame.http.test-support :as http-test-support]
+         '[reagent2.core :as r])
+
+(def api-base "https://api.realworld.show/api")
+(defn article [slug title favorited n]
+  {:article {:slug slug :title title :favorited favorited :favoritesCount n}})
+
+;; Canned replies. Favoriting "welcome" works; the server rejects "draft".
+(http-test-support/install-managed-request-stubs!
+  {[:get    (str api-base "/articles/welcome")]          {:reply {:ok (article "welcome" "Welcome to Conduit" false 3)}}
+   [:post   (str api-base "/articles/welcome/favorite")] {:reply {:ok (article "welcome" "Welcome to Conduit" true 4)}}
+   [:delete (str api-base "/articles/welcome/favorite")] {:reply {:ok (article "welcome" "Welcome to Conduit" false 3)}}
+   [:get    (str api-base "/articles/draft")]            {:reply {:ok (article "draft" "A draft" false 0)}}
+   [:post   (str api-base "/articles/draft/favorite")]   {:reply {:failure {:kind :rf.http/http-5xx :status 500}}}})
+
+;; Log each request that reaches the stubbed API.
+(def requests (r/atom []))
+(rf/reg-http-interceptor :conduit/request-log
+  {:frame  :conduit
+   :before (fn [ctx]
+             (let [{:keys [method url]} (:request ctx)]
+               (swap! requests conj (str (str/upper-case (name method)) " " (subs url (count api-base))))
+               ctx))})
+
+;; Part 4 and Part 5's scope resolvers.
+(rf/reg-resource-scope :conduit/viewer
+  {:inputs {:username [:db [:auth :user :username]]
+            :token    [:db [:auth :token]]}}
+  (fn [{:keys [username token]} _ctx]
+    (cond
+      username           [:rf.scope/viewer {:username username}]
+      (str/blank? token) [:rf.scope/viewer :anonymous]
+      :else              nil)))
+
+(rf/reg-resource-scope :conduit/session
+  {:inputs {:username [:db [:auth :user :username]]}}
+  (fn [{:keys [username]} _ctx]
+    (when username [:rf.scope/session {:username username}])))
+
+(rf/reg-resource :conduit/article
+  {:params-schema  [:map [:slug :string]]
+   :scope          {:from-db :conduit/viewer}
+   :stale-after-ms 60000
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str api-base "/articles/" slug)}
+     :decode  :json}))
+
+(rf/reg-mutation :conduit/favorite
+  {:params-schema [:map [:slug :string]]
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope {:from-db :conduit/viewer}
+                      :tags  #{[:article slug] [:article-list]}}
+                     {:scope {:from-db :conduit/session}
+                      :tags  #{[:feed]}}])
+   :populates     (fn [{:keys [slug]} result]
+                    {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
+                     result})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :post
+               :url    (str api-base "/articles/" slug "/favorite")}
+     :decode  :json}))
+
+(rf/reg-mutation :conduit/unfavorite
+  {:params-schema [:map [:slug :string]]
+   :invalidates   (fn [{:keys [slug]} _result]
+                    [{:scope {:from-db :conduit/viewer}
+                      :tags  #{[:article slug] [:article-list]}}
+                     {:scope {:from-db :conduit/session}
+                      :tags  #{[:feed]}}])
+   :populates     (fn [{:keys [slug]} result]
+                    {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
+                     result})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :delete
+               :url    (str api-base "/articles/" slug "/favorite")}
+     :decode  :json}))
+
+(rf/reg-event :ui/favorite
+  (fn [{:keys [db]} [_ slug favorited?]]
+    (if (nil? (get-in db [:auth :user]))
+      {:fx [[:dispatch [:rf.route/navigate {:to :conduit.auth/login}]]]}
+      {:fx [[:dispatch [:rf.mutation/execute
+                        {:mutation (if favorited? :conduit/unfavorite :conduit/favorite)
+                         :params   {:slug slug}
+                         :instance [:favorite slug]
+                         :cause    [:click :ui/favorite slug]}]]]})))
+
+(rf/reg-view favorite-button [{:keys [article]}]
+  (let [{:keys [slug favorited favoritesCount]} article
+        fav @(subscribe [:rf/mutation {:instance [:favorite slug]}])]
+    [:span
+     [:button {:type     "button"
+               :class    (when favorited "active")
+               :disabled (:pending? fav)
+               :on-click #(dispatch [:ui/favorite slug favorited])}
+      (if favorited "♥ " "♡ ") favoritesCount]
+     (when (:error? fav)
+       [:span.error-messages " Could not save this favorite. Try again."])]))
+
+(rf/reg-view article-card [{:keys [slug]}]
+  (let [article (:article @(subscribe [:rf.resource/data {:resource :conduit/article :params {:slug slug}}]))]
+    [:p (:title article) " " (when article [favorite-button {:article article}])]))
+
+(rf/reg-view demo []
+  [:div
+   [article-card {:slug "welcome"}]
+   [article-card {:slug "draft"}]
+   (into [:ol] (for [r @requests] [:li r]))])
+
+[rf/frame-root {:id :conduit
+                :initial-events [[:rf/set-db {:auth {:user {:username "alice"} :token "alice-token"}}]
+                                 [:rf.resource/ensure {:resource :conduit/article :params {:slug "welcome"} :owner [:demo/cards]}]
+                                 [:rf.resource/ensure {:resource :conduit/article :params {:slug "draft"} :owner [:demo/cards]}]]
+                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [demo]]
+```
+
+In your app, sign in and click a heart. The count changes when the server replies — that's `:populates` — and a moment later the lists and your feed refetch. In [Xray](../../core/glossary.md#xray), click another heart and follow the chain: the `:ui/favorite` dispatch, `:rf.mutation/started`, the HTTP request, `succeeded` carrying the invalidation evidence (which tags went stale, in which scopes), and the refetches of stale reads still on screen. When a list refreshes "by itself" months from now, this trace tells you which write did it.
 
 ### Resetting an instance
 

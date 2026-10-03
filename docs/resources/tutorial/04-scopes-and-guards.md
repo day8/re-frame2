@@ -116,6 +116,97 @@ The two new steps are about the cache. `rf/resolve-resource-scope` runs the view
 
 Scope already keeps readers apart — the next reader's entries are different cache keys — so clearing is cleanup, not the protection.
 
+The cell below runs the viewer resolver, the article list and the logout
+above against a canned reply. Buttons stand in for Part 3's login, and the
+table reads the list's entry in each reader's scope. Sign in as alice, then
+as bob: each reader's first read sends a request. Sign in as alice again and
+nothing is sent, because her entry is still cached. Sign out, and alice's
+entry is cleared while bob's is untouched: logout clears only the departing
+reader's scope.
+
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.resources]
+         '[re-frame.routing]
+         '[re-frame.http.test-support :as http-test-support]
+         '[reagent2.core :as r])
+
+(def api-base "https://api.realworld.show/api")
+(http-test-support/install-managed-request-stubs!
+  {[:get (str api-base "/articles")]
+   {:reply {:ok {:articles [{:slug "welcome" :title "Welcome to Conduit"}] :articlesCount 1}}}})
+
+;; Log each request that reaches the stubbed API.
+(def requests (r/atom 0))
+(rf/reg-http-interceptor :conduit/request-log
+  {:frame  :conduit
+   :before (fn [ctx] (swap! requests inc) ctx)})
+
+(rf/reg-resource-scope :conduit/viewer
+  {:inputs {:username [:db [:auth :user :username]]
+            :token    [:db [:auth :token]]}}
+  (fn [{:keys [username token]} _ctx]
+    (cond
+      username           [:rf.scope/viewer {:username username}]
+      (str/blank? token) [:rf.scope/viewer :anonymous]
+      :else              nil)))
+
+(rf/reg-resource :conduit/articles
+  {:params-schema  [:map]
+   :scope          {:from-db :conduit/viewer}
+   :stale-after-ms 60000}
+  (fn [_params _ctx]
+    {:request {:method :get :url (str api-base "/articles") :params {:limit 10}}
+     :decode  :json}))
+
+(rf/reg-route :conduit/home
+  {:resources [{:resource :conduit/articles :params (fn [_route] {}) :blocking? false}]}
+  "/")
+
+;; Signing in here skips Part 3's login request and stores a user directly.
+(rf/reg-event :auth/signed-in
+  (fn [{:keys [db]} [_ username]]
+    {:db (assoc db :auth {:user {:username username} :token (str username "-token")})
+     :fx [[:dispatch [:rf.route/replan-resources {:cause [:sign-in]}]]]}))
+
+;; Part 4's logout, without Part 3's token persistence.
+(rf/reg-event :auth/logout
+  (fn [{:keys [db]} _]
+    (let [old-viewer (rf/resolve-resource-scope db :conduit/viewer)]
+      {:db (assoc db :auth {:user nil :token nil})
+       :fx (cond-> []
+             old-viewer (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
+             true       (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
+                              [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))})))
+
+(rf/reg-sub :auth/user (fn [db _] (get-in db [:auth :user])))
+
+(rf/reg-view cache-row [{:keys [label scope]}]
+  (let [state @(subscribe [:rf/resource {:resource :conduit/articles :params {} :scope scope}])]
+    [:tr [:td label] [:td [:code (pr-str (:status state))]]]))
+
+(rf/reg-view cache-demo []
+  (let [user (:username @(subscribe [:auth/user]))]
+    [:div
+     [:p "Reading as: " [:b (or user "anonymous")]]
+     [:button {:on-click #(dispatch [:auth/signed-in "alice"])} "Sign in as alice"]
+     [:button {:on-click #(dispatch [:auth/signed-in "bob"])} "Sign in as bob"]
+     [:button {:on-click #(dispatch [:auth/logout])} "Sign out"]
+     [:table
+      [:tbody
+       [cache-row {:label "anonymous" :scope [:rf.scope/viewer :anonymous]}]
+       [cache-row {:label "alice" :scope [:rf.scope/viewer {:username "alice"}]}]
+       [cache-row {:label "bob"   :scope [:rf.scope/viewer {:username "bob"}]}]]]
+     [:p "Requests sent: " @requests]]))
+
+[rf/frame-root {:id :conduit
+                :initial-events [[:rf.route/navigate {:to :conduit/home}]]
+                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [cache-demo]]
+```
+
 ## The guard
 
 Settings and the editor should refuse to open while signed out. Each protected route names a `:can-enter` guard in its metadata, and the runtime consults it for every navigation, however it started. (`:tags` is free-form classification the framework attaches no meaning to — handy when a navbar wants to ask "is this page protected?")
