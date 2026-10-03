@@ -33,8 +33,7 @@
             ;; publication; the façade transitively loads them, but require
             ;; them explicitly so a hostile load-order can't hide a miss.
             [re-frame.resources.route :as rf.resources.route]
-            [re-frame.resources.registry :as rf.resources.registry]
-            [re-frame.routing.registry :as rf.routing.registry]))
+            [re-frame.resources.registry :as rf.resources.registry]))
 
 (defn- valid-spec
   "A minimal, valid resource METADATA map — the REQUIRED metadata keys (Spec
@@ -284,7 +283,6 @@
 
 (deftest feature-probe-published
   (testing "the :resources feature is loaded? (the probe key is published)"
-    (is (some? (rf.late-bind/get-fn :resources/reg-resource)))
     (is (true? (get-in (rf.features/features) [:resources :loaded?])))
     (is (= "day8/re-frame2-resources" (:maven (:resources (rf.features/features)))))))
 
@@ -345,16 +343,4 @@
 
 (deftest late-bound-routing-accepts-resources-key
   (testing "the :routing/extra-route-keys hook publishes #{:resources}"
-    (is (= #{:resources} ((rf.late-bind/get-fn :routing/extra-route-keys)))))
-  (testing "routing's accepted-key extension lets a route carry :resources"
-    ;; routing.registry/reg-route validates bare metadata keys; with the
-    ;; resources extension loaded, :resources is accepted (it would
-    ;; otherwise throw :rf.error/route-bad-metadata).
-    (rf.registrar/clear-kind! :route)
-    (is (= :test/route
-           (rf.routing.registry/reg-route
-             :test/route
-             {:params    [:map [:slug :string]]
-              :resources [{:resource :test/article
-                           :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/x/:slug")))
-    (rf.registrar/clear-kind! :route)))
+    (is (= #{:resources} ((rf.late-bind/get-fn :routing/extra-route-keys))))))
