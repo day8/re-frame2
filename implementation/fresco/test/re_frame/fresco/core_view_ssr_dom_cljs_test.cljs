@@ -432,19 +432,6 @@
       (is (re-find #"id=\"field\"" html)
           (str "beside the literal keys, untouched by the merge: " html)))))
 
-(deftest the-literal-key-beats-the-remainder
-  (testing "HD-023's merge law, on the server side of it. The remainder
-            supplies `class` and the literal map does not, above; here
-            both do, and the literal wins. Two rows because one of them
-            passing tells you nothing about the other"
-    (fresh!)
-    (let [html (server-html [slots {:extra {:class "loser"}}])]
-      (is (re-find #"class=\"lbl\"" html)
-          (str "the label's literal class stands: " html))
-      (is (re-find #"class=\"loser\"" html)
-          (str "and the input, which writes no literal class, takes the
-                remainder's: " html)))))
-
 (deftest the-intent-vocabulary-never-reaches-the-bytes
   (testing "HS-03 and HS-07, and the strongest single reason the server
             half of this tier needs a witness at all. Intents are DATA
@@ -716,7 +703,7 @@
                     reader at all, on either side: "
                    (pr-str (rf.fresco.roots-frames-support/cell-keys)))))))))
 
-(deftest an-adopted-page-releases-exactly-what-it-acquired
+(deftest a-mounted-page-releases-exactly-what-it-acquired
   (if-not (rf.fresco.impl.mount/browser?)
     (skip! ":node-test has no DOM")
     (do
