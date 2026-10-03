@@ -1,52 +1,23 @@
-;; SCI eval bundle for the docs/cljs playground's re-frame2 cells.
-;; Self-contained shadow-cljs :browser build that
-;; bundles re-frame2's runtime API into an SCI context.
-;; This is NOT a Scittle plugin: there is no published
-;; `scittle.core` artefact a standalone plugin build could `:require`,
-;; and Scittle's plugins ship STOCK reagent/re-frame, not re-frame2.
+;; Deps for the docs' re-frame2 cell engine (see shadow-cljs.edn).
 ;;
-;; Deps:
-;;   - org.babashka/sci — the SCI interpreter (the eval engine).
-;;   - day8/re-frame2 (core) — the public API this bundle exposes
-;;     (re-frame.core). Pulled transitively by reagent-slim, named here
-;;     for clarity.
-;;   - day8/reagent-slim — reagent2 (the substrate re-frame2 renders
-;;     through) + the re-frame.adapter.reagent-slim adapter.
-;;   - day8/re-frame2-machines — Spec 005 state-machine artefact.
-;;     `:require`d by the SCI bundle namespace so the
-;;     `:machines/*` late-bind hooks register at bundle init: the
-;;     `reg-machine*` / `make-machine-handler` / `machine-transition`
-;;     helpers on `re-frame.machines` (the façade does not re-export
-;;     them) become live, and the
-;;     `:rf/machine` / `:rf.machine/has-tag?` framework subs +
-;;     `:rf.machine/spawn` / `:rf.machine/destroy` fxs register from
-;;     `re-frame.machines`'s top-level forms. Live cells in the
-;;     ch12 machines tutorial can then call real `reg-machine` rather
-;;     than hand-rolling a transition table.
+;; Every artefact a cell can use is a dependency here, and
+;; rf2_playground/sci.cljs requires each one so its late-bind hooks install
+;; at bundle load:
+;;   - org.babashka/sci   the interpreter
+;;   - day8/re-frame2     re-frame.core, the API cells call
+;;   - day8/reagent-slim  reagent2 and its re-frame2 adapter
+;;   - machines, flows,   reg-machine, reg-flow and reg-app-schema
+;;     schemas            (schemas brings Malli)
 ;;
-;; The :local/root coords point at the implementation artefacts (same
-;; mechanism implementation/deps.edn uses). Bundle-isolation is not a
-;; concern here — this is a tools/ docs-build artefact, never shipped in
-;; a production app bundle (tools/README.md: nothing under
-;; implementation/ :requires anything under tools/, and this bundle is
-;; only loaded by the docs/cljs page).
+;; The :local/root coords build against this checkout's implementation. The
+;; bundle is docs-only, so it never reaches an application build.
 {:paths ["src"]
- ;; SCI is published on Clojars (not Maven Central) under group
- ;; `org.babashka`; pin the v0.11.51 release sha via a git coord so the
- ;; build is reproducible without relying on a Clojars mirror.
+ ;; SCI v0.11.51, pinned by git sha so the build does not depend on Clojars.
  :deps  {thheller/shadow-cljs {:mvn/version "3.4.10"}
          org.babashka/sci {:git/url "https://github.com/babashka/sci"
                            :git/sha "44ce05e3af3d4b7731ae776b85c3af491019ff16"}
          day8/re-frame2          {:local/root "../../../../implementation/core"}
          day8/reagent-slim       {:local/root "../../../../implementation/adapters/reagent-slim"}
          day8/re-frame2-machines {:local/root "../../../../implementation/machines"}
-         ;; Spec 007 flows artefact: `:require`d by the SCI bundle ns so the
-         ;; flows late-bind hooks register at bundle init — live cells can
-         ;; then call the real `rf/reg-flow` (guide page 7, One concept at a
-         ;; time). Same pattern as machines above.
          day8/re-frame2-flows    {:local/root "../../../../implementation/flows"}
-         ;; Spec 010 schemas artefact (brings Malli): `:require`d by the SCI
-         ;; bundle ns so the schemas late-bind hooks and the Malli validator
-         ;; register at bundle init — live cells can then call the real
-         ;; `rf/reg-app-schema` and `(require '[re-frame.schemas])`.
          day8/re-frame2-schemas  {:local/root "../../../../implementation/schemas"}}}
