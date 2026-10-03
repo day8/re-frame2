@@ -268,7 +268,7 @@ test('a donor arm holding ANY Fresco boundary fails — R=0 included', () => {
   }
 });
 
-test('residue after teardown is gated on every field, independently of the rung', () => {
+test('residue after teardown fails the arm, naming the field and its count', () => {
   const fails = ladderStructuralFailures(
     rowWith((arms) => {
       arms['uix-subs|lad/fresco#R0'].structural.boundaries = 7;
@@ -531,7 +531,7 @@ test('THE DEFECT — a collection fully masked by net growth is REFUSED', () => 
   assert.match(s.refusals[0], /leg 3 of 4/);
 });
 
-test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
+test('the tolerance is pinned, marked UNCALIBRATED, and has no dial on it', () => {
   // τ decides whether a measurement may be PUBLISHED, and a gate with a dial
   // on it is a gate that gets dialled.
   assert.strictEqual(typeof ALLOC_LEG_TOLERANCE, 'number');
@@ -552,11 +552,10 @@ test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
   );
   // And the driver reads the module constant at every measurement site: the
   // `tolerance` parameter exists for the τ sweep below and for nothing else.
-  // Both sites COLLAPSE the by-site stream first — which is the identity off
-  // the diagnostic mode — then split the prime off and adjudicate the
-  // MEASURED region. One adjudicator, one τ, two windows.
-  has(/const site = allocSiteSplit\(w\.samples, w\.sites\);/, 'the control window collapses first');
-  has(/const site = allocSiteSplit\(win\.samples, win\.sites\);/, 'and so does the arm window');
+  // Both sites COLLAPSE the by-site stream first (pinned by THE CERTIFICATE
+  // NEVER SEES A BY-SITE STREAM) — which is the identity off the diagnostic
+  // mode — then split the prime off and adjudicate the MEASURED region. One
+  // adjudicator, one τ, two windows.
   assert.strictEqual(
     (SRC.match(/const \{ primeLegs, measured \} = allocPrimeSplit\(site\.collapsed\);/g) || [])
       .length,
@@ -564,11 +563,9 @@ test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
     'and both then split the prime off the COLLAPSED stream, which is the stream the shipped ' +
       'stride would have filled'
   );
+  // Nothing adjudicates the raw window, because the prime leg is not a work
+  // leg: THE FENCE HOLDS refuses any `allocSteps` over `.samples`.
   has(/const s = allocSteps\(measured\);/, 'and what is adjudicated is the measured region');
-  lacks(
-    /allocSteps\(win\.samples\)|allocSteps\(w\.samples\)/,
-    'nothing adjudicates the raw window — the prime leg is not a work leg'
-  );
 });
 
 test('the retired masking budget is GONE, not widened', () => {
@@ -1267,7 +1264,7 @@ test('THE THIRD WINDOW was already refused, and the new reason is ADDITIONAL', (
   assert.strictEqual(verdict.certified, false);
 });
 
-test('THE GATE IS NOT VACUOUS — a clean window passes it, at every stride', () => {
+test('THE GATE IS NOT VACUOUS — a clean window passes it, however large', () => {
   // A gate that refuses everything would satisfy the replay above and be
   // useless. The by-site run's own numbers say 48 of the 72 windows carry no
   // negative site step at all; this is that shape, through the same four calls.
@@ -1451,10 +1448,8 @@ test('THE RECORD RETAINS EACH WINDOW’S RAW STREAM, so a later estimator can be
   assert.deepStrictEqual(shiftedSteps.legs, steps.legs, 'nor can the legs');
   assert.deepStrictEqual(shiftedSteps.gaps, steps.gaps, 'nor the gaps');
   assert.notStrictEqual(shifted[0], raw[0], 'yet the two streams are different readings');
-
-  // AND THE FENCE. This is retention: no gate reads the field, and nothing
-  // hands it to `allocSteps` in place of the measured collapsed region.
-  lacks(/allocSteps\(win\.samples\)|allocSteps\(w\.samples\)/, 'the certificate is unmoved');
+  // And this is retention only: no gate reads the field, and THE FENCE HOLDS
+  // pins that nothing hands it to `allocSteps`.
 });
 
 test('AN ALLOCATION WINDOW KEEPS ITS RAW RECORD — stated where the file is written', () => {
@@ -1495,7 +1490,6 @@ test('THE GATE HAS NO DIAL, AND τ IS NOT IT', () => {
   // No honest τ calibration exists on the arms' data in either direction, so
   // τ sits at its placeholder, marked as one.
   assert.strictEqual(ALLOC_LEG_TOLERANCE, 0.25);
-  has(/THIS VALUE IS AN UNCALIBRATED PLACEHOLDER/, 'uncalibrated, and marked as such');
   // The refusal it fires is independent of τ, because it never reads it: the
   // two windows that certified refuse at every tolerance, exactly as the two
   // masking probes at the foot of this file do.
@@ -1804,6 +1798,13 @@ test('ROUTE 2 — an explicit one-write window on a stated page is refused', () 
   const floor = arm.refusals.find((r) => r.includes('averaging floor'));
   assert.ok(floor, JSON.stringify(arm.refusals));
   assert.match(floor, /RAISE P0_ALLOC_WRITES to at least 6/);
+  // ONE ARM, THE WINDOW. With no page-size model there is no page the
+  // refusal could honestly name, so it names the window. The property that
+  // matters is never to advise the operator to configure the very shape
+  // being refused, and it holds because the message names NO PAGE AT ALL.
+  assert.doesNotMatch(floor, /SHRINK THE PAGE/, 'it may not name a page it cannot size');
+  assert.doesNotMatch(floor, /boundaries/, 'nor any boundary count');
+  assert.doesNotMatch(floor, /masking budget/, 'there is no masking budget to cite');
 });
 
 test('THE CONTROL — a stated page at the floor is admitted, so this is not vacuous', () => {
@@ -1815,19 +1816,6 @@ test('THE CONTROL — a stated page at the floor is admitted, so this is not vac
   assert.strictEqual(arm.writes, ALLOC_MIN_WRITES, 'the window defaults to the floor');
   assert.deepStrictEqual(arm.refusals, []);
   assert.ok(arm.admissible);
-});
-
-test('the refusal names THE WINDOW, and never a page it cannot size', () => {
-  // ONE ARM, THE WINDOW. With no page-size model there is no page the
-  // refusal could honestly name, so it names the window. The property that
-  // matters is never to advise the operator to configure the very shape
-  // being refused, and it holds because the message names NO PAGE AT ALL.
-  const arm = armUnderEnv({ P0_ALLOC_CELLS: '6', P0_ALLOC_WRITES: '1' });
-  const floor = arm.refusals.find((r) => r.includes('averaging floor'));
-  assert.match(floor, /RAISE P0_ALLOC_WRITES/, 'the window is the knob it names');
-  assert.doesNotMatch(floor, /SHRINK THE PAGE/, 'and it may not name a page it cannot size');
-  assert.doesNotMatch(floor, /boundaries/, 'nor any boundary count');
-  assert.doesNotMatch(floor, /masking budget/, 'there is no masking budget to cite');
 });
 
 test('the floor follows ALLOC_MIN_WRITES rather than a number typed beside it', () => {
