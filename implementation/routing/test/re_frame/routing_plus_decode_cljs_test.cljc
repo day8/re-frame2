@@ -22,8 +22,8 @@
   (`cljs-test$`). The assertions are the SAME on both hosts — that
   host-symmetry IS the contract (Spec 012 §`+` is a literal)."
   (:require
-   #?(:clj  [clojure.test :refer [are deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [are deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [are deftest testing use-fixtures]]
+      :cljs [cljs.test :refer-macros [are deftest testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.routing :as rf.routing]
    [re-frame.test-support :as rf.test-support]
