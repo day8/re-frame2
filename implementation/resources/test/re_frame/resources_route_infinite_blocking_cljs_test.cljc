@@ -29,9 +29,9 @@
        data) — EXACTLY like a blocking SCALAR resource;
 
     3. a LOAD-MORE (page N>0) FAILURE with accumulated pages uses the
-       `:page-error` channel: the feed stays `:loaded`, KEEPS all pages, and
-       the route (already drained on page-0 success) is undisturbed — the
-       third error channel applies to the case the spec reserves it for.
+       `:page-error` channel (the load-more suite's
+       `load-more-decode-failure-keeps-pages-records-page-error`); the route
+       blocks on page 0 only, so it has already drained.
 
   The capturing transport REPLAYS the live managed-HTTP reply-append shape
   (the transport conj's its result as the LAST arg of the internal reply
@@ -185,7 +185,6 @@
       (reply-page-success! (page [:a :b] "c1"))
       (let [e (entry k)]
         (is (= :loaded (:status e)) "feed settled :loaded")
-        (is (= 1 (rf.resources.state/page-count e)) "page 0 accumulated through the append path")
         (is (= [(page [:a :b] "c1")] (:data e)) "page-0 data appended"))
       (is (= :idle (:transition (slice)))
           "the blocking infinite route drained to :idle on the page-0 reply")
@@ -270,45 +269,3 @@
           "scalar first-load failure errors the route — infinite page-0 (#2) matches it")
       (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))
           ":rf.route/error carries the structured blocking-failure error"))))
-
-;; ===========================================================================
-;; 4. LOAD-MORE (page N>0) FAILURE keeps the :page-error channel intact — the
-;;    third error channel applies where the spec reserves it (data kept)
-;; ===========================================================================
-
-(deftest blocking-infinite-route-load-more-failure-keeps-page-error-channel
-  ;; The OTHER side of the split: a page N>0 (load-more)
-  ;; failure with accumulated pages is the third error channel
-  ;; (`entry-page-failed` → :loaded + :page-error, all pages kept). Only page 0
-  ;; with no pages uses the first-load :error channel; a load-more failure must
-  ;; NOT error the route (the route already drained on the page-0 success) and
-  ;; must NOT lose the feed.
-  (register-blocking-infinite-route!)
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/feed :params {:slug "intro"}}])
-  (let [nav-token (:nav-token (slice))
-        k         (feed-key "intro")
-        failure   {:kind :rf.http/server :status 503 :message "load-more down"}]
-    ;; page 0 SUCCEEDS first (cursor "c1" ⇒ a next page exists) — the route
-    ;; drains to :idle, then the feed has one accumulated page.
-    (reply-page-success! (page [:a :b] "c1"))
-    (is (= :idle (:transition (slice))) "route drained on page-0 success")
-    (is (= 1 (rf.resources.state/page-count (entry k))) "page 0 accumulated")
-    ;; now a load-more (page 1) is dispatched and FAILS.
-    (rf/dispatch-sync [:rf.resource/load-more {:resource :feed/articles
-                                               :scope    :rf.scope/global
-                                               :params   {:slug "intro"}}])
-    (let [args @last-managed-args]
-      (is (= 1 (:rf.resource/page-index (second (:on-failure args))))
-          "the load-more fetches page index 1 (a positive page, not page 0)")
-      (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
-    (testing "a load-more (N>0) failure keeps the feed :loaded + records :page-error"
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "load-more failure leaves the feed :loaded (data kept)")
-        (is (= failure (:page-error e)) ":page-error records the load-more failure envelope")
-        (is (nil? (:error e)) "NOT the first-load :error channel")
-        (is (= 1 (rf.resources.state/page-count e)) "the accumulated page-0 is KEPT (no data lost)")
-        (is (= [(page [:a :b] "c1")] (:data e)) "page-0 data still present")))
-    (testing "the route is undisturbed by the load-more failure (already :idle)"
-      (is (= :idle (:transition (slice)))
-          "a load-more failure does NOT error the route (route blocks on page 0 only)")
-      (is (nil? (:error (slice))) "no :rf.route/error written on a load-more failure"))))

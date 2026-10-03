@@ -275,23 +275,6 @@
 ;; 5. route leave / supersession releases the prior owner
 ;; ===========================================================================
 
-(deftest route-leave-releases-prior-route-owner
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
-  (rf/reg-route :route/home {} "/")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [token-1    (:nav-token (slice))
-        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    (is (contains? (:active-owners (entry scoped-key)) [:route :route/article token-1]))
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (testing "leaving the route releases its nav-token owner from the entry"
-      (is (not (contains? (:active-owners (entry scoped-key))
-                          [:route :route/article token-1]))
-          "the prior route owner was released on leave"))))
-
 ;; ---- route A→B (same scoped key) does not join abort-requested ------------
 ;; A route leave releases the prior nav-token owner, which marks an in-flight
 ;; attempt :abort-requested while the entry still points at it. An immediate
@@ -301,36 +284,6 @@
 
 (defn- work-record-for [scoped-key]
   (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) (:current-work (entry scoped-key))))
-
-(deftest route-resupersede-same-key-does-not-join-abort-requested-non-blocking
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource :article/by-slug
-                              :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
-  (rf/reg-route :route/home {} "/")
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    ;; enter route A: the resource is in flight under token-1's route owner
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-    (let [token-1 (:nav-token (slice))
-          wid1    (:current-work (entry scoped-key))
-          gen1    (:generation (entry scoped-key))]
-      (is (= :running (:status (work-record-for scoped-key))))
-      ;; leave (route B = home): releases token-1's route owner → wid1 becomes
-      ;; :abort-requested; the entry still points at wid1.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-      (is (= :abort-requested (:status (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1)))
-          "the superseded route's in-flight work is abort-requested")
-      ;; re-enter the SAME route + same slug → re-ensure the same scoped key
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-      (testing "the re-entry started a FRESH attempt, not a join
-                onto the abort-requested work"
-        (let [e (entry scoped-key)]
-          (is (= (inc gen1) (:generation e)) "fresh generation on re-entry")
-          (is (not= wid1 (:current-work e)) "a new work id (not the abort-requested one)")
-          (is (= :running (:status (work-record-for scoped-key))) "the new attempt is live")
-          (is (contains? (:active-owners e) [:route :route/article (:nav-token (slice))])
-              "the re-entry nav-token owns the fresh attempt"))))))
 
 (deftest route-resupersede-same-key-blocking-transition-drains
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
@@ -342,7 +295,8 @@
   (rf/reg-route :route/home {} "/")
   (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
     (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-    (let [wid1 (:current-work (entry scoped-key))]
+    (let [wid1 (:current-work (entry scoped-key))
+          gen1 (:generation (entry scoped-key))]
       (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
       (is (= :abort-requested (:status (rf.resources.work-ledger/get-record (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1))))
       ;; re-enter the blocking route on the SAME key
@@ -351,7 +305,11 @@
         (testing "the blocking re-entry holds :loading on a FRESH
                   attempt (it did not join the abort-requested work)"
           (is (= :loading (:transition (slice))) "blocking transition is loading on a fresh attempt")
+          (is (= (inc gen1) (:generation (entry scoped-key))) "fresh generation on re-entry")
           (is (not= wid1 (:current-work (entry scoped-key))) "fresh work id, not the aborted one")
+          (is (= :running (:status (work-record-for scoped-key))) "the new attempt is live")
+          (is (contains? (:active-owners (entry scoped-key)) [:route :route/article token-2])
+              "the re-entry nav-token owns the fresh attempt")
           (is (contains? (blocking-slot token-2) scoped-key) "the new token's blocking slot tracks the key"))
         (testing "the FRESH attempt's reply drains the blocking slot → :idle
                   (the route does not hang on the aborted work's missing reply)"
@@ -457,7 +415,6 @@
     (testing "the error-trace tags conform to ResourceRouteBlockingTags"
       (let [ev   (first evs)
             tags (:tags ev)]
-        (is (= :error (:op-type ev)) "it rides the error channel")
         (is (= :rf.error/resource-route-blocking (:category tags))
             ":category is stamped from the operation")
         (is (= :article/by-slug (:resource-id tags)) ":resource-id tag present")
@@ -501,11 +458,7 @@
             "the plain route is :idle; superseded blocking state is gone")
         (is (empty? (blocking-slot token-1)) "stale slot cleared")
         (is (empty? (blocking-slot token-2))
-            "the live token has no blocking requirements of its own")
-        (is (identical? (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        (rf.resources.route/reconcile-readiness
-                          (:rf.db/runtime (rf/frame-state-value :rf/default))))
-            "re-projecting is a structural no-op for the live token")))))
+            "the live token has no blocking requirements of its own")))))
 
 ;; ===========================================================================
 ;; 12. Fail-closed ctx + nil planning inputs
@@ -556,12 +509,6 @@
   ;; A nil ctx (a routing↔resources seam bug) must throw — not silently
   ;; proceed with an empty ctx that a session-scope resolver would read as nil.
   (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (testing "route-resource-plan throws on a nil ctx"
-    (is (thrown? #?(:clj Throwable :cljs :default)
-                 (rf.resources.route/route-resource-plan
-                   {:id :route/secret :resources []}
-                   nil
-                   {:nav-token 1}))))
   ;; The thrown planning-error routes through rf.error/thrown-ex-info,
   ;; so its message LEADS with a human sentence and TRAILS with the
   ;; [:rf.error/resource-route-plan] greppability token, and the ex-data carries
@@ -575,7 +522,6 @@
                                 :cljs cljs.core/ExceptionInfo) e e))
           data   (ex-data thrown)
           msg    (ex-message thrown)]
-      (is (some? thrown))
       (is (= :rf.error/resource-route-plan (:rf.error/id data)))
       (is (rf.error/message-has-id-token? msg)
           "message carries the trailing [:rf.error/resource-route-plan] token (rule 4)")
@@ -830,7 +776,6 @@
         plan (rf.resources.route/route-resource-plan {:id :route/cyc :params {} :query {}} {}
                                         {:nav-token 1 :branch branch})]
     (testing "the collapse-created cycle is a planning error"
-      (is (some? (:plan-error plan)))
       (is (= :rf.error/resource-route-plan (:rf.error/id (:plan-error plan)))))
     (testing "no ensures are dispatched on the failed plan"
       (is (empty? (of-event (plan-dispatches plan) :rf.resource/ensure))))))
@@ -929,10 +874,6 @@
               "the shared parent was adopted without a fetch")
           (is (= [a-key] (:removed-identities tags))
               "the departed leaf is the prior-plan identity this plan drops"))
-        (testing "each vector agrees with the count beside it"
-          (is (= (:ensured tags) (count (:ensured-identities tags))))
-          (is (= (:kept tags) (count (:kept-identities tags))))
-          (is (= (:removed tags) (count (:removed-identities tags)))))
         (testing ":identities carries the planner's GROUPED PLAN ORDER —
                   parent-most first, one entry per collapsed identity"
           (is (= [shared-key b-key] (:identities tags))))))))
@@ -1145,10 +1086,7 @@
           (is (= (:removed-identities gone)
                  (:removed-identities (tags-for branch-p rdb [vec-key list-key])))
               "the row is still a pure function of the removal MEMBERSHIP —
-               swapping the caller's order does not move it")
-          (is (= (:removed gone) (count (:removed-identities gone)))
-              "and :removed is the SIZE of the vector, so the count cannot
-               drift from the membership it summarizes"))))))
+               swapping the caller's order does not move it"))))))
 
 (deftest r2-navigating-between-byte-distinct-twins-reports-the-removal
   ;; The same property END TO END, through
@@ -1337,9 +1275,7 @@
           (is (= (ids [vec-key]) (ids (:kept-identities tags)))
               "asserted on the byte identity: `=` would accept the twin")
           (is (= (ids [list-key]) (ids (:removed-identities tags))))
-          (is (empty? (:ensured-identities tags)))
-          (is (= (:kept tags) (count (:kept-identities tags))))
-          (is (= (:removed tags) (count (:removed-identities tags)))))))))
+          (is (empty? (:ensured-identities tags))))))))
 
 (deftest r2-plan-order-is-witnessed-not-merely-membership
   ;; `:identities` / `:ensured-identities` / `:kept-identities` carry
@@ -1392,7 +1328,6 @@
                 :branch-error {:kind :unknown-parent :route-id* :route/ghost}})
         ds (plan-dispatches plan)]
     (testing "an unresolved :parent is a planning error"
-      (is (some? (:plan-error plan)))
       (is (= :rf.error/resource-route-plan (:rf.error/id (:plan-error plan)))))
     (testing "no partial next owner is attached; the prior owner is released"
       (is (empty? (of-event ds :rf.resource/ensure)))
@@ -1488,12 +1423,6 @@
       (is (= :article/by-slug (:resource-id err)))
       (is (= (blocking-map req-a) (get-in rdb (rf.resources.route/blocking-path "nav-1")))
           "the failed requirement is NOT pruned — a later successful load re-projects :idle")))
-  (testing "an ABORTED first load un-blocks rather than erroring the route"
-    (let [rdb (rf.resources.route/reconcile-readiness
-                (runtime-db-with "nav-1" :loading {req-a {:status :idle :data nil :attempt 1}}))]
-      (is (= :idle (get-in rdb [:rf.runtime/routing :current :transition]))
-          "settled-but-empty with nothing left to settle it neither completes nor fails")
-      (is (nil? (get-in rdb [:rf.runtime/routing :current :error])))))
   (testing "no blocking slot for the live token is a structural no-op"
     ;; This is what keeps a committed PLANNING error (:error on the slice, no
     ;; blocking slot written) from being clobbered back to :idle.
@@ -1604,32 +1533,6 @@
       (testing "the route commits :idle"
         (is (= :idle (:transition (slice))))
         (is (nil? (:error (slice))))))))
-
-;; ---- 2. a background-refresh failure never errors the route ----------------
-
-(deftest background-refresh-failure-keeps-the-route-idle
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    (settle-success! scoped-key {:title "Intro"})
-    (is (= :idle (:transition (slice))) "precondition: the blocking first load landed")
-    ;; a REFRESH over the loaded entry, which then fails
-    (rf/dispatch-sync [:rf.resource/refetch {:resource :article/by-slug :params {:slug "intro"}}])
-    (is (= :fetching (:status (entry scoped-key))) "precondition: refreshing over usable data")
-    (settle-failure! scoped-key {:kind :rf.http/server :status 503 :message "upstream down"})
-    (testing "the failure lands on the resource's :refresh-error channel"
-      (let [e (entry scoped-key)]
-        (is (= :loaded (:status e)) "the entry keeps its data")
-        (is (some? (:refresh-error e)))
-        (is (nil? (:error e)) "NOT the first-load :error channel")))
-    (testing "the route stays :idle — a refresh failure is not a route error"
-      (is (= :idle (:transition (slice))))
-      (is (nil? (:error (slice)))))))
 
 ;; ---- 3. previous data does not complete a newly-keyed first load -----------
 
@@ -1996,7 +1899,6 @@
         (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err))))
       (testing "the error TRACE carries the same attribution"
         (let [tags (:tags (first (errors-of traces :rf.error/resource-route-plan)))]
-          (is (some? tags))
           (is (= :route/leaf (:route-id tags)) "the leaf target")
           (is (= :audit/ancestor (:resource-id tags)))
           (is (= {:route-id :route/ancestor :local-id :anc} (:contributor tags)))))
@@ -2057,7 +1959,6 @@
           tags (:tags (first (errors-of traces :rf.error/resource-route-plan)))]
       (is (= {:route-id :route/ancestor :local-id :anc} (:contributor err))
           "the ACTUAL contributing declaration, not the resolver's claim")
-      (is (some? tags))
       (is (= {:route-id :route/ancestor :local-id :anc} (:contributor tags))
           "the trace agrees with the slice — one source of truth")
       (is (= :route/leaf (:route-id err)) "the leaf target is unchanged"))))

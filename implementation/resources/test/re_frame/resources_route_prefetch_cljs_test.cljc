@@ -82,7 +82,6 @@
       (is (= [] fx))
       (is (= 0 warmed)))
     (testing "the planning failure carries :plan-cause :prefetch and NO nav-token"
-      (is (some? plan-error))
       (is (= :prefetch (:plan-cause plan-error)))
       (is (not (contains? plan-error :nav-token))
           "a warm-mode failure owns no route state — no nav-token slot")
