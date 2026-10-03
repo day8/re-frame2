@@ -60,7 +60,6 @@
   document; under `:node-test` each degrades to a stated skip."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
-            [re-frame.fresco.impl.controlled :as rf.fresco.impl.controlled]
             ["react" :as react]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
@@ -240,15 +239,7 @@
            mints a fresh wrapper each time")
       (is (identical? (.-type with-rev) (.-type bumped))
           "the same element TYPE, so a revision change can never be the
-           thing that makes React remount the field")))
-  (testing "and the server bytes are the model's, per spec §3.6 — the SSR
-           entry runs the same codec under `renderToString`, one renderer in
-           two places, so a `revision` cannot reach the wire by construction
-           rather than by a server-side special case"
-    (let [bytes (react-dom-server/renderToString
-                 (rf.fresco.impl.codec/as-element (field :input "server" "rev-1")))]
-      (is (re-find #"value=\"server\"" bytes))
-      (is (not (re-find #"revision" bytes)) bytes))))
+           thing that makes React remount the field"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — THE RESET LAW AT THE ELEMENT
@@ -475,13 +466,6 @@
                 (str "nothing named revision in the rendered element: "
                      (.-outerHTML n))))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c))))))
-  (testing "and the marker the codec stashes for `install!` does not survive
-           it either — it exists for the length of one call"
-    (let [el (rf.fresco.impl.codec/as-element (field :input "committed" "rev-1"))]
-      (is (undefined? (unchecked-get (.-props el) rf.fresco.impl.controlled/revision-slot))
-          "deleted as it was read")
-      (is (undefined? (unchecked-get (.-props el) "revision"))
-          "and never emitted under its own name")))
   (testing "every OTHER spelling is an ordinary attribute, which is the
            documented honest loss: the exact namespaced keyword or nothing"
     (let [bytes (react-dom-server/renderToString

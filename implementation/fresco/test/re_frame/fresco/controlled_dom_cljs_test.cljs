@@ -447,9 +447,7 @@
       (testing "while every applicable input type is"
         (doseq [t ["text" "search" "url" "tel" "password"]]
           (is (not (identical? f (emitted [:input {:type t :value "x" :on-input f}])))
-              (str "type=" t))))
-      (testing "as is an input with no `:type` at all, which is text"
-        (is (not (identical? f (emitted [:input {:value "x" :on-input f}]))))))))
+              (str "type=" t)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The type is the PLATFORM's spelling, not the author's

@@ -9,7 +9,7 @@
   runtime minted, that the intent it returns drains through the
   synchronous door, and that the echo is on screen. That is this file.
 
-  Three rows, and each one is a row of the position table:
+  Two rows, and each one is a row of the position table:
 
   1. **Event position.** `(h/event [e] …)` at `:on-click`, clicked for
      real; its returned VECTOR reaches app-db and the DOM re-paints in
@@ -19,21 +19,19 @@
      dispatched. It is not a SECOND form with its own contract; it is the
      same form at the same position, and the return value is the only
      difference.
-  3. **Outside every walked position.** The form handed straight into a
-     raw `#js` props object and called the way a JavaScript library calls
-     it. A marker OBJECT in that position would make the call raise the
-     engine's own `TypeError` \"naming nothing you wrote\". The one form
-     is a function, so it simply runs.
+
+  The table's third row — outside every walked position, where a
+  JavaScript library calls the form natively — needs no browser, and
+  [[re-frame.fresco.intent-cljs-test]] holds it.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every DOM claim degrades to a stated
   skip."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
-            [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.todo-support :as rf.fresco.todo-support]
             [re-frame.test-support :as rf.test-support]))
@@ -129,25 +127,3 @@
                different contract but the same form, and the return value is
                the whole of the difference")
           (finally (rf.fresco.impl.mount/release! handle)))))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — outside every walked position, it is a function
-;; ---------------------------------------------------------------------------
-
-(deftest a-javascript-library-calling-it-natively-gets-a-real-call
-  (testing "a raw `#js` prop gets a real function. A site-owned carrier
-            reaching that prop as a marker object rather than a function
-            would make `props.onPing(…)` raise the engine's own TypeError,
-            worded after whatever expression it tripped on and naming
-            nothing the author wrote. The one form is a function everywhere,
-            so a position Fresco never walks costs the CONTRACT and nothing
-            else."
-    (let [cb       (rf.fresco/event [x] (swap! !ran inc) [:would-have-dispatched x])
-          js-props #js {:onPing cb}]
-      (reset! !ran 0)
-      (is (fn? (.-onPing js-props)))
-      (is (= [:would-have-dispatched 3] ((.-onPing js-props) 3)))
-      (is (= 1 @!ran))
-      (is (true? (rf.fresco.impl.intent/callback? cb))
-          "and it is still the marked form, so a position that DOES walk it
-           would impose that position's contract on the same value"))))

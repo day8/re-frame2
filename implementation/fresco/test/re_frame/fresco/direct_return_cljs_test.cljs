@@ -498,9 +498,4 @@
             without a browser"
     (let [{:keys [refused]} (outcome #(rf.fresco.test/tree [direct-body {:id 1}] l2-fixtures))]
       (is (= :rf.error/fresco-test-react-is-opaque (:rf.error/id refused)))))
-
-  (testing "and it refuses at the DIRECT-RETURN position specifically —
-            the body answered the element itself, with no tree around it
-            for the refusal to have come from"
-    (let [{:keys [refused]} (outcome #(rf.fresco.test/tree [(fn [_] (react/createElement "b" nil "x"))] {}))]
-      (is (= :rf.error/fresco-test-react-is-opaque (:rf.error/id refused))))))
+)

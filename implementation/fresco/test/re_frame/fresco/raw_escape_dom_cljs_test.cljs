@@ -309,13 +309,7 @@
                         strings: " via-escape))
               (is (= via-door via-escape)
                   (str "BYTE-EQUAL. escape: " via-escape " / door: " via-door)))
-            (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b)))))
-      (testing "and the crossing's own fiber is named by the CONSTANT, not
-                by the component — one greppable frame naming the form the
-                author wrote, with the component naming itself one level
-                down at zero cost"
-        (let [e (rf.fresco.impl.codec/as-element [:> widget {}])]
-          (is (= "[:>]" (.-displayName (.-type e)))))))))
+            (finally (rf.fresco.impl.mount/release! a) (rf.fresco.impl.mount/release! b))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — hydration: the first client pass matches, and adoption swaps

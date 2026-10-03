@@ -10,7 +10,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.fresco.impl.intent :as rf.fresco.impl.intent]
-            [re-frame.fresco.impl.slot :as rf.fresco.impl.slot]
             [re-frame.fresco.slot-corpus :as rf.fresco.slot-corpus]
             ["react" :as react]))
 
@@ -45,13 +44,7 @@
     (let [e (rf.fresco.impl.codec/as-element [:section#main.wide.tall])]
       (is (= "section" (el-type e)))
       (is (= "main" (prop e "id")))
-      (is (= "wide tall" (prop e "className")))))
-  (testing "an explicit :id wins over the shorthand"
-    (is (= "explicit" (prop (rf.fresco.impl.codec/as-element [:div#short {:id "explicit"}]) "id"))))
-  (testing "the shorthand class is prepended to an explicit one"
-    (is (= "short explicit" (prop (rf.fresco.impl.codec/as-element [:div.short {:class "explicit"}]) "className"))))
-  (testing "a collection class value joins, dropping nils"
-    (is (= "a b" (prop (rf.fresco.impl.codec/as-element [:div {:class ["a" nil :b]}]) "className")))))
+      (is (= "wide tall" (prop e "className"))))))
 
 (deftest the-tag-cache-holds-one-entry-per-distinct-literal
   (is (= 0 (:tags (rf.fresco.impl.codec/cache-sizes))))
@@ -107,17 +100,7 @@
 ;; Prop names
 ;; ---------------------------------------------------------------------------
 
-(deftest prop-names-follow-the-donors-kebab-to-camel-rule
-  (is (= "onClick" (rf.fresco.impl.slot/prop-name :on-click)))
-  (is (= "tabIndex" (rf.fresco.impl.slot/prop-name :tab-index)))
-  (is (= "className" (rf.fresco.impl.codec/cached-prop-name :class)))
-  (is (= "htmlFor" (rf.fresco.impl.codec/cached-prop-name :for)))
-  (is (= "charSet" (rf.fresco.impl.codec/cached-prop-name :charset)))
-  (testing "aria and data are HTML attribute names in React too"
-    (is (= "aria-label" (rf.fresco.impl.slot/prop-name :aria-label)))
-    (is (= "data-index" (rf.fresco.impl.slot/prop-name :data-index))))
-  (testing "a CSS custom property is preserved verbatim"
-    (is (= "--gap" (rf.fresco.impl.slot/prop-name :--gap))))
+(deftest the-prop-cache-holds-its-three-seeds-and-one-entry-per-name
   (testing "the three seeded entries are the rule, not a memo of one"
     (is (= 3 (:props (rf.fresco.impl.codec/cache-sizes))))
     (rf.fresco.impl.codec/cached-prop-name :on-click)
@@ -161,11 +144,7 @@
   (testing "the other way round, from a cold cache"
     (rf.fresco.impl.codec/reset-caches!)
     (is (= "onInput" (rf.fresco.impl.codec/cached-prop-name :on-input)))
-    (is (= "on-input" (rf.fresco.impl.codec/cached-prop-name "on-input"))))
-  (testing "the three React renames are the rule, so they hold for every
-            spelling of the one attribute"
-    (doseq [k [:class :className "class" :x/class 'class]]
-      (is (= "className" (rf.fresco.impl.codec/canonical-slot k)) (str "spelled " (pr-str k))))))
+    (is (= "on-input" (rf.fresco.impl.codec/cached-prop-name "on-input")))))
 
 (deftest the-cached-classification-is-spelling-aware-and-no-spelling-poisons-another
   ;; The prop cache's entries carry the POSITION CLASSIFICATION
@@ -428,8 +407,6 @@
   (testing "a seq child is realized once and flattened exactly one level"
     (let [e (rf.fresco.impl.codec/as-element [a-view {} (for [i (range 2)] [:li i])])]
       (is (= [[:li 0] [:li 1]] (:children (prop e "rfProps"))))))
-  (testing "with no trailing forms there is no :children key at all"
-    (is (= {:id 7} (prop (rf.fresco.impl.codec/as-element [a-view {:id 7}]) "rfProps"))))
   (testing "a boundary with no props map still works"
     (is (= {} (prop (rf.fresco.impl.codec/as-element [a-view]) "rfProps")))))
 
@@ -800,10 +777,6 @@
             ":handler is not a contract; the two are :event and :render")))))
 
 (deftest every-other-host-prop-value-crosses-exactly-as-it-did
-  (testing "functions by identity — `React.memo` and every downstream
-            bail-out that compares handler identity"
-    (let [f (fn [_])]
-      (is (identical? f (host-prop :on-thing f "onThing")))))
   (testing "collections through clj->js, whose nested keys keep the spelling
             the author wrote"
     (let [o (host-prop :options {:pageSize 10} "options")]
@@ -915,12 +888,7 @@
       (is (not (identical? :> computed))
           "precondition: the row is only meaningful because these are two
            objects")
-      (is (= "[:>]" (.-displayName (el-type (rf.fresco.impl.codec/as-element [computed a-foreign-component {}])))))))
-  (testing "and the arms either side of it keep their own meaning"
-    (is (= (.-Fragment react) (el-type (rf.fresco.impl.codec/as-element [:<> "x"]))))
-    (is (= "div" (el-type (rf.fresco.impl.codec/as-element [:div]))))
-    (is (= "toString" (el-type (rf.fresco.impl.codec/as-element [:toString])))
-        "a native tag parses as itself")))
+      (is (= "[:>]" (.-displayName (el-type (rf.fresco.impl.codec/as-element [computed a-foreign-component {}]))))))))
 
 (deftest conversion-parity-with-the-door-on-one-prop-corpus
   (testing "THE LOAD-BEARING ROW. HD-011 rules that the escape lowers

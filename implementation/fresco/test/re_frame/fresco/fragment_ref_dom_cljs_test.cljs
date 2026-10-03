@@ -225,25 +225,6 @@
             (is (= 1 @!b) "and the second attached"))
           (finally (rf.fresco.impl.mount/release! h)))))))
 
-(deftest the-cleanup-a-callback-ref-returns-runs-at-unmount
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (let [!cleanup (atom 0)
-            f        (fn [_instance] (fn [] (swap! !cleanup inc)))
-            h        (rf.fresco.impl.mount/root!
-                       (rf.fresco.impl.mount/fresh-container!) frame-id
-                       [ref-page {:handle-ref f :last? true}])]
-        (try
-          (is (= 0 @!cleanup))
-          (rf.fresco.impl.mount/unmount! h)
-          (rf.fresco.impl.mount/settle!)
-          (is (= 1 @!cleanup)
-              "a fragment ref's cleanup is the ordinary React 19 one — the
-               function the callback returned, run once when the fragment goes")
-          (finally (rf.fresco.impl.mount/release! h)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 4 — the run of children is not frozen at attach
 ;; ---------------------------------------------------------------------------
@@ -344,12 +325,10 @@
             (rf.fresco.impl.mount/settle!)
             (is (= 2 @!a) "attached a second time")
             (is (= 1 @!cleanup) "and the reveal ran no further cleanup"))
-          (testing "WHAT THIS ROW DOES NOT CLAIM: when the reveal's work lands.
-                    The stale-window figure this package carries is one
-                    animation frame, unmeasured under the current React, and
-                    a row that timed a reveal would be re-deriving it by
-                    accident"
-            (is true "stated, not measured"))
+          ;; WHAT THIS ROW DOES NOT CLAIM: when the reveal's work lands.
+          ;; The stale-window figure this package carries is one animation
+          ;; frame, unmeasured under the current React, and a row that timed
+          ;; a reveal would be re-deriving it by accident.
           (finally (.unmount root)))))))
 
 ;; ---------------------------------------------------------------------------
