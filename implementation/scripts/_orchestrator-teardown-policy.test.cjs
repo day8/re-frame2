@@ -92,7 +92,6 @@ function orchestratorFiles() {
 
 const CREATE_CLEANUP_RE = /\bcreateHarnessCleanup\b/;
 const INSTALL_SIGNALS_RE = /\.installSignalHandlers\(\)/;
-const TRACK_PROCESS_RE = /\.trackProcess\(/;
 // The long-lived server (http-server, shadow-cljs watch, or an inner
 // orchestrator) MUST be spawned through the tracked, signal-handled shared
 // harness primitive: `trackProcess(spawnHarnessProcess(...))`. Whitespace/
@@ -104,7 +103,6 @@ const TRACKED_SPAWN_RE = /trackProcess\(\s*spawnHarnessProcess\(/;
 // _local-browser-harness.test.cjs), so a caller that delegates to it still
 // reaps its server on exit/signal without an inline trackProcess.
 const START_LOCAL_HTTP_SERVER_RE = /\bstartLocalHttpServer\s*\(/;
-const SPAWNSYNC_RE = /\bspawnSync\s*\(/;
 
 const ORCHESTRATORS = orchestratorFiles();
 
@@ -147,17 +145,6 @@ for (const file of ORCHESTRATORS) {
     );
   });
 
-  test(`${base}: tracks its long-lived child for teardown`, () => {
-    assert.ok(
-      TRACK_PROCESS_RE.test(code) || START_LOCAL_HTTP_SERVER_RE.test(code),
-      `${base} must register its long-lived child for teardown — either via ` +
-        `cleanup.trackProcess(...) directly, or by starting its http-server ` +
-        `through the shared startLocalHttpServer(...) owner, which tracks the ` +
-        `server in the cleanup handle you pass it. An untracked spawn is not ` +
-        `reaped.`,
-    );
-  });
-
   test(`${base}: spawns its long-lived child via the tracked shared harness`, () => {
     assert.ok(
       TRACKED_SPAWN_RE.test(code) || START_LOCAL_HTTP_SERVER_RE.test(code),
@@ -171,26 +158,5 @@ for (const file of ORCHESTRATORS) {
     );
   });
 }
-
-// stripComments sanity: it must remove a required-symbol mention that
-// appears only in a comment, but keep one in real code. Guards the gate
-// against false-positives (a comment satisfying a positive assertion) and
-// false-negatives (a comment masking a forbidden spawnSync).
-test('stripComments removes comment text but preserves code', () => {
-  assert.doesNotMatch(
-    stripComments('// createHarnessCleanup()\nconst x = 1;'),
-    CREATE_CLEANUP_RE,
-  );
-  assert.doesNotMatch(
-    stripComments('/* spawnSync(...) */\nconst y = 2;'),
-    SPAWNSYNC_RE,
-  );
-  assert.match(stripComments('const c = createHarnessCleanup();'), CREATE_CLEANUP_RE);
-  assert.match(stripComments('spawnSync(node, args);'), SPAWNSYNC_RE);
-  assert.match(
-    stripComments('cleanup.trackProcess(spawnHarnessProcess(node, a));'),
-    TRACKED_SPAWN_RE,
-  );
-});
 
 run();

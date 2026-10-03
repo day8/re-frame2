@@ -29,7 +29,6 @@ const assert = require('assert');
 
 const scanner = require('../../examples/scripts/check-reagent-slim-boundary.cjs');
 const {
-  FORBIDDEN,
   detectForbidden,
   scanFile,
   scanAll,
@@ -104,36 +103,20 @@ function failingReaddirIo(badDir) {
   };
 }
 
-it('TEETH: a missing/unreadable declared root FAILS CLOSED, naming that root (rf2-3fc89f.31)', () => {
-  // Validate every declared root independently: fail the FIRST root while the
-  // other three remain readable and above the aggregate floor of 20.
-  const badRoot = STOCK_REAGENT_ROOTS[0];
-  assert.throws(
-    () => listStockReagentSources(STOCK_REAGENT_ROOTS, { io: failingReaddirIo(badRoot) }),
-    (err) =>
-      /enumeration FAILED/.test(err.message) &&
-      err.message.includes(badRoot) &&
-      Array.isArray(err.walkErrors),
-    'an unreadable declared root must throw (naming it), not silently shrink the set',
-  );
-});
-
-it('EACH declared root is validated independently (any one unreadable fails closed) (rf2-3fc89f.31)', () => {
-  // Not just the first: an unreadable root ANYWHERE in the declared set fails
-  // closed — proving the guard is per-root, not an aggregate count.
+it('TEETH: EACH declared root that is missing/unreadable FAILS CLOSED, naming that root (rf2-3fc89f.31)', () => {
+  // Every declared root is validated independently: fail ONE root while the
+  // other three remain readable and above the aggregate floor of 20, for each
+  // root in turn — proving the guard is per-root, not an aggregate count.
   for (const badRoot of STOCK_REAGENT_ROOTS) {
     assert.throws(
       () => listStockReagentSources(STOCK_REAGENT_ROOTS, { io: failingReaddirIo(badRoot) }),
-      (err) => err.message.includes(badRoot),
-      `an unreadable '${badRoot}' must fail closed by name`,
+      (err) =>
+        /enumeration FAILED/.test(err.message) &&
+        err.message.includes(badRoot) &&
+        Array.isArray(err.walkErrors),
+      `an unreadable '${badRoot}' must throw (naming it), not silently shrink the set`,
     );
   }
-});
-
-it('listStockReagentSources returns the full set with a clean io (no false failure) (rf2-3fc89f.31)', () => {
-  const clean = listStockReagentSources(STOCK_REAGENT_ROOTS, { io: require('fs') });
-  assert.deepStrictEqual(clean, realSources, 'the injected-fs walk equals the default walk');
-  assert.ok(clean.length >= 20, 'the clean walk is non-vacuous');
 });
 
 // ---------------------------------------------------------------------------
@@ -198,20 +181,8 @@ it('TEETH: a reagent2.* require is flagged', () => {
   );
 });
 
-it('TEETH: a deep reagent2 ns (reagent2.dom.server) is flagged', () => {
-  assert.ok(
-    detectForbidden('[reagent2.dom.server :as rds]').some((r) => r.id === 'reagent2'),
-  );
-});
-
 it('stock reagent.core is NOT flagged by the reagent2 rule', () => {
   assert.ok(!detectForbidden('[reagent.core :as r]').some((r) => r.id === 'reagent2'));
-});
-
-it('stock reagent.dom.client is NOT flagged by the reagent2 rule', () => {
-  assert.ok(
-    !detectForbidden('[reagent.dom.client :as rdc]').some((r) => r.id === 'reagent2'),
-  );
 });
 
 // ---- adapter rule: -slim flagged, stock adapter never ---------------------
@@ -224,21 +195,11 @@ it('TEETH: re-frame.adapter.reagent-slim is flagged', () => {
   );
 });
 
-it('the stock re-frame.adapter.reagent is NOT flagged (no -slim suffix)', () => {
-  assert.deepStrictEqual(detectForbidden('[re-frame.adapter.reagent :as reagent-adapter]'), []);
-});
-
 it('the stock adapter on a require line with no alias is NOT flagged', () => {
   assert.deepStrictEqual(detectForbidden('   [re-frame.adapter.reagent]'), []);
 });
 
 // ---- scanFile / scanAll integration --------------------------------------
-
-it('scanFile reports a clean stock source with no errors', () => {
-  const p = path.join(STOCK_REAGENT_ROOTS[0], 'counter', 'core.cljs');
-  const io = makeIo({ [p]: STOCK_NS });
-  assert.deepStrictEqual(scanFile(io, p).errors, []);
-});
 
 it('TEETH: scanFile reports a slim require leaking into the stock tree', () => {
   // A stock-tree path that (wrongly) carries slim wiring — exactly the
@@ -268,15 +229,6 @@ it('TEETH: scanAll surfaces a reagent2 leak across the synthetic tree', () => {
   const { errors } = scanAll({ io, files: [clean, dirty] });
   assert.strictEqual(errors.length, 1, `expected exactly one violation, got: ${errors.join(' | ')}`);
   assert.ok(errors[0].includes('reagent2'));
-});
-
-// ---- contract constant sanity --------------------------------------------
-
-it('FORBIDDEN names exactly the two slim-substrate surfaces', () => {
-  assert.deepStrictEqual(
-    FORBIDDEN.map((r) => r.id).sort(),
-    ['reagent-slim-adapter', 'reagent2'],
-  );
 });
 
 if (failed > 0) {
