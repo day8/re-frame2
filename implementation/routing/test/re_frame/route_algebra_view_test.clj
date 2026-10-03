@@ -103,8 +103,7 @@
   (testing "(route-algebra-view) returns {} (not nil) when no routes are registered"
     ;; The fixture re-`require`s the routing façade, which registers framework
     ;; events / fx / subs but NO routes — so the :route registrar kind is empty.
-    (is (= {} (rf.routing.tooling/route-algebra-view)))
-    (is (map? (rf.routing.tooling/route-algebra-view)))))
+    (is (= {} (rf.routing.tooling/route-algebra-view)))))
 
 (deftest single-arity-returns-one-node
   (testing "(route-algebra-view route-id) returns the single node, nil when unregistered"

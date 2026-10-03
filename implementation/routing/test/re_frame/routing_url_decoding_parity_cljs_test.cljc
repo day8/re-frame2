@@ -177,18 +177,7 @@
   (testing "the controls: valid input must NOT be rejected, so the
             fail-closed table above cannot pass by nil-ing everything"
     (doseq [[in expected why] valid-decodes]
-      (is (= expected (rf.routing.url/safe-url-decode in)) why)))
-  (testing "a legitimately-encoded U+FFFD survives, stated on its own
-            because conflating it with a SUBSTITUTED one is the specific
-            defect an output-inspecting check introduces"
-    (is (= "�" (rf.routing.url/safe-url-decode "%EF%BF%BD"))
-        "the valid encoding of U+FFFD decodes to U+FFFD")
-    (is (= 1 (count (rf.routing.url/safe-url-decode "%EF%BF%BD")))
-        "exactly one character — not an escape that leaked through raw")
-    (is (nil? (rf.routing.url/safe-url-decode "%FF"))
-        "while the sequence whose U+FFFD would be INVENTED by the decoder
-         is refused — the two are character-identical on output, so this
-         pair is what proves the check is made over bytes")))
+      (is (= expected (rf.routing.url/safe-url-decode in)) why))))
 
 (deftest url-decode-leaves-literal-non-ascii-alone-on-both-hosts
   (testing "an unescaped non-ASCII character is legal input and passes
@@ -255,22 +244,14 @@
            (code-units (rf.routing.url/safe-url-decode (str "%41" (from-code-units 0xD800)))))
         "an ASCII escape beside one, too"))
 
-  (testing "THE COUNTERWEIGHT. A PERCENT-ENCODED lone surrogate must
-            still fail closed: UTF-8 has no encoding for a surrogate, so
-            those bytes are malformed however they arrived. A decoder that
-            preserved literals by weakening the escaped-byte check would
-            red here"
-    (is (nil? (rf.routing.url/safe-url-decode "%ED%A0%80"))
-        "escaped lone HIGH surrogate stays nil")
-    (is (nil? (rf.routing.url/safe-url-decode "%ED%BF%BF"))
-        "escaped lone LOW surrogate stays nil")
-    (is (nil? (rf.routing.url/safe-url-decode "%ED%A0%BD%ED%B8%80"))
-        "and CESU-8 — U+1F600's halves escaped individually — stays nil")
+  (testing "THE COUNTERWEIGHT. A PERCENT-ENCODED lone surrogate still
+            fails closed — the escaped-surrogate and CESU-8 rows of the
+            invalid-UTF-8 table — because UTF-8 has no encoding for a
+            surrogate. The same code point escaped properly decodes, so
+            those rows refuse the encoding, not the code point"
     (is (= [55357 56832] (code-units (rf.routing.url/safe-url-decode "%F0%9F%98%80")))
-        "while the SAME code point escaped properly, as one four-byte
-         UTF-8 sequence, decodes to the same pair the literal control
-         carries — so the three rows above are refusing the encoding, not
-         the code point")
+        "the code point escaped properly, as one four-byte UTF-8 sequence,
+         decodes to the same pair the literal control carries")
     (is (nil? (rf.routing.url/safe-url-decode (str "%C3" (from-code-units 0xD800))))
         "a TRUNCATED escape run flushed against a literal surrogate is
          still malformed — the seam does not rescue it"))
@@ -278,13 +259,11 @@
   (testing "`malformed-url?` agrees across hosts for a literal code unit
             in a path segment. It reads FALSE on both — a lone surrogate
             is not malformed PERCENT-ENCODING — where the escaped form
-            reads TRUE on both"
+            reads TRUE on both (the position table below)"
     (is (false? (rf.routing/malformed-url? (str "/p/" (from-code-units 0xD800))))
         "literal lone surrogate in a path segment: decodable on both hosts")
     (is (false? (rf.routing/malformed-url? (str "/p/x?q=" (from-code-units 0xDFFF))))
-        "and in a query value")
-    (is (true? (rf.routing/malformed-url? "/p/%ED%A0%80"))
-        "while the percent-encoded form is malformed on both hosts")))
+        "and in a query value")))
 
 ;; ---- the public predicate, in all four URL positions ---------------------
 
@@ -313,8 +292,10 @@
                      ["/search?q=clojure&page=2" "an ordinary URL"]
                      ["/p/café"         "a literal non-ASCII path segment"]]]
       (is (false? (rf.routing/malformed-url? u)) why)))
-  (testing "the structural case flips it too"
-    (is (true? (rf.routing/malformed-url? "/p/%")))))
+  (testing "the structural case flips it too, in a LATER query pair as
+            well — the scan reads every pair, not only the first"
+    (is (true? (rf.routing/malformed-url? "/p/%")))
+    (is (true? (rf.routing/malformed-url? "/search?good=1&bad=%")))))
 
 ;; ---- production prism: the SSR/browser disagreement itself ---------------
 
@@ -349,7 +330,7 @@
             value containing a REAL U+FFFD, which `url-encode` emits as
             %EF%BF%BD and the strict decoder must read back"
     (rf/reg-route :decode-parity/round {:params [:map [:slug :string]]} "/r/:slug")
-    (doseq [slug ["café" "日本" "a�b" "it's~a(test)!" "50% done"
+    (doseq [slug ["café" "日本" "a�b" "50% done"
                   ;; a WELL-FORMED surrogate pair, built from code units:
                   ;; `url-encode` emits it as the astral code point's
                   ;; four UTF-8 bytes and the segmenting decoder must

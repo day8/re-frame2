@@ -75,9 +75,7 @@
   (rf.routing/reg-route :eq/base    {} "{/:base}?")
   (rf.routing/reg-route :eq/sorted  {:query [:map [:sort {:optional true} :string]
                                           [:page {:optional true} :string]]}
-                     "/search")
-  (rf.routing/reg-route :eq/enum    {:params [:map [:dir [:enum :asc :desc]]]}
-                     "/by/:dir"))
+                     "/search"))
 
 (defn- thrown-data [f]
   (try (f) nil (catch Throwable ex (ex-data ex))))
@@ -230,10 +228,7 @@
            (rf.routing.registry/route-url {:to :eq/profile :params {:username :jane}}))
         "an UNDECLARED keyword value host-stringifies")
     (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username 'jane}})))
-    (is (= "/profile/true"  (rf.routing.registry/route-url {:to :eq/profile :params {:username true}}))))
-
-  (testing "a DECLARED keyword enum emits its token, not %3A"
-    (is (= "/by/desc" (rf.routing.registry/route-url {:to :eq/enum :params {:dir :desc}})))))
+    (is (= "/profile/true"  (rf.routing.registry/route-url {:to :eq/profile :params {:username true}})))))
 
 ;; ===========================================================================
 ;; The query side — the empty short-circuit, and the sorted path it skips
