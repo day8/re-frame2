@@ -103,6 +103,66 @@ The metadata map also declares activation work, layout and guards as described
 below. Namespaced keys (`:myapp/…`) are yours. For all keys and registration
 rules, use the [`reg-route` reference](../api/re-frame.routing.md#reg-route).
 
+### Try the matching rules
+
+This cell registers the reader's routes with the paginated `:app/articles`, a
+literal `/articles/new` and a not-found route. Each button hands the frame a URL
+the way the address bar does, as `[:rf.route/handle-url-change url]`.
+The view picks a heading by `:rf.route/id` and prints the params and query the
+URL produced. The frame has no `:url-bound?`, so it routes in memory and the
+address bar stays where it is. Add a URL to `urls` and press Mod-Enter to try
+your own.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing])
+
+(rf/reg-route :app/home {} "/")
+(rf/reg-route :app/articles
+  {:query          [:map [:tag {:optional true} :string]
+                         [:page {:optional true} :int]
+                         [:sort {:optional true} [:enum :new :top]]]
+   :query-defaults {:page 1}}
+  "/articles")
+(rf/reg-route :app/new-article {} "/articles/new")
+(rf/reg-route :app/article
+  {:parent :app/articles
+   :params [:map [:slug :string]]}
+  "/articles/:slug")
+(rf/reg-route :rf.route/not-found {} "/_404")
+
+(def urls
+  ["/articles/new" "/articles/intro" "/articles/" "/Articles"
+   "/articles?tag=ssr&page=2" "/articles?sort=top&ref=feed" "/articles?page=12abc"])
+
+(rf/reg-view matched-route []
+  (let [id     @(subscribe [:rf.route/id])
+        params @(subscribe [:rf.route/params])
+        query  @(subscribe [:rf.route/query])]
+    [:div
+     (for [url urls]
+       ^{:key url}
+       [:button {:on-click #(dispatch [:rf.route/handle-url-change url])} url])
+     [:h3 (case id
+            :app/home           "Home"
+            :app/articles       "All articles"
+            :app/new-article    "New article"
+            :app/article        (str "Article " (:slug params))
+            :rf.route/not-found "Not found"
+            nil)]
+     [:pre (pr-str {:route-id id :params params :query query})]]))
+
+[rf/frame-root {:id             :concepts/matching
+                :initial-events [[:rf.route/navigate {:to :app/home}]]}
+ [matched-route]]
+```
+
+`/articles/new` beats `/articles/:slug`, the trailing slash is ignored, and
+`/Articles` matches nothing. `?page=2` arrives as the number `2`, `:sort` as a
+keyword, and the undeclared `ref` stays a string key. `?page=12abc` matches the
+pattern but fails the schema, so it lands on
+[not found](#not-found-is-a-route-you-register) with `:reason :validation`.
+
 ## Navigation is an event
 
 <a id="move-2-navigation-is-an-event"></a>
@@ -183,6 +243,35 @@ paginated route above, `{:query-merge {:page nil}}` therefore returns to page 1.
 
 An in-place request needs a current route to edit, and it can't change path params:
 `:params` names a new address, so it needs `:to`.
+
+This cell uses the routes the [matching cell](#try-the-matching-rules) registered.
+Routes are process-wide, and this second frame has its own active route. The last
+line is `route-url` for the current query:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing :as rf.routing])
+
+(rf/reg-view article-filters []
+  (let [{:keys [page] :as query} @(subscribe [:rf.route/query])]
+    [:div
+     [:button {:on-click #(dispatch [:rf.route/navigate {:query-merge {:page (inc page)}}])}
+      "Next page"]
+     [:button {:on-click #(dispatch [:rf.route/navigate {:query-merge {:tag "ssr" :page nil}}])}
+      "#ssr"]
+     [:button {:on-click #(dispatch [:rf.route/navigate {:query {}}])}
+      "Clear filters"]
+     [:pre (pr-str query)]
+     [:p [:code (rf.routing/route-url {:to :app/articles :query query})]]]))
+
+[rf/frame-root {:id             :concepts/in-place
+                :initial-events [[:rf.route/navigate {:to :app/articles}]]}
+ [article-filters]]
+```
+
+**Next page** twice reads `{:page 3}`, a number. **#ssr** keeps the route and
+resets the page, and **Clear filters** returns to `/articles`, where `:page` is
+back at its default and `route-url` leaves it out.
 
 ### Linking from views
 

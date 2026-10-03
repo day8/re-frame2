@@ -6,6 +6,7 @@ after each change.
 
 Throughout, the URL is application state: you read the active route with a
 subscription and change it by dispatching an event.
+The finished app also [runs on this page](#run-it-on-this-page), in memory.
 
 ## Step 0 — turn routing on
 
@@ -501,6 +502,125 @@ article listed. Refresh, and the filter stays.
             [root-view]]
            (js/document.getElementById "app"))))
     ```
+
+### Run it on this page
+
+The cell below runs the same routes, events and views in memory. Its frame has no
+`:url-bound? true`, so it leaves this page's address bar alone and starts with a
+navigation to Home in `:initial-events`. The line above the app stands in for the
+address bar: it shows the URL the frame would write, and its buttons send a typed
+URL the way the browser does, for Step 4's missing article and Step 5's 404. Back
+and Forward need a URL-bound frame, so Step 6 has nothing to try here.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing :as rf.routing])
+
+(def sample-articles
+  {"intro" {:title "Intro to re-frame2" :tags #{"basics"}}
+   "ssr"   {:title "Server rendering"   :tags #{"ssr"}}})
+
+(rf/reg-route :app/home {} "/")
+(rf/reg-route :app/articles
+  {:query [:map [:tag {:optional true} :string]]}
+  "/articles")
+(rf/reg-route :app/article
+  {:parent   :app/articles
+   :params   [:map [:slug :string]]
+   :on-match [[:app/load-article]]}
+  "/articles/:slug")
+(rf/reg-route :rf.route/not-found {} "/_404")
+
+(rf/reg-event :app/load-article
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+      {:db (assoc db
+                  :article/current (get sample-articles slug)
+                  :article/last-read slug)})))
+(rf/reg-sub :article/current (fn [db _] (:article/current db)))
+
+(rf/reg-event :article/resume
+  (fn [{:keys [db]} _]
+    {:fx [[:dispatch [:rf.route/navigate
+                     {:to :app/article
+                      :params {:slug (or (:article/last-read db) "intro")}}]]]}))
+
+(rf/reg-view home-page []
+  [:div
+   [:h1 "Home"]
+   [rf/route-link {:to :app/articles} "See the articles →"]
+   [:button {:on-click #(dispatch [:article/resume])} "Continue reading"]])
+
+(rf/reg-view articles-page []
+  (let [{:keys [tag]} @(subscribe [:rf.route/query])
+        shown (if tag
+                (filter (fn [[_ a]] (contains? (:tags a) tag)) sample-articles)
+                sample-articles)]
+    [:div
+     [:h1 "Articles"]
+     [:p [rf/route-link {:to :app/articles} "All"] " · "
+         [rf/route-link {:to :app/articles :query {:tag "basics"}} "#basics"] " · "
+         [rf/route-link {:to :app/articles :query {:tag "ssr"}} "#ssr"]]
+     [:ul
+      (for [[slug {:keys [title]}] shown]
+        ^{:key slug}
+        [:li [rf/route-link {:to :app/article :params {:slug slug}} title]])]]))
+
+(rf/reg-view article-page []
+  (if-let [article @(subscribe [:article/current])]
+    [:h1 (:title article)]
+    [:div
+     [:h1 "Article not found"]
+     [rf/route-link {:to :app/articles} "All articles"]]))
+
+(rf/reg-view not-found-page []
+  (let [url (:url @(subscribe [:rf.route/params]))]
+    [:div
+     [:h1 "Not found"]
+     [:p (str "No page at " url)]
+     [rf/route-link {:to :app/home} "Home"]]))
+
+(defn page-for [route-id]
+  (case route-id
+    :app/home           [home-page]
+    :app/articles       [articles-page]
+    :app/article        [article-page]
+    :rf.route/not-found [not-found-page]
+    nil                nil))
+
+(defn ancestor-shell [route-id inner]
+  (case route-id
+    :app/articles [:div.articles-section
+                   [:nav [rf/route-link {:to :app/articles} "← All articles"]]
+                   inner]
+    inner))
+
+(rf/reg-view root-view []
+  [:div.site
+   [:header "My Site " [rf/route-link {:to :app/home} "Home"]]
+   (let [chain @(subscribe [:rf.route/chain])]
+     (reduce (fn [inner ancestor] (ancestor-shell ancestor inner))
+             (page-for (last chain))
+             (reverse (butlast chain))))])
+
+;; Demo only: this frame has no address bar, so show the URL it would
+;; write, and send typed URLs the way the browser does.
+(rf/reg-view address-bar []
+  (let [{:keys [route-id params query]} @(subscribe [:rf/route])]
+    [:p
+     [:code (if (= route-id :rf.route/not-found)
+              (:url params)
+              (rf.routing/route-url {:to route-id :params params :query query}))]
+     (for [url ["/articles/missing" "/nonsense"]]
+       ^{:key url}
+       [:button {:on-click #(dispatch [:rf.route/handle-url-change url])}
+        (str "Type " url)])]))
+
+[rf/frame-root {:id             :app
+                :initial-events [[:rf.route/navigate {:to :app/home}]]}
+ [address-bar]
+ [root-view]]
+```
 
 ## Troubleshooting
 
