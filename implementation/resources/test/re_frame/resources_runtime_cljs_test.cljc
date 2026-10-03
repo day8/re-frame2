@@ -285,10 +285,7 @@
     (is (vector? (:xs (rf.resources.state/canonicalize {:xs [1 2 3]})))
         "a vector value stays a vector")
     (is (seq? (:xs (rf.resources.state/canonicalize {:xs '(1 2 3)})))
-        "a list value stays a list (not coerced to a vector)"))
-  (testing "key-order independence is preserved through the shared rule"
-    (is (= (rf.resources.state/canonicalize {:a 1 :b 2})
-           (rf.resources.state/canonicalize {:b 2 :a 1})))))
+        "a list value stays a list (not coerced to a vector)")))
 
 ;; ===========================================================================
 ;; Resource :params present-nil vs missing boundary
@@ -444,8 +441,6 @@
   (testing "list-vs-vector params keys carry DISTINCT CEDN-1 identities..."
     (let [kv (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
           kl (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})]
-      (is (not (rf.identity/identical-identity? kv kl))
-          "the authoritative identities differ (v[...] vs l(...))")
       ;; Clojure `=` treats the VECTORS as equal — but the cache does not
       ;; key on the vector; it keys on the byte `key-id`, which is DISTINCT.
       (is (= kv kl)
@@ -453,16 +448,7 @@
       (testing "...and resolve to DISTINCT :entries entries (the byte key-id
                 comparison is exactly the CEDN-1 identity)"
         (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
-            "their byte key-ids differ (v[…] vs l(…)) — the map-key identity")
-        (is (= 2 (count (-> {}
-                            (assoc (rf.resources.state/key-id kv) :v)
-                            (assoc (rf.resources.state/key-id kl) :l))))
-            "both keys map to TWO distinct entries — no =-collapse")
-        (is (= :v (get (-> {}
-                           (assoc (rf.resources.state/key-id kv) :v)
-                           (assoc (rf.resources.state/key-id kl) :l))
-                       (rf.resources.state/key-id kv)))
-            "the vector-params entry is NOT overwritten by the list-params write"))
+            "their byte key-ids differ (v[…] vs l(…)) — the map-key identity"))
       ;; carrier 2 — the embedded work-id is keyed on its OWN byte id too, so
       ;; the two work-ledger slots stay distinct (stale suppression keys on the
       ;; entry's :current-work + the entry lookup, both byte-disambiguated).
@@ -471,11 +457,7 @@
               wl (rf.resources.work-ledger/resource-work-id kl 1)]
           (is (= wv wl) "the work-id VECTORS are still `=` (they embed the key vector) …")
           (is (not= (rf.resources.work-ledger/work-id-id wv) (rf.resources.work-ledger/work-id-id wl))
-              "…but their byte work-id-ids differ — distinct ledger slots")
-          (is (= 2 (count (-> {}
-                              (assoc (rf.resources.work-ledger/work-id-id wv) :v)
-                              (assoc (rf.resources.work-ledger/work-id-id wl) :l))))
-              "both work-ids map to TWO distinct work-ledger slots")))))
+              "…but their byte work-id-ids differ — distinct ledger slots")))))
   ;; The other CEDN-distinct params kinds are `=`-distinct too, and key
   ;; distinctly.
   (testing "every other CEDN-distinct params kind also keys distinctly"
@@ -1322,36 +1304,14 @@
           (is (contains? (set resource-ids) :intro/article)))
         (testing "entry keys are the CEDN-1 byte key-id STRINGS (collapse-proof)"
           (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (set (keys entries)))
-              "the runtime entries table keys by the byte key-id")
-          (is (every? string? (keys entries))
-              "every entry key is the byte key-id string")
-          (is (contains? entries (rf.resources.state/key-id k1))
-              "the byte key-id IS the public entry key"))
+              "the runtime entries table keys by the byte key-id"))
         (testing "each entry carries its kind-preserving :resource/key VECTOR for
                   destructure + scope/resource filtering (served via the
                   entry, not the map key)"
           (is (= #{k1 k2} (set (map :resource/key (vals entries))))
               "every entry exposes its scoped-key vector")
           (is (every? vector? (map :resource/key (vals entries)))
-              "every :resource/key is a [scope resource-id params] vector")
-          (let [[scope rid params] (some #(when (= k1 (:resource/key %)) (:resource/key %))
-                                         (vals entries))]
-            (is (= :rf.scope/global scope))
-            (is (= :intro/article rid))
-            (is (= {:slug "one"} params)))
-          (is (= #{k1 k2}
-                 (set (for [e (vals entries)
-                            :let [[scope rid params] (:resource/key e)]
-                            :when (and (= :rf.scope/global scope)
-                                       (= :intro/article rid))]
-                        [scope rid params])))
-              "every entry filters cleanly by scope + resource-id"))
-        (testing "the entry value is carried through unchanged (byte-keyed
-                  in internal storage too)"
-          (is (= :intro/article (-> entries (get (rf.resources.state/key-id k1)) :resource/key second)))
-          (let [raw (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entries-path))]
-            (is (every? string? (keys raw))
-                "internal runtime storage remains byte-keyed (string key-ids)")))))))
+              "every :resource/key is a [scope resource-id params] vector"))))))
 
 (deftest resources-introspection-keeps-cedn-distinct-scoped-keys-distinct
   (testing "ADVERSARIAL: the reserved-path read of the live

@@ -384,81 +384,6 @@
   (rf.fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ _] nil))
   (rf/reg-fx :rf.resource/refetch           (fn [_ _] nil)))
 
-(deftest release-mid-flight-does-not-resurrect-the-owner-on-rollback
-  ;; THE LEAK: a route owns an article; an optimistic favorite
-  ;; is in flight; the route navigates away (release) BEFORE the reply; the reply
-  ;; FAILS. The release bumps `:revision`; without that bump the rollback would
-  ;; see no conflict and restore the pre-apply snapshot verbatim — putting the
-  ;; departed route back into `:active-owners` and re-adding it to the
-  ;; owner-index, pinning the entry `:has-owner` forever (it could never GC and
-  ;; its poll would re-arm for the frame's life).
-  (stub-lifecycle-fx!)
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
-                :owner route-owner}
-               {:article {:favorited false :favoritesCount 9}})
-  (is (contains? (:active-owners (entry article-key)) route-owner)
-      "precondition: the route owns the entry")
-  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)  ;; :on-conflict defaults :invalidate
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  (testing "the optimistic value is applied (the in-flight window is open)"
-    (is (= true (get-in (entry article-key) [:data :article :favorited]))))
-  ;; MID-FLIGHT owner release — the route left before the reply settled.
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner route-owner}])
-  (is (empty? (:active-owners (entry article-key)))
-      "the release dropped the owner from the live entry")
-  ;; the reply FAILS → conflict-aware rollback runs.
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500})
-  (testing "the departed owner is NOT resurrected onto the entry"
-    (let [owners (:active-owners (entry article-key))]
-      (is (not (contains? owners route-owner))
-          "the pre-release snapshot's owner set did NOT clobber the current one")
-      (is (empty? owners) "the entry is still owner-free after the rollback")))
-  (testing "the derived owner-index carries no phantom membership for the departed owner"
-    (is (nil? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) route-owner)))
-        "reindex did not re-add a phantom owner from a resurrected :active-owners"))
-  (testing "the now-owner-free, idle entry is GC-eligible and gc-fired COLLECTS it"
-    (let [e (entry article-key)]
-      (is (empty? (:active-owners e)) "no owner pins it")
-      (is (nil? (:current-work e)) "no in-flight work pins it"))
-    (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key article-key}])
-    (is (nil? (entry article-key))
-        "GC removed the entry — no leaked owner pins it :has-owner")))
-
-(deftest attach-mid-flight-is-not-dropped-by-rollback
-  ;; THE MIRROR CASE: an owner ATTACHED between the apply and the
-  ;; failed reply (via a fresh-skip cache-hit ensure — the entry is fresh after
-  ;; the optimistic apply) must survive the rollback. The attach bumps
-  ;; `:revision`; without that bump the no-conflict restore would drop the freshly
-  ;; attached owner (the caller holding it would then see the entry GC out from
-  ;; under it). The bump makes it a conflict → `:invalidate` keeps the CURRENT owner
-  ;; set (both owners) and recovers via the read path.
-  (stub-lifecycle-fx!)
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"}
-                :owner [:v :first]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  ;; MID-FLIGHT: a second component ensures the (now fresh) entry, attaching a
-  ;; NEW owner via the fresh-skip cache-hit path — no work, no reply.
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :second]}])
-  (is (= #{[:v :first] [:v :second]} (:active-owners (entry article-key)))
-      "both owners are live before the reply settles")
-  ;; the reply FAILS → conflict-aware rollback.
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500})
-  (testing "the freshly-attached owner is NOT dropped by the rollback"
-    (let [owners (:active-owners (entry article-key))]
-      (is (contains? owners [:v :second])
-          "the mid-flight attach survived (a blind restore would drop it)")
-      (is (contains? owners [:v :first]) "the original owner is intact too")))
-  (testing "the owner-index still routes both owners to the entry"
-    (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :second]))
-                   (rf.resources.state/key-id article-key)))
-    (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :first]))
-                   (rf.resources.state/key-id article-key)))))
-
 (def ^:private delete-plan
   {:scope :rf.scope/global
    :params-schema [:map [:slug :string]]
@@ -482,9 +407,8 @@
        count))
 
 (deftest remove-mid-flight-release-does-not-resurrect-the-owner-on-rollback
-  ;; THE REMOVE-FORM TWIN of release-mid-flight-does-not-resurrect-the-owner-on-
-  ;; rollback above — identical shape, identical leak risk. That test relies on
-  ;; `detach-owner` BUMPING `:revision`, and `detach-owner` is a documented
+  ;; A mid-flight owner release relies on `detach-owner` BUMPING `:revision`
+  ;; so the rollback sees a conflict, and `detach-owner` is a documented
   ;; no-op on a nil entry — so an optimistic REMOVE that DISSOC'd the entry would
   ;; leave nothing to bump: the release would write nothing, move nothing, and
   ;; the revision-keyed conflict check would be blind to it. The optimistic

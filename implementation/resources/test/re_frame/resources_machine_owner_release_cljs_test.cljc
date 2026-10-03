@@ -177,7 +177,6 @@
       (succeed! k {:title "Resources 101"})
 
       ;; Precondition: the actor holds the owner, the entry is owned + poll-able.
-      (is (some? (entry k)) "the machine-owned resource entry exists")
       (is (contains? (:active-owners (entry k)) owner)
           "the [:machine :reader/proc] owner is on the entry")
       (is (contains? (get (owner-index) owner) k)

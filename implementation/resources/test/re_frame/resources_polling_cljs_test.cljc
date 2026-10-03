@@ -29,7 +29,9 @@
     6. FOCUS/RECONNECT COEXISTENCE — focus + poll do not double-fetch (the
        in-flight gate makes the overlap idempotent);
     7. LATE-POLL-REPLY SUPPRESSION — a poll reply carrying a superseded
-       generation is suppressed (never overwrites the live entry);
+       generation is suppressed: the poll refetch takes the same stale gate
+       as a focus refetch, which the revalidation suite's
+       `focus-refetch-bumps-generation-and-suppresses-stale-reply` pins;
     8. INVALIDATION RESETS THE CLOCK — a refetch (poll / invalidation) that
        settles reschedules the poll (cancel-then-arm), not stacks;
     9. BACKGROUND POLL FAILURE — a failed poll tick keeps prior data + keeps
@@ -432,29 +434,6 @@
           (is (= (inc gen-before) (:generation e)) "exactly one new generation")
           (is (= :fetching (:status e)) "one in-flight refetch")
           (is (empty? @aborts) "no abort churn from the overlap"))))))
-
-;; ===========================================================================
-;; 7. Late-poll-reply stale-suppression
-;; ===========================================================================
-
-(deftest late-poll-reply-is-suppressed
-  (rf/reg-resource :lp/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :lp/poll {:slug "w"})]
-    (ensure! :lp/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (let [gen-before (:generation (entry k))]
-      (poll-fired! k) ;; poll forces a new generation
-      (is (= (inc gen-before) (:generation (entry k))) "poll bumped a generation")
-      (testing "Spec 016 §Cancellation is opportunistic; stale suppression is
-                mandatory — a late poll reply carrying the PRE-poll generation
-                is suppressed (never overwrites the post-poll entry)"
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key k
-                            :work/id (rf.resources.work-ledger/resource-work-id k gen-before)
-                            :generation gen-before :data {:title "Zombie"}}])
-        (is (not= {:title "Zombie"} (:data (entry k)))
-            "the pre-poll-generation reply was suppressed")))))
 
 ;; ===========================================================================
 ;; 8. A poll-refetch settle re-arms the poll

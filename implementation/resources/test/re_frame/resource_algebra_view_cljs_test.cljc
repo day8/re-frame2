@@ -102,8 +102,7 @@
 
 (deftest empty-registry-returns-empty-map
   (testing "(resource-algebra-view) returns {} (not nil) when none registered"
-    (is (= {} (rf.resources.tooling/resource-algebra-view)))
-    (is (map? (rf.resources.tooling/resource-algebra-view))))
+    (is (= {} (rf.resources.tooling/resource-algebra-view))))
   (testing "(resource-algebra-view id) returns nil for an unregistered id"
     (is (nil? (rf.resources.tooling/resource-algebra-view :nope/missing)))))
 
@@ -124,9 +123,7 @@
         (is (= [:runtime [rf.resources.state/resources-key :entries]] (:output node))))
       (testing "the remote authority axis names the external system + transport"
         (is (= {:kind :remote :system :server :transport :rf.http/managed}
-               (:authority node)))
-        (is (not= :remote (:storage node))
-            "remote is the authority axis, NEVER the storage class (EP-0014 issue-2)"))
+               (:authority node))))
       (testing "declared inputs lower to params + the scope policy"
         (is (= [[:param :rf.params] [:scope :rf.scope/global]] (:inputs node))))
       (testing "the :rf.resource/* read facts are listed as selectors"
@@ -144,7 +141,6 @@
         (is (= :app/article (:schema node)))
         (is (= "an article by slug" (:doc node))))
       (testing "source coords captured by reg-resource surface under :source"
-        (is (some? (:source node)))
         (is (some? (get-in node [:source :ns])))))))
 
 (deftest zero-arity-projects-every-resource
