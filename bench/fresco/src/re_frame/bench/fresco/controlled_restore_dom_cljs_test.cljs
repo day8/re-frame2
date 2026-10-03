@@ -302,13 +302,6 @@
 (defn- unpin-input-implementation! []
   (pin-input-implementation! adapter-default-implementation))
 
-(defn- with-uix-raw-default
-  "Run `f` with the adapter's pin CLEARED, so UIx's own classpath sniff can
-  be observed, and restore the pin however `f` ends."
-  [f]
-  (set! uix.compiler.input/*use-reagent-input-enabled?* nil)
-  (try (f) (finally (unpin-input-implementation!))))
-
 ;; ---------------------------------------------------------------------------
 ;; The harness
 ;; ---------------------------------------------------------------------------
@@ -415,33 +408,10 @@
 (use-fixtures :each (rf.test-support/make-reset-runtime-fixture
                      {:adapter rf.adapter.uix/adapter :ambient-frame nil :async? true}))
 
-;; ---------------------------------------------------------------------------
-;; The selector itself — the reason every row below names an implementation
-;; ---------------------------------------------------------------------------
-
-(deftest the-input-implementation-is-the-adapters-choice-not-the-bundles
-  (testing "UIx's own unset answer is a fact about the classpath, and this
-           bundle carries Reagent — so unset, a UIx `:input` here would be
-           the port. `re-frame.adapter.uix` pins it to React, so
-           it is not."
-    (is (some? reagent.impl.batching/do-after-render)
-        "Reagent's after-render queue is in this bundle — which is exactly
-         what makes UIx's own unset answer `true`")
-    (with-uix-raw-default
-      (fn []
-        (is (true? (uix.compiler.input/should-use-reagent-input?))
-            "clear the adapter's pin and this bundle's contents choose:
-             a UIx `:input` here would not be a plain React controlled
-             input at all")))
-    (is (false? (uix.compiler.input/should-use-reagent-input?))
-        "the adapter's load-time pin holds — React's own implementation,
-         whatever else the bundle carries")
-    (pin-input-implementation! :react)
-    (is (false? (uix.compiler.input/should-use-reagent-input?)))
-    (pin-input-implementation! :uix-reagent-input)
-    (is (true? (uix.compiler.input/should-use-reagent-input?))
-        "the explicit opt-in still reaches the port")
-    (unpin-input-implementation!)))
+;; Every row below names an implementation because the selector is the
+;; adapter's choice and not the bundle's; `arm1/controlled-grid-dom-cljs-test`'s
+;; `the-selector-is-live-in-this-bundle` pins that, against a load-time
+;; snapshot of the adapter's pin.
 
 ;; ---------------------------------------------------------------------------
 ;; :same-turn-echo — and the per-keystroke budget
