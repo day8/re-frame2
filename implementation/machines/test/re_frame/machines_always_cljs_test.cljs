@@ -2,14 +2,12 @@
   "CLJS-side coverage for `:always` microsteps under the Reagent reactive
   substrate.
 
-  Mirrors the conformance fixtures
+  Mirrors the conformance fixture
   ../spec/conformance/fixtures/always-single-microstep.edn (single guarded
-  fire, atomic commit) and always-depth-exceeded.edn (cycle hits the bounded
-  depth limit)."
+  fire, atomic commit). The depth-limited `:always` cycle runs on both hosts
+  in machine-depth-abort-failure-cljs-test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            ;; listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.machines.test-support :as rf.machines.test-support]))
 
@@ -18,8 +16,7 @@
     {:adapter rf.adapter.reagent/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
-;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path. Inline trace
-;; captures below keep their raw trace.tooling register/unregister.
+;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest machine-always-cljs
@@ -68,49 +65,7 @@
         (is (= :asking (:state s))
             "guard false — microstep loop terminates with zero microsteps")
         (is (= 6 (get-in s [:data :correct-count]))
-            "action ran; data updated; state unchanged"))))
-
-  (testing ":always cycle hits depth limit — macrostep fails atomically"
-    ;; Two states ping-pong via :always with always-true guards. The microstep
-    ;; loop trips the depth limit; per Spec 005 §Bounded depth the macrostep
-    ;; FAILS atomically — XState v5 throws on such a runaway. The
-    ;; abort routes through the failure path (the handler short-circuits to
-    ;; `{}`), so no snapshot write reaches runtime-db and the already-committed
-    ;; pre-event :start snapshot stays put. (Boot the machine FIRST so :start is
-    ;; committed before the failing [:go] — otherwise a first-dispatch lazy
-    ;; boot + [:go] is ONE atomic macrostep that rolls back wholesale, leaving
-    ;; no snapshot installed at all.)
-    (let [machine
-          {:initial :start
-           :data    {}
-           :always-depth-limit 5
-           :guards  {:p? (fn [_] true)}
-           :states
-           {:start {:on {:go {:target :a}}}
-            :a     {:always [{:guard :p? :target :b}]}
-            :b     {:always [{:guard :p? :target :a}]}}}
-          traces (atom [])]
-      (rf/reg-machine :osc/flow machine)
-      (rf/dispatch-sync [:osc/flow [:rf.machine/start]])  ;; commit :start first
-      (rf.trace.tooling/register-listener! ::osc (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:osc/flow [:go]])
-      (rf.trace.tooling/unregister-listener! ::osc)
-      ;; Atomic rollback: the committed snapshot stays at :start (the failing
-      ;; [:go] macrostep commits nothing).
-      (is (= :start (:state (snapshot :osc/flow)))
-          "macrostep fails atomically; the committed snapshot stays at :start")
-      ;; The runaway is a FAILED macrostep, NOT a benign no-op — the
-      ;; depth-exceeded error trace fires, and no unhandled-no-op masks it.
-      (is (some (fn [ev]
-                  (and (= :rf.error/machine-always-depth-exceeded
-                          (:operation ev))
-                       (= :error (:op-type ev))
-                       (= :no-recovery (:recovery ev))))
-                @traces)
-          "expected :rf.error/machine-always-depth-exceeded trace")
-      (is (not-any? (fn [ev] (= :rf.machine.event/unhandled-no-op (:operation ev)))
-                    @traces)
-          "a runaway cycle is NOT a benign no-op — no unhandled-no-op fires"))))
+            "action ran; data updated; state unchanged")))))
 
 (deftest machine-always-bare-keyword-shorthand-cljs
   (testing "a bare-keyword :always (the :on / :after keyword-target shorthand)

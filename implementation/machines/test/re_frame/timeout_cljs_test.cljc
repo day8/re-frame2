@@ -1,4 +1,4 @@
-(ns re-frame.timeout-test
+(ns re-frame.timeout-cljs-test
   "State-level and spawn-level `:timeout` / `:on-timeout`
   (delayed transitions).
 
@@ -12,23 +12,30 @@
     - the dispatch boundary — the timeout actually arms an `:after`
       timer on state entry and the synthetic timer-elapsed event fires the
       `:on-timeout` transition through the real runtime;
-    - `:timeout` and `:after` coexisting on the same state node.
+    - `:timeout` and `:after` coexisting on the same state node;
+    - the absent `:timeout-ms` slot on `:spawn` / `:spawn-all`.
 
   The dispatch-boundary tests dispatch the synthetic
   `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]` event
   manually (the same way after_test.clj does) so verification is
   deterministic without depending on setTimeout firing — the desugared
   timeout IS an `:after` timer, so the synthetic-event path exercises it
-  end-to-end."
+  end-to-end.
+
+  Dual-target (`.cljc`): the JVM runner selects it on `.*-test$`, Shadow's
+  `:node-test` build on `cljs-test$`, so the duration grammar runs through
+  both hosts' number parsing (`Long/parseLong` / `Double/parseDouble` on the
+  JVM, `js/parseInt` / `js/parseFloat` on CLJS)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timeout :as rf.machines.timeout]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            #?(:clj  [re-frame.substrate.plain-atom :as substrate-adapter]
+               :cljs [re-frame.adapter.reagent :as substrate-adapter])
             [re-frame.subs]))
 
 (use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
 
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
@@ -74,7 +81,7 @@
 
 (defn- reg-error-id [machine]
   (try (rf/reg-machine (keyword "tt" (str (gensym))) machine) nil
-       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (:rf.error/id (ex-data e)))))
 
 (deftest state-timeout-accepts-valid
   (testing "a well-formed state-level :timeout (integer + ISO) registers cleanly"
@@ -123,6 +130,41 @@
                           :states {:l {:spawn {:machine-id :stub
                                                :timeout "5s" :on-timeout :to}}
                                    :to {}}})))))
+
+;; There is no `:timeout-ms` slot on `:spawn` / `:spawn-all`: it throws
+;; :rf.error/spawn-timeout-ms-removed (use :timeout). A bare :on-timeout (no
+;; :timeout) is the A4 pairing error, NOT the :timeout-ms error.
+
+(deftest spawn-timeout-ms-rejected
+  (testing ":timeout-ms on :spawn fails registration"
+    (let [bad {:initial :idle
+               :states  {:idle {:on {:go :r}}
+                         :r    {:spawn {:machine-id :stub
+                                         :timeout-ms 1000}}}}]
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                            #"spawn-timeout-ms-removed"
+                            (rf/reg-machine :rmv/bad bad))
+          "registration emits the removed-slot error category")))
+  (testing ":on-timeout alone on :spawn is the A4 pairing error"
+    (let [bad {:initial :idle
+               :states  {:idle {:on {:go :r}}
+                         :r    {:spawn {:machine-id :stub
+                                         :on-timeout [:never]}}}}]
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                            #"machine-on-timeout-without-timeout"
+                            (rf/reg-machine :rmv/bad2 bad))
+          "a spawn :on-timeout with no :timeout fails per EP-0029 A4")))
+  (testing ":timeout-ms on :spawn-all is rejected"
+    (let [bad {:initial :idle
+               :states  {:idle {:on {:go :h}}
+                         :h    {:spawn-all
+                                {:children        [{:id :a :machine-id :stub}]
+                                 :join            :all
+                                 :on-all-complete [:done!]
+                                 :timeout-ms      5000}}}}]
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                            #"spawn-timeout-ms-removed"
+                            (rf/reg-machine :rmv/bad3 bad))))))
 
 (deftest timeout-after-collision-fail-loud
   (testing "a timeout ms colliding with an explicit :after delay-key fails loud"
