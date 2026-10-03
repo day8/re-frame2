@@ -194,62 +194,28 @@
     (is (= 6 (:corner-radius vc/chart-regular)))
     (is (= 6 (:corner-radius vc/chart-cosy)))))
 
-(deftest density-typography-monotonic
-  (testing "`state-title-px` is monotonic across the
-            density axis: compact < regular < cosy. If a density's
-            type walks back or up unexpectedly the picker UI would
-            ship a 'cosy' value that's actually tighter than
-            'regular' — a labelling bug. Same monotonicity holds for
-            edge labels. (`:state-title-px` carries the state label.)"
-    (is (< (:state-title-px vc/chart-compact)
-           (:state-title-px vc/chart-regular)
-           (:state-title-px vc/chart-cosy)))
-    (is (< (:edge-label-px vc/chart-compact)
-           (:edge-label-px vc/chart-regular)
-           (:edge-label-px vc/chart-cosy)))))
-
-(deftest density-geometry-monotonic
-  (testing "dot-grid spacing + arrowhead widths are also
-            monotonic. Compact tightens; cosy loosens. Density is ONE
-            knob — every quantity that should track it does, the
-            arrowhead included, so the head scales with the stroke
-            density instead of sitting at a baked literal."
-    (is (< (:dot-grid-spacing-px vc/chart-compact)
-           (:dot-grid-spacing-px vc/chart-regular)
-           (:dot-grid-spacing-px vc/chart-cosy)))
-    (doseq [k [:arrow-width :arrow-width-quiet :arrow-width-entry]]
-      (is (< (get vc/chart-compact k)
-             (get vc/chart-regular k)
-             (get vc/chart-cosy k))
-          (str "arrowhead key " k " is monotonic compact < regular < cosy")))))
-
-(deftest density-compound-radius-monotonic
-  (testing "`:compound-radius` (the render constant the
-            renderer reads off the resolved density) tracks the
-            density axis monotonically. The corner-radius lock (6)
-            is the ONLY geometry that does not scale; everything the
-            renderer paints by quantity does."
-    (is (< (:compound-radius vc/chart-compact)
-           (:compound-radius vc/chart-regular)
-           (:compound-radius vc/chart-cosy)))))
-
-(deftest structured-grammar-geometry-monotonic
-  (testing "the structured-topology grammar geometry
-            (state title strip, container title, event chip, region
-            title) is monotonic across the density axis:
-            compact < regular < cosy. Density scales QUANTITY; a key
-            that walked back or up unexpectedly would ship a mislabelled
-            density. The corner-radius lock (6) remains the only
-            non-scaling geometry."
-    (doseq [k [:state-title-height :state-title-px
-               :container-title-height :event-chip-min-w
-               :event-chip-min-h :event-chip-px
+(deftest density-scaled-keys-are-monotonic
+  (testing "every quantity that tracks density is monotonic across the axis,
+            compact < regular < cosy: typography (`:state-title-px` carries
+            the state label), the dot grid, the arrowheads (so the head scales
+            with the stroke density instead of sitting at a baked literal),
+            the compound radius the renderer reads off the resolved density,
+            and the structured-topology grammar geometry (state title strip,
+            container title, event chip, region title). Density is ONE knob:
+            a key that walked back or up would ship a 'cosy' value tighter
+            than 'regular', a mislabelled density. The corner-radius lock (6)
+            is the only geometry that does not scale."
+    (doseq [k [:state-title-px :edge-label-px
+               :dot-grid-spacing-px
+               :arrow-width :arrow-width-quiet :arrow-width-entry
+               :compound-radius
+               :state-title-height :container-title-height
+               :event-chip-min-w :event-chip-min-h :event-chip-px
                :region-title-height :pseudo-size]]
       (is (< (get vc/chart-compact k)
              (get vc/chart-regular k)
              (get vc/chart-cosy k))
-          (str "structured-grammar key " k
-               " is monotonic compact < regular < cosy")))))
+          (str k " is monotonic compact < regular < cosy")))))
 
 (deftest structured-grammar-regular-targets
   (testing "pin the regular-density targets the structured
