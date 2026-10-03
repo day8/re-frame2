@@ -66,24 +66,9 @@
 
 (deftest link-model-synthesises-href-and-payload
   (rf/reg-route :route/cart {} "/cart")
-  (rf/reg-route :route/article {:params [:map [:id :string]]
-                                :query  [:map [:tab [:enum :summary :details]]]}
-                "/articles/:id")
-  (testing "href + payload for a plain route (history default → path-form)"
-    (let [{:keys [href payload native?]} (rf.routing.link/link-model {:to :route/cart} nil)]
-      (is (= "/cart" href))
-      (is (false? native?))
-      (is (= [:rf.route/url-requested {:url "/cart"}] payload))))
-  (testing "params + query synthesise into href AND payload (route-url includes the query string, matching rf/route-link)"
-    (let [{:keys [href payload]} (rf.routing.link/link-model {:to :route/article
-                                                   :params {:id "intro"}
-                                                   :query {:tab :summary}}
-                                                  nil)]
-      (is (= "/articles/intro?tab=summary" href))
-      (is (= {:url "/articles/intro?tab=summary"}
-             (second payload))
-          "the address rides IN the url, not beside it — params
-           and query are re-derived by the match the handler runs anyway")))
+  ;; The plain-route and params + query shapes are pinned by the cross-host
+  ;; parity suite (`route_link_ssr_parity_cljs_test.cljc`), which runs on
+  ;; this host too.
   ;; The payload is `{:url …}`, so the fragment is pinned
   ;; where it lives — inside the synthesised url — on both surfaces (see
   ;; `plain-left-click-passes-params-query-and-fragment` for the click side).

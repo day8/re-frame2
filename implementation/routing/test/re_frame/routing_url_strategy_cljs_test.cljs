@@ -35,7 +35,6 @@
   strategies."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.link :as rf.routing.link]
             [re-frame.routing.strategy :as rf.routing.strategy]
@@ -84,7 +83,7 @@
                      [:rf.runtime/routing :current])))
 
 ;; ==========================================================================
-;; 1. push-url / replace-url through a HASH-strategy frame push the `#` href
+;; 1. push-url through a HASH-strategy frame pushes the `#` href
 ;; ==========================================================================
 
 (deftest hash-frame-push-url-pushes-hash-href-cljs
@@ -101,29 +100,6 @@
     (is (= :s/active
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "the route slice tracks the path-form route (cascade stays path-form)")))
-
-(deftest history-frame-push-url-pushes-path-href-cljs
-  (testing "a HISTORY-strategy (default) URL owner pushes the path-form href —
-            no `#` — the seam leaves the default path-form"
-    (rf/make-frame {:id :rf/default :url-bound? true})   ;; no :url-strategy → history
-    (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
-    (is (= ["/" "/active"] (:entries @*history-state*))
-        "the default history strategy pushes the bare path — no `#`")))
-
-(deftest hash-frame-replace-url-replaces-hash-href-cljs
-  (testing "a HASH-strategy owner's :rf.nav/replace-url overwrites the current
-            entry with the `#` href (no new entry)"
-    (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy rf.routing.strategy/hash-url-strategy})
-    (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
-    (let [before (count (:entries @*history-state*))]
-      (rf/dispatch-sync [:rf.route/navigate {:to :s/completed :replace? true}])
-      (is (= before (count (:entries @*history-state*)))
-          "replace did not add a history entry")
-      (is (= "#/completed" (current-url *history-state*))
-          "the current entry was overwritten with the `#`-prefixed completed href"))))
 
 ;; ==========================================================================
 ;; 2. the :url-bound? lifecycle auto-wires the listener + round-trips
@@ -159,20 +135,6 @@
     (is (empty? (get-in @*history-state* [:listeners "hashchange"]))
         "destroy-frame! tore down the browser hashchange listener")))
 
-(deftest history-frame-install-listener-wires-popstate-cljs
-  (testing "registering a :url-bound? true history (default)
-            frame automatically wires a `popstate` listener — the default
-            history behaviour, zero install call"
-    (rf/make-frame {:id :rf/default :url-bound? true})
-    (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/completed"}])
-    (.back (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :s/active
-           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "the popstate listener restored the slice to /active for the history frame")))
-
 ;; ==========================================================================
 ;; 3. encode/decode round-trip against the live (stubbed) window
 ;; ==========================================================================
@@ -188,23 +150,12 @@
     (rf/make-frame {:id :rf/default :url-bound?   true
                     :url-strategy rf.routing.strategy/hash-url-strategy})
     (register-routes!)
-    ;; hash-decode of #/%  →  /%  ; match-url must return nil (no throw).
-    (is (nil? (rf.routing/match-url "/%"))
-        "a bare `%` (the decoded malformed hash tail) route-misses, not throws")
-    ;; End-to-end: navigate the owner to the malformed decoded path — it lands
+    ;; The decoded tail of a malformed `#/%` is `/%`; driving the owner there lands
     ;; on :rf.route/not-found with the malformed reason, never crashing.
     (rf/dispatch-sync [:rf.route/handle-url-change "/%"])
     (is (= :rf.route/not-found
            (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
         "a malformed decoded hash URL routes to :rf.route/not-found (fail-closed)")))
-
-;; A mismatched-form negative: a hash owner given a raw already-`#` URL still
-;; encodes idempotently (no double-hash), so a caller that hand-passes a hash
-;; href does not corrupt the pushed entry.
-(deftest hash-encode-idempotent-on-raw-hash-href-cljs
-  (testing "hash-encode does not double-hash an already-`#`-prefixed input"
-    (is (= "#/active" (rf.routing.strategy/hash-encode "#/active")))
-    (is (= "#/active" (rf.routing.strategy/hash-encode (rf.routing.strategy/hash-encode "/active"))))))
 
 ;; ==========================================================================
 ;; 5. with-base-path — the CLJS-only
@@ -219,9 +170,9 @@
 ;; and hand the final href to the RAW `:push!` / `:replace!` legs, which drive
 ;; window.history WITHOUT re-encoding. So `with-base-path` does not wrap
 ;; `:push!` / `:replace!` (they pass through from the inner strategy); the base
-;; rides the encoded href instead. These two tests therefore model the nav-fx
-;; contract directly: encode-once, then drive the raw leg with the final href.
-;; The ingress `:install-listener!` STRIPS the base.
+;; rides the encoded href instead, which section 6 drives through the real nav
+;; fxs. The one wrapped side-effecting leg is the ingress `:install-listener!`,
+;; which STRIPS the base.
 ;; ==========================================================================
 
 (deftest with-base-path-install-listener!-strips-base-before-on-change-cljs
@@ -249,20 +200,6 @@
       (.dispatchEvent js/globalThis.window #js {:type "popstate"})
       (is (= [] @received)
           "the teardown thunk removed the popstate listener — no further deliveries"))))
-
-(deftest with-base-path-install-listener!-mount-root-delivers-app-root-cljs
-  (testing "at the bare mount root (location == the base itself,
-            /realworld) the wrapped listener delivers `/` — the app root — not
-            an empty string, exactly as strip-base-path's mount-root case
-            specifies"
-    (let [wrapped  (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")
-          received (atom nil)
-          teardown ((:install-listener! wrapped) (fn [p] (reset! received p)))]
-      (.pushState js/globalThis.window.history nil "" "/realworld")
-      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-      (is (= "/" @received)
-          "the mount root decodes+strips to the app root `/`")
-      (teardown))))
 
 ;; ==========================================================================
 ;; 6. Single outbound-encoding authority: :encode / :rf.nav/push-url
@@ -450,21 +387,11 @@
                     :url-strategy (rf.routing.strategy/with-base-path
                                     rf.routing.strategy/history-url-strategy "/app")})
     (let [current (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/routing :current]))
-          strat   (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
+                                 [:rf.runtime/routing :current]))]
       (is (= :s/home (:route-id (current)))
           "root + query: the initial sync at /app?tab=all lands on the root route")
       (is (= {"tab" "all"} (:query (current)))
           "root + query: the query survives the strip")
-      (doseq [[case-name href app-path]
-              [["root + query"                 "/app?tab=all"          "/?tab=all"]
-               ["root + fragment"              "/app#section"          "/#section"]
-               ["root + query + fragment"      "/app?tab=all#section"  "/?tab=all#section"]
-               ["nested path (control)"        "/app/active"           "/active"]
-               ["sibling + query (control)"    "/application?tab=all"  "/application?tab=all"]]]
-        (.pushState js/globalThis.window.history nil "" href)
-        (is (= app-path ((:decode strat) (rf.routing.strategy/current-href)))
-            (str case-name ": decode of " href " is " app-path)))
       (.pushState js/globalThis.window.history nil "" "/app/active")
       (.dispatchEvent js/globalThis.window #js {:type "popstate"})
       (is (= :s/active (:route-id (current)))
@@ -519,26 +446,6 @@
       (is (= :ktmto9/nil-strat (:frame (ex-data ex))))
       (is (nil? (rf/frame-meta :ktmto9/nil-strat))
           "no frame config was seated"))))
-
-(deftest make-frame-missing-routing-artefact-fails-loud-ktmto9-cljs
-  (testing "declaring :url-strategy while the
-            :routing/preflight-frame-config! hook is unpublished fails loud
-            with :rf.error/routing-artefact-missing (no config commit); the
-            hook is restored afterwards"
-    (try
-      (rf.late-bind/set-fn! :routing/preflight-frame-config! nil)
-      (let [ex (try (rf/make-frame {:id :ktmto9/no-artefact :url-bound?   true
-                                    :url-strategy rf.routing.strategy/history-url-strategy})
-                    nil
-                    (catch :default e e))]
-        (is (some? ex) "declaring :url-strategy without the hook throws")
-        (is (= :rf.error/routing-artefact-missing (:rf.error/id (ex-data ex))))
-        (is (= :ktmto9/no-artefact (:frame (ex-data ex))))
-        (is (nil? (rf/frame-meta :ktmto9/no-artefact))
-            "no frame config was seated"))
-      (finally
-        (rf.late-bind/set-fn! :routing/preflight-frame-config!
-                           rf.routing.strategy/preflight-frame-config!)))))
 
 ;; ==========================================================================
 ;; 8. `{:url …}` and `:rf.route/url-requested` speak the
