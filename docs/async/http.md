@@ -88,9 +88,19 @@ shows that form.
 
 ### Two handlers with :on-success / :on-failure
 
-Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the reply map appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. Both handlers receive the same reply map; the two keys only choose which handler it goes to:
+Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the reply map appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. Both handlers receive the same reply map; the two keys only choose which handler it goes to.
 
-```clojure
+This page has no server, so the cell below installs stubs: `intro` answers with an article and `missing` with a 404. Click each button to send one request down each path:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/articles/intro"]   {:reply {:ok {:title "Welcome" :body "The first article."}}}
+   [:get "/api/articles/missing"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
+
 (rf/reg-event :article/load
   (fn [{:keys [db]} [_ slug]]
     {:db (assoc-in db [:article :status] :loading)
@@ -105,7 +115,22 @@ Name `:on-success` and `:on-failure` and each outcome lands in its own handler, 
 (rf/reg-event :article/load-error
   (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (assoc db :article {:status :error :error error})}))
+
+;; Show the [:article] slice, with a button per article.
+(rf/reg-sub :article (fn [db _] (:article db)))
+
+(rf/reg-view article-view []
+  [:div
+   [:button {:on-click #(dispatch [:article/load "intro"])} "Load intro"]
+   [:button {:on-click #(dispatch [:article/load "missing"])} "Load missing"]
+   [:pre (pr-str @(subscribe [:article]))]])
+
+;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
+[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [article-view]]
 ```
+
+`missing` reaches `:article/load-error` with a failure map whose `:kind` is `:rf.http/http-4xx`. The stubs answer at once, so the `:loading` status never shows.
 
 Prefer this shape when the success and failure paths are substantial or diverge: each handler reads and tests on its own.
 
@@ -237,28 +262,45 @@ Every other `:rf.http/*` trace row, and what each carries, is in [the API refere
 
 A single receiving handler can share cleanup across success, failure and
 cancellation ([the cleanup example](continuations-are-data.md#the-finally-job)).
-For a small operation, the sending and receiving event can also be the same:
+For a small operation, the sending and receiving event can also be the same.
+This cell names it `:article/fetch`, so it does not replace the earlier cell's
+`:article/load`, and it uses the stubs that cell installed:
 
-```clojure
+```cljs-rf2
 ;; cf. examples/real-apps/realworld_http/comments.cljs
-;; Alternative to the tutorial's separate :article/load and reply handlers.
-(rf/reg-event :article/load
+;; Alternative to the separate :article/load and reply handlers.
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed])
+
+(rf/reg-event :article/fetch
   (fn [{:keys [db]} [_ slug reply]]
     (if (nil? reply)
       {:db (assoc-in db [:article :status] :loading)
        :fx [[:rf.http/managed
              {:request    {:url (str "/api/articles/" slug)}
-              :request-id :article/load
-              :reply-to   [:article/load slug]}]]}
+              :request-id :article/fetch
+              :reply-to   [:article/fetch slug]}]]}
       (case (:status reply)
         :ok {:db (assoc db :article {:status :loaded :data (:value reply)})}
         :error {:db (assoc db :article {:status :error :error (:error reply)})}
         :cancelled {:db (assoc-in db [:article :status] :idle)}))))
+
+(rf/reg-sub :article/fetched (fn [db _] (:article db)))
+
+(rf/reg-view fetch-view []
+  [:div
+   [:button {:on-click #(dispatch [:article/fetch "intro"])} "Fetch intro"]
+   [:button {:on-click #(dispatch [:article/fetch "missing"])} "Fetch missing"]
+   [:pre (pr-str @(subscribe [:article/fetched]))]])
+
+[rf/frame-root {:id :app/fetch-demo :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [fetch-view]]
 ```
 
-The initial `[:article/load slug]` has no reply. The completion arrives as
-`[:article/load slug reply]`. Test for an absent reply before issuing work;
-cancellation is a delivered reply and must not start another request.
+The initial `[:article/fetch slug]` has no reply. The completion arrives as
+`[:article/fetch slug reply]`, and the `case` picks the branch from its
+`:status`. Test for an absent reply before issuing work; cancellation is a
+delivered reply and must not start another request.
 
 ### Silencing a reply
 
