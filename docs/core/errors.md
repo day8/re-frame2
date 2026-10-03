@@ -28,11 +28,11 @@ Here is the record for an event handler that threw:
              :failing-id        :todo/add
              :handler-id        :todo/add
              :event-id          :todo/add
-             :event             [:todo/add "Buy milk"]
+             :event             [:todo/add]
              :frame             :app
              :phase             :before
              :reason            "Event handler threw."
-             :exception-message "Invalid arity: 0"}}
+             :exception-message "Cannot read properties of null (reading 'trim')"}}
 ```
 
 Three fields do most of the work:
