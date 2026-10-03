@@ -177,30 +177,17 @@
 
 ;; ---- xyflow-graph node :type dispatch (G1) -----------------------------
 
-(deftest xyflow-graph-state-node-type
-  (testing "a leaf state projects as a `state`-type node"
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          idle   (node-by-id graph (layout/node-id [:idle]))]
-      (is (= "state" (:type idle))))))
-
-(deftest xyflow-graph-compound-node-type
-  (testing "a compound parent projects as a `compound`-type node; its
-            leaf children stay `state`"
-    (let [parsed (layout/project-definition compound-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          parent (node-by-id graph (layout/node-id [:authenticated]))
-          child  (node-by-id graph (layout/node-id [:authenticated :browsing]))]
-      (is (= "compound" (:type parent)))
-      (is (= "state" (:type child))))))
-
-(deftest xyflow-graph-region-node-type
-  (testing "a parallel-region container projects as a
-            `parallel-region`-type node"
-    (let [parsed (layout/project-definition parallel-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          region (node-by-id graph (layout/region-node-id :audio))]
-      (is (= "parallel-region" (:type region))))))
+(deftest xyflow-graph-node-type-dispatch
+  (testing "a leaf state projects as a `state`-type node, a compound parent
+            as `compound` (its leaf children stay `state`), and a
+            parallel-region container as `parallel-region`"
+    (doseq [[label definition id expected]
+            [["leaf state"                idle-loading     (layout/node-id [:idle])                    "state"]
+             ["compound parent"           compound-machine (layout/node-id [:authenticated])           "compound"]
+             ["compound's leaf child"     compound-machine (layout/node-id [:authenticated :browsing]) "state"]
+             ["parallel-region container" parallel-machine (layout/region-node-id :audio)              "parallel-region"]]]
+      (let [graph (projection/xyflow-graph (layout/project-definition definition) {} {})]
+        (is (= expected (:type (node-by-id graph id))) label)))))
 
 ;; ---- history pseudo-state projection -----------------------------------
 
@@ -526,17 +513,6 @@
             (str "parent " parent " must precede child " (:id n)))))))
 
 ;; ---- xyflow-graph :data flag derivation (G1) ---------------------------
-
-(deftest xyflow-graph-active-flag
-  (testing "the node whose id ∈ highlight-ids gets `:active true`; all
-            others `:active false`"
-    (let [parsed   (layout/project-definition idle-loading)
-          hi       (layout/node-id [:loading])
-          graph    (projection/xyflow-graph parsed {} {:highlight-ids #{hi}})
-          loading  (node-by-id graph hi)
-          idle     (node-by-id graph (layout/node-id [:idle]))]
-      (is (true?  (:active (:data loading))))
-      (is (false? (:active (:data idle)))))))
 
 (deftest xyflow-graph-from-and-to-highlight-flags
   (testing "from-highlight-id / to-highlight-id flip the matching
@@ -879,23 +855,6 @@
           region    (node-by-id graph rid)]
       (is (= {:width 320 :height 180} (:style region))))))
 
-(deftest xyflow-graph-compound-style-from-measured-position
-  (testing "a compound container's `:style {:width :height}`
-            comes from its measured position entry, the SAME way a region
-            container's does. The compound renderer fills its box with
-            `width:100% height:100%`, so without the styled box xyflow
-            falls back to `compound-node-min-{width,height}` (220×120)
-            and substates whose parent-relative elk coords were computed
-            against the FULL measured extent overflow + visually escape
-            the container."
-    (let [parsed    (layout/project-definition compound-machine)
-          cid       (layout/node-id [:authenticated])
-          positions {cid {:x 0 :y 0 :width 328 :height 156}}
-          graph     (projection/xyflow-graph parsed positions {})
-          compound  (node-by-id graph cid)]
-      (is (= "compound" (:type compound)) "fixture sanity: authenticated is compound")
-      (is (= {:width 328 :height 156} (:style compound))))))
-
 (deftest xyflow-graph-compound-style-coexists-with-parent-relative-substates
   (testing "when a compound has substates, the
             compound's `:style {:width :height}` matches elk's bounding
@@ -1014,20 +973,6 @@
       (is (= "submit"  (:eventLabel (:data ev-node))))
       (is (= "authed?" (:guard      (:data ev-node))))
       (is (= "log-it"  (:action     (:data ev-node)))))))
-
-(deftest xyflow-graph-entry-edge-carries-empty-event-line-label
-  (testing "entry edges (initial-marker → leaf) have no
-            event label; the every-edge-:data invariant means they
-            carry `:eventLineLabel \"\"` alongside
-            `:eventLabel \"\"`."
-    (let [parsed   (layout/project-definition idle-loading)
-          graph    (projection/xyflow-graph parsed {} {})
-          idle-id  (layout/node-id [:idle])
-          marker-id (projection/initial-marker-id idle-id)
-          entry    (edge-by-id graph (str marker-id "entry"))]
-      (is (some? entry))
-      (is (= "" (:eventLineLabel (:data entry))))
-      (is (= "" (:eventLabel (:data entry)))))))
 
 (deftest xyflow-graph-region-data-carries-region-id-and-index
   (testing "a region container's `:data` carries `:regionId` +
@@ -1346,9 +1291,6 @@
         ;; The widened LEFT reserves enough to clear the marker's leftward
         ;; extent (≈26px) — so a state placed at the container's content
         ;; edge has its marker dot INSIDE the border.
-        (is (>= (elk-padding-left widened)
-                projection/initial-marker-left-extent)
-            (str density " widened LEFT clears the initial-marker extent"))
         (is (= (elk-padding-left widened)
                (max container-body-pad projection/initial-marker-left-extent))
             (str density " widened LEFT = max(body-pad, marker-extent)"))
@@ -1362,39 +1304,23 @@
             (str density " only the LEFT side changes"))))))
 
 (deftest container-elk-padding-marker-left-extent-clears-glyph
-  (testing "the reserved LEFT extent is no smaller
-            than the initial-marker glyph's GEOMETRY-radius left edge (the
-            conservative wider anchor, `initial-marker-x-offset - 1`), so the
-            painted dot (whose left ink only reaches x=1.5) always sits inside
-            the container border at every density"
+  (testing "the reserved LEFT extent is no smaller than the initial-marker
+            glyph's GEOMETRY-radius left edge (the conservative wider anchor,
+            `initial-marker-x-offset - 1`), so the dot, whose painted ink stops
+            0.5px further right still, always sits inside the container border
+            at every density"
+    ;; The marker node sits `initial-marker-x-offset` (26) px LEFT of the
+    ;; state; the dot is centred at node-local `dot-x = pseudo-radius + 1`,
+    ;; so its GEOMETRY-radius left edge is node-local x=1 and the conservative
+    ;; extent is `initial-marker-x-offset - 1` px left of the state's edge.
+    (is (>= projection/initial-marker-left-extent
+            (dec projection/initial-marker-x-offset))
+        "the reserved extent encloses the dot's GEOMETRY-radius left edge")
     (doseq [vc-map [vc/chart-compact vc/chart-regular vc/chart-cosy]]
       (let [{:keys [pseudo-radius]} vc-map
-            ;; DISTINGUISH the GEOMETRY radius from the PAINTED
-            ;; radius. The marker node sits `initial-marker-x-offset` (26) px
-            ;; LEFT of the state; the dot is centred at node-local
-            ;; `dot-x = pseudo-radius + 1`. The reservation anchors to the dot's
-            ;; GEOMETRY-radius left edge, node-local `dot-x - pseudo-radius`
-            ;; = `(pseudo-radius + 1) - pseudo-radius` = 1 — NOT the slightly-
-            ;; narrower PAINTED left edge at `dot-x - dot-paint-r = 1.5` (the
-            ;; dot paints at `pseudo-radius − 0.5`). So the conservative
-            ;; geometry-radius extent is `initial-marker-x-offset - 1` px left
-            ;; of the state's edge.
-            glyph-left-extent (dec projection/initial-marker-x-offset)]
-        (is (>= projection/initial-marker-left-extent glyph-left-extent)
-            "the reserved extent encloses the dot's GEOMETRY-radius left edge")
-        ;; the GEOMETRY-radius left edge derived purely from the glyph agrees
-        ;; with the node-local `dot-x - pseudo-radius = 1` invariant …
-        (let [{:keys [dot-x]} (projection/initial-marker-glyph pseudo-radius)
-              ;; … and the PAINTED left edge (`dot-x - (pseudo-radius - 0.5)`)
-              ;; is 0.5px further RIGHT — node-local x=1.5 — so it sits inside
-              ;; the geometry-radius reservation in every density.
-              painted-r   (- pseudo-radius 0.5)]
-          (is (= 1 (- dot-x pseudo-radius))
-              "the dot's GEOMETRY-radius left edge is at node-local x=1 in every density")
-          (is (= 1.5 (- dot-x painted-r))
-              "the dot's PAINTED left edge is at node-local x=1.5 (radius shrunk 0.5px)")
-          (is (> (- dot-x painted-r) (- dot-x pseudo-radius))
-              "the painted left edge is RIGHT of the geometry-radius edge — inside the reservation"))))))
+            {:keys [dot-x]}         (projection/initial-marker-glyph pseudo-radius)]
+        (is (= 1 (- dot-x pseudo-radius))
+            "the dot's GEOMETRY-radius left edge is at node-local x=1 in every density")))))
 
 (deftest elk-children-nested-compound-reserves-initial-marker-left
   (testing "every compound container holding an initial
@@ -1547,50 +1473,21 @@
 ;; lifecycle is wired in chart.cljs + browser-pinned); they pin the
 ;; producer side.
 
-(deftest leaf-elk-size-floors-to-min-when-unmeasured
-  (testing "with no measurement (first pass) a leaf falls
-            back to the `state-node-min-{width,height}` floor"
-    (is (= {:width  projection/state-node-min-width
-            :height projection/state-node-min-height}
-           (projection/leaf-elk-size nil)))
-    (is (= {:width  projection/state-node-min-width
-            :height projection/state-node-min-height}
-           (projection/leaf-elk-size {})))))
-
-(deftest leaf-elk-size-uses-measured-when-larger
-  (testing "a measured box LARGER than the floor wins per
-            dimension (ELK must budget the real rendered size)"
-    (let [big (projection/leaf-elk-size {:width 300 :height 90})]
-      (is (= 300 (:width big)))
-      (is (= 90  (:height big))))))
-
-(deftest leaf-elk-size-floors-each-dimension-independently
-  (testing "the floor applies PER dimension: a node wider
-            than the floor but shorter than it keeps the wide measured
-            width AND the floor height"
-    (let [m (projection/leaf-elk-size {:width 320 :height 10})]
-      (is (= 320 (:width m)) "wide measured width wins")
-      (is (= projection/state-node-min-height (:height m))
-          "sub-floor measured height clamps up to the floor"))))
-
-(deftest elk-child-leaf-uses-measured-dims
-  (testing "`elk-child` sizes a LEAF to its measured box
-            (floored), looked up by node-id from the measured-dims map"
-    (let [parsed   (layout/project-definition idle-loading)
-          idle-id  (layout/node-id [:idle])
-          measured {idle-id {:width 260 :height 72}}
-          idle     (first (filter #(= idle-id (:id %)) (:nodes parsed)))
-          child    (projection/elk-child idle measured)]
-      (is (= 260 (:width child)))
-      (is (= 72  (:height child)))))
-  (testing "an unmeasured leaf (absent from the map) keeps
-            the floor"
-    (let [parsed   (layout/project-definition idle-loading)
-          idle     (first (filter #(= (layout/node-id [:idle]) (:id %))
-                                  (:nodes parsed)))
-          child    (projection/elk-child idle {})]
-      (is (= projection/state-node-min-width  (:width child)))
-      (is (= projection/state-node-min-height (:height child))))))
+(deftest leaf-elk-size-takes-the-larger-of-measured-and-floor-per-dimension
+  (testing "a leaf's ELK size is `(max measured floor)` PER dimension: with no
+            measurement (the first pass) it falls back to the
+            `state-node-min-{width,height}` floor, a measured box larger than
+            the floor wins (ELK must budget the real rendered size), and a node
+            wider than the floor but shorter keeps its width AND the floor
+            height"
+    (let [floor-w projection/state-node-min-width
+          floor-h projection/state-node-min-height]
+      (doseq [[label measured expected]
+              [["unmeasured (nil)"    nil                     {:width floor-w :height floor-h}]
+               ["unmeasured ({})"     {}                      {:width floor-w :height floor-h}]
+               ["larger measured box" {:width 300 :height 90} {:width 300 :height 90}]
+               ["wide but short"      {:width 320 :height 10} {:width 320 :height floor-h}]]]
+        (is (= expected (projection/leaf-elk-size measured)) label)))))
 
 (deftest elk-child-compound-ignores-measured-dims
   (testing "a COMPOUND keeps its floor seed even with a
@@ -1772,11 +1669,8 @@
                         first)
           elk-eds  (projection/->elk-edge start)]
       (doseq [e elk-eds]
-        (is (vector? (:labels e)) "labels is a vector")
-        (is (= 1 (count (:labels e))) "exactly one label entry")
-        (is (= "" (:text (first (:labels e)))) "empty text (label on node)")
-        (is (not (contains? (first (:labels e)) :width))
-            "no measured width fed (no double-budget)")))))
+        (is (= [{:text ""}] (:labels e))
+            "one empty-text label (the text is on the node), no measured dims (no double-budget)")))))
 
 (deftest elk-edge-label-feeds-measured-dims-when-present
   (testing "a labelled edge (one whose label-dims map carries
@@ -1933,7 +1827,9 @@
       (is (= idle-id (:target entry)))
       (is (= "left" (:targetHandle entry)))
       (is (= "" (:eventLabel (:data entry)))
-          "entry edge has no event label"))))
+          "entry edge has no event label")
+      (is (= "" (:eventLineLabel (:data entry)))
+          "every edge carries :data, so the entry edge's :eventLineLabel is \"\" too"))))
 
 (deftest xyflow-graph-positions-initial-marker-at-fixed-offset
   (testing "the initial-marker node sits at a
@@ -1999,23 +1895,6 @@
         (is (< 0 tip-x projection/initial-marker-x-offset)
             (str density ": arrow tip is OUTSIDE the edge, pointing at it"))))))
 
-(deftest xyflow-graph-nested-initial-marker-has-no-extent-clamp
-  (testing "a NESTED initial-marker (compound/region substate)
-            carries `:parentId` for the coordinate frame but NO `:extent
-            \"parent\"`. The clamp would shove a marker sitting just outside
-            the container's left padding back INSIDE, so a nested initial
-            marker (`red`/`walk`) would overshoot into its state where a
-            top-level one (`door`) does not"
-    (let [parsed      (layout/project-definition compound-machine)
-          graph       (projection/xyflow-graph parsed {} {})
-          browsing-id (layout/node-id [:authenticated :browsing])
-          marker      (node-by-id graph (projection/initial-marker-id browsing-id))]
-      (is (some? marker) "the compound's initial substate gets a marker")
-      (is (= (layout/node-id [:authenticated]) (:parentId marker))
-          "marker keeps the container coordinate frame via :parentId")
-      (is (not (contains? marker :extent))
-          "marker carries NO :extent — no clamp to drive a nested overshoot"))))
-
 (deftest xyflow-graph-threads-initial-flag-onto-node-data
   (testing "node :data carries :initial (true for the
             machine's initial state, false otherwise)"
@@ -2027,9 +1906,13 @@
       (is (false? (:initial (:data loading)))))))
 
 (deftest xyflow-graph-emits-compound-substate-initial-marker
-  (testing "a compound parent's :initial substate
-            also gets a marker (xstate per-level initial semantics) sharing
-            the compound's coordinate frame via xyflow v12's `:parentId`"
+  (testing "a compound parent's :initial substate also gets a marker (xstate
+            per-level initial semantics) sharing the compound's coordinate
+            frame via xyflow v12's `:parentId`, but with NO `:extent
+            \"parent\"`: the clamp would shove a marker sitting just outside
+            the container's left padding back INSIDE, so a nested initial
+            marker would overshoot into its state where a top-level one does
+            not"
     (let [parsed      (layout/project-definition compound-machine)
           graph       (projection/xyflow-graph parsed {} {})
           browsing-id (layout/node-id [:authenticated :browsing])
@@ -2037,7 +1920,9 @@
       (is (some? marker) "the compound's initial substate gets a marker")
       (is (= (layout/node-id [:authenticated]) (:parentId marker)))
       (is (not (contains? marker :parentNode))
-          "the pre-v12 :parentNode key MUST NOT appear"))))
+          "the pre-v12 :parentNode key MUST NOT appear")
+      (is (not (contains? marker :extent))
+          "marker carries NO :extent — no clamp to drive a nested overshoot"))))
 
 ;; ---- reserved-scheme synthetic ids are INJECTIVE against
 ;;      real node-ids -------------------------------------------------------
@@ -2634,14 +2519,18 @@
                        (:id e))))))
 
 (deftest xyflow-graph-marks-guard-blocked-event-node-and-its-edges
-  (testing "a parsed-edge id in
-            :guard-blocked-edge-ids marks the event-node AND its `__in`
-            (source→event-node) half `:guardBlocked true`, but NOT its
-            `__out` (event-node→target) half — the highlight stops at the
-            guard event-node because the no-op never reached the target.
-            Other edges / event-nodes stay `:guardBlocked false`."
+  (testing "a parsed-edge id in :guard-blocked-edge-ids marks the event-node
+            AND its `__in` (source→event-node) half `:guardBlocked true` with
+            the PINK arrowhead hue, but NOT its `__out` (event-node→target)
+            half. A guard-BLOCKED transition is a no-op (the guard declined,
+            the machine stayed in the source state), so the highlight stops at
+            the guard event-node and the onward arrow keeps a RESTING hue
+            rather than imply the transition progressed; the `__out` STATIC
+            topology edge still renders. Other edges / event-nodes stay
+            `:guardBlocked false`."
     (let [parsed   (layout/project-definition door-cyclic-machine)
           close-id (door-close-edge-id parsed)
+          ct       (tokens/chart-tokens)
           graph    (projection/xyflow-graph
                      parsed {} {:guard-blocked-edge-ids #{close-id}})
           ev-node  (event-node-for graph close-id)
@@ -2655,46 +2544,17 @@
       (is (true? (:guardBlocked (:data ev-node))) "event-node is blocked")
       (is (true? (:guardBlocked (:data in-edge)))
           "the `__in` source→event-node half is blocked")
+      (is (= (:edge-guard-blocked ct) (:color (:markerEnd in-edge)))
+          "the `__in` arrowhead is the PINK guard-blocked hue")
+      (is (some? out-edge)
+          "the event-node→target `__out` edge still renders (static topology)")
       (is (false? (:guardBlocked (:data out-edge)))
           "the `__out` event-node→target half is NOT blocked
            (the no-op never reached the target)")
+      (is (not= (:edge-guard-blocked ct) (:color (:markerEnd out-edge)))
+          "the `__out` arrowhead is NOT the pink guard-blocked hue")
       (is (every? #(false? (:guardBlocked (:data %))) other-ev))
       (is (every? #(false? (:guardBlocked (:data %))) other-ed)))))
-
-(deftest xyflow-graph-guard-blocked-highlight-stops-at-event-node
-  (testing "a guard-BLOCKED transition is a no-op: the guard
-            declined, the machine stayed in the source state, the target was
-            never reached. So the live blocked HIGHLIGHT covers
-            source→event-node ONLY, never event-node→target. Concretely:
-            the `__in` half AND the event-node carry `:guardBlocked true` +
-            the PINK arrowhead hue, while the `__out` half carries
-            `:guardBlocked false` + the RESTING (non-pink) arrowhead — so the
-            onward arrow does NOT falsely imply the transition progressed.
-            The `__out` STATIC topology edge still renders (the transition
-            exists in the definition); only the live overlay is withheld."
-    (let [parsed     (layout/project-definition door-cyclic-machine)
-          close-id   (door-close-edge-id parsed)
-          ct         (tokens/chart-tokens)
-          graph      (projection/xyflow-graph
-                       parsed {} {:guard-blocked-edge-ids #{close-id}})
-          ev-node    (event-node-for  graph close-id)
-          in-edge    (inbound-edge-for  graph close-id)
-          out-edge   (outbound-edge-for graph close-id)]
-      ;; The `__out` topology edge still EXISTS (static rendering preserved).
-      (is (some? out-edge)
-          "the event-node→target `__out` edge still renders (static topology)")
-      ;; The blocked overlay reaches the event-node + the inbound half.
-      (is (true? (:guardBlocked (:data ev-node))) "event-node is blocked")
-      (is (true? (:guardBlocked (:data in-edge)))
-          "source→event-node half carries the blocked overlay")
-      (is (= (:edge-guard-blocked ct) (:color (:markerEnd in-edge)))
-          "the `__in` arrowhead is the PINK guard-blocked hue")
-      ;; The overlay STOPS at the event-node — the onward half stays resting.
-      (is (false? (:guardBlocked (:data out-edge)))
-          "event-node→target half is NOT blocked — the highlight stops here")
-      (is (not= (:edge-guard-blocked ct) (:color (:markerEnd out-edge)))
-          "the `__out` arrowhead is NOT the pink guard-blocked hue — the
-           onward arrow must not imply the transition progressed"))))
 
 (deftest xyflow-graph-no-guard-blocked-ids-leaves-all-unblocked
   (testing "omitting :guard-blocked-edge-ids leaves EVERY edge
@@ -2707,27 +2567,6 @@
       (is (every? #(false? (:guardBlocked (:data %)))
                   (filter #(= "rf2-event" (:type %)) (:nodes graph)))
           "no guard-blocked set → no guard-blocked event-nodes"))))
-
-(deftest xyflow-graph-guard-blocked-marker-colour-distinct
-  (testing "a guard-blocked edge's arrowhead colour is the
-            PINK guard-blocked hue, distinct from a non-blocked edge's, so
-            the attempted-and-rejected edge stands out"
-    (let [parsed     (layout/project-definition door-cyclic-machine)
-          close-id   (door-close-edge-id parsed)
-          ct         (tokens/chart-tokens)
-          graph      (projection/xyflow-graph
-                       parsed {} {:guard-blocked-edge-ids #{close-id}})
-          blocked-in (inbound-edge-for graph close-id)
-          plain-e    (first (remove #(or (= (:id %) (:id blocked-in))
-                                         (:guardBlocked (:data %))
-                                         (:entry (:data %)))
-                                    (:edges graph)))]
-      (is (some? plain-e) "fixture has a non-blocked transition edge")
-      (is (= (:edge-guard-blocked ct) (:color (:markerEnd blocked-in)))
-          "the blocked arrowhead paints the pink guard-blocked hue")
-      (is (not= (:color (:markerEnd blocked-in))
-                (:color (:markerEnd plain-e)))
-          "blocked vs non-blocked arrowheads are distinct colours"))))
 
 (deftest xyflow-graph-guard-blocked-wins-over-active-affordance
   (testing "when the source state is ACTIVE
@@ -3113,20 +2952,6 @@
       (is (= "store-result" (:action (:data ev-node))) "the action surfaces on the chip")
       (is (nil? (outbound-edge-for graph (:id od))) "no outgoing segment"))))
 
-(deftest project-definition-spawn-on-done-fold-projects-no-edge
-  (testing "a fn `:spawn :on-done` and a `:spawn-all` child's fn `:on-done`
-            fold `:data` and project no edge"
-    (doseq [[label m] {:spawn     {:initial :working
-                                   :states  {:working {:spawn {:machine-id :child
-                                                               :on-done    (fn [{:keys [data]}] data)}}}}
-                       :spawn-all {:initial :working
-                                   :states  {:working {:spawn-all {:children [{:id :c1 :machine-id :child
-                                                                               :on-done (fn [{:keys [data]}] data)}]
-                                                                   :on-all-complete [:done]}}}}}]
-      (let [parsed (layout/project-definition m)]
-        (is (nil? (:definition-error parsed)) (str label ": the definition projects"))
-        (is (empty? (:edges parsed)) (str label ": no edge"))))))
-
 (deftest xyflow-graph-spawn-on-done-beside-the-other-completions
   (testing "a spawning compound declaring its own `:on-done`, a
             `:spawn :on-done` and a `:spawn :on-error` projects three distinct
@@ -3305,17 +3130,6 @@
              (set (keep #(fork-order-of graph (:id %)) checks)))
           "all three branches badged exactly once each, 1..3"))))
 
-(deftest xyflow-graph-single-transition-has-no-fork-badge
-  (testing "a single (non-fork) transition carries NO
-            :forkOrder. The `self-loop-machine` / `compound-machine`
-            fixtures have only one candidate per (source,trigger)."
-    (doseq [m [self-loop-machine compound-machine idle-loading]]
-      (let [parsed (layout/project-definition m)
-            graph  (projection/xyflow-graph parsed {} {})
-            ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
-        (is (every? #(nil? (:forkOrder (:data %))) ev-nodes)
-            (str "fixture " m " has no guarded fork → no fork badges"))))))
-
 (deftest fork-order-distinct-triggers-not-merged
   (testing "two transitions leaving one source under DIFFERENT
             triggers are independent, never a fork (no shared candidate
@@ -3481,21 +3295,6 @@
       (is (every? #(or (re-find #"__in$" %) (re-find #"__out$" %)) elk-ids)
           "every ELK edge is a route half — the connector is absent"))))
 
-(deftest no-fork-no-connector-edges
-  (testing "a machine with no guarded multi-branch fork emits
-            NO connector edges (a single transition per trigger and
-            distinct triggers are not forks; the guardless multi-target
-            case is pinned by `fork-order-guardless-multi-target-not-badged`,
-            since badges and connectors share `fork-groups`)."
-    (doseq [m [self-loop-machine compound-machine idle-loading]]
-      (let [parsed (layout/project-definition m)
-            graph  (projection/xyflow-graph parsed {} {})]
-        (is (empty? (connector-edges-of graph))
-            (str "fixture " m " has no guarded fork → no connector edges"))
-        (is (empty? (projection/fork-connector-edges
-                      (:edges parsed) (tokens/chart-tokens) vc/chart-regular))
-            (str "fixture " m " yields no connector edges directly"))))))
-
 ;; ---- guarded-fork branch LAYOUT ORDER -----------------------------------
 
 (deftest fork-branch-event-positions-maps-event-nodes-to-priority
@@ -3588,22 +3387,7 @@
           (is (= {"elk.position" "(0,2)"} (opts-of (ev :gate-low?)))
               "branch 2 pinned at cross-axis y=2 under :lr")
           (is (= {"elk.position" "(0,3)"} (opts-of (ev nil)))
-              "branch 3 pinned at cross-axis y=3 under :lr")))
-      (testing "the default (no-direction) arity keeps the :tb X-axis hint (byte-identical)"
-        (let [kids    (root-children (projection/->elk-children parsed))
-              opts-of (fn [id] (-> (filter #(= id (:id %)) kids) first :layoutOptions))]
-          (is (= {"elk.position" "(1,0)"} (opts-of (ev :gate-high?)))
-              "the arity without direction defaults to :tb"))))))
-
-(deftest elk-children-no-fork-no-position-pins
-  (testing "a machine with no guarded fork carries NO
-            `elk.position` pins on any child (the ordering machinery is a
-            no-op where there is no fork to straighten)."
-    (doseq [m [self-loop-machine compound-machine idle-loading]]
-      (let [kids (root-children
-                   (projection/->elk-children (layout/project-definition m)))]
-        (is (not-any? #(contains? (:layoutOptions %) "elk.position") kids)
-            (str "non-fork fixture " m " pins no node position"))))))
+              "branch 3 pinned at cross-axis y=3 under :lr"))))))
 
 ;; ---- guarded-fork semiInteractive on the REAL root-container child ------
 ;; The gate fork's branches lay out UNDER the synthetic
@@ -3624,8 +3408,9 @@
             `elk.layered.crossingMinimization.semiInteractive = true` — the
             REAL root-container path the synthetic bare-root pin in
             edges-cljs-test routes around. Without this, the branch
-            event-nodes' `elk.position` hints would be ignored and the
-            dotted connector would weave."
+            event-nodes' `elk.position` hints (pinned by
+            `elk-children-pin-fork-branches-in-priority-order`) would be
+            ignored and the dotted connector would weave."
     (let [parsed    (layout/project-definition gate-fork-machine)
           container (first (projection/->elk-children parsed))]
       (is (= layout/root-container-id (:id container))
@@ -3633,34 +3418,35 @@
       (is (= "true"
              (get (:layoutOptions container)
                   "elk.layered.crossingMinimization.semiInteractive"))
-          "the root-container child enables semiInteractive for the fork")
-      ;; the branch event-children INSIDE it carry the elk.position hints
-      ;; the semiInteractive option honours (the pair is what orders 1,2,3).
-      (let [edges    (:edges parsed)
-            checks   (filter #(= :gate/check (:event %)) edges)
-            by-guard (into {} (map (juxt :guard identity) checks))
-            ev       #(projection/event-node-id (get by-guard %))
-            kids     (root-children (projection/->elk-children parsed))
-            opts-of  (fn [id] (-> (filter #(= id (:id %)) kids) first :layoutOptions))]
-        (is (= {"elk.position" "(1,0)"} (opts-of (ev :gate-high?)))
-            "branch 1 event-node pinned at cross-axis x=1 inside the container")
-        (is (= {"elk.position" "(2,0)"} (opts-of (ev :gate-low?)))
-            "branch 2 event-node pinned at cross-axis x=2")
-        (is (= {"elk.position" "(3,0)"} (opts-of (ev nil)))
-            "branch 3 event-node pinned at cross-axis x=3")))))
+          "the root-container child enables semiInteractive for the fork"))))
 
-(deftest elk-children-root-container-no-semi-interactive-without-fork
-  (testing "a machine with NO guarded fork does NOT enable
-            semiInteractive on its root-container child, so the default
-            full crossing-minimisation stands and no non-fork layout is
-            perturbed."
+(deftest no-guarded-fork-emits-no-fork-machinery
+  (testing "a machine with no guarded multi-branch fork (one candidate per
+            source and trigger; distinct triggers are not forks) gets none of
+            the fork machinery: no `:forkOrder` badge on any event-node, no
+            connector edge in the graph or from `fork-connector-edges`
+            directly, no `elk.position` pin on any ELK child, and no
+            semiInteractive on its root-container child, so the default full
+            crossing-minimisation stands. The guardless multi-target case is
+            `fork-order-guardless-multi-target-not-badged`, since badges and
+            connectors share `fork-groups`."
     (doseq [m [self-loop-machine compound-machine idle-loading]]
-      (let [container (first (projection/->elk-children
-                               (layout/project-definition m)))]
-        (is (not (contains? (:layoutOptions container)
+      (let [parsed   (layout/project-definition m)
+            graph    (projection/xyflow-graph parsed {} {})
+            ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
+            elk      (projection/->elk-children parsed)]
+        (is (every? #(nil? (:forkOrder (:data %))) ev-nodes)
+            (str "fixture " m ": no fork badges"))
+        (is (empty? (connector-edges-of graph))
+            (str "fixture " m ": no connector edges in the graph"))
+        (is (empty? (projection/fork-connector-edges
+                      (:edges parsed) (tokens/chart-tokens) vc/chart-regular))
+            (str "fixture " m ": no connector edges directly"))
+        (is (not-any? #(contains? (:layoutOptions %) "elk.position") (root-children elk))
+            (str "fixture " m ": no node position pins"))
+        (is (not (contains? (:layoutOptions (first elk))
                             "elk.layered.crossingMinimization.semiInteractive"))
-            (str "non-fork fixture " m
-                 " root-container child omits semiInteractive"))))))
+            (str "fixture " m ": the root-container child omits semiInteractive"))))))
 
 ;; ---- consumer-attachment requirements on :data -------------------------
 ;;
