@@ -179,16 +179,17 @@ wrong and right versions side by side.
 ### A handler throws
 
 *Adding a todo trims the title the user typed, which the input keeps in app-db under
-`:new-title`. Before anyone has typed there is no `:new-title`, and `.trim` on `nil`
-throws.* Click **Add a todo**:
+`:new-title`. Before anyone has typed there is no `:new-title`, and `str/trim` on
+`nil` throws.* Click **Add a todo**:
 
 ```cljs-rf2
-(require '[re-frame.core :as rf])
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf])
 
 (rf/reg-event :todo/add
   (fn [{:keys [db]} _]
     (let [id    (inc (apply max 0 (keys (:todos db))))
-          title (.trim (:new-title db))]                 ;; throws while :new-title is nil
+          title (str/trim (:new-title db))]              ;; throws while :new-title is nil
       {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
 
 (rf/reg-sub :todo/count (fn [db _] (count (:todos db))))
@@ -210,7 +211,7 @@ is committed, and app-db is untouched. Fix it with a default at the point of acc
 (rf/reg-event :todo/add
   (fn [{:keys [db]} _]
     (let [id    (inc (apply max 0 (keys (:todos db))))
-          title (.trim (:new-title db ""))]
+          title (str/trim (:new-title db ""))]
       {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
 ```
 
