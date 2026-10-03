@@ -319,10 +319,9 @@
             a STRING on the HTTP status line, which only one host
             adapter's coercion would save."
     (let [{:keys [raw response]} (drive! [:rf.server/set-status "not-an-int"])]
-      (is (not= "not-an-int" (:status raw))
-          "the malformed status never reached the accumulator")
       (is (integer? (:status raw))
-          "the accumulator's :status is an integer")
+          "the malformed status never reached the accumulator — its :status
+           is an integer")
       (is (integer? (:status response))
           "and so is the PUBLIC host-adapter surface's")
       (is (sibling-ran? raw)
@@ -609,26 +608,13 @@
 ;; §1–§3 pin the SEMANTICS, which are identical in both builds. The
 ;; recovery PATH differs, by design. Split it explicitly rather than
 ;; letting a dev-bus read decide the namespace's posture.
+;;
+;; The production arm — the always-on `:rf.error/fx-handler-exception`
+;; naming the malformed fx, for all nine malformed reserved-fx calls, and
+;; the sanitised 500 a malformed `:rf.server/set-status` becomes at
+;; `get-response` — is pinned by `re-frame.ssr-end-to-end-test`'s
+;; `ssr-server-fx-args-schema-boundary`.
 ;; ===========================================================================
-
-(deftest the-production-diagnostic-is-always-on
-  (when-not rf.interop/debug-enabled?
-    (testing "in a release build the guard's throw is contained by
-              `re-frame.fx`, which fans an ALWAYS-ON
-              `:rf.error/fx-handler-exception` — so the malformation is visible
-              to an off-box shipper, unlike a silent status rewrite inside one
-              host adapter. And SSR's error projection turns it
-              into a sanitised 500 at `get-response`."
-      (let [{:keys [records response]} (drive! [:rf.server/set-status "not-an-int"])
-            hits (filter #(= :rf.error/fx-handler-exception (:error %)) records)]
-        (is (seq hits)
-            (str "an always-on fx-handler-exception record reached the"
-                 " :errors axis; saw: " (pr-str (mapv :error records))))
-        (is (= :rf.server/set-status (:failing-id (first hits)))
-            "the record names WHICH reserved fx was malformed")
-        (is (= 500 (:status response))
-            "and `get-response` serves a sanitised 500 rather than a string
-             status")))))
 
 (deftest the-dev-diagnostic-is-the-richer-schema-failure
   (when rf.interop/debug-enabled?

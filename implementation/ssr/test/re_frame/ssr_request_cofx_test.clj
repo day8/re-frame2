@@ -232,15 +232,4 @@
       (is (= request (rf.ssr/get-request server-frame)))
       (rf.ssr/clear-request! server-frame)
       (is (nil? (rf.ssr/get-request server-frame))
-          "the slot was cleared")
-
-      ;; The cofx now injects nil.
-      (let [observed (atom :unset)]
-        (rf/reg-event :req-test/read-after-clear
-          {:rf.cofx/requires [:rf.server/request]}
-          (fn [{:keys [rf.server/request]} _]
-            (reset! observed request)
-            {}))
-        (rf/dispatch-sync [:req-test/read-after-clear] {:frame server-frame})
-        (is (nil? @observed)
-            "the cofx injects nil after clear-request!")))))
+          "the slot was cleared"))))

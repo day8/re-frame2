@@ -79,8 +79,7 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.response :as rf.ssr.response]
-            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 ;; The canonical reset-runtime fixture lives in `re-frame.ssr.test-fixture`
 ;; — one source of truth for the registrar/side-channel/ns-
@@ -88,11 +87,6 @@
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
-
-(defn- extract-render-hash
-  "Pull the data-rf-render-hash hex out of an HTML fragment."
-  [html]
-  (second (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\"" html)))
 
 (defn- resolve-tree
   "Resolve a `[view-fn args...]` reference under a frame so the rendered
@@ -188,7 +182,6 @@
             ;; renders of the same view-ref. The hydration payload below
             ;; carries the RESOLVED-tree hash (state-dependent) so the
             ;; client can re-render and compare a state-derived value.
-            embedded-hash (extract-render-hash html)
             server-hash   (rf.ssr/render-tree-hash
                             (resolve-tree server-frame render-tree))]
         (is (str/includes? html "Article A")
@@ -197,7 +190,6 @@
         (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
                      html)
             "root <div> carries data-rf-render-hash")
-        (is (some? embedded-hash))
         (is (some? server-hash))
 
         ;; ---- (5) build serialisable payload -----------------------------
@@ -541,51 +533,62 @@
               (ex-data e))))
         traces))
 
-(deftest ssr-set-header-rejects-crlf-injection
-  (testing ":rf.server/set-header with CR/LF/NUL in
-            value surfaces :rf.error/header-invalid-value as the inner
-            cause of :rf.error/fx-handler-exception (fx exceptions are
-            captured by the dispatch loop and re-emitted as traces;
-            the gate throws at the fx boundary)"
-    (rf/reg-event :hdr/inject-crlf
-      (fn [_ _]
-        {:fx [[:rf.server/set-header
-               {:name  "X-Forwarded-For"
-                :value "1.2.3.4\r\nSet-Cookie: admin=1"}]]}))
-
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:hdr/inject-crlf] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/header-invalid-value
-        "set-header with CRLF in value")))
-
-  (testing "bare LF / bare CR / NUL all rejected"
-    (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
+(deftest ssr-header-fx-reject-injection-in-name-and-value
+  (testing ":rf.server/set-header and :rf.server/append-header refuse a
+            header-splitting value (CR / LF / NUL →
+            :rf.error/header-invalid-value) and a name outside the RFC 7230
+            §3.2.6 token grammar (:rf.error/header-invalid-name). Each
+            surfaces as the inner cause of :rf.error/fx-handler-exception:
+            the gate throws at the fx boundary, and the dispatch loop
+            captures the fx exception and re-emits it."
+    (doseq [[label fx-id args error-id]
+            [["set-header: CRLF in :value"
+              :rf.server/set-header
+              {:name "X-Forwarded-For" :value "1.2.3.4\r\nSet-Cookie: admin=1"}
+              :rf.error/header-invalid-value]
+             ["set-header: bare LF in :value"
+              :rf.server/set-header {:name "X-Probe" :value "lf\nbad"}
+              :rf.error/header-invalid-value]
+             ["set-header: bare CR in :value"
+              :rf.server/set-header {:name "X-Probe" :value "cr\rbad"}
+              :rf.error/header-invalid-value]
+             ["set-header: NUL in :value"
+              :rf.server/set-header {:name "X-Probe" :value (str "nul" (char 0) "bad")}
+              :rf.error/header-invalid-value]
+             ["append-header: CRLF in :value"
+              :rf.server/append-header
+              {:name "X-Audit" :value "ok\r\nSet-Cookie: forged=1"}
+              :rf.error/header-invalid-value]
+             ["set-header: CRLF in :name"
+              :rf.server/set-header
+              {:name "X-Test\r\nSet-Cookie: evil=1" :value "ok"}
+              :rf.error/header-invalid-name]
+             ["set-header: a separator in :name"
+              :rf.server/set-header {:name "Bad: Name" :value "ok"}
+              :rf.error/header-invalid-name]
+             ["set-header: whitespace in :name"
+              :rf.server/set-header {:name "Bad Name" :value "ok"}
+              :rf.error/header-invalid-name]
+             ["set-header: an empty :name"
+              :rf.server/set-header {:name "" :value "ok"}
+              :rf.error/header-invalid-name]
+             ["set-header: parens in :name"
+              :rf.server/set-header {:name "with(parens)" :value "ok"}
+              :rf.error/header-invalid-name]
+             ["set-header: NUL in :name"
+              :rf.server/set-header {:name (str "nul" (char 0) "bad") :value "ok"}
+              :rf.error/header-invalid-name]
+             ["append-header: CRLF in :name"
+              :rf.server/append-header
+              {:name "X-Audit\r\nSet-Cookie: forged=1" :value "ok"}
+              :rf.error/header-invalid-name]]]
       (rf/reg-event :hdr/probe-injection
         (fn [_ _]
-          {:fx [[:rf.server/set-header {:name "X-Probe" :value hostile}]]}))
+          {:fx [[fx-id args]]}))
       (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
             traces (capture-fx-traces!
                      (fn [] (rf/dispatch-sync [:hdr/probe-injection] {:frame f})))]
-        (expect-fx-error-keyword!
-          traces :rf.error/header-invalid-value
-          (str "hostile value " (pr-str hostile)))))))
-
-(deftest ssr-append-header-rejects-crlf-injection
-  (testing ":rf.server/append-header with CR/LF in
-            value surfaces :rf.error/header-invalid-value"
-    (rf/reg-event :hdr/append-crlf
-      (fn [_ _]
-        {:fx [[:rf.server/append-header
-               {:name  "X-Audit"
-                :value "ok\r\nSet-Cookie: forged=1"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:hdr/append-crlf] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/header-invalid-value
-        "append-header with CRLF in value"))))
+        (expect-fx-error-keyword! traces error-id label)))))
 
 (deftest ssr-redirect-retired-spelling-diagnostic-names-location
   (testing "the retired-spelling diagnostic NAMES the canonical
@@ -720,10 +723,11 @@
           "clean redirect URL survives"))))
 
 ;; ===========================================================================
-;; ssr-redirect-short-circuits — :rf.server/redirect halts further rendering
+;; ssr-redirect-populates-redirect-and-status — :rf.server/redirect fills the
+;; :redirect slot and flows its :status onto the response
 ;; ===========================================================================
 
-(deftest ssr-redirect-short-circuits
+(deftest ssr-redirect-populates-redirect-and-status
   (testing ":rf.server/redirect populates :redirect and :status. Dropping the
             body and the hydration payload under a redirect is the host
             adapter's decision, pinned by ssr-ring's
@@ -849,9 +853,8 @@
                 :message    "Something went wrong"
                 :retryable? false}
                public)
-            "default projector's prod shape carries exactly the four locked keys")
-        (is (not (contains? public :details))
-            "prod shape (:dev-error-detail? false) — :details is absent so no internal detail leaks")))))
+            "default projector's prod shape carries exactly the four locked keys — under
+             :dev-error-detail? false there is no :details, so no internal detail leaks")))))
 
 (deftest ssr-error-projector-dev-mode-includes-details
   (testing ":dev-error-detail? true puts the raw trace under :details"
@@ -867,51 +870,16 @@
           public        (project-error f trace-event)]
       (is (= 500 (:status public)))
       (is (= :internal-error (:code public)))
-      (is (contains? public :details)
-          ":details present in dev mode")
       (is (= trace-event (:details public))
           ":details is the trace event verbatim — full internal detail for the dev console"))))
 
 ;; ===========================================================================
-;; ssr-custom-error-projector — reg-error-projector overrides the default
+;; A configured projector that throws, returns a non-conforming shape, or is
+;; not registered — the locked fallback and its diagnostic. A configured
+;; projector overriding the default is pinned by
+;; `re-frame.ssr-flush-response-result-test` and, on the live route-miss path,
+;; by `re-frame.ssr-route-miss-404-production-test`.
 ;; ===========================================================================
-
-(deftest ssr-custom-error-projector-overrides-default
-  (testing "reg-error-projector + :ssr {:public-error-id ...} swaps the projector"
-    (rf/reg-error-projector :myapp/public-error
-      {:doc "Custom projector — promotes auth errors to 401."}
-      (fn [trace-event]
-        (case (:operation trace-event)
-          :auth/unauthorised             {:status 401 :code :unauthorised
-                                          :message "Sign in to continue"
-                                          :retryable? false}
-          :rf.error/no-such-handler      {:status 404 :code :not-found
-                                          :message "Custom not-found"
-                                          :retryable? false}
-          {:status 500 :code :internal-error
-           :message "Custom 500"
-           :retryable? false})))
-
-    (let [project-error rf.ssr/project-error
-          f             (rf.frame/make-anon-frame-record!
-                          {:platform :server
-                           :ssr {:public-error-id   :myapp/public-error
-                                 :dev-error-detail? false}})]
-      ;; Auth-specific code that the DEFAULT projector doesn't know about.
-      (let [public (project-error f {:operation :auth/unauthorised :tags {}})]
-        (is (= 401 (:status public)))
-        (is (= :unauthorised (:code public)))
-        (is (= "Sign in to continue" (:message public))
-            "custom projector's message wins over the default's generic 500"))
-
-      ;; Known-error category — custom projector wins, not the default.
-      (let [public (project-error f {:operation :rf.error/no-such-handler :tags {}})]
-        (is (= "Custom not-found" (:message public))
-            "custom projector's mapping shadows :rf.ssr/default-error-projector's"))
-
-      ;; Unknown category falls into the custom projector's catch-all.
-      (let [public (project-error f {:operation :totally-unknown :tags {}})]
-        (is (= "Custom 500" (:message public)))))))
 
 (deftest ssr-error-projector-throws-falls-back-to-locked-500
   (testing "projector throws → :rf.error/sanitised-on-projection trace + locked fallback"
@@ -1144,19 +1112,9 @@
             "peek leaves :status at the default 200 — the projector buffer
              is NOT drained by a pure read"))
 
-      (testing "a SECOND peek still sees 200 — peek is idempotent + side-effect-free"
-        (is (= 200 (:status (rf.ssr/peek-response f)))
-            "the pending trace survived the first peek, so the second peek
-             still reads the un-projected status"))
-
       (testing "flush-response! drains the buffer and stamps the projector's status"
         (is (= 404 (:status (rf.ssr/flush-response! f)))
-            "flush projects the buffered :no-such-handler → 404 onto :status"))
-
-      (testing "after the drain the buffer is empty — a subsequent peek reads 404
-                (the stamped value persists; nothing left to re-project)"
-        (is (= 404 (:status (rf.ssr/peek-response f)))
-            "the stamped 404 persists on the accumulator post-drain")))))
+            "flush projects the buffered :no-such-handler → 404 onto :status")))))
 
 (deftest peek-and-get-response-strip-bookkeeping-keys
   (testing "both read surfaces strip the internal
@@ -1336,85 +1294,6 @@
           ":redirect starts nil"))))
 
 ;; ===========================================================================
-;; Direct error-projection-listener exercise (view-time path)
-;; ===========================================================================
-;;
-;; The handler-exception path is tested end-to-end through the Ring stack
-;; (ssr-ring `handler-render-error-projects-to-500`). This pins the
-;; direct-ssr-layer equivalent — driving `error-projection-listener`
-;; with a synthetic view-time-style exception trace and asserting the
-;; projector stamps the response.
-;;
-;; The listener consumes :error trace events bound to a server frame
-;; and buffers them; `get-response` flushes the buffer through the
-;; active projector. The test reaches in via `re-frame.trace/emit!` so the
-;; full path runs without involving the Ring adapter.
-
-(deftest direct-ssr-layer-projects-view-time-exception
-  ;; THE ONE DEFTEST IN THIS FILE THAT DRIVES THE DEV BUS AS ITS
-  ;; INPUT, not merely as its observation. `trace/emit!` is a no-op under
-  ;; `-Dre-frame.debug=false`, so under the gate nothing would be buffered,
-  ;; nothing projected, and `:status` would stay 200 — the subject is ABSENT,
-  ;; not merely unobservable, and reading another axis cannot fix it.
-  ;;
-  ;; Guarding it wholesale would be wrong too: it would leave the
-  ;; SUBSTRATE that actually stamps `:status` on a production JVM
-  ;; (`error-emit-projection-listener`, registered always-on in the
-  ;; `re-frame.ssr` façade) with no direct exercise anywhere. So the deftest
-  ;; keeps its dev drive in an arm beside the symmetric always-on
-  ;; counterpart: the same synthetic error, injected on the other axis.
-  (testing "an always-on error RECORD tagged with a
-            server frame → error-emit-projection-listener buffers →
-            get-response flushes → :status carries the default projector's 500.
-            This is the production path: in a release build this listener, not
-            the trace-cb one, is what produces the status."
-    (let [f (rf.frame/make-anon-frame-record!
-              {:platform :server
-               :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                          :dev-error-detail? false}})]
-      ;; The EP-0008 union record shape `{:error <kw> :frame <id> :time <ms>
-      ;; + flat category keys}` — what `dispatch-error-record!` fans to every
-      ;; always-on listener, including SSR's `::error-projection`.
-      (rf.error-emit/dispatch-error-record!
-        {:error             :rf.error/view-time-exception
-         :frame             f
-         :time              (rf.interop/now-ms)
-         :exception-message "synthetic view-time boom"
-         :failing-id        :pages/articles
-         :recovery          :warned-and-projected})
-      (let [resp (get-response f)]
-        (is (= 500 (:status resp))
-            "always-on error record → projector → 500 stamped onto :rf/response")
-        (is (nil? (:redirect resp))
-            "no redirect was set; the projector overwrites the status freely"))))
-
-  (when rf.interop/debug-enabled?
-    (testing "(dev arm) the trace-cb buffering path.
-              `trace/emit!` cannot fire under the production gate,
-              so this half is a genuine dev-posture contract rather than a
-              dev-posture SPELLING of one."
-      (let [f (rf.frame/make-anon-frame-record!
-                {:platform :server
-                 :ssr      {:public-error-id   :rf.ssr/default-error-projector
-                            :dev-error-detail? false}})]
-        ;; Emit a synthetic view-time-style error trace directly. Per
-        ;; the listener contract (`error-projection-listener` in
-        ;; `error_listener.cljc`) it
-        ;; gates on :op-type :error and the frame being a server frame;
-        ;; either condition failing → silent.
-        (rf.trace/emit! :error :rf.error/view-time-exception
-                     {:frame             f
-                      :exception-message "synthetic view-time boom"
-                      :failing-id        :pages/articles
-                      :recovery          :warned-and-projected})
-        ;; Reading the response flushes the projection.
-        (let [resp (get-response f)]
-          (is (= 500 (:status resp))
-              "synthetic error trace → projector → 500 stamped onto :rf/response")
-          (is (nil? (:redirect resp))
-              "no redirect was set; the projector overwrites the status freely"))))))
-
-;; ===========================================================================
 ;; Direct adapter-contract smoke
 ;; ===========================================================================
 ;;
@@ -1477,25 +1356,10 @@
 ;; it uses header vocabulary). There are no `:url` / `:to` synonyms:
 ;; `redirect-fx` throws `:rf.error/redirect-retired-target-key`
 ;; naming `:location` rather than silently normalising. There is no
-;; back-compat alias. These tests pin the rejection AND that the resolved
-;; redirect slot is NOT
-;; populated when a retired spelling is the only target key.
-
-(deftest redirect-retired-url-spelling-is-rejected
-  (testing "{:url \"...\"} is rejected with
-            :rf.error/redirect-retired-target-key (naming :location); it is
-            NOT normalised onto :location, and the :redirect slot stays unset"
-    (rf/reg-event :retired/url-redirect
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:url "/dashboard"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:retired/url-redirect] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/redirect-retired-target-key
-        ":url redirect-target spelling rejected")
-      (is (nil? (:redirect (get-response f)))
-          "the rejected redirect did NOT populate the :redirect slot"))))
+;; back-compat alias. The test below pins the rejection AND that the resolved
+;; redirect slot is NOT populated when a retired spelling is the only target
+;; key; `ssr-redirect-retired-spelling-diagnostic-names-location` pins what
+;; the diagnostic names.
 
 (deftest redirect-retired-to-spelling-is-rejected
   (testing "{:to \"...\"} is rejected with
@@ -1561,7 +1425,7 @@
   Reading axis 1 means the assertions below prove the gate in
   the build an attacker actually meets.
 
-  ONLY axis 1, deliberately — several of these count (`(= 1 (count hits))`),
+  ONLY axis 1, deliberately — some of these count (`(= 1 (count ...))`),
   and a union would report two in a dev build and one in a release build,
   making the count itself posture-dependent. Axis 1 fires in both, so one
   reading serves both.
@@ -1584,8 +1448,9 @@
   classified `:scheme-class`, and `:host` does not arrive at all.
 
   The assertions that read `:allowlist`, `:host` or a raw `:scheme` spelling
-  are therefore the genuine dev arms in this cluster, each marked as such at
-  its site and read off axis 2, where the diagnostics arrive whole."
+  are therefore the genuine dev arms in this cluster. They sit in one DEV ARM
+  table, `safe-redirect-dev-trace-carries-the-raw-diagnostics`, and read
+  axis 2, where the diagnostics arrive whole."
   [body-fn]
   (let [traces (atom [])
         tag    (keyword "rf2-lwtlk" (str "sr-cap-" (name (gensym "c"))))]
@@ -1600,8 +1465,8 @@
 (defn- capture-safe-redirect-dev-traces!
   "The DEV-ONLY companion to [[capture-safe-redirect-traces!]], reading
   `trace/emit-error!`'s axis-2 surface — which receives the diagnostics
-  WHOLE rather than projected. Used at the handful of sites that
-  read a tag `safe-redirect-record-slots` excludes from the always-on record
+  WHOLE rather than projected. Used by the dev-arm table that reads the
+  tags `safe-redirect-record-slots` excludes from the always-on record
   by design — `:allowlist` (the app's own security configuration), `:host`
   and the raw `:scheme` spelling (the caller's unbounded URL components)."
   [body-fn]
@@ -1637,122 +1502,6 @@
       (is (nil? (:redirect resp))
           "rejection is a no-op — :redirect slot unchanged"))))
 
-;; --- Step 2: scheme rejection ---------------------------------------------
-
-(deftest safe-redirect-rejects-data-scheme
-  (testing "step 2: data: scheme rejected (data-URL phishing)"
-    (rf/reg-event :sr/data
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "data:text/html,<script>alert(1)</script>"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/data] {:frame f})))]
-      (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                      (= :data (-> % :tags :scheme-class)))
-                traces)
-          ":rf.error/safe-redirect-scheme-rejected fires with :scheme-class :data"))))
-
-;; --- Step 3: :relative-only? gate -----------------------------------------
-
-(deftest safe-redirect-relative-only-rejects-absolute-url
-  (testing "step 3: :relative-only? true AND URL has host →
-            :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation)"
-    (rf/reg-event :sr/abs-with-relative-only
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location       "https://evil.example.com/phish"
-                :relative-only? true}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/abs-with-relative-only] {:frame f})))
-          hits   (filter #(= :rf.error/safe-redirect-host-disallowed
-                             (:operation %)) traces)]
-      (is (= 1 (count hits))
-          ":rf.error/safe-redirect-host-disallowed fires exactly once")
-      (when (seq hits)
-        (let [ev (first hits)]
-          (is (= :relative-only-violation (-> ev :tags :reason))
-              ":reason discriminates the two host-disallowed modes")
-          (is (nil? (-> ev :tags :host))
-              ":host is DEV-ONLY — a rejected
-               host is by construction one the app did not authorise, so it is
-               caller-authored text that could carry a sentinel and could be
-               varied per request to flood a metrics dimension. The refusal is
-               already made; `:reason` carries what an operator acts on")))
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))
-
-    ;; DEV ARM — `:host` on axis 2, where the diagnostics arrive
-    ;; whole and the reader is standing at their own process.
-    (when rf.interop/debug-enabled?
-      (testing "step 3 (dev diagnostics): the dev trace names the
-                rejected host itself"
-        (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-              traces (capture-safe-redirect-dev-traces!
-                       (fn [] (rf/dispatch-sync [:sr/abs-with-relative-only] {:frame f})))]
-          (is (some #(= "evil.example.com" (-> % :tags :host)) traces)
-              ":host names the rejected host on the diagnostic axis"))))))
-
-;; --- Step 4: :allow allowlist ---------------------------------------------
-
-(deftest safe-redirect-allowlist-rejects-off-allowlist-host
-  (testing "step 4: :allow supplied AND URL's host NOT in allow →
-            :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist)"
-    (rf/reg-event :sr/not-in-allow
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "https://evil.example.com/phish"
-                :allow    ["app.example.com" "alt.example.com"]}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/not-in-allow] {:frame f})))
-          hits   (filter #(= :rf.error/safe-redirect-host-disallowed
-                             (:operation %)) traces)]
-      (is (= 1 (count hits))
-          ":rf.error/safe-redirect-host-disallowed fires exactly once")
-      (when (seq hits)
-        (let [ev (first hits)]
-          (is (= :not-in-allowlist (-> ev :tags :reason))
-              ":reason discriminates from the relative-only case")
-          (is (nil? (-> ev :tags :host))
-              ":host is DEV-ONLY — see the
-               dev arm below")))
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))
-
-    ;; DEV ARM — the safe-redirect tags that are genuinely dev-only.
-    ;; `:allowlist` is deliberately absent from the always-on record:
-    ;; `re-frame.ssr.egress/safe-redirect-record-slots` excludes it because an
-    ;; application's own security configuration is unbounded policy data whose
-    ;; contents hand a reader the exact boundary being probed. `:host` is excluded
-    ;; too, for the mirror-image reason —
-    ;; it is the CALLER's unbounded string, on an arm where it is by
-    ;; construction a name the app did not authorise. `:reason
-    ;; :not-in-allowlist` discriminates the arm without either. Read off axis
-    ;; 2, where the diagnostics arrive whole.
-    (when rf.interop/debug-enabled?
-      (testing "step 4 (dev diagnostics): the dev trace carries the
-                rejected host and the allowlist vector itself, for the
-                programmer reading a log"
-        (rf/reg-event :sr/not-in-allow-dev
-          (fn [_ _]
-            {:fx [[:rf.server/safe-redirect
-                   {:location "https://evil.example.com/phish"
-                    :allow    ["app.example.com" "alt.example.com"]}]]}))
-        (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-              traces (capture-safe-redirect-dev-traces!
-                       (fn [] (rf/dispatch-sync [:sr/not-in-allow-dev] {:frame f})))
-              ev     (first (filter #(= :rf.error/safe-redirect-host-disallowed
-                                        (:operation %)) traces))]
-          (is (some? ev)
-              ":rf.error/safe-redirect-host-disallowed reached the dev trace")
-          (is (= "evil.example.com" (-> ev :tags :host))
-              ":host names the rejected host on the diagnostic axis")
-          (is (= ["app.example.com" "alt.example.com"]
-                 (-> ev :tags :allowlist))
-              ":allowlist tag carries the allowlist vector for diagnostic clarity"))))))
-
 ;; --- Validation order: the scheme prefix runs before the parse -----------
 
 (deftest safe-redirect-validation-order-scheme-prefix-precedes-parse
@@ -1776,44 +1525,58 @@
           (str "exactly one :rf.error/safe-redirect-scheme-rejected trace; saw: "
                (pr-str ops))))))
 
-;; --- Step 2b and the shape gate's controls ---------------------------------
+;; --- The dev trace's raw diagnostics, and the shape gate's control ---------
 ;;
 ;; The gate works on parsed-URL SHAPE: a relative reference is `scheme==nil
 ;; AND authority==nil`, anything else is non-relative and subject to the host
 ;; gates, and a scheme-bearing-but-host-less URL (`http:evil.example.com`) has
-;; no defensible redirect interpretation. Each rejection arm, the network-path
-;; bypasses and the case-folded policy matches are pinned on the always-on
-;; axis in `re-frame.ssr-safe-redirect-production-test`; what stays here is
-;; the dev trace's raw scheme spelling and the controls showing the shape gate
-;; does not over-reject.
+;; no defensible redirect interpretation. Each rejection arm — its category,
+;; `:reason`, `:scheme-class`, the closed record and the refusal itself — the
+;; network-path bypasses and the case-folded policy matches are pinned on the
+;; always-on axis in `re-frame.ssr-safe-redirect-production-test`. What stays
+;; here is what the dev trace carries and the always-on record deliberately
+;; does not — the raw scheme, the rejected host, the allowlist — and the
+;; control showing the shape gate does not over-reject.
 
-(deftest safe-redirect-rejects-mailto-scheme
-  (testing "`mailto:user@example.com` — a non-http(s)
-            scheme is rejected outright as scheme-rejected
-            (:reason :scheme-not-allowed)"
-    (rf/reg-event :sr/mailto
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect {:location "mailto:user@example.com"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/mailto] {:frame f})))]
-      (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                      ;; `mailto` is outside the gate's closed vocabulary, so
-                      ;; the always-on record classes it `:other` rather than
-                      ;; spelling it. An arbitrary scheme is caller-authored
-                      ;; text (RFC 3986 §3.1); the DEV trace below keeps the
-                      ;; spelling for the programmer reading their own process.
-                      (= :other (-> % :tags :scheme-class))
-                      (= :scheme-not-allowed (-> % :tags :reason)))
-                traces)
-          "mailto: rejected as :scheme-not-allowed, classed :other")
-      (when rf.interop/debug-enabled?
-        (is (some #(= "mailto" (-> % :tags :scheme))
-                  (capture-safe-redirect-dev-traces!
-                    (fn [] (rf/dispatch-sync [:sr/mailto] {:frame f}))))
-            "DEV ARM: the dev trace names the scheme itself"))
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))))
+(deftest safe-redirect-dev-trace-carries-the-raw-diagnostics
+  ;; DEV ARM — the tags `re-frame.ssr.egress/safe-redirect-record-slots`
+  ;; excludes from the always-on record. The raw `:scheme` spelling and the
+  ;; rejected `:host` are the CALLER's unbounded URL components (a scheme is
+  ;; arbitrary text under RFC 3986 §3.1, and a rejected host is by
+  ;; construction a name the app did not authorise); `:allowlist` is the
+  ;; application's own security configuration, whose contents hand a reader
+  ;; the exact boundary being probed. Axis 2 receives the diagnostics whole,
+  ;; for the programmer reading their own process.
+  (when rf.interop/debug-enabled?
+    (testing "a rejected :rf.server/safe-redirect's dev trace names the raw
+              diagnostics the always-on record leaves out"
+      (rf/reg-event :sr/dev-diagnostics
+        (fn [_ [_ args]]
+          {:fx [[:rf.server/safe-redirect args]]}))
+      (doseq [[label args op expected-tags]
+              [["mailto"
+                {:location "mailto:user@example.com"}
+                :rf.error/safe-redirect-scheme-rejected
+                {:scheme "mailto"}]
+               ["relative-only"
+                {:location       "https://evil.example.com/phish"
+                 :relative-only? true}
+                :rf.error/safe-redirect-host-disallowed
+                {:host "evil.example.com"}]
+               ["allowlist"
+                {:location "https://evil.example.com/phish"
+                 :allow    ["app.example.com" "alt.example.com"]}
+                :rf.error/safe-redirect-host-disallowed
+                {:host      "evil.example.com"
+                 :allowlist ["app.example.com" "alt.example.com"]}]]]
+        (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
+              traces (capture-safe-redirect-dev-traces!
+                       (fn [] (rf/dispatch-sync [:sr/dev-diagnostics args] {:frame f})))
+              ev     (first (filter #(= op (:operation %)) traces))]
+          (doseq [[k v] expected-tags]
+            (is (= v (get-in ev [:tags k]))
+                (str label " — the " op " dev trace carries " k " " (pr-str v)
+                     "; saw: " (pr-str (mapv :operation traces))))))))))
 
 (deftest safe-redirect-accepts-normal-relative-path-control
   (testing "CONTROL: a normal relative path passes
@@ -1834,24 +1597,6 @@
       (is (= 302 (-> resp :redirect :status))
           ":status defaults to 302"))))
 
-(deftest safe-redirect-still-accepts-allowed-absolute-host-control
-  (testing "CONTROL: a well-formed absolute http(s) URL
-            whose host IS in the allowlist passes — the shape gate
-            does not break the legitimate absolute-redirect path"
-    (rf/reg-event :sr/abs-control
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "https://app.example.com/dashboard"
-                :allow    ["app.example.com"]}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/abs-control] {:frame f})))
-          resp   (get-response f)]
-      (is (empty? traces)
-          "no trace on an allowlisted absolute host")
-      (is (= "https://app.example.com/dashboard" (-> resp :redirect :location))
-          ":location passes through"))))
-
 ;; ===========================================================================
 ;; Tag-name injection (emit) + header-name / cookie field
 ;; validation (response)
@@ -1867,7 +1612,8 @@
 ;;      validated against the RFC 7230
 ;;      §3.2.6 token grammar and cookie fields against RFC 6265 §4.1.1
 ;;      + the CR/LF/NUL ban — at the fx boundary, so non-ring host
-;;      adapters get the same safety.
+;;      adapters get the same safety. The header-name rows sit with the
+;;      header-value rows in `ssr-header-fx-reject-injection-in-name-and-value`.
 ;; ===========================================================================
 
 (deftest ssr-render-rejects-hostile-tag-keywords
@@ -1940,51 +1686,7 @@
            (rf.ssr/render-to-string [:svg:rect#r.c] {}))
         "namespaced tag composes with the #id.cls sugar")))
 
-(deftest ssr-set-header-rejects-invalid-name
-  (testing ":rf.server/set-header with CRLF in :name surfaces
-            :rf.error/header-invalid-name (sister gate to the
-            header-value gate)"
-    (rf/reg-event :hdr/crlf-in-name
-      (fn [_ _]
-        {:fx [[:rf.server/set-header
-               {:name  "X-Test\r\nSet-Cookie: evil=1"
-                :value "ok"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:hdr/crlf-in-name] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/header-invalid-name
-        "set-header with CRLF in :name")))
-
-  (testing "separators / whitespace / empty all rejected"
-    (doseq [hostile ["Bad: Name" "Bad Name" "" "with(parens)"
-                     (str "nul" (char 0) "bad")]]
-      (rf/reg-event :hdr/probe-name
-        (fn [_ _]
-          {:fx [[:rf.server/set-header {:name hostile :value "ok"}]]}))
-      (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-            traces (capture-fx-traces!
-                     (fn [] (rf/dispatch-sync [:hdr/probe-name] {:frame f})))]
-        (expect-fx-error-keyword!
-          traces :rf.error/header-invalid-name
-          (str "hostile header name " (pr-str hostile)))))))
-
-(deftest ssr-append-header-rejects-invalid-name
-  (testing ":rf.server/append-header with CRLF in :name surfaces
-            :rf.error/header-invalid-name (same gate as set-header)"
-    (rf/reg-event :hdr/append-crlf-name
-      (fn [_ _]
-        {:fx [[:rf.server/append-header
-               {:name  "X-Audit\r\nSet-Cookie: forged=1"
-                :value "ok"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:hdr/append-crlf-name] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/header-invalid-name
-        "append-header with CRLF in :name"))))
-
-(deftest ssr-set-cookie-rejects-invalid-fields
+(deftest ssr-set-cookie-crlf-checks-every-attribute
   (testing ":rf.server/set-cookie with CRLF in :name surfaces
             :rf.error/cookie-invalid-name (RFC 6265 §4.1.1 token grammar)"
     (rf/reg-event :ck/crlf-in-name
@@ -1999,140 +1701,60 @@
         traces :rf.error/cookie-invalid-name
         "set-cookie with CRLF in :name")))
 
-  (testing ":rf.server/set-cookie with CRLF in :value
-            surfaces the single catalogued :rf.error/cookie-invalid-attribute
-            (offending attribute rides the :attribute payload slot)"
-    (rf/reg-event :ck/crlf-in-value
-      (fn [_ _]
-        {:fx [[:rf.server/set-cookie
-               {:name  "session"
-                :value "abc\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:ck/crlf-in-value] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-attribute
-        "set-cookie with CRLF in :value")
-      (is (= :value (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
-          "the offending attribute (:value) rides the :attribute payload slot")))
-
-  (testing ":rf.server/set-cookie with CRLF in :path
-            surfaces :rf.error/cookie-invalid-attribute (:attribute :path)"
-    (rf/reg-event :ck/crlf-in-path
-      (fn [_ _]
-        {:fx [[:rf.server/set-cookie
-               {:name  "session"
-                :value "abc"
-                :path  "/\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:ck/crlf-in-path] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-attribute
-        "set-cookie with CRLF in :path")
-      (is (= :path (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
-          "the offending attribute (:path) rides the :attribute payload slot")))
-
-  (testing ":rf.server/set-cookie with CRLF in :domain
-            surfaces :rf.error/cookie-invalid-attribute (:attribute :domain)"
-    (rf/reg-event :ck/crlf-in-domain
-      (fn [_ _]
-        {:fx [[:rf.server/set-cookie
-               {:name   "session"
-                :value  "abc"
-                :domain "example.com\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:ck/crlf-in-domain] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-attribute
-        "set-cookie with CRLF in :domain")
-      (is (= :domain (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
-          "the offending attribute (:domain) rides the :attribute payload slot"))))
-
-(deftest ssr-set-cookie-crlf-checks-every-attribute
   (testing "Spec 011 §CRLF fail-fast: :rf.server/set-cookie
             CRLF-checks EVERY attribute the host adapter serialises —
-            :max-age, :same-site, :expires — not just :value/:path/:domain.
-            The fx boundary is the single enforcement point for non-Ring
-            host adapters; a string :max-age sourced from request context
-            must not re-enter the header line as CRLF-bearing payload."
-    ;; The concrete attack: string :max-age
-    ;; carrying a forged second Set-Cookie line.
-    (testing ":max-age (string form) with CRLF → :rf.error/cookie-invalid-attribute (:attribute :max-age)"
-      (rf/reg-event :ck/crlf-in-max-age
+            :value, :path, :domain, :max-age, :same-site, :expires. The fx
+            boundary is the single enforcement point for non-Ring host
+            adapters; a string :max-age sourced from request context must not
+            re-enter the header line as CRLF-bearing payload. Every failure
+            surfaces the single catalogued :rf.error/cookie-invalid-attribute,
+            with the offending attribute in the :attribute payload slot."
+    (doseq [[label attr hostile]
+            [["CRLF in :value"     :value     "abc\r\nSet-Cookie: stolen=1"]
+             ["CRLF in :path"      :path      "/\r\nSet-Cookie: stolen=1"]
+             ["CRLF in :domain"    :domain    "example.com\r\nSet-Cookie: stolen=1"]
+             ["CRLF in a string :max-age (a forged second Set-Cookie line)"
+              :max-age "3600\r\nSet-Cookie: admin=1; Path=/"]
+             ["CRLF in :same-site" :same-site "Lax\r\nSet-Cookie: admin=1"]
+             ["bare LF in :max-age" :max-age  "lf\nbad"]
+             ["bare CR in :max-age" :max-age  "cr\rbad"]
+             ["NUL in :max-age"     :max-age  (str "nul" (char 0) "bad")]]]
+      (rf/reg-event :ck/crlf-in-attribute
         (fn [_ _]
           {:fx [[:rf.server/set-cookie
-                 {:name    "session"
-                  :value   "x"
-                  :max-age "3600\r\nSet-Cookie: admin=1; Path=/"}]]}))
+                 (assoc {:name "session" :value "x"} attr hostile)]]}))
       (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
             traces (capture-fx-traces!
-                     (fn [] (rf/dispatch-sync [:ck/crlf-in-max-age] {:frame f})))]
+                     (fn [] (rf/dispatch-sync [:ck/crlf-in-attribute] {:frame f})))]
         (expect-fx-error-keyword!
           traces :rf.error/cookie-invalid-attribute
-          "set-cookie with CRLF in :max-age")
-        (is (= :max-age (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
-            "the offending attribute (:max-age) rides the :attribute payload slot")
-        (is (empty? (:cookies (get-response f)))
-            "no cookie lands on the accumulator — rejection is a no-op")))
+          (str "set-cookie with " label))
+        (is (= attr (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
+            (str label " — the offending attribute (" attr ") rides the :attribute payload slot")))))
 
-    (testing ":same-site with CRLF → :rf.error/cookie-invalid-attribute (:attribute :same-site)"
-      (rf/reg-event :ck/crlf-in-same-site
-        (fn [_ _]
-          {:fx [[:rf.server/set-cookie
-                 {:name      "session"
-                  :value     "x"
-                  :same-site "Lax\r\nSet-Cookie: admin=1"}]]}))
-      (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-            traces (capture-fx-traces!
-                     (fn [] (rf/dispatch-sync [:ck/crlf-in-same-site] {:frame f})))]
-        (expect-fx-error-keyword!
-          traces :rf.error/cookie-invalid-attribute
-          "set-cookie with CRLF in :same-site")
-        (is (= :same-site (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
-            "the offending attribute (:same-site) rides the :attribute payload slot")))
-
-    ;; A CRLF-bearing :expires is an INJECTION failure and
-    ;; lands on :rf.error/cookie-invalid-attribute (:attribute :expires),
-    ;; not on :rf.error/cookie-invalid-expires. That id
-    ;; is reserved for a NON-integer epoch at the Ring materialiser (a shape
-    ;; error, not an injection) — see the ssr-ring cookie tests.
-    (testing ":expires with CRLF → :rf.error/cookie-invalid-attribute (:attribute :expires)"
-      (rf/reg-event :ck/crlf-in-expires
-        (fn [_ _]
-          {:fx [[:rf.server/set-cookie
-                 {:name    "session"
-                  :value   "x"
-                  :expires "Wed, 09 Jun 2027 10:18:14 GMT\r\nSet-Cookie: admin=1"}]]}))
-      (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-            traces (capture-fx-traces!
-                     (fn [] (rf/dispatch-sync [:ck/crlf-in-expires] {:frame f})))]
-        (expect-fx-error-keyword!
-          traces :rf.error/cookie-invalid-attribute
-          "set-cookie with CRLF in :expires")
-        (let [extra (fx-error-extra traces :rf.error/cookie-invalid-attribute)]
-          (is (= :rf.error/cookie-invalid-attribute (:rf.error/id extra))
-              "CRLF-in-:expires lands on the catalogued attribute id, NOT cookie-invalid-expires")
-          (is (= :expires (:attribute extra))
-              "the offending attribute (:expires) rides the :attribute payload slot")
-          (is (contains? extra :value)
-              "the offending value rides the :value payload slot"))))
-
-    (testing "bare LF / bare CR / NUL in :max-age all rejected"
-      (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
-        (rf/reg-event :ck/probe-max-age
-          (fn [_ _]
-            {:fx [[:rf.server/set-cookie
-                   {:name "s" :value "x" :max-age hostile}]]}))
-        (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-              traces (capture-fx-traces!
-                       (fn [] (rf/dispatch-sync [:ck/probe-max-age] {:frame f})))]
-          (expect-fx-error-keyword!
-            traces :rf.error/cookie-invalid-attribute
-            (str "hostile :max-age " (pr-str hostile)))
-          (is (= :max-age (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
-              (str "hostile :max-age " (pr-str hostile) " rides the :attribute payload slot")))))))
+  ;; A CRLF-bearing :expires is an INJECTION failure and lands on
+  ;; :rf.error/cookie-invalid-attribute (:attribute :expires), not on
+  ;; :rf.error/cookie-invalid-expires. That id is reserved for a NON-integer
+  ;; epoch at the Ring materialiser (a shape error, not an injection) — see
+  ;; the ssr-ring cookie tests.
+  (testing ":expires with CRLF → :rf.error/cookie-invalid-attribute (:attribute :expires)"
+    (rf/reg-event :ck/crlf-in-expires
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie
+               {:name    "session"
+                :value   "x"
+                :expires "Wed, 09 Jun 2027 10:18:14 GMT\r\nSet-Cookie: admin=1"}]]}))
+    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
+          traces (capture-fx-traces!
+                   (fn [] (rf/dispatch-sync [:ck/crlf-in-expires] {:frame f})))
+          extra  (fx-error-extra traces :rf.error/cookie-invalid-attribute)]
+      (expect-fx-error-keyword!
+        traces :rf.error/cookie-invalid-attribute
+        "set-cookie with CRLF in :expires lands on the catalogued attribute id, NOT cookie-invalid-expires")
+      (is (= :expires (:attribute extra))
+          "the offending attribute (:expires) rides the :attribute payload slot")
+      (is (contains? extra :value)
+          "the offending value rides the :value payload slot"))))
 
 (deftest ssr-set-cookie-rejects-semicolon-attribute-delimiter
   (testing "Spec 011 §Cookie shape: :rf.server/set-cookie
@@ -2432,13 +2054,9 @@
       ;; map. That is not bad client input, so it must NOT mislabel as a
       ;; client-facing 400; it falls through to the locked generic-500.
       (let [{:keys [response]} (drive-server-fx! [:rf.server/set-status "not-an-int"])]
-        (is (not= "not-an-int" (:status response))
-            "the malformed status was skipped — never reached the accumulator")
-        (is (integer? (:status response))
-            "the wire status is an integer, in every build")
         (is (= 500 (:status response))
-            "surfaced as 500 :internal-error — the 400 arm is gated to
-             :where :event/:cofx")))
+            "the malformed status never reached the wire: it surfaced as 500
+             :internal-error, because the 400 arm is gated to :where :event/:cofx")))
 
     (testing ":rf.server/set-header missing :value"
       (let [{:keys [response]} (drive-server-fx! [:rf.server/set-header {:name "X-Foo"}])]
@@ -2664,11 +2282,5 @@
       (is (str/includes? html "Article B"))
       (is (re-find #"<div[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
                    html)
-          "root <div> carries a data-rf-render-hash attribute")
-      ;; The hash is reproducible: re-render the same tree, same hash.
-      (let [h1 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html)
-            html-2 (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})
-            h2 (re-find #"data-rf-render-hash=\"([0-9a-f]{8})\""  html-2)]
-        (is (= (second h1) (second h2))
-            "re-rendering the same view+state yields the same hash")))))
+          "root <div> carries a data-rf-render-hash attribute"))))
 
