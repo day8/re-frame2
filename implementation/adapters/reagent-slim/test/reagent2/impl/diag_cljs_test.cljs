@@ -45,7 +45,7 @@
 (deftest value-summary-degenerate-shapes
   (testing "nil / fn / boolean / seq summarise to their bare shape tag"
     (is (= {:type :nil} (diag/value-summary nil)))
-    (is (= :fn (:type (diag/value-summary (fn [] nil)))))
+    (is (= {:type :fn} (diag/value-summary (fn [] nil))))
     ;; A boolean's VALUE is app content and `:type` already says
     ;; everything the diagnostic needs, so nothing distinguishes them.
     (is (= {:type :boolean} (diag/value-summary true)))
@@ -160,6 +160,7 @@
    3.14159
    '(1 2 3)
    (map inc [1 2 3])
+   (fn [] :x)                                              ;; :fn arm
    #js [1 2 3]                                             ;; seqable? arm (not seq?)
    (js/Date. 0)])                                          ;; final :scalar arm
 
@@ -169,9 +170,3 @@
     (doseq [v parity-corpus]
       (is (= (rf.error/diag-value-summary v) (diag/value-summary v))
           (str "mirror drift for value: " (pr-str v))))))
-
-(deftest value-summary-mirrors-on-fn-and-lambda
-  (testing "a fn value summarises to the SAME bare {:type :fn} on both twins"
-    (let [f (fn [] :x)]
-      (is (= (rf.error/diag-value-summary f) (diag/value-summary f)))
-      (is (= {:type :fn} (diag/value-summary f))))))

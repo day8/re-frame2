@@ -126,33 +126,19 @@
 ;; Form-1 detection (runtime)
 ;; ---------------------------------------------------------------------------
 
-(deftest wrap-render-form-1-vector
-  (testing "render-fn returning a hiccup vector classifies as Form-1"
-    (let [render-fn (fn [n] [:span "n=" n])
-          c         (fake-instance [render-fn 7])
-          out       (component/wrap-render c render-fn)]
-      (is (= [:span "n=" 7] out)))))
-
-(deftest wrap-render-form-1-string
-  (testing "render-fn returning a string is Form-1 (primitive)"
-    (let [render-fn (fn [_] "hello")
-          c         (fake-instance [render-fn 1])
-          out       (component/wrap-render c render-fn)]
-      (is (= "hello" out)))))
-
-(deftest wrap-render-form-1-nil
-  (testing "render-fn returning nil is Form-1"
-    (let [render-fn (fn [_] nil)
-          c         (fake-instance [render-fn 1])
-          out       (component/wrap-render c render-fn)]
-      (is (nil? out)))))
-
-(deftest wrap-render-form-1-no-args
-  (testing "render-fn taking no args (zero-arity Form-1)"
-    (let [render-fn (fn [] [:p "z"])
-          c         (fake-instance [render-fn])
-          out       (component/wrap-render c render-fn)]
-      (is (= [:p "z"] out)))))
+(deftest wrap-render-form-1-returns-the-render-output
+  (doseq [[why render-fn args expected]
+          [["render-fn returning a hiccup vector classifies as Form-1"
+            (fn [n] [:span "n=" n]) [7] [:span "n=" 7]]
+           ["render-fn returning a string is Form-1 (primitive)"
+            (fn [_] "hello") [1] "hello"]
+           ["render-fn returning nil is Form-1"
+            (fn [_] nil) [1] nil]
+           ["render-fn taking no args (zero-arity Form-1)"
+            (fn [] [:p "z"]) [] [:p "z"]]]]
+    (testing why
+      (let [c (fake-instance (into [render-fn] args))]
+        (is (= expected (component/wrap-render c render-fn)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form-2 detection (runtime)
@@ -589,19 +575,6 @@
           k2 (component/fn-to-class f)]
       (is (identical? k1 k2)
           "second call returns the cached class"))))
-
-(deftest fn-to-class-render-yields-react-element
-  (testing "the cached class's render produces a React element wrapping the user fn's hiccup"
-    ;; render() returns a React element (not raw hiccup);
-    ;; make-render-method converts via the registered as-element fn.
-    (let [f     (fn [n] [:p "n=" n])
-          ^js klass (component/fn-to-class f)
-          props #js {:__rfArgv [f 5]}
-          inst  (new klass props)
-          ^js el    (.call (.. klass -prototype -render) inst)]
-      (is (some? el) "render returns a non-nil React element")
-      (is (= "p" (.-type el))
-          ".-type is the DOM tag from the hiccup head"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Type predicates

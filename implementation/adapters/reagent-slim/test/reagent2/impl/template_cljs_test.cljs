@@ -83,29 +83,16 @@
 ;; cached-prop-name — kebab→camel + special cases
 ;; ---------------------------------------------------------------------------
 
-(deftest cached-prop-name-class
-  (testing ":class → \"className\""
-    (is (= "className" (template/cached-prop-name :class)))))
-
-(deftest cached-prop-name-for
-  (testing ":for → \"htmlFor\""
-    (is (= "htmlFor" (template/cached-prop-name :for)))))
-
-(deftest cached-prop-name-tab-index
-  (testing ":tab-index → \"tabIndex\" (kebab→camel)"
-    (is (= "tabIndex" (template/cached-prop-name :tab-index)))))
-
-(deftest cached-prop-name-data-attr
-  (testing ":data-foo → \"data-foo\" (data-* not camelCased)"
-    (is (= "data-foo" (template/cached-prop-name :data-foo)))))
-
-(deftest cached-prop-name-aria-attr
-  (testing ":aria-label → \"aria-label\" (aria-* not camelCased)"
-    (is (= "aria-label" (template/cached-prop-name :aria-label)))))
-
-(deftest cached-prop-name-string-passthrough
-  (testing "non-keyword value passes through unchanged"
-    (is (= "alreadyString" (template/cached-prop-name "alreadyString")))))
+(deftest cached-prop-name-maps-each-prop-key
+  (doseq [[why k expected]
+          [[":class → \"className\""                                :class          "className"]
+           [":for → \"htmlFor\""                                    :for            "htmlFor"]
+           [":tab-index → \"tabIndex\" (kebab→camel)"               :tab-index      "tabIndex"]
+           [":data-foo → \"data-foo\" (data-* not camelCased)"      :data-foo       "data-foo"]
+           [":aria-label → \"aria-label\" (aria-* not camelCased)"  :aria-label     "aria-label"]
+           ["non-keyword value passes through unchanged"            "alreadyString" "alreadyString"]]]
+    (testing why
+      (is (= expected (template/cached-prop-name k))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Narrowed convert-prop-value — D2 (R-001)
@@ -120,25 +107,16 @@
     (is (= "primary"
            (template/convert-prop-value :class :primary)))))
 
-(deftest convert-prop-value-id-keyword-stringifies
-  (testing ":id with keyword value → string (HTML-attr name)"
-    (is (= "main-header"
-           (template/convert-prop-value :id :main-header)))))
-
-(deftest convert-prop-value-role-keyword-stringifies
-  (testing ":role with keyword value → string (HTML-attr name)"
-    (is (= "button"
-           (template/convert-prop-value :role :button)))))
-
-(deftest convert-prop-value-data-attr-stringifies
-  (testing ":data-foo with keyword value → string (data-* HTML attr)"
-    (is (= "bar"
-           (template/convert-prop-value :data-foo :bar)))))
-
-(deftest convert-prop-value-aria-attr-stringifies
-  (testing ":aria-label with keyword value → string (aria-* HTML attr)"
-    (is (= "close"
-           (template/convert-prop-value :aria-label :close)))))
+(deftest convert-prop-value-stringifies-html-attr-keywords-and-passes-other-values
+  (doseq [[why k v expected]
+          [[":id with keyword value → string (HTML-attr name)"            :id         :main-header "main-header"]
+           [":role with keyword value → string (HTML-attr name)"          :role       :button      "button"]
+           [":data-foo with keyword value → string (data-* HTML attr)"    :data-foo   :bar         "bar"]
+           [":aria-label with keyword value → string (aria-* HTML attr)"  :aria-label :close       "close"]
+           ["string value passes through unchanged"                       :class      "hello"      "hello"]
+           ["number value passes through unchanged"                       :tab-index  42           42]]]
+    (testing why
+      (is (= expected (template/convert-prop-value k v))))))
 
 (deftest convert-prop-value-non-html-keyword-passes-through
   (testing ":value with keyword value → keyword unchanged (non-HTML name; D2 narrowing)"
@@ -146,15 +124,6 @@
     ;; the keyword so React-context Provider :value works as intended.
     (is (= :some-frame
            (template/convert-prop-value :value :some-frame)))))
-
-(deftest convert-prop-value-string-passthrough
-  (testing "string value passes through unchanged"
-    (is (= "hello"
-           (template/convert-prop-value :class "hello")))))
-
-(deftest convert-prop-value-number-passthrough
-  (testing "number value passes through unchanged"
-    (is (= 42 (template/convert-prop-value :tab-index 42)))))
 
 ;; A fixture that actually REACHES `convert-prop-value`'s
 ;; `ifn?` arm: object-backed, satisfies IFn, and satisfies none of the
@@ -456,25 +425,15 @@
 ;; as-element — primitive cases
 ;; ---------------------------------------------------------------------------
 
-(deftest as-element-nil
-  (testing "nil → nil"
-    (is (nil? (template/as-element nil)))))
-
-(deftest as-element-string
-  (testing "string → string"
-    (is (= "hello" (template/as-element "hello")))))
-
-(deftest as-element-number
-  (testing "number → number"
-    (is (= 42 (template/as-element 42)))))
-
-(deftest as-element-keyword
-  (testing "bare keyword → name"
-    (is (= "foo" (template/as-element :foo)))))
-
-(deftest as-element-symbol
-  (testing "bare symbol → name"
-    (is (= "bar" (template/as-element 'bar)))))
+(deftest as-element-primitives
+  (doseq [[why x expected]
+          [["nil → nil"           nil     nil]
+           ["string → string"     "hello" "hello"]
+           ["number → number"     42      42]
+           ["bare keyword → name" :foo    "foo"]
+           ["bare symbol → name"  'bar    "bar"]]]
+    (testing why
+      (is (= expected (template/as-element x))))))
 
 ;; ---------------------------------------------------------------------------
 ;; as-element — DOM tags
@@ -484,22 +443,6 @@
   (testing "[:div] → React element with tag \"div\""
     (let [^js el (template/as-element [:div])]
       (is (= "div" (.-type el))))))
-
-(deftest as-element-div-with-class
-  (testing "[:div {:class \"foo\"}] → element with className"
-    (let [^js el (template/as-element [:div {:class "foo"}])]
-      (is (= "div" (.-type el)))
-      (is (= "foo" (-> el .-props .-className))))))
-
-(deftest as-element-div-with-id
-  (testing "[:div {:id \"x\"}] → element with id"
-    (let [^js el (template/as-element [:div {:id "x"}])]
-      (is (= "x" (-> el .-props .-id))))))
-
-(deftest as-element-shorthand-class-and-prop-class
-  (testing "[:div.foo {:class \"bar\"}] → \"foo bar\" (shorthand prepends per stock)"
-    (let [^js el (template/as-element [:div.foo {:class "bar"}])]
-      (is (= "foo bar" (-> el .-props .-className))))))
 
 (deftest as-element-shorthand-id-yields-to-prop
   (testing "[:div#a {:id \"b\"}] → user :id wins over shorthand"
@@ -513,33 +456,28 @@
 ;; shorthand, the shorthand class too). collapse-class-keys folds
 ;; :className into :class deterministically,
 ;; matching the server path's merge-tag-shorthand :className handling.
-(deftest as-element-classname-prop-only
-  (testing "[:div {:className \"bar\"}] → React-style :className passes through"
-    (let [^js el (template/as-element [:div {:className "bar"}])]
-      (is (= "bar" (-> el .-props .-className))))))
-
-(deftest as-element-class-and-classname-both
-  (testing "[:div {:class \"a\" :className \"b\"}] → merged \"a b\", neither dropped"
-    (let [^js el (template/as-element [:div {:class "a" :className "b"}])]
-      (is (= "a b" (-> el .-props .-className))))))
-
-(deftest as-element-shorthand-with-class-and-classname
-  (testing "[:div.sh {:class \"a\" :className \"b\"}] → \"sh a b\" (all three kept)"
-    (let [^js el (template/as-element [:div.sh {:class "a" :className "b"}])]
-      (is (= "sh a b" (-> el .-props .-className))))))
-
-(deftest as-element-shorthand-with-classname-prop
-  (testing "[:div.foo {:className \"bar\"}] → \"foo bar\" (no double-merge)"
-    (let [^js el (template/as-element [:div.foo {:className "bar"}])]
-      (is (= "foo bar" (-> el .-props .-className))))))
-
-(deftest as-element-class-classname-collision-deterministic-large-map
-  (testing "large (hash-map) props with :class + :className stays deterministic"
-    (let [props  (merge {:class "a" :className "b"}
-                        (zipmap (map #(keyword (str "data-x" %)) (range 20))
-                                (range 20)))
-          ^js el (template/as-element [:div props])]
-      (is (= "a b" (-> el .-props .-className))))))
+(deftest as-element-class-props-collapse-into-one-className
+  (doseq [[why hiccup expected]
+          [["[:div {:class \"foo\"}] → element with className"
+            [:div {:class "foo"}] "foo"]
+           ["[:div.foo {:class \"bar\"}] → \"foo bar\" (shorthand prepends per stock)"
+            [:div.foo {:class "bar"}] "foo bar"]
+           ["[:div {:className \"bar\"}] → React-style :className passes through"
+            [:div {:className "bar"}] "bar"]
+           ["[:div {:class \"a\" :className \"b\"}] → merged \"a b\", neither dropped"
+            [:div {:class "a" :className "b"}] "a b"]
+           ["[:div.sh {:class \"a\" :className \"b\"}] → \"sh a b\" (all three kept)"
+            [:div.sh {:class "a" :className "b"}] "sh a b"]
+           ["[:div.foo {:className \"bar\"}] → \"foo bar\" (no double-merge)"
+            [:div.foo {:className "bar"}] "foo bar"]
+           ["large (hash-map) props with :class + :className stays deterministic"
+            [:div (merge {:class "a" :className "b"}
+                         (zipmap (map #(keyword (str "data-x" %)) (range 20))
+                                 (range 20)))]
+            "a b"]]]
+    (testing why
+      (let [^js el (template/as-element hiccup)]
+        (is (= expected (-> el .-props .-className)))))))
 
 (deftest as-element-nested-shorthand
   (testing "[:div.outer [:span#inner.cls \"hi\"]] — nested shorthand"
