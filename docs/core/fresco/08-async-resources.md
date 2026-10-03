@@ -83,6 +83,80 @@ list, so the seed event asks for it instead. Data that the current URL
 determines is better caused by the route's `:resources`, which SSR and
 transition blocking can also see.
 
+The cell below runs `:todo/list`, `:todo/initialise` and `todo-page` against
+a stubbed `/api/todos`, so nothing goes over the network. The frame does not
+list `:todo/initialise` in `:initial-events`; a button dispatches it instead.
+The view says *Waiting to load todos.* until you press it, because rendering
+alone fetches nothing.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.resources]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support]
+         '[re-frame.fresco :as h])
+
+;; Stand-in server: GET /api/todos answers from this map.
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/todos"] {:reply {:ok [{:id 1 :title "Buy milk"}
+                                     {:id 2 :title "Walk the dog"}]}}})
+
+(rf/reg-resource :todo/list
+  {:params-schema [:map]
+   :scope         :rf.scope/global
+   :tags          (fn [_ _] #{[:todos]})}
+  (fn [_params _ctx]
+    {:request {:method :get
+               :url    "/api/todos"}
+     :decode  :json}))
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:fx [[:dispatch [:rf.resource/ensure
+                      {:resource :todo/list
+                       :params   {}
+                       :owner    [:todo-page]
+                       :cause    [:todo/initialise]}]]]}))
+
+(h/defview todo-page [_]
+  (let [{:keys [status data loading? fetching?
+                error refresh-error has-data?]}
+        (h/sub [:rf/resource {:resource :todo/list :params {}}])]
+    [:section.todos {:aria-busy (boolean (or loading? fetching?))}
+     (when (or error refresh-error)
+       [:div {:role "alert"}
+        [:p (if has-data?
+              "Could not refresh. Showing the last saved list."
+              "Could not load todos.")]
+        [:button {:type "button"
+                  :disabled (boolean (or loading? fetching?))
+                  :on-click [:rf.resource/refetch
+                             {:resource :todo/list
+                              :params {}
+                              :cause [:todo/retry]}]}
+         "Try again"]])
+     (cond
+       loading?        [:p "Loading…"]
+       (= :idle status) [:p "Waiting to load todos."]
+       (not has-data?)  nil
+       (empty? data)    [:p "No todos yet."]
+       :else
+       [:ul.todo-list
+        (for [{:keys [id title]} data]
+          [:li {:key id} title])])]))
+
+(h/defview resource-demo [_]
+  [:div
+   [:button {:type "button" :on-click [:todo/initialise]} "Load todos"]
+   [todo-page]
+   [:p "Status: "
+    (pr-str (:status (h/sub [:rf/resource {:resource :todo/list :params {}}])))]])
+
+[h/frame-root {:id           :app
+               :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [resource-demo]]
+```
+
 ## Track writes per instance
 
 A write is a registered mutation, executed with an **instance** id that names
