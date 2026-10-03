@@ -195,6 +195,91 @@ composition, so neither should dispatch the application's commit or cancel
 intent. The runtime performs this check centrally, including legacy browser
 signals described under [Advanced](#advanced).
 
+## Run them together
+
+The cell below uses an intent at `:on-submit`, `::h/value` at `:on-input`, a
+keyboard map, and `::h/prevent` on anchors. Type a todo and press Enter: the
+form dispatches `[:todo/submit]` and the page does not reload. Escape clears
+the draft. The filter links change the list without following their `#`
+hrefs.
+
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos   {1 {:id 1 :title "Buy milk" :done? true}}
+          :showing :all
+          :todo.ui {:draft ""}}}))
+
+(rf/reg-event :todo.ui/set-draft
+  (fn [{:keys [db]} [_ text]]
+    {:db (assoc-in db [:todo.ui :draft] text)}))
+
+(rf/reg-event :todo.ui/cancel
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:todo.ui :draft] "")}))
+
+(rf/reg-event :todo/submit
+  (fn [{:keys [db]} _]
+    (let [title (str/trim (get-in db [:todo.ui :draft]))
+          id    (inc (apply max 0 (keys (:todos db))))]
+      (when-not (str/blank? title)
+        {:db (-> db
+                 (assoc-in [:todos id] {:id id :title title :done? false})
+                 (assoc-in [:todo.ui :draft] ""))}))))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-event :todo/set-showing
+  (fn [{:keys [db]} [_ showing]]
+    {:db (assoc db :showing showing)}))
+
+(rf/reg-sub :todo.ui/draft (fn [db _] (get-in db [:todo.ui :draft])))
+(rf/reg-sub :todo/showing (fn [db _] (:showing db)))
+
+(rf/reg-sub :todo/visible
+  (fn [{:keys [todos showing]} _]
+    (cond->> (sort-by :id (vals todos))
+      (= showing :active) (remove :done?)
+      (= showing :done)   (filter :done?))))
+
+(h/defview todo-screen [_]
+  [:div
+   [:form {:on-submit [:todo/submit]}
+    [:input {:value       (h/sub [:todo.ui/draft])
+             :placeholder "What needs doing?"
+             :on-input    [:todo.ui/set-draft ::h/value]
+             :on-key-down {"Escape" [:todo.ui/cancel]}}]
+    [:button {:type :submit} "Add todo"]]
+   [:p
+    (for [showing [:all :active :done]]
+      ;; :target only stops this docs site's instant navigation from
+      ;; claiming the link; an application leaves it out.
+      [:a {:key      showing
+           :href     "#"
+           :target   "_self"
+           :style    {:margin-right "1em"}
+           :on-click [::h/prevent [:todo/set-showing showing]]}
+       (name showing)])
+    "showing " (name (h/sub [:todo/showing]))]
+   [:ul
+    (for [{:keys [id title done?]} (h/sub [:todo/visible])]
+      [:li {:key id}
+       [:label
+        [:input {:type      :checkbox
+                 :checked   done?
+                 :on-change [:todo/toggle id]}]
+        " " title]])]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-screen {}]]
+```
+
 <a id="frame-safe-callbacks-and-hframe"></a>
 <a id="frame-safe-callbacks"></a>
 ## Frame-safe callbacks and `rf/capture-frame`
