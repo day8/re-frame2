@@ -8,6 +8,11 @@
 ;;   - day8/reagent-slim  reagent2 and its re-frame2 adapter
 ;;   - machines, flows,   reg-machine, reg-flow and reg-app-schema
 ;;     schemas            (schemas brings Malli)
+;;   - fresco             re-frame.fresco and its forms, overlay and motion
+;;                        modules
+;;   - http, resources    :rf.http/managed, its test stubs, and reg-resource
+;;   - routing, epoch,    reg-route, epoch history, render-to-string
+;;     ssr
 ;;
 ;; The :local/root coords build against this checkout's implementation. The
 ;; bundle is docs-only, so it never reaches an application build.
@@ -20,4 +25,10 @@
          day8/reagent-slim       {:local/root "../../../../implementation/adapters/reagent-slim"}
          day8/re-frame2-machines {:local/root "../../../../implementation/machines"}
          day8/re-frame2-flows    {:local/root "../../../../implementation/flows"}
-         day8/re-frame2-schemas  {:local/root "../../../../implementation/schemas"}}}
+         day8/re-frame2-schemas  {:local/root "../../../../implementation/schemas"}
+         day8/re-frame2-fresco   {:local/root "../../../../implementation/fresco"}
+         day8/re-frame2-http     {:local/root "../../../../implementation/http"}
+         day8/re-frame2-resources {:local/root "../../../../implementation/resources"}
+         day8/re-frame2-routing  {:local/root "../../../../implementation/routing"}
+         day8/re-frame2-epoch    {:local/root "../../../../implementation/epoch"}
+         day8/re-frame2-ssr      {:local/root "../../../../implementation/ssr"}}}

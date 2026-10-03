@@ -16,6 +16,13 @@
  *     a program cell mounted in two frames by a second cell, the views.md and
  *     coeffects.md Try-it edits (each must run on its owning frame, not
  *     :rf/default), and reg-app-schema.
+ *   - Fresco in the same fence: a defview cell (h/sub, an intent vector, an
+ *     h/event callback, ::h/value) and a cell whose only Fresco feature is a
+ *     data-valued :on-click both render through Fresco.
+ *   - HTTP and resources: a stubbed :rf.http/managed reply reaches
+ *     :on-success, and a reg-resource loads on [:rf.resource/ensure].
+ *   - routing, epoch and SSR load: reg-route registers and
+ *     re-frame.ssr/render-to-string runs.
  *   - a plain cell evaluates alongside the loaded re-frame2 bundle.
  *   - an instant-navigation swap releases the outgoing page's React roots,
  *     destroys its frames and clears its registrations, and framework
@@ -292,6 +299,75 @@ const PAGE = `<!DOCTYPE html>
    [:button#rf2-sv-inc {:on-click #(dispatch [:rf2smoke/sv-inc])} "inc"]])
 [rf/frame-root {:id :rf2smoke/schemaframe :initial-events [[:rf2smoke/sv-init]]}
  [sv-view]]</pre>
+  <h2>Fresco cell (defview, h/sub, intent vector, h/event, ::h/value)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+;; A Fresco head in the last form renders the cell through Fresco. No
+;; frame-root, so the view runs in :rf/default.
+(rf/reg-event :fsmoke/inc (fn [{:keys [db]} _] {:db (update db :fsmoke/n (fnil inc 0))}))
+(rf/reg-event :fsmoke/edit (fn [{:keys [db]} [_ v]] {:db (assoc db :fsmoke/text v)}))
+(rf/reg-sub :fsmoke/n (fn [db _] (:fsmoke/n db 0)))
+(rf/reg-sub :fsmoke/text (fn [db _] (:fsmoke/text db "")))
+(h/defview fresco-counter [_]
+  [:div
+   [:span#fresco-cnt "count: " (h/sub [:fsmoke/n])]
+   [:button#fresco-inc {:on-click [:fsmoke/inc]} "inc"]
+   [:button#fresco-event {:on-click (h/event [_] [:fsmoke/inc])} "inc via h/event"]
+   [:input#fresco-in {:type :text :value (h/sub [:fsmoke/text]) :on-input [:fsmoke/edit ::h/value]}]
+   [:span#fresco-text "text: " (h/sub [:fsmoke/text])]])
+[fresco-counter {}]</pre>
+  <h2>Fresco by props (a data-valued handler, no Fresco head)</h2>
+  <pre class="language-cljs-rf2">[:button#fresco-poke {:on-click [:fsmoke/inc]} "poke"]</pre>
+  <h2>HTTP cell (stubbed :rf.http/managed)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+(http-test-support/install-managed-request-stubs!
+  {[:get "https://api.example.com/articles/intro"] {:reply {:ok {:title "Welcome"}}}})
+(rf/reg-event :hsmoke/load
+  (fn [_ _]
+    {:fx [[:rf.http/managed {:request    {:url "https://api.example.com/articles/intro"}
+                             :on-success [:hsmoke/loaded]
+                             :on-failure [:hsmoke/failed]}]]}))
+(rf/reg-event :hsmoke/loaded (fn [{:keys [db]} [_ {:keys [value]}]] {:db (assoc db :title (:title value))}))
+(rf/reg-event :hsmoke/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :title (str "failed " (pr-str reply)))}))
+(rf/reg-sub :hsmoke/title (fn [db _] (:title db "not loaded")))
+(rf/reg-view http-view []
+  [:div
+   [:button#http-load {:on-click #(dispatch [:hsmoke/load])} "load"]
+   [:span#http-title (str @(subscribe [:hsmoke/title]))]])
+[rf/frame-root {:id :hsmoke/frame :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [http-view]]</pre>
+  <h2>resource cell (reg-resource over stubbed HTTP)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.resources]
+         '[re-frame.http.test-support :as http-test-support])
+(http-test-support/install-managed-request-stubs!
+  {[:get "https://api.example.com/articles/intro"] {:reply {:ok {:title "Welcome"}}}})
+(rf/reg-resource :rsmoke/article
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "https://api.example.com/articles/" slug)}}))
+(rf/reg-view resource-view [slug]
+  (let [q {:resource :rsmoke/article :params {:slug slug}}
+        s @(subscribe [:rf/resource q])]
+    [:div
+     [:button#res-load {:on-click #(dispatch [:rf.resource/ensure q])} "load"]
+     [:span#res-state (cond (:error s)     (str "error: " (pr-str (:error s)))
+                            (:loading? s)  "loading"
+                            (contains? s :data) (str "title: " (:title (:data s)))
+                            :else          "idle")]]))
+[rf/frame-root {:id :rsmoke/frame :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [resource-view "intro"]]</pre>
+  <h2>routing, epoch and SSR load (reg-route, render-to-string)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
+         '[re-frame.routing]
+         '[re-frame.epoch]
+         '[re-frame.ssr :as ssr])
+(rf/reg-route :osmoke/home {} "/osmoke")
+[:span#opt-ssr (ssr/render-to-string [:p.x "hi"])]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -440,7 +516,7 @@ await page.waitForFunction(
 assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
 
 const rf2Cells = await page.$$(".cljs-cell--rf2");
-assert(rf2Cells.length === 11, `11 re-frame2 cells mounted (got ${rf2Cells.length})`);
+assert(rf2Cells.length === 16, `16 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
 // driven by re-frame2's OWN reg-event / reg-sub / dispatch-sync.
@@ -747,6 +823,48 @@ assert(
   `the schema rejects the -1 write, so inc reads 6 (got ${JSON.stringify(svAfterBad)})`
 );
 
+// --- Fresco through the same fence ------------------------------------------
+//
+// The first cell ends in a defview head, the second only in a data-valued
+// :on-click; both must render through Fresco and dispatch into :rf/default.
+const frescoErr = await page.$$eval(".cljs-cell--rf2 .cljs-result--err", (els) =>
+  els.map((el) => el.innerText.slice(0, 300))
+);
+assert(frescoErr.length === 0, `no re-frame2 cell flagged error (saw ${JSON.stringify(frescoErr)})`);
+await page.waitForSelector("#fresco-cnt", { timeout: 20000 });
+const frescoText = async (sel) => (await page.locator(sel).innerText()).trim();
+const waitText = (sel, want) =>
+  page.waitForFunction(
+    ([s, w]) => document.querySelector(s)?.innerText.trim() === w,
+    [sel, want], { timeout: 5000 }
+  ).catch(() => {});
+assert((await frescoText("#fresco-cnt")) === "count: 0", `Fresco view renders h/sub (got ${JSON.stringify(await frescoText("#fresco-cnt"))})`);
+await page.click("#fresco-inc");
+await waitText("#fresco-cnt", "count: 1");
+assert((await frescoText("#fresco-cnt")) === "count: 1", `an intent vector dispatches (got ${JSON.stringify(await frescoText("#fresco-cnt"))})`);
+await page.click("#fresco-event");
+await waitText("#fresco-cnt", "count: 2");
+assert((await frescoText("#fresco-cnt")) === "count: 2", `an h/event callback dispatches its returned vector (got ${JSON.stringify(await frescoText("#fresco-cnt"))})`);
+await page.click("#fresco-poke");
+await waitText("#fresco-cnt", "count: 3");
+assert((await frescoText("#fresco-cnt")) === "count: 3", `a cell with only a data-valued handler renders through Fresco (got ${JSON.stringify(await frescoText("#fresco-cnt"))})`);
+await page.fill("#fresco-in", "ab");
+await waitText("#fresco-text", "text: ab");
+assert((await frescoText("#fresco-text")) === "text: ab", `::h/value carries the input's value (got ${JSON.stringify(await frescoText("#fresco-text"))})`);
+
+// --- HTTP and resources over the stubbed transport ---------------------------
+await page.click("#http-load");
+await waitText("#http-title", "Welcome");
+assert((await frescoText("#http-title")) === "Welcome", `a stubbed :rf.http/managed reply reaches :on-success (got ${JSON.stringify(await frescoText("#http-title"))})`);
+assert((await frescoText("#res-state")) === "idle", `a resource is idle before ensure (got ${JSON.stringify(await frescoText("#res-state"))})`);
+await page.click("#res-load");
+await waitText("#res-state", "title: Welcome");
+assert((await frescoText("#res-state")) === "title: Welcome", `rf.resource/ensure loads through the stub (got ${JSON.stringify(await frescoText("#res-state"))})`);
+
+// --- routing, epoch and SSR are in the bundle ---------------------------------
+const ssrOut = await frescoText("#opt-ssr");
+assert(/^<p[^>]*>hi<\/p>$/.test(ssrOut), `re-frame.ssr/render-to-string runs in a cell (got ${JSON.stringify(ssrOut)})`);
+
 // Scittle and window.rf2sci coexist: a plain cell evaluates alongside the
 // loaded re-frame2 bundle.
 const c1afterRf2 = await evalCell(0);
@@ -763,7 +881,7 @@ assert(
 // disposePage tears it down. This section registers a page-owned event on
 // page 1, swaps in a "page 2", and calls the entrypoint a real document$
 // emission calls (window.__rf2PlaygroundLoad). Page 2 then checks:
-//   - roots released: the live root count is page 2's 3 cells, not 12 + 3.
+//   - roots released: the live root count is page 2's 3 cells, not 17 + 3.
 //   - frames destroyed: page 2 re-makes :rf2smoke/frame (left at {:rv 2} by
 //     page 1) with a fresh seed. make-frame on a live id keeps its app-db and
 //     skips :initial-events (Spec 002 §Duplicate id), so only a destroyed frame
@@ -778,7 +896,7 @@ assert(
 //     destroyed.
 //
 // Page 1: register :page1/stale from a real cell. It lands after the baseline,
-// so it is page-owned. Its cell is page 1's 12th live root.
+// so it is page-owned. Its cell is page 1's 17th live root.
 await page.evaluate(() => {
   const host = document.createElement("div");
   const cell = document.createElement("pre");
@@ -798,8 +916,8 @@ await page.waitForSelector("#rf2-p1-stale", { timeout: 20000 });
 const rootsBeforeNav = await page.evaluate(() => window.rf2sci.liveRootCount());
 console.log("live roots before nav:", rootsBeforeNav);
 assert(
-  rootsBeforeNav === 12,
-  `page 1 holds one root per rf2 cell (11 + the :page1/stale registrar = 12) before nav (got ${rootsBeforeNav})`
+  rootsBeforeNav === 17,
+  `page 1 holds one root per rf2 cell (16 + the :page1/stale registrar = 17) before nav (got ${rootsBeforeNav})`
 );
 
 await page.evaluate(() => {
