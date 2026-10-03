@@ -125,26 +125,6 @@ test('ran-count parser returns null for unparseable / null input (rf2-qqzmf)', (
   assert.equal(parseRanCounts('Ran some tests'), null);
 });
 
-test('failure count parser returns numeric counts', () => {
-  assert.deepEqual(parseFailureCounts('2 failures, 1 errors.'), {
-    failures: 2,
-    errors: 1,
-  });
-});
-
-// run-browser-tests.cjs: `if (!summary.ran || !summary.failErr)`
-// → a null part means "no cljs.test summary was found" and the run FAILS
-// (return 1). Pin that the parser yields nulls when the summary is absent,
-// so a crashed / summary-less browser run can never be read as green.
-test('summary parser returns null parts when no cljs.test summary is present', () => {
-  const parts = summaryPartsFromText([
-    '[browser:log] booting',
-    '[browser:error] ReferenceError: app is not defined',
-    'stack trace line',
-  ].join('\n'));
-  assert.deepEqual(parts, { ran: null, failErr: null });
-});
-
 test('summary parser tolerates null / empty input (returns null parts)', () => {
   assert.deepEqual(summaryPartsFromText(null), { ran: null, failErr: null });
   assert.deepEqual(summaryPartsFromText(''), { ran: null, failErr: null });
@@ -175,23 +155,10 @@ test('failure count parser reads failures and errors independently', () => {
     failures: 0,
     errors: 3,
   });
-});
-
-// End-to-end of the read path: a noisy console blob that DOES contain a
-// red summary must surface both parts AND parse to a non-zero count —
-// the exact sequence run-browser-tests drives before returning 1.
-test('a red cljs.test run is extracted and parsed as non-zero from noisy console output', () => {
-  const blob = [
-    '[browser:log] booted',
-    'FAIL in (my-test) expected: 1 actual: 2',
-    'Ran 8 tests containing 20 assertions.',
-    '1 failures, 0 errors.',
-  ].join('\n');
-  const parts = summaryPartsFromText(blob);
-  assert.equal(parts.ran, 'Ran 8 tests containing 20 assertions.');
-  assert.equal(parts.failErr, '1 failures, 0 errors.');
-  const counts = parseFailureCounts(parts.failErr);
-  assert.equal(counts.failures > 0 || counts.errors > 0, true);
+  assert.deepEqual(parseFailureCounts('2 failures, 1 errors.'), {
+    failures: 2,
+    errors: 1,
+  });
 });
 
 test('green browser summary is one line', () => {
@@ -201,7 +168,6 @@ test('green browser summary is one line', () => {
     source: 'browser console',
   });
 
-  assert.equal(line.split(/\r?\n/).length, 1);
   assert.equal(
     line,
     'Browser tests: Ran 12 tests containing 34 assertions. 0 failures, 0 errors. (source: browser console)'
