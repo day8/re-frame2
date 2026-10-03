@@ -222,20 +222,18 @@
           "both microstep actions ran in raise order within the macrostep")
 
       ;; Exactly ONE flow eval — not one per microstep, not zero.
-      (is (= 1 (count @flow-evals))
-          "the flow evaluated EXACTLY ONCE for the dispatched event — flows
-           run at the outermost :after over the SETTLED pending :db, not
-           once per machine microstep")
       (is (= [2] @flow-evals)
-          "the single flow eval observed the FINAL machine-driven tick count
-           (2), proving it ran on the settled db, not an intermediate one")
+          "the flow evaluated EXACTLY ONCE for the dispatched event — flows
+           run at the outermost :after over the SETTLED pending :db, not once
+           per machine microstep — and that single eval observed the FINAL
+           machine-driven tick count (2), not an intermediate one")
       (is (= "ticks=2" (get-in (rf/app-db-value :rf/default)
                                [:derived :gauge-label]))
           "the flow output (derived from the settled machine snapshot)
            landed in app-db")
       ;; Trace-level confirmation: a single :rf.flow/computed for the event.
       ;; Dev-instrumentation arm. The eval COUNT it restates is
-      ;; pinned posture-independently by `(= 1 (count @flow-evals))` above.
+      ;; pinned posture-independently by `(= [2] @flow-evals)` above.
       (when rf.interop/debug-enabled?
         (is (= 1 (count (by-op :rf.flow/computed)))
             "exactly one :rf.flow/computed trace fired for the macrostep
@@ -528,17 +526,16 @@
            (10 * 2), not the parent's (10 * 1)")
       ;; Trace-level confirmation: two :rf.flow/computed events (one per
       ;; event), each carrying its own input value.
-      ;; Dev-instrumentation arm. Both assertions restate
+      ;; Dev-instrumentation arm. The assertion restates
       ;; `(= [1 2] @flow-inputs)` above, which is posture-independent and is
       ;; the same claim read off the flow itself rather than off the bus.
       (when rf.interop/debug-enabled?
         (let [computes (by-op :rf.flow/computed)]
-          (is (= 2 (count computes))
-              "exactly two :rf.flow/computed traces — one per dispatched event")
           (is (= [[1] [2]]
                  (mapv #(-> % :tags :input-values) computes))
-              "each compute observed its own event's input — parent saw [1],
-               child saw [2] — independent evals, not a shared one"))))))
+              "exactly two :rf.flow/computed traces, one per dispatched event,
+               each observing its own event's input — parent saw [1], child
+               saw [2] — independent evals, not a shared one"))))))
 
 ;; ===========================================================================
 ;; 5. flow × routing — a flow throw on a route transition aborts the WHOLE
@@ -690,20 +687,15 @@
       ;; does. The flow MUST recompute and observe the NEW route id — this is
       ;; the silent-regression guard: if the dirty-check keyed on app-db
       ;; publication alone, the flow would never re-fire.
-      (let [app-db-before (rf/app-db-value :rf/default)]
-        (reset! flow-evals [])
-        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
-        (is (= [:route/article] @flow-evals)
-            "the flow recomputed on the runtime-only transition even though
-             the only change was in the runtime-db partition — the trigger
-             keys on BOTH partitions (§542-544)")
-        (is (= "at::route/article" (get-in (rf/app-db-value :rf/default)
-                                           [:nav :breadcrumb]))
-            "the recompute observed the NEW runtime-db route id")
-        (is (not= app-db-before (rf/app-db-value :rf/default))
-            "app-db changed only via the FLOW's output write — the handler
-             returned no :db effect; the change is the breadcrumb the flow
-             derived from the runtime-only route change"))
+      (reset! flow-evals [])
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
+      (is (= [:route/article] @flow-evals)
+          "the flow recomputed on the runtime-only transition even though
+           the only change was in the runtime-db partition — the trigger
+           keys on BOTH partitions (§542-544)")
+      (is (= "at::route/article" (get-in (rf/app-db-value :rf/default)
+                                         [:nav :breadcrumb]))
+          "the recompute observed the NEW runtime-db route id")
 
       ;; A re-dispatch to the SAME route changes neither partition's route
       ;; slice value — the dirty-check still SKIPS (the trigger covers

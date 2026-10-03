@@ -263,19 +263,17 @@
 (deftest the-production-record-carries-exactly-the-enumerated-slots
   (testing "the key set is CLOSED. A slot added to this record
             reaches an off-box shipper in a production build, so widening it
-            must be a deliberate change rather than a drift — and the
-            payload-bearing slots the DEV trace carries are named here by
-            absence so a re-introduction is caught by name rather than by a
-            sentinel that happened to be chosen well."
+            must be a deliberate change rather than a drift — and the exact
+            `=` names any re-introduced payload-bearing slot of the DEV trace
+            in its failure output, rather than relying on a sentinel that
+            happened to be chosen well."
     (let [record (first (boundary-records (:records (ingest! bad-payload))))]
       (is (= #{:error :where :source :event-id :failing-id :schema-id
                :frame :recovery :time}
              (set (keys record)))
-          "exactly the nine enumerated slots — every one an identifier")
-      (doseq [k [:event :value :received :explain :schema :reason]]
-        (is (not (contains? record k))
-            (str k " is a payload-bearing slot of the dev trace and must not "
-                 "appear on the always-on record"))))))
+          "exactly the nine enumerated slots — every one an identifier, so
+           none of the dev trace's payload-bearing slots (:event :value
+           :received :explain :schema :reason) rides the always-on record"))))
 
 ;; ===========================================================================
 ;; (4) ATTRIBUTION — the 400 lands on the frame that refused
