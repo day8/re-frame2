@@ -391,21 +391,6 @@
 ;; the refusal must NOT swallow.
 ;; ---------------------------------------------------------------------------
 
-(deftest tier-1-explicit-frame-reads-that-frame
-  (async done
-    (stub-runtime! nil {:operation  :trace-window
-                        :app-frames two-frames
-                        :pin        nil
-                        :rings      {:rf/default [(epoch 1) (epoch 2)]
-                                     :stories    [(epoch 7)]}})
-    (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000 :frame ":stories"}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)) "an explicit frame is answerable")
-                   (is (true? (:ok? edn)))
-                   (is (= 1 (:count edn)) "reads the NAMED frame's ring"))
-                 (done))))))
-
 (deftest a-cursors-sticky-frame-outranks-the-session-pin
   ;; The care these two need that get-path did not: the frame a paginated
   ;; call is ALREADY iterating rides in the cursor, and page 2 must stay

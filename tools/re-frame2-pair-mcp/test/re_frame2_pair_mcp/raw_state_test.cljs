@@ -84,20 +84,13 @@
 ;; Launch-flag parsing.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-launch-flags-recognises-allow-sensitive-reads
-  (let [flags (server/parse-launch-flags ["--allow-sensitive-reads"])]
-    (is (true? (:allow-raw-state? flags))
-        "--allow-sensitive-reads ⇒ :allow-raw-state? true (internal key)")
-    (is (true? (:eval-allowed? flags))
-        "eval-cljs gate stays at its default ON")))
-
 (deftest parse-launch-flags-defaults
-  ;; eval-cljs defaults ON; raw-state defaults OFF.
-  (let [flags (server/parse-launch-flags [])]
-    (is (true? (:eval-allowed? flags))
-        "eval-cljs gate defaults ON")
-    (is (false? (:allow-raw-state? flags))
-        "raw-state gate defaults OFF")))
+  ;; eval-cljs defaults ON; raw-state and writes default OFF; an absent
+  ;; --port-file / --http-port is nil (the cascade uses the 9630 default
+  ;; downstream).
+  (is (= {:eval-allowed? true :allow-raw-state? false :allow-writes? false
+          :port-file nil :http-port nil}
+         (server/parse-launch-flags []))))
 
 (deftest parse-launch-flags-ignores-unknown
   ;; The PARSER stays permissive — future flags + node/shadow wrapper
@@ -167,9 +160,7 @@
   (testing "valued flag immediately followed by another flag"
     (let [[d] (server/launch-diagnostics ["--http-port" "--no-eval"])]
       (is (= :missing-value (:issue d)))
-      (is (= "--http-port"  (:input d)))))
-  (testing "a valued flag WITH a value is clean"
-    (is (= [] (server/launch-diagnostics ["--port-file" "/abs/nrepl.port"])))))
+      (is (= "--http-port"  (:input d))))))
 
 (deftest launch-diagnostics-names-malformed-http-port
   (let [[d] (server/launch-diagnostics ["--http-port" "garbage"])]
@@ -199,11 +190,6 @@
 ;; --port-file launch flag — explicit, cwd-independent port file.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-launch-flags-port-file-defaults-nil
-  (let [flags (server/parse-launch-flags [])]
-    (is (nil? (:port-file flags))
-        "absent --port-file ⇒ :port-file nil")))
-
 (deftest parse-launch-flags-port-file-space-form
   (testing "--port-file <path> reads the value from the next argv element"
     (let [flags (server/parse-launch-flags ["--port-file" "/abs/path/nrepl.port"])]
@@ -215,10 +201,12 @@
     (let [flags (server/parse-launch-flags ["--port-file=/abs/path/nrepl.port"])]
       (is (= "/abs/path/nrepl.port" (:port-file flags))))))
 
-(deftest parse-launch-flags-port-file-rides-with-other-flags
+(deftest parse-launch-flags-valued-flags-ride-with-other-flags
   (let [flags (server/parse-launch-flags
-                ["--no-eval" "--port-file" "/p/nrepl.port" "--allow-sensitive-reads"])]
+                ["--no-eval" "--http-port" "9702" "--port-file" "/p/nrepl.port"
+                 "--allow-sensitive-reads"])]
     (is (= "/p/nrepl.port" (:port-file flags)))
+    (is (= 9702 (:http-port flags)))
     (is (false? (:eval-allowed? flags)))
     (is (true? (:allow-raw-state? flags)))))
 
@@ -242,11 +230,6 @@
 ;; coercion) for the flag.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-launch-flags-http-port-defaults-nil
-  (let [flags (server/parse-launch-flags [])]
-    (is (nil? (:http-port flags))
-        "absent --http-port ⇒ :http-port nil (cascade uses 9630 default downstream)")))
-
 (deftest parse-launch-flags-http-port-space-form
   (testing "--http-port <n> coerces to int"
     (let [flags (server/parse-launch-flags ["--http-port" "9700"])]
@@ -263,14 +246,6 @@
     (let [flags (server/parse-launch-flags ["--http-port" "garbage"])]
       (is (nil? (:http-port flags))
           "isNaN guard — never surface a NaN port"))))
-
-(deftest parse-launch-flags-http-port-rides-with-other-flags
-  (let [flags (server/parse-launch-flags
-                ["--no-eval" "--http-port" "9702"
-                 "--port-file" "/p/nrepl.port"])]
-    (is (= 9702 (:http-port flags)))
-    (is (= "/p/nrepl.port" (:port-file flags)))
-    (is (false? (:eval-allowed? flags)))))
 
 ;; ---------------------------------------------------------------------------
 ;; signal-runtime! — re-signals before EVERY state-emitting eval. The

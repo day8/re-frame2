@@ -15,7 +15,9 @@
   a bad value short-circuits to an honest `{:ok? false :reason
   :invalid-numeric-arg}` `isError` envelope BEFORE the runtime preflight —
   the validation is the first `cond` branch, so a bad value never touches
-  the nREPL socket. An ABSENT arg keeps the documented default.
+  the nREPL socket. An ABSENT arg keeps the documented default. The value
+  table itself (zero, negative, fractional, numeric strings) is pinned on
+  the parser in args_test; these tests pin the tool's wiring of it.
 
   The validation branch fires ahead of the runtime preflight, so these
   tests use a `fresh-conn` with no live socket: if validation did NOT
@@ -67,30 +69,6 @@
     (-> (watch-with-timeout "bogus")
         (.then (fn [r] (assert-invalid-timeout r) (done))))))
 
-(deftest zero-timeout-ms-rejected
-  ;; 0 is not a meaningful "wait for no time" sentinel here — the deadline
-  ;; must be a positive millisecond integer.
-  (async done
-    (-> (watch-with-timeout 0)
-        (.then (fn [r] (assert-invalid-timeout r) (done))))))
-
-(deftest negative-timeout-ms-rejected
-  (async done
-    (-> (watch-with-timeout -1)
-        (.then (fn [r] (assert-invalid-timeout r) (done))))))
-
-(deftest fractional-timeout-ms-rejected
-  ;; A non-integral number is rejected, matching the other timeout tools.
-  (async done
-    (-> (watch-with-timeout 1500.5)
-        (.then (fn [r] (assert-invalid-timeout r) (done))))))
-
-(deftest numeric-string-zero-timeout-ms-rejected
-  ;; The MCP host can pass the arg as a string; "0" is still rejected.
-  (async done
-    (-> (watch-with-timeout "0")
-        (.then (fn [r] (assert-invalid-timeout r) (done))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Valid / absent values still flow (the validation only rejects bad input).
 ;; ---------------------------------------------------------------------------
@@ -106,17 +84,6 @@
                  (let [edn (read-edn r)]
                    (is (not= :invalid-numeric-arg (:reason edn))
                        "a valid :timeout-ms clears the validation gate"))
-                 (done))))))
-
-(deftest numeric-string-timeout-ms-accepted-by-validation
-  ;; "2000" (a numeric string) is a valid positive integer and must clear
-  ;; the validation gate, same as the other timeout tools.
-  (async done
-    (-> (watch-with-timeout "2000")
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not= :invalid-numeric-arg (:reason edn))
-                       "a numeric-string :timeout-ms is accepted"))
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
