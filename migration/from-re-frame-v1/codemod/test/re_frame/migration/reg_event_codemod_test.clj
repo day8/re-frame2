@@ -23,7 +23,8 @@
   Plus: shape-non-corruption (round-trips of untouched code), alias-agnostic
   registrar detection, path-head RESOLUTION (only a head resolving to
   re-frame.core/path lowers; custom `*/path` fns flag — rf2-8odvg reopen),
-  scan-file/scan-paths over the filesystem, and idempotence. The
+  scan-file/scan-paths over the filesystem, write-mode line-ending fidelity,
+  and idempotence. The
   RUNTIME proof that the emitted chain shapes register against the real v2
   reg-event contract lives in the `:integration` alias
   (test-integration/, rf2-8odvg) so this default suite stays self-contained."
@@ -861,6 +862,71 @@
           (is (not (str/includes? after "reg-event-db")))
           (is (str/includes? after "{:keys [db]}")))
         (finally (.delete tmp))))))
+
+;; A write changes a file only through an accepted rewrite or rename, and
+;; keeps its line endings: rewrite-clj reads every break as LF, so without
+;; care a CRLF file is rewritten to LF even when no registration in it moved.
+
+(defn- file-bytes [f]
+  (vec (java.nio.file.Files/readAllBytes (.toPath (io/file f)))))
+
+(defn- text-bytes [^String s]
+  (vec (.getBytes s "UTF-8")))
+
+(defn- with-source-dir
+  "Write `files` ({name text}) into a fresh temp dir, call `(f dir)`, and
+  delete the dir."
+  [files f]
+  (let [dir (doto (java.io.File/createTempFile "regeol" "") .delete .mkdirs)]
+    (try
+      (doseq [[n text] files] (spit (io/file dir n) text))
+      (f dir)
+      (finally (doseq [x (reverse (file-seq dir))] (.delete x))))))
+
+(defn- rewrite-dir!
+  "Run the codemod in write mode over `dir`; return the names of the files it
+  reports changed."
+  [dir]
+  (set (for [r (rf.migration.reg-event-codemod/rewrite-paths! [(.getPath dir)] {:write? true})
+             :when (:changed? r)]
+         (.getName (io/file (:path r))))))
+
+(deftest write-keeps-line-endings
+  (let [sources {"no-event" ["(ns eol-control)" "(def value 1)"]
+                 "flagged"  ["(ns eol-control)" "(rf/reg-event-db :eol-control/event [(rf/unwrap)] (fn [db event] db))"]
+                 "rename"   ["(ns eol-control)" "(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]}
+        files   (into {} (for [[n lines] sources
+                               [eol sep] {"lf" "\n" "crlf" "\r\n"}]
+                           [(str n "-" eol ".cljs") (str (str/join sep lines) sep)]))]
+    (testing "no-event and flagged-only files are left byte-identical; a rename keeps its convention"
+      (with-source-dir files
+        (fn [dir]
+          (is (= #{"rename-lf.cljs" "rename-crlf.cljs"} (rewrite-dir! dir)))
+          (doseq [n ["no-event-lf.cljs" "no-event-crlf.cljs" "flagged-lf.cljs" "flagged-crlf.cljs"]]
+            (is (= (text-bytes (files n)) (file-bytes (io/file dir n))) n))
+          (is (= (text-bytes "(ns eol-control)\r\n(rf/reg-event :eol-control/event (fn [cofx event] {}))\r\n")
+                 (file-bytes (io/file dir "rename-crlf.cljs"))))
+          (is (= (text-bytes "(ns eol-control)\n(rf/reg-event :eol-control/event (fn [cofx event] {}))\n")
+                 (file-bytes (io/file dir "rename-lf.cljs")))))))
+    (testing "the CLI counts only the renamed files as rewritten"
+      (with-source-dir files
+        (fn [dir]
+          (is (str/includes? (with-out-str (rf.migration.reg-event-codemod/-main "--rewrite" "--write" (.getPath dir)))
+                             "2 file(s) rewritten")))))))
+
+(deftest write-mixed-line-endings
+  (testing "a mixed file is left alone unless rewritten, then takes its first break's convention"
+    (with-source-dir {"unchanged.cljs" "(ns m)\r\n(def a 1)\n(def b 2)\r\n"
+                      "crlf-first.cljs" "(ns m)\r\n(rf/reg-event-fx :e (fn [c e] {}))\n(def a 1)\n"
+                      "lf-first.cljs"   "(ns m)\n(rf/reg-event-fx :e (fn [c e] {}))\r\n(def a 1)\r\n"}
+      (fn [dir]
+        (is (= #{"crlf-first.cljs" "lf-first.cljs"} (rewrite-dir! dir)))
+        (is (= (text-bytes "(ns m)\r\n(def a 1)\n(def b 2)\r\n")
+               (file-bytes (io/file dir "unchanged.cljs"))))
+        (is (= (text-bytes "(ns m)\r\n(rf/reg-event :e (fn [c e] {}))\r\n(def a 1)\r\n")
+               (file-bytes (io/file dir "crlf-first.cljs"))))
+        (is (= (text-bytes "(ns m)\n(rf/reg-event :e (fn [c e] {}))\n(def a 1)\n")
+               (file-bytes (io/file dir "lf-first.cljs"))))))))
 
 (deftest scan-paths-recurses-dir
   (testing "scan-paths walks a directory for .clj/.cljc/.cljs sources"

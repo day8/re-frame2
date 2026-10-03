@@ -1464,19 +1464,43 @@
   (vec (mapcat (fn [f] (scan-string (slurp f) {:file (str f)}))
                (expand-paths paths))))
 
+(defn- lf-newlines
+  "`s` with every CRLF and lone CR read as LF — the reading rewrite-clj's
+  parser gives every line break, so `rewrite-string` always emits LF."
+  [s]
+  (str/replace s #"\r\n?" "\n"))
+
+(defn- crlf-file?
+  "True when the first line break in `s` is CRLF."
+  [s]
+  (= "\r\n" (re-find #"\r\n|\r|\n" s)))
+
 (defn rewrite-file!
   "Apply the codemod to a file. With `{:write? true}` the file is overwritten
   in place when it changes; otherwise it is a dry run. Returns
-  {:path .. :changed? .. :findings [...]}."
+  {:path .. :changed? .. :findings [...] :source <the file's text after the run>}.
+
+  A file is changed only by an accepted rewrite or rename, never by its line
+  endings alone. rewrite-clj reads every line break as LF, so `:changed?`
+  compares the rewrite against the original read the same way: a file with no
+  registration, or with only flagged ones, is left byte-identical whatever its
+  line endings, mixed ones included. A changed file is written with ONE
+  convention, the one its first line break uses — CRLF when that break is
+  CRLF, LF otherwise — so a file mixing conventions comes back uniform when,
+  and only when, it is rewritten."
   ([path] (rewrite-file! path {}))
   ([path {:keys [write? force-db-wrap?]}]
    (let [orig (slurp path)
          {:keys [source findings]} (rewrite-string orig (cond-> {:file (str path)}
                                                           force-db-wrap? (assoc :force-db-wrap? true)))
-         changed? (not= orig source)]
+         changed? (not= (lf-newlines orig) source)
+         out      (cond
+                    (not changed?)    orig
+                    (crlf-file? orig) (str/replace source "\n" "\r\n")
+                    :else             source)]
      (when (and write? changed?)
-       (spit path source))
-     {:path (str path) :changed? changed? :findings findings :source source})))
+       (spit path out))
+     {:path (str path) :changed? changed? :findings findings :source out})))
 
 (defn rewrite-paths!
   "Apply the codemod across a seq of file/dir paths. See `rewrite-file!`."
