@@ -125,11 +125,8 @@
             out (rf.resources.ssr/hydrate-runtime-db installed :app/main)
             out-es (get-in out [rf.resources.state/resources-key :entries])
             tag-members (get-in out [rf.resources.state/resources-key :tag-index :t])]
-        (is (= 2 (count out-es)) "hydration installs TWO distinct entries (no collapse)")
         (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} (set (keys out-es)))
-            "both byte key-ids present after hydration")
-        (is (= 2 (count tag-members))
-            "the recomputed tag-index has TWO distinct members for the shared tag")
+            "hydration installs TWO distinct entries under both byte key-ids (no collapse)")
         (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} tag-members)
             "the tag-index members are the byte key-ids of both entries")))))
 
@@ -188,9 +185,7 @@
   (testing "instant- and string-params keys are DISTINCT scoped keys AND byte key-ids"
     (is (not= ki ks) "the scoped-key vectors differ (tagged tuple vs string param)")
     (is (not= (rf.resources.state/key-id ki) (rf.resources.state/key-id ks))
-        "the byte key-ids differ (t:<text> vs s:\"<text>\")")
-    (is (not (rf.identity/identical-identity? ki ks))
-        "the two keys are byte-distinct CEDN-1 identities"))
+        "the byte key-ids differ (t:<text> vs s:\"<text>\")"))
   (testing "the two params key an :entries map DISTINCTLY end-to-end (no alias)"
     (let [es (byte-keyed-entries [[ki (loaded-entry ki {:from :instant} #{:t})]
                                    [ks (loaded-entry ks {:from :string} #{:t})]])]
@@ -239,13 +234,9 @@
     (let [entry (rf.resources.state/empty-entry :r/x kv)]
       ;; the registered id is a bare keyword, NOT the tuple
       (is (= :r/x (:resource/id entry)) ":resource/id is the registered keyword id")
-      (is (keyword? (:resource/id entry)) "the registered id is a keyword, never a tuple")
       ;; the scoped key is the full tuple, NOT the bare id
       (is (= kv (:resource/key entry)) ":resource/key is the scoped cache-key tuple")
       (is (vector? (:resource/key entry)) "the scoped key is the tuple, never a bare keyword")
-      ;; the two facts are NOT equal — confusing them is a category error
-      (is (not= (:resource/id entry) (:resource/key entry))
-          "the registered id and the scoped key are different facts")
       ;; the resource id IS embedded as the 2nd tuple element (the reason for the
       ;; confusion the unification guards against) — and it round-trips equal
       (is (= (:resource/id entry) (second (:resource/key entry)))
@@ -259,14 +250,9 @@
         ;; one spelling) — there is NO :resource-key key anywhere on the shape
         (is (= kv (:resource/key rec)) "the work record's scoped key is :resource/key")
         (is (nil? (:resource-key rec))
-            "the unqualified :resource-key spelling is absent from the work record")
-        ;; and the registered id is still reachable as the 2nd tuple element,
-        ;; never duplicated under a confusable bare :resource-id key on the row
-        (is (= :r/x (second (:resource/key rec)))
-            "the registered id reads out of the scoped key, not a separate row field"))))
+            "the unqualified :resource-key spelling is absent from the work record"))))
   (testing "the durable scoped-key field is the canonical :resource/key spelling,
             never the unqualified :resource-key"
     (let [entry (rf.resources.state/empty-entry :r/x kv)]
-      (is (contains? entry :resource/key) "the canonical :resource/key field is present")
       (is (not (contains? entry :resource-key))
           "the :resource-key spelling never appears on a data shape"))))

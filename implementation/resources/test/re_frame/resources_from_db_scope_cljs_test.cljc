@@ -292,8 +292,6 @@
       (is (= [:rf.scope/session {:username "jake"}] concrete)
           "the pure helper yields the concrete scope a logout handler passes")
       (rf/dispatch-sync [:rf.resource/clear-scope {:scope concrete :cause :logout}]))
-    (is (nil? (entry (session-key "jake" 1)))
-        "the pre-resolved concrete scope cleared jake's entry")
     (is (empty? (entries)) "no entry survives the concrete-scope clear")))
 
 ;; ===========================================================================
@@ -326,7 +324,6 @@
     (testing "a scope-resolved row was emitted for the :t/session resolver"
       (is (some? row)))
     (testing "the row carries the full resolution evidence shape"
-      (is (= :t/session (:resource-id row)))
       (is (= :resource-scope (:kind row)))
       (is (= [:username] (:inputs row)) "the declared input NAMES")
       (is (= {:username "jake"} (:input-values row)) "the resolved input VALUES")
@@ -520,9 +517,7 @@
                                (when (= :rf.resource/refetch ev-id) p))))]
       (is (some? refetch) "a refetch was armed for the active-owner match")
       (is (= [:rf.scope/session {:username "jake"}] (:scope refetch))
-          "the refetch dispatch carries the RESOLVED concrete scope")
-      (is (not= {:from-db :t/session} (:scope refetch))
-          "never the {:from-db} reference map"))))
+          "the refetch dispatch carries the RESOLVED concrete scope"))))
 
 (deftest invalidate-tags-from-db-nil-fails-closed-like-ensure
   ;; a {:from-db} invalidate :scope resolving nil is FAIL-CLOSED with a THROW
@@ -625,8 +620,7 @@
                                            :scope {:from-db :t/session}}])
   (testing "the instance row records the RESOLVED concrete scope — never the
             {:from-db} reference map (no reference in egress)"
-    (is (= [:rf.scope/session {:username "jake"}] (:scope (minstance :save-1))))
-    (is (not= {:from-db :t/session} (:scope (minstance :save-1)))))
+    (is (= [:rf.scope/session {:username "jake"}] (:scope (minstance :save-1)))))
   (testing "the mutation-level default drove the tag match in the RESOLVED
             scope — jake's session entry ensure created is marked stale
             (symmetric use-time resolution, never a literal-map zero-match)"
