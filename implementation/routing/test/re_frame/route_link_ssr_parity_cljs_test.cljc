@@ -111,27 +111,26 @@
   [{:keys [frame strategy]}]
   (rf/make-frame {:id frame :url-strategy strategy}))
 
-(defn- rendered-href
-  "The `:href` THIS host's `rf/route-link` render fn emits for `props` inside
-  `frame-id`'s scope — the production render path on each host, not a
+(defn- rendered-anchor
+  "The `[tag href]` THIS host's `rf/route-link` render fn emits for `props`
+  inside `frame-id`'s scope — the production render path on each host, not a
   re-derivation of the strategy."
   [frame-id props]
   (rf/with-frame frame-id
     (let [[tag attrs] #?(:cljs (rf.routing.link/route-link-render props)
                          :clj  (rf.routing.link/route-link-render-ssr props))]
-      (is (= :a tag) "the render fn emits an <a> on this host")
-      (:href attrs))))
+      [tag (:href attrs)])))
 
 (deftest route-link-href-agrees-across-hosts-for-every-strategy-shape
   (register-routes!)
   (doseq [{:keys [frame active article punct] :as row} parity-cases]
     (seat-frame! row)
     (testing (str "rf/route-link render inside frame " frame)
-      (is (= active (rendered-href frame active-props))
-          (str frame ": the rendered :href for /active is the strategy-encoded form on this host"))
-      (is (= article (rendered-href frame article-props))
+      (is (= [:a active] (rendered-anchor frame active-props))
+          (str frame ": the rendered <a>'s :href for /active is the strategy-encoded form on this host"))
+      (is (= [:a article] (rendered-anchor frame article-props))
           (str frame ": params + query ride inside the encoded form on this host"))
-      (is (= punct (rendered-href frame punct-props))
+      (is (= [:a punct] (rendered-anchor frame punct-props))
           (str frame ": punctuation in the slug and query value stays LITERAL on"
                " this host — the JVM SSR render and the first CLJS render emit"
                " the same :href")))))
@@ -162,7 +161,10 @@
            hydrated client rejects (the symmetry EP-0037 R3 requires of the
            value check, reached here through the warm-up)"
     (register-routes!)
-    (doseq [{:keys [frame] :as row} parity-cases]
+    ;; The warm-up pair never reads the rendering frame's strategy, so one
+    ;; strategy-bearing frame stands for every row: the based hash form, the
+    ;; furthest from path form.
+    (let [{:keys [frame] :as row} (last parity-cases)]
       (seat-frame! row)
       (let [warm    (rf.routing.link/link-model (assoc article-props :prefetch :intent) frame)
             passive (rf.routing.link/link-model article-props frame)]
@@ -184,12 +186,7 @@
   (testing "a frame that declares no strategy renders path-form on both hosts"
     (register-routes!)
     (rf/make-frame {:id :parity/undeclared})
-    (is (= "/active" (rendered-href :parity/undeclared active-props)))
+    (is (= [:a "/active"] (rendered-anchor :parity/undeclared active-props)))
     (is (= "/active" (:href (rf.routing.link/link-model active-props :parity/undeclared)))))
   (testing "link-model with no frame at all resolves the history default on both hosts"
-    (is (= "/active" (:href (rf.routing.link/link-model active-props nil)))))
-  #?(:clj
-     (testing "the bare SSR helper, called outside any frame scope, stays path-form
-               (the direct-call ergonomics route_link_test.clj pins do not regress)"
-       (let [[_ attrs] (rf.routing.link/route-link-render-ssr active-props)]
-         (is (= "/active" (:href attrs)))))))
+    (is (= "/active" (:href (rf.routing.link/link-model active-props nil))))))

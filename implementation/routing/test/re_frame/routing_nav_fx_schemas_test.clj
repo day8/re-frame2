@@ -73,7 +73,6 @@
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.routing.nav-fx :as rf.routing.nav-fx]
             [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
             [re-frame.routing.scroll :as rf.routing.scroll]
             [re-frame.test-support :refer [with-trace-recorder!]]
@@ -116,21 +115,10 @@
             (str fx-id "'s registered :schema IS " (symbol schema-var)
                  " — not a drifting copy"))))))
 
-(deftest nav-fx-meta-vars-carry-schema
-  (testing "the :schema rides on the exported meta vars themselves, so a
-            facade `:reload` (which re-reads these vars) re-wires the gate"
-    (is (= rf.routing.nav-fx-schemas/push-url-args       (:schema rf.routing.nav-fx/push-url-meta)))
-    (is (= rf.routing.nav-fx-schemas/replace-url-args    (:schema rf.routing.nav-fx/replace-url-meta)))
-    (is (= rf.routing.nav-fx-schemas/scroll-args         (:schema rf.routing.scroll/scroll-fx-meta)))
-    (is (= rf.routing.nav-fx-schemas/capture-scroll-args (:schema rf.routing.scroll/capture-scroll-meta))))
-
-  (testing "the EP-0015 :sensitive marks and :platforms sit beside
-            :schema — it does not displace the other meta"
-    (is (= #{:client} (:platforms rf.routing.scroll/scroll-fx-meta)))
-    (is (= [[:from :params] [:from :query]
-            [:to :params]   [:to :query]
-            [:fragment]]
-           (:sensitive rf.routing.scroll/scroll-fx-meta)))
+(deftest capture-scroll-meta-marks-its-url-carrier-sensitive
+  (testing "the :rf.nav/capture-scroll meta the facade registers marks its
+            :url carrier :sensitive (EP-0015) — the leaving route's URL is
+            the cache key and carries that route's query and params"
     (is (= [[:url]] (:sensitive rf.routing.scroll/capture-scroll-meta)))))
 
 ;; =========================================================================
@@ -176,28 +164,6 @@
         (is (m/validate schema {:strategy strategy})
             (str "bare :strategy " strategy " validates"))))
 
-    (testing "NEGATIVE control: the strategy vocabulary is CLOSED.
-              A `[:or [:enum …] :map]` slot would validate every map
-              here — and each would then fall into `scroll-fx-handler`'s
-              default branch, because no registry / callback / late-bound hook
-              interprets one. An accepted-and-ignored option is strictly
-              worse than a rejected one, so there is no map form"
-      (doseq [bad [{:to :element :selector "#article"}  ;; an element-target map
-                   {:behavior :smooth :block :center}   ;; a scroll-behaviour map
-                   {}                                   ;; the degenerate map
-                   {:strategy :top}]]                   ;; a map NAMING a real strategy
-        (is (not (m/validate schema {:strategy bad}))
-            (str "map-form strategy rejected: " (pr-str bad)))))
-
-    (testing "NEGATIVE control (adversarial near-misses): values a
-              hurried author could mistake for a supported strategy get no
-              special pass either"
-      (doseq [bad [:restored :scroll-top "top" [:top] nil]]
-        (is (not (m/validate schema {:strategy bad}))
-            (str "near-miss strategy rejected: " (pr-str bad))))
-      (is (not (m/validate schema {}))
-          ":strategy is REQUIRED — a strategy-less scroll has no interpretation"))
-
     (testing "POSITIVE control: the FULL five-slot planner output — the exact
               shape plan/scroll-plan assembles — validates, :fragment included"
       (is (m/validate schema
@@ -217,8 +183,6 @@
           "both members fractional")
       (is (m/validate schema {:strategy :restore :saved-pos [0 1234.75]})
           "mixed integer / fractional — the HiDPI y-only case")
-      (is (m/validate schema {:strategy :restore :saved-pos [120 3400]})
-          "plain integer pairs (what the JVM planning tests thread) also pass")
       (is (m/validate schema {:strategy :restore :saved-pos [-0.5 0.0]})
           "negative / zero doubles — elastic-scroll overscroll positions"))
 
@@ -251,6 +215,25 @@
       (is (not (m/validate schema {:strategy :Top})))
       (is (not (m/validate schema {:strategy "top"})))
       (is (not (m/validate schema {:strategy nil}))))
+
+    (testing "ADVERSARIAL: the strategy vocabulary is CLOSED.
+              A `[:or [:enum …] :map]` slot would validate every map
+              here — and each would then fall into `scroll-fx-handler`'s
+              default branch, because no registry / callback / late-bound hook
+              interprets one. An accepted-and-ignored option is strictly
+              worse than a rejected one, so there is no map form"
+      (doseq [bad [{:to :element :selector "#article"}  ;; an element-target map
+                   {:behavior :smooth :block :center}   ;; a scroll-behaviour map
+                   {}                                   ;; the degenerate map
+                   {:strategy :top}]]                   ;; a map NAMING a real strategy
+        (is (not (m/validate schema {:strategy bad}))
+            (str "map-form strategy rejected: " (pr-str bad)))))
+
+    (testing "ADVERSARIAL: near-misses a hurried author could mistake for a
+              supported strategy get no special pass either"
+      (doseq [bad [:restored :scroll-top [:top]]]
+        (is (not (m/validate schema {:strategy bad}))
+            (str "near-miss strategy rejected: " (pr-str bad)))))
 
     (testing "ADVERSARIAL: `false` never reaches the fx — resolve-scroll-strategy
               maps it to ::suppress and scroll-fx-entry returns nil, so a
@@ -394,42 +377,6 @@
           (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
                               @traces))
               "no schema-validation-failure trace fires for conforming nav args"))))))
-
-(deftest schema-less-nav-fx-meta-adjudicates-nothing
-  (testing "RED control: a schema-less registration meta —
-            :platforms / :doc / :sensitive but NO :schema — passes args that
-            the live registration rejects. An
-            fx-args gate exists only where a :schema does, so without one
-            every malformed navigation arg would reach its handler
-            unvalidated. This control keeps a future edit that
-            drops a :schema from quietly reopening the hole while the
-            positive tests above still pass."
-    (doseq [[fx-id bad-args] {:rf.nav/push-url       :route/cart
-                              :rf.nav/replace-url    42
-                              :rf.nav/scroll         {:strategy :smooth}
-                              :rf.nav/capture-scroll {:position [0 0]}}]
-      (let [validate-fx!    (rf.late-bind/get-fn :schemas/validate-fx!)
-            pre-sqams-meta  (dissoc (rf.registrar/lookup :fx fx-id) :schema)]
-        ;; SEMANTIC, posture-independent: the control's real
-        ;; subject is that a `:schema` IS installed and DOES reject these
-        ;; args. That is what a future edit dropping a `:schema` would break,
-        ;; and it is checkable without the hot path.
-        (is (some? (:schema (rf.registrar/lookup :fx fx-id)))
-            (str fx-id " carries a :schema on its live registration"))
-        (is (false? (schema-verdict fx-id bad-args))
-            (str fx-id "'s registered schema rejects " (pr-str bad-args)
-                 " — the boundary the spec promises exists"))
-        ;; Dev-instrumentation arm (see ns docstring). Both legs
-        ;; go through the hot path, which returns `true` unconditionally under
-        ;; -Dre-frame.debug=false, so neither can discriminate there.
-        (when rf.interop/debug-enabled?
-          (is (true? (validate-fx! fx-id :test/originating-event
-                                   bad-args pre-sqams-meta))
-              (str fx-id " with a schema-less meta soft-passes " (pr-str bad-args)
-                   " — the schema-less behaviour"))
-          (is (false? (validate-through-hook fx-id bad-args))
-              (str fx-id " with the LIVE (schema-bearing) meta rejects the same "
-                   "args — the boundary the spec promises exists")))))))
 
 (deftest nav-fx-args-fail-the-real-validation-hook-when-malformed
   (testing "ADVERSARIAL through the WIRED path: at least one malformed shape

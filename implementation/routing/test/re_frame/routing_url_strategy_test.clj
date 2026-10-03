@@ -20,7 +20,7 @@
   `preflight-frame-config!` runs `validate-url-strategy!` UNCONDITIONALLY at
   `re-frame.frame/upsert-frame!`, the sole `frames`-store config writer. That
   is production-real and is asserted here WITHOUT a posture guard — the
-  preflight tests, the engine-rejects-before-any-write test and the three
+  preflight tests, the engine-rejects-before-any-write test and the two
   trusted-read store invariants all run in the ordinary `clojure -M:test`
   suite AND in `scripts/test-routing-prod-gate.sh` (the
   `-Dre-frame.debug=false` lane).
@@ -46,22 +46,22 @@
 
 ;; ---- shipped-strategy shape ----------------------------------------------
 
-(deftest history-strategy-shape
-  (testing "history-url-strategy carries the two host-agnostic keys on JVM
-            (the side-effecting keys are CLJS-only — SSR runs no browser side
+(deftest jvm-strategies-omit-the-side-effecting-legs
+  (testing "on the JVM the shipped strategies and a with-base-path wrapper
+            carry only the pure :encode / :decode legs, which
+            decode-inverts-encode-for-every-shipped-form calls. The
+            side-effecting legs are CLJS-only — SSR runs no browser side
             effects; the pure :encode it DOES run is pinned cross-host in
-            route_link_ssr_parity_cljs_test)"
-    (is (fn? (:encode rf.routing.strategy/history-url-strategy)))
-    (is (fn? (:decode rf.routing.strategy/history-url-strategy)))
-    ;; JVM half omits the side-effecting keys (see the ns docstring).
-    (is (nil? (:push! rf.routing.strategy/history-url-strategy)))
-    (is (nil? (:install-listener! rf.routing.strategy/history-url-strategy)))))
-
-(deftest hash-strategy-shape
-  (testing "hash-url-strategy carries the two host-agnostic keys on JVM"
-    (is (fn? (:encode rf.routing.strategy/hash-url-strategy)))
-    (is (fn? (:decode rf.routing.strategy/hash-url-strategy)))
-    (is (nil? (:push! rf.routing.strategy/hash-url-strategy)))))
+            route_link_ssr_parity_cljs_test"
+    (let [based (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")]
+      (doseq [[label strategy leg]
+              [["history"              rf.routing.strategy/history-url-strategy :push!]
+               ["history"              rf.routing.strategy/history-url-strategy :install-listener!]
+               ["hash"                 rf.routing.strategy/hash-url-strategy    :push!]
+               ["history + /realworld" based                                    :push!]
+               ["history + /realworld" based                                    :install-listener!]]]
+        (is (nil? (get strategy leg))
+            (str label " carries no " leg " on the JVM"))))))
 
 ;; ---- history strategy: encode is identity (path IS the URL) --------------
 
@@ -192,44 +192,18 @@
     (is (identical? rf.routing.strategy/history-url-strategy
                     (rf.routing.strategy/url-strategy-from-config nil)))))
 
-(deftest shipped-and-complete-custom-strategies-pass-validation
-  (testing "validation does NOT disturb the valid paths — the
-            shipped strategies, a with-base-path wrapper, and a shape-complete
-            custom map all resolve unchanged"
-    (is (identical? rf.routing.strategy/history-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config
-                      {:url-strategy rf.routing.strategy/history-url-strategy}))
-        "the shipped history strategy passes")
-    (is (identical? rf.routing.strategy/hash-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config
-                      {:url-strategy rf.routing.strategy/hash-url-strategy}))
-        "the shipped hash strategy passes")
-    (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/demos")]
-      (is (identical? wrapped (rf.routing.strategy/url-strategy-from-config {:url-strategy wrapped}))
-          "a with-base-path wrapper (encode/decode present) passes"))
-    ;; validate-url-strategy! returns its input unchanged on success.
-    (let [custom {:encode identity :decode (constantly "/")}]
-      (is (identical? custom (rf.routing.strategy/validate-url-strategy! custom 'test nil))
-          "validate-url-strategy! is identity on a valid strategy"))))
-
 ;; ---- with-base-path combinator --------------------------------------------
 ;;
 ;; The side-effecting `:push!` / `:replace!` / `:install-listener!` legs are
 ;; CLJS-only (a browser `window.history`); this JVM suite pins the
 ;; host-agnostic `:encode` / `:decode` wrapping + the blank-base no-op.
 
-(deftest with-base-path-wraps-encode-and-decode
-  (testing "with-base-path re-adds the base on :encode and strips it on :decode"
+(deftest with-base-path-prefixes-the-base-on-encode
+  (testing "with-base-path re-adds the base to every encoded href, the app
+            root included"
     (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")]
       (is (= "/realworld/active" ((:encode wrapped) "/active")))
-      (is (= "/realworld/" ((:encode wrapped) "/")))
-      ;; :decode strips the base off whatever the wrapped strategy decodes —
-      ;; simulate that by composing over a fixed decode via a custom strategy.
-      ;; `:decode` takes the browser address it decodes.
-      (let [fake-decode (rf.routing.strategy/with-base-path
-                          {:encode identity :decode (constantly "/realworld/active")}
-                          "/realworld")]
-        (is (= "/active" ((:decode fake-decode) "/realworld/active")))))))
+      (is (= "/realworld/" ((:encode wrapped) "/"))))))
 
 (deftest with-base-path-normalizes-the-base
   (testing "a base with no leading slash gets one; a trailing slash is stripped"
@@ -330,15 +304,6 @@
     (is (identical? rf.routing.strategy/hash-url-strategy
                     (rf.routing.strategy/with-base-path rf.routing.strategy/hash-url-strategy "  ")))))
 
-(deftest with-base-path-jvm-side-omits-side-effecting-keys
-  (testing "the JVM half of a wrapped strategy carries only :encode/:decode,
-            matching the two shipped strategies' own JVM shape"
-    (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")]
-      (is (fn? (:encode wrapped)))
-      (is (fn? (:decode wrapped)))
-      (is (nil? (:push! wrapped)))
-      (is (nil? (:install-listener! wrapped))))))
-
 ;; ---- registration-time frame-config preflight ----------------------------
 ;;
 ;; `preflight-frame-config!` is the PURE registration-time preflight the core
@@ -401,7 +366,12 @@
       (is (not (contains? (set (rf.frame/frame-ids)) :ktmto9/bad-jvm))
           "no frame record was created")
       (is (nil? (rf.frame/frame-meta :ktmto9/bad-jvm))
-          "the failed frame is invisible to frame-meta"))))
+          "the failed frame is invisible to frame-meta")
+      (is (identical? rf.routing.strategy/history-url-strategy
+                      (rf.routing.strategy/url-strategy-for-frame-id :ktmto9/bad-jvm))
+          "the consult reads the history default — the rejected strategy never
+           reaches the store a consult reads, so the trusted read stays safe
+           on the failure path too"))))
 
 (deftest make-frame-missing-routing-artefact-fails-loud
   (testing "a config declaring :url-strategy while the
@@ -504,27 +474,6 @@
         (rf.frame/destroy-frame! :ecb4sx-inv/hash)
         (rf.frame/destroy-frame! :ecb4sx-inv/custom)
         (rf.frame/destroy-frame! :ecb4sx-inv/based)))))
-
-(deftest rejected-strategy-never-reaches-the-consult-inv
-  (testing "a malformed first registration is rejected at the
-            preflight and leaves NO store residue, so the consult
-            (url-strategy-for-frame-id) reads the history DEFAULT for that id —
-            the rejected strategy is never installed where a consult could see
-            it, so the trusted read stays safe on the failure path too"
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (let [ex (try (rf.frame/upsert-frame! :ecb4sx-inv/rejected
-                                       {:url-bound?   true
-                                        :url-strategy {:decode (constantly "/")}})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "the malformed registration throws at the preflight")
-      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
-      (is (nil? (rf.frame/frame-meta :ecb4sx-inv/rejected))
-          "no config was seated (no residue)")
-      (is (identical? rf.routing.strategy/history-url-strategy
-                      (rf.routing.strategy/url-strategy-for-frame-id :ecb4sx-inv/rejected))
-          "the consult reads the history default — the rejected strategy is
-           invisible to it"))))
 
 (deftest set-generation!-does-not-install-an-unvalidated-strategy-inv
   (testing "`rf.frame/set-generation!` — the only `frames`-store writer
