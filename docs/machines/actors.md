@@ -237,7 +237,7 @@ deadline destroys the actor and shows the error.
      [:button {:on-click #(dispatch [:auth.login/flow [:auth.login/dismiss]])} "Dismiss"]]))
 
 ;; :fx-overrides points each frame's requests at its server. A real app leaves it out.
-[:div
+[:div {:style {:display "flex" :gap "2em"}}
  [rf/frame-root {:id :auth.login/answering
                  :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
   [login-actors-view "Server answers"]]

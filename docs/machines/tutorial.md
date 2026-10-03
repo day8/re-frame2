@@ -649,7 +649,7 @@ because `:form-valid?` refuses the submit.
 
 ;; :fx-overrides answers each frame's requests without a network.
 ;; A real app leaves it out.
-[:div
+[:div {:style {:display "flex" :gap "2em"}}
  [rf/frame-root {:id :auth.login/accepting
                  :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
   [login-view "Server accepts"]]
