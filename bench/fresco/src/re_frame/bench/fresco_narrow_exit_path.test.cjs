@@ -73,16 +73,12 @@ test('a clean run exits 0 and says so', () => {
 
 // --- the defect: an unsettled warm-up, everything else clean ---------------
 
-test('an UNSETTLED WARM-UP alone is a nonzero exit — the case that used to be green', () => {
-  const v = verdict(clean({ warmupUnsettled: ['reagent-ratom'] }));
+test('an UNSETTLED WARM-UP alone exits 3 and NAMES the arms, the ceiling and the knob — the case that used to be green', () => {
+  const v = verdict(clean({ warmupUnsettled: ['reagent-ratom', 're-frame2'], warmupMax: 20 }));
   assert.notStrictEqual(v.code, 0, 'an arm measured on a site still trending must not exit 0');
   assert.strictEqual(v.code, 3);
-  assert.doesNotMatch(joined(v), /reportable\./, 'a refused run may not also call itself reportable');
-});
-
-test('the warm-up refusal NAMES the arms, the ceiling and the knob', () => {
-  const v = verdict(clean({ warmupUnsettled: ['reagent-ratom', 're-frame2'], warmupMax: 20 }));
   const text = joined(v);
+  assert.doesNotMatch(text, /reportable\./, 'a refused run may not also call itself reportable');
   assert.match(text, /reagent-ratom, re-frame2/);
   assert.match(text, /20-window ceiling/);
   assert.match(text, /HN_WARMUP_MAX/);
@@ -90,16 +86,12 @@ test('the warm-up refusal NAMES the arms, the ceiling and the knob', () => {
 
 // --- the second, narrower instance: a clamp-limited leg --------------------
 
-test('a CLAMP-LIMITED LEG alone is a nonzero exit — the case that used to be green', () => {
+test('a CLAMP-LIMITED LEG alone exits 4, names the legs and the repair, and refuses to loosen itself — the case that used to be green', () => {
   const v = verdict(clean({ clamped: ['re-frame2/force (4.1x quantum per sample)'] }));
   assert.notStrictEqual(v.code, 0, 'a leg sitting on the clock quantum must not exit 0');
   assert.strictEqual(v.code, 4, 'the clamp is scoped narrower than the warm-up, and gets its own code');
-  assert.doesNotMatch(joined(v), /reportable\./);
-});
-
-test('the clamp refusal names the legs and the repair, and refuses to loosen itself', () => {
-  const v = verdict(clean({ clamped: ['re-frame2/force (4.1x quantum per sample)'] }));
   const text = joined(v);
+  assert.doesNotMatch(text, /reportable\./);
   assert.match(text, /re-frame2\/force \(4\.1x quantum per sample\)/);
   assert.match(text, /HN_WRITES/);
   assert.match(text, /do not loosen the multiple/);
@@ -107,41 +99,30 @@ test('the clamp refusal names the legs and the repair, and refuses to loosen its
 
 // --- the other refusals: their exit codes and their wording ----------------
 
-test('a lost position still exits 1, in its own words', () => {
-  const v = verdict(clean({ positionsLost: true }));
-  assert.strictEqual(v.code, 1, 'a lost position must exit 1');
-  assert.match(joined(v), /VERDICT: FAILED — some samples reached the guard with no finite position/);
-});
+/** The driver's other refusals: what, the fault, its exit code, its words. */
+const OTHER_REFUSALS = [
+  ['a lost position', { positionsLost: true }, 1,
+    [/VERDICT: FAILED — some samples reached the guard with no finite position/]],
+  ['the arm-order guard', { orderRefuse: true }, 2,
+    [/VERDICT: REFUSED by the arm-order guard/, /Not the tolerance\./]],
+  ['a control leak', { leaked: true }, 1, [/an arm's total moved with the control size/]],
+  ['unverified writes', { badTotal: 5, writeTotal: 720, offenders: 'reagent-ratom:5' }, 1,
+    [/5 of 720 measured writes never reached the DOM/, /\(reagent-ratom:5\)/]],
+  ['a broken leg identity', { identityOk: false }, 1,
+    [/write \+ gap \+ force does not equal the published total/]],
+];
 
-test('the arm-order guard still exits 2, in its own words', () => {
-  const v = verdict(clean({ orderRefuse: true }));
-  assert.strictEqual(v.code, 2, 'an arm-order refusal must exit 2');
-  assert.match(joined(v), /VERDICT: REFUSED by the arm-order guard/);
-  assert.match(joined(v), /Not the tolerance\./);
-});
-
-test('a control leak still exits 1, in its own words', () => {
-  const v = verdict(clean({ leaked: true }));
-  assert.strictEqual(v.code, 1);
-  assert.match(joined(v), /an arm's total moved with the control size/);
-});
-
-test('unverified writes still exit 1, and still name the offenders', () => {
-  const v = verdict(clean({ badTotal: 5, writeTotal: 720, offenders: 'reagent-ratom:5' }));
-  assert.strictEqual(v.code, 1);
-  assert.match(joined(v), /5 of 720 measured writes never reached the DOM/);
-  assert.match(joined(v), /\(reagent-ratom:5\)/);
-});
-
-test('a broken leg identity still exits 1, in its own words', () => {
-  const v = verdict(clean({ identityOk: false }));
-  assert.strictEqual(v.code, 1);
-  assert.match(joined(v), /write \+ gap \+ force does not equal the published total/);
+test('every other refusal exits with its own code, in its own words', () => {
+  for (const [what, over, code, words] of OTHER_REFUSALS) {
+    const v = verdict(clean(over));
+    assert.strictEqual(v.code, code, `${what} must exit ${code}`);
+    for (const w of words) assert.match(joined(v), w, what);
+  }
 });
 
 // --- combinations: nothing masks anything, precedence holds ----------------
 
-test('the two NEW refusals together: both named, warm-up takes the code', () => {
+test('the warm-up and the clamp together: both named, warm-up takes the code', () => {
   const v = verdict(clean({ warmupUnsettled: ['reagent-ratom'], clamped: ['re-frame2/write (2.0x quantum per sample)'] }));
   assert.strictEqual(v.code, 3);
   assert.match(joined(v), /warm-up never settled/);
@@ -149,23 +130,15 @@ test('the two NEW refusals together: both named, warm-up takes the code', () => 
 });
 
 test('an unsettled warm-up NEVER downgrades an existing refusal', () => {
-  for (const [over, code] of [
-    [{ positionsLost: true }, 1],
-    [{ orderRefuse: true }, 2],
-    [{ leaked: true }, 1],
-    [{ badTotal: 3, offenders: 'x:3' }, 1],
-    [{ identityOk: false }, 1],
-  ]) {
-    const before = verdict(clean(over)).code;
+  for (const [what, over, code] of OTHER_REFUSALS) {
     const after = verdict(clean({ ...over, warmupUnsettled: ['reagent-ratom'], clamped: ['a/b (1x quantum per sample)'] }));
-    assert.strictEqual(before, code);
-    assert.strictEqual(after.code, code, `${JSON.stringify(over)} must keep exit ${code}`);
+    assert.strictEqual(after.code, code, `${what} must keep exit ${code}`);
     assert.match(joined(after), /warm-up never settled/, 'and the warm-up refusal is NAMED too');
     assert.match(joined(after), /sits on the clock quantum/);
   }
 });
 
-test('the arm-order guard and everything else at once: every fault is named exactly once', () => {
+test('every fault at once: each is named, and a lost position takes the code', () => {
   const v = verdict({
     positionsLost: true,
     orderRefuse: true,

@@ -356,7 +356,7 @@ test('the control and the guard are PRINTED before the gate, passing or not', ()
   assert.ok(printAt < gateAt, 'report first, gate after — a control quoted only when it passes is not a control');
 });
 
-test('the header no longer promises anything the file does not compute', () => {
+test('the header promises nothing the file does not compute', () => {
   const header = SRC.slice(0, SRC.indexOf('const fs = require'));
   assert.match(header, /a guard\s*\n?\/\/\s*refusal or a failed control/);
   // The two things that make the promise true.
