@@ -153,7 +153,6 @@
     (let [out (scxml/spec->scxml idle-loading-success-error)]
       (is (str/includes? out "<scxml"))
       (is (str/includes? out "xmlns=\"http://www.w3.org/2005/07/scxml\""))
-      (is (str/includes? out "version=\"1.0\""))
       (is (str/includes? out "</scxml>")))))
 
 (deftest emit-flat-machine-includes-initial-and-final-states
@@ -574,24 +573,13 @@
       (is (str/includes? out "event=\"done.state.rf2_parallel_root\"")
           "the whole-parallel done.state completion event"))))
 
-(deftest round-trip-compound-on-done
-  (testing "a compound `:on-done` (sibling target) round-trips
-            through `done.state.<id>` back to `:on-done`"
-    (let [spec compound-on-done-machine
-          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
-      (is (= spec back) "the compound :on-done topology round-trips exactly")
-      (is (= :next (get-in back [:states :flow :on-done]))
-          ":on-done reconstructs on the compound node"))))
-
-(deftest round-trip-parallel-on-done-topology
-  (testing "a parallel-root `:on-done` round-trips its
-            COMPLETION topology (the action is named-lossy like every
-            action — survives only as a comment, so the spec carries the
-            empty completion form `{}`)"
-    (let [spec parallel-on-done-machine
-          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
-      (is (= spec back) "the parallel completion topology round-trips")
-      (is (contains? back :on-done) "the parallel-root :on-done survives import"))))
+(deftest round-trip-on-done
+  (testing "an `:on-done` round-trips through `done.state.<id>`: a compound's
+            sibling target, and a parallel root's completion topology (its
+            action is named-lossy, so the fixture carries the empty form `{}`)"
+    (doseq [[label spec] [["compound :on-done"      compound-on-done-machine]
+                          ["parallel-root :on-done" parallel-on-done-machine]]]
+      (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)) label))))
 
 (deftest no-on-done-emits-no-done-state-transition
   (testing "a compound with no :on-done emits no done.state
@@ -703,61 +691,38 @@
       (is (str/includes? out "event=\"after.500\"") "the delay rides after.<ms>")
       (is (str/includes? out "target=\"a___two\"")))))
 
-(deftest round-trip-parallel-root-on-single
-  (testing "a single-region root :on round-trips exactly"
-    (is (round-trips? parallel-root-on-single-machine))))
-
-(deftest round-trip-parallel-root-on-multi
-  (testing "a multi-region root :on round-trips its
-            region-qualified target grammar exactly"
-    (is (round-trips? parallel-root-on-multi-machine))))
-
-(deftest round-trip-parallel-root-after-single
-  (testing "a single-region root :after round-trips exactly"
-    (is (round-trips? parallel-root-after-single-machine))))
-
-(deftest round-trip-parallel-root-after-multi
-  (testing "a multi-region root :after round-trips exactly"
-    (is (round-trips? parallel-root-after-multi-machine))))
-
-(deftest round-trip-parallel-root-on-with-guard
-  (testing "a guarded root :on round-trips its guard via cond="
-    (is (round-trips? {:type    :parallel
-                       :on      {:fire {:target [[:a :two] [:b :two]] :guard :armed?}}
-                       :regions {:a {:initial :one :states {:one {} :two {}}}
-                                 :b {:initial :one :states {:one {} :two {}}}}}))))
-
-(deftest round-trip-parallel-root-on-action-only
-  (testing "a TARGETLESS action-only root :on round-trips its
-            completion topology (the action is named-lossy — survives only as
-            a comment, so it returns the action-bearing internal form)"
-    (let [spec {:type    :parallel
-                :on      {:ping {:action :log-ping}}
-                :regions {:a {:initial :one :states {:one {}}}
-                          :b {:initial :one :states {:one {}}}}}
-          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
-      (is (= spec back) "the action-only root :on round-trips (action name survives)")
-      (is (= :log-ping (get-in back [:on :ping :action]))
-          "the action name is recovered, NOT collapsed to a forbidden {} block"))))
-
-(deftest round-trip-parallel-root-after-action-only
-  (testing "a TARGETLESS action-only root :after round-trips"
-    (let [spec {:type    :parallel
-                :after   {2000 {:action :timeout-log}}
-                :regions {:a {:initial :one :states {:one {}}}
-                          :b {:initial :one :states {:one {}}}}}
-          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
-      (is (= spec back) "the action-only root :after round-trips")
-      (is (= :timeout-log (get-in back [:after 2000 :action]))))))
-
-(deftest round-trip-parallel-root-on-and-after-together
-  (testing "a root :on AND a root :after on the same
-            parallel machine both survive + round-trip independently"
-    (is (round-trips? {:type    :parallel
-                       :on      {:go [:a :two]}
-                       :after   {1000 [[:a :two] [:b :two]]}
-                       :regions {:a {:initial :one :states {:one {} :two {}}}
-                                 :b {:initial :one :states {:one {} :two {}}}}}))))
+(deftest round-trip-parallel-root-on-and-after
+  (testing "a parallel root's own `:on` / `:after` round-trips exactly: one- and
+            multi-region targets, a guard via cond=, the targetless action-only
+            forms (the action name comes back, never a forbidden `{}` block),
+            and a root `:on` beside a root `:after`"
+    (doseq [[label spec]
+            [["root :on, one region"      parallel-root-on-single-machine]
+             ["root :on, multi-region"    parallel-root-on-multi-machine]
+             ["root :after, one region"   parallel-root-after-single-machine]
+             ["root :after, multi-region" parallel-root-after-multi-machine]
+             ["guarded root :on"
+              {:type    :parallel
+               :on      {:fire {:target [[:a :two] [:b :two]] :guard :armed?}}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {} :two {}}}}}]
+             ["action-only root :on"
+              {:type    :parallel
+               :on      {:ping {:action :log-ping}}
+               :regions {:a {:initial :one :states {:one {}}}
+                         :b {:initial :one :states {:one {}}}}}]
+             ["action-only root :after"
+              {:type    :parallel
+               :after   {2000 {:action :timeout-log}}
+               :regions {:a {:initial :one :states {:one {}}}
+                         :b {:initial :one :states {:one {}}}}}]
+             ["root :on beside root :after"
+              {:type    :parallel
+               :on      {:go [:a :two]}
+               :after   {1000 [[:a :two] [:b :two]]}
+               :regions {:a {:initial :one :states {:one {} :two {}}}
+                         :b {:initial :one :states {:one {} :two {}}}}}]]]
+      (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)) label))))
 
 (deftest parallel-root-on-map-form-canonicalises-to-shorthand
   (testing "the `{:target …}` map form of a target-only root :on

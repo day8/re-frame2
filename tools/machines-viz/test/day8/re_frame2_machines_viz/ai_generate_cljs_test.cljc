@@ -116,37 +116,20 @@
 ;; ---------------------------------------------------------------------------
 ;; generate-machine — happy paths
 
-(deftest generate-with-fenced-clojure-response-returns-spec
-  (testing "a ```clojure fenced EDN response parses to the spec"
-    (let [resp (fence-clojure (pr-str login-flow-spec))
-          out  (ai/generate-machine "a login flow"
-                                    {:resolver (stub-resolver resp)})]
-      (is (= login-flow-spec out)))))
-
-(deftest generate-with-bare-edn-response-returns-spec
-  (testing "a bare EDN response (no fence) also parses"
-    (let [resp (pr-str login-flow-spec)
-          out  (ai/generate-machine "a login flow"
-                                    {:resolver (stub-resolver resp)})]
-      (is (= login-flow-spec out)))))
-
-(deftest generate-with-edn-fence-returns-spec
-  (testing "a ```edn-fenced response parses"
-    (let [resp (str "```edn\n" (pr-str login-flow-spec) "\n```")
-          out  (ai/generate-machine "a login flow"
-                                    {:resolver (stub-resolver resp)})]
-      (is (= login-flow-spec out)))))
-
-(deftest generate-with-untagged-and-cljs-fences-returns-spec
-  (testing "an untagged ``` fence and a ```cljs fence, each behind prose,
-            parse too — the remaining fence forms the extractor accepts"
-    (doseq [opener ["```" "```cljs"]]
-      (let [resp (str "Here is the machine:\n\n" opener "\n"
-                      (pr-str login-flow-spec) "\n```\n")]
+(deftest generate-accepts-each-response-form
+  (testing "every response form the extractor accepts parses to the spec: a
+            ```clojure fence behind prose (the shape the system prompt asks
+            for), bare EDN, an ```edn fence, and untagged and ```cljs fences"
+    (let [edn (pr-str login-flow-spec)]
+      (doseq [[label resp]
+              [["```clojure fence behind prose" (fence-clojure edn)]
+               ["bare EDN"                      edn]
+               ["```edn fence"                  (str "```edn\n" edn "\n```")]
+               ["untagged fence behind prose"   (str "Here is the machine:\n\n```\n" edn "\n```\n")]
+               ["```cljs fence behind prose"    (str "Here is the machine:\n\n```cljs\n" edn "\n```\n")]]]
         (is (= login-flow-spec
-               (ai/generate-machine "a login flow"
-                                    {:resolver (stub-resolver resp)}))
-            (str opener " fence"))))))
+               (ai/generate-machine "a login flow" {:resolver (stub-resolver resp)}))
+            label)))))
 
 (deftest generate-handles-parallel-spec
   (testing "parallel machines parse and validate"
@@ -167,57 +150,23 @@
       (is ex)
       (is (= :ai-generate/no-resolver (:rf.error/id (ex-data ex)))))))
 
-(deftest generate-with-non-string-resolver-response-throws-parse-failed
-  (testing "resolver returning a non-string throws :parse-failed"
-    (let [resolver (fn [_] 42)
-          ex (try
-               (ai/generate-machine "x" {:resolver resolver})
-               nil
-               (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-      (is ex)
-      (is (= :ai-generate/parse-failed (:rf.error/id (ex-data ex)))))))
-
-(deftest generate-with-unparseable-edn-throws-parse-failed
-  (testing "resolver returning malformed EDN throws :parse-failed"
-    (let [resolver (stub-resolver "```clojure\n{{{ not-edn }}}\n```")
-          ex (try
-               (ai/generate-machine "x" {:resolver resolver})
-               nil
-               (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-      (is ex)
-      (is (= :ai-generate/parse-failed (:rf.error/id (ex-data ex)))))))
-
-(deftest generate-with-non-machine-spec-throws-invalid-spec
-  (testing "resolver returning valid EDN that isn't a machine shape
-            throws :invalid-spec"
-    (let [resolver (stub-resolver "{:not-a-machine 42}")
-          ex (try
-               (ai/generate-machine "x" {:resolver resolver})
-               nil
-               (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-      (is ex)
-      (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex)))))))
-
-(deftest generate-with-non-map-spec-throws-invalid-spec
-  (testing "resolver returning a vector / number / string throws :invalid-spec"
-    (doseq [bad ["[]" "42" "\"hello\"" ":keyword"]]
-      (let [resolver (stub-resolver bad)
-            ex (try
+(deftest generate-malformed-responses-throw-their-documented-ids
+  (testing "a response that is not a string or not EDN throws :parse-failed;
+            parseable EDN that is not a machine shape throws :invalid-spec"
+    (doseq [[label resolver id]
+            [["non-string response"        (fn [_] 42)                                       :ai-generate/parse-failed]
+             ["unparseable EDN"            (stub-resolver "```clojure\n{{{ not-edn }}}\n```") :ai-generate/parse-failed]
+             ["a non-machine map"          (stub-resolver "{:not-a-machine 42}")             :ai-generate/invalid-spec]
+             ["a vector"                   (stub-resolver "[]")                              :ai-generate/invalid-spec]
+             ["a number"                   (stub-resolver "42")                              :ai-generate/invalid-spec]
+             ["a string"                   (stub-resolver "\"hello\"")                       :ai-generate/invalid-spec]
+             ["a keyword"                  (stub-resolver ":keyword")                        :ai-generate/invalid-spec]
+             [":parallel without :regions" (stub-resolver "{:type :parallel}")               :ai-generate/invalid-spec]]]
+      (let [ex (try
                  (ai/generate-machine "x" {:resolver resolver})
                  nil
                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-        (is ex (str "expected ex for " bad))
-        (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex))))))))
-
-(deftest generate-rejects-parallel-without-regions
-  (testing ":type :parallel without :regions throws :invalid-spec"
-    (let [resolver (stub-resolver "{:type :parallel}")
-          ex (try
-               (ai/generate-machine "x" {:resolver resolver})
-               nil
-               (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-      (is ex)
-      (is (= :ai-generate/invalid-spec (:rf.error/id (ex-data ex)))))))
+        (is (= id (:rf.error/id (ex-data ex))) label)))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0015 — error ex-data carries NO raw LLM payload

@@ -588,8 +588,7 @@
             s (scxml-rejects? d)]
         (is (true? a) (str "AI must reject "      (pr-str d)))
         (is (true? m) (str "Mermaid must reject " (pr-str d)))
-        (is (true? s) (str "SCXML must reject "   (pr-str d)))
-        (is (= a m s) (str "all three must AGREE on rejecting " (pr-str d)))))))
+        (is (true? s) (str "SCXML must reject "   (pr-str d)))))))
 
 (deftest all-three-emitters-accept-the-same-valid-definitions
   (testing "AI, Mermaid, AND SCXML accept every well-formed
@@ -600,37 +599,24 @@
             s (scxml-rejects? d)]
         (is (false? a) (str "AI must accept "      (pr-str d)))
         (is (false? m) (str "Mermaid must accept " (pr-str d)))
-        (is (false? s) (str "SCXML must accept "   (pr-str d)))
-        (is (= a m s) (str "all three must AGREE on accepting " (pr-str d)))))))
+        (is (false? s) (str "SCXML must accept "   (pr-str d)))))))
 
-(deftest scxml-rejects-malformed-parallel-region-bodies
-  (testing "SCXML rejects a parallel region body with no
-            :initial/:states, matching AI + Mermaid"
-    (is (scxml-rejects? malformed-parallel-region-body-machine)
-        "SCXML rejects the empty region body")
-    (is (scxml-rejects? nil-parallel-region-machine))
-    (is (scxml-rejects? region-missing-states-machine))
-    (is (scxml-rejects? region-non-keyword-initial-machine))
-    ;; It throws the SCXML-surface id (not the AI/Mermaid ids).
-    (let [d (try (scxml/spec->scxml malformed-parallel-region-body-machine) nil
-                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (= :scxml/invalid-spec (:rf.error/id d))
-          "SCXML keeps its surface-specific error id"))))
-
-(deftest all-three-reject-non-keyword-initial
-  (testing "Mermaid + SCXML reject a non-keyword :initial,
-            matching AI (the machine contract: state ids are keywords)"
-    (doseq [d [non-keyword-initial-machine numeric-initial-machine]]
-      (is (mermaid-rejects? d) (str "Mermaid rejects " (pr-str d)))
-      (is (scxml-rejects? d)   (str "SCXML rejects "   (pr-str d)))
-      (is (ai-rejects? d)      (str "AI rejects "      (pr-str d))))
-    ;; Each keeps its surface-specific error id.
-    (let [md (try (mermaid/emit non-keyword-initial-machine) nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))
-          sd (try (scxml/spec->scxml non-keyword-initial-machine) nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (= :mermaid/invalid-definition (:rf.error/id md)))
-      (is (= :scxml/invalid-spec (:rf.error/id sd))))))
+(deftest each-emitter-keeps-its-surface-error-id
+  (testing "Mermaid and SCXML refuse with their OWN surface-specific error ids
+            (the reject table above shows all three refuse the same shapes)"
+    (let [ex-id (fn [f]
+                  (try (f) nil
+                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                         (:rf.error/id (ex-data e)))))]
+      (is (= :scxml/invalid-spec
+             (ex-id #(scxml/spec->scxml malformed-parallel-region-body-machine)))
+          "SCXML, an empty parallel region body")
+      (is (= :mermaid/invalid-definition
+             (ex-id #(mermaid/emit non-keyword-initial-machine)))
+          "Mermaid, a non-keyword :initial")
+      (is (= :scxml/invalid-spec
+             (ex-id #(scxml/spec->scxml non-keyword-initial-machine)))
+          "SCXML, a non-keyword :initial"))))
 
 (deftest invalid-definition-summaries-stay-value-free-across-emitters
   (testing "the shared value-free summary excludes the raw
