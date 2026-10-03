@@ -10,10 +10,10 @@ For the tutorial's articles app, an article page gets its title, description and
 OpenGraph tags from the article it shows. The head function looks the article up in
 the `:articles` vector, whose entries here also carry a `:summary` and an `:image`:
 
-```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.routing :as rf.routing]   ;; route-url; also loads reg-route
-          [re-frame.ssr :as ssr])              ;; loads reg-head
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.routing :as rf.routing]   ;; route-url; also loads reg-route
+         '[re-frame.ssr :as ssr])              ;; loads reg-head
 
 (rf/reg-head :head/article
   {:doc "Article page head: title, description and OpenGraph from the article."}
@@ -36,13 +36,31 @@ the `:articles` vector, whose entries here also carry a `:summary` and an `:imag
   {:params [:map [:id :string]]
    :head   :head/article}      ;; which head this route uses
   "/articles/:id")             ;; the path is the third argument, not a metadata key
+
+;; Stand-ins for a request: seed one article, then build the head /articles/1 gets.
+(rf/reg-event :articles/seed
+  (fn [{:keys [db]} [_ articles]]
+    {:db (assoc db :articles articles)}))
+
+(rf/dispatch-sync [:articles/seed [{:id      "1"
+                                    :title   "Why <head> tags matter"
+                                    :summary "Crawlers read the first response."
+                                    :image   "/img/head-tags.png"}]])
+
+[:pre (ssr/head-model->html
+        (ssr/head-model :rf/default                    ;; the frame this page's cells share
+                        {:route {:route-id :articles/show :params {:id "1"}}}))]
 ```
 
-Once `:rf/server-init` seeds `:articles` and hands the URL to routing, as in [Reading
-the request](concepts.md#reading-the-request), a request for `/articles/1` renders a
-`<head>` holding the title, the `<meta>` tags, the stylesheet and canonical `<link>`s,
-and a `<script type="application/ld+json">`. A `nil` attribute value, such as a missing
-`:summary`, omits that attribute.
+On a server, `:rf/server-init` seeds `:articles` and hands the URL to routing, as in
+[Reading the request](concepts.md#reading-the-request), and a request for `/articles/1`
+gets a `<head>` holding the title, the `<meta>` tags, the stylesheet and canonical
+`<link>`s, and a `<script type="application/ld+json">`. The end of the cell builds that
+fragment without a server: it seeds the article, passes the route to
+[`ssr/head-model`](../api/re-frame.ssr.head.md#head-model), and renders the model with
+`ssr/head-model->html`. The `<` in the title is escaped in `<title>` and re-encoded in
+the JSON-LD. A `nil` attribute value omits that attribute: delete the `:summary` and run
+the cell again.
 
 The head function has the shape of a [subscription](../core/glossary.md#subscription):
 it takes app-db and the matched route, and returns a head model. It must be pure. The
