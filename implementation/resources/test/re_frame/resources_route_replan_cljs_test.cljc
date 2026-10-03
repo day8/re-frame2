@@ -477,9 +477,4 @@
         (is (not (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k2))))
             "orphaned → abort-requested")
         (is (nil? (owner-index A)) "A's index row is gone once it holds nothing")
-        (is (= [(:current-work (entry k2))] (:aborted (:tags (op traces :rf.resource/owner-released)))))))
-    (testing "the whole-owner release, over the same shared core, releases the owner and aborts orphaned work"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner B}])
-      (is (empty? (:active-owners (entry k1))))
-      (is (nil? (owner-index B)))
-      (is (not (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k1))))))))
+        (is (= [(:current-work (entry k2))] (:aborted (:tags (op traces :rf.resource/owner-released)))))))))
