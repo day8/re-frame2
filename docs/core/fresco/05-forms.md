@@ -111,6 +111,60 @@ For async acceptance, the settle event writes the accepted value and advances
 the revision. On the next render the field shows that value, and its new
 Enter/blur callbacks carry the new revision. They cannot commit the old draft.
 
+The cell below runs `title-field` with that handler. Edit the title and the
+committed value underneath does not move until you press Enter or leave the
+field. Escape throws the draft away. Clear the field and press Enter: the
+handler rejects the blank title, and the advanced revision puts the committed
+title back.
+
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.fresco :as h]
+         '[re-frame.fresco.forms :as forms])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"}}}}))
+
+(rf/reg-sub :todo/title
+  (fn [db [_ id]]
+    (get-in db [:todos id :title])))
+
+(rf/reg-sub :todo/title-revision
+  (fn [db [_ id]]
+    (get-in db [:todos id :title-revision] 0)))
+
+(rf/reg-event :todo/title-committed
+  (fn [{:keys [db]} [_ id candidate]]
+    (let [title (str/trim candidate)]
+      (if (str/blank? title)
+        {:db (update-in db
+                        [:todos id :title-revision]
+                        (fnil inc 0))}
+        {:db (-> db
+                 (assoc-in [:todos id :title] title)
+                 (update-in [:todos id :title-revision]
+                            (fnil inc 0)))}))))
+
+(h/defview title-field [{:keys [id]}]
+  [forms/buffered-field
+   {:control     [:todo id :title]
+    :value       (h/sub [:todo/title id])
+    ::h/revision (h/sub [:todo/title-revision id])
+    :on-commit   [:todo/title-committed id]
+    :aria-label  "Todo title"
+    :placeholder "What needs doing?"}])
+
+(h/defview title-editor [{:keys [id]}]
+  [:div
+   [title-field {:id id}]
+   [:p "Committed: " (pr-str (h/sub [:todo/title id]))]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [title-editor {:id 1}]]
+```
+
 A field that will never be externally reset, rejected, or rewritten may use a
 constant revision such as `0`. That choice means an active draft is never
 replaced merely because `:value` changed.
@@ -200,6 +254,83 @@ document.
 Because the error is derived from the current draft, it clears as soon as a
 touched field becomes valid. For a buffered field, mark the field touched in
 its `:on-commit` handler and use the same gated subscription.
+
+The cell below runs this field with a Save button whose event only records the
+attempt; the real submit comes in the next sections. The form opens with no
+error. Tab into the field and out again, or press Save, and the error appears.
+Type a title and it clears.
+
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(def blank-editor
+  {:draft             {:title "" :notes ""}
+   :baseline          {:title "" :notes ""}
+   :touched           #{}
+   :submit-attempted? false})
+
+(defn validate [{:keys [title]}]
+  (cond-> {}
+    (str/blank? title)
+    (assoc :title "Title is required.")))
+
+(rf/reg-event :todo.editor/open
+  (fn [{:keys [db]} _]
+    {:db (assoc db :todo.editor blank-editor)}))
+
+(rf/reg-event :todo.editor/edit-field
+  (fn [{:keys [db]} [_ field text]]
+    {:db (assoc-in db [:todo.editor :draft field] text)}))
+
+(rf/reg-event :todo.editor/touch-field
+  (fn [{:keys [db]} [_ field]]
+    {:db (update-in db
+                    [:todo.editor :touched]
+                    (fnil conj #{})
+                    field)}))
+
+(rf/reg-event :todo.editor/attempt-submit
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:todo.editor :submit-attempted?] true)}))
+
+(rf/reg-sub :todo.editor/field
+  (fn [db [_ field]]
+    (get-in db [:todo.editor :draft field])))
+
+(rf/reg-sub :todo.editor/field-error
+  (fn [db [_ field]]
+    (let [{:keys [draft touched submit-attempted?]}
+          (:todo.editor db)]
+      (when (or submit-attempted?
+                (contains? touched field))
+        (get (validate draft) field)))))
+
+(h/defview editor-title-field [_]
+  (let [error (h/sub [:todo.editor/field-error :title])]
+    [:fieldset.form-group
+     [:label {:for "todo-title"} "Title"]
+     [:input.form-control
+      {:id               "todo-title"
+       :type             :text
+       :placeholder      "Todo title"
+       :value            (h/sub [:todo.editor/field :title])
+       :aria-invalid     (if error "true" "false")
+       :aria-describedby (when error "todo-title-error")
+       :on-input         [:todo.editor/edit-field :title ::h/value]
+       :on-blur          [:todo.editor/touch-field :title]}]
+     (when error
+       [:div.error-messages {:id "todo-title-error" :role "alert"} error])]))
+
+(h/defview editor-form [_]
+  [:form {:on-submit [:todo.editor/attempt-submit]}
+   [editor-title-field]
+   [:button {:type :submit} "Save todo"]])
+
+[h/frame-root {:id :editor :initial-events [[:todo.editor/open]]}
+ [editor-form]]
+```
 
 ## Materialise the submit gate once
 
