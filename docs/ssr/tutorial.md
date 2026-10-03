@@ -85,6 +85,36 @@ throughout because Step 3 hashes the tree, and the hash needs the called form.
 None of the registrations changed to make this work: the handler, the subscription
 and the view were already pure.
 
+`render-to-string` runs in a browser too, so this cell is Step 1, live. It runs under
+this page's own frame and renderer, so it leaves out `init!` and `with-new-frame`.
+Cells don't support the `^{:rf/id …}` override, so the view takes the id its namespace
+gives it and the cell calls it through its Var. Edit a title or the view and press
+Mod-Enter:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.ssr :as ssr])
+
+(rf/reg-event :articles/seed
+  (fn [{:keys [db]} [_ articles]]
+    {:db (assoc db :articles articles)}))
+
+(rf/reg-sub :articles/slice (fn [db _] (:articles db)))
+
+(rf/reg-view root-view []
+  (let [arts @(subscribe [:articles/slice])]
+    [:main.page
+     [:h1 "Recent articles"]
+     (if (seq arts)
+       (into [:ul] (for [{:keys [id title]} arts]
+                     ^{:key id} [:li [:h3 title]]))
+       [:p "No articles."])]))
+
+(rf/dispatch-sync [:articles/seed [{:id "1" :title "Hello, server"}]])
+
+[:pre (ssr/render-to-string (root-view) {})]
+```
+
 !!! note "Why is `subscribe` unqualified in the view?"
 
     `reg-view` injects `subscribe` and `dispatch` into the view body, already bound to
@@ -222,6 +252,26 @@ returns a Ring response:
   string, so the tree is walked only once. The hash covers only the root view's own
   markup, not the views it nests, which is why this root view returns its markup
   directly ([what the hash covers](concepts.md#what-the-hash-covers)).
+
+The hash and the stamp need no JVM either. This cell hashes Step 1's view, which the
+cell above registered, and stamps the hash on the root element. Seed a second article
+and both the markup and the hash change:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.ssr :as ssr])
+
+(defn stamped-page []
+  (let [hiccup (root-view)
+        rhash  (ssr/render-tree-hash hiccup)]
+    [:div
+     [:button {:on-click #(rf/dispatch [:articles/seed [{:id "1" :title "Hello, server"}
+                                                       {:id "2" :title "Hydration, verified"}]])}
+      "Seed a second article"]
+     [:pre (ssr/render-to-string hiccup {:render-hash rhash})]]))
+
+[stamped-page]
+```
 
 This handler writes its own `<!DOCTYPE html>` envelope around a fragment. When your
 root view renders the whole `[:html …]` document instead, pass `:doctype? true` to
