@@ -24,8 +24,9 @@
     1. a map-form populate writes the EXACT canonical scoped key
        authoritatively (loaded/fresh, the resource's stored shape, its tags) —
        pinned by the mutation suite's `success-populates-resource-entry`;
-    2. a map-form `:scope {:from-db …}` populate seeds the resolved
-       session's scoped key (the session feed case);
+    2. a map-form `:scope {:from-db …}` populate or patch target resolves
+       against the SETTLE-time app-db, so a session switch between execute and
+       settle writes under the new session's key (the session feed case);
     3. a populated key is EXEMPT from the same mutation's invalidation refetch
        by default — even when the invalidation tag matches it;
     4. `:refetch-populated? true` re-enables the same-mutation refetch of the
@@ -143,27 +144,49 @@
     (:tags (last @seen))))
 
 ;; ===========================================================================
-;; 2. A {:from-db …} populate :scope seeds the resolved session's scoped key
+;; 2. A {:from-db …} target :scope resolves against the settle-time app-db
 ;; ===========================================================================
 
-(deftest map-form-populate-from-db-scope-seeds-the-resolved-session-key
+(deftest map-form-from-db-targets-resolve-at-settle
   ;; Validation 7/9: a map-form target whose :scope is a {:from-db …} resolver
-  ;; reference resolves the EXACT scoped key (the session feed case) — the
-  ;; populated key lands under the resolved session.
+  ;; reference resolves the EXACT scoped key against db AT SETTLE TIME (Spec 016
+  ;; §Map-form exact resource targets — the single use-time rule). The mutation
+  ;; executes while "zed" is logged in and the session switches to "yan" before
+  ;; the captured reply settles, so both writes land under yan's session.
   (reg-feed-resource!)
+  (rf/reg-resource :r/profile
+    {:scope {:from-db :t/session}
+     :params-schema [:map]}
+    (fn [_p _] {:request {:method :get :url "/profile"}}))
+  ;; a patch transforms existing data, so both sessions' profiles are loaded
+  (doseq [u ["zed" "yan"]]
+    (own-loaded! {:resource :r/profile :scope [:rf.scope/session {:username u}]
+                  :params {} :owner [:v :profile u]}))
   (rf/reg-mutation :m/save-feed
     {:scope :rf.scope/global
      :params-schema [:map]
+     :patches   (fn [_p _result]
+                  {{:resource :r/profile :params {} :scope {:from-db :t/session}}
+                   (fn [old _] (assoc old :saved true))})
      :populates (fn [_p result]
                   {{:resource :r/feed :params {} :scope {:from-db :t/session}} result})}
     (fn [_p _] {:request {:method :put :url "/feed"}}))
-  (rf/dispatch-sync [:t/login "jake"])
+  (rf/dispatch-sync [:t/login "zed"])
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-feed :params {} :instance :pf1}])
-  (reply-success! @last-managed-args {:articles [:x]})
-  (testing "the {:from-db} populate seeded jake's SESSION-scoped feed key"
-    (let [e (entry (session-feed-key "jake"))]
-      (is (= :loaded (:status e)))
-      (is (= {:articles [:x]} (:data e))))))
+  (let [reply-args @last-managed-args]
+    (rf/dispatch-sync [:t/login "yan"])
+    (reply-success! reply-args {:articles [:x]}))
+  (let [profile-key (fn [u] (rf.resources.state/scoped-resource-key
+                              [:rf.scope/session {:username u}] :r/profile {}))]
+    (testing "the populate seeded the settle-time session's feed key (yan),
+              not the execute-time one (zed)"
+      (let [e (entry (session-feed-key "yan"))]
+        (is (= :loaded (:status e)))
+        (is (= {:articles [:x]} (:data e))))
+      (is (nil? (entry (session-feed-key "zed")))))
+    (testing "the patch updated yan's profile and left zed's untouched"
+      (is (= {:seed true :saved true} (:data (entry (profile-key "yan")))))
+      (is (= {:seed true} (:data (entry (profile-key "zed"))))))))
 
 ;; ===========================================================================
 ;; 3. A populated key is EXEMPT from the same mutation's invalidation refetch
