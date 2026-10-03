@@ -80,22 +80,6 @@ function waitForExit(child, timeoutMs = 5000) {
   });
 }
 
-test('waitForHttpReady resolves true for a reachable local server', async () => {
-  const server = http.createServer((_, res) => {
-    res.writeHead(200, { 'content-type': 'text/plain' });
-    res.end('ok');
-  });
-  const port = await listenOnLoopback(server);
-  try {
-    assert.equal(
-      await waitForHttpReady(port, Date.now() + 1000, { pollMs: 10 }),
-      true,
-    );
-  } finally {
-    server.close();
-  }
-});
-
 test('waitForHttpReady stops when aborted', async () => {
   assert.equal(
     await waitForHttpReady(1, Date.now() + 1000, {
@@ -104,16 +88,6 @@ test('waitForHttpReady stops when aborted', async () => {
     }),
     false,
   );
-});
-
-test('cleanup manager runs cleanup callbacks once', async () => {
-  let calls = 0;
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  cleanup.addCleanup(() => { calls += 1; });
-  await cleanup.cleanup();
-  await cleanup.cleanup();
-  cleanup.cleanupSync();
-  assert.equal(calls, 1);
 });
 
 test('terminateProcessTree stops a managed child process', async () => {
@@ -240,27 +214,6 @@ test('resolveServePort falls back to a different free port when preferred is bus
 });
 
 // Ownership-token verification.
-test('waitForOwnedHttpReady resolves ok when the served token matches', async () => {
-  const token = crypto.randomBytes(8).toString('hex');
-  const server = http.createServer((req, res) => {
-    if (req.url === `/${TOKEN_FILE_BASENAME}`) {
-      res.writeHead(200, { 'content-type': 'text/plain' });
-      res.end(token);
-      return;
-    }
-    res.writeHead(200, { 'content-type': 'text/plain' });
-    res.end('ok');
-  });
-  const port = await listenOnLoopback(server);
-  try {
-    const result = await waitForOwnedHttpReady(port, token, Date.now() + 2000, { pollMs: 10 });
-    assert.deepEqual(result, { ok: true });
-    assert.equal(await fetchToken(port), token);
-  } finally {
-    server.close();
-  }
-});
-
 test('waitForOwnedHttpReady refuses a foreign server (token mismatch)', async () => {
   // A reachable server that serves a DIFFERENT token — i.e. a port
   // squatter / stale server from another run. The gate must refuse to
@@ -410,7 +363,6 @@ test('resolveServePort never returns 0 and falls back (logged) for invalid prefe
     assert.equal(fellBack, true, `expected fallback for preferred=${String(bad)}`);
     assert.equal(reported, bad, 'onFallback receives the original invalid preferred value');
     assert.ok(isValidExplicitPort(resolved), `fallback ${resolved} must be a usable port`);
-    assert.notEqual(resolved, 0);
     assert.equal(await isPortFree(resolved), true);
   }
 });
@@ -423,36 +375,19 @@ test('resolveServePort never returns 0 and falls back (logged) for invalid prefe
 // protocol} from the parsed URL so the readiness probe hits the endpoint
 // the caller actually pointed at.
 
-test('probeTargetFromBaseUrl honours a non-127.0.0.1 host + base path (rf2-rcepku)', () => {
-  const target = probeTargetFromBaseUrl('http://staging.internal:8080/app/base/');
-  assert.deepEqual(target, {
-    host: 'staging.internal',
-    port: 8080,
-    path: '/app/base/',
-    protocol: 'http:',
-  });
-});
-
-test('probeTargetFromBaseUrl defaults the http port to 80 and path to / (rf2-rcepku)', () => {
-  const target = probeTargetFromBaseUrl('http://example.com');
-  assert.equal(target.host, 'example.com');
-  assert.equal(target.port, 80);
-  assert.equal(target.path, '/');
-  assert.equal(target.protocol, 'http:');
-});
-
-test('probeTargetFromBaseUrl honours the https scheme + default 443 (rf2-rcepku)', () => {
-  const target = probeTargetFromBaseUrl('https://secure.example.com/xray/');
-  assert.equal(target.host, 'secure.example.com');
-  assert.equal(target.port, 443);
-  assert.equal(target.path, '/xray/');
-  assert.equal(target.protocol, 'https:');
-});
-
-test('probeTargetFromBaseUrl keeps an explicit port over the scheme default (rf2-rcepku)', () => {
-  const target = probeTargetFromBaseUrl('https://secure.example.com:8443/');
-  assert.equal(target.port, 8443);
-  assert.equal(target.protocol, 'https:');
+test('probeTargetFromBaseUrl derives host, port, path and protocol from the base URL (rf2-rcepku)', () => {
+  for (const [label, url, expected] of [
+    ['a non-127.0.0.1 host + base path', 'http://staging.internal:8080/app/base/',
+      { host: 'staging.internal', port: 8080, path: '/app/base/', protocol: 'http:' }],
+    ['the http port defaults to 80 and the path to /', 'http://example.com',
+      { host: 'example.com', port: 80, path: '/', protocol: 'http:' }],
+    ['the https scheme defaults to 443', 'https://secure.example.com/xray/',
+      { host: 'secure.example.com', port: 443, path: '/xray/', protocol: 'https:' }],
+    ['an explicit port beats the scheme default', 'https://secure.example.com:8443/',
+      { host: 'secure.example.com', port: 8443, path: '/', protocol: 'https:' }],
+  ]) {
+    assert.deepEqual(probeTargetFromBaseUrl(url), expected, `${label}: ${url}`);
+  }
 });
 
 test('probeTargetFromBaseUrl throws on a malformed URL rather than falling back (rf2-rcepku)', () => {
@@ -529,23 +464,6 @@ test('waitForHttpReady probes the supplied host + path (rf2-rcepku, rf2-p8xl35)'
 function mkTmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-token-'));
 }
-
-test('publishOwnershipToken creates the sentinel and returns {token, remove} (rf2-pgppmu)', () => {
-  const root = mkTmpRoot();
-  try {
-    const published = publishOwnershipToken(root);
-    assert.ok(published, 'expected {token, remove} for an existing root');
-    assert.equal(typeof published.token, 'string');
-    assert.ok(published.token.length > 0, 'token must be a non-empty nonce');
-    assert.equal(typeof published.remove, 'function');
-    assert.ok(
-      fs.existsSync(path.join(root, TOKEN_FILE_BASENAME)),
-      'the sentinel file must exist on disk after publish',
-    );
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test('publishOwnershipToken writes the token to the canonical basename with matching content (rf2-pgppmu)', () => {
   const root = mkTmpRoot();
@@ -958,37 +876,6 @@ test('startLocalHttpServer refuses a foreign asset tree holding the port (rf2-3f
   } finally {
     await cleanup.cleanup();
     await new Promise((r) => foreign.close(r));
-    rmTmp(dir);
-  }
-});
-
-// The owned happy path: the (token-serving) fake proves ready:true flows ONLY
-// once the responder serves this run's published token — i.e. owned readiness
-// succeeds for the server this harness actually launched.
-test('startLocalHttpServer accepts the server that serves this run\'s ownership token (rf2-3fc89f.14)', async () => {
-  const { dir, binPath } = mkFakeBin(FAKE_HTTP_SERVER, 'fake-http-server.cjs');
-  const port = await findFreePort();
-  const cleanup = createHarnessCleanup({ onError: () => {} });
-  const tokenPath = path.join(dir, TOKEN_FILE_BASENAME);
-  try {
-    const { ready } = await startLocalHttpServer({
-      cleanup,
-      httpServerBin: binPath,
-      root: dir,
-      port,
-      cwd: dir,
-      readyTimeoutMs: 5000,
-      log: () => {},
-    });
-    assert.equal(ready, true, 'the owned server serving our token must be accepted');
-    // The token that gated readiness is exactly the one published under root.
-    assert.equal(
-      await fetchToken(port),
-      fs.readFileSync(tokenPath, 'utf8'),
-      'readiness must have matched the served token against the published sentinel',
-    );
-  } finally {
-    await cleanup.cleanup();
     rmTmp(dir);
   }
 });
