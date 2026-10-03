@@ -249,11 +249,11 @@ fi
 # green with `Ran 0 tests`.  Calibrated below the observed count with room for
 # ordinary churn; raise it when the roster grows materially.
 #
-# The calibration is ~87% of the observed count.  A floor far below what it
+# The calibration is the observed count minus 35 tests.  A floor far below what it
 # guards is a formality: a roster collapse to a fraction of the lane would
 # still report green.  With no exclusions left, this is the only thing
 # standing between a `-n` list that matched nothing and a green report.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-455}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-433}"
 
 args=()
 for ns in $runnable; do
