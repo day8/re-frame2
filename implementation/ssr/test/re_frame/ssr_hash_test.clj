@@ -12,9 +12,9 @@
   recursion through a whole tree. Without it, the ubiquitous
   `{:class (when condition? :selected)}` shape produces `{:class nil}` on
   one side and `{}` on the other, and the trees hash differently despite
-  being structurally equivalent. It also pins how raw-fn heads and
-  whole-valued doubles canonicalise, and how `:doctype?` composes with the
-  render-hash attribute.
+  being structurally equivalent. It also pins how a Var head and
+  whole-valued doubles canonicalise, and how `:doctype?` and `:render-hash`
+  compose in the emitted HTML.
 
   The hash-stability and order-sensitivity rules are pinned in
   smoke_test.clj `render-tree-hash-is-stable`; the cross-host literal hashes
@@ -98,81 +98,39 @@
 ;; the root DOM element, not on the doctype declaration. Pin the
 ;; composition.
 
-(deftest doctype-and-render-hash-compose
-  (testing "(render-to-string tree {:doctype? true :render-hash h}) emits
-            <!DOCTYPE html> followed by <root data-rf-render-hash=\"...\"> —
-            the hash rides on the root element, not on the doctype"
-    (let [tree [:div {:class "page"} [:h1 "Hello"]]
-          h    (rf.ssr.hash/render-tree-hash tree)
-          html (rf.ssr.emit/render-to-string tree {:doctype? true :render-hash h})]
-      (is (str/starts-with? html "<!DOCTYPE html>")
-          ":doctype? prepended")
-      (is (re-find (re-pattern (str "<!DOCTYPE html><div[^>]*data-rf-render-hash=\"" h "\""))
-                   html)
-          ":render-hash stamped on the root <div>, immediately after the doctype")
-      (is (re-find #"data-rf-render-hash=\"[0-9a-f]{8}\"" html)
-          "the caller-supplied hash is the 8-hex FNV-1a digest of the tree")
-      (is (str/includes? html "<h1>Hello</h1>")
-          "body content rendered"))))
+(deftest render-to-string-doctype-and-render-hash-opts
+  (testing "each opts map emits exactly this HTML: `:doctype?` prefixes the
+            document, `:render-hash` stamps `data-rf-render-hash` on the root
+            element — never on the doctype — and `:emit-hash?` is an
+            ordinary unknown key, which stamps nothing and throws nothing
+            (the emitter does not validate its opts)"
+    (doseq [[label tree opts expected]
+            [[":doctype? with :render-hash — the hash rides on the root element, right after the doctype"
+              [:div [:h1 "Hello"]] {:doctype? true :render-hash "deadbeef"}
+              "<!DOCTYPE html><div data-rf-render-hash=\"deadbeef\"><h1>Hello</h1></div>"]
+             [":render-hash alone — the root carries the hash and no doctype is emitted"
+              [:section [:p "x"]] {:render-hash "deadbeef"}
+              "<section data-rf-render-hash=\"deadbeef\"><p>x</p></section>"]
+             [":doctype? alone — the doctype and no hash attribute"
+              [:div "no-hash"] {:doctype? true}
+              "<!DOCTYPE html><div>no-hash</div>"]
+             [":emit-hash? true stamps nothing"
+              [:div "x"] {:emit-hash? true}
+              "<div>x</div>"]
+             [":emit-hash? does not disturb the other opts"
+              [:div "x"] {:doctype? true :emit-hash? true}
+              "<!DOCTYPE html><div>x</div>"]]]
+      (is (= expected (rf.ssr.emit/render-to-string tree opts))
+          label))))
 
-(deftest render-hash-without-doctype-yields-bare-root
-  (testing ":render-hash / :doctype? false → root element carries the hash;
-            no doctype prefix"
-    (let [tree [:section [:p "x"]]
-          html (rf.ssr.emit/render-to-string tree {:render-hash (rf.ssr.hash/render-tree-hash tree)})]
-      (is (not (str/starts-with? html "<!DOCTYPE"))
-          "no doctype emitted")
-      (is (re-find #"^<section[^>]*data-rf-render-hash=\"[0-9a-f]{8}\""
-                   html)
-          "hash attribute on the root element"))))
+;; ---- a Var head keeps its print form ---------------------------------------
+;;
+;; A raw fn head serialises to the identity-free token `#fn[]`, and the props
+;; beside it still hash. Both are pinned with literal hashes on both hosts by
+;; the `fn-head-child` parity fixture and by
+;; `re-frame.ssr.streaming-component-cljs-test/one-tree-hashes-identically-for-both-hosts`.
 
-(deftest doctype-without-render-hash-omits-hash-attribute
-  (testing ":doctype? true, no :render-hash → doctype emitted; no hash attr"
-    (let [tree [:div "no-hash"]
-          html (rf.ssr.emit/render-to-string tree {:doctype? true})]
-      (is (str/starts-with? html "<!DOCTYPE html>"))
-      (is (not (str/includes? html "data-rf-render-hash"))
-          "no hash attribute without :render-hash"))))
-
-(deftest emit-hash-opt-is-inert
-  (testing "there is no `:emit-hash?` opt; it is an ordinary unknown key —
-            no marker, no throw (the emitter does not validate its opts)"
-    (let [tree [:div "x"]]
-      (is (= "<div>x</div>" (rf.ssr.emit/render-to-string tree {:emit-hash? true}))
-          ":emit-hash? true stamps nothing")
-      (is (= "<!DOCTYPE html><div>x</div>"
-             (rf.ssr.emit/render-to-string tree {:doctype? true :emit-hash? true}))
-          ":emit-hash? does not disturb the other opts"))))
-
-;; ---- raw-fn hiccup heads hash identity-free -------------------------------
-
-(deftest render-tree-hash-drops-raw-fn-identity
-  (testing "a raw-fn hiccup head (`[my-component props]`, the
-            deref'd defn VALUE idiomatic to Reagent/UIx SSR) has NO
-            cross-runtime-stable identity: (.toString fn) is class +
-            identity-hashcode on the JVM but the JS source on CLJS. The server
-            hashes the raw render tree and the client re-hashes the SAME tree,
-            so a fn `.toString` in the canonical EDN would make byte-identical
-            HTML hash differently — a spurious :rf.ssr/hydration-mismatch that
-            CRASHES under :on-mismatch :hard-error. So every raw fn head
-            serialises to the fixed identity-free token `#fn[]`."
-    (let [f1 (fn [_] [:span "a"])
-          f2 (fn [_] [:span "a"])]
-      (is (= "#fn[]" (rf.ssr.hash/canonical-edn f1))
-          "a raw fn serialises to the identity-free token, not #fn[<toString>]")
-      ;; The decisive property: two DISTINCT fn objects standing for the same
-      ;; logical view (server's deref'd defn vs client's) hash identically.
-      ;; f1/f2 have different identity-hashcodes in their toString, so a
-      ;; toString-bearing canonical EDN → different hashes → false mismatch.
-      (is (not= (.toString f1) (.toString f2))
-          "sanity: the two fn objects DO have divergent toStrings (the trap)")
-      (is (= (rf.ssr.hash/render-tree-hash [:div [f1 {:x 1}]])
-             (rf.ssr.hash/render-tree-hash [:div [f2 {:x 1}]]))
-          "distinct fn objects for the same tree hash identically — no spurious mismatch")
-      ;; The fn's props still discriminate: a different prop → a different hash.
-      (is (not= (rf.ssr.hash/render-tree-hash [:div [f1 {:x 1}]])
-                (rf.ssr.hash/render-tree-hash [:div [f1 {:x 2}]]))
-          "the head is identity-free but the props are still hashed")))
+(deftest a-var-head-keeps-its-stable-print-form
   (testing "a Var head stays identity-stable — a Var is NOT fn? on the JVM, so
             `[#'ns/view …]` falls to :else → pr-str → #'ns/name (identical
             both runtimes)"
@@ -189,12 +147,10 @@
             The two surfaces MUST agree — child AND attribute position — or
             the hash passes while the server/client DOM diverges (and, under
             :on-mismatch :hard-error, hydration crashes)."
-    ;; hash side — canonical EDN drops the .0 for a child AND an attr value.
+    ;; hash side — canonical EDN drops the .0. The attr position is pinned on
+    ;; both hosts by the `whole-double` parity fixture.
     (is (= "[:span 9]" (rf.ssr.hash/canonical-edn [:span 9.0]))
         "whole-double child → `9` in the canonical EDN")
-    (is (= "[:progress {:max 1,:value 0}]"
-           (rf.ssr.hash/canonical-edn [:progress {:value 0.0 :max 1.0}]))
-        "whole-double attr values → `0`/`1` in the canonical EDN")
     ;; HTML side — the emitter applies the SAME normalisation, child + attr.
     (is (= "<span>9</span>" (rf.ssr.emit/render-to-string [:span 9.0] {}))
         "whole-valued double CHILD renders `9`, not the JVM `9.0`")

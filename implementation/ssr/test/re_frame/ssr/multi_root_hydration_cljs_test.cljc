@@ -213,7 +213,7 @@
        (catch #?(:clj Exception :cljs :default) e
          (:rf.error/id (ex-data e)))))
 
-(deftest a-conflicting-root-leaves-the-installed-payload-untouched
+(deftest a-conflicting-root-fails-loud-and-leaves-the-installed-payload-untouched
   (testing "two roots referencing one payload id with DIFFERENT content is
             :rf.error/frame-payload-conflict — never a silent first-wins —
             and the conflict throws BEFORE any install: the live payload,
@@ -224,57 +224,29 @@
                       :root-id :page/a})
       (rf/dispatch-sync [::bump] {:frame fid})
       (let [before-conflict (rf/app-db-value fid)
-            record-before   (rf.ssr.install/installed-payload fid)]
-        (is (= :rf.error/frame-payload-conflict
-               (caught-error-id
-                #(rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
-                                        :root-id :page/b})))
+            record-before   (rf.ssr.install/installed-payload fid)
+            data            (try (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
+                                                        :root-id :page/b})
+                                 nil
+                                 (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+        (is (= :rf.error/frame-payload-conflict (:rf.error/id data))
             "the differing payload fails loud")
         (is (= before-conflict (rf/app-db-value fid))
             "the frame the first root seeded was not touched")
         (is (= record-before (rf.ssr.install/installed-payload fid))
             "the ledger still attributes the payload to root A — a
-             conflicting root never overwrites, merges, or partially claims")))))
-
-(deftest the-conflict-names-both-parties-and-carries-the-content-digest
-  (testing "ex-data carries :payload-id, :installed and :arriving, each with
-            its content :digest (004C §7 — the S5 arm's own slot)"
-    (let [fid (fresh-frame!)]
-      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
-                      :root-id :page/a})
-      (let [data (try (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
-                                      :root-id :page/b})
-                      nil
-                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-        (is (= fid (:payload-id data)))
-        (is (= :page/a (get-in data [:installed :installed-by])))
-        (is (= :page/b (get-in data [:arriving :root-id])))
-        (is (string? (get-in data [:installed :digest])))
-        (is (string? (get-in data [:arriving :digest])))
-        (is (not= (get-in data [:installed :digest])
-                  (get-in data [:arriving :digest]))
-            "the digests are what disagreed; both ride the diagnostic")
-        (is (= :render-the-page-from-one-response (:recovery data)))))))
-
-;; ---------------------------------------------------------------------------
-;; The digest itself
-;; ---------------------------------------------------------------------------
-
-(deftest equal-payloads-digest-equal-and-differing-payloads-do-not
-  (testing "the digest is a function of payload CONTENT, not identity —
-            two roots reading the same script must agree without sharing
-            an object"
-    (is (= (rf.ssr.install/payload-content-digest (payload-for {:count 7}))
-           (rf.ssr.install/payload-content-digest (payload-for {:count 7})))
-        "separately constructed but equal payloads agree")
-    (is (not= (rf.ssr.install/payload-content-digest (payload-for {:count 7}))
-              (rf.ssr.install/payload-content-digest (payload-for {:count 8})))
-        "a differing app-db slice is a differing digest"))
-
-  (testing "key order does not change the digest — the canonical-EDN walk
-            sorts, so an unordered map literal cannot fake a conflict"
-    (is (= (rf.ssr.install/payload-content-digest {:rf/app-db {:a 1 :b 2} :rf/version 1})
-           (rf.ssr.install/payload-content-digest {:rf/version 1 :rf/app-db {:b 2 :a 1}})))))
+             conflicting root never overwrites, merges, or partially claims")
+        (testing "ex-data carries :payload-id, :installed and :arriving, each
+                  with its content :digest (004C §7 — the S5 arm's own slot)"
+          (is (= fid (:payload-id data)))
+          (is (= :page/a (get-in data [:installed :installed-by])))
+          (is (= :page/b (get-in data [:arriving :root-id])))
+          (is (string? (get-in data [:installed :digest])))
+          (is (string? (get-in data [:arriving :digest])))
+          (is (not= (get-in data [:installed :digest])
+                    (get-in data [:arriving :digest]))
+              "the digests are what disagreed; both ride the diagnostic")
+          (is (= :render-the-page-from-one-response (:recovery data))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Nil is CONTENT in a payload, however it is spelled

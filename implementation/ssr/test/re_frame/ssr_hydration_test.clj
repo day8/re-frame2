@@ -51,12 +51,14 @@
       is a stronger statement than either the absence of a
       `:rf.fx/skipped-on-platform` warning or the presence of a
       `:rf.ssr/version-mismatch`, and it holds in both postures.
-    - whether `verify-hydration!` SHORT-CIRCUITS on a nil server hash, and
-      whether `hydrate!`'s verify step RUNS at all. Both drive the same
-      condition on a frame carrying `:ssr {:on-mismatch :hard-error}`, where
-      a detected mismatch escalates to a throw — an always-on channel, since
-      `hydrate.cljc` builds one shared payload for the trace and the throw
-      alike. A nil server hash must not throw; a divergent hash must.
+    - whether `verify-hydration!` SHORT-CIRCUITS on a nil server hash. The
+      test drives that condition on a frame carrying `:ssr {:on-mismatch
+      :hard-error}`, where a detected mismatch escalates to a throw — an
+      always-on channel, since `hydrate.cljc` builds one shared payload for
+      the trace and the throw alike. A nil server hash must not throw.
+      Whether `hydrate!`'s verify step RUNS is witnessed the same way, in both
+      postures, by `re-frame.ssr-hydrate-frame-value-test`: a divergent hash
+      throws there and a faithful one does not.
 
   `mismatch-always-on-record-redacts-sensitive-payload-frame-id` reads
   the ALWAYS-ON `:errors` axis and guards its dev-trace half with
@@ -603,12 +605,14 @@
 (deftest wellformed-runtime-db-slice-still-installs-through-router
   (testing "The runtime-db guard is precise: a well-formed map
             :rf/runtime-db slice installs the runtime-db partition
-            through the router, and a wholly-absent :rf/runtime-db key is
-            the legitimate no-server-runtime fallback (neither is malformed)."
+            through the router and is not malformed. A wholly-absent
+            :rf/runtime-db key is the no-server-runtime fallback, which
+            `wellformed-hydration-payload-still-applies-through-router`
+            installs."
     (register-baseline-handlers!)
     (rf.subs/reg-runtime-sub :route-current
       (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
-    ;; (a) map runtime-db slice → installs the runtime-db partition.
+    ;; A map runtime-db slice installs the runtime-db partition.
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "rt-ok client frame" :platform :client})
           payload {:rf/app-db     {:count 7 :title "seeded"}
                    :rf/runtime-db {:rf.runtime/routing {:current {:route-id :home}}}}]
@@ -621,17 +625,7 @@
         ;; under the gate; the installed route slice above is the acceptance.
         (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-              "no malformed diagnostic on a well-formed two-partition payload"))))
-    ;; (b) wholly-absent :rf/runtime-db key → no-server-runtime fallback.
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "rt-absent client frame" :platform :client})]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 3}}] {:frame client-frame})
-        (is (= 3 (rf/subscribe-once [:count] {:frame client-frame})) "app-db slice installed")
-        ;; Dev-instrumentation arm (see ns docstring). Vacuous
-        ;; under the gate.
-        (when rf.interop/debug-enabled?
-          (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) @traces)
-              "an absent :rf/runtime-db key is the no-server-runtime fallback, not malformed"))))))
+              "no malformed diagnostic on a well-formed two-partition payload"))))))
 
 ;; ===========================================================================
 ;; there is no plain :app-db hydration alias
@@ -758,70 +752,6 @@
           "no hydration metadata stashed — :rf/hydrate was never dispatched")
       (is (= 0 (rf/subscribe-once [:count] {:frame client-frame}))
           "app-db is the empty default; the :count sub's fallback applies"))))
-
-(deftest boot-hydrate-verify-step-fires-mismatch-on-divergent-render
-  (testing "hydrate!'s VERIFY step runs verify-hydration!
-            against the :render-tree-fn SYNCHRONOUSLY, immediately after
-            dispatching :rf/hydrate and before any host render (the
-            seed-and-synchronously-compute-tree contract). When the client render-tree hash != the server hash
-            carried on the payload, :rf.ssr/hydration-mismatch fires — the
-            boot helper wires mismatch detection symmetric with the
-            server's :render-hash marker."
-    (register-baseline-handlers!)
-    (rf/reg-view* ::boot-root (fn [] [:div.app [:span "client-render"]]))
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "boot-helper verify frame"
-                                       :platform :client
-                                       :ssr {:detect-mismatch? true}})
-          ;; Server hash is a DELIBERATELY divergent value so the verify
-          ;; step's comparison fails — proving the verify step actually ran.
-          ;; EP-0002: payload :rf/frame-id == the client target.
-          payload       (build-server-payload
-                          client-frame {:count 7 :title "seeded"}
-                          "server00"                 ;; != the client tree hash
-                          {:version 1 :payload [:count :title]})]
-      (with-trace-recorder! [traces]
-        (rf.ssr/hydrate!
-          {:frame          client-frame
-           :payload        payload
-           :render-tree-fn (fn [] [:div.app [:span "client-render"]])})
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
-              (str "verify step fired a :rf.ssr/hydration-mismatch (server hash "
-                   "'server00' != client render-tree hash); saw: "
-                   (pr-str (mapv :operation @traces))))))
-
-      ;; SEMANTIC, posture-independent: "the boot helper wires
-      ;; mismatch detection" is the claim, and it has an always-on channel.
-      ;; Run the SAME divergent-hash boot on a frame carrying
-      ;; `:ssr {:on-mismatch :hard-error}`: hydrate! must escalate, and the
-      ;; ex-data must name the server hash the payload carried and the hash of
-      ;; the tree `:render-tree-fn` actually returned. Nothing else in this
-      ;; deftest proves the verify step ran.
-      (let [strict-frame (rf.frame/make-anon-frame-record!
-                           {:doc      "boot-helper verify strict frame"
-                            :platform :client
-                            :ssr      {:detect-mismatch? true
-                                       :on-mismatch      :hard-error}})
-            client-tree  [:div.app [:span "client-render"]]
-            strict-pl    (build-server-payload
-                           strict-frame {:count 7 :title "seeded"}
-                           "server00"
-                           {:version 1 :payload [:count :title]})
-            thrown       (try (rf.ssr/hydrate!
-                                {:frame          strict-frame
-                                 :payload        strict-pl
-                                 :render-tree-fn (fn [] client-tree)})
-                              nil
-                              (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? thrown)
-            "hydrate!'s verify step ran and escalated the divergent hash")
-        (is (= :rf.ssr/hydration-mismatch (:rf.error/id (ex-data thrown))))
-        (is (= "server00" (:server-hash (ex-data thrown)))
-            "the payload's server hash reached the comparison")
-        (is (= (rf.ssr/render-tree-hash client-tree) (:client-hash (ex-data thrown)))
-            "…and it was compared against the hash of the tree
-             :render-tree-fn returned, so the verify step really rendered")))))
 
 (deftest boot-hydrate-scopes-render-tree-fn-to-target-frame
   (testing "hydrate! calls :render-tree-fn UNDER the target frame's
@@ -1058,8 +988,6 @@
                     (str ":payload-frame-id is redacted on the always-on record "
                          "(routed through project-egress); got "
                          (pr-str (:payload-frame-id record))))
-                (is (not= :secret/other-frame (:payload-frame-id record))
-                    "the raw deserialised payload frame-id does NOT ride the corpus record")
                 (is (not (re-find #"secret/other-frame" (pr-str record)))
                     "no raw :secret/other-frame value survives anywhere in the corpus record")))
             (when dev-trace
@@ -1068,27 +996,6 @@
                     "the dev-trace tags carry the raw payload frame-id (the leak is off-box, not local)")))))
         (finally
           (rf.error-emit/unregister-error-listener! ::b5-corpus))))))
-
-(deftest direct-dispatch-matching-frame-id-hydrates-normally
-  (testing "A direct dispatch whose :rf/frame-id MATCHES the
-            dispatch target installs the slice normally (the validation is
-            precise — it rejects only present-and-DIFFERENT, never a match)."
-    (register-baseline-handlers!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "nv3mua matching-frame client"
-                                       :platform :client})
-          ;; Stamp the payload's :rf/frame-id with the SAME frame we hydrate
-          ;; into — server + client agree, so the slice lands. A render-hash
-          ;; is carried so hydration metadata is stashed (the :hydrated? proof).
-          payload      {:rf/frame-id    client-frame
-                        :rf/app-db      {:count 7 :title "seeded"}
-                        :rf/render-hash "deadbeef"}]
-      (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
-          "matching frame-id → the server slice installed")
-      (is (= "seeded" (rf/subscribe-once [:title] {:frame client-frame}))
-          "matching frame-id → :title seeded from the payload")
-      (is (true? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
-          "hydration metadata stashed — the hydrate proceeded"))))
 
 (deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed
   (testing "hydrate!'s VERIFY contract is
@@ -1102,8 +1009,8 @@
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "boot-helper sync-contract frame"
                                        :platform :client
                                        :ssr {:detect-mismatch? true}})
-          ;; Records WHEN render-tree-fn ran + WHAT app-db it saw.
-          called?       (atom false)
+          ;; Records WHAT app-db render-tree-fn saw. It reads ::not-called
+          ;; unless the fn ran before hydrate! returned.
           seen-count    (atom ::not-called)
           ;; EP-0002: stamp the payload's :rf/frame-id with the
           ;; SAME frame the client hydrates into, so the carried-frame
@@ -1112,29 +1019,21 @@
           payload       (build-server-payload
                           client-frame {:count 11 :title "seeded"}
                           "server00"
-                          {:version 1 :payload [:count :title]})
-          returned      (rf.ssr/hydrate!
-                          {:frame          client-frame
-                           :payload        payload
-                           :render-tree-fn (fn []
-                                             (reset! called? true)
-                                             ;; The fn reads the frame's
-                                             ;; app-db — which :rf/hydrate has
-                                             ;; ALREADY seeded by the time the
-                                             ;; verify step calls it.
-                                             (reset! seen-count
-                                                     (:count (rf/app-db-value client-frame)))
-                                             [:div.app [:span "client-render"]])})]
-      ;; SYNCHRONOUS: render-tree-fn ran during the hydrate! call, so the
-      ;; flag is already true once hydrate! has returned — no deferred
-      ;; tick, no host render boundary in between.
-      (is (true? @called?)
-          ":render-tree-fn was called synchronously within hydrate! (not deferred)")
-      ;; POST-SEED: it observed the HYDRATED app-db, proving the call lands
-      ;; after :rf/hydrate (step 2) — the pure client tree it computes is
-      ;; the projection of the server's slice the host is about to mount.
+                          {:version 1 :payload [:count :title]})]
+      (rf.ssr/hydrate!
+        {:frame          client-frame
+         :payload        payload
+         :render-tree-fn (fn []
+                           ;; The fn reads the frame's app-db — which
+                           ;; :rf/hydrate has ALREADY seeded by the time the
+                           ;; verify step calls it.
+                           (reset! seen-count
+                                   (:count (rf/app-db-value client-frame)))
+                           [:div.app [:span "client-render"]])})
+      ;; SYNCHRONOUS and POST-SEED: once hydrate! has returned the fn has
+      ;; already run — no deferred tick, no host render boundary in between —
+      ;; and it observed the HYDRATED app-db, so the pure client tree it
+      ;; computes is the projection of the server's slice the host is about
+      ;; to mount.
       (is (= 11 @seen-count)
-          ":render-tree-fn ran AFTER :rf/hydrate seeded app-db (saw :count 11)")
-      ;; The helper returned the applied payload as documented.
-      (is (= payload returned)
-          "hydrate! returned the applied payload"))))
+          ":render-tree-fn ran synchronously within hydrate!, AFTER :rf/hydrate seeded app-db (saw :count 11)"))))

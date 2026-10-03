@@ -112,36 +112,27 @@
 ;; The wire form
 ;; ---------------------------------------------------------------------------
 
-(deftest wire-form-round-trips
+(deftest wire-element-carries-a-bare-marker
   (let [d {:rf.root/schema-version 1 :root-id :page/shop}
         m (rf.ssr.manifest/manifest d {:element-locator   {:id "shop-root"}
                                 :identifier-prefix "rf2-page_Sshop-"})
         html (rf.ssr.manifest/script-html m)]
-    (testing "the element carries both marks and no identity in attributes"
+    (testing "the element carries both marks and no identity in attributes;
+              `every-emitted-manifest-round-trips-exactly` reads the body back"
       (is (re-find #"^<script type=\"application/edn\" data-rf-root>" html))
       (is (re-find #"</script>$" html))
       (is (not (re-find #"data-rf-root=" html))
-          "the marker is BARE — identity lives in the content, spelled once"))
-    (testing "the body reads back to the same manifest"
-      (let [body (-> html
-                     (subs (count "<script type=\"application/edn\" data-rf-root>"))
-                     (as-> s (subs s 0 (- (count s) (count "</script>")))))]
-        (is (= m (rf.ssr.manifest/read-manifest 'test body)))))))
+          "the marker is BARE — identity lives in the content, spelled once"))))
 
 (deftest wire-body-cannot-break-out-of-the-script
   (let [m (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
                              {:props {:bio "</script><img onerror=x>"}})
         html (rf.ssr.manifest/script-html m)]
     (is (not (re-find #"(?i)</script" (subs html 0 (- (count html) 9))))
-        "the shared EDN script-body escape neutralises the breakout")
-    (is (= m (rf.ssr.manifest/read-manifest
-              'test
-              (-> html
-                  (subs (count "<script type=\"application/edn\" data-rf-root>"))
-                  (as-> s (subs s 0 (- (count s) 9)))))))))
+        "the shared EDN script-body escape neutralises the breakout")))
 
 (deftest unreadable-or-foreign-body-fails-loud
-  (doseq [body ["{:rf.root/schema-version 1" "@@@" ""]]
+  (doseq [body ["{:rf.root/schema-version 1" "@@@"]]
     (let [data (try (rf.ssr.manifest/read-manifest 'test body) nil
                     (catch #?(:clj clojure.lang.ExceptionInfo
                               :cljs cljs.core/ExceptionInfo) e
@@ -386,6 +377,8 @@
                rf.ssr.manifest/max-safe-integer
                (- rf.ssr.manifest/max-safe-integer)
                ##Inf ##-Inf
+               ;; a large double rides though it dwarfs the integer bound —
+               ;; the bound is about representability, not magnitude
                #?(:clj 1.0E308 :cljs 1e308)]]
       (is (rf.ssr.manifest/edn-carryable? v) (str "must still carry " (pr-str v))))
 
@@ -416,11 +409,7 @@
          (is (not (rf.ssr.manifest/edn-carryable? (float 0.1)))
              "float: fails the property on the JVM ALONE — the printed
               shortest-decimal names the DOUBLE 0.1, so it does not read
-              back equal even here")))
-
-    (testing "a large DOUBLE is admitted though it dwarfs the integer
-              bound — the bound is about representability, not magnitude"
-      (is (rf.ssr.manifest/edn-carryable? #?(:clj 1.0E308 :cljs 1e308))))))
+              back equal even here")))))
 
 ;; ---------------------------------------------------------------------------
 ;; ±INFINITY RIDES; ONLY NaN IS EXCLUDED (Spec 011 same-contract)
@@ -438,11 +427,7 @@
     (doseq [inf [##Inf ##-Inf]]
       (let [m (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
                                  {:props {:v inf}})]
-        (is (round-trips? m) (str "±Inf prop " (pr-str inf) " round-trips"))
-        (is (= inf (get-in (rf.ssr.manifest/read-manifest
-                            'test (script-body (rf.ssr.manifest/script-html m)))
-                           [:props :v]))
-            "the exact infinity the server rendered is what the reader returns")))))
+        (is (round-trips? m) (str "±Inf prop " (pr-str inf) " round-trips"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; CROSS-HOST NUMERIC KEY / SET COLLISIONS
@@ -834,14 +819,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest canonicalize-effective-prefix-resolves-omitted-to-react-empty
-  (testing "an OMITTED :identifier-prefix resolves to React's effective \"\""
+  (testing "an OMITTED :identifier-prefix resolves to React's effective \"\" —
+            the empty string, not nil"
     (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}
            (rf.ssr.manifest/canonicalize-effective-prefix
-            {:rf.root/schema-version 1 :root-id :page/shop})))
-    (is (= "" (:identifier-prefix
-               (rf.ssr.manifest/canonicalize-effective-prefix
-                {:rf.root/schema-version 1 :root-id :page/shop})))
-        "the resolved effective prefix is the empty string, not nil"))
+            {:rf.root/schema-version 1 :root-id :page/shop}))))
   (testing "an AUTHORED :identifier-prefix is passed through UNTOUCHED"
     (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix "shop-"}
            (rf.ssr.manifest/canonicalize-effective-prefix

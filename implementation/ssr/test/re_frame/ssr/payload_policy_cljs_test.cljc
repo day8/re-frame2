@@ -537,10 +537,7 @@
     (let [payload (rf.ssr.payload-policy/build-payload
                     :rf/default {:public/page :dashboard} "deadbeef" {})]
       (is (= "deadbeef" (:rf/render-hash payload))
-          "a supplied hash rides the payload unchanged")
-      (is (m/validate HydrationPayload payload)
-          (str "a hashed payload conforms; explain: "
-               (pr-str (m/explain HydrationPayload payload))))))
+          "a supplied hash rides the payload unchanged")))
 
   (testing "a nil hash OMITS the key rather than stamping nil (adoption tier)"
     (let [payload (rf.ssr.payload-policy/build-payload
@@ -563,10 +560,12 @@
 ;; ---- the other three optional slots, same contract ------------------------
 ;;
 ;; `:rf/render-hash` above is one of four optional slots `build-payload`
-;; assembles through `cond->` arms. The three below each get the same
-;; three-part case the hash channel gets — real value preserved, nil OMITS the
-;; key, hand-stamped nil REJECTED — because a typed slot with no assertion
-;; against it is a claim, not a guard.
+;; assembles through `cond->` arms. Each of the three below meets the same
+;; three-part case the hash channel does — real value preserved, nil OMITS the
+;; key, hand-stamped nil REJECTED (for `:rf/runtime-db` the first two parts are
+;; `build-payload-emits-runtime-db-when-present`) — because a typed slot with
+;; no assertion against it is a claim, not a guard. A conforming payload
+;; carrying each real value is `build-payload-conforms-to-hydration-payload-schema`.
 
 (deftest build-payload-head-hash-is-optional
   ;; `build-payload` emits
@@ -619,10 +618,7 @@
                     :rf/default {:public/page :dashboard} "h"
                     {:schema-digest "digest-abc"})]
       (is (= "digest-abc" (:rf/schema-digest payload))
-          "a supplied digest rides the payload unchanged")
-      (is (m/validate HydrationPayload payload)
-          (str "a digest-bearing payload conforms; explain: "
-               (pr-str (m/explain HydrationPayload payload))))))
+          "a supplied digest rides the payload unchanged")))
 
   (testing "a nil digest OMITS the key (the app does not participate in the
             schema-digest check)"
@@ -643,18 +639,11 @@
 
 (deftest build-payload-runtime-db-slot-is-typed
   ;; `build-payload-emits-runtime-db-when-present` above pins the VALUE
-  ;; contract (the projected slice rides; nil omits the key). What it cannot
-  ;; pin is that the omission is the only legal spelling of absence — so
-  ;; these are the schema-side arms.
-  (testing "a projected slice conforms under the :map slot"
-    (let [payload (rf.ssr.payload-policy/build-payload
-                    :rf/default {:public/page :dashboard} "h"
-                    {:runtime-db (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)})]
-      (is (map? (:rf/runtime-db payload)))
-      (is (m/validate HydrationPayload payload)
-          (str "a runtime-db-bearing payload conforms; explain: "
-               (pr-str (m/explain HydrationPayload payload))))))
-
+  ;; contract (the projected slice rides; nil omits the key), and
+  ;; `build-payload-conforms-to-hydration-payload-schema` validates a payload
+  ;; carrying that slice under the `:map` slot. What neither pins is that the
+  ;; omission is the only legal spelling of absence — so these are the
+  ;; schema-side arms.
   (testing "a present-and-nil :rf/runtime-db is REJECTED by the schema — the
             fail-open `[:maybe :map]` would admit a second spelling of absence"
     (is (not (m/validate HydrationPayload
