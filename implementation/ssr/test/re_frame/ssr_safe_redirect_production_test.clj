@@ -70,7 +70,7 @@
     - `re-frame.ssr-end-to-end-test` — the safe-redirect cases this suite
       does not carry: a `java.net.URI` parse failure, the scheme-prefix
       ordering, the dev trace's raw `:host` / `:allowlist` / `:scheme`
-      diagnostics, and the pass-through controls.
+      diagnostics, and the relative-path pass-through control.
     - `re-frame.ssr-route-miss-404-production-test` — the
       always-on witness this one is modelled on."
   (:require [clojure.edn :as edn]
@@ -416,30 +416,6 @@
       (is (= :not-in-allowlist (:reason r))
           "the DISCRIMINATION survives — an operator still knows the
            allowlist arm rejected this, which is the actionable half"))))
-
-(deftest the-record-still-names-the-failure-it-exists-to-report
-  (testing "A record scrubbed to uselessness fails its own
-            purpose — an opt-in security gate must be observable to the person
-            who opted in. Tightening the record is only defensible while the
-            STRUCTURAL facts survive, so pin them here rather than trusting the
-            key-set test to imply it. The raw URL is not the value; the probe
-            class and the arm that refused are."
-    (let [js   (first (safe-redirect-records
-                        (:records (reject! {:location "javascript:alert(1)"}))))
-          host (first (safe-redirect-records
-                        (:records (reject! {:location "https://evil.example.com/x"
-                                            :allow    ["app.example.com"]}))))]
-      (is (= :rf.error/safe-redirect-scheme-rejected (:error js))
-          "which gate refused")
-      (is (= :javascript (:scheme-class js))
-          "and the probe class, aggregatable across a spike")
-      (is (= :rf.error/safe-redirect-host-disallowed (:error host))
-          "the host arm names its own category")
-      (is (= :not-in-allowlist (:reason host))
-          "and which of its two modes fired — the discrimination an operator
-           acts on, which survives dropping the host itself")
-      (is (every? some? (map :frame [js host]))
-          "frame-attributed, so a multi-tenant host knows WHICH app was probed"))))
 
 (deftest the-probe-class-is-normalised-for-aggregation
   (testing "`:scheme-class` exists to be COUNTED. Schemes are

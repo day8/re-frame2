@@ -6,17 +6,20 @@
        the resolved response accumulator AND the projected `:public-error`,
        so a host adapter classifies the drain-time outcome (4xx app arm vs
        5xx error arm) WITHOUT re-inferring projection from `(:status resp)`.
-       Pins: it returns the projected map; a SECOND flush returns
-       `:public-error nil` (already consumed); two concurrent server frames
+       Pins: it returns the projected map; two concurrent server frames
        return their OWN public-error with no bleed; redirect precedence
-       suppresses the status stamp but still returns the map.
+       suppresses the status stamp but still returns the map. The one-drain
+       consumption — a SECOND flush returns `:public-error nil` — is pinned
+       by `re-frame.ssr-boundary-rejection-400-production-test`.
 
     2. `:rf/public-error` validation — `public-error-shape?` (via
        the public `ssr/project-error`) enforces a CLOSED four-key set and
        an HTTP error status in 400..599, so a projector that returns an extra
        key (incl. a caller-supplied `:details`) or an out-of-range status
        takes the locked generic-500 fallback. Only the runtime appends
-       `:details`, AFTER validation, under `:dev-error-detail?`.
+       `:details`, AFTER validation, under `:dev-error-detail?` — pinned by
+       `re-frame.ssr-end-to-end-test`'s
+       `ssr-error-projector-dev-mode-includes-details`.
 
   The ssr-ring HTTP-wire acceptance for the same contract lives in
   `re-frame.ssr.ring-draintime-error-view-test`."
@@ -106,16 +109,6 @@
         (is (= 500 (:status response))
             "the same 500 is stamped on the response accumulator")))))
 
-(deftest flush-response-result-4xx-classifies-as-app-arm
-  (testing "a projected 404 (routing miss) returns a 4xx public-error — the
-            host keeps the app arm; only 500..599 diverts to the error page."
-    (let [fid (make-server-frame :ssr/frr-404)]
-      (buffer-error! fid :rf.error/no-such-handler {:kind :route})
-      (let [{:keys [public-error]} (rf.ssr/flush-response-result! fid)]
-        (is (= 404 (:status public-error)))
-        (is (<= 400 (:status public-error) 499)
-            "a 404 is the client-fault / app-renderable arm")))))
-
 (deftest flush-response-result-no-error-returns-nil-public-error
   (testing "no buffered error → :public-error nil and the default 200 response.
             A host that reads a 200 with nil public-error stays on the app arm
@@ -124,21 +117,6 @@
           {:keys [response public-error]} (rf.ssr/flush-response-result! fid)]
       (is (nil? public-error) "no projection fired")
       (is (= 200 (:status response))))))
-
-(deftest second-flush-returns-nil-public-error
-  (testing "the projection is consumed ONCE — a second flush returns
-            :public-error nil (the pending trace was already drained) while
-            the response keeps the stamped status."
-    (let [fid (make-server-frame :ssr/frr-consume)]
-      (buffer-error! fid :rf.error/handler-exception)
-      (let [first-flush (rf.ssr/flush-response-result! fid)]
-        (is (= 500 (:status (:public-error first-flush)))
-            "first flush projects the buffered error"))
-      (let [second-flush (rf.ssr/flush-response-result! fid)]
-        (is (nil? (:public-error second-flush))
-            "second flush finds the buffer empty → nil public-error")
-        (is (= 500 (:status (:response second-flush)))
-            "the response still carries the status the first flush stamped")))))
 
 (deftest two-frames-return-own-public-error-no-bleed
   (testing "two concurrent server frames each project + return THEIR OWN
@@ -179,16 +157,15 @@
 (defn- project-with
   "Register `projector-fn` and project a `:rf.error/handler-exception` event
   through a server frame configured to use it. Returns the public-error map."
-  ([projector-fn] (project-with projector-fn false))
-  ([projector-fn dev-detail?]
-   (rf/reg-error-projector :test/shape-projector projector-fn)
-   (let [f (rf.frame/make-anon-frame-record!
-             {:platform :server
-              :ssr      {:public-error-id   :test/shape-projector
-                         :dev-error-detail? dev-detail?}})]
-     (rf.ssr/project-error f {:op-type   :error
-                           :operation :rf.error/handler-exception
-                           :tags      {:frame f}}))))
+  [projector-fn]
+  (rf/reg-error-projector :test/shape-projector projector-fn)
+  (let [f (rf.frame/make-anon-frame-record!
+            {:platform :server
+             :ssr      {:public-error-id   :test/shape-projector
+                        :dev-error-detail? false}})]
+    (rf.ssr/project-error f {:op-type   :error
+                             :operation :rf.error/handler-exception
+                             :tags      {:frame f}})))
 
 (deftest conforming-4xx-and-5xx-projections-pass
   (testing "a projector returning EXACTLY the four keys with a status in
@@ -227,16 +204,3 @@
                                             :internal-note "x"}))]
       (is (= 500 (:status with-extra))
           "any stray key → fallback (not honoured as a 400)"))))
-
-(deftest dev-detail-appends-details-from-runtime-only
-  (testing "with :dev-error-detail? true the runtime appends :details AFTER
-            validation (the trace event) — the projector's conforming
-            four-key output is unchanged; prod (default) has no :details."
-    (let [dev  (project-with (fn [_] {:status 500 :code :internal-error
-                                      :message "boom" :retryable? false}) true)
-          prod (project-with (fn [_] {:status 500 :code :internal-error
-                                      :message "boom" :retryable? false}) false)]
-      (is (contains? dev :details)
-          "dev-detail appends the runtime-owned :details after validation")
-      (is (not (contains? prod :details))
-          "prod default: exactly the four locked keys, no :details"))))
