@@ -127,12 +127,8 @@
         "this is the lost-character defect, observed rather than modelled")
     (is (= "listed" (parsed-text-content "listing" "<listing>\nlisted</listing>")))
     (is (= "text" (parsed-text-content "textarea" "<textarea>\ntext</textarea>"))))
-  (testing "COMPENSATED markup round-trips"
-    (is (= "\ncode" (parsed-text-content "pre" "<pre>\n\ncode</pre>"))))
-  (testing "a non-newline-eating element eats nothing, compensated or not"
-    (is (= "\ncode" (parsed-text-content "div" "<div>\ncode</div>"))))
-  (testing "the parser owns entity decoding"
-    (is (= "\n<a> & b" (parsed-text-content "pre" "<pre>\n\n&lt;a&gt; &amp; b</pre>"))))
+  ;; The compensated round-trip, entity decoding and a non-newline-eating
+  ;; element are parsed on the same bytes by the emitter tests below.
   (testing "the roster the parser exhibits IS the HTML Standard literal"
     ;; Read off the parser rather than asserted at it: for each element, the
     ;; compensated and uncompensated parses differ exactly where the standard
@@ -173,22 +169,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest non-streaming-hiccup-preserves-a-leading-newline
-  (testing "[:pre \"\\ncode\"] — an ordinary supported input"
-    ;; Without compensation this would emit "<pre>\ncode</pre>", parsing to
-    ;; "code".
-    (let [html (rf.ssr.emit/render-to-string [:pre "\ncode"])]
-      (is (= "<pre>\n\ncode</pre>" html)
-          "byte parity with react-dom/server 19.2 renderToStaticMarkup")
-      (is (= "\ncode" (parsed-text-content "pre" html))
-          "the PARSED textContent is the authored string")))
-  (testing "[:textarea \"\\ntext\"] — the same content loss"
-    (let [html (rf.ssr.emit/render-to-string [:textarea "\ntext"])]
-      (is (= "<textarea>\n\ntext</textarea>" html))
-      (is (= "\ntext" (parsed-text-content "textarea" html)))))
-  (testing "<listing> is a newline-eating element too"
-    (let [html (rf.ssr.emit/render-to-string [:listing "\nlisted"])]
-      (is (= "<listing>\n\nlisted</listing>" html))
-      (is (= "\nlisted" (parsed-text-content "listing" html)))))
+  ;; The single-LF pre / textarea / listing rows, bytes and parse, are the
+  ;; non-streaming half of `server-parse-matches-authored-and-client-text`.
   (testing "every EXTRA authored LF survives (one is eaten, the rest remain)"
     (let [html (rf.ssr.emit/render-to-string [:pre "\n\ncode"])]
       (is (= "<pre>\n\n\ncode</pre>" html))
@@ -258,18 +240,8 @@
   (:shell-html (rf.ssr.streaming/render-shell hiccup)))
 
 (deftest streaming-hiccup-preserves-a-leading-newline
-  (testing "the shell walker compensates exactly as the sync emitter does"
-    ;; Without compensation walk-dom-tag would emit "<pre>\ncode</pre>".
-    (let [html (shell [:pre "\ncode"])]
-      (is (= "<pre>\n\ncode</pre>" html))
-      (is (= "\ncode" (parsed-text-content "pre" html)))))
-  (testing "textarea and listing through the shell walk"
-    (let [html (shell [:textarea "\ntext"])]
-      (is (= "<textarea>\n\ntext</textarea>" html))
-      (is (= "\ntext" (parsed-text-content "textarea" html))))
-    (let [html (shell [:listing "\nlisted"])]
-      (is (= "<listing>\n\nlisted</listing>" html))
-      (is (= "\nlisted" (parsed-text-content "listing" html)))))
+  ;; The single-LF pre / textarea / listing rows, bytes and parse, are the
+  ;; streaming half of `server-parse-matches-authored-and-client-text`.
   (testing "BYTE PARITY between the two hiccup emitters"
     (doseq [tree [[:pre "\ncode"] [:textarea "\ntext"] [:listing "\nl"]
                   [:pre "code"] [:pre "\r\ncode"] [:div "\ncode"]
@@ -336,9 +308,4 @@
             "parsed textContent == the authored string == the client rendering"))
       (testing (str "<" tag "> — react-dom's own bytes parse the same way")
         (is (= authored (parsed-text-content tag expected-bytes))
-            "the browser-side claim, checked against react-dom rather than us"))
-      (testing (str "<" tag "> — NEGATIVE CONTROL: uncompensated bytes")
-        (is (not= authored
-                  (parsed-text-content tag (str "<" tag ">" authored "</" tag ">")))
-            "uncompensated markup parses to one character SHORT of the
-             authored string")))))
+            "the browser-side claim, checked against react-dom rather than us")))))
