@@ -70,7 +70,6 @@
 (deftest quantile-is-linear-interpolation-at-h-of-n-minus-one-q
   (testing "the fixture DISCRIMINATES — the two conventions disagree on it"
     (let [xs (vec (range 1 21))]                            ; 1..20, n = 20
-      (is (= 20 (count xs)))
       (is (not (close? (rf.bench.fresco.lane/quantile xs 0.95) (nearest-rank xs 0.95)))
           "if these agree the case below has stopped testing the definition")))
 

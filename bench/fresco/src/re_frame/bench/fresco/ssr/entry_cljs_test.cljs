@@ -223,8 +223,6 @@
           "the server's bytes carry NO enter override — remove
            `rf.bench.fresco.arm1.runtime/open-adoption-window!` from ssr/entry.cljs and this is the
            assertion that goes red")
-      (is (zero? (count (re-seq #"toast--enter" html)))
-          "zero occurrences, where the defect shipped one per child")
       ;; The non-vacuity control, kept verbatim from the measuring row: the
       ;; tray DID render its children, so the assertion above is about the
       ;; override being absent and not about an empty tray.

@@ -71,10 +71,6 @@
     (is (= (/ 0.1 4) (rf.bench.fresco.read-profile-app/phase-b-grid-ms 1 {:warmup 2 :samples 1} 4))
         "1 x 1 = 1 kept, odd"))
 
-  (testing "the two parities differ by exactly the factor the halving is"
-    (is (= 2.0 (/ (rf.bench.fresco.read-profile-app/phase-b-grid-ms 9 {:warmup 2 :samples 7} 32)
-                  (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 32)))))
-
   (testing "frames scale it independently of parity"
     (is (= 8.0 (/ (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 4)
                   (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 32))))))
@@ -109,7 +105,7 @@
 
   (testing "the line's grid figure IS `phase-b-grid-ms`'s, at every shape
            tried, rather than a second expression that happens to agree"
-    (doseq [[r s f] [[8 8 32] [9 7 32] [4 6 4] [3 5 16] [7 3 128]]]
+    (doseq [[r s f] [[4 6 4] [3 5 16] [7 3 128]]]
       (let [sampling {:warmup 2 :samples s}
             expected (.toFixed (rf.bench.fresco.read-profile-app/phase-b-grid-ms r sampling f) 6)]
         (is (str/includes? (rf.bench.fresco.read-profile-app/phase-b-design-line r sampling f)

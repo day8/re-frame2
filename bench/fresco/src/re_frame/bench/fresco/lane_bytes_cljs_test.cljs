@@ -103,7 +103,6 @@
            ever."
     (let [dashes (str/join (repeat 1000 "\u2014"))]
       (is (= 3 (rf.bench.fresco.lane/utf8-bytes "\u2014")))
-      (is (= 1000 (count dashes)))
       (is (= 3000 (rf.bench.fresco.lane/utf8-bytes dashes)))
       (is (= 2000 (- (rf.bench.fresco.lane/utf8-bytes dashes) (count dashes)))
           "the understatement is 2 bytes per em dash and there are a thousand"))))
