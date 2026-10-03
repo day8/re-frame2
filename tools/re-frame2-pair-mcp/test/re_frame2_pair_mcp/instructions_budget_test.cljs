@@ -86,6 +86,13 @@
 
 (def ^:private tool-name "get-re-frame2-pair-instructions")
 
+(def ^:private instructions-handler
+  "The registered handler, so the measured response carries every slot the
+  server sends. A var rather than an inline `(registry/handler-for ...)` call:
+  inside an `async` test body that call compiles to an awaited IIFE, which
+  hands `.then` the resolved value instead of the promise."
+  (registry/handler-for tool-name))
+
 (def ^:private authoring-reserve-fraction
   "Share of `default-max-tokens` the onboarding prose may consume before
   the early-warning assertion trips.
@@ -201,7 +208,7 @@
 
 (deftest instructions-response-advertises-its-real-size
   (async done
-    (-> ((registry/handler-for tool-name) nil nil nil)
+    (-> (instructions-handler nil nil nil)
         (.then (fn [result]
                  (let [tokens (cap/sum-payload-tokens result)
                        hint   (typical-tokens-hint)]
@@ -224,7 +231,7 @@
 
 (deftest instructions-response-fits-the-wire-token-budget
   (async done
-    (-> ((registry/handler-for tool-name) nil nil nil)
+    (-> (instructions-handler nil nil nil)
         (.then (fn [result]
                  (let [tokens  (cap/sum-payload-tokens result)
                        budget  cap/default-max-tokens
