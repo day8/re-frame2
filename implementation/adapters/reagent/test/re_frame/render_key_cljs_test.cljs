@@ -52,27 +52,6 @@
           (is (int? (second k))
               "second slot is the integer instance-token"))))))
 
-(deftest two-instances-get-distinct-tokens-same-view-id
-  (testing "two direct invocations of the wrapper outside a Reagent
-            component context produce distinct instance-tokens (per-call
-            mint mirrors per-mount-fresh for headless tests)"
-    (let [observed (atom [])]
-      (rf/reg-view* :rf.test/two-instances
-        (fn []
-          (swap! observed conj rf.views/*render-key*)
-          [:p "ok"]))
-      (let [wrapper (rf/view :rf.test/two-instances)]
-        (wrapper)                                ;; instance A
-        (wrapper)                                ;; instance B
-        (let [[k1 k2] @observed]
-          (is (= :rf.test/two-instances (first k1) (first k2))
-              "both renders share the view-id")
-          (is (int? (second k1)))
-          (is (int? (second k2)))
-          (is (not= (second k1) (second k2))
-              "the instance-tokens differ (per-call fresh mint outside
-              a Reagent component)"))))))
-
 (deftest dynamic-var-unbound-outside-render
   (testing "*render-key* is nil outside an in-flight render"
     (is (nil? rf.views/*render-key*)

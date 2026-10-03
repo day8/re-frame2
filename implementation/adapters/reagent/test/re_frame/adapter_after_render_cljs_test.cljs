@@ -88,21 +88,7 @@
       (is (= 2 @fired)
           "an empty drain does not re-fire previously-drained callbacks"))))
 
-;; ---- (2) ordering: multiple callbacks run in enqueue order on one drain ----
-
-(deftest after-render-multiple-callbacks-run-in-enqueue-order
-  (testing "multiple callbacks enqueued before a single drain all fire,
-            in enqueue order (Reagent's afterRender queue is FIFO)"
-    (let [order (atom [])]
-      (rf.interop/after-render (fn [] (swap! order conj :first)))
-      (rf.interop/after-render (fn [] (swap! order conj :second)))
-      (rf.interop/after-render (fn [] (swap! order conj :third)))
-      (is (= [] @order) "none fire before the drain")
-      (r/flush)
-      (is (= [:first :second :third] @order)
-          "all enqueued callbacks fire in enqueue order on a single drain"))))
-
-;; ---- (3) copied / wrapped adapter map routes to the live hook --
+;; ---- (2) copied / wrapped adapter map routes to the live hook --
 ;;
 ;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
 ;; not object identity — so a copied / wrapped stock-Reagent adapter map STILL

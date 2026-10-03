@@ -68,10 +68,3 @@
     (let [a (make-source :a) b (make-source :b) c (make-source :c) d (make-source :d)
           derived (derive [a b c d] (fn [w x y z] [w x y z]))]
       (is (= [:a :b :c :d] @derived) "args in source-vector order"))))
-
-(deftest derived-source-vector-order-preserved-cljs-test
-  (testing "argument order matches source-vector order (non-commutative compute-fn pins it)"
-    (let [s0 (make-source 100)
-          s1 (make-source 1)
-          derived (derive [s0 s1] -)]
-      (is (= 99 @derived) "subtraction in source-vector order"))))

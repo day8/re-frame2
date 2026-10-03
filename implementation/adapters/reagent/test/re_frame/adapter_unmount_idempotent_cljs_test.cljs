@@ -9,11 +9,11 @@
   `reagent.dom.client/unmount` the way `re-frame.adapter-render-cljs-test`
   does (no DOM; :node-test).
 
-  Two shapes, because the drain is the other caller of that unmount op:
-
-    1. thunk, thunk — the second explicit call is a no-op.
-    2. drain, thunk — a root `dispose-adapter!` already released is not
-       released again by its own thunk afterwards.
+  The shape pinned here is thunk, thunk — the second explicit call is a
+  no-op. The other caller of that unmount op is the `dispose-adapter!`
+  drain; drain-then-thunk is pinned through the client-root handle, whose
+  `unmount!` is this same thunk, by `re-frame.adapter-client-root-cljs-test`
+  `dispose-adapter-releases-live-handles-once`.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -62,19 +62,3 @@
           (unmount)
           (is (= [root] @unmounts)
               "second call is a no-op — the underlying unmount is NOT reached again"))))))
-
-(deftest drained-root-is-not-unmounted-again-by-its-thunk
-  (testing "dispose-adapter! releases a still-live root once; its thunk
-            called afterwards does not reach rdc/unmount a second time"
-    (let [unmounts (atom [])
-          root     (fake-root :drained)]
-      (with-redefs [rdc/create-root  (fn ([_] root) ([_ _] root))
-                    rdc/render       (fn ([_ _] nil) ([_ _ _] nil) ([_ _ _ _] nil))
-                    rdc/hydrate-root (fn ([_ _] root) ([_ _ _] root))
-                    rdc/unmount      (fn [r] (swap! unmounts conj r) nil)]
-        (let [unmount ((:render rf.adapter.reagent/adapter) [:div "x"] #js {} nil)]
-          (rf.substrate.adapter/dispose-adapter!)
-          (is (= [root] @unmounts) "the drain released the live root once")
-          (unmount)
-          (is (= [root] @unmounts)
-              "the thunk of an already-drained root is a no-op"))))))

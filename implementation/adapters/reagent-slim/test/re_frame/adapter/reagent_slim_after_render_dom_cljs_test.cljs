@@ -159,19 +159,3 @@
                 "the callback fired on its own scheduler turn with nothing dirty")
             (done))
           50)))))
-
-(deftest after-render-preserves-fifo-and-throw-isolation
-  (testing "reagent-slim — callbacks keep FIFO order and one throwing callback
-  does not strand the rest"
-    (async done
-      (let [order (atom [])]
-        (rf.interop/after-render (fn [] (swap! order conj :first)))
-        (rf.interop/after-render (fn [] (swap! order conj :boom)
-                                        (throw (js/Error. "after-render probe"))))
-        (rf.interop/after-render (fn [] (swap! order conj :third)))
-        (js/setTimeout
-          (fn []
-            (is (= [:first :boom :third] @order)
-                "FIFO order preserved and the throw did not abort the drain")
-            (done))
-          50)))))

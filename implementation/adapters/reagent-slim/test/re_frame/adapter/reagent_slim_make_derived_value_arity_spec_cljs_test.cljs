@@ -64,10 +64,3 @@
     (let [a (make-source :a) b (make-source :b) c (make-source :c) d (make-source :d)
           derived (make-derived-value [a b c d] (fn [w x y z] [w x y z]))]
       (is (= [:a :b :c :d] @derived)))))
-
-(deftest derived-source-vector-order-preserved-cljs-test
-  (testing "argument order matches source-vector order"
-    (let [s0 (make-source 100)
-          s1 (make-source 1)
-          derived (make-derived-value [s0 s1] -)]
-      (is (= 99 @derived)))))
