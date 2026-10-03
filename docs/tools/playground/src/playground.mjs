@@ -205,10 +205,16 @@ function keepFragmentLinksInCell(wrap, resultEl) {
 
 // --- Cell mount ------------------------------------------------------------
 
+const cellSource = (preEl) => preEl.textContent.replace(/\n+$/, "");
+const cellKind = (preEl) => (preEl.matches(RF2_CELL) ? "rf2" : "eval");
+
+// The page whose cells are mounted, and its cells in document order.
+let mounted = { pathname: null, cells: [] };
+
 function mountCell(preEl) {
   if (preEl.dataset.cljsMounted) return;
-  const source = preEl.textContent.replace(/\n+$/, "");
-  const kind = preEl.matches(RF2_CELL) ? "rf2" : "eval";
+  const source = cellSource(preEl);
+  const kind = cellKind(preEl);
 
   const wrap = document.createElement("div");
   wrap.className = "cljs-cell";
@@ -244,11 +250,49 @@ function mountCell(preEl) {
   // A re-frame2 cell is a demo, so it renders straight away. A plain cell
   // waits for the reader to press Mod-Enter.
   if (kind === "rf2") runCell(kind, source, resultEl);
+  mounted.cells.push({ wrap, source, kind });
   return wrap;
 }
 
 function mountAll() {
   document.querySelectorAll(UNMOUNTED_CELLS).forEach(mountCell);
+}
+
+// --- Same-page re-fetch ------------------------------------------------------
+//
+// Material's instant navigation starts with no current location, so the first
+// navigation it sees after a full page load counts as a new page even when
+// only the fragment changes. A table-of-contents entry, a heading permalink, a
+// `[text](#anchor)`, or Back and Forward between fragments re-fetches the page
+// and injects it again. Re-mounting would re-run every cell and lose the
+// reader's edits. When the injected page is the one already mounted, its cells
+// are the same cells, so the mounted ones move into it in place of the fresh
+// <pre>s, and edits, output and app state all stay. Material scrolled before
+// they moved back, against the shorter page, so the scroll is redone by
+// Material's own rule: a saved offset, else the fragment's target.
+//
+// Stopping the re-fetch instead is not open to the bootstrap: Material hears
+// popstate on window ahead of any listener this script adds, and its scroll to
+// the first fragment clicked comes from the re-fetch itself.
+function carryCellsOver() {
+  const { pathname, cells } = mounted;
+  if (pathname !== location.pathname || cells.length === 0) return false;
+  if (cells.some(({ wrap }) => wrap.isConnected)) return false;
+  const pres = [...document.querySelectorAll(UNMOUNTED_CELLS)];
+  if (pres.length !== cells.length) return false;
+  const same = pres.every((pre, i) => cellSource(pre) === cells[i].source && cellKind(pre) === cells[i].kind);
+  if (!same) return false;
+
+  pres.forEach((pre, i) => pre.replaceWith(cells[i].wrap));
+  // `window.history`: a bare `history` here is CodeMirror's history extension.
+  const state = window.history.state;
+  if (state !== null || !location.hash) {
+    window.scrollTo(0, (state && state.y) || 0);
+  } else {
+    const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (target) target.scrollIntoView();
+  }
+  return true;
 }
 
 // --- Engine loading and instant navigation ----------------------------------
@@ -298,12 +342,14 @@ const scittleReady = () =>
 const rf2Ready = () => !!(window.rf2sci && window.rf2sci.renderLast);
 
 async function loadPlayground() {
+  if (carryCellsOver()) return;
   // Instant navigation has already discarded the outgoing page's cells.
   // Release their React roots, frames and registrations before this page's
   // cells mount, including when this page has no cells at all.
   if (window.rf2sci && window.rf2sci.disposePage) {
     window.rf2sci.disposePage();
   }
+  mounted = { pathname: location.pathname, cells: [] };
   const engines = [];
   if (document.querySelector(EVAL_CELL)) {
     engines.push(loadScript("cljs-scittle-js", SCITTLE_SRC, scittleReady));
