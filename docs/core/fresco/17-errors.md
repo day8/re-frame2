@@ -137,6 +137,74 @@ catches the new failure.
 A throw from `todo-filters`, which sits outside the inner boundary, reaches the
 outer boundary instead.
 
+The cell below has a bug to trigger: `todo-list` upper-cases every title, and
+a todo with no title makes it throw. Add the untitled todo and the list's
+boundary shows its fallback while the buttons above it keep working; the
+failure count comes from `:on-error`. **Try again** remounts the list, which
+fails again while the bad todo is there. Remove it, then try again.
+
+```cljs-rf2
+(require '[clojure.string :as str]
+         '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos {1 {:id 1 :title "Buy milk"}
+                  2 {:id 2 :title "Walk the dog"}}}}))
+
+(rf/reg-event :todo/add-untitled
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:todos 3] {:id 3 :title nil})}))
+
+(rf/reg-event :todo/remove-untitled
+  (fn [{:keys [db]} _]
+    {:db (update db :todos dissoc 3)}))
+
+(rf/reg-sub :todo/all
+  (fn [db _]
+    (vec (sort-by :id (vals (:todos db))))))
+
+(rf/reg-sub :todo.ui/list-attempt
+  (fn [db _query]
+    (:todo.ui/list-attempt db 0)))
+
+(rf/reg-event :todo/retry-list
+  (fn [{:keys [db]} _event]
+    {:db (update db :todo.ui/list-attempt (fnil inc 0))}))
+
+(rf/reg-event :todo/record-failure
+  (fn [{:keys [db]} [_ error]]
+    {:db (update db :todo/failures (fnil conj []) (ex-message error))}))
+
+(rf/reg-sub :todo/failures (fn [db _] (:todo/failures db)))
+
+(h/defview todo-list [_]
+  [:ul
+   (for [{:keys [id title]} (h/sub [:todo/all])]
+     [:li {:key id} (str/upper-case title)])])
+
+(h/defview todo-page [_]
+  [:main
+   [:p
+    [:button {:on-click [:todo/add-untitled]} "Add an untitled todo"]
+    " "
+    [:button {:on-click [:todo/remove-untitled]} "Remove it"]]
+   [h/error-boundary
+    {:fallback
+     (fn [_error]
+       [:div.oops
+        [:p "The list failed to render."]
+        [:button {:on-click [:todo/retry-list]} "Try again"]])
+     :reset-key (h/sub [:todo.ui/list-attempt])
+     :on-error  [:todo/record-failure]}
+    [todo-list {}]]
+   [:p "Failures recorded: " (count (h/sub [:todo/failures]))]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-page {}]]
+```
+
 ## What an error boundary catches
 
 The boundary follows React's error-boundary rules.
