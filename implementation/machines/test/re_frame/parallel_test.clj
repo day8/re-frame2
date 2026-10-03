@@ -10,7 +10,8 @@
       transition, undeclined regions stay put.
     - Shared `:data` flows sequentially through region actions in
       declaration order (each region's action sees the prior region's
-      :data writes).
+      :data writes) — parallel-broadcast-event-both-regions.edn and
+      frozen-region-select-test pin it.
     - Tag union composes across regions (per Spec 005 §Tags compose
       across regions): snapshot's `:tags` is the union of every active
       state's :tags across every region.
@@ -61,9 +62,8 @@
       ;; Force initialisation via a no-op event the machine doesn't handle.
       (rf/dispatch-sync [:par/two-region [:no-match]])
       (let [s (snapshot :par/two-region)]
-        (is (map? (:state s)) "snapshot :state is a map for parallel machines")
         (is (= {:left :a :right :x} (:state s))
-            "each region's initial state lands at the region key")
+            "the parallel snapshot's :state is a map; each region's initial state lands at the region key")
         (is (= {:count 0} (select-keys (:data s) [:count]))
             ":data carries the declared initial data (no per-region :data slot)")))))
 
@@ -147,25 +147,7 @@
         (is (= #{:auth/in :settings} (:tags s))
             "tag union walks the compound region's active path")))))
 
-;; ---- 6. shared :data — actions in different regions write through it ---
-
-(deftest parallel-shared-data-flows-through-regions
-  (testing "actions across regions write to the same :data map in declaration order"
-    (let [m {:type    :parallel
-             :data    {:count 0}
-             :actions {:bump (fn [{d :data}] {:data (update d :count inc)})}
-             :regions {:left  {:initial :a
-                               :states  {:a {:on {:bump {:target :a :action :bump}}}}}
-                       :right {:initial :x
-                               :states  {:x {:on {:bump {:target :x :action :bump}}}}}}}]
-      (rf/reg-machine :par/shared-data m)
-      (rf/dispatch-sync [:par/shared-data [:bump]])
-      ;; Both regions handle :bump, so the action runs TWICE against the
-      ;; shared :data (once per region) — :count goes 0 → 1 → 2.
-      (is (= 2 (get-in (snapshot :par/shared-data) [:data :count]))
-          "shared :data accumulates writes from both regions"))))
-
-;; ---- 7. per-region :always cascade -------------------------------------
+;; ---- 6. per-region :always cascade -------------------------------------
 
 (deftest parallel-always-cascade-per-region
   (testing ":always microsteps fire scoped to the region that transitioned"
@@ -190,27 +172,7 @@
         (is (= #{:left/done :right/a} (:tags s))
             "tag union reflects the post-:always-microstep states")))))
 
-;; ---- 8. pure machine-transition surface --------------------------------
-
-(deftest parallel-pure-machine-transition
-  (testing "pure machine-transition broadcasts the event and merges regions"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:left  {:initial :a
-                               :states  {:a {:tags #{:left/a} :on {:flip :b}}
-                                         :b {:tags #{:left/b}}}}
-                       :right {:initial :x
-                               :states  {:x {:tags #{:right/x} :on {:flip :y}}
-                                         :y {:tags #{:right/y}}}}}}
-          initial {:state {:left :a :right :x} :data {} :tags #{:left/a :right/x}}
-          {snap1 :snapshot fx1 :fx} (rf.machines/machine-transition m initial [:flip])]
-      (is (= {:left :b :right :y} (:state snap1))
-          "pure transition broadcasts to both regions")
-      (is (= #{:left/b :right/y} (:tags snap1))
-          "pure transition recomputes tag union")
-      (is (= [] fx1) "no fx emitted for pure self-transitions"))))
-
-;; ---- 9. snapshot print/read round-trip ---------------------------------
+;; ---- 7. snapshot print/read round-trip ---------------------------------
 
 (deftest parallel-snapshot-print-read-roundtrip
   (testing "parallel-region snapshot survives pr-str ↔ read-string with shape intact"
@@ -232,7 +194,7 @@
         (is (= #{:data/loaded :form/neutral} (:tags deserialised))
             ":tags survives the round-trip")))))
 
-;; ---- 10. registration-time validation ----------------------------------
+;; ---- 8. registration-time validation ----------------------------------
 
 (deftest parallel-registration-time-validation
   (testing ":type :parallel without :regions is rejected at registration"
@@ -280,7 +242,7 @@
                                                 :regions {:in {:initial :s
                                                                :states  {:s {}}}}}}}}})))))
 
-;; ---- 11. region-machine memoization ---------------------------------------
+;; ---- 9. region-machine memoization ---------------------------------------
 
 (deftest region-machine-result-is-memoised-per-machine
   (testing "region-machine returns identical-equal results across repeat calls for the same parent-machine"

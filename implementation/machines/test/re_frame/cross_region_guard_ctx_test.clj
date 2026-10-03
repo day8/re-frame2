@@ -126,11 +126,7 @@
       (is (= #{:data :event :state :meta}
              (set (keys (dissoc @captured :rf.cofx))))
           "flat guard ctx carries the four base keys (+ the EP-0010 causal
-           token a router dispatch always stamps)")
-      (is (not (contains? @captured :tags))
-          "flat guard ctx has no :tags (the committed :tags slot does NOT leak)")
-      (is (not (contains? @captured :all-state))
-          "flat guard ctx has no :all-state (parallel-region marker absent)")
+           token a router dispatch always stamps) — no :tags, no :all-state")
       (is (= :idle (:state @captured)) "flat guard sees its OWN :state")
       (is (= {:ok true} (:data @captured)) "flat guard sees :data"))))
 
@@ -151,10 +147,7 @@
       (is (= #{:data :event :state :meta}
              (set (keys (dissoc @captured :rf.cofx))))
           "compound guard ctx carries the four base keys (+ the EP-0010 causal
-           token a router dispatch always stamps)")
-      (is (not (contains? @captured :tags))
-          "compound guard ctx has no :tags (parallel-region key absent)")
-      (is (not (contains? @captured :all-state))))))
+           token a router dispatch always stamps) — no :tags, no :all-state"))))
 
 ;; ---- bonus: cross-region keys do NOT leak into the committed snapshot ------
 
