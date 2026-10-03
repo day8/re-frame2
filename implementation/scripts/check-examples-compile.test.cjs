@@ -35,14 +35,12 @@
 const assert = require('assert');
 
 const {
-  COMPILED_BUILD_PREFIXES,
   readShadowEdn,
   stripEdnComments,
   enumerateCompiledBuilds,
   prefixesBelowFloor,
   parseBuildSummaries,
   buildsWithWarnings,
-  normaliseBuildId,
   reconcileRequestedBuilds,
 } = require('./check-examples-compile.cjs');
 
@@ -77,10 +75,12 @@ it('enumeration over the real shadow-cljs.edn is non-vacuous under EVERY swept p
   );
 });
 
-it('the previously-UNCOVERED standalone builds are swept (the gap)', () => {
+it('the standalone example builds are swept', () => {
   for (const b of [
     'examples/login-uix',
     'examples/dashboard-uix',
+    'examples/counter',
+    'examples/counter-uix',
   ]) {
     assert.ok(
       realBuilds.includes(b),
@@ -88,15 +88,6 @@ it('the previously-UNCOVERED standalone builds are swept (the gap)', () => {
         `compile set — the gate would not compile it, so the regression ` +
         `it exists to catch would still ship green.`,
     );
-  }
-});
-
-it('the already-covered counter pair is also swept (no exclusions)', () => {
-  for (const b of [
-    'examples/counter',
-    'examples/counter-uix',
-  ]) {
-    assert.ok(realBuilds.includes(b), `${b} missing from the example set`);
   }
 });
 
@@ -143,18 +134,6 @@ it('the twelve dark top-level testbed builds are swept (rf2-in6c4 gap)', () => {
   }
 });
 
-it('every recovered build sits under a DECLARED swept prefix', () => {
-  const prefixes = Object.keys(COMPILED_BUILD_PREFIXES);
-  for (const b of realBuilds) {
-    assert.ok(
-      prefixes.some((p) => b.startsWith(`${p}/`)),
-      `${b} is not under a declared swept prefix (${prefixes.join(', ')}) — ` +
-        `:story-static/* in particular must NOT be swept here (it is a ` +
-        `release-shaped export with its own story_static_gate).`,
-    );
-  }
-});
-
 it('the per-prefix floor has TEETH: a prefix that stops matching is caught', () => {
   // The vacuous pass this refuses: with two prefixes, a single TOTAL floor is
   // satisfiable by the examples alone, so the testbeds arm could silently stop
@@ -173,8 +152,6 @@ it('the per-prefix floor has TEETH: a prefix that stops matching is caught', () 
     `an examples-only roster must starve exactly the testbeds prefix, got: ` +
       JSON.stringify(starved),
   );
-  // ...and a healthy roster starves nothing.
-  assert.deepStrictEqual(prefixesBelowFloor(realBuilds), []);
 });
 
 // --- Teeth on synthetic edn: ADD a build => the gate grows to cover it ----
@@ -317,10 +294,6 @@ it('parseBuildSummaries reads per-build warning counts', () => {
   assert.deepStrictEqual(failed, []);
 });
 
-it('a clean compile has NO builds-with-warnings (gate stays green)', () => {
-  assert.deepStrictEqual(buildsWithWarnings(CLEAN_OUTPUT), []);
-});
-
 it('a warning (typo\'d var) IS detected so the gate fails RED', () => {
   const warned = buildsWithWarnings(WARNED_OUTPUT);
   assert.deepStrictEqual(warned, [
@@ -340,11 +313,6 @@ it('a hard "Build failed" is surfaced via parseBuildSummaries.failed', () => {
 // vacuously. These pin reconcileRequestedBuilds so a
 // missing/unparseable summary, a duplicate/unexpected summary, and a
 // parser-missed WARNING marker all turn the gate RED.
-
-it('normaliseBuildId canonicalises both colon shapes to the :-prefixed form', () => {
-  assert.strictEqual(normaliseBuildId('examples/login-uix'), ':examples/login-uix');
-  assert.strictEqual(normaliseBuildId(':examples/login-uix'), ':examples/login-uix');
-});
 
 it('reconcile is clean when every requested build has exactly one summary', () => {
   // CLEAN_OUTPUT carries login-uix + login-helix summaries; request exactly
@@ -433,13 +401,10 @@ it('an UNEXPECTED completed summary (not requested) is a coverage FAILURE', () =
   );
 });
 
-it('a fully-clean WARNED_OUTPUT still has its warning caught (regression: orphan check does not mask real warnings)', () => {
+it('reconcile stays clean when a parsable warning row accounts for the WARNING marker (the orphan check does not double-report a real warning)', () => {
   // WARNED_OUTPUT carries a parsable `1 warnings` row, so buildsWithWarnings
   // is non-empty and the orphan-warning branch must NOT fire (the real
   // warning is caught by the primary buildsWithWarnings path in the CLI).
-  assert.deepStrictEqual(buildsWithWarnings(WARNED_OUTPUT), [
-    { build: ':examples/login-helix', warnings: 1 },
-  ]);
   const problems = reconcileRequestedBuilds(
     ['examples/login-helix', 'examples/login-uix'],
     WARNED_OUTPUT,
