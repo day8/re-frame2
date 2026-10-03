@@ -117,50 +117,35 @@
       (is (= :timeout state30)
           "sibling :after timer (same epoch) is still live and transitions"))))
 
-;; ---- (e) guarded vector, first guard passes -> first target ---------------
+;; ---- (e)/(f) guarded vector: the first passing candidate wins -------------
 ;;
-;; The candidate-vector form: the first passing guard's target fires.
+;; The candidate-vector form: the first passing guard's target fires; when
+;; every guard fails, the unguarded fallback's target fires and its :action
+;; runs.
 
-(deftest after-guarded-vector-first-guard-passes
-  (testing "guarded candidate-vector :after: first guard passes → first target"
-    (let [spec {:initial :idle
-                :data    {:handshake-ok? true}
-                :guards  {:handshake-ok? (fn [{:keys [data]}] (:handshake-ok? data))}
-                :states  {:idle          {:on {:go :authenticating}}
-                          :authenticating
-                          {:after {6000 [{:guard :handshake-ok? :target :connected}
-                                         {:target :failed :action :record-error}]}}
-                          :connected     {}
-                          :failed        {}}
-                :actions {:record-error (fn [{:keys [data]}]
-                                          {:data (assoc data :error :handshake)})}}
-          snap (snap-at :authenticating {[:authenticating] 1} {:handshake-ok? true})
-          [state] (fire spec snap (after-event 6000 1 [:authenticating]))]
-      (is (= :connected state)
-          "first candidate's guard passes → transitions to its target :connected"))))
-
-;; ---- (f) guarded vector, first fails -> unguarded fallback + action --------
-
-(deftest after-guarded-vector-fallback-target-and-action
-  (testing "guarded candidate-vector :after: first guard fails → unguarded
-            fallback target fires AND its :action runs"
-    (let [spec {:initial :idle
-                :data    {:handshake-ok? false}
-                :guards  {:handshake-ok? (fn [{:keys [data]}] (:handshake-ok? data))}
-                :states  {:idle          {:on {:go :authenticating}}
-                          :authenticating
-                          {:after {6000 [{:guard :handshake-ok? :target :connected}
-                                         {:target :failed :action :record-error}]}}
-                          :connected     {}
-                          :failed        {}}
-                :actions {:record-error (fn [{:keys [data]}]
-                                          {:data (assoc data :error :handshake)})}}
-          snap (snap-at :authenticating {[:authenticating] 1} {:handshake-ok? false})
-          [state next-snap] (fire spec snap (after-event 6000 1 [:authenticating]))]
-      (is (= :failed state)
-          "first guard fails → unguarded fallback target :failed fires")
-      (is (= :handshake (get-in next-snap [:data :error]))
-          "the fallback candidate's :action ran (recorded the error in :data)"))))
+(deftest after-guarded-vector-resolves-the-first-passing-candidate
+  (let [spec {:initial :idle
+              :guards  {:handshake-ok? (fn [{:keys [data]}] (:handshake-ok? data))}
+              :states  {:idle          {:on {:go :authenticating}}
+                        :authenticating
+                        {:after {6000 [{:guard :handshake-ok? :target :connected}
+                                       {:target :failed :action :record-error}]}}
+                        :connected     {}
+                        :failed        {}}
+              :actions {:record-error (fn [{:keys [data]}]
+                                        {:data (assoc data :error :handshake)})}}]
+    (doseq [[label handshake-ok? expected-state expected-error]
+            [["(e) the first guard passes: its target fires and the fallback's :action does not run"
+              true :connected nil]
+             ["(f) the first guard fails: the unguarded fallback's target fires and its :action runs"
+              false :failed :handshake]]]
+      (testing label
+        (let [snap (snap-at :authenticating {[:authenticating] 1} {:handshake-ok? handshake-ok?})
+              [state next-snap] (fire (assoc spec :data {:handshake-ok? handshake-ok?})
+                                      snap (after-event 6000 1 [:authenticating]))]
+          (is (= expected-state state) "the resolved candidate's target")
+          (is (= expected-error (get-in next-snap [:data :error]))
+              "only the resolved candidate's :action ran"))))))
 
 ;; ---- (g) guarded vector, all fail, no fallback -> guard-suppressed ---------
 

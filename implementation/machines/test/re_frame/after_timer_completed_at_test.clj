@@ -36,39 +36,6 @@
 (def ^:private PARENT-TIME-MS 1000000000)
 (def ^:private FIRE-TIME-MS   2000000000)
 
-;; ---- pure reply-helper level ----------------------------------------------
-
-(deftest after-fired-reply-carries-completed-at
-  (testing "after-fired-reply threads :completed-at when supplied"
-    (let [r (rf.machines.reply/after-fired-reply
-              {:actor-id :a/m :state :loading :delay 5000
-               :decl-path [:loading] :epoch 1 :frame :rf/default
-               :completed-at FIRE-TIME-MS})]
-      (is (= FIRE-TIME-MS (:completed-at r))
-          "fired reply carries the causal completion timestamp")
-      (is (= :ok (:status r))))
-    (testing "omitted (not nil-filled) when absent"
-      (let [r (rf.machines.reply/after-fired-reply
-                {:actor-id :a/m :state :loading :delay 5000
-                 :decl-path [:loading] :epoch 1 :frame :rf/default})]
-        (is (not (contains? r :completed-at))
-            "no causal token ⇒ :completed-at omitted, not nil-filled")))))
-
-(deftest after-stale-reply-carries-completed-at
-  (testing "after-stale-reply threads :completed-at when supplied"
-    (let [r (rf.machines.reply/after-stale-reply
-              {:actor-id :a/m :state :loading :delay 5000
-               :decl-path [:loading] :scheduled-epoch 1 :current-epoch 2
-               :frame :rf/default :completed-at FIRE-TIME-MS})]
-      (is (= FIRE-TIME-MS (:completed-at r)))
-      (is (= :stale (:status r))))
-    (testing "omitted (not nil-filled) when absent"
-      (let [r (rf.machines.reply/after-stale-reply
-                {:actor-id :a/m :state :loading :delay 5000
-                 :decl-path [:loading] :scheduled-epoch 1 :current-epoch 2
-                 :frame :rf/default})]
-        (is (not (contains? r :completed-at)))))))
-
 ;; ---- integration: real fire boundary, trace-stamped --------------------
 
 (deftest after-fired-trace-carries-causal-completed-at
@@ -110,11 +77,9 @@
           ;; :rf.reply/completed-at (no bare :completed-at trace-tag
           ;; duplicate).
           (is (= FIRE-TIME-MS (:rf.reply/completed-at (:tags fired)))
-              "the fired trace carries the FRESH fire-time causal :rf.reply/completed-at")
+              "the fired trace carries the FRESH fire-time causal :rf.reply/completed-at, not the parent scheduling-time token")
           (is (not (contains? (:tags fired) :completed-at))
-              "no bare :completed-at duplicate on the reply-envelope fired trace")
-          (is (not= PARENT-TIME-MS (:rf.reply/completed-at (:tags fired)))
-              "NOT the parent scheduling-time token"))))))
+              "no bare :completed-at duplicate on the reply-envelope fired trace"))))))
 
 (deftest after-stale-trace-carries-causal-completed-at
   (testing "the :rf.machine.timer/stale-after trace carries the

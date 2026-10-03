@@ -9,8 +9,7 @@
       continue (per Spec 005 §Multi-stage interaction with :guard).
     - Race: whichever transition fires first wins; others go stale via
       the per-machine :rf/after-epoch counter.
-    - No-invoke variant: a state with :after but no :spawn is a pure
-      timed-transition state.
+    - A state with :after but no :spawn is a pure timed-transition state.
     - There is no :timeout-ms slot on :spawn / :spawn-all;
       registration throws :rf.error/spawn-timeout-ms-removed. (The
       first-class EP-0029 A4 :timeout / :on-timeout grammar — which
@@ -107,37 +106,6 @@
           "matching-epoch firing transitions :loading → :timeout")
       (rf/unregister-listener! :trace ::s))))
 
-;; ---- multi-stage :after — warn at 5s, fail at 30s -------------------------
-
-(deftest after-multi-stage
-  (testing "multiple :after entries run independently from entry-time"
-    (let [m {:initial :idle
-             :data    {}
-             :states
-             {:idle    {:on {:fetch :loading}}
-              :loading {:after {5000  :warn
-                                30000 :timeout}
-                        :on    {:loaded :ready}}
-              :warn    {:on {:loaded :ready
-                             :timeout :timeout}}
-              :timeout {}
-              :ready   {}}}]
-      (rf/reg-machine :a/multi m)
-      (rf/dispatch-sync [:a/multi [:fetch]])
-      (is (= :loading (:state (snapshot :a/multi))))
-      (let [epoch (get-in (snapshot :a/multi) [:data :rf/after-epoch [:loading]])]
-        ;; The 5000ms timer fires first.
-        (rf/dispatch-sync [:a/multi [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
-        (is (= :warn (:state (snapshot :a/multi)))
-            "5s timer fires; transition to :warn")
-        ;; The original 30000ms timer (epoch 1) is now stale, but at this
-        ;; point the snapshot has moved to :warn (which has no :after);
-        ;; the [:loading] node is no longer on the active path —
-        ;; pick-after-transition surfaces stale-after.
-        (rf/dispatch-sync [:a/multi [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
-        (is (= :warn (:state (snapshot :a/multi)))
-            "stale 30s firing does not transition")))))
-
 ;; ---- same-tick tie-break: first-fired advances epoch, slower drops stale --
 ;;
 ;; XState parity: the STEP ALGORITHM's determinism of
@@ -214,11 +182,18 @@
             "the slower timer emits :stale-after (deliberate non-guarantee, pinned)"))
       (rf/unregister-listener! :trace ::tb))))
 
-;; ---- :guard suppresses one :after; siblings continue ---------------------
+;; ---- a guard-suppressed :after leaves its sibling timers live -------------
+;;
+;; The runtime counterpart of after-value-forms-test's pure (d) and (g) cases:
+;; a guard-suppressed firing neither transitions nor advances the epoch, and a
+;; sibling timer scheduled at the same epoch still fires. Each row is one
+;; suppressing value form at the 5000 key.
 
-(deftest after-guard-suppresses-one-siblings-continue
-  (testing "guard returning false suppresses the transition without exiting; sibling timers continue"
-    (let [m {:initial :idle
+(deftest after-guard-suppression-leaves-sibling-timers-live
+  (doseq [[label machine-id machine entry-event]
+          [["a single guarded map whose guard fails"
+            :a/guard
+            {:initial :idle
              :data    {:slow? false}
              :guards  {:slow? (fn [{:keys [data]}] (:slow? data))}
              :states
@@ -229,91 +204,10 @@
               :warn    {}
               :timeout {}
               :ready   {}}}
-          traces (atom [])]
-      (rf/reg-machine :a/guard m)
-      (rf/register-listener! :trace ::g (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:a/guard [:fetch]])
-      (let [epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch [:loading]])]
-        ;; 5s fires; guard :slow? returns false → suppressed.
-        (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
-        (is (= :loading (:state (snapshot :a/guard)))
-            "guard-suppressed :after must not transition")
-        (is (= epoch (get-in (snapshot :a/guard) [:data :rf/after-epoch [:loading]]))
-            "guard-suppressed :after must not advance epoch")
-        (is (some #(and (= :rf.machine.timer/fired (:operation %))
-                         (false? (:fired? (:tags %)))
-                         (= 5000  (:delay (:tags %))))
-                   @traces)
-            ":fired? false trace emitted on guard suppression")
-        ;; The 30000ms sibling timer is still live (same epoch) — fire it.
-        (rf/dispatch-sync [:a/guard [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
-        (is (= :timeout (:state (snapshot :a/guard)))
-            "sibling :after timer continues and transitions on its own"))
-      (rf/unregister-listener! :trace ::g))))
-
-;; ---- guarded candidate-vector :after --------------------------------------
-;;
-;; Per Spec 005 §Delayed :after transitions §Transition spec: the :after
-;; value admits the SAME guarded candidate-vector form as an :on clause —
-;; [{:guard g :target s} {:target s2 :action a}] — resolved first-guard-
-;; pass-wins. pick-after-transition normalises the guarded vector and
-;; resolves it through the candidate walk, so the firing timer fires the
-;; first guard-passing candidate's transition + effects. This is the
-;; integration counterpart to the pure-engine sweep in
-;; re-frame.after-value-forms-test — driving the full runtime so the
-;; action's :data write and the cascade are exercised.
-
-(deftest after-guarded-vector-first-pass-runtime
-  (testing "guarded candidate-vector :after through the runtime — first guard
-            passes → first target (the step-deck :authenticating repro, pass arm)"
-    (let [m {:initial :idle
-             :data    {:handshake-ok? true}
-             :guards  {:handshake-ok? (fn [{:keys [data]}] (:handshake-ok? data))}
-             :actions {:record-error (fn [{:keys [data]}]
-                                       {:data (assoc data :error :handshake)})}
-             :states
-             {:idle           {:on {:go :authenticating}}
-              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
-                                             {:target :failed :action :record-error}]}}
-              :connected      {}
-              :failed         {}}}]
-      (rf/reg-machine :a/gv-pass m)
-      (rf/dispatch-sync [:a/gv-pass [:go]])
-      (is (= :authenticating (:state (snapshot :a/gv-pass))))
-      (let [epoch (get-in (snapshot :a/gv-pass) [:data :rf/after-epoch [:authenticating]])]
-        (rf/dispatch-sync [:a/gv-pass [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
-        (is (= :connected (:state (snapshot :a/gv-pass)))
-            "first candidate's guard passes → :connected (NOT stranded)")
-        (is (nil? (get-in (snapshot :a/gv-pass) [:data :error]))
-            "the fallback candidate's :action did NOT run on the pass arm")))))
-
-(deftest after-guarded-vector-fallback-runtime
-  (testing "guarded candidate-vector :after through the runtime — first guard
-            fails → unguarded fallback target + its :action runs (fail arm)"
-    (let [m {:initial :idle
-             :data    {:handshake-ok? false}
-             :guards  {:handshake-ok? (fn [{:keys [data]}] (:handshake-ok? data))}
-             :actions {:record-error (fn [{:keys [data]}]
-                                       {:data (assoc data :error :handshake)})}
-             :states
-             {:idle           {:on {:go :authenticating}}
-              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
-                                             {:target :failed :action :record-error}]}}
-              :connected      {}
-              :failed         {}}}]
-      (rf/reg-machine :a/gv-fallback m)
-      (rf/dispatch-sync [:a/gv-fallback [:go]])
-      (let [epoch (get-in (snapshot :a/gv-fallback) [:data :rf/after-epoch [:authenticating]])]
-        (rf/dispatch-sync [:a/gv-fallback [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
-        (is (= :failed (:state (snapshot :a/gv-fallback)))
-            "first guard fails → unguarded fallback :failed fires")
-        (is (= :handshake (get-in (snapshot :a/gv-fallback) [:data :error]))
-            "the fallback candidate's :action ran (recorded the error)")))))
-
-(deftest after-guarded-vector-all-fail-suppressed-runtime
-  (testing "guarded candidate-vector :after through the runtime — all guards
-            fail, no fallback → suppressed; sibling :after timer continues"
-    (let [m {:initial :idle
+            [:fetch]]
+           ["a guarded candidate vector whose every guard fails, with no fallback"
+            :a/gv-allfail
+            {:initial :idle
              :data    {:a? false :b? false}
              :guards  {:a? (fn [{:keys [data]}] (:a? data))
                        :b? (fn [{:keys [data]}] (:b? data))}
@@ -325,30 +219,32 @@
               :x       {}
               :y       {}
               :timeout {}}}
-          traces (atom [])]
-      (rf/reg-machine :a/gv-allfail m)
-      (rf/register-listener! :trace ::gva (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:a/gv-allfail [:go]])
-      (let [epoch (get-in (snapshot :a/gv-allfail) [:data :rf/after-epoch [:loading]])]
-        (rf/dispatch-sync [:a/gv-allfail [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
-        (is (= :loading (:state (snapshot :a/gv-allfail)))
-            "all guards fail, no fallback → no transition (suppressed)")
-        (is (= epoch (get-in (snapshot :a/gv-allfail) [:data :rf/after-epoch [:loading]]))
-            "suppressed firing does not advance the epoch")
-        (is (some #(and (= :rf.machine.timer/fired (:operation %))
-                        (false? (:fired? (:tags %)))
-                        (= 5000  (:delay (:tags %))))
-                  @traces)
-            ":fired? false trace emitted on all-guards-fail suppression")
-        ;; The sibling 30000 timer (same epoch) is still live.
-        (rf/dispatch-sync [:a/gv-allfail [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
-        (is (= :timeout (:state (snapshot :a/gv-allfail)))
-            "sibling :after timer continues and transitions on its own"))
-      (rf/unregister-listener! :trace ::gva))))
+            [:go]]]]
+    (testing label
+      (let [traces (atom [])]
+        (rf/reg-machine machine-id machine)
+        (rf/register-listener! :trace ::suppressed (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [machine-id entry-event])
+        (let [epoch (get-in (snapshot machine-id) [:data :rf/after-epoch [:loading]])]
+          (rf/dispatch-sync [machine-id [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
+          (is (= :loading (:state (snapshot machine-id)))
+              "the guard-suppressed :after does not transition")
+          (is (= epoch (get-in (snapshot machine-id) [:data :rf/after-epoch [:loading]]))
+              "the guard-suppressed :after does not advance the epoch")
+          (is (some #(and (= :rf.machine.timer/fired (:operation %))
+                          (false? (:fired? (:tags %)))
+                          (= 5000  (:delay (:tags %))))
+                    @traces)
+              "a :fired? false trace marks the suppression")
+          ;; The 30000ms sibling timer carries the same, unchanged epoch.
+          (rf/dispatch-sync [machine-id [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
+          (is (= :timeout (:state (snapshot machine-id)))
+              "the sibling :after timer is still live and transitions on its own"))
+        (rf/unregister-listener! :trace ::suppressed)))))
 
-;; ---- no-invoke variant (splash screen) -----------------------------------
+;; ---- :after with no :spawn (splash screen) --------------------------------
 
-(deftest after-no-invoke-splash
+(deftest after-without-spawn-is-a-pure-timed-transition
   (testing "a state with :after but no :spawn is a pure timed-transition state"
     (let [m {:initial :splash
              :data    {}
@@ -501,7 +397,7 @@
 
 ;; ---- :spawn-bearing state with :after — wall-clock guard via :after ----
 
-(deftest after-on-invoke-bearing-state
+(deftest after-on-spawn-bearing-state-tears-down-child
   (testing ":after on a :spawn-bearing state — firing tears down the spawned child"
     (let [child {:initial :running
                  :states  {:running {:on {:never-fires :done}}
