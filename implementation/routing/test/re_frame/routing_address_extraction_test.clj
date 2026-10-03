@@ -10,7 +10,6 @@
   this ONE definition. Per Spec 012 §The extraction law and Spec-Schemas
   §`:rf/route-address`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [clojure.set :as set]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.link :as rf.routing.link]
@@ -25,15 +24,11 @@
     (is (= #{:to :params :query :fragment} rf.routing.address/address-keys)))
   (testing "the edit key class is exactly {:query :query-merge :fragment}"
     (is (= #{:query :query-merge :fragment} rf.routing.address/edit-keys)))
-  (testing "policy keys are extracted separately and never overlap the address destination keys"
-    (is (empty? (set/intersection rf.routing.address/policy-keys #{:to :url}))
-        "a policy key can never be a destination")
-    (is (contains? rf.routing.address/policy-keys :replace?))
-    (is (contains? rf.routing.address/policy-keys :scroll))
-    (is (contains? rf.routing.address/policy-keys :bypass-leave?)
-        "EP-0037 R4 OI-3: the leave-only escape is the plain boolean :bypass-leave?")
-    (is (not (contains? rf.routing.address/policy-keys :bypass-guards?))
-        "there is no set-valued :bypass-guards? policy key"))
+  (testing "the policy key class is exactly {:replace? :scroll :bypass-leave?} —
+            never a destination key; the leave-only escape is the plain boolean
+            :bypass-leave? (EP-0037 R4 OI-3), and there is no set-valued
+            :bypass-guards?"
+    (is (= #{:replace? :scroll :bypass-leave?} rf.routing.address/policy-keys)))
   (testing "the navigate roster is address ∪ raw-URL ∪ policy ∪ edit"
     (is (= #{:to :params :query :fragment :url :replace? :scroll :bypass-leave? :query-merge}
            rf.routing.address/navigate-request-roster))))
@@ -85,42 +80,26 @@
   ;; this rule a present non-map value would sail through `classify` and reach
   ;; `navigate-handler`'s unguarded `merge` fold, where Clojure's own
   ;; collection semantics would decide the outcome three different ways.
+  ;;
+  ;; The two-element-vector control and the vector / string / nil /
+  ;; seq-of-pairs rejections, with the plain `{}` and `{:page 2}` passes, are
+  ;; `routing-boundary-totality-cljs-test`'s
+  ;; `navigate-non-map-query-merge-rejects-cross-host`, on this same `current`
+  ;; and on both hosts. The rows below are the ones only this suite carries.
   (let [current {:route-id :route/search :query {:q "x"}}]
 
-    (testing "POSITIVE CONTROL — the hazard this rule closes is real on this host"
-      ;; Without these rows the rejections below would prove only that the
-      ;; gate says no to something; these prove WHY it must. If a future
-      ;; Clojure stopped accepting a 2-vector as a map entry this control
-      ;; goes red and tells the reader the rule's rationale has moved.
-      (is (= {:page 2} (merge {} [:page 2]))
-          "a two-element VECTOR really is a map entry to `merge` — an unguarded
-           fold SUCCEEDS on it and commits a real navigation")
-      (is (not (map? [:page 2]))
-          "…and it is not a map, so only an explicit map? check can tell")
+    (testing "the hazard's other two symptoms on this host"
       (is (thrown? ClassCastException (merge {} "oops"))
           "a string reaches a RAW host throw in the same fold (no ex-data)")
       (is (= {:q "x"} (merge {:q "x"} nil))
           "a present nil VANISHES in the fold — a silent no-op, not a reject"))
 
-    (testing "a two-element vector rejects (it would otherwise NAVIGATE)"
-      (is (= {:reason :query-merge-not-map :keys [:query-merge]}
-             (rf.routing.address/classify {:query-merge [:page 2]} current))))
-    (testing "a string rejects (it would otherwise raise ClassCastException)"
-      (is (= {:reason :query-merge-not-map :keys [:query-merge]}
-             (rf.routing.address/classify {:query-merge "oops"} current))))
-    (testing "a present nil rejects — omission is the spelling for 'no merge'"
-      (is (= {:reason :query-merge-not-map :keys [:query-merge]}
-             (rf.routing.address/classify {:query-merge nil} current))))
-    (testing "a sequence of pairs rejects (a fold would have accepted it)"
-      (is (= :query-merge-not-map
-             (:reason (rf.routing.address/classify {:query-merge [[:page 2]]} current))))
+    (testing "a set rejects too — the rule is any non-map, not only the shapes a
+              fold happens to accept"
       (is (= :query-merge-not-map
              (:reason (rf.routing.address/classify {:query-merge #{:page}} current)))))
 
     (testing "a MAP value passes"
-      (is (nil? (rf.routing.address/classify {:query-merge {}} current))
-          "{} is a valid exact no-op")
-      (is (nil? (rf.routing.address/classify {:query-merge {:page 2}} current)))
       (is (nil? (rf.routing.address/classify {:query-merge {:sort nil}} current))
           "a nil INSIDE the delta map deletes a key — the rule is about
            the delta map itself, never its members")

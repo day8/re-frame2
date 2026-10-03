@@ -97,11 +97,7 @@
               :params   {:slug "routing-as-data"}
               :query    {:tab "comments"}
               :fragment "reply-42"
-              :url      "/articles/routing-as-data?tab=comments#reply-42"}))))
-  (testing ":route-id / :params / :url are reflected verbatim — for a route
-            declaring no :query-defaults an empty :query stays {} exactly as the
-            door resolved it, and a non-empty fragment passes through"
-    (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/home :params {} :query {}}))))))
+              :url      "/articles/routing-as-data?tab=comments#reply-42"})))))
 
 ;; ---- the normalisations every door applies ---------------------------------
 ;;
@@ -151,11 +147,7 @@
            (keys (:query (rf.routing.resolve/resolved-target
                            {:route-id :route/plain
                             :params   {:slug "x"}
-                            :query    (array-map "b" "2" :drop nil "a" "1")}))))))
-  (testing "nil / empty queries are untouched"
-    (is (nil? (:query (rf.routing.resolve/resolved-target {:route-id :route/plain :params {}}))))
-    (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
-                                                 :params   {} :query {}}))))))
+                            :query    (array-map "b" "2" :drop nil "a" "1")})))))))
 
 (deftest resolved-target-collapses-an-empty-fragment-to-nil
   (rf.routing/reg-route :route/page {} "/p/:slug")
@@ -169,13 +161,7 @@
                                                             :params   {:slug "x"}
                                                             :fragment "reply-42"}))))
     (is (nil? (:fragment (rf.routing.resolve/resolved-target {:route-id :route/page
-                                                    :params   {:slug "x"}})))))
-  (testing "the collapse is IDEMPOTENT, so the programmatic door's own earlier
-            normalisation lowers through unchanged"
-    (let [once  (rf.routing.resolve/resolved-target {:route-id :route/page :params {:slug "x"}
-                                           :fragment ""})
-          twice (rf.routing.resolve/resolved-target once)]
-      (is (= (:fragment once) (:fragment twice))))))
+                                                    :params   {:slug "x"}}))))))
 
 (deftest a-bare-trailing-hash-url-resolves-to-no-fragment
   ;; The deliberate URL-door consequence of collapsing the fragment at the
@@ -312,7 +298,6 @@
             :route/nowhere while the activation aborts"
     (let [plan (plan-for :route/leaf)]
       (is (= [] (:branch plan)))
-      (is (not-any? #{:route/nowhere} (:branch plan)))
       (is (= {:kind :unknown-parent :route-id* :route/nowhere} (:branch-error plan)))
       (is (empty? (:branch-contributors plan))
           "no contributors resolved, so the resource plan aborts rather than

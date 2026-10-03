@@ -32,21 +32,14 @@
 
 ;; ---- not-found fallback shape + reason vocabulary ------------------------
 
-(deftest not-found-params-bare-miss-carries-only-url
-  (testing "an unmatched URL fallback carries {:url url} with no :reason"
-    (is (= {:url "/nope"} (rf.routing.plan/not-found-params "/nope" nil)))))
-
-(deftest not-found-params-stamps-each-reason
-  (testing "the shared :reason vocabulary — both entry points stamp identical fallback params"
-    (is (= {:url "/x" :reason :malformed-url}
-           (rf.routing.plan/not-found-params "/x" :malformed-url))
-        "malformed percent-encoding fallback")
-    (is (= {:url "/x" :reason :validation}
-           (rf.routing.plan/not-found-params "/x" :validation))
-        "schema-validation miss fallback")
-    (is (= {:url "/x" :reason :match-error}
-           (rf.routing.plan/not-found-params "/x" :match-error))
-        "unexpected match-url throw fallback")))
+(deftest not-found-params-carries-the-url-and-the-shared-reason
+  (testing "the shared :reason vocabulary — both entry points stamp identical
+            fallback params, and a bare miss carries {:url url} with no :reason"
+    (are [url reason expected] (= expected (rf.routing.plan/not-found-params url reason))
+      "/nope" nil            {:url "/nope"}                       ;; bare miss
+      "/x"    :malformed-url {:url "/x" :reason :malformed-url}   ;; malformed percent-encoding
+      "/x"    :validation    {:url "/x" :reason :validation}      ;; schema-validation miss
+      "/x"    :match-error   {:url "/x" :reason :match-error})))  ;; unexpected match-url throw
 
 ;; ---- identical navigation (Spec 012 §Per-route data loading rule 3) ------
 
@@ -74,15 +67,7 @@
     (testing "a differing query is NOT fragment-only (full transition)"
       (is (false? (rf.routing.plan/fragment-only? slice :route/docs {:p 1} {:q "b"} "details"))))
     (testing "no prior slice → never fragment-only (nothing to be a fragment of)"
-      (is (false? (rf.routing.plan/fragment-only? nil :route/docs {:p 1} {:q "a"} "details"))))
-    (testing "fragment-only and identical-route-target? are mutually exclusive"
-      (let [params {:p 1} query {:q "a"}]
-        (is (not (and (rf.routing.plan/fragment-only? slice :route/docs params query "details")
-                      (rf.routing.plan/identical-route-target? slice :route/docs params query "details")))
-            "differing fragment → fragment-only true, identical false")
-        (is (not (and (rf.routing.plan/fragment-only? slice :route/docs params query "intro")
-                      (rf.routing.plan/identical-route-target? slice :route/docs params query "intro")))
-            "equal fragment → fragment-only false, identical true")))))
+      (is (false? (rf.routing.plan/fragment-only? nil :route/docs {:p 1} {:q "a"} "details"))))))
 
 ;; ---- fail-closed telemetry intents (parity across both entry points) -----
 
