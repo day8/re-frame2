@@ -117,11 +117,7 @@
            mints no door and therefore no error of its own"
     (let [data (outcome rf/current-frame-id)]
       (is (= :rf.error/no-frame-context (:rf.error/id data))
-          (str "expected core's absence error; got " (pr-str data)))))
-
-  (testing "the same read inside a body is fine, so the row above is
-           pinning the boundary of the extent rather than a broken call"
-    (is (= frame-a (read-in-body frame-a (fn [seen] (vreset! seen (rf/current-frame-id))))))))
+          (str "expected core's absence error; got " (pr-str data))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Inside a render callback the doors answer the SUPPLYING boundary

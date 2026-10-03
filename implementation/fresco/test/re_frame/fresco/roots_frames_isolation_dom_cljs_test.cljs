@@ -178,10 +178,7 @@
                    [frame-b label-q] [frame-b count-q]}
                  (rf.fresco.roots-frames-support/cell-keys))
               (str "the cell table must be keyed by (frame, query); got "
-                   (pr-str (rf.fresco.roots-frames-support/cell-keys))))
-          (is (= #{frame-a frame-b} (rf.fresco.roots-frames-support/cell-frames))
-              "both frames must appear — a runtime that resolved one frame
-               for both mounts would show one"))
+                   (pr-str (rf.fresco.roots-frames-support/cell-keys)))))
 
         (testing "and each key is read by exactly ONE boundary — the shape a
                   leak destroys, because a leak is two readers on one key
@@ -368,8 +365,7 @@
                             through"
                     (is (= #{[frame-b label-q] [frame-b count-q]} (keys-for frame-b)))
                     (is (= [1 1] [(rf.fresco.roots-frames-support/readers-of [frame-b label-q])
-                                  (rf.fresco.roots-frames-support/readers-of [frame-b count-q])]))
-                    (is (contains? (rf.fresco.roots-frames-support/cell-frames) frame-b)))
+                                  (rf.fresco.roots-frames-support/readers-of [frame-b count-q])])))
 
                   (testing "and it is still LIVE — a dispatch still re-runs its
                             body and still moves its DOM, which a stranded

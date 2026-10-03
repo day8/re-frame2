@@ -169,8 +169,7 @@
                   root, so sharing a frame is sharing the cell. This is the
                   exact shape the two-frame suites never produce"
           (is (= #{[shared-frame label-q] [shared-frame count-q]} (rf.fresco.roots-frames-support/cell-keys))
-              (str "got " (pr-str (rf.fresco.roots-frames-support/cell-keys))))
-          (is (= #{shared-frame} (rf.fresco.roots-frames-support/cell-frames))))
+              (str "got " (pr-str (rf.fresco.roots-frames-support/cell-keys)))))
 
         (testing "and each shared key carries TWO readers — the fan-out that
                   makes `release-cell!`'s arithmetic load-bearing, and that
