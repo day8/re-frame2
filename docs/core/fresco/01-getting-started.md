@@ -130,6 +130,58 @@ The page shows **Buy milk** and **Walk the dog (done)**. Click either Toggle
 button and its `(done)` text appears or disappears. `:initial-events` seeds
 the todos before the first render, and subsequent hot reloads preserve them.
 
+You can also run it here. The cell below holds the views and the part of the
+model the first screen uses, and it ends with the tree `mount!` renders. Edit
+it and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS) to run it again.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db {:todos   {1 {:id 1 :title "Buy milk"     :done? false}
+                    2 {:id 2 :title "Walk the dog" :done? true}}
+          :showing :all}}))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+(rf/reg-sub :todo/showing (fn [db _] (:showing db)))
+
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _]
+    (vec (sort-by :id (vals todos)))))
+
+(rf/reg-sub :todo/by-id
+  (fn [db [_ id]]
+    (get-in db [:todos id])))
+
+(rf/reg-sub :todo/visible
+  {:inputs [[:todo/all] [:todo/showing]]}
+  (fn [[todos showing] _]
+    (case showing
+      :active (filterv (complement :done?) todos)
+      :done   (filterv :done? todos)
+      todos)))
+
+(h/defview todo-row [{:keys [id]}]
+  (let [{:keys [title done?]} (h/sub [:todo/by-id id])]
+    [:li
+     [:span title (when done? " (done)") " "]
+     [:button {:type "button" :on-click [:todo/toggle id]} "Toggle"]]))
+
+(h/defview todo-list [_]
+  [:ul
+   (for [{:keys [id]} (h/sub [:todo/visible])]
+     [todo-row {:key id :id id}])])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list]]
+```
+
 ## What changes in a Fresco view
 
 - No `@`: `h/sub` returns the value, and a helper the body calls can read too
