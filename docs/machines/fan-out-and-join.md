@@ -169,7 +169,7 @@ the parent enters `:failed` with no results. **Retry** re-enters
 
 ;; :fx-overrides answers each frame's requests without a network.
 ;; A real app leaves it out.
-[:div
+[:div {:style {:display "flex" :gap "2em"}}
  [rf/frame-root {:id :auth.session/up
                  :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
   [startup-view "Both endpoints answer"]]
