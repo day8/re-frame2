@@ -1102,29 +1102,39 @@
   choose error / skeleton / fallback — it MUST NOT hang indefinitely).
 
   Pure `(entries blocking deadline-ms) -> {:entries :route-blocking-
-  failure}`:
+  failure :timed-out-work}`:
 
     - every UNSETTLED blocking entry (`unsettled-blocking-keys`) is settled
       to a first-load failure (`entry-failed` with the `ssr-timeout-error`
       envelope) so the entry leaves `:loading`/`:idle` and the renderer sees
       a structured `:error`, never a hung `:loading`;
+    - `:timed-out-work` names the attempts the timeout abandons: each
+      unsettled entry's `:current-work` id, in a vector (an entry with no
+      attempt in flight contributes none). `entry-failed` clears that
+      pointer, so this is the only record of which work-ledger rows the
+      failure leaves behind;
     - `:route-blocking-failure` is the record the route/SSR diagnostics
       surface (`:rf.error/resource-ssr-blocking-timeout`) — which blocking
       keys timed out, the deadline, and the failure envelope.
 
-  Returns the updated `:entries` plus the route-blocking-failure record (or
-  nil when nothing timed out). The host adapter installs `:entries` into the
-  SSR frame's runtime-db and hands `:route-blocking-failure` to the route
-  slice / renderer. This namespace does NOT touch route state directly (the
-  route slice owns that surface)."
+  Returns the updated `:entries`, the abandoned work ids, and the
+  route-blocking-failure record (or nil when nothing timed out). The drain
+  (`drain-blocking-resources!`) installs `:entries` into the SSR frame's
+  runtime-db in the same write that settles each abandoned row terminal
+  `:timed-out`, then clears those rows' host handles, so no entry fails while
+  its row stays live. It hands `:route-blocking-failure` to the route slice /
+  renderer. This namespace does NOT touch route state directly (the route
+  slice owns that surface)."
   [entries blocking deadline-ms frame-id]
   (let [unsettled (unsettled-blocking-keys entries blocking)
         ;; the REPORTED value is the kind-preserving scoped key; only the
         ;; carrier is byte-keyed.
         timed-out (vec (vals unsettled))]
     (if (empty? unsettled)
-      {:entries entries :route-blocking-failure nil}
+      {:entries entries :route-blocking-failure nil :timed-out-work []}
       (let [error    (ssr-timeout-error deadline-ms)
+            timed-out-work (into [] (keep (fn [[k-id _]] (:current-work (get entries k-id))))
+                                 unsettled)
             ;; The `:entries` map is keyed on the byte `key-id`,
             ;; which `unsettled` already carries as its own keys; each settle is
             ;; stamped with the entry's `:resource/key` VECTOR so a
@@ -1147,7 +1157,8 @@
                                               "resource(s) did not settle within "
                                               deadline-ms "ms; settled as first-load "
                                               "failures so the render does not hang.")})
-        {:entries entries'
+        {:entries        entries'
+         :timed-out-work timed-out-work
          :route-blocking-failure
          {:rf.error/id :rf.error/resource-ssr-blocking-timeout
           :timed-out   timed-out
@@ -1264,15 +1275,22 @@
   within budget: `:settled? true`,
   `:timed-out []`, no failure record, and the frame's runtime-db is
   UNCHANGED. On timeout: the still-unsettled blocking entries are settled to
-  first-load failures IN the frame's runtime-db (via `swap-runtime-db!`),
-  `:settled? false`, and `:route-blocking-failure` carries the record the host
-  hands the route slice / renderer. An empty blocking set (a route with no
+  first-load failures IN the frame's runtime-db (via `swap-runtime-db!`), and
+  the same write settles the work-ledger row of each attempt they abandon
+  terminal `:timed-out` (`settle-terminal`, with the deadline as its outcome);
+  those rows' host handles are then cleared. `:settled? false`, and
+  `:route-blocking-failure` carries the record the host hands the route slice
+  / renderer. So every way out of the drain leaves the blocking entries'
+  ledger rows terminal: a reply settles an entry and its row in one write, and
+  so does the timeout. A late reply for an abandoned attempt finds no live
+  entry and is stale-suppressed. An empty blocking set (a route with no
   blocking resources) returns `:settled? true` immediately without pumping.
 
-  PURE w.r.t. routing state — it touches only the resource `:entries` (the
-  route slice owns the route transition; the host hands it the failure
-  record). The drain reads the LIVE frame each tick (`frame-runtime-db-value`)
-  so a reply that lands mid-pump is observed."
+  PURE w.r.t. routing state — it touches only the resource `:entries`, the
+  abandoned attempts' work-ledger rows, and their host handles (the route
+  slice owns the route transition; the host hands it the failure record). The
+  drain reads the LIVE frame each tick (`frame-runtime-db-value`) so a reply
+  that lands mid-pump is observed."
   [frame-id {:keys [pump! deadline-ms clock-fn tick-ms]}]
   (let [clock-fn (or clock-fn rf.interop/epoch-now-ms)
         rdb0     (rf.frame/frame-runtime-db-value frame-id)
@@ -1292,12 +1310,21 @@
 
               ;; deadline elapsed — settle every still-unsettled blocking entry
               ;; to a first-load failure and INSTALL it (the render then sees a
-              ;; structured :error, never a hung :loading).
+              ;; structured :error, never a hung :loading). The abandoned
+              ;; attempts' ledger rows settle :timed-out in that same write, and
+              ;; their host handles go with them.
               (>= (clock-fn) deadline)
-              (let [{:keys [entries route-blocking-failure]}
-                    (settle-blocking-timeout entries blocking deadline-ms frame-id)]
-                (rf.frame/swap-runtime-db! frame-id assoc-in
-                                        [rf.resources.state/resources-key :entries] entries)
+              (let [{:keys [entries route-blocking-failure timed-out-work]}
+                    (settle-blocking-timeout entries blocking deadline-ms frame-id)
+                    outcome {:reason :ssr-blocking-timeout :limit-ms deadline-ms}]
+                (rf.frame/swap-runtime-db!
+                  frame-id
+                  (fn [rdb]
+                    (reduce (fn [rdb work-id]
+                              (rf.resources.work-ledger/settle-terminal rdb work-id :timed-out outcome))
+                            (assoc-in rdb [rf.resources.state/resources-key :entries] entries)
+                            timed-out-work)))
+                (run! #(rf.resources.work-ledger/clear-handle! frame-id %) timed-out-work)
                 {:settled?              false
                  :timed-out             (vec (vals (unsettled-blocking-keys
                                                      (get-in rdb [rf.resources.state/resources-key :entries])
