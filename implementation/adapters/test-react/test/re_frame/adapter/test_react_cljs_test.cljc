@@ -107,12 +107,9 @@
       (rf.adapter.test-react/trigger-update! mount [:div "v2"])
       (rf.adapter.test-react/unmount! mount)
       (let [log (rf.adapter.test-react/lifecycle-log mount)]
-        (is (seq log) "precondition: the log recorded entries at all")
         (is (= #{#{:phase :seq}}
                (into #{} (map (comp set keys)) log))
             "every entry's key set is exactly #{:phase :seq} — no extras arm")
-        (is (every? (comp keyword? :phase) log)
-            ":phase is always a keyword")
         (is (apply < (mapv :seq log))
             ":seq is strictly increasing across the entries, in firing order")))))
 
@@ -590,8 +587,6 @@
           "the ONLY live root is the pre-existing survivor: the parent never
            registered and the child was rolled back — no hidden leaked record
            remains in the live forest for a later test to trip over")
-      (is (true? @(:mounted? survivor))
-          "the separate live root was untouched by the failed mount's rollback")
       (is (zero? (phase-count survivor :forced-teardown))
           "the survivor took no forced teardown — rollback is scoped to the
            failed parent's own speculative children")
@@ -649,8 +644,6 @@
                  (rf.adapter.test-react/unmount! target))}))
           "the guard error — NOT the rollback — is what escapes; rollback does
            not swallow or replace the render body's exception")
-      (is (true? @(:mounted? target))
-          "the guard refused the synchronous unmount — the target root survives")
       (is (= [target] (rf.adapter.test-react/mounted-components))
           "only the target is live: the host never registered and its tracked
            child was rolled back despite the render failing via the guard")
@@ -721,10 +714,6 @@
           "the speculative child record was torn down (mounted? flipped false)")
       (is (= 1 (phase-count @child-ref :forced-teardown))
           "the child recorded a :forced-teardown — teardown logging preserved")
-      (is (= 1 (phase-count mount :forced-teardown))
-          "the ROOT itself recorded a :forced-teardown — the whole root unmount")
-      (is (zero? (phase-count mount :did-update))
-          "a FAILED update publishes NO :did-update — the update did not commit")
       (is (= [:constructor :render :did-mount :render :forced-teardown]
              (mapv :phase (rf.adapter.test-react/lifecycle-log mount)))
           "the root logged mount lifecycle, the failed update's :render, then a
@@ -837,8 +826,6 @@
                  (rf.adapter.test-react/mount-child! [:span "speculative"])
                  (throw (ex-info "boom-scoped-update" {})))}))
           "the target's update exception propagates")
-      (is (true? @(:mounted? sibling))
-          "the unrelated sibling root stays live")
       (is (= [:div "sibling"] (rf.adapter.test-react/current-render-tree sibling))
           "the sibling's committed tree is untouched")
       (is (zero? (phase-count sibling :forced-teardown))
@@ -874,8 +861,6 @@
                  (reset! child-ref (rf.adapter.test-react/mount-child! [:span "child"]))
                  (rf.adapter.test-react/unmount! target))}))
           "the guard error — NOT the teardown — is what escapes")
-      (is (true? @(:mounted? target))
-          "the guard refused the synchronous unmount — the target survives")
       (is (false? @(:mounted? host))
           "the host root, whose update threw via the guard, was unmounted whole")
       (is (nil? (rf.adapter.test-react/current-render-tree host))

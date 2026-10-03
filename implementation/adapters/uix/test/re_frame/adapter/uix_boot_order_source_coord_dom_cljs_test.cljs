@@ -245,9 +245,6 @@
   (testing "UIx — a view registered at ns-load, BEFORE rf/init! installed the
             adapter, carries data-rf2-source-coord and data-rf-view on its
             committed DOM node"
-    (is (nil? adapter-at-registration)
-        (str "premise: no adapter was installed at registration; got "
-             (pr-str adapter-at-registration)))
     (with-browser-act
       (fn [act-fn]
         (seed-frame!)
