@@ -117,7 +117,7 @@ test('utf8Bytes is Buffer.byteLength with an EXPLICIT utf8 — not a default', (
   assert.match(SRC, /const utf8Bytes = \(s\) => Buffer\.byteLength\(s, 'utf8'\);/);
 });
 
-test('NO manifest column and NO " B" claim reads `.length` any more', () => {
+test('NO manifest column and NO " B" claim reads `.length`', () => {
   const bake = SRC.slice(SRC.indexOf('function bake('), SRC.indexOf('// serve — the live demo'));
   const serve = SRC.slice(SRC.indexOf('function serve('));
   for (const [where, block] of [['bake', bake], ['serve', serve]]) {
@@ -150,7 +150,7 @@ test('the bake CHECKS each column against the file it just wrote, and refuses', 
 
 // --- the fence: the digest rows are correct and must stay correct ----------
 
-test('sha256 still hashes with an explicit utf8 encoding — untouched by this repair', () => {
+test('sha256 hashes the UTF-8 bytes, with the encoding named', () => {
   assert.match(SRC, /crypto\.createHash\('sha256'\)\.update\(s, 'utf8'\)\.digest\('hex'\)/);
   // The digest is a function of BYTES, so it is right by construction; the
   // pin is here so a future "make it consistent" pass cannot take it with them.
