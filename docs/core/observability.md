@@ -241,6 +241,49 @@ that epoch, both [app-db](glossary.md#app-db) and
 write. It refuses an epoch whose `:outcome` is not `:ok`, because a halted run has no
 coherent after-state; it returns `false` and emits an error trace instead.
 
+Each click in this cell is an event, so each adds an epoch. The buttons under
+**History** pass that epoch's id to `restore-epoch!`:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.epoch])
+
+(rf/reg-event :todo/initialise
+  (fn [_ _] {:db {:todos {}}}))
+
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} [_ title]]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id] {:id id :title title})})))
+
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+
+(rf/reg-view time-travel []
+  (let [todos @(subscribe [:todo/todos])]
+    [:div
+     (for [title ["Buy milk" "Walk the dog" "Call mum"]]
+       ^{:key title}
+       [:button {:on-click #(dispatch [:todo/add title])} (str "Add " title)])
+     [:ol
+      (for [{:keys [id title]} (sort-by :id (vals todos))]
+        ^{:key id} [:li title])]
+     [:p "History:"]
+     ;; the new idea: one record per run, each holding the state after it
+     (for [{:keys [epoch-id trigger-event]} (rf/epoch-history :app)]
+       ^{:key epoch-id}
+       [:button {:on-click #(rf/restore-epoch! :app epoch-id)}
+        (pr-str trigger-event)])]))
+
+[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [time-travel]]
+```
+
+Add a few todos, then click an earlier entry: the list goes back to the state after
+that event. The later entries stay, so you can step forward again. The history is
+not a subscription; this view re-reads it whenever the todos change, which is
+enough for a demo. A tool that follows every run registers an `:epoch` listener
+([below](#the-epoch-stream-assembled-runs)).
+
 ??? info "Coming from Redux DevTools?"
 
     The trace buffer is the action log you scroll back through after something looks
