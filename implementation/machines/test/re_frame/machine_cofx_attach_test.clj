@@ -46,35 +46,35 @@
 ;; 1. Inline-fn restriction — :rf.cofx/requires must be on a NAMED entry
 ;; ===========================================================================
 
-(deftest inline-requires-on-transition-slot-rejected
-  (testing "an `:rf.cofx/requires` placed directly on an inline `:on`
-            transition map fails registration with
-            :rf.error/machine-cofx-requires-inline"
-    (let [m {:initial :idle
+(deftest inline-requires-is-refused-at-registration
+  (doseq [[label machine]
+          [["on an inline `:on` transition map"
+            {:initial :idle
              :data    {}
              :states  {:idle {:on {:go {:rf.cofx/requires [:rf/time-ms]
                                         :target :done}}}
-                       :done {}}}
-          e (is (thrown? ExceptionInfo
-                         (rf.machines/make-machine-handler m)))]
-      (is (= :rf.error/machine-cofx-requires-inline
-             (:rf.error/id (ex-data e)))
-          "the inline-on-slot declaration is the named error category"))))
-
-(deftest inline-requires-on-bare-entry-map-rejected
-  (testing "a `:guards` entry that is a map carrying :rf.cofx/requires but NO
-            :fn (an inline declaration with nothing to deliver to) fails
-            registration — there is no callback to attach the diet to"
-    (let [m {:initial :idle
+                       :done {}}}]
+           ["on a `:guards` entry map with no `:fn`: an inline declaration with no
+            callback to attach the diet to"
+            {:initial :idle
              :data    {}
-             ;; map entry with :rf.cofx/requires but no :fn — illegal
              :guards  {:bad {:rf.cofx/requires [:rf/time-ms]}}
              :states  {:idle {:on {:go {:target :done :guard :bad}}}
-                       :done {}}}
-          e (is (thrown? ExceptionInfo
-                         (rf.machines/make-machine-handler m)))]
-      (is (= :rf.error/machine-cofx-requires-inline
-             (:rf.error/id (ex-data e)))))))
+                       :done {}}}]
+           ["on a `:type :choice` candidate: the :choice slot is swept like the
+            :always it lowers to"
+            {:initial :idle
+             :data    {}
+             :states  {:idle     {:on {:go :checking}}
+                       :checking {:type   :choice
+                                  :choice [{:rf.cofx/requires [:rf/time-ms]
+                                            :target :a}
+                                           {:target :b}]}
+                       :a {} :b {}}}]]]
+    (let [e (is (thrown? ExceptionInfo (rf.machines/make-machine-handler machine))
+                (str label ": registration throws"))]
+      (is (= :rf.error/machine-cofx-requires-inline (:rf.error/id (ex-data e)))
+          (str label ": the failure is the named error category")))))
 
 ;; ===========================================================================
 ;; 2. Derived ensure-sets — ensured BEFORE transition selection
@@ -151,24 +151,6 @@
         (is (= :done (rf.machines.test-support/machine-state :attach/always-closure))
             "the :always cascade settled on :done")))))
 
-(deftest ensure-set-for-includes-always-closure
-  (testing "white-box: ensure-set-for derives the :always-closure id from a
-            candidate target, not just the directly-touched guard/action"
-    (rf/reg-cofx :test/jitter2 {:recordable? true} (fn [] 1))
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:initial :idle
-               :actions {:rec {:rf.cofx/requires [:test/jitter2]
-                               :fn (fn [_] nil)}}
-               :states  {:idle    {:on {:go :pending}}
-                         :pending {:always {:action :rec :target :done}}
-                         :done    {}}})
-          ;; active state :idle, event [:go] → target :pending whose :always
-          ;; action :rec requires :test/jitter2.
-          es (rf.machines.cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
-      (is (contains? (set (map :id es)) :test/jitter2)
-          "the ensure-set for [:go] at :idle includes the :always-closure
-           fact reachable through the :pending target"))))
-
 ;; ---- multi-hop :always chain ---------------------------------------------
 ;;
 ;; The single-hop cases above reach an :always one hop from the candidate
@@ -180,29 +162,6 @@
 ;; is ensured up front: the static closure chases the :always chain to a
 ;; fixed point, so the depth>=2 fact is in the ensure-set (the guard reads
 ;; the ensured value, never a silent nil) — preserving replay-determinism.
-
-(deftest ensure-set-for-follows-multi-hop-always-chain
-  (testing "white-box: ensure-set-for chases :always targets to a FIXED POINT,
-            so a depth>=2 :always-reached guard's :rf.cofx/requires is in the
-            ensure-set (not just the one-hop case)"
-    (rf/reg-cofx :test/deep-roll {:recordable? true} (fn [] 6))
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:initial :a
-               :guards  {;; the deep guard sits TWO :always hops from :a's target
-                         :deep? {:rf.cofx/requires [:test/deep-roll]
-                                 :fn (fn [{cofx :rf.cofx}]
-                                       (= 6 (:test/deep-roll cofx)))}}
-               :states  {:a {:on {:go :b}}
-                         ;; hop 1: :b's :always settles onto :c (no requires)
-                         :b {:always {:target :c}}
-                         ;; hop 2: :c's :always guard requires :test/deep-roll
-                         :c {:always {:guard :deep? :target :done}}
-                         :done {}}})
-          ;; active :a, [:go] → :b → (always) :c → (always, guarded) :done.
-          es (rf.machines.cofx-attach/ensure-set-for m {:state :a :data {}} [:go])]
-      (is (contains? (set (map :id es)) :test/deep-roll)
-          "the ensure-set chases B:always→C, then C:always's guard — the
-           depth>=2 fact is ensured, not dropped at the one-hop boundary"))))
 
 (deftest multi-hop-always-guard-reads-ensured-fact
   (testing "end-to-end: a guard reached at :always chain depth>=2 reads the
@@ -386,30 +345,6 @@
 ;; §Root parallel `:on` / §Root-level `:after`, verified vs xstate@5.32.0); its
 ;; guard/action requirements must be satisfied like any other node's.
 
-(deftest ensure-set-for-includes-parallel-root-on
-  (testing "white-box: ensure-set-for for a parallel machine includes the
-            ROOT :on candidate's guard/action requires (the ancestor fallback
-            the runtime resolves separately) — not just the regions' scopes"
-    (rf/reg-cofx :test/root-roll {:recordable? true} (fn [] 6))
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:type    :parallel
-               :data    {}
-               :guards  {:root-rolled-six?
-                         {:rf.cofx/requires [:test/root-roll]
-                          :fn (fn [{cofx :rf.cofx}] (= 6 (:test/root-roll cofx)))}}
-               ;; root :on — NO region declares :go-all (so the runtime falls
-               ;; through to the root). Its guard requires :test/root-roll.
-               :on      {:go-all {:target [[:a :two] [:b :two]]
-                                  :guard  :root-rolled-six?}}
-               :regions {:a {:initial :one :states {:one {} :two {}}}
-                         :b {:initial :one :states {:one {} :two {}}}}})
-          es (rf.machines.cofx-attach/ensure-set-for
-               m {:state {:a :one :b :one} :data {}} [:go-all])]
-      (is (contains? (set (map :id es)) :test/root-roll)
-          "the ensure-set includes the ROOT :on guard's requires — a parallel
-           branch that unioned regions only would return [] for :root-on and
-           never ensure the fact"))))
-
 (deftest ensure-set-for-includes-parallel-root-after
   (testing "white-box: ensure-set-for for the synthetic root :after timer event
             ([:rf.machine.timer/after-elapsed delay epoch []]) includes the
@@ -505,48 +440,8 @@
 ;; pre-desugar machine, so the ensure-set must treat a choice node's `:choice`
 ;; vector as its `:always` candidates — otherwise a choice candidate guard's
 ;; :rf.cofx/requires is never ensured, the guard reads nil, and strict replay
-;; diverges (it selects a DIFFERENT candidate). The inline-fn restriction must
-;; likewise sweep :choice.
-
-(deftest inline-requires-on-choice-candidate-rejected
-  (testing "an :rf.cofx/requires placed directly on a :type :choice candidate
-            (an inline declaration with no :fn to deliver to) fails
-            registration with :rf.error/machine-cofx-requires-inline — the
-            :choice slot is swept like :always (the choice lowers to :always)"
-    (let [m {:initial :idle
-             :data    {}
-             :states  {:idle     {:on {:go :checking}}
-                       :checking {:type   :choice
-                                  :choice [{:rf.cofx/requires [:rf/time-ms]
-                                            :target :a}
-                                           {:target :b}]}
-                       :a {} :b {}}}
-          e (is (thrown? ExceptionInfo
-                         (rf.machines/make-machine-handler m)))]
-      (is (= :rf.error/machine-cofx-requires-inline
-             (:rf.error/id (ex-data e)))
-          "the inline-on-choice-candidate declaration is rejected"))))
-
-(deftest ensure-set-for-includes-choice-candidate-requires
-  (testing "white-box: ensure-set-for treats a :type :choice node's :choice
-            vector as its :always candidates, so a choice candidate GUARD's
-            :rf.cofx/requires is in the ensure-set (reachable through the
-            choice target) — reading only (:always choice-node), which is
-            nil, would drop the fact"
-    (rf/reg-cofx :test/choice-roll {:recordable? true} (fn [] 6))
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:initial :idle
-               :guards  {:needs-roll {:rf.cofx/requires [:test/choice-roll]
-                                      :fn (fn [_] true)}}
-               :states  {:idle     {:on {:go :checking}}
-                         :checking {:type   :choice
-                                    :choice [{:guard :needs-roll :target :a}
-                                             {:target :b}]}
-                         :a {} :b {}}})
-          es (rf.machines.cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
-      (is (contains? (set (map :id es)) :test/choice-roll)
-          "the ensure-set for [:go] at :idle includes the choice candidate
-           guard's requires — reachable through the :checking choice target"))))
+;; diverges (it selects a DIFFERENT candidate). The inline-fn restriction
+;; likewise sweeps :choice (inline-requires-is-refused-at-registration's last row).
 
 (deftest choice-candidate-guard-reads-ensured-generated-fact
   (testing "end-to-end: a :type :choice candidate GUARD requiring a

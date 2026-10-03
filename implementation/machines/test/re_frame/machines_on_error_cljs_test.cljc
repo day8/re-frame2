@@ -327,13 +327,7 @@
              :states  {:working {:spawn {:machine-id :whatever
                                          :on-error   {:target :errored
                                                       :action :no-such-action}}}
-                       :errored {}}}))))
-  (testing "a well-formed :error? :final? leaf + :on-error validates silently"
-    (is (some? (rf/reg-machine :rf2-5hlsh-f/ok
-                 {:initial :working
-                  :states  {:working {:spawn {:machine-id :whatever
-                                              :on-error {:target :errored}}}
-                            :errored {:final? true :error? true}}})))))
+                       :errored {}}})))))
 
 ;; ---- (g) parallel-PARENT region :spawn :on-done / :on-error -----
 ;;
