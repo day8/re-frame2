@@ -22,7 +22,7 @@
   re-frame.ssr-end-to-end-test).
 
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
