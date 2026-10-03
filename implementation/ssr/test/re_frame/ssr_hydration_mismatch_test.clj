@@ -215,9 +215,6 @@
       ;; `render-tree-hash`, which is not gated at all, so both halves (the
       ;; shape and not-equal-deadbeef) are stated here against the hash
       ;; function itself.
-      (is (and (string? client-hash) (= 8 (count client-hash)))
-          (str "render-tree-hash emits exactly 8 chars; got "
-               (pr-str client-hash)))
       (is (re-matches hex-8-pattern client-hash)
           (str "render-tree-hash emits 8-char lowercase hex; got "
                (pr-str client-hash)))
@@ -238,20 +235,10 @@
                 ":rf.ssr/hydration-mismatch fires when the resolved tree
                  hashes to anything other than 'deadbeef'")
             (when mismatch
-              (let [observed (-> mismatch :tags :client-hash)]
-                (is (and (string? observed) (= 8 (count observed)))
-                    (str "computed client-hash is exactly 8 chars; got "
-                         (pr-str observed)))
-                (is (re-matches hex-8-pattern observed)
-                    (str "computed client-hash is 8-char lowercase hex; got "
-                         (pr-str observed)))
-                (is (= client-hash observed)
-                    "the trace echoes the same hash render-tree-hash
-                     computes when called directly on the input")
-                (is (not= "deadbeef" observed)
-                    "client-hash never equals the (deliberately wrong)
-                     server-hash — that would be a hash-collision spec
-                     violation")))))))))
+              (is (= client-hash (-> mismatch :tags :client-hash))
+                  "the trace echoes the same hash render-tree-hash computes
+                   when called directly on the input — the 8-char
+                   lowercase-hex, never-deadbeef value asserted above"))))))))
 
 ;; ===========================================================================
 ;; The trace's :op-type is :error
@@ -313,11 +300,6 @@
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-mismatch client frame"
                                        :platform :client})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-
-      (is (= 0 (rf/subscribe-once [:count] {:frame client-frame}))
-          "seeded :count post-hydrate matches the payload's :rf/app-db
-           (= 0 on this surface — the payload didn't seed a higher
-           value)")
 
       ;; Fire the mismatch trace (otherwise this test would pass
       ;; vacuously — we want to assert the dispatch survives

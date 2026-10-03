@@ -46,18 +46,22 @@
       (let [data (app-db-refusal {:ok 1 :price v})]
         (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data))
             (str (pr-str v) " was not refused"))
-        (is (= :rf/app-db (:partition data)))
-        (is (= [:price] (:path data)))
         (is (= class-name (:class data)))
-        (is (= :narrow-the-value-or-drop-the-key (:recovery data)))
-        (testing "the message names the partition, the path and the class —
-                  on the streaming path only the message survives"
-          (is (re-find #":rf/app-db" (::message data)))
-          (is (re-find #"\[:price\]" (::message data)))
-          (is (.contains ^String (::message data) class-name))
-          (is (.endsWith ^String (::message data)
-                         "[:rf.error/ssr-hydration-payload-invalid]")
-              "the greppability token survives into the writer-failed record"))))))
+        (is (.contains ^String (::message data) class-name)
+            "the message names the class"))))
+  (testing "the refusal names the partition, the path and the recovery, and
+            the message names the partition and the path — on the streaming
+            path only the message survives. One throw site builds all of it,
+            whatever the number's class."
+    (let [data (app-db-refusal {:ok 1 :price 10.50M})]
+      (is (= :rf/app-db (:partition data)))
+      (is (= [:price] (:path data)))
+      (is (= :narrow-the-value-or-drop-the-key (:recovery data)))
+      (is (re-find #":rf/app-db" (::message data)))
+      (is (re-find #"\[:price\]" (::message data)))
+      (is (.endsWith ^String (::message data)
+                     "[:rf.error/ssr-hydration-payload-invalid]")
+          "the greppability token survives into the writer-failed record"))))
 
 (deftest the-path-runs-from-the-partition-root
   (testing "a nested value names its full path"

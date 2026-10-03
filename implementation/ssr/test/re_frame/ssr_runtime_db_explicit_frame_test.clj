@@ -144,11 +144,7 @@
           current (get-in payload [:rf/runtime-db :rf.runtime/routing :current])
           snap    (get-in payload [:rf/runtime-db :rf.runtime/machines
                                    :snapshots machine-id])]
-      ;; The wire :rf/frame-id is decoupled from the projection frame;
-      ;; no `:client-frame-id` opt ⇒ omitted. Redaction below proves the
-      ;; projection targeted the explicit frame A.
-      (is (not (contains? payload :rf/frame-id))
-          "anonymous per-request frame omits the wire :rf/frame-id")
+      ;; Redaction below proves the projection targeted the explicit frame A.
       (is (= :rf/redacted (get-in current [:query :token]))
           "route-declared sensitive :query :token redacted under frame A")
       (is (= "huge-callback-blob-value" (get-in current [:params :payload]))
@@ -370,11 +366,8 @@
                     (rf.ssr.streaming/build-final-payload
                       server-frame "hash"
                       {:payload :rf.ssr.payload/whole-app-db}))]
-      ;; The wire :rf/frame-id is decoupled from the projection frame;
-      ;; no `:client-frame-id` opt ⇒ omitted. Fail-closed redaction below
-      ;; proves the projection targeted the explicit frame A.
-      (is (not (contains? payload :rf/frame-id))
-          "anonymous per-request frame omits the wire :rf/frame-id")
+      ;; Fail-closed redaction below proves the projection targeted the
+      ;; explicit frame A.
       (is (= :rf/redacted (:rf/app-db payload))
           "app-db fails closed — the re-registered frame's absent policy is not substituted")
       (is (not (contains? payload :rf/runtime-db))

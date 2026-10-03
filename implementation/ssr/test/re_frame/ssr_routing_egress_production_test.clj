@@ -114,43 +114,31 @@
 ;; (2) The egress site itself — the hydration blob redacts in production
 ;; ===========================================================================
 
-(deftest hydration-runtime-db-redacts-the-live-classified-route-slice
-  (testing "`project-runtime-db` over the frame's REAL runtime-db,
-            under the explicit target frame the security-critical builders
-            carry. The allowlisted durable routing slice goes through
-            `project-routing-egress` at the `[:rf.runtime/routing]` offset, so
-            the registry's re-rooted absolute route paths match and the
-            classified values never reach the wire."
-    (navigate-to-classified-route!)
-    (let [slice   (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
-          current (get-in slice [:rf.runtime/routing :current])]
-      (is (= :rf/redacted (get-in current [:query :token]))
-          "the `:sensitive` query value redacts in the hydration slice")
-      (is (= blob-secret (get-in current [:query :payload]))
-          "the `:large` one rides whole — the hydration wire applies no size
-           elision, because the client route needs the value")
-      (is (= "/dashboard" (get-in current [:query :return-to]))
-          "the unclassified sibling rides verbatim — path-precise, not a
-           blanket scrub")
-      (is (= :route/oauth-callback (:route-id current))
-          "and so does the structural `:route-id`")
-      (is (not (.contains (pr-str slice) token-secret))
-          "GUARD: no raw token anywhere in the projected runtime-db"))))
-
 (deftest the-hydration-payload-a-visitor-receives-carries-no-raw-route-secret
-  (testing "One step further out, at the artefact a browser
-            actually gets. `build-payload` is where the projected runtime-db
-            becomes the serialized hydration blob; asserting on the projector's
-            return value alone would leave the last hop unwitnessed."
+  (testing "`project-runtime-db` over the frame's REAL runtime-db, under the
+            explicit target frame the security-critical builders carry, then
+            `build-payload`, which makes the projected runtime-db the
+            serialized blob a browser actually gets. The allowlisted durable
+            routing slice goes through `project-routing-egress` at the
+            `[:rf.runtime/routing]` offset, so the registry's re-rooted
+            absolute route paths match and the classified values never reach
+            the wire."
     (navigate-to-classified-route!)
     (let [rt-slice (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
           payload  (rf.ssr.payload-policy/build-payload
                      :rf/default {:public/page :callback} "h1"
                      {:version 1 :runtime-db rt-slice})
           current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
-      (is (= :rf/redacted (get-in current [:query :token])))
+      (is (= :rf/redacted (get-in current [:query :token]))
+          "the `:sensitive` query value redacts in the hydration payload")
       (is (= blob-secret (get-in current [:query :payload]))
-          "the `:large` value rides whole")
+          "the `:large` value rides whole — the hydration wire applies no size
+           elision, because the client route needs the value")
+      (is (= "/dashboard" (get-in current [:query :return-to]))
+          "the unclassified sibling rides verbatim — path-precise, not a
+           blanket scrub")
+      (is (= :route/oauth-callback (:route-id current))
+          "and so does the structural `:route-id`")
       (is (not (.contains (pr-str payload) token-secret))
           "GUARD: the blob the client receives carries no raw secret"))))
 
