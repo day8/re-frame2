@@ -18,28 +18,22 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame2-pair-mcp.tools.args :as args]))
 
-(deftest frames-default-is-app-not-all
+(deftest parse-frames-arg-scopes-and-frame-lists
   ;; The DEFAULT scope (absent arg) is `:app` (app frames only, reserved
   ;; :rf/* tool frames excluded), NOT `:all`. Explicit "all" is the
   ;; opt-in to tool-frame state.
-  (is (= :app (args/parse-frames-arg nil))
-      "absent frames arg defaults to :app (app frames only)")
-  (is (= :all (args/parse-frames-arg "all"))
-      "explicit \"all\" opts into ALL frames incl. reserved tool frames")
-  (is (= :all (args/parse-frames-arg :all)))
-  (is (= :app (args/parse-frames-arg "app"))
-      "explicit \"app\" is the app-frames-only scope")
-  (testing "unrecognised scalar collapses to the safe :app default"
-    (is (= :app (args/parse-frames-arg 42)))
-    (is (= :app (args/parse-frames-arg "al")))))
-
-(deftest frames-array-coerces-to-keywords
-  (let [arr #js [":rf/default" ":stories"]]
-    (is (= [:rf/default :stories] (args/parse-frames-arg arr)))))
-
-(deftest frames-vector-coerces-to-keywords
-  (is (= [:rf/default :stories]
-         (args/parse-frames-arg [":rf/default" ":stories"]))))
+  (doseq [[input expected note]
+          [[nil :app "absent frames arg defaults to :app (app frames only)"]
+           ["all" :all "explicit \"all\" opts into ALL frames incl. reserved tool frames"]
+           [:all :all "the keyword form is the same opt-in"]
+           ["app" :app "explicit \"app\" is the app-frames-only scope"]
+           [42 :app "an unrecognised scalar collapses to the safe :app default"]
+           ["al" :app "a near-miss string collapses to the safe :app default"]
+           [#js [":rf/default" ":stories"] [:rf/default :stories]
+            "a JS array of frame ids coerces to keywords"]
+           [[":rf/default" ":stories"] [:rf/default :stories]
+            "a vector of frame ids coerces to keywords"]]]
+    (is (= expected (args/parse-frames-arg input)) note)))
 
 (deftest include-default-is-full-slice-set
   (is (= [:app-db :sub-cache :machines :epochs :traces]

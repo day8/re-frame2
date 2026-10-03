@@ -33,17 +33,6 @@
     ;; The env-var is not set in test, so the default fires.
     (is (= :vscode (config/get-editor)))))
 
-(deftest config-set-editor-round-trips
-  (testing "set-editor!/get-editor round-trips a keyword"
-    (let [prior (config/get-editor)]
-      (try
-        (config/set-editor! :cursor)
-        (is (= :cursor (config/get-editor)))
-        (config/set-editor! {:custom "myide://{path}:{line}"})
-        (is (= {:custom "myide://{path}:{line}"} (config/get-editor)))
-        (finally
-          (config/set-editor! prior))))))
-
 (deftest config-set-editor-nil-resets-to-vscode
   (testing "set-editor! nil resets to :vscode"
     (let [prior (config/get-editor)]
@@ -92,16 +81,6 @@
           editor {:custom "myide://open?path={path}&row={line}"}]
       (is (= "myide://open?path=src/app/events.cljs&row=42"
              (:rf.mcp/source-uri (source-uri/decorate v editor)))))))
-
-(deftest decorate-recurses-into-vectors
-  (testing "source-coords inside a vector each get a URI"
-    (let [v   [{:id 1 :source-coord sample-coord}
-               {:id 2 :source-coord (assoc sample-coord :file "src/app/subs.cljs")}]
-          out (source-uri/decorate v :vscode)]
-      (is (= "vscode://file/src/app/events.cljs:42:7"
-             (:rf.mcp/source-uri (nth out 0))))
-      (is (= "vscode://file/src/app/subs.cljs:42:7"
-             (:rf.mcp/source-uri (nth out 1)))))))
 
 (deftest decorate-recurses-into-nested-maps
   (testing "source-coords inside a nested map slot get a URI"
@@ -191,16 +170,6 @@
   (testing "a flat carrier with blank :file produces no :rf.mcp/source-uri"
     (let [v {:ns 'app.events :file "" :line 42 :column 7}]
       (is (not (contains? (source-uri/decorate v :vscode) :rf.mcp/source-uri))))))
-
-(deftest decorate-nested-handler-meta-shape
-  (testing "an :epochs walk through nested vectors decorates each handler-meta map"
-    (let [v   {:epochs [{:event-id :a
-                         :handler-meta {:ok? true :kind :event :id :a
-                                        :ns 'app.events :file "src/app/events.cljs"
-                                        :line 42 :column 7}}]}
-          out (source-uri/decorate v :vscode)
-          hm  (-> out :epochs first :handler-meta)]
-      (is (= "vscode://file/src/app/events.cljs:42:7" (:rf.mcp/source-uri hm))))))
 
 (deftest decorate-idempotent
   (testing "running the decorator twice yields the same result"

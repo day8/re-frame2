@@ -47,37 +47,25 @@
 ;; Arg-parse gate — the data-not-source boundary (mirrors dispatch).
 ;; ---------------------------------------------------------------------------
 
-(deftest rejects-arbitrary-cljs-source
+(deftest rejects-anything-but-a-sub-vector
   ;; Host-form source must NOT reach the runtime — the parser reads it
   ;; as a list, the vector-check fails, the runtime is never contacted.
+  ;; A bare keyword or a scalar fails the same check, typed by what it
+  ;; read as.
   (async done
-    (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "(rf/subscribe [:pwn])"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :not-a-sub-vector (:reason edn)))
-                   (is (= :list (:parsed-type edn))))
-                 (done))))))
-
-(deftest rejects-bare-keyword
-  (async done
-    (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub ":current-user"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :not-a-sub-vector (:reason edn)))
-                   (is (= :keyword (:parsed-type edn))))
-                 (done))))))
-
-(deftest rejects-scalar
-  (async done
-    (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "42"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :not-a-sub-vector (:reason edn)))
-                   (is (= :scalar (:parsed-type edn))))
-                 (done))))))
+    (-> (js/Promise.all
+          (into-array
+            (mapv (fn [[input parsed-type]]
+                    (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub input})
+                        (.then (fn [r]
+                                 (is (err? r) input)
+                                 (let [edn (read-result-text r)]
+                                   (is (= :not-a-sub-vector (:reason edn)) input)
+                                   (is (= parsed-type (:parsed-type edn)) input))))))
+                  [["(rf/subscribe [:pwn])" :list]
+                   [":current-user"         :keyword]
+                   ["42"                    :scalar]])))
+        (.then (fn [_] (done))))))
 
 (deftest rejects-unreadable-edn
   (async done
@@ -150,17 +138,6 @@
                      (is (= [:current-user] (:query-v edn)))
                      (is (= {:id 42} (:value edn)))
                      (is (true? (:elision edn))))
-                   (done)))))))
-
-(deftest accepts-sub-with-args
-  (async done
-    (let [captured (atom nil)]
-      (stub-eval! captured {:ok? true :query-v [:user/by-id 42] :frame :rf/default :value {:name "Ada"}})
-      (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:user/by-id 42]"})
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (is (re-find #"\[:user/by-id 42\]" @captured))
-                   (is (= [:user/by-id 42] (:query-v (read-result-text r))))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

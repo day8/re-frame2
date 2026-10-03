@@ -63,22 +63,6 @@
         (.finally (fn [] (tu/restore-eval! stub orig))))))
 
 ;; ---------------------------------------------------------------------------
-;; Soft delay — no probe supplied; the envelope carries no probe-values.
-;; ---------------------------------------------------------------------------
-
-(deftest no-probe-soft-resolves
-  (testing "tail-build with no probe resolves with :soft? true and no probe-values"
-    (async done
-      (-> (tail/tail-build-tool nil (tu/args->js {}))
-          (.then (fn [result]
-                   (let [edn (tu/extract-edn result)]
-                     (is (true? (:ok? edn)))
-                     (is (true? (:soft? edn)))
-                     (is (not (contains? edn :probe-values))
-                         "no probe → no probe-values slot"))
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
 ;; Slow reload — the first sample still equals the pre-edit baseline; a later
 ;; poll differs. Success envelope carries :probe-values
 ;; {:baseline :initial :final}.
@@ -292,11 +276,12 @@
 ;; ---------------------------------------------------------------------------
 ;; `--no-eval`. The probe is arbitrary caller-supplied CLJS evaluated in the
 ;; runtime — once, then on every poll — so it is the eval-cljs authority
-;; class and honours the same opt-out. Unrefused, the probe below would run
-;; on every poll of a `--no-eval` server (a hostile `dispatch-sync` firing
+;; class and honours the same opt-out. Unrefused, a probe would run on
+;; every poll of a `--no-eval` server (a hostile `dispatch-sync` firing
 ;; repeatedly under read-only annotations); it is refused with eval-cljs's
-;; own envelope before any nREPL round-trip. The
-;; no-probe soft delay evaluates nothing and stays available.
+;; own envelope before any nREPL round-trip, which the corpus fixture
+;; `:tail-build/disabled-via-no-eval` pins. The no-probe soft delay
+;; evaluates nothing and stays available.
 ;; ---------------------------------------------------------------------------
 
 (defn- with-eval-disabled!
@@ -309,38 +294,6 @@
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (eval-cljs/set-eval-allowed! prev))))))
 
-(deftest probe-is-refused-under-no-eval
-  (testing "a supplied :probe on a --no-eval server is refused and never evaluated"
-    (async done
-      (let [evals (atom [])
-            orig  nrepl/cljs-eval-value
-            stub  (fn
-                    ([_conn _build-id form-str]
-                     (swap! evals conj form-str)
-                     (js/Promise.resolve 1))
-                    ([_conn _build-id form-str _opts]
-                     (swap! evals conj form-str)
-                     (js/Promise.resolve 1)))]
-        (set! nrepl/cljs-eval-value stub)
-        (-> (with-eval-disabled!
-              (fn []
-                (tail/tail-build-tool
-                  nil (tu/args->js {:probe    "(do (re-frame.core/dispatch-sync [:account/delete]) 1)"
-                                    :baseline "1"
-                                    :wait-ms  300}))))
-            (.then (fn [result]
-                     (is (tu/error? result) "the refusal rides as isError: true")
-                     (let [edn (tu/extract-edn result)]
-                       (is (false? (:ok? edn)))
-                       (is (= :rf.error/eval-cljs-disabled (:reason edn))
-                           "the same operator-gated reason eval-cljs returns under --no-eval")
-                       (is (re-find #"--no-eval" (:hint edn))))
-                     (is (empty? @evals)
-                         "the probe never reached the nREPL eval — not once, not per poll")))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.finally (fn [] (tu/restore-eval! stub orig)))
-            (.then (fn [_] (done))))))))
-
 (deftest no-probe-soft-delay-survives-no-eval
   (testing "the no-probe soft delay evaluates nothing, so --no-eval leaves it available"
     (async done
@@ -350,6 +303,8 @@
                    (is (not (tu/error? result)))
                    (let [edn (tu/extract-edn result)]
                      (is (true? (:ok? edn)))
-                     (is (true? (:soft? edn))))))
+                     (is (true? (:soft? edn)))
+                     (is (not (contains? edn :probe-values))
+                         "no probe → no probe-values slot"))))
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
           (.then (fn [_] (done)))))))

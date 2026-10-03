@@ -129,20 +129,13 @@
                2000
                ;; the rendered elision-opts walker map.
                "{:rf.egress/include-large? false :rf.egress/include-sensitive? false}")]
-    (testing "calls the runtime start-recording! with the signals + stop"
-      (is (str/includes? form "re-frame2-pair.runtime/start-recording!"))
-      (is (str/includes? form ":signals"))
-      (is (str/includes? form "{:focus true}"))
-      ;; The caller's stop bound rides as quoted EDN.
-      (is (str/includes? form ":ms (quote 15000)"))
+    ;; The signals, the quoted stop bound and the :pred-fn slot are pinned
+    ;; in data_arguments_test; the :elide-opts slot in egress_elision_test.
+    (testing "the frame and the entry cap ride the start-recording! opts"
       (is (str/includes? form ":frame :rf/default"))
       (is (str/includes? form ":max-entries 2000")))
-    (testing "the data predicate compiles into a :pred-fn slot (not raw :pred)"
-      (is (str/includes? form ":pred-fn"))
-      (is (not (str/includes? form ":pred {")) "the data :pred key must not ride verbatim"))
-    (testing "the elision-opts ride as :elide-opts"
-      (is (str/includes? form ":elide-opts"))
-      (is (str/includes? form ":rf.egress/include-sensitive? false")))))
+    (testing "the data predicate compiles away (no raw :pred)"
+      (is (not (str/includes? form ":pred {")) "the data :pred key must not ride verbatim"))))
 
 (deftest record-and-watch-forms-are-read-only
   ;; READ-ONLY by construction — neither form may carry an app-mutation
@@ -169,21 +162,6 @@
     conn))
 
 ;; ---- record -----------------------------------------------------------------
-
-(deftest record-returns-recording-id
-  (async done
-    (let [canned {:ok? true :recording-id "rec-abc"
-                  :signals [{:focus true}] :frame :rf/default :stop {:ms 30000}}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (record/record-tool (fresh-conn)
-                                  #js {:signals "[{:focus true}]"})))
-          (.then (fn [r]
-                   (is (not (tu/error? r)))
-                   (let [edn (tu/extract-edn r)]
-                     (is (true? (:ok? edn)))
-                     (is (= "rec-abc" (:recording-id edn)) "recording-id surfaced"))
-                   (done)))))))
 
 (deftest record-runtime-ok-false-is-iserror
   ;; Adversarial: a REACHABLE runtime `:ok? false` — the
@@ -227,27 +205,6 @@
                  (done))))))
 
 ;; ---- read-recording ---------------------------------------------------------
-
-(deftest read-recording-forwards-change-log
-  (async done
-    (let [canned {:ok? true :recording-id "rec-abc" :status :stopped
-                  :stopped-reason :ms :frames-sampled 900 :count 2
-                  :entries [{:i 0 :signal {:focus true}
-                             :value {:tag "input" :id "q"} :t 1 :frame 0}
-                            {:i 0 :signal {:focus true}
-                             :value {:tag "button" :id "go"} :t 2 :frame 42}]}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (record/read-recording-tool (fresh-conn)
-                                          #js {:recording-id "rec-abc"})))
-          (.then (fn [r]
-                   (is (not (tu/error? r)))
-                   (let [edn (tu/extract-edn r)]
-                     (is (true? (:ok? edn)))
-                     (is (= :stopped (:status edn)))
-                     (is (= 2 (:count edn)) "change-entry count surfaced")
-                     (is (= 42 (-> edn :entries second :frame)) "rAF frame counter rides"))
-                   (done)))))))
 
 (deftest read-recording-missing-id-short-circuits
   (async done

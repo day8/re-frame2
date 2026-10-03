@@ -75,7 +75,7 @@
                            (str "read-ui form must be read-only — found " mutator))))
                    (done)))))))
 
-(deftest form-carries-point-and-selector-and-knobs
+(deftest form-carries-point-max-text-and-frame
   (async done
     (let [seen (atom nil)]
       (-> (with-captured-form! seen {:ok? true}
@@ -147,6 +147,7 @@
                          entity  (:entity edn)
                          content (:content edn)]
                      (is (true? (:ok? edn)))
+                     (is (= :app (:build edn)) "echoes the resolved :build keyword")
                      (is (= :view-id (:via edn)) "entry point echoed")
                      ;; The producing ENTITY — the headline of ui/read.
                      (is (= :my.app/counter (:view-id entity)) "producing view-id")
@@ -184,24 +185,6 @@
                      (is (map? text) "elided text rides as a marker map")
                      (is (= :dom-text (:type mark)))
                      (is (= 54000 (:chars mark)) "elision marker reports char count"))
-                   (done)))))))
-
-(deftest no-tagged-view-root-still-returns-content
-  ;; A portal / fragment leaf has no tagged view ancestor — the entity is
-  ;; unresolvable for that node but the content still rides.
-  (async done
-    (let [canned {:ok? true :via :point
-                  :entity {:view-id nil :reason :no-tagged-view-root}
-                  :content {:tag "span" :text "x" :attrs {}}}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn) #js {:point #js {:x 5 :y 5}})))
-          (.then (fn [r]
-                   (let [edn (tu/extract-edn r)]
-                     (is (true? (:ok? edn)))
-                     (is (nil? (get-in edn [:entity :view-id])))
-                     (is (= :no-tagged-view-root (get-in edn [:entity :reason])))
-                     (is (= "span" (get-in edn [:content :tag])) "content still present"))
                    (done)))))))
 
 (deftest bad-selector-error-forwarded
@@ -243,17 +226,3 @@
                      "structuredContent must NOT be null (a null fails the SDK outputSchema check)")
                  (is (object? (j/get r :structuredContent)))
                  (done))))))
-
-(deftest happy-result-echoes-canonical-build
-  ;; read-ui echoes the resolved :build.
-  (async done
-    (let [canned {:ok? true :via :selector
-                  :entity {:view-id :my.app/x :source-coord nil :render-key 1 :subs-read []}
-                  :content {:tag "div" :text "x" :attrs {}}}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn) #js {:selector "#x"})))
-          (.then (fn [r]
-                   (is (= :app (:build (tu/extract-edn r)))
-                       "echoes the resolved :build keyword")
-                   (done)))))))

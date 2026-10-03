@@ -12,8 +12,9 @@
        wrapper (the deliberate divergence — the door is optional and absent in
        a Reagent/UIx app, so it must not be hard-required in the preload).
 
-    2. Tool wiring — the schema gate, and the map-envelope-result passthrough
-       of the form's envelope.
+    2. Tool wiring — the schema gate and the map-envelope-result
+       passthrough of the form's envelope are pinned by the conformance
+       corpus's `:read-mounted-boundaries/*` fixtures.
 
   ## The absent-door rung is EXERCISED here, not asserted
 
@@ -222,34 +223,3 @@
             (js/Promise.resolve nil)
             cases)
           (.then (fn [_] (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Schema gate — the boundary is REAL, not nominal
-;; ---------------------------------------------------------------------------
-
-(deftest a-producer-schema-this-build-does-not-understand-is-a-typed-mismatch
-  ;; Pair connects to an ARBITRARY running app, so it cannot trust the producer's
-  ;; own stamp to define support. A `:ok? true` projection stamped a `:schema`
-  ;; this build was NOT written against is a typed
-  ;; `:ok? false :evidence-tier-version-mismatch` (isError), never forwarded as
-  ;; success. `re-frame.fresco.evidence/schema` says in as many words that
-  ;; there is no acceptance path for a superseded version and no compatibility
-  ;; adapter — so the superseded v2 stamp is the honest fixture for this, not
-  ;; an invented v99.
-  (async done
-    (let [seen        (atom nil)
-          superseded  :re-frame.fresco.evidence/v2]
-      (-> (with-captured-form! seen {:ok? true :schema superseded :boundaries []}
-            (fn []
-              (fresco-tool/read-mounted-boundaries-tool (fresh-conn) #js {})))
-          (.then (fn [result]
-                   (is (true? (tu/error? result))
-                       "a producer schema this build does not understand is an isError")
-                   (let [edn (tu/extract-edn result)]
-                     (is (= false (:ok? edn)))
-                     (is (= :evidence-tier-version-mismatch (:reason edn)))
-                     (is (= superseded (:actual edn)) "the producer's stamp is reported")
-                     (is (= fresco-tool/consumed-evidence-schema (:expected edn))
-                         "…against the consumer-owned expected schema")
-                     (is (string? (:hint edn)) "carries an alignment hint"))
-                   (done)))))))
