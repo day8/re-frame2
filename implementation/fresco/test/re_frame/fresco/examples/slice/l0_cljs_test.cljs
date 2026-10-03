@@ -365,8 +365,7 @@
                 boundary is why it does not have to"
         (rf/dispatch-sync [::rf.fresco.examples.slice.events/digest-arrived {:blocks rf.fresco.examples.slice.db/digest-truncated}]
                           {:frame frame})
-        (is (= rf.fresco.examples.slice.db/digest-truncated (read-sub frame [::rf.fresco.examples.slice.subs/digest-blocks])))
-        (is (nil? (:block/items (second (read-sub frame [::rf.fresco.examples.slice.subs/digest-blocks]))))
+        (is (= rf.fresco.examples.slice.db/digest-truncated (read-sub frame [::rf.fresco.examples.slice.subs/digest-blocks]))
             "the list block lost its items, which is the shape a renderer
              refuses")))))
 

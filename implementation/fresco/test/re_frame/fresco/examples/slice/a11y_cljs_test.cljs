@@ -155,35 +155,32 @@
 ;; Names that are RESOLVED through a label, not merely present beside one
 ;; ---------------------------------------------------------------------------
 
-(deftest every-field-in-the-editor-is-named-by-the-label-that-points-at-it
-  (let [tree (editor-tree :en {:status :idle :problem nil})]
-    (is (= "Title" (rf.fresco.test/accessible-name tree (by-id tree "slice-title")))
-        "the `<label for=\"slice-title\">` and the `<input id=\"slice-title\">`
-         are two elements and one pairing, and only the resolved name can
-         tell a correct pairing from two attributes that happen to sit in
-         the same form")
-    (is (= "Body" (rf.fresco.test/accessible-name tree (by-id tree "slice-body")))
-        "and a textarea is labelled the same way")
-    (is (= "Published" (rf.fresco.test/accessible-name tree (by-id tree "slice-published")))
-        "the checkbox is inside its label AND carries the `for` — the two
-         mechanisms at once, and the name is the label's text once rather
-         than twice")))
-
-(deftest the-locale-select-is-named-by-the-chromes-own-label
-  (let [tree (chrome-tree :en)]
-    (is (= :combobox (rf.fresco.test/role (by-id tree "slice-locale"))))
-    (is (= "Language" (rf.fresco.test/accessible-name tree (by-id tree "slice-locale"))))))
-
-(deftest a-name-follows-the-string-table-into-the-other-language
-  (testing "the same three fields, the same three pairings, one locale
-            later — which is what says the name is READ from the label
-            rather than baked beside the control"
-    (let [tree (editor-tree :fr {:status :idle :problem nil})]
-      (is (= "Titre" (rf.fresco.test/accessible-name tree (by-id tree "slice-title"))))
-      (is (= "Corps" (rf.fresco.test/accessible-name tree (by-id tree "slice-body"))))
-      (is (= "Publié" (rf.fresco.test/accessible-name tree (by-id tree "slice-published"))))))
-  (is (= "Langue" (let [tree (chrome-tree :fr)]
-                    (rf.fresco.test/accessible-name tree (by-id tree "slice-locale"))))))
+(deftest every-labelled-control-is-named-by-the-label-that-points-at-it
+  ;; Each row twice, once per locale: the French row is what says the name
+  ;; is READ from the label rather than baked beside the control.
+  (let [editor-en (editor-tree :en {:status :idle :problem nil})
+        editor-fr (editor-tree :fr {:status :idle :problem nil})
+        chrome-en (chrome-tree :en)
+        chrome-fr (chrome-tree :fr)]
+    (doseq [[tree id expected why]
+            [[editor-en "slice-title" "Title"
+              "the `<label for=\"slice-title\">` and the `<input id=\"slice-title\">`
+               are two elements and one pairing, and only the resolved name can
+               tell a correct pairing from two attributes that happen to sit in
+               the same form"]
+             [editor-en "slice-body" "Body" "and a textarea is labelled the same way"]
+             [editor-en "slice-published" "Published"
+              "the checkbox is inside its label AND carries the `for` — the two
+               mechanisms at once, and the name is the label's text once rather
+               than twice"]
+             [chrome-en "slice-locale" "Language" "the locale select, by the chrome's own label"]
+             [editor-fr "slice-title" "Titre" "the same pairing, one locale later"]
+             [editor-fr "slice-body" "Corps" "the same pairing, one locale later"]
+             [editor-fr "slice-published" "Publié" "the same pairing, one locale later"]
+             [chrome-fr "slice-locale" "Langue" "the same pairing, one locale later"]]]
+      (is (= expected (rf.fresco.test/accessible-name tree (by-id tree id)))
+          (str id " — " why)))
+    (is (= :combobox (rf.fresco.test/role (by-id chrome-en "slice-locale"))))))
 
 (deftest the-buttons-are-named-by-what-they-say
   (let [tree (editor-tree :en {:status :idle :problem nil})]

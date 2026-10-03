@@ -209,17 +209,6 @@
 ;; Recipe 2 — the gate
 ;; ---------------------------------------------------------------------------
 
-(deftest a-refused-submission-reveals-every-problem-and-asks-for-nothing
-  (with-app
-    (fn [frame]
-      (is (nil? (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee]))
-          "before the attempt")
-      (send! frame [::rf.fresco.examples.forms.events/submit])
-      (is (= :problem/assignee-blank (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee]))
-          "after it")
-      (is (false? (read-sub frame [::rf.fresco.examples.forms.subs/can-submit?]))
-          "and the gate the button reads still says no"))))
-
 (deftest the-button-and-the-handler-read-one-definition
   ;; R-A6. The failure this deletes is two recomputations drifting apart,
   ;; so the assertion is that they answer the same thing at every step of
@@ -274,11 +263,17 @@
 (defn- status [frame]
   (read-sub frame [:rf/mutation {:instance rf.fresco.examples.forms.events/save-instance}]))
 
-(deftest a-refused-submission-asks-the-server-for-nothing
+(deftest a-refused-submission-reveals-every-problem-and-asks-the-server-for-nothing
   (capture-transport!)
   (with-app
     (fn [frame]
+      (is (nil? (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee]))
+          "before the attempt")
       (send! frame [::rf.fresco.examples.forms.events/submit])
+      (is (= :problem/assignee-blank (read-sub frame [::rf.fresco.examples.forms.subs/shown-problem :assignee]))
+          "after it")
+      (is (false? (read-sub frame [::rf.fresco.examples.forms.subs/can-submit?]))
+          "and the gate the button reads still says no")
       (is (= [] @!requests)
           "the gate refused, so no write was executed at all")
       (is (false? (:pending? (status frame)))

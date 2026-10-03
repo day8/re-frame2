@@ -109,6 +109,10 @@
 (deftest the-list-keys-every-row-by-its-slug
   (let [rows [{:slug "a" :title "A" :published? true :tags []}
               {:slug "b" :title "B" :published? true :tags []}]
+        ;; The fixture map is the body's read set, so LEAVING OUT
+        ;; `[::subs/t :feed/empty]` is an assertion that the populated
+        ;; branch never reads it. If the string were hoisted out of the
+        ;; `if`, this row would refuse.
         tree (rf.fresco.test/tree [rf.fresco.examples.slice.views/feed-page {}]
                       {:subs {[::rf.fresco.examples.slice.subs/feed]           rows
                               [::rf.fresco.examples.slice.subs/t :feed/heading] "Articles"}})
@@ -128,17 +132,6 @@
                               [::rf.fresco.examples.slice.subs/t :feed/empty]   "Nothing published yet."}})]
     (is (= "Nothing published yet." (rf.fresco.test/text (classed tree "feed-empty"))))
     (is (nil? (tagged tree :ul)))))
-
-(deftest a-populated-feed-does-not-read-the-empty-string
-  ;; The sharpest thing `:subs` does: the fixture map is the body's read
-  ;; set, so LEAVING OUT `[::subs/t :feed/empty]` is an assertion that the
-  ;; populated branch never reads it. If the string were hoisted out of
-  ;; the `if`, this row would refuse.
-  (is (some? (rf.fresco.test/tree [rf.fresco.examples.slice.views/feed-page {}]
-                      {:subs {[::rf.fresco.examples.slice.subs/feed] [{:slug "a" :title "A"
-                                              :published? true :tags []}]
-                              [::rf.fresco.examples.slice.subs/t :feed/heading] "Articles"}}))
-      "a read inside a branch not taken contributes no edge"))
 
 ;; ---------------------------------------------------------------------------
 ;; The pager — every control is a route-link, and the ends are not controls

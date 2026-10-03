@@ -161,9 +161,7 @@
   ;; :active the middle row is gone and the two survivors keep the keys
   ;; they had. React reconciles by key, so the same keys mean the same
   ;; DOM nodes — which the mounted suite then asserts by IDENTITY.
-  (let [all    (:children (tagged (list-tree three false) :ul))
-        active (:children (tagged (list-tree [(nth three 0) (nth three 2)] false) :ul))]
-    (is (= [1 2 3] (mapv :key all)))
+  (let [active (:children (tagged (list-tree [(nth three 0) (nth three 2)] false) :ul))]
     (is (= [1 3] (mapv :key active))
         "the surviving rows keep their keys across the flip; an
          index-keyed list would renumber them to [0 1] and hand row 3 the

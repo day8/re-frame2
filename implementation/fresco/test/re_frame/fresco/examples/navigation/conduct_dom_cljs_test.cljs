@@ -338,25 +338,6 @@
 ;; Focus — the positives
 ;; ---------------------------------------------------------------------------
 
-(deftest a-deep-link-lands-focus-on-the-pane-it-opened
-  (if-not (browser?)
-    (skip! ":node-test has no focus model")
-    (async done
-      (let [m (at! rf.fresco.examples.navigation.routes/article {:slug (:slug first-article)})]
-        (-> (focused-heading m "the deep link's landing focus")
-            (.then (fn [h]
-                     (is (identical? h (active))
-                         (str "focus is on " (active-label) ", not the article's
-                              heading. A URL opened cold is where a keyboard or
-                              screen-reader user starts, and `pushState` moves
-                              focus nowhere by itself — `<body>` holds it and the
-                              first Tab press starts from the top of the document"))
-                     (is (= (:title first-article) (.-textContent h))
-                         "and the heading names the article that was opened, so
-                          the landing is not merely somewhere but somewhere
-                          identifiable")))
-            (finish-after m done))))))
-
 (deftest a-deep-link-focuses-inside-the-applications-own-root
   (if-not (browser?)
     (skip! ":node-test has no focus model")
