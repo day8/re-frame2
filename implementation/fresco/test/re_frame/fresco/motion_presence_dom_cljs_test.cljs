@@ -152,9 +152,9 @@
         s5    (rf.fresco.impl.presence/step s4    (toasts :a)    1200 retention-ms)
         seen  (mapv rf.fresco.impl.presence/next-deadline [s1 s2 s3 s4 s5])]
     (is (= [1300 nil 1400 1400 1400] seen)
-        "one deadline per exit — and the second exit's is fixed at the instant it started")
-    (is (= 2 (count (remove nil? (distinct seen))))
-        "two exits, two deadlines: not one per render, and not one that keeps moving")
+        "one deadline per exit — and the second exit's is fixed at the instant
+         it started: two exits, two deadlines, not one per render and not one
+         that keeps moving")
     (is (= 1400 (:deadline (get (:entries s5) :b)))
         "the deadline is the absolute instant :b started exiting, 50 ms of re-renders later")))
 

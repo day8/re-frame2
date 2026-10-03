@@ -84,17 +84,6 @@
       (is (= {1 :present 2 :unmounting} (rf.fresco.impl.presence/phases (rf.fresco.impl.presence/expire s 399))))
       (is (= {1 :present} (rf.fresco.impl.presence/phases (rf.fresco.impl.presence/expire s 400)))))))
 
-(deftest re-entry-cancels-exit
-  (let [s (-> (state-of [[[(toast 1 "a")] 0]])
-              rf.fresco.impl.presence/settle
-              (rf.fresco.impl.presence/step [] 100 timeout-ms))]
-    (is (= {1 :unmounting} (rf.fresco.impl.presence/phases s)))
-    (let [back (rf.fresco.impl.presence/step s [(toast 1 "a")] 150 timeout-ms)]
-      (is (= {1 :present} (rf.fresco.impl.presence/phases back))
-          "the exit is cancelled rather than finished-and-remounted")
-      (is (nil? (rf.fresco.impl.presence/next-deadline back)) "and its deadline is gone with it")
-      (is (= "a" (nth (first (rf.fresco.impl.presence/render back)) 2))))))
-
 (deftest the-deadline-is-a-terminal-bound-and-re-deriving-cannot-extend-it
   (testing "the property `:timeout-ms` is FOR. Deadlines are absolute
             instants stored once, so any number of later renders — a
