@@ -190,6 +190,45 @@ Every request must name where its reply goes. The runtime appends the reply map 
 - Supplying only `:on-success`, or only `:on-failure`, leaves the other branch unaddressed: its reply is dropped, as with `nil`. A dropped failure other than an abort emits `:rf.warning/failure-swallowed` once per process in a dev build.
 - Omitting all three keys raises `:rf.error/http-no-reply-target`: the framework never picks a reply target for you, because an implicit target can swallow failures.
 
+The cell below answers two requests from [stubs](#testing-without-a-network) and shows the whole event each reply arrives as: the `:reply-to` vector, context map included, with the reply map appended. A stubbed reply carries only `:status` and `:value` or `:error`; a real one adds the keys listed under [Reply shape](#reply-shape).
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+;; Canned replies: the cart loads, and a missing cart fails with a 404.
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/cart"]         {:reply {:ok [{:id 1 :name "widget"}]}}
+   [:get "/api/cart/missing"] {:reply {:failure {:kind        :rf.http/http-4xx
+                                                 :status      404
+                                                 :status-text "Not Found"}}}})
+
+(rf/reg-event :cart/load
+  (fn [_ [_ url]]
+    {:fx [[:rf.http/managed {:request  {:method :get :url url}
+                             :reply-to [:cart/reply {:url url}]}]]}))
+
+;; Keep the whole event the reply arrived as.
+(rf/reg-event :cart/reply
+  (fn [{:keys [db]} event]
+    {:db (assoc db :cart/last-reply event)}))
+
+(rf/reg-sub :cart/last-reply (fn [db _] (:cart/last-reply db)))
+
+(rf/reg-view reply-view []
+  [:div
+   [:button {:on-click #(dispatch [:cart/load "/api/cart"])} "Load the cart"]
+   " "
+   [:button {:on-click #(dispatch [:cart/load "/api/cart/missing"])} "Load a missing cart"]
+   [:pre {:style {:white-space "pre-wrap"}}
+    (pr-str @(subscribe [:cart/last-reply]))]])
+
+;; :fx-overrides sends this frame's requests to the stubs. A real app leaves it out.
+[rf/frame-root {:id :app/cart :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [reply-view]]
+```
+
 [Handling the reply](../async/http.md#handling-the-reply) shows both styles in full.
 
 ## Failure kinds (closed set)
