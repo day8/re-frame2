@@ -140,9 +140,8 @@
                        :b {:entry (fn [_] {:fx [[:log :in-b]]})}}}
           {:keys [state fx]} (boot-result m)]
       (is (= :b state) "settled to the raised target :b")
-      (is (not (raise-fx? fx)) "the `:raise` drained — no reserved fx escaped")
       (is (= #{[:log :before] [:log :after] [:log :in-b]} (set fx))
-          "every non-raise effect (entry's :before/:after + :b's entry :in-b) flows out")
+          "every non-raise effect (entry's :before/:after + :b's entry :in-b) flows out, and the `:raise` drained — no reserved fx escaped")
       (is (= [:log :before] (first fx))
           "the entry fx emitted before the `:raise` keep their leading position"))))
 

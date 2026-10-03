@@ -86,10 +86,9 @@
     (let [records (with-always-on-records
                     #(rf/dispatch-sync [:cprm0q/action-throws [:go]]))]
       (is (= 1 (count records))
-          "exactly ONE always-on record for the throwing action")
+          "exactly ONE always-on record for the throwing action, in the
+           :rf.error/machine-action-exception category the recorder keeps")
       (let [r (first records)]
-        (is (= :rf.error/machine-action-exception (:error r))
-            "the always-on category actually reached the :errors channel")
         (is (= :boom (:failing-id r))
             ":failing-id is the throwing ACTION's keyword — the attribution")
         (is (state-mentions? (:state r) :idle)
@@ -119,10 +118,10 @@
     (let [records (with-always-on-records
                     #(rf/dispatch-sync [:cprm0q/guard-throws [:go]]))]
       (is (= 1 (count records))
-          "exactly ONE always-on record for the throwing guard")
+          "exactly ONE always-on record for the throwing guard: guard throws
+           converge on the :rf.error/machine-action-exception category the
+           recorder keeps")
       (let [r (first records)]
-        (is (= :rf.error/machine-action-exception (:error r))
-            "guard throws converge on the machine-action-exception category")
         (is (= :boom (:failing-id r))
             ":failing-id is the throwing GUARD's keyword")
         (is (state-mentions? (:state r) :idle)

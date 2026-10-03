@@ -39,37 +39,7 @@
 (defn- reg-marker [id]
   (rf/reg-event id (fn [_ _] (log! id) {})))
 
-;; ---- (1) a machine action's :fx [[:dispatch …]] leap-frogs a pending
-;;          external event ----------------------------------------------------
-
-(deftest machine-action-dispatch-leapfrogs-external
-  (testing "a continuation event dispatched from a machine action runs
-   BEFORE an external event that was queued earlier (Spec 005 §Level 4)"
-    (reset! run-log [])
-    (reg-marker :ext)
-    (reg-marker :cont)
-    (rf/reg-machine :rf2-j20a7/leapfrog
-      {:initial :idle
-       :data    {}
-       :actions {:emit-cont
-                 (fn [_]
-                   (log! :machine-action)
-                   ;; Machine-ORIGINATED continuation — must front-insert.
-                   {:fx [[:dispatch [:cont]]]})}
-       :states  {:idle {:on {:go {:target :done :action :emit-cont}}}
-                 :done {}}})
-    (rf/reg-event :seed
-      (fn [_ _]
-        (log! :seed)
-        ;; Machine event queued FIRST, external event SECOND.
-        (rf.router/dispatch! [:rf2-j20a7/leapfrog [:go]] {})
-        (rf.router/dispatch! [:ext] {})
-        {}))
-    (rf/dispatch-sync [:seed])
-    (is (= [:seed :machine-action :cont :ext] @run-log)
-        ":cont (machine continuation) leap-frogged the earlier-queued :ext")))
-
-;; ---- (2) an event TARGETING a machine, but originating externally, stays
+;; ---- (1) an event TARGETING a machine, but originating externally, stays
 ;;          FIFO -------------------------------------------------------------
 
 (deftest external-dispatch-targeting-machine-stays-fifo
@@ -96,12 +66,13 @@
     (is (= [:seed :machine-ran :plain] @run-log)
         "machine target ran in arrival order; no leap-frog for external origin")))
 
-;; ---- (3) macrostep quiesces (all machine continuations settle) before the
-;;          next external event ------------------------------------------------
+;; ---- (2) a machine continuation leap-frogs a pending external event; a
+;;          plain handler's child dispatch then joins the back -----------------
 
-(deftest macrostep-quiesces-before-next-external
-  (testing "a chain of machine-originated continuations all settle ahead of
-   the pending external event — the machine drives to quiescence first"
+(deftest machine-continuation-leapfrogs-then-plain-children-queue-fifo
+  (testing "a continuation dispatched from a machine action runs BEFORE an
+   external event queued earlier (Spec 005 §Level 4); a plain handler's
+   child dispatch from that continuation joins the BACK of the queue"
     (reset! run-log [])
     (reg-marker :ext)
     (reg-marker :cont-1)

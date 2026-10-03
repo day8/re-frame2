@@ -1167,7 +1167,7 @@
           ":rB's :always read :rA's same-macrostep flag write and moved in THIS
            macrostep — one dispatch, no second event")
       (is (true? (:flag-rA (:data (:snapshot r)))))))
-  (testing "and it does so under EITHER declaration order — a region-local
+  (testing "and it does so with the WATCHER declared first too — a region-local
             drain would strand :rB at :s0 when :rB is declared first; parent-owned
             frozen rounds cannot, because the whole event set applies before
             any :always round selects"
@@ -1175,7 +1175,6 @@
                   (let [m (watcher-machine order)]
                     (:state (:snapshot (rf.machines/machine-transition
                                 m (initial-snapshot m) [:e0])))))]
-      (is (= {:rA :s1 :rB :s2} (final [:rA :rB])))
       (is (= {:rA :s1 :rB :s2} (final [:rB :rA]))
           "declaring the WATCHER first must not strand it — this is the
            assertion a region-local drain would fail"))))

@@ -7,7 +7,8 @@
   macrostep. A transition that raises `[B]` then `[C]`, where B's handler
   itself raises `[D]`, processes them `B, C, D` — D goes to the BACK of the
   queue, BEHIND the still-pending sibling C (a depth-first drain would give
-  `B, D, C`).
+  `B, D, C`). That exact case is `scxml-irp-test144-internal-raise-fifo`'s, on
+  both hosts; the two-nester case below adds a second nested raise.
 
   These are pure-engine tests — they call `machine-transition` directly and
   read processing order off the post-macrostep snapshot's `:data` log (the
@@ -31,30 +32,7 @@
       (seq raise-events)
       (assoc :fx (mapv (fn [ev] [:raise ev]) raise-events)))))
 
-;; ---- 1. two sibling raises, earlier sibling raises a nested event --------
-
-(deftest fifo-nested-raise-goes-behind-sibling
-  (testing "A raises [B] then [C]; B raises [D] ⇒ FIFO order B, C, D (D behind C)"
-    ;; A single hub state handles every event as an INTERNAL transition
-    ;; (no :target), so the machine stays put and each raised event resolves
-    ;; against the same state. The :data :log records the action order.
-    (let [spec {:initial :hub
-                :data    {}
-                :actions {:go (log-action :go [:b] [:c]) ;; raise B then C
-                          :b  (log-action :b [:d])       ;; B raises D
-                          :c  (log-action :c)
-                          :d  (log-action :d)}
-                :states  {:hub {:on {:go {:action :go}
-                                     :b  {:action :b}
-                                     :c  {:action :c}
-                                     :d  {:action :d}}}}}
-          {snap :snapshot} (rf.machines/machine-transition
-                                 spec {:state :hub :data {}} [:go])]
-      (is (= [:go :b :c :d] (:log (:data snap)))
-          "FIFO (XState/SCXML): the nested raise D lands behind sibling C —
-           NOT the depth-first [:go :b :d :c] a prepending drain would produce"))))
-
-;; ---- 2. deeper interleave — two nesters -----------------------------------
+;; ---- 1. deeper interleave — two nesters -----------------------------------
 
 (deftest fifo-two-nesting-siblings-interleave-breadth-first
   (testing "A raises [B] [C]; B raises [D]; C raises [E] ⇒ B, C, D, E"
@@ -79,7 +57,7 @@
           "both first-level siblings (B, C) drain before either's nested
            raise (D, E) — breadth-first, the XState/SCXML internal queue"))))
 
-;; ---- 3. linear chain — FIFO and depth-first agree -------------------------
+;; ---- 2. linear chain — FIFO and depth-first agree -------------------------
 
 (deftest fifo-linear-chain-unchanged
   (testing "a linear self-chain (one raise per step) reaches the terminal
@@ -103,7 +81,7 @@
       (is (= [:a1 :a2 :a3] (:log (:data snap)))
           "linear chain order is identical under FIFO and depth-first"))))
 
-;; ---- 4. depth-bound rollback is TRULY atomic ------------------------------
+;; ---- 3. depth-bound rollback is TRULY atomic ------------------------------
 ;;
 ;; Raises that neither mutate :data nor emit non-raise fx (identical `[:noop]`
 ;; self-loops) leave the partially-advanced snapshot EQUAL to the original even
