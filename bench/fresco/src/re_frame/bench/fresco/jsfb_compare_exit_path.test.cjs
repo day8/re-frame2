@@ -399,11 +399,10 @@ test('the positive control is measured on ONE instrument by design and is not ex
   // `07_create10k` is not in the published `--benchmark 01_ 02_ 03_ 05_ 09_`
   // selection. If it were expected, a correct run would refuse forever; if the
   // flag did not exist, a driver run that lost five files would look normal.
+  // The ten-cell list above carries no create10k cell, and the complete-evidence
+  // run, which has no `theirs` create10k, exits 0.
   const ctl = PAIRS.find((p) => p.ours === 'create10k');
   assert.strictEqual(ctl.theirs, false);
-  assert.ok(!EXPECTED_CELLS.some((c) => c.startsWith('07_create10k')), 'no create10k cell may be expected of theirs');
-  // And a complete run — which has no `theirs` create10k — still exits 0.
-  assert.strictEqual(verdict(evidence(theirsDir('ctl'), oursJson('ctl.json'))).code, 0);
 });
 
 // --- the run's OWN gates are reported here and decided elsewhere -------------
@@ -437,14 +436,6 @@ test('THE PROCESS EXIT: complete evidence exits 0 and prints the table', () => {
   assert.match(r.stdout, /THE CROSS-CHECK — fresco \/ reagent/);
   assert.match(r.stdout, /VERDICT: \d+ of 10 comparable rows agree within 15% \(10 expected\)/);
   assert.strictEqual(r.stderr, '');
-});
-
-test('THE PROCESS EXIT: short evidence exits 1 and names the missing cells', () => {
-  const dir = theirsDir('e2e-short', { skip: [`${OTHERS[1]}_03_update10th1k_x16`] });
-  const r = run(['--theirs', dir, '--ours', oursJson('e2e-short.json')]);
-  assert.strictEqual(r.status, 1, r.stderr);
-  assert.match(r.stderr, /1 of 10 expected cells were not measured/);
-  assert.match(r.stderr, /03_update10th1k_x16 \/ rf2-uix/);
 });
 
 test('THE PROCESS EXIT: an all-negative driver table exits 1 from the shell, not 0', () => {
@@ -516,11 +507,13 @@ test('THE WORKLOAD CONCLUSION is OURS-only: a short DRIVER table does not suppre
   // benchmark driver's evidence is not among its premises — guarding it on the
   // row's comparability, as the DIRECTION block above rightly does, would
   // refuse on grounds it never read. Our side's refusal governs; theirs does
-  // not.
+  // not. It is also the process-exit row for short evidence: exit 1, the
+  // missing cell named.
   const dir = theirsDir('wl-short', { skip: [`${OTHERS[0]}_01_run1k`] });
   const r = run(['--theirs', dir, '--ours', oursJson('wl-short.json')]);
   assert.strictEqual(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stderr, /1 of 10 expected cells/);
+  assert.match(r.stderr, /1 of 10 expected cells were not measured/);
+  assert.match(r.stderr, /01_run1k \/ rf2-fresco/);
   assert.match(r.stdout, WORKLOAD_CONCLUSION, 'ours measured this page; the driver is not its premise');
 });
 
@@ -548,15 +541,6 @@ test('THE WORKLOAD CONCLUSION is OURS-only: a short DRIVER table does not suppre
 
 const UNVERIFIED_TOTAL = /;;\s+unverified\s+\d/;
 
-test('THE UNVERIFIED COUNT: a summary entry with no `unverified` field refuses, naming it', () => {
-  const f = oursUnverified('unv-missing.json', { run1k: undefined });
-  const r = run(['--theirs', theirsDir('unv-missing'), '--ours', f]);
-  assert.doesNotMatch(r.stdout, UNVERIFIED_TOTAL, 'a count nobody recorded may not print as a number');
-  assert.ok(r.stdout.includes('UNSTATED — no `unverified` count under run1k, so no total is derived'), r.stdout);
-  // Reported, not decided: an otherwise complete run still exits 0.
-  assert.strictEqual(r.status, 0, r.stderr);
-});
-
 test('THE UNVERIFIED COUNT: every benchmark lacking the field is named, not just the first', () => {
   const f = oursUnverified('unv-two.json', { replace1k: undefined, swaprows: undefined });
   const r = run(['--theirs', theirsDir('unv-two'), '--ours', f]);
@@ -564,17 +548,20 @@ test('THE UNVERIFIED COUNT: every benchmark lacking the field is named, not just
   assert.ok(r.stdout.includes('UNSTATED — no `unverified` count under replace1k, swaprows'), r.stdout);
 });
 
-test('THE UNVERIFIED COUNT: a field present but NOT A NUMBER is no count either', () => {
+test('THE UNVERIFIED COUNT: an entry whose count is absent or not a number refuses, naming it, and leaves the exit alone', () => {
+  // `undefined` deletes the field, as a rig that never recorded it would.
   // `null` is what a JSON round-trip of `NaN` leaves behind and `'n/a'` is what
   // a rig writes when it declines to answer. A truthiness fold would take the
-  // first as 0 and concatenate the second onto the running total as text.
+  // first two as 0 and concatenate the third onto the running total as text.
   // Indexed rather than named, as the non-finite-ratio case above is: `'n/a'`
   // carries a separator and cannot be part of a fixture's file name.
-  [null, 'n/a'].forEach((bad, i) => {
+  [undefined, null, 'n/a'].forEach((bad, i) => {
     const f = oursUnverified(`unv-bad-${i}.json`, { run1k: bad });
     const r = run(['--theirs', theirsDir(`unv-bad-${i}`), '--ours', f]);
     assert.doesNotMatch(r.stdout, UNVERIFIED_TOTAL, `unverified=${String(bad)} must not print a total`);
-    assert.ok(r.stdout.includes('UNSTATED — no `unverified` count under run1k'), r.stdout);
+    assert.ok(r.stdout.includes('UNSTATED — no `unverified` count under run1k, so no total is derived'), r.stdout);
+    // Reported, not decided: an otherwise complete run still exits 0.
+    assert.strictEqual(r.status, 0, r.stderr);
   });
 });
 

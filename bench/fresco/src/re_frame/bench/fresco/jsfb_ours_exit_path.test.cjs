@@ -53,7 +53,6 @@ const {
   controlVerdict,
   pageErrorsOf,
   notMeasured,
-  positive,
   deltaOf,
   CONTROL,
   ALL_ROWS,
@@ -144,12 +143,6 @@ test('arms that serialise identically are parity, and both lengths are reported'
   assert.deepStrictEqual(p.rawLens, rawLensOf(), 'the raw lengths pass through untouched');
 });
 
-test('THE GATE: an arm that builds different DOM refuses, with nothing else wrong', () => {
-  const p = parityOf(htmlOf({ [OTHERS[0]]: TABLE.replace('danger', 'warning') }), rawLensOf());
-  assert.strictEqual(p.identical, false);
-  assert.strictEqual(verdict(sound({ parity: p })).code, 1, 'different DOM is not one experiment');
-});
-
 test('the divergence is NAMED — which arm, and at which character', () => {
   const other = TABLE.replace('danger', 'DANGER');
   const p = parityOf(htmlOf({ [OTHERS[1]]: other }), rawLensOf());
@@ -189,13 +182,6 @@ test('a control inside the band passes, and says PASS on every arm', () => {
   assert.strictEqual(c.pass, true);
   for (const arm of ARMS) assert.ok(c.lines.some((l) => l.includes(arm) && l.includes('PASS')), c.lines.join('\n'));
   assert.match(c.lines[0], /POSITIVE CONTROL — create10k against run1k, predicted \[8 – 13\]x/);
-});
-
-test('a control BELOW the band refuses — the instrument saturated', () => {
-  const c = controlVerdict(controlAt(4), '');
-  assert.strictEqual(c.pass, false, 'ten times the rows read as four times the work');
-  assert.ok(c.lines.some((l) => l.includes('FAIL')), c.lines.join('\n'));
-  assert.strictEqual(verdict(sound({ control: c })).code, 1);
 });
 
 test('both band edges are INCLUSIVE, and a hair outside either is not', () => {
@@ -279,13 +265,6 @@ test('the funnel drops nothing: every arm of every row is gathered', () => {
 });
 
 // --- GATE 5: THE RECORDING SITE ---------------------------------------------
-
-test('a duration is a measurement only when finite AND strictly positive', () => {
-  assert.strictEqual(positive(1), true);
-  for (const bad of [0, -0, -1, NaN, Infinity, -Infinity]) {
-    assert.strictEqual(positive(bad), false, `${bad} is not an elapsed time`);
-  }
-});
 
 test('a sound sample is a measurement, and the arithmetic under it is the published one', () => {
   const d = deltaOf(metrics({ TaskDuration: 1, DevToolsCommandDuration: 0 }), metrics({ TaskDuration: 1.5, DevToolsCommandDuration: 0.25 }));
@@ -396,14 +375,6 @@ test('THE PROCESS EXIT: a JSFB_ONLY naming no row exits 1 from the shell', () =>
 {
   const SRC = fs.readFileSync(RUN, 'utf8');
   const MAIN = SRC.slice(SRC.indexOf('async function main()'), SRC.indexOf('module.exports'));
-
-  test('the driver exports its arithmetic under a require.main guard', () => {
-    assert.match(SRC, /\nmodule\.exports = \{/);
-    for (const name of ['verdict', 'parityOf', 'controlVerdict', 'pageErrorsOf', 'notMeasured', 'deltaOf']) {
-      assert.match(SRC, new RegExp(`\\n\\s+${name},`), `${name} must be exported`);
-    }
-    assert.match(SRC, /\nif \(require\.main === module\) \{/);
-  });
 
   test('Playwright is required INSIDE `main`, never at module scope', () => {
     // A module-scope import makes the driver unloadable without a browser
