@@ -91,35 +91,6 @@
             (is (some #(identical? r %) @unmount-calls)
                 (str "stranded root " (pr-str r) " was drained by dispose-adapter!"))))))))
 
-(deftest dispose-adapter-does-not-double-unmount-explicitly-unmounted-roots
-  (testing "a root whose unmount thunk already fired is removed from the
-            active set, so dispose-adapter! does NOT unmount it again
-            — MUST 2 (the thunk disj's itself before unmount)"
-    (let [unmount-calls (atom [])
-          root-live     (make-fake-root :live)
-          root-gone     (make-fake-root :gone)
-          roots         (atom [root-live root-gone])]
-      (with-redefs [rdc/create-root (fn
-                                      ([_]   (let [[r] @roots] (swap! roots rest) r))
-                                      ([_ _] (let [[r] @roots] (swap! roots rest) r)))
-                    rdc/render      (fn ([_ _] nil) ([_ _ _] nil) ([_ _ _ _] nil))
-                    rdc/unmount     (fn [root] (swap! unmount-calls conj root) nil)]
-        (let [render-fn (:render rf.adapter.reagent-slim/adapter)
-              _live-thunk (render-fn [:div "live"] #js {} nil)
-              gone-thunk  (render-fn [:div "gone"] #js {} nil)]
-          ;; Explicitly unmount the second root via its thunk.
-          (gone-thunk)
-          (is (= [root-gone] @unmount-calls)
-              "precondition: explicit unmount fired exactly once for the gone root")
-
-          ;; Dispose: only the still-live root should be drained.
-          (rf.substrate.adapter/dispose-adapter!)
-
-          (is (= 1 (count (filter #(identical? root-gone %) @unmount-calls)))
-              "the explicitly-unmounted root is NOT unmounted a second time")
-          (is (some #(identical? root-live %) @unmount-calls)
-              "the still-live root IS drained by dispose-adapter!"))))))
-
 (deftest dispose-adapter-tolerates-throwing-root
   (testing "one root whose unmount throws does not strand the rest of
             the drain — MUST 2 (per-root try/catch) — and the

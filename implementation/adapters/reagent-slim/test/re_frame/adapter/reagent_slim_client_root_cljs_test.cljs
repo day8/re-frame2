@@ -88,9 +88,7 @@
       (is (= [[:create-root mount]] (calls-of-kind calls :create-root)))
       (is (empty? (calls-of-kind calls :hydrate-root)))
       (is (= [[:render root [:div "v1"]] [:render root [:div "v2"]] [:render root [:div "v3"]]]
-             (calls-of-kind calls :render)))
-      (is (every? #(identical? root (second %))
-                  (calls-of-kind calls :render))))))
+             (calls-of-kind calls :render))))))
 
 (deftest hydrating-first-render-hydrates-once-later-renders-update
   (testing "render! with {:hydrate? true} hydrates once; later renders update"

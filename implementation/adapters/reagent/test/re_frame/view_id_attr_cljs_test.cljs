@@ -120,4 +120,6 @@
         (is (vector? inner-out) "inner fn returns hiccup")
         (is (= :section.f2 (first inner-out)))
         (is (= ":rf.view-id-test/form-2" (root-view-attr inner-out))
-            ":data-rf-view landed on the inner output's root")))))
+            ":data-rf-view landed on the inner output's root")
+        (is (string? (root-coord-attr inner-out))
+            ":data-rf2-source-coord landed on the inner output's root too")))))

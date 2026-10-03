@@ -16,14 +16,14 @@
     - DOM-keyword root with no attrs map: attrs map spliced in, its value
       matching `<ns>:<sym>:<line>:<col>`.
     - User-supplied data-rf2-source-coord wins (don't overwrite).
-    - Form-2 (render-fn returns a fn): inner-fn output gets annotated.
     - React Fragment root (`:<>`): root is exempt; no attribute injected.
     - Programmatic reg-view* without source-coords: degrades to
       `<ns>:<sym>:?:?`.
 
-  A root WITH an existing attrs map gets both attributes merged in by the
-  same splice; `re-frame.adapter.reagent-slim-view-id-attr-cljs-test` pins
-  that case for both of them.
+  A root WITH an existing attrs map, and the inner render of a Form-2
+  render-fn, get both attributes from the same splice;
+  `re-frame.adapter.reagent-slim-view-id-attr-cljs-test` pins those cases
+  for both of them.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -74,25 +74,6 @@
           out    (render)]
       (is (= "stamped:by-user" (:data-rf2-source-coord (second out)))
           "user-supplied attribute survives the wrapper's merge"))))
-
-;; ---- Form-2: render-fn returns a fn --------------------------------------
-
-(deftest annotates-form-2-inner-output
-  (testing "Form-2 render-fns return a fn; the wrapper recurses on the
-            inner fn's output so annotation lands on the eventual
-            rendered DOM root, not the outer fn"
-    (rf/reg-view* :rf.slim-src-coord/form-2
-      (fn []
-        (fn inner-render []
-          [:section.f2 "form-2 body"])))
-    (let [wrapper (rf/view :rf.slim-src-coord/form-2)
-          out     (wrapper)]
-      (is (fn? out) "outer wrapper returns a fn (Form-2 shape preserved)")
-      (let [inner-out (out)]
-        (is (vector? inner-out) "inner fn returns hiccup")
-        (is (= :section.f2 (first inner-out)))
-        (is (string? (root-attr inner-out))
-            ":data-rf2-source-coord landed on the inner output's root")))))
 
 ;; ---- React Fragment / non-DOM root: skip ----------------------------------
 

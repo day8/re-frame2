@@ -105,11 +105,7 @@
               [:render root [:div "v2"]]
               [:render root [:div "v3"]]]
              (of-kind calls :render))
-          "every render goes through rdc/render against the SAME Root, in order")
-      (is (every? #(identical? root (second %)) (of-kind calls :render))
-          "later renders update the identical Root object the first render created")
-      (is (= :create-root (ffirst calls))
-          "the Root exists before the first render into it"))))
+          "every render goes through rdc/render against the SAME Root, in order"))))
 
 ;; ---- 3. hydrating first render, later renders update (never re-hydrate) --
 

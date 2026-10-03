@@ -146,19 +146,6 @@
 ;; 3. unmount — :rf.view/unmounted
 ;; ===========================================================================
 
-(deftest emit-view-unmounted-fires-the-op-with-view-id-and-frame
-  (testing "emit-view-unmounted! emits :rf.view/unmounted carrying
-   :rf.view/id, :frame and the :rf.view/render-key instance tuple"
-    (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/unmounted})
-                                     :shape :by-op}]
-      (rf.views/emit-view-unmounted! :rf2-9hoos/torn [:rf2-9hoos/torn 7] :rf/default)
-      (let [ev (first (:rf.view/unmounted @observed))
-            t  (:tags ev)]
-        (is (some? ev) "an :rf.view/unmounted event was emitted")
-        (is (= :rf2-9hoos/torn (:rf.view/id t)) ":rf.view/id present")
-        (is (= :rf/default (:frame t)) ":frame present")
-        (is (= [:rf2-9hoos/torn 7] (:rf.view/render-key t)) ":rf.view/render-key tuple present")))))
-
 (deftest install-unmount-hook-fires-emit-on-reaction-dispose
   (testing "install-unmount-hook! builds a lifecycle reaction whose
    disposal fires :rf.view/unmounted — the per-render-instance
@@ -182,4 +169,5 @@
         (let [ev (first (:rf.view/unmounted @observed))]
           (is (some? ev) ":rf.view/unmounted fired on reaction disposal")
           (is (= :rf2-9hoos/lifecycle (get-in ev [:tags :rf.view/id])))
+          (is (= :rf/default (get-in ev [:tags :frame])) ":frame present")
           (is (= [:rf2-9hoos/lifecycle 1] (get-in ev [:tags :rf.view/render-key]))))))))

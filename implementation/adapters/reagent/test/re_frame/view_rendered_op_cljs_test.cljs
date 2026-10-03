@@ -161,19 +161,6 @@
         (is (= [{:label "hi"} 42] (:rf.view/render-args t))
             ":rf.view/render-args is the vector of positional render args")))))
 
-(deftest rf-view-rendered-omits-render-args-on-no-arg-render
-  (testing ":rf.view/render-args is ABSENT on a no-arg render (the slot is
-   optional)."
-    (with-trace-recorder! [traces {:pred view-rendered-pred}]
-      (rf/reg-view ^{:rf/id :rf2-rpgq8/no-args} no-args-view []
-        [:span "static"])
-      ((rf/view :rf2-rpgq8/no-args))
-      (let [ev (first @traces)
-            t  (:tags ev)]
-        (is (some? ev) ":rf.view/rendered still fires")
-        (is (not (contains? t :rf.view/render-args))
-            ":rf.view/render-args omitted when the view took no args")))))
-
 (deftest rf-view-rendered-render-args-elided-at-emit
   (testing "PRIVACY (Spec 009 §Privacy): render args are
    arbitrary user data, so :rf.view/render-args routes through the SAME
@@ -261,24 +248,10 @@
           (is (= :rf2-8wrzz1/n (get-in ev [:tags :rf.view/triggered-by]))
               ":rf.view/triggered-by names the sub that caused the re-render"))))))
 
-(deftest rf-view-rendered-omits-triggered-by-on-structural-render
-  (testing ":rf.view/triggered-by is ABSENT on a structural render — a view
-   with no subs (or whose subs did not change) names no cause.
-   The consumer reads its absence as the `← parent re-render` reason."
-    (with-trace-recorder! [traces {:pred view-rendered-pred}]
-      (rf/reg-view ^{:rf/id :rf2-8wrzz1/no-subs} no-subs-view []
-        [:span "static"])
-      ((rf/view :rf2-8wrzz1/no-subs))
-      (let [ev (first @traces)
-            t  (:tags ev)]
-        (is (some? ev) ":rf.view/rendered still fires")
-        (is (not (contains? t :rf.view/triggered-by))
-            ":rf.view/triggered-by omitted when no own sub changed (structural)")))))
-
-(deftest rf-view-rendered-omits-attribution-when-no-cascade
-  (testing "a render outside any cascade (e.g. headless direct invocation
-   with no in-flight buffer) emits :rf.view/rendered with :rf.view/cause-event-id
-   and :rf.view/cause-subs simply absent — consumers see the marker but no
+(deftest rf-view-rendered-omits-every-optional-slot-on-a-bare-render
+  (testing "a no-arg, no-sub view rendered outside any cascade (e.g. headless
+   direct invocation with no in-flight buffer) emits :rf.view/rendered with
+   every optional slot simply absent — consumers see the marker but no
    misleading attribution"
     (with-trace-recorder! [traces {:pred view-rendered-pred}]
       (rf/reg-view ^{:rf/id :rf2-25zo2/no-cascade} no-cascade-view []
@@ -288,6 +261,11 @@
             t  (:tags ev)]
         (is (some? ev) ":rf.view/rendered still fires outside a cascade")
         (is (= :rf2-25zo2/no-cascade (:rf.view/id t)) ":rf.view/id present")
+        (is (not (contains? t :rf.view/render-args))
+            ":rf.view/render-args omitted when the view took no args (the slot is optional)")
+        (is (not (contains? t :rf.view/triggered-by))
+            ":rf.view/triggered-by omitted when no own sub changed (structural) —
+             the consumer reads its absence as the `← parent re-render` reason")
         (is (not (contains? t :rf.view/cause-event-id))
             ":rf.view/cause-event-id omitted when no cascade is in flight")
         (is (not (contains? t :rf.view/cause-subs))

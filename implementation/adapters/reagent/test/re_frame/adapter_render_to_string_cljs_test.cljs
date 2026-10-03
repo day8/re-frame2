@@ -72,13 +72,9 @@
                           (render-fn tree {})
                           nil
                           (catch :default e e))]
-          (is (some? thrown)
-              "render-to-string threw when no emitter was installed")
           (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
               "ex-data :rf.error/id carries the canonical discriminator")
           (let [data (ex-data thrown)]
-            (is (some? data)
-                "the thrown value carries ex-data")
             (is (string? (:reason data))
                 ":reason key is a string explaining the misconfiguration")
             ;; EP-0015: the raw render-tree is NOT carried —

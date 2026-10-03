@@ -50,15 +50,6 @@
 
 ;; ---- single element: metadata :key reaches the React element --------------
 
-(deftest regview-element-carries-call-site-key
-  (testing "a reg-view'd component with ^{:key} yields a React element
-            whose .-key is that key (React coerces to string)"
-    (let [view (rf/view :rf.key-test/row)]
-      (is (= "7" (el-key ^{:key 7} [view 7]))
-          "the call-site ^{:key 7} reaches the React element as the key")
-      (is (= "alpha" (el-key ^{:key "alpha"} [view 1]))
-          "a string key reaches the React element unchanged"))))
-
 (deftest regview-key-parity-with-plain-fn
   (testing "the reg-view wrapper is transparent to React's :key — a
             reg-view'd component and a plain Reagent fn produce the SAME
@@ -82,12 +73,9 @@
                      ^{:key n} [view n])
           keys     (mapv el-key children)]
       (is (= ["1" "2" "3" "4" "5"] keys)
-          "each reg-view in the seq carries its own call-site key")
-      (is (= (count keys) (count (set keys)))
-          "no two siblings collide — every React key is distinct")
-      (is (not-any? #(re-find #"row" %) keys)
-          "no key fell back to the component name (the failure
-           mode: every sibling keyed by the munged component name)"))))
+          "each reg-view in the seq carries its own call-site key — no two
+           siblings collide, and none fell back to the munged component
+           name (the failure mode)"))))
 
 (deftest seq-mixed-regview-kinds-distinct-keys
   (testing "a seq mixing two reg-view kinds (the ladder's section-heading
@@ -103,6 +91,5 @@
                        ^{:key v} [row v]))
           keys     (mapv el-key children)]
       (is (= ["h-A" "1" "2" "h-B" "3"] keys)
-          "every call-site key survives across mixed reg-view kinds")
-      (is (= (count keys) (count (set keys)))
-          "no collisions in the mixed seq"))))
+          "every call-site key survives across mixed reg-view kinds, with no
+           collisions in the mixed seq"))))
