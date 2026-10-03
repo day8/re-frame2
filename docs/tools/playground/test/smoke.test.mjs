@@ -355,10 +355,10 @@ const PAGE = `<!DOCTYPE html>
         s @(subscribe [:rf/resource q])]
     [:div
      [:button#res-load {:on-click #(dispatch [:rf.resource/ensure q])} "load"]
-     [:span#res-state (cond (:error s)     (str "error: " (pr-str (:error s)))
-                            (:loading? s)  "loading"
-                            (contains? s :data) (str "title: " (:title (:data s)))
-                            :else          "idle")]]))
+     [:span#res-state (cond (= :idle (:status s)) "idle"
+                            (:loading? s)         "loading"
+                            (:error s)            (str "error: " (pr-str (:error s)))
+                            :else                 (str "title: " (:title (:data s))))]]))
 [rf/frame-root {:id :rsmoke/frame :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
  [resource-view "intro"]]</pre>
   <h2>routing, epoch and SSR load (reg-route, render-to-string)</h2>
@@ -460,7 +460,7 @@ await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 // eager-start-machine + reg-view + cofx + flow + program + mount +
 // two-stepper + order-list + schemas).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 14, `14 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 19, `19 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only
 // (rf2 render cells carry .cljs-cell--render, so this excludes them).
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
