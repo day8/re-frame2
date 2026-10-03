@@ -149,9 +149,7 @@
   (let [epoch {:db-before {:k :v} :db-after {:k nil}}
         enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
         dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))
-    (is (contains? (:db-after dec) :k))
-    (is (nil? (-> dec :db-after :k)))))
+    (is (= epoch dec) "{:k nil} is not {} — the nil-valued key survives")))
 
 (deftest round-trip-nested-key-addition-and-removal
   ;; Two-axis change: one key removed, another added, deep in the tree.
@@ -228,23 +226,19 @@
 ;; parse-epochs-mode — MCP-arg normalisation.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-epochs-mode-default-is-diff
-  (is (= :diff (args/parse-epochs-mode nil))))
-
-(deftest parse-epochs-mode-strings-accepted
-  (is (= :diff (args/parse-epochs-mode "diff")))
-  (is (= :full (args/parse-epochs-mode "full"))))
-
-(deftest parse-epochs-mode-keywords-accepted
-  (is (= :diff (args/parse-epochs-mode :diff)))
-  (is (= :full (args/parse-epochs-mode :full))))
-
-(deftest parse-epochs-mode-unknown-falls-back-to-diff
+(deftest parse-epochs-mode-resolution
   ;; Least-surprise on the budget-sensitive default: an unrecognised
   ;; value gets the smaller-wire-payload behaviour, not the larger.
-  (is (= :diff (args/parse-epochs-mode "garbage")))
-  (is (= :diff (args/parse-epochs-mode 42)))
-  (is (= :diff (args/parse-epochs-mode :other))))
+  (doseq [[input expected note]
+          [[nil :diff "absent ⇒ diff"]
+           ["diff" :diff "string diff"]
+           ["full" :full "string full"]
+           [:diff :diff "keyword diff"]
+           [:full :full "keyword full"]
+           ["garbage" :diff "an unknown string falls back to diff"]
+           [42 :diff "a number falls back to diff"]
+           [:other :diff "an unknown keyword falls back to diff"]]]
+    (is (= expected (args/parse-epochs-mode input)) note)))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-size impact: 10-epoch window with a 1MB app-db, single-key

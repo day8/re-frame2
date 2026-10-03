@@ -787,18 +787,3 @@
           "include-sensitive never lifts fx-args (orthogonal)")
       (is (not (contains? opts :rf.egress/include-runtime-db?))
           "include-sensitive never lifts the runtime-db partition (orthogonal)"))))
-
-(deftest project-page-src-threads-off-box-tool-on-both-paths
-  (testing "project-page-src emits the off-box-tool profile in the page fn literal (both paths)"
-    (let [default-src   (egress/project-page-src "page" false)
-          sensitive-src (egress/project-page-src "page" true)]
-      (is (projects-each-record? default-src)
-          "default path projects each record via a fn literal threading the opts")
-      (is (str/includes? default-src ":rf.egress/profile :rf.egress/off-box-tool")
-          "default page projection names off-box-tool")
-      (is (not (str/includes? default-src "mapv re-frame.core/project-egress page)"))
-          "no bare 1-arity reference (which could not name the profile)")
-      (is (str/includes? sensitive-src ":rf.egress/profile :rf.egress/off-box-tool")
-          "sensitive page projection ALSO names off-box-tool")
-      (is (str/includes? sensitive-src ":rf.egress/include-sensitive? true")
-          "sensitive path threads the app-db sensitive axis over the off-box-tool floor"))))

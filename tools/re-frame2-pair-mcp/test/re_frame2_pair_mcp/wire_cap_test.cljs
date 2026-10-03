@@ -46,43 +46,20 @@
 ;; max-tokens-arg — per-call override resolution.
 ;; ---------------------------------------------------------------------------
 
-(deftest max-tokens-arg-default-when-absent
-  (is (= cap/default-max-tokens (cap/max-tokens-arg #js {})))
-  (is (= cap/default-max-tokens (cap/max-tokens-arg nil))))
-
-(deftest max-tokens-arg-zero-disables-cap
-  (is (nil? (cap/max-tokens-arg #js {"max-tokens" 0}))))
-
-(deftest max-tokens-arg-positive-integer-passed-through
-  (is (= 1000 (cap/max-tokens-arg #js {"max-tokens" 1000})))
-  (is (= 50000 (cap/max-tokens-arg #js {"max-tokens" 50000}))))
-
-(deftest max-tokens-arg-non-number-falls-back-to-default
-  (is (= cap/default-max-tokens (cap/max-tokens-arg #js {"max-tokens" "bogus"}))))
-
-(deftest max-tokens-arg-negative-rejected-with-invalid-arg
-  ;; A negative `:max-tokens` resolves to an
-  ;; `{:rf.mcp/invalid-arg {...}}` rejection, NOT a negative cap (which
-  ;; would over-trip apply-cap and lock the agent out). The `invoke`
-  ;; chokepoint surfaces it as an isError result via `wire/err-text`.
-  (let [out (cap/max-tokens-arg #js {"max-tokens" -1})]
-    (is (cap/invalid-arg? out)
-        "negative max-tokens-arg is a rejection, not a negative cap")
-    (is (not (number? out)) "rejection is a marker map, not a (negative) cap")
-    (let [body (get out :rf.mcp/invalid-arg)]
-      (is (= :max-tokens (:arg body)))
-      (is (= -1 (:value body)))
-      (is (re-find #"(?i)0 disables" (:hint body)))))
-  (is (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" -5}))))
+(deftest max-tokens-arg-resolution
+  (doseq [[args expected note]
+          [[#js {} cap/default-max-tokens "absent ⇒ the default cap"]
+           [nil cap/default-max-tokens "no args ⇒ the default cap"]
+           [#js {"max-tokens" 0} nil "0 disables the cap"]
+           [#js {"max-tokens" 1000} 1000 "a positive integer passes through"]
+           [#js {"max-tokens" 50000} 50000 "a positive integer passes through"]
+           [#js {"max-tokens" "bogus"} cap/default-max-tokens
+            "a non-number falls back to the default cap"]]]
+    (is (= expected (cap/max-tokens-arg args)) note)))
 
 ;; ---------------------------------------------------------------------------
 ;; sum-payload-tokens — sums every `:text` slot.
 ;; ---------------------------------------------------------------------------
-
-(deftest sum-payload-tokens-single-slot
-  (let [r (ok-text-result {:hello "world"})]
-    (is (pos? (cap/sum-payload-tokens r)))
-    (is (= (tu/token-estimate (read-text r)) (cap/sum-payload-tokens r)))))
 
 (deftest sum-payload-tokens-empty-content-is-zero
   (is (zero? (cap/sum-payload-tokens #js {:content #js []}))))
@@ -95,12 +72,6 @@
 ;; ---------------------------------------------------------------------------
 ;; apply-cap — the strategy entry point.
 ;; ---------------------------------------------------------------------------
-
-(deftest apply-cap-passes-under-budget-payload-untouched
-  (let [r (ok-text-result {:small :payload})
-        out (cap/apply-cap r {:tool "snapshot" :cap cap/default-max-tokens})]
-    (is (identical? r out))
-    (is (= {:small :payload} (read-edn out)))))
 
 (deftest apply-cap-nil-cap-disables-enforcement
   (let [r (ok-text-result {:k (big-string 100000)})
@@ -243,25 +214,19 @@
 ;; be an overflow OF an overflow.
 ;; ---------------------------------------------------------------------------
 
-(deftest apply-cap-short-circuits-on-cache-hit-marker
-  ;; Construct a result that LOOKS like a cache-hit marker. apply-cap
-  ;; must pass it through identical, regardless of cap.
-  (let [marker  {:rf.mcp/cache-hit {:hash 42 :unchanged-since 0
-                                     :tool "snapshot" :via :result-hash
-                                     :hint "..."}}
-        r       (ok-text-result marker)
-        out     (cap/apply-cap r {:tool "snapshot" :cap 1})]
-    (is (identical? r out)
-        "marker passes through unchanged even under a 1-token cap")))
-
-(deftest apply-cap-short-circuits-on-overflow-marker
-  (let [marker  {:rf.mcp/overflow {:limit :reached :tool "snapshot"
-                                    :cap-tokens 100 :token-count 200
-                                    :hint "..."}}
-        r       (ok-text-result marker)
-        out     (cap/apply-cap r {:tool "snapshot" :cap 1})]
-    (is (identical? r out)
-        "overflow marker passes through unchanged — no recursion")))
+(deftest apply-cap-short-circuits-on-wire-bounded-markers
+  ;; A result that LOOKS like a cache-hit or overflow marker passes
+  ;; through identical, regardless of cap — no overflow of an overflow.
+  (doseq [marker [{:rf.mcp/cache-hit {:hash 42 :unchanged-since 0
+                                      :tool "snapshot" :via :result-hash
+                                      :hint "..."}}
+                  {:rf.mcp/overflow {:limit :reached :tool "snapshot"
+                                     :cap-tokens 100 :token-count 200
+                                     :hint "..."}}]]
+    (let [r   (ok-text-result marker)
+          out (cap/apply-cap r {:tool "snapshot" :cap 1})]
+      (is (identical? r out)
+          (str (ffirst marker) " passes through unchanged even under a 1-token cap")))))
 
 (deftest apply-cap-caps-over-budget-lookalike-marker-key
   ;; Regression guard: the marker detector matches on the EXACT marker

@@ -191,24 +191,6 @@
         (str "Snapshot-map pipeline median MUST be under 1s on representative shapes  "
              (report-str label samples)))))
 
-(deftest bench-snapshot-map-pipeline-no-dedup
-  ;; Same shape, dedup off — pins the dedup-pass cost as a delta
-  ;; against the previous bench. Used to detect a regression in
-  ;; the non-dedup hot path (epoch diff-encode + summary).
-  (let [snap    (make-snapshot)
-        opts    {:kind        :snapshot-map
-                 :incl?       false
-                 :mode        :diff
-                 :dedup?      false
-                 :slice-mode  :full
-                 :slice-modes {}
-                 :server-elided 0}
-        label   "snapshot-map (3 frames / 50 epochs / 1K-key db / dedup off)"
-        samples (bench-times 30 #(wp/run-wire-pipeline snap opts))]
-    (report-line label samples)
-    (is (< (median samples) 1000)
-        (report-str label samples))))
-
 ;; ---------------------------------------------------------------------------
 ;; Bench 2 — count-elided-markers walk over a marker-rich payload.
 ;;

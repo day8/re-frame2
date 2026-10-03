@@ -26,79 +26,60 @@
 ;; parse-mode-arg — the input contract for the global `:mode` MCP arg.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-mode-arg-defaults-to-summary
-  (is (= :summary (args/parse-mode-arg nil)))
-  (is (= :summary (args/parse-mode-arg ""))))
-
-(deftest parse-mode-arg-accepts-string-and-keyword
-  (is (= :full (args/parse-mode-arg "full")))
-  (is (= :full (args/parse-mode-arg :full)))
-  (is (= :summary (args/parse-mode-arg "summary")))
-  (is (= :summary (args/parse-mode-arg :summary))))
-
-(deftest parse-mode-arg-unknown-defaults-to-summary
+(deftest parse-mode-arg-resolution
   ;; Budget-sensitive: an unknown value MUST default to the cheaper
   ;; mode rather than expand by accident.
-  (is (= :summary (args/parse-mode-arg "garbage")))
-  (is (= :summary (args/parse-mode-arg :nope))))
+  (doseq [[input expected note]
+          [[nil :summary "absent ⇒ summary"]
+           ["" :summary "blank ⇒ summary"]
+           ["full" :full "string full"]
+           [:full :full "keyword full"]
+           ["summary" :summary "string summary"]
+           [:summary :summary "keyword summary"]
+           ["garbage" :summary "an unknown string defaults to summary"]
+           [:nope :summary "an unknown keyword defaults to summary"]]]
+    (is (= expected (args/parse-mode-arg input)) note)))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-modes-arg — per-slice override map.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-modes-arg-nil-is-empty
-  (is (= {} (args/parse-modes-arg nil))))
-
-(deftest parse-modes-arg-cljs-map-passes-through
-  (is (= {:app-db :full :epochs :summary}
-         (args/parse-modes-arg {:app-db :full :epochs :summary}))))
-
-(deftest parse-modes-arg-string-keys-coerced-to-slice-keywords
-  (is (= {:app-db :full :sub-cache :summary}
-         (args/parse-modes-arg #js {"app-db" "full" "sub-cache" "summary"}))))
-
-(deftest parse-modes-arg-edn-shaped-string-keys-strip-leading-colon
-  (is (= {:app-db :full}
-         (args/parse-modes-arg #js {":app-db" "full"}))))
-
-(deftest parse-modes-arg-drops-unknown-slices
-  (is (= {:app-db :full}
-         (args/parse-modes-arg #js {"app-db" "full" "garbage" "full"}))))
-
-(deftest parse-modes-arg-drops-unknown-mode-values
+(deftest parse-modes-arg-resolution
   ;; Unknown mode values fall through to the global default — the slice
   ;; doesn't appear in the override map at all.
-  (is (= {}
-         (args/parse-modes-arg #js {"app-db" "garbage"})))
-  (is (= {:epochs :summary}
-         (args/parse-modes-arg #js {"app-db" "garbage" "epochs" "summary"}))))
-
-(deftest parse-modes-arg-non-map-returns-empty
-  (is (= {} (args/parse-modes-arg "scalar")))
-  (is (= {} (args/parse-modes-arg 42)))
-  (is (= {} (args/parse-modes-arg true))))
+  (doseq [[input expected note]
+          [[nil {} "absent ⇒ no overrides"]
+           [{:app-db :full :epochs :summary} {:app-db :full :epochs :summary}
+            "a CLJS map passes through"]
+           [#js {"app-db" "full" "sub-cache" "summary"} {:app-db :full :sub-cache :summary}
+            "string keys coerce to slice keywords"]
+           [#js {":app-db" "full"} {:app-db :full}
+            "EDN-shaped string keys strip the leading colon"]
+           [#js {"app-db" "full" "garbage" "full"} {:app-db :full} "unknown slices drop"]
+           [#js {"app-db" "garbage"} {} "an unknown mode value drops its slice"]
+           [#js {"app-db" "garbage" "epochs" "summary"} {:epochs :summary}
+            "an unknown mode value drops only its own slice"]
+           ["scalar" {} "a string is not an override map"]
+           [42 {} "a number is not an override map"]
+           [true {} "a boolean is not an override map"]]]
+    (is (= expected (args/parse-modes-arg input)) note)))
 
 ;; ---------------------------------------------------------------------------
 ;; resolve-slice-mode — per-slice precedence resolution.
 ;; ---------------------------------------------------------------------------
 
-(deftest resolve-slice-mode-default-is-summary
-  ;; Nothing pins the slice ⇒ summary.
-  (is (= :summary (pipeline/resolve-slice-mode :app-db {} :summary)))
-  (is (= :summary (pipeline/resolve-slice-mode :sub-cache {} :summary)))
-  (is (= :summary (pipeline/resolve-slice-mode :epochs {} nil))))
-
-(deftest resolve-slice-mode-global-mode-applies-to-every-slice
-  (is (= :full (pipeline/resolve-slice-mode :app-db {} :full)))
-  (is (= :full (pipeline/resolve-slice-mode :sub-cache {} :full)))
-  (is (= :full (pipeline/resolve-slice-mode :epochs {} :full)))
-  (is (= :full (pipeline/resolve-slice-mode :traces {} :full))))
-
-(deftest resolve-slice-mode-per-slice-overrides-global
-  (is (= :full (pipeline/resolve-slice-mode :app-db {:app-db :full} :summary))
-      "Per-slice :full beats global :summary")
-  (is (= :summary (pipeline/resolve-slice-mode :epochs {:epochs :summary} :full))
-      "Per-slice :summary beats global :full"))
+(deftest resolve-slice-mode-precedence
+  (doseq [[slice overrides global expected note]
+          [[:app-db {} :summary :summary "nothing pins the slice ⇒ summary"]
+           [:sub-cache {} :summary :summary "nothing pins the slice ⇒ summary"]
+           [:epochs {} nil :summary "no global mode ⇒ summary"]
+           [:app-db {} :full :full "the global mode applies to every slice"]
+           [:sub-cache {} :full :full "the global mode applies to every slice"]
+           [:epochs {} :full :full "the global mode applies to every slice"]
+           [:traces {} :full :full "the global mode applies to every slice"]
+           [:app-db {:app-db :full} :summary :full "per-slice :full beats global :summary"]
+           [:epochs {:epochs :summary} :full :summary "per-slice :summary beats global :full"]]]
+    (is (= expected (pipeline/resolve-slice-mode slice overrides global)) note)))
 
 ;; ---------------------------------------------------------------------------
 ;; summarise-other-slices-in-snapshot — the load-bearing pipeline step.
@@ -131,15 +112,10 @@
       (is (= {:sub-cache :summary :machines :summary
               :epochs    :summary :traces   :summary}
              resolved-modes)))
-    (testing "every rich slice is a {:rf.mcp/summary ...} marker"
-      (is (some? (-> rf-default :sub-cache :rf.mcp/summary)))
-      (is (some? (-> rf-default :machines  :rf.mcp/summary)))
-      (is (some? (-> rf-default :epochs    :rf.mcp/summary)))
-      (is (some? (-> rf-default :traces    :rf.mcp/summary))))
     (testing ":app-db slice is left alone (handled by upstream slicer)"
       (is (= {:rf.mcp/summary {:type :map :keys [:user :cart] :count 2 :bytes 100}}
              (:app-db rf-default))))
-    (testing "marker types match the underlying value shape"
+    (testing "every rich slice is a {:rf.mcp/summary ...} marker whose type matches the value shape"
       (is (= :map    (-> rf-default :sub-cache :rf.mcp/summary :type)))
       (is (= :map    (-> rf-default :machines  :rf.mcp/summary :type)))
       (is (= :vector (-> rf-default :epochs    :rf.mcp/summary :type)))
@@ -195,7 +171,6 @@
   (let [{:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
                              fixture-snapshot {} :summary)
         stories (:stories snapshot)]
-    (is (some? (-> stories :sub-cache :rf.mcp/summary)))
     (is (= 0 (-> stories :sub-cache :rf.mcp/summary :count)))
     (is (= 0 (-> stories :epochs    :rf.mcp/summary :count)))
     (is (= 0 (-> stories :traces    :rf.mcp/summary :count)))))

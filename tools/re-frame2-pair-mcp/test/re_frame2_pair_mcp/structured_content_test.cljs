@@ -34,12 +34,8 @@
   (testing "wire/ok-text carries :content (text) AND :structuredContent"
     (let [payload {:ok? true :value 42 :tag :sample}
           result  (wire/ok-text payload)]
-      (is (some? (j/get result :content))
-          "the wire-canonical :content slot is present")
       (is (= (pr-str payload) (content-text result))
           ":content[0].text is the pr-str EDN of the payload")
-      (is (some? (j/get result :structuredContent))
-          "the :structuredContent slot is present")
       ;; The structured slot should be a JS object whose shape mirrors
       ;; the input. Keywords lose their `:` prefix in the JSON-coercible
       ;; projection but KEEP their namespace (`:rf/x` → "rf/x"); plain
@@ -66,8 +62,6 @@
           ":isError true is set on error envelopes")
       (is (= (pr-str payload) (content-text result))
           ":content[0].text is the pr-str EDN of the error payload")
-      (is (some? (j/get result :structuredContent))
-          ":structuredContent slot is present on error envelopes too")
       (is (= false (j/get-in result [:structuredContent :ok?]))
           ":ok? false round-trips"))))
 
@@ -105,10 +99,8 @@
 (deftest ok-text-nil-payload-never-emits-null-structured-content
   (testing "wire/ok-text with a nil payload emits a non-null structured record"
     (let [result (wire/ok-text nil)]
-      (is (some? (j/get result :structuredContent))
-          ":structuredContent must NOT be null — the SDK outputSchema check rejects null")
       (is (object? (j/get result :structuredContent))
-          ":structuredContent must be a record (object), not a primitive")
+          ":structuredContent must be a record (object) — never null, which the SDK outputSchema check rejects, nor a primitive")
       (is (true? (j/get-in result [:structuredContent "rf.mcp/null"]))
           "the nil payload projects to the :rf.mcp/null sentinel object")
       (is (= "nil" (content-text result))
@@ -118,7 +110,6 @@
   (testing "wire/err-text with a nil payload emits a non-null structured record"
     (let [result (wire/err-text nil)]
       (is (true? (j/get result :isError)))
-      (is (some? (j/get result :structuredContent)))
       (is (object? (j/get result :structuredContent))
           ":structuredContent must be a record even on the error path"))))
 
