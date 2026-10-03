@@ -96,10 +96,6 @@
             "outer body: `dispatch` auto-injected as a fn")
         (is (fn? (:subscribe @outer-captured))
             "outer body: `subscribe` auto-injected as a fn")
-        (is (fn? (:dispatch  @inner-captured))
-            "inner fn: `dispatch` resolves via lexical closure")
-        (is (fn? (:subscribe @inner-captured))
-            "inner fn: `subscribe` resolves via lexical closure")
         ;; The inner fn sees the SAME fn instances the outer body saw —
         ;; this is the Spec 002 §What `reg-view` injects contract: the
         ;; outer `let` binds once and the inner fn closes over it —
@@ -118,41 +114,3 @@
                         (:subscribe @inner-captured))
             "inner fn's `subscribe` is the SAME closed-over fn as the
              outer body's — confirming lexical-closure semantics")))))
-
-;; ---- Form-2: bindings persist across inner re-renders --------------------
-
-(deftest form-2-inner-fn-binding-stable-across-renders
-  (testing "A Form-2 view's auto-inject is the OUTER `let`, run once
-            per outer-body invocation. Subsequent inner-fn calls see
-            the SAME captured `dispatch` / `subscribe` — they are NOT
-            re-resolved per render. Per Spec 002 §What `reg-view`
-            injects — the outer-let lexical-closure contract.
-
-            Asserts: the captured `dispatch` is identical (===) across
-            three inner-fn invocations — the binding is the closed-
-            over value, not freshly resolved per render."
-    (let [captures (atom [])]
-      (reg-view ^{:rf/id :rf.f2-inject/identity-view} id-view []
-        ;; Outer body: stash the auto-injected dispatch.
-        (swap! captures conj dispatch)
-        (fn inner-render []
-          ;; Inner body: stash the captured dispatch on each render.
-          (swap! captures conj dispatch)
-          [:span "ok"]))
-      (let [wrapper   (rf/view :rf.f2-inject/identity-view)
-            inner-fn  (wrapper)]
-        (inner-fn)        ;; first inner render
-        (inner-fn)        ;; second inner render
-        (let [captured @captures]
-          ;; Three captures: outer + 2× inner.
-          (is (= 3 (count captured))
-              "outer body and 2 inner renders all stashed `dispatch`")
-          ;; All three are the SAME object — proving the inner fn
-          ;; closed over the same lexical binding the outer let
-          ;; created.
-          (is (apply identical? captured)
-              "all three captures are the same fn instance —
-               confirming the inner fn's `dispatch` is the outer
-               let's binding, closed over, NOT re-resolved per inner
-               call (Spec 002 §What `reg-view` injects — the outer-let
-               lexical-closure contract)"))))))

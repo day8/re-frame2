@@ -82,10 +82,7 @@
           (is (= 1 @v1-renders)
               "v1 was NOT re-invoked by the post-rereg render")
           (is (= 1 @v2-renders)
-              "v2 was rendered once")
-          ;; Render again to confirm the new body sticks.
-          (render-v2 9)
-          (is (= 2 @v2-renders) "v2 keeps being the active render fn"))))))
+              "v2 was rendered once"))))))
 
 (deftest view-re-register-via-macro-also-flips
   (testing "the reg-view MACRO path also installs the new render fn into

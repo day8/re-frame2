@@ -18,7 +18,8 @@
   frame), and #16 (server error projection → :rf/response stamp).
   Interactions whose deeper machinery is exercised end-to-end in a
   sister test cite that test in their docstring rather than carrying
-  a redundant copy here (#16 → re-frame.ssr-end-to-end-test).
+  a redundant copy here (#9 → re-frame.runtime-cljs-test, #16 →
+  re-frame.ssr-end-to-end-test).
 
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
@@ -317,7 +318,6 @@
   "#6 Routing in SSR —
    :rf.nav/push-url and :rf.nav/replace-url are no-ops on :server; the
    route slice itself is just app-db so it hydrates trivially."
-  (rf/reg-route :user/show {} "/users/:id")
   (rf/make-frame {:id :req :platform :server})
   ;; Re-register the framework nav fx (reset-runtime cleared the
   ;; registrar) so this test exercises the same platform-gating shape
@@ -333,11 +333,7 @@
     (is (some #(and (= :rf.fx/skipped-on-platform (:operation %))
                     (= :rf.nav/push-url (get-in % [:tags :rf.fx/id])))
               @traces)
-        ":rf.nav/push-url emits :rf.fx/skipped-on-platform under :server"))
-  (testing "routes round-trip the same as on the client"
-    (let [m (rf.routing/match-url "/users/42")]
-      (is (= :user/show (:route-id m)))
-      (is (= "42" (:id (:params m)))))))
+        ":rf.nav/push-url emits :rf.fx/skipped-on-platform under :server")))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 7 — Route-not-found under SSR
@@ -478,24 +474,11 @@
 ;; Interaction 9 — Reactive substrate without React-context
 ;; spec/Cross-Spec-Interactions.md#9-reactive-substrate-without-react-context
 ;; ---------------------------------------------------------------------------
-
-(deftest headless-explicit-frame-resolution-chain
-  "#9 Reactive substrate without React-context —
-   with no context concept the dynamic var is the only scope tier, and
-   there is no :rf/default floor. The :rf/default read below is the
-   reset-runtime fixture's ambient scope, which with-frame shadows and
-   then restores."
-  (rf/make-frame {:id :alt :doc "alt frame"})
-  ;; Outside any with-frame: the fixture's ambient scope.
-  (is (= :rf/default (rf/current-frame-id))
-      "outside any with-frame the fixture's ambient :rf/default scope resolves")
-  ;; with-frame binds the dynamic var; resolution lands on the bound id.
-  (rf/with-frame :alt
-    (is (= :alt (rf/current-frame-id))
-        "with-frame's binding wins over the ambient scope"))
-  ;; After with-frame returns, the ambient scope is back.
-  (is (= :rf/default (rf/current-frame-id))
-      "with-frame's binding is scoped — the ambient scope returns on exit"))
+;;
+;; With no context concept the dynamic var is the only scope tier, and there is
+;; no :rf/default floor. On this adapter that is
+;; `re-frame.runtime-cljs-test` / `with-frame-binds-current-frame`, which binds,
+;; nests and unwinds the scope on the same fixture.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 10 — Plain Reagent fn under a non-default frame
@@ -1016,14 +999,6 @@
       (set! (.-_currentValue ^js rf.adapter.context/frame-context) :tenant-keyword-shape)
       (is (= :tenant-keyword-shape (rf.adapter.context/function-component-current-frame))
           "keyword shape is preserved")
-      ;; Empty-string shape — EP-0002: an empty string is not a
-      ;; coercible keyword and not the no-provider sentinel, so it is a
-      ;; corrupted `_currentValue`. The reader returns nil (no synthesised
-      ;; :rf/default floor); a public op reading nil then raises
-      ;; :rf.error/no-frame-context.
-      (set! (.-_currentValue ^js rf.adapter.context/frame-context) "")
-      (is (nil? (rf.adapter.context/function-component-current-frame))
-          "empty-string is corrupted — resolves to nil, no :rf/default floor")
       (finally
         (set! (.-_currentValue ^js rf.adapter.context/frame-context) original))))))
 

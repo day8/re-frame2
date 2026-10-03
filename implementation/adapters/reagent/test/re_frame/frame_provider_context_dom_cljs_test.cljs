@@ -1032,10 +1032,6 @@
               (is (= target @observed-frame)
                   (str "current-frame inside the wrapped subtree resolves to the FULL "
                        "namespaced keyword (got " (pr-str @observed-frame) ")"))
-              (is (= :tenant-admin (-> @observed-frame name keyword))
-                  "sanity: the unqualified part matches the namespaced keyword's name")
-              (is (= "rf-22ds-ns" (namespace @observed-frame))
-                  "sanity: the namespace survived (would be nil if prop-conversion stripped it)")
               (is (= :wrapped-value @observed-value)
                   "subscribe routes against the namespaced frame's app-db, not :rf/default's")
               ;; Await the deferred teardown.

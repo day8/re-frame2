@@ -88,7 +88,6 @@
             markup the JVM emitter produces for the same head."
     (let [html (render [:dashboard/card :revenue])]
       (is (= "<card>revenue</card>" html))
-      (is (str/includes? html "<card>") (str "got: " html))
       (is (not (str/includes? html "class=\"card\""))
           (str "the registered view must NOT have been resolved — a keyword "
                "head has no view semantics. Got: " html))))

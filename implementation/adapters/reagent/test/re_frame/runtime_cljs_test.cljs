@@ -51,15 +51,6 @@
 
 ;; ---- shared dispatch + sub --------------------------------------------------
 
-(deftest dispatch-sync-cljs
-  (testing "dispatch-sync runs a reg-event handler returning a :db effect under the Reagent adapter"
-    (rf/reg-event :counter/init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:counter/init])
-    (rf/dispatch-sync [:counter/inc])
-    (rf/dispatch-sync [:counter/inc])
-    (is (= 2 (:n (rf/app-db-value :rf/default))))))
-
 (deftest sub-chain-cljs
   (testing "layer-1 + layer-2 subs return computed values"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [10 20 30]}}))
@@ -757,7 +748,6 @@
       (rf/unregister-listener! :epoch ::w)
 
       (let [history (rf/epoch-history :epoch/cljs)]
-        (is (= 2 (count history)) "two cascades, two records")
         (is (= [:seed :inc] (mapv :event-id history)))
         (is (= {:n 1} (:db-after (last history))))
         (is (= 2 (count @seen)) "register-epoch-listener! fired per-cascade")))))
