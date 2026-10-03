@@ -36,6 +36,24 @@ an edit.
  [counter]]
 ```
 
+The same fence takes Fresco. A cell whose last form uses a Fresco view
+renders through Fresco:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+(rf/reg-sub   :n   (fn [db _] (:n db 0)))
+
+(h/defview counter [_]
+  [:button {:on-click [:inc]}
+   "Clicked " (h/sub [:n]) " times"])
+
+[h/frame-root {:id :counter}
+ [counter {}]]
+```
+
 | | ` ```cljs ` | ` ```cljs-rf2 ` |
 |---|---|---|
 | Runs on | [Scittle](https://github.com/babashka/scittle) 0.8.31, from jsDelivr | `docs/cljs/playground-rf2.js`, built from `sci/` |
@@ -45,14 +63,48 @@ an edit.
 
 ### What a re-frame2 cell can use
 
-- `re-frame.core`, including `reg-view`, `reg-machine`, `reg-flow` and
-  `reg-app-schema`
-- `re-frame.schemas`
-- `reagent2.core` (also available as `reagent.core`), `reagent2.ratom` and
-  `reagent2.dom.client`
+The bundle carries core, both view layers and every optional artefact:
 
-Fresco, routing, HTTP and resources are not in the bundle. A cell that
-requires one of them fails because the namespace is not found.
+| Require | For |
+|---|---|
+| `re-frame.core` | Everything on the façade, including `reg-view`, `reg-machine`, `reg-flow`, `reg-app-schema`, `reg-resource` and `reg-route` |
+| `re-frame.fresco`, `.forms`, `.overlay`, `.motion` | Fresco views, `h/defview`, `h/sub`, `h/event` |
+| `reagent2.core` (also as `reagent.core`), `reagent2.ratom`, `reagent2.dom.client` | reagent2 |
+| `re-frame.schemas` | Reading registered schemas |
+| `re-frame.http.managed`, `re-frame.http.test-support` | `:rf.http/managed`, and stubs for it |
+| `re-frame.resources` | Resource events and subs |
+| `re-frame.routing`, `re-frame.epoch`, `re-frame.ssr` | Routing, epoch history, `render-to-string` |
+
+Fresco's `defhost` is not available, because a cell has no foreign React
+component to wrap.
+
+### Which renderer a cell uses
+
+The last form renders through **Fresco** when it contains a Fresco view
+(`h/defview`), `h/frame-root` or `h/frame-provider`, or a handler written as
+data (`:on-click [:inc]`). Otherwise it renders through **reagent2**. Plain
+hiccup such as `[:p "Hello"]` looks the same either way.
+
+One page can mix reagent2 and Fresco cells, and they share frames and
+registrations. One tree cannot mix them directly: Fresco refuses a plain
+function as a head, and a Fresco view inside a reagent2 tree needs
+`[:> (h/as-component view)]`.
+
+### HTTP in a cell
+
+A real request works if the endpoint is `https` and allows CORS. For a demo
+that must not depend on the network, stub `:rf.http/managed`:
+
+```clojure
+(http-test-support/install-managed-request-stubs!
+  {[:get "https://api.example.com/articles/intro"] {:reply {:ok {:title "Welcome"}}}})
+
+[rf/frame-root {:id :demo :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [article-view]]
+```
+
+Install stubs and never uninstall them: the stub stack is global, so an
+uninstall can restore a previous page's routes.
 
 ### Rules
 
@@ -69,8 +121,11 @@ requires one of them fails because the namespace is not found.
 - **Cells on one page share state.** Every cell registers into the same
   registrar, so a later cell can render a view an earlier one registered.
 - **Leaving a page clears it.** On navigation the outgoing page's components
-  unmount, its frames are destroyed and its registrations are removed. Each
-  page registers what it uses.
+  unmount, its frames are destroyed, and its registrations and HTTP
+  interceptors are removed. Destroying a frame also stops its requests and
+  timers. Each page registers what it uses.
+- **Never create a `:url-bound? true` frame.** It would take over the docs
+  site's address bar. Routing works on in-memory frames.
 
 ## Build
 
@@ -97,9 +152,10 @@ The other scripts:
   machine-wide build lane (see `AGENTS.md`).
 - `npm run build:dev` builds an unminified `playground.js` for debugging.
 
-`playground-rf2.js` is not committed. It bundles re-frame2 core and four
-artefacts, so committing it would mean every PR touching any of them
-rebuilds the same 2 MB file, and two such PRs always conflict. CI builds it
+`playground-rf2.js` is not committed. It bundles re-frame2 core, Fresco and
+every optional artefact, so committing it would mean every PR touching any of
+them rebuilds the same multi-megabyte file, and two such PRs always
+conflict. CI builds it
 where it is used. `mkdocs build` works without it; re-frame2 cells then show
 an error in place of their output.
 
@@ -114,8 +170,10 @@ The smoke serves both built bundles to headless Chromium on a page shaped
 like mkdocs output. It checks that the bootstrap loads each engine on demand,
 that plain cells evaluate and report errors, that re-frame2 cells render and
 re-render on dispatch (including machine, flow, schema and multi-frame
-cells), and that navigating away releases the outgoing page's React roots,
-frames and registrations. Build both bundles first.
+cells), that Fresco cells render through the same fence, that stubbed HTTP
+and resource cells load, that routing, epoch and SSR are present, and that
+navigating away releases the outgoing page's React roots, frames and
+registrations. Build both bundles first.
 
 ## How it works
 
@@ -137,11 +195,14 @@ works both at a domain root and under `/re-frame2/`. Plain-cell pages never load
 re-frame2 engine, and re-frame2-only pages never load Scittle.
 
 **The re-frame2 engine** (`sci/src/rf2_playground/sci.cljs`) is an SCI
-interpreter with re-frame2 compiled in. It exposes `re-frame.core` with
-`sci/copy-ns` and replaces the JVM-only macros `reg-view`, `reg-machine` and
-`reg-flow` with an SCI macro and runtime fns, so cells write the same calls
-as real code. It installs `window.rf2sci` with `renderLast` and
-`disposePage`. Two build settings matter:
+interpreter with re-frame2 compiled in. It exposes each namespace with
+`sci/copy-ns`, and replaces the JVM-only macros `reg-view`, `reg-machine`,
+`reg-flow`, `h/defview` and `h/event` with SCI macros and runtime fns, so
+cells write the same calls as real code. It installs `window.rf2sci` with
+`renderLast`, `disposePage` and `release`. A reagent2 cell re-renders into
+its existing React root; a Fresco cell gets a fresh root on every run,
+because a mounted `h/frame-root` refuses new options. Two build settings
+matter:
 
 - React 19 has no UMD build, so `react` and `react-dom` are bundled in from
   `sci/package.json`.
@@ -154,10 +215,12 @@ as real code. It installs `window.rf2sci` with `renderLast` and
 2. Require it in `sci.cljs`, so its late-bind hooks install at load. If cells
    should `require` one of its namespaces, add an SCI namespace for it the
    way `re-frame.schemas` is added. Give each JVM-only macro an SCI stand-in.
-3. Add its source tree to the roster in `scripts/playground-sci-input-digest.mjs`
-   and to the `playground` surface in `.github/scripts/report-changed-surfaces.sh`.
-   `implementation/scripts/_playground-sci-inputs.test.cjs` fails if a roster
-   entry does not trigger the `playground` job.
+3. Add its `src` and `deps.edn` to the roster in
+   `scripts/playground-sci-input-digest.mjs`, to the `playground` surface in
+   `.github/scripts/report-changed-surfaces.sh`, and to the per-class table
+   in `implementation/scripts/_playground-sci-inputs.test.cjs`. That test
+   fails if a roster entry has no table row or does not trigger the
+   `playground` job.
 4. Add a cell to the smoke.
 
 ## CI
@@ -185,4 +248,6 @@ produced a deployed bundle. Nothing gates on it.
 | A plain cell cannot resolve an alias it just required | Plain cells cannot `require` | Make it a ` ```cljs-rf2 ` cell |
 | A cell raises `:rf.error/no-such-handler` for an id another page registered | Navigation clears the previous page's registrations | Register the handler on this page |
 | A re-frame2 cell shows a printed value instead of a component | Its last form is not a vector | End the cell with hiccup or a component vector |
+| A cell raises `:rf.error/fresco-bad-head` | The tree has a Fresco view, so it renders through Fresco, and it also has a plain fn or `reg-view` head | Make the head an `h/defview`, or keep the cell all reagent2 |
+| An HTTP cell's `:on-failure` gets `no stub matched` | The request's method and URL are not in the stub map | Key the stub on the exact `[method url]` the request sends |
 | The smoke fails with `playground-rf2.js not found` | The engine was not built | `npm run build` |

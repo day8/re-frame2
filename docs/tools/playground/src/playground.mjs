@@ -9,8 +9,9 @@
  *                                       on Mod-Enter.
  *   ```cljs-rf2  pre.language-cljs-rf2  Evaluates the source against
  *                                       re-frame2's public API and mounts the
- *                                       last form as a component. Runs on
- *                                       load and on Mod-Enter.
+ *                                       last form as a component, through
+ *                                       reagent2 or Fresco. Runs on load and
+ *                                       on Mod-Enter.
  *
  * Each engine is a classic <script> injected only on pages that have its
  * cell kind: Scittle from jsDelivr, and cljs/playground-rf2.js (built from
@@ -120,6 +121,11 @@ function runCell(kind, src, resultEl) {
       renderResult(resultEl, evalCljs(src));
     }
   } catch (e) {
+    // Unmount the cell's React root first, so the error text never replaces
+    // DOM that React still owns.
+    if (kind === "rf2" && window.rf2sci && window.rf2sci.release) {
+      window.rf2sci.release(resultEl);
+    }
     renderError(resultEl, e);
   }
 }
