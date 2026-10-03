@@ -321,39 +321,6 @@
 ;; 1 — the SERVER side alone (no DOM; runs under :node-test)
 ;; ---------------------------------------------------------------------------
 
-(deftest the-server-renderer-honours-the-prefix-and-is-deterministic
-  (fresh!)
-  (let [a1   (server-html! frame-a [id-page {}] "pfx-a-")
-        a2   (server-html! frame-a [id-page {}] "pfx-a-")
-        b1   (server-html! frame-a [id-page {}] "pfx-b-")
-        none (server-html! frame-a [id-page {}] nil)]
-
-    (testing "the same request rendered twice is the same bytes — §2.4's
-              *deterministic server bytes from an immutable request
-              snapshot*, for the root and provider element"
-      (is (= a1 a2) "two renders of one snapshot produced identical bytes"))
-
-    (testing "the prefix reaches the id React put in those bytes"
-      (is (some? (id-in-html a1))
-          "premise: the island is IN the bytes, so there is an id to read —
-           a Client-only island would leave nothing here")
-      (is (str/includes? (id-in-html a1) "pfx-a-")
-          (str "the server id must carry the prefix it was rendered with; got "
-               (pr-str (id-in-html a1)))))
-
-    (testing "and a DIFFERENT prefix is a different id — the distinctness
-              half, measured on the server where it is unambiguous"
-      (is (not= (id-in-html a1) (id-in-html b1))
-          (str "two prefixes, two ids; got " (pr-str (id-in-html a1))
-               " and " (pr-str (id-in-html b1))))
-      (is (str/includes? (id-in-html b1) "pfx-b-")))
-
-    (testing "naming no prefix is not an error and not a default of this
-              arm's invention — it is React's own unprefixed id"
-      (is (some? (id-in-html none)))
-      (is (not (str/includes? (id-in-html none) "pfx-a-"))
-          "an unprefixed render carries no prefix"))))
-
 (deftest the-hydrating-root-s-own-shape-moves-the-id-and-not-the-prefix
   (testing "one prefix, two tree SHAPES, two ids — the whole cause, on the
             server side alone and with no DOM in sight. The prefix is

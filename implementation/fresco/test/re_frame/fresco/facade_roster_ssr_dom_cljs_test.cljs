@@ -453,7 +453,7 @@
                   (done))))
             300))))))
 
-(deftest an-adopted-page-releases-exactly-what-it-acquired
+(deftest a-mounted-page-releases-exactly-what-it-acquired
   (if-not (rf.fresco.impl.mount/browser?)
     (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
     (do
