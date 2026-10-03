@@ -83,4 +83,3 @@
 (deftest cancel-frame-timers-on-restore-noop-on-unarmed-frame
   (testing "quiescing a frame with no armed timers is a no-op"
     (is (nil? (rf.machines.timer/cancel-frame-timers-on-restore! :rq/never-armed)))))
-

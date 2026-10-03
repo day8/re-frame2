@@ -228,4 +228,3 @@
           destroy-evs (filter #(= :on-destroy (-> % :tags :reason)) cs)]
       (is (seq destroy-evs)
           (str "at least one :reason :on-destroy emit; got " (mapv #(-> % :tags :reason) cs))))))
-

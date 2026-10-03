@@ -260,4 +260,3 @@
       (is (= :working (state ::p8)) "the parent is unmoved")
       (is (some? (snapshot child)) "the child is still alive")
       (is (= [] (done-traces)) "no :rf.machine/done — an exception is not a completion"))))
-
