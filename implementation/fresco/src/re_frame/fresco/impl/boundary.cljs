@@ -43,7 +43,7 @@
   | key | shape | meaning |
   |---|---|---|
   | `:fallback` | hiccup, or `(fn [error] hiccup)` | what renders instead of the children once something below has thrown |
-  | `:reset-key` | any value, compared with `=` | a change clears the caught failure and re-mounts the children, so the retry is the CALLER's to schedule and never the boundary's to guess |
+  | `:reset-key` | any value, compared with `=` | a change since the failure was caught clears it and re-mounts the children, so the retry is the CALLER's to schedule and never the boundary's to guess |
   | `:on-error` | an intent vector, or a plain function | fired **once per caught failure**. A vector is dispatched with the error appended, through the frame the boundary is mounted under — and is refused at the declaration where there is no such frame, rather than dropped when it fires; a function is called with the error, and needs no frame |
 
   Nothing else. No error classification, no retry policy, no logging
@@ -116,9 +116,20 @@
   `:on-error` fires from `componentDidCatch` and from nowhere else, so it
   fires exactly as often as React catches. Under StrictMode the render
   that threw runs **twice** and `componentDidCatch` is still called
-  **once**, which is the whole of the once-per-failure guarantee:
-  `arm1_lifecycle_dom_cljs_test/the-boundary-reports-once-under-strictmode`
+  **once**:
+  `boundary_intent_dom_cljs_test/the-boundary-reports-once-per-failure-under-strictmode`
   mounts the failing tree in StrictMode and reads one record.
+
+  So React catches once per failure, and the one thing here that could
+  make it catch twice is the reset. React runs `componentDidUpdate`
+  BEFORE `componentDidCatch` in the commit that caught, so a `:reset-key`
+  that moved in the very render that threw would read as a retry: the
+  failure just caught cleared, the child re-mounted, a second throw and a
+  second report. A reset therefore means *the key moved since the failure
+  was caught*. The commit that catches adopts the current key as the one
+  the failure was caught under, and only a later move clears it:
+  `boundary_intent_dom_cljs_test/a-reset-key-move-and-a-throw-in-one-render-report-once`
+  moves the key and breaks the child in one dispatch and reads one record.
 
   An instance flag gating the report would be a line nothing observes:
   removing it changes no witness, because this boundary reports from ONE
@@ -288,8 +299,9 @@
   intent and is dispatched, with the error appended, into the frame the
   boundary is mounted under; a function is called with the error.
 
-  **Called from `componentDidCatch` and from nowhere else**, which is what
-  makes it once per failure without a flag to make it so.
+  **Called from `componentDidCatch` and from nowhere else**, which makes
+  it once per catch without a flag to make it so; the reset rule in
+  `componentDidUpdate` is what keeps one failure to one catch.
 
   The last arm means **no `:on-error` was declared**, and nothing else:
   `check-props!` ran in this instance's own render — which React
@@ -323,6 +335,8 @@
                 (this-as ^js this
                   (.call ^js react/Component this props)
                   (set! (.-state this) #js {"error" nil})
+                  ;; The key a failure caught at MOUNT is caught under:
+                  ;; that commit runs no `componentDidUpdate` to adopt it.
                   (set! (.-resetKey this)
                         (:reset-key (or (unchecked-get props "rfProps") {})))
                   this))
@@ -345,13 +359,24 @@
           (fn [error _info]
             (this-as ^js this (report! this error))))
     (set! (.-componentDidUpdate proto)
-          (fn [_prev-props _prev-state _snapshot]
+          (fn [_prev-props prev-state _snapshot]
             (this-as ^js this
-              (let [k (:reset-key (props-of this))]
-                (when (not= k (.-resetKey this))
-                  (set! (.-resetKey this) k)
-                  (when (some? (unchecked-get (.-state this) "error"))
-                    (.setState this #js {"error" nil})))))))
+              ;; `resetKey` is the key the standing failure was CAUGHT
+              ;; under. A failure first seen in this commit was caught under
+              ;; the current key, so it is adopted, not compared: React runs
+              ;; this before `componentDidCatch`, and a key that moved in the
+              ;; render that threw would otherwise read as a retry, clear
+              ;; the failure just caught, and report it twice. Only a key
+              ;; that moved since the catch resets.
+              (when (some? (unchecked-get (.-state this) "error"))
+                (let [k (:reset-key (props-of this))]
+                  (cond
+                    (nil? (unchecked-get prev-state "error"))
+                    (set! (.-resetKey this) k)
+
+                    (not= k (.-resetKey this))
+                    (do (set! (.-resetKey this) k)
+                        (.setState this #js {"error" nil}))))))))
     (set! (.-render proto)
           (fn []
             (this-as ^js this
