@@ -132,6 +132,78 @@ renders `article-page` when `:rf.route/id` is `:app/article`:
 | `:fetching` | Refresh in flight, keeping existing data | Content and a small progress indicator |
 | `:error` | First load failed | Error and retry action |
 
+The cell below runs the registration, route and view from this page against
+canned replies, and shows the raw status above the view. The `draft` link's
+reply is a 503, so its first load ends in `:error`; Retry fails the same way,
+because a canned reply never changes. The stub answers at once, so `:loading`
+and `:fetching` pass too quickly to see.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.resources]
+         '[re-frame.routing]
+         '[re-frame.http.test-support :as http-test-support])
+
+;; Canned replies: "hello" loads, "draft" fails with a 503.
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/articles/hello"] {:reply {:ok {:article {:title "Hello" :body "The first article."}}}}
+   [:get "/api/articles/draft"] {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}})
+
+(rf/reg-resource :app/article
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :stale-after-ms 60000
+   :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
+
+(rf/reg-route :app/article
+  {:params [:map [:slug :string]]
+   :resources [{:resource :app/article
+                :params (fn [route] {:slug (get-in route [:params :slug])})
+                :blocking? true}]}
+  "/articles/:slug")
+
+(rf/reg-view article-page []
+  (let [slug (:slug @(subscribe [:rf.route/params]))
+        query {:resource :app/article :params {:slug slug}}
+        state @(subscribe [:rf/resource query])]
+    (cond
+      (= :idle (:status state)) [:p "Waiting for the article load."]
+      (:loading? state)         [:p "Loading article…"]
+      (:error state)
+      [:div
+       [:p "Could not load the article."]
+       [:button {:on-click #(dispatch [:rf.resource/refetch query])} "Retry"]]
+      :else
+      [:article
+       [:h1 (get-in state [:data :article :title])]
+       [:p (get-in state [:data :article :body])]
+       (when (:fetching? state) [:p "Refreshing…"])
+       (when (:refresh-error state) [:p "Could not refresh; showing saved data."])
+       [:button {:disabled (:fetching? state)
+                 :on-click #(dispatch [:rf.resource/refetch query])}
+        "Refresh"]])))
+
+;; The application shell: two links and the resource's raw status.
+(rf/reg-view shell []
+  (let [slug (:slug @(subscribe [:rf.route/params]))
+        state @(subscribe [:rf/resource {:resource :app/article :params {:slug slug}}])]
+    [:div
+     [:nav
+      [rf/route-link {:to :app/article :params {:slug "hello"}} "hello"] " · "
+      [rf/route-link {:to :app/article :params {:slug "draft"}} "draft"]]
+     [:p "Status: " [:code (pr-str (:status state))]]
+     [article-page]]))
+
+[rf/frame-root {:id :app
+                :initial-events [[:rf.route/navigate {:to :app/article :params {:slug "hello"}}]]
+                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [shell]]
+```
+
 A failed refresh keeps `:loaded` and the data, and sets `:refresh-error`.
 `:error` is reserved for a failed first load. Both fields hold a
 [managed-HTTP failure](../async/http.md#failures-are-a-closed-set); branch on
