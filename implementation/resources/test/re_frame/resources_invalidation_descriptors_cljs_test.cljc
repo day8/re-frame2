@@ -21,7 +21,8 @@
        ONE mutation reach both, and only the resolved scope (not a global blast);
     3. re-fetch (active owner) vs mark-stale (ownerless) variants;
     4. the descriptors compose with the `:reply-to` completion
-       continuation (the continuation fires after the invalidation);
+       continuation (pinned by the populate suite's
+       `populate-exempt-composes-with-descriptors-and-reply-to`);
     5. a stale / superseded settle does NOT invalidate (the mandatory
        stale-suppression boundary the descriptor path inherits);
     6. a `{:from-db …}` descriptor scope resolved against the SETTLE-time
@@ -242,36 +243,6 @@
     (let [e (entry (session-feed-key "jake"))]
       (is (some? (:invalidated-at e)))
       (is (not (contains? #{:loading :fetching} (:status e)))))))
-
-;; ===========================================================================
-;; 4. Composes with the :reply-to completion continuation
-;; ===========================================================================
-
-(deftest descriptor-composes-with-reply-to-continuation
-  (let [replied (atom [])]
-    (reg-article-resource!)
-    (reg-feed-resource!)
-    (rf/reg-event :test/saved (fn [_ event] (swap! replied conj event) {}))
-    (rf/dispatch-sync [:t/login "jake"])
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}
-                                            :params {} :owner [:v :feed]}])
-    (reply-success! @last-managed-args {:seed true})
-    (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/feed :scope {:from-db :t/session}
-                                                   :params {} :owner [:v :feed]}])
-    (reset! last-managed-args nil)
-    (rf/reg-mutation :m/save
-      {:scope :rf.scope/global
-       :params-schema [:map [:slug :string]]
-       :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
-      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :c1
-                                             :reply-to [:test/saved]}])
-    (reply-success! @last-managed-args {:title "new"})
-    (testing "the {:from-db} descriptor invalidated jake's feed"
-      (is (some? (:invalidated-at (entry (session-feed-key "jake"))))))
-    (testing "the :reply-to continuation fired exactly once, after the invalidation"
-      (is (= 1 (count @replied)))
-      (is (= :ok (:status (second (first @replied))))))))
 
 ;; ===========================================================================
 ;; 5. A stale / superseded settle does NOT invalidate

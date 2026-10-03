@@ -265,8 +265,7 @@
         (is (= 2 (count @replied)))
         (let [tags (set (map second @replied))]
           (is (= #{:a :b} tags) "both :a and :b fired"))
-        (doseq [[_ tag reply] @replied]
-          (is (contains? #{:a :b} tag) "static call-site arg preserved before the reply")
+        (doseq [[_ _ reply] @replied]
           (is (= :ok (:status reply)))
           (is (= {:title "Shared"} (:value reply))))))))
 
@@ -423,9 +422,7 @@
       (is (= :loaded (:status (entry rkey))) "feed settled :loaded")
       (is (false? (:cache-hit? fetch-reply)) "an async page settle is not a cache hit")
       (testing "the FETCH :value is the merged items list — not a single page, not the page vector"
-        (is (= items fetch-value))
-        (is (not= pg fetch-value) "NOT the single decoded page")
-        (is (not= [pg] fetch-value) "NOT the raw page vector"))
+        (is (= items fetch-value)))
       ;; ---- fresh-skip CACHE-HIT path: a second ensure serves cache ---------
       (reset! last-managed-args nil)
       (reset! replied [])
@@ -436,8 +433,7 @@
             hit-value     (:value hit-reply)]
         (is (true? (:cache-hit? hit-reply)) "a fresh-skip is a cache hit")
         (testing "the CACHE-HIT :value is the merged items list — not the raw page vector"
-          (is (= items hit-value))
-          (is (not= [pg] hit-value) "NOT the raw page vector"))
+          (is (= items hit-value)))
         (testing "cache-hit and fetch deliver the IDENTICAL :value"
           (is (= fetch-value hit-value)
               "an infinite-feed :reply-to :value must not depend on cache-hit vs fetch"))))))
