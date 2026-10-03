@@ -44,8 +44,8 @@
             ;; The constructor the `reg-view` expansion names. Bound under
             ;; its own SCI namespace, not merged into `re-frame.core`.
             [re-frame.capture-frame :as rf.capture-frame]
-            ;; Used by `disposePage` to clear page-owned registrations; not
-            ;; exposed to cells.
+            ;; Used by `disposePage` to put the registrar back to its
+            ;; baseline; not exposed to cells.
             [re-frame.registrar :as rf.registrar]
             [re-frame.views]
             [re-frame.machines]
@@ -103,9 +103,10 @@
 ;; expand-reg-view). It registers the render fn with the real `reg-view*`,
 ;; binds `dispatch` and `subscribe` as locals from a render-time capture
 ;; frame, `def`s the var to `(rf/view id)`, and returns the id, as every
-;; `reg-*` does. It derives the id from the cell's current ns (`:user/<sym>`
-;; by default). It skips source-coord capture, which is optional (Spec 001)
-;; and has no file to stamp in a browser cell.
+;; `reg-*` does. Like the real macro, it takes the id from an `^{:rf/id …}`
+;; on the symbol, and otherwise derives it from the cell's current ns
+;; (`:user/<sym>` by default). It skips source-coord capture, which is
+;; optional (Spec 001) and has no file to stamp in a browser cell.
 (defn- sci-reg-view
   [_&form _&env sym & more]
   (let [[docstring more] (if (string? (first more))
@@ -118,7 +119,8 @@
                            (pr-str (first more)))
                       {:rf.error/id :rf.error/reg-view-bad-args})))
     (let [;; Resolve the ns at eval time so a cell's own (ns ...) form shows through.
-          id     (list 'keyword (list 'str (list 'ns-name '*ns*)) (str sym))
+          id     (or (:rf/id (meta sym))
+                     (list 'keyword (list 'str (list 'ns-name '*ns*)) (str sym)))
           handle (gensym "handle")]
       (list 'do
             (list 're-frame.core/reg-view* id
@@ -223,11 +225,31 @@
 (def rdc-ns (sci/create-ns 'reagent2.dom.client nil))
 (def reagent2-dom-client-namespace (sci/copy-ns reagent2.dom.client rdc-ns))
 
+;; Clojure 1.11 added these to clojure.core, and SCI's ClojureScript core does
+;; not carry them, so a cell would get `Unable to resolve symbol`.
+(def clojure-core-additions
+  {'parse-long    parse-long
+   'parse-double  parse-double
+   'parse-boolean parse-boolean
+   'parse-uuid    parse-uuid
+   'update-vals   update-vals
+   'update-keys   update-keys
+   'abs           abs
+   'NaN?          NaN?
+   'infinite?     infinite?
+   'iteration     iteration})
+
+;; `:classes` opens JS interop: property access, method calls and `js/`
+;; globals, as in ordinary ClojureScript. A cell runs in the reader's own
+;; browser on code the reader can see, so there is nothing to sandbox.
+;;
 ;; `reagent.core` is an alias for `reagent2.core`, so a cell pasted from stock
 ;; reagent code still resolves.
 (def sci-ctx
   (sci/init
-   {:namespaces {'re-frame.core          re-frame-core-namespace
+   {:classes    {'js js/globalThis :allow :all}
+    :namespaces {'clojure.core           clojure-core-additions
+                 're-frame.core          re-frame-core-namespace
                  're-frame.capture-frame re-frame-capture-frame-namespace
                  're-frame.schemas       re-frame-schemas-namespace
                  're-frame.http.managed      (sci/copy-ns re-frame.http.managed http-managed-ns)
@@ -270,14 +292,14 @@
 ;; Cells register into the one process-global registrar. To tell a cell's
 ;; registrations from the framework's (the machines and flows artefacts'
 ;; subs and fxs, the adapter's installs), snapshot the registrar once, after
-;; the adapter installs and before any cell runs. `disposePage` clears
-;; everything outside this baseline. {kind #{id …}}, nil until captured.
+;; the adapter installs and before any cell runs. `disposePage` puts the
+;; registrar back to this baseline. {kind {id metadata}}, nil until captured.
 (defonce ^:private baseline-registrations (atom nil))
 
 (defn- capture-registration-baseline! []
   (when (nil? @baseline-registrations)
     (reset! baseline-registrations
-            (into {} (map (fn [k] [k (rf.registrar/ids k)])) rf.registrar/kinds))))
+            (into {} (map (fn [k] [k (rf.registrar/registrations k)])) rf.registrar/kinds))))
 
 (defn- ensure-init! []
   (ensure-adapter!)
@@ -400,9 +422,12 @@
        frame makes the next page start from its documented initial state, and
        drops any app-db schemas registered against it.
     3. Registrations. Without this, a later page could dispatch to a handler
-       it never registered and reach the outgoing page's. Everything outside
-       the baseline captured in `ensure-init!` is unregistered, so that
-       dispatch raises `:rf.error/no-such-handler` (or `-sub`) instead.
+       it never registered and reach the outgoing page's. The registrar goes
+       back to the baseline captured in `ensure-init!`: a cell's own
+       registrations are unregistered, so that dispatch raises
+       `:rf.error/no-such-handler` (or `-sub`) instead, and a framework
+       registration a cell replaced, such as `:rf.route/entry-denied`, gets
+       the framework's back.
     4. HTTP interceptors. They are keyed by frame id outside the registrar,
        so a later page's frame of the same id would otherwise inherit them.
 
@@ -417,13 +442,19 @@
   ;; `frame-ids` returns a snapshot, so destroying frames cannot disturb the loop.
   (doseq [id (rf/frame-ids)]
     (try (rf/destroy-frame! id) (catch :default _ nil)))
-  ;; Nothing to clear before any cell has run (baseline is nil).
+  ;; Nothing to restore before any cell has run (baseline is nil). Unregister
+  ;; whatever differs from the baseline before re-registering the baseline's,
+  ;; so a cell's override leaves no provenance slot behind in the source store.
   (when-let [baseline @baseline-registrations]
     (doseq [kind rf.registrar/kinds]
-      (let [baseline-ids (get baseline kind #{})]
-        (doseq [id (rf.registrar/ids kind)]
-          (when-not (contains? baseline-ids id)
-            (try (rf.registrar/unregister! kind id) (catch :default _ nil)))))))
+      (let [framework (get baseline kind {})
+            current   (rf.registrar/registrations kind)]
+        (doseq [[id m] current]
+          (when-not (identical? m (get framework id))
+            (try (rf.registrar/unregister! kind id) (catch :default _ nil))))
+        (doseq [[id m] framework]
+          (when-not (identical? m (get current id))
+            (try (rf.registrar/register! kind id m) (catch :default _ nil)))))))
   (try (rf.http.managed/clear-all-http-interceptors!) (catch :default _ nil))
   nil)
 
