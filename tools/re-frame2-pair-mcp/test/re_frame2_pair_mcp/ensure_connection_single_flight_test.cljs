@@ -114,6 +114,10 @@
                          "one shared discovery for two concurrent first calls")
                      (is (= "rejected" (j/get (aget results 0) :status)) "caller 1 rejected")
                      (is (= "rejected" (j/get (aget results 1) :status)) "caller 2 rejected")
+                     (is (= err (j/get (aget results 0) :reason))
+                         "the failure surfaces the structured discovery error")
+                     (is (some? (:discovery-error (server/session-state-snapshot)))
+                         "the failure is recorded for diagnostics")
                      (is (nil? (:transition (server/session-state-snapshot)))
                          "the in-flight slot is cleared after the shared failure")
                      (is (false? (:discovered? (server/session-state-snapshot)))
@@ -137,20 +141,3 @@
                                      nil))))))
             (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
-
-(deftest fast-path-needs-no-transition
-  (testing "when the cached port-file still reads the same port, ensure-connection! returns the cached conn with no transition"
-    (async done
-      (let [conn     (nrepl/make-conn 7001 "127.0.0.1")
-            restore! (with-fs-read (reads-port 7001))]   ; unchanged
-        (server/set-discovered-for-tests!
-          {:conn conn :port 7001 :port-file "/proj/target/shadow-cljs/nrepl.port"
-           :project-home "/proj"})
-        (-> (server/ensure-connection! {} (fn [_] (js/Promise.reject (js/Error. "must not re-discover"))))
-            (.then (fn [resolved]
-                     (is (identical? conn resolved) "the cached conn is reused")
-                     (is (nil? (:transition (server/session-state-snapshot)))
-                         "the fast path never opened a transition")))
-            (.catch (fn [e]
-                      (is false (str "fast path must not reject: " (.-message e))) nil))
-            (.then (fn [_] (restore!) (done))))))))

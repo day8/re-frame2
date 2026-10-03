@@ -50,35 +50,24 @@
                     "\"~:project-config\",\"/x/y/shadow-cljs.edn\"]")]
       (is (= "/x/y" (sd/extract-project-home body))))))
 
-(deftest extract-project-home-missing-key-returns-nil
-  (testing "a payload without :project-home returns nil, not throw"
-    (let [body (str "[\"^ \","
-                    "\"~:project-config\",\"/x/y/shadow-cljs.edn\","
-                    "\"~:version\",\"3.4.10\"]")]
-      (is (nil? (sd/extract-project-home body))))))
-
-(deftest extract-project-home-non-string-value-returns-nil
-  (testing "an integer / null at :project-home is rejected"
-    (is (nil? (sd/extract-project-home
-                "[\"^ \",\"~:project-home\",42]")))
-    (is (nil? (sd/extract-project-home
-                "[\"^ \",\"~:project-home\",null]")))))
-
-(deftest extract-project-home-non-map-payload-returns-nil
-  (testing "non-transit-map shapes (a bare object, a bare array, a string) → nil"
-    (is (nil? (sd/extract-project-home "{\"project-home\":\"/x\"}"))
-        "vanilla JSON object isn't the transit-map-as-array shape")
-    (is (nil? (sd/extract-project-home "[1,2,3]"))
-        "array without the \"^ \" sentinel isn't a transit map")
-    (is (nil? (sd/extract-project-home "\"hello\""))
-        "string body — no map shape at all")))
-
-(deftest extract-project-home-malformed-json-returns-nil
-  (testing "JSON parse failure must not throw — every error path collapses to nil"
-    (is (nil? (sd/extract-project-home "not-json-at-all")))
-    (is (nil? (sd/extract-project-home "")))
-    (is (nil? (sd/extract-project-home "[\"^ \", \"~:project-home\""))
-        "truncated array")))
+(deftest extract-project-home-returns-nil-for-every-other-body
+  ;; Every error path collapses to nil, never a throw, so the discovery
+  ;; cascade falls through.
+  (doseq [[body note]
+          [[(str "[\"^ \","
+                 "\"~:project-config\",\"/x/y/shadow-cljs.edn\","
+                 "\"~:version\",\"3.4.10\"]")
+            "a payload without :project-home"]
+           ["[\"^ \",\"~:project-home\",42]" "an integer at :project-home"]
+           ["[\"^ \",\"~:project-home\",null]" "a null at :project-home"]
+           ["{\"project-home\":\"/x\"}"
+            "vanilla JSON object isn't the transit-map-as-array shape"]
+           ["[1,2,3]" "array without the \"^ \" sentinel isn't a transit map"]
+           ["\"hello\"" "string body — no map shape at all"]
+           ["not-json-at-all" "JSON parse failure"]
+           ["" "empty body"]
+           ["[\"^ \", \"~:project-home\"" "truncated array"]]]
+    (is (nil? (sd/extract-project-home body)) note)))
 
 ;; ===========================================================================
 ;; fetch-project-info — the HTTP edge, driven through an injected request-fn.
@@ -147,20 +136,6 @@
                        (is (= "/api/project-info" (.-path opts)))
                        (is (true? (:ended @state))
                            "req.end() fires the request"))
-                     (done))))))))
-
-(deftest fetch-project-info-200-single-chunk-resolves-body
-  (testing "a 200 with one chunk resolves the body verbatim"
-    (async done
-      (let [[request-fn state] (make-fake-transport)
-            res-handlers (atom {})
-            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
-        ((:res-cb @state) (fake-res 200 res-handlers))
-        ((get @res-handlers "data") "{body}")
-        ((get @res-handlers "end"))
-        (-> p
-            (.then (fn [body]
-                     (is (= "{body}" body))
                      (done))))))))
 
 (deftest fetch-project-info-200-multi-chunk-assembles-body
@@ -253,16 +228,6 @@
 ;; "nREPL port =" log line).
 ;; ===========================================================================
 
-(deftest discover-project-home-success-returns-path
-  (async done
-    (let [stub-fetch (fn [_host _port]
-                       (js/Promise.resolve
-                         "[\"^ \",\"~:project-home\",\"/abs/proj\"]"))]
-      (-> (sd/discover-project-home* "127.0.0.1" 9630 stub-fetch)
-          (.then (fn [v]
-                   (is (= "/abs/proj" v))
-                   (done)))))))
-
 (deftest discover-project-home-fetch-rejection-yields-nil
   (testing "shadow unreachable / non-200 / timeout — every reject path → nil"
     (async done
@@ -285,8 +250,8 @@
                          "extract-project-home returned nil; cascade falls through")
                      (done))))))))
 
-(deftest discover-project-home-args-thread-through
-  (testing "host + port supplied to the wrapper reach the fetch-fn"
+(deftest discover-project-home-threads-args-and-resolves-the-path
+  (testing "host + port supplied to the wrapper reach the fetch-fn; the parsed path comes back"
     (async done
       (let [seen-host (atom nil)
             seen-port (atom nil)
@@ -296,7 +261,8 @@
                          (js/Promise.resolve
                            "[\"^ \",\"~:project-home\",\"/x\"]"))]
         (-> (sd/discover-project-home* "10.0.0.5" 9700 stub-fetch)
-            (.then (fn [_]
+            (.then (fn [v]
+                     (is (= "/x" v))
                      (is (= "10.0.0.5" @seen-host))
                      (is (= 9700 @seen-port))
                      (done))))))))

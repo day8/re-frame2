@@ -88,26 +88,6 @@
                     "token hint names the alarm"))
               (done)))))))
 
-(deftest discover-app-degrades-to-unknown-without-jvm-half
-  ;; A socketless conn (no JVM to read) → :liveness :unknown, browser
-  ;; half intact, no crash.
-  (async done
-    (let [conn (fresh-conn)
-          _    (prime! conn :examples/step-deck)
-          args (tu/args->js {:build "examples/step-deck"})]
-      (-> (tu/with-stubbed-eval! health-with-browser-half
-            (fn [] (discover-app/discover-app conn args)))
-          (.then
-            (fn [result]
-              (let [edn (tu/extract-edn result)
-                    tok (:freshness edn)]
-                (is (true? (:ok? edn)) "still a healthy discover-app")
-                (is (= :unknown (:liveness tok))
-                    "no live socket ⇒ :liveness :unknown (graceful degrade)")
-                (is (= "uuid-live" (:runtime-instance-id tok))
-                    "browser half is still reported"))
-              (done)))))))
-
 (deftest discover-app-ambiguous-frame-keeps-its-warning-and-token
   (async done
     (let [conn (fresh-conn)

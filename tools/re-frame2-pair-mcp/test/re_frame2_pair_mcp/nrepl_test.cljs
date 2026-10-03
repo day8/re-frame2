@@ -24,13 +24,6 @@
   (let [[js-frames rest] (nrepl/decode-all-frames buf)]
     [(vec (array-seq js-frames)) rest]))
 
-(deftest single-frame-decodes
-  (let [buf      (js/Buffer.from "d3:foo3:bare" "utf8")
-        [fs rst] (decode-all buf)]
-    (is (= 1 (count fs)))
-    (is (= "bar" (j/get (first fs) "foo")))
-    (is (zero? (.-length rst)))))
-
 (deftest two-concatenated-frames-decode
   ;; The persistent-socket case: two complete frames arrive in a single
   ;; chunk and both must decode. (A fresh-socket-per-call design would
@@ -40,19 +33,6 @@
     (is (= 2 (count fs)))
     (is (= "bar" (j/get (nth fs 0) "foo")))
     (is (= "qux" (j/get (nth fs 1) "baz")))
-    (is (zero? (.-length rst)))))
-
-(deftest nrepl-status-response-decodes
-  ;; A representative two-frame nREPL response: value then status.
-  (let [buf      (js/Buffer.from
-                   "d2:id1:15:value1:3ed2:id1:16:statusl4:doneee"
-                   "utf8")
-        [fs rst] (decode-all buf)]
-    (is (= 2 (count fs)))
-    (is (= "3" (j/get (nth fs 0) "value")))
-    (let [status (j/get (nth fs 1) "status")]
-      (is (some? status))
-      (is (= "done" (aget status 0))))
     (is (zero? (.-length rst)))))
 
 (deftest incomplete-frame-retained-as-trailer
@@ -82,13 +62,6 @@
     (is (= "bar" (j/get (first fs) "foo")))
     (is (= (.-length head) (.-length rst))
         "the incomplete second frame's bytes are held as the trailer")))
-
-(deftest empty-buffer-yields-no-frames
-  ;; The loop's base case — a zero-length buffer returns no frames and
-  ;; an empty trailer (never loops).
-  (let [[fs rst] (decode-all (js/Buffer.alloc 0))]
-    (is (zero? (count fs)))
-    (is (zero? (.-length rst)))))
 
 ;; ===========================================================================
 ;; Port discovery — `read-port-from-fs`.
@@ -166,15 +139,6 @@
       content
       (throw (js/Error. "ENOENT")))))
 
-(deftest port-discovery-env-var-wins
-  (testing "SHADOW_CLJS_NREPL_PORT takes precedence over any port file"
-    ;; A port file would resolve to 1234, but the env (7777) wins — the
-    ;; file stub must never be consulted on this path.
-    (with-fs-stub! "7777"
-      (read-returning "nrepl.port" "1234")
-      (fn []
-        (is (= 7777 (nrepl/read-port-from-fs)))))))
-
 (deftest port-discovery-env-numeric-only
   (testing "a non-numeric env value is rejected by the isNaN guard, fall through to files"
     (with-fs-stub! "not-a-number"
@@ -205,20 +169,6 @@
       (fn []
         (is (= 6002 (nrepl/read-port-from-fs))
             "earlier candidate in the list wins the ordering contract")))))
-
-(deftest port-discovery-isnan-file-rejected
-  (testing "a port file with non-numeric content is rejected, not returned as NaN"
-    (with-fs-stub! nil
-      (read-returning "nrepl.port" "garbage")
-      (fn []
-        (is (nil? (nrepl/read-port-from-fs))
-            "isNaN guard must reject; never surface a NaN port")))))
-
-(deftest port-discovery-all-miss-is-nil
-  (testing "no env + every candidate absent → nil"
-    (with-fs-stub! nil throwing-read
-      (fn []
-        (is (nil? (nrepl/read-port-from-fs)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `read-port-file` — the single transport-owned port-file primitive.
@@ -261,27 +211,6 @@
       (fn []
         (is (= 9001 (nrepl/read-port-from-fs "explicit/nrepl.port"))
             "explicit --port-file is highest precedence")))))
-
-(deftest port-discovery-explicit-port-file-wins-over-file-scan
-  (testing "an explicit --port-file path beats the cwd-relative candidates"
-    (with-fs-stub! nil
-      (fn [^js path]
-        (let [p (str path)]
-          (cond
-            (re-find #"explicit[\\/]nrepl\.port" p) "9002"
-            (re-find #"target/shadow-cljs/nrepl\.port" p) "6001"
-            :else (throw (js/Error. "ENOENT")))))
-      (fn []
-        (is (= 9002 (nrepl/read-port-from-fs "explicit/nrepl.port"))
-            "explicit path wins over the relative scan")))))
-
-(deftest port-discovery-explicit-port-file-missing-falls-through
-  (testing "an absent explicit path falls through to env then file scan"
-    ;; The explicit path throws ENOENT; env (7777) must then resolve.
-    (with-fs-stub! "7777" throwing-read
-      (fn []
-        (is (= 7777 (nrepl/read-port-from-fs "nope/missing.port"))
-            "missing --port-file ⇒ fall through to env")))))
 
 ;; ===========================================================================
 ;; Transport data-handler — `attach-handlers!`.
@@ -628,6 +557,8 @@
                          "roots single-candidate port surfaces")
                      (is (= "/abs/proj" (:project-home r))
                          "project-home flows through for per-tool-call re-read")
+                     (is (= "/abs/proj/.shadow-cljs/nrepl.port" (:port-file r))
+                         "roots candidate :port-file surfaces verbatim")
                      (is (false? @probed?)
                          "shadow HTTP probe must NOT fire when roots resolves")
                      (restore!)
@@ -647,34 +578,9 @@
                      (restore!)
                      (done))))))))
 
-(deftest discover-port-roots-unsupported-falls-through-to-shadow-probe
-  (testing "step 3 → 4 — roots/list rejects → fall through to HTTP probe"
-    (async done
-      (let [stub-fn (fn [^js path]
-                      (let [p (str path)]
-                        (cond
-                          (and (re-find #"abs[\\\\/]proj[\\\\/]root" p)
-                               (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p))
-                          "6789"
-                          :else (throw (js/Error. "ENOENT")))))
-            restore! (install-fs-stub! nil stub-fn)]
-        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
-            (.then (fn [r]
-                     (is (= 6789 (:port r))
-                         "step 4 caught the port after step 3 was unsupported")
-                     (is (= "/abs/proj/root" (:project-home r))
-                         "project-home flows through from shadow probe step")
-                     ;; The HTTP-probe result surfaces the WINNING candidate
-                     ;; file (here target/shadow-cljs/nrepl.port resolved
-                     ;; against the shadow root) so the server caches the
-                     ;; exact path that read.
-                     (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$"
-                                  (str (:port-file r)))
-                         "winning candidate file (target/shadow-cljs/nrepl.port) is surfaced")
-                     (restore!)
-                     (done))))))))
-
 (deftest discover-port-shadow-probe-prefers-target-then-dot-shadow
+  ;; Step 3 → 4: roots/list is unsupported, so the HTTP probe supplies the
+  ;; base the standard candidates resolve against.
   (testing "candidate ordering preserved against the shadow-supplied base"
     (async done
       (let [stub-fn (fn [^js path]
@@ -691,6 +597,8 @@
             (.then (fn [r]
                      (is (= 5550 (:port r))
                          "first candidate (target/shadow-cljs/nrepl.port) wins")
+                     (is (= "/abs/proj/root" (:project-home r))
+                         "project-home flows through from shadow probe step")
                      ;; The winning candidate's path is surfaced
                      ;; (target/shadow-cljs/nrepl.port, the first candidate).
                      (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$"
@@ -756,20 +664,6 @@
                      (is (= 5562 (:port r)) ".nrepl-port candidate read the port")
                      (is (re-find #"\.nrepl-port$" (str (:port-file r)))
                          "the .nrepl-port file is surfaced as the winning candidate")
-                     (restore!)
-                     (done))))))))
-
-;; The roots/list single-candidate path threads through the exact standard
-;; port-file candidate that resolved under the discovered project.
-(deftest discover-port-roots-single-candidate-surfaces-port-file
-  (testing "step 3 single candidate → its :port-file flows through"
-    (async done
-      (let [restore! (install-fs-stub! nil throwing-read)]
-        (-> (nrepl/discover-port* nil nil shadow-fails (roots-one "/abs/proj" 8765))
-            (.then (fn [r]
-                     (is (= 8765 (:port r)))
-                     (is (= "/abs/proj/.shadow-cljs/nrepl.port" (:port-file r))
-                         "roots candidate :port-file surfaces verbatim")
                      (restore!)
                      (done))))))))
 

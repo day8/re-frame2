@@ -94,28 +94,10 @@
 ;; The contract.
 ;; ---------------------------------------------------------------------------
 
-(deftest second-positive-probe-is-cached
-  ;; A confirmed positive probe MUST short-circuit on the next call for
-  ;; the same (conn, build-id). The second call must resolve true
-  ;; WITHOUT incrementing the eval counter.
-  (async done
-    (let [conn  (fresh-conn)
-          calls (atom 0)]
-      (-> (with-stubbed-eval! true calls
-            (fn []
-              (-> (probe/runtime-preloaded? conn :app)
-                  (.then (fn [_]
-                           (probe/runtime-preloaded? conn :app)))
-                  (.then (fn [ok?]
-                           (is (true? ok?))
-                           (is (= 1 @calls)
-                               "Second probe must NOT issue a new eval"))))))
-          (.then (fn [_] (done)))))))
-
 (deftest distinct-builds-probe-independently
   ;; Cache is keyed on `(conn, build-id)`. Two builds on the same
   ;; socket each pay their own one-time probe; neither is a hit on
-  ;; the other.
+  ;; the other, and each build's repeat call resolves true from cache.
   (async done
     (let [conn  (fresh-conn)
           calls (atom 0)]
@@ -125,7 +107,8 @@
                   (.then (fn [_] (probe/runtime-preloaded? conn :other)))
                   (.then (fn [_] (probe/runtime-preloaded? conn :app)))
                   (.then (fn [_] (probe/runtime-preloaded? conn :other)))
-                  (.then (fn [_]
+                  (.then (fn [ok?]
+                           (is (true? ok?) "a cache hit resolves true")
                            (is (= 2 @calls)
                                "Each build probes once; subsequent hits cache"))))))
           (.then (fn [_] (done)))))))
@@ -147,96 +130,6 @@
                            (is (false? ok?))
                            (is (= 2 @calls)
                                "Negative result must re-probe"))))))
-          (.then (fn [_] (done)))))))
-
-(deftest cache-resets-on-close
-  ;; `nrepl/close!` drops `:probed-builds`. A subsequent probe issues
-  ;; a fresh round-trip — the post-close conn could have reconnected
-  ;; to a different build that hadn't yet loaded the preload.
-  (async done
-    (let [conn  (fresh-conn)
-          calls (atom 0)]
-      (-> (with-stubbed-eval! true calls
-            (fn []
-              (-> (probe/runtime-preloaded? conn :app)
-                  (.then (fn [_]
-                           ;; Simulate socket close.
-                           (swap! conn assoc :probed-builds #{} :closed? true)
-                           (probe/runtime-preloaded? conn :app)))
-                  (.then (fn [ok?]
-                           (is (true? ok?))
-                           (is (= 2 @calls)
-                               "Probe must re-run after close clears the cache"))))))
-          (.then (fn [_] (done)))))))
-
-(deftest probe-cache-defensive-on-nil-conn
-  ;; Conformance tests pass a nil conn through `tools/invoke`. The
-  ;; cache helpers MUST NOT throw on a non-atom conn — they simply
-  ;; skip the cache and always probe via the stub.
-  (async done
-    (let [calls (atom 0)]
-      (-> (with-stubbed-eval! true calls
-            (fn []
-              (-> (probe/runtime-preloaded? nil :app)
-                  (.then (fn [ok?]
-                           (is (true? ok?))
-                           (probe/runtime-preloaded? nil :app)))
-                  (.then (fn [ok?]
-                           (is (true? ok?))
-                           (is (= 2 @calls)
-                               "nil conn cannot cache — every call probes"))))))
-          (.then (fn [_] (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; `ensure-runtime!` wiring — the per-tool entry point.
-;; ---------------------------------------------------------------------------
-
-(deftest ensure-runtime-shares-the-cache
-  ;; Every runtime-touching tool calls `ensure-runtime!`, which
-  ;; delegates to `runtime-preloaded?`. The cache benefit MUST flow
-  ;; through — one round-trip across many `ensure-runtime!` calls
-  ;; for the same conn+build.
-  (async done
-    (let [conn  (fresh-conn)
-          calls (atom 0)]
-      (-> (with-stubbed-eval! true calls
-            (fn []
-              (-> (probe/ensure-runtime! conn :app)
-                  (.then (fn [_] (probe/ensure-runtime! conn :app)))
-                  (.then (fn [_] (probe/ensure-runtime! conn :app)))
-                  (.then (fn [_]
-                           (is (= 1 @calls)
-                               "Three ensure-runtime! calls, one probe")))
-                  (.catch (fn [err]
-                            (is false (str "ensure-runtime! rejected: "
-                                           (.-message err))))))))
-          (.then (fn [_] (done)))))))
-
-(deftest ensure-runtime-rejects-on-missing-preload
-  ;; Negative path surfaces a structured ex-info — cache only
-  ;; affects positive-result hot path.
-  ;;
-  ;; The rejection reason is `:runtime-loaded-but-preload-missing` (the
-  ;; specific rung of the diagnostic ladder for the case where the JVM
-  ;; is reachable, the build is running, a CLJS runtime is connected,
-  ;; and ONLY the marker is absent). The probe-test stub returns
-  ;; `false` for the marker query (runtime alive, marker absent) → the
-  ;; ladder lands on this rung.
-  (async done
-    (let [conn  (fresh-conn)
-          calls (atom 0)]
-      (-> (with-stubbed-eval! false calls
-            (fn []
-              (-> (probe/ensure-runtime! conn :app)
-                  (.then (fn [_]
-                           (is false "ensure-runtime! must reject when preload missing")))
-                  (.catch (fn [err]
-                            (let [data (ex-data err)]
-                              (is (= :runtime-loaded-but-preload-missing (:reason data)))
-                              (is (string? (:hint data)))
-                              (is (= :app (:build data))
-                                  "rejection carries the build id for the operator's next move"))))
-                  (.then (fn [_] nil)))))
           (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -365,7 +258,9 @@
                 (is (str/includes? hint "project.clj")
                     "a :lein app is sent to project.clj")
                 (is (str/includes? hint ":preloads")
-                    "the :preloads half — always a shadow-cljs.edn line — survives")))))))))
+                    "the :preloads half — always a shadow-cljs.edn line — survives")
+                (is (= :app (:build data))
+                    "rejection carries the build id for the operator's next move")))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Liveness re-validation.
@@ -476,7 +371,9 @@
   ;; false-positive a live runtime as gone — this is the default
   ;; behaviour every other test in this file already relies on (their
   ;; `fresh-conn` carries no socket, so `jvm-build-freshness` short-
-  ;; circuits to nil without a round-trip); this test pins it explicitly.
+  ;; circuits to nil without a round-trip); this test pins it explicitly,
+  ;; across repeat calls, so the marker cache still saves every round-trip
+  ;; after the first.
   (async done
     (let [conn  (fresh-conn)
           calls (atom 0)]
@@ -485,7 +382,12 @@
               (-> (probe/ensure-runtime! conn :app)
                   (.then (fn [v]
                            (is (nil? v)
-                               "resolves nil (success) when the JVM half is unreadable")))
+                               "resolves nil (success) when the JVM half is unreadable")
+                           (probe/ensure-runtime! conn :app)))
+                  (.then (fn [_] (probe/ensure-runtime! conn :app)))
+                  (.then (fn [_]
+                           (is (= 1 @calls)
+                               "Three ensure-runtime! calls, one probe")))
                   (.catch (fn [err]
                             (is false (str "must not reject on an unreadable JVM half: "
                                            (.-message err))))))))

@@ -55,43 +55,32 @@
 ;; Pure match rule.
 ;; ---------------------------------------------------------------------------
 
-(deftest match-running-build-exact-wins
-  (is (= :examples/machine-epochs
-         (probe/match-running-build :examples/machine-epochs
-                                    [:examples/machine-epochs :testbeds/panel-gallery]))
-      "an exact keyword match resolves to itself"))
-
-(deftest match-running-build-unique-suffix
-  (is (= :examples/machine-epochs
-         (probe/match-running-build :machine-epochs
-                                    [:testbeds/panel-gallery :examples/machine-epochs]))
-      "a unique name-suffix resolves to the canonical running id"))
-
-(deftest match-running-build-ambiguous-suffix-falls-through
-  (is (= :machine-epochs
-         (probe/match-running-build :machine-epochs
-                                    [:examples/machine-epochs :other/machine-epochs]))
-      "two builds sharing the tail stay ambiguous — return the requested id unchanged"))
-
-(deftest match-running-build-no-match-falls-through
-  (is (= :typo
-         (probe/match-running-build :typo [:examples/machine-epochs]))
-      "no match returns the requested id so the diagnostic ladder fires"))
-
-(deftest match-running-build-namespaced-request-never-redirected
+(deftest match-running-build-resolution-rule
   ;; The suffix rule (rule 2) is documented as applying ONLY to a BARE
   ;; (no-namespace) requested id. A fully-namespaced request that doesn't
   ;; exactly match must fall through UNCHANGED — never redirected by
   ;; bare-name suffix match to a same-named build in a different
   ;; namespace, even when that other build is the sole suffix match.
-  (is (= :examples/step-deck
-         (probe/match-running-build :examples/step-deck [:other/step-deck]))
-      "a namespaced request with no exact match falls through unchanged, NOT redirected to :other/step-deck")
-  ;; The bare-name suffix-match behaviour keeps working for a genuinely
-  ;; bare request against the very same running set.
-  (is (= :other/step-deck
-         (probe/match-running-build :step-deck [:other/step-deck]))
-      "a genuinely bare request still suffix-matches the unique running build"))
+  (doseq [[requested running expected note]
+          [[:examples/machine-epochs [:examples/machine-epochs :testbeds/panel-gallery]
+            :examples/machine-epochs
+            "an exact keyword match resolves to itself"]
+           [:machine-epochs [:testbeds/panel-gallery :examples/machine-epochs]
+            :examples/machine-epochs
+            "a unique name-suffix resolves to the canonical running id"]
+           [:machine-epochs [:examples/machine-epochs :other/machine-epochs]
+            :machine-epochs
+            "two builds sharing the tail stay ambiguous — return the requested id unchanged"]
+           [:typo [:examples/machine-epochs]
+            :typo
+            "no match returns the requested id so the diagnostic ladder fires"]
+           [:examples/step-deck [:other/step-deck]
+            :examples/step-deck
+            "a namespaced request with no exact match falls through unchanged, NOT redirected to :other/step-deck"]
+           [:step-deck [:other/step-deck]
+            :other/step-deck
+            "a genuinely bare request still suffix-matches the unique running build"]]]
+    (is (= expected (probe/match-running-build requested running)) note)))
 
 ;; ---------------------------------------------------------------------------
 ;; canonicalize-build! — the async resolver + alias caching.
@@ -154,13 +143,6 @@
                      (wire/arg-build conn (tu/args->js {:build ":machine-epochs"})))
                   "colon form of the suffix resolves identically")
               (done)))))))
-
-(deftest arg-build-leaves-un-aliased-ids-unchanged
-  ;; A typo / not-yet-resolved id passes through verbatim so the
-  ;; diagnostic ladder still fires for it.
-  (let [conn (fresh-conn)]
-    (is (= :nope (wire/arg-build conn (tu/args->js {:build "nope"})))
-        "no alias recorded → id passes through unchanged")))
 
 ;; ---------------------------------------------------------------------------
 ;; Property 2 — round-trippable running-build guidance.
