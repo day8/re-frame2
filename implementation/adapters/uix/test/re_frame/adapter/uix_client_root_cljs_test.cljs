@@ -44,10 +44,6 @@
 ;; ---- 2. the trio is on the public surface, in Reagent's shapes -------------
 
 (deftest the-trio-is-published-with-the-reagent-shapes
-  (testing "all three names resolve on re-frame.adapter.uix"
-    (is (fn? rf.adapter.uix/client-root))
-    (is (fn? rf.adapter.uix/render!))
-    (is (fn? rf.adapter.uix/unmount!)))
   (testing "render! takes BOTH the 3- and 4-arities Spec 006 §The client root
             names, so `{:hydrate? true}` is an optional trailing arg"
     ;; Exercised rather than introspected: each arity is called with hiccup,

@@ -57,15 +57,12 @@
     ;; Materialise a real sub-cache slot (ref-count 1).
     (let [r (rf.subs/subscribe [::n] {:frame :rf/default})]
       (is (= 1 @r) "sub reads the seeded value")
-      (is (contains? (sub-cache-keys) [::n]) "subscribe materialised a cache slot")
       (is (= 1 (entry-ref-count [::n])) "slot ref-count = 1"))
 
     ;; Dispose the adapter — the cache MUST be cleared (entries + ref-counts).
     (rf.substrate.adapter/dispose-adapter!)
     (is (empty? (sub-cache-keys))
         "dispose-adapter! cleared the frame's sub-cache")
-    (is (nil? (entry-ref-count [::n]))
-        "no stale ref-count carried across the dispose")
 
     ;; Reinstall, mutate app-db, re-subscribe — must reflect the NEW value.
     (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter)

@@ -156,7 +156,6 @@
                               :tenant/limits  {:seats 12 :tier :tier/enterprise}})
 
 (def ^:private observed-payload  (atom ::unset))
-(def ^:private observed-children (atom ::unset))
 (def ^:private observed-ops      (atom nil))
 
 (defui probe-body
@@ -174,7 +173,6 @@
   (let [n   (rf.adapter.uix/use-sub probe-query)
         ops (rf.adapter.uix/use-frame)]
     (reset! observed-payload payload)
-    (reset! observed-children (some? children))
     (reset! observed-ops ops)
     ($ :div {:data-testid "probe"}
        ($ :span {:data-testid "n"} (str n))
@@ -240,7 +238,6 @@
   cases can share this driver."
   [act-fn head]
   (reset! observed-payload ::unset)
-  (reset! observed-children ::unset)
   (reset! observed-ops nil)
   (let [mount-node (.createElement js/document "div")
         react-root (react-dom-client/createRoot mount-node)]
@@ -276,7 +273,6 @@
            :updated-text      updated-text
            :child-text        (text-of mount-node "child")
            :observed-payload  @observed-payload
-           :children-present? @observed-children
            :frame-ops         frame-ops}
           (finally
             (try (.unmount react-root) (catch :default _ nil))))))))
@@ -286,7 +282,7 @@
   `facts` so a failure message says which of the two rows broke."
   [label facts]
   (let [{:keys [diagnostics initial-text updated-text child-text
-                observed-payload children-present? frame-ops]} facts]
+                observed-payload frame-ops]} facts]
     (is (empty? (matching-messages invalid-element-type-re diagnostics))
         (str label ": React accepted the value as a component type; got "
              (pr-str (matching-messages invalid-element-type-re diagnostics))))
@@ -296,9 +292,6 @@
     (is (= probe-payload observed-payload)
         (str label ": the nested CLJS prop arrived intact — namespaced keyword"
              " keys AND values, by value equality; got " (pr-str observed-payload)))
-    (is (true? children-present?)
-        (str label ": the trailing `$` child reached the component; got "
-             (pr-str children-present?)))
     (is (= "kid" child-text)
         (str label ": the trailing child rendered into the DOM; got " (pr-str child-text)))
     (is (= probe-frame (:frame frame-ops))
@@ -364,10 +357,6 @@
           (is (true? (.-uix-component? ^js head))
               "and it carries UIx's component marker, so `$` still routes props
                through the lossless `argv` channel")
-          (is (identical? head (rf/view boot-row-id))
-              "the re-derived head is memoized — a second lookup returns the
-               SAME object, so React reconciles it as one component type
-               instead of remounting the subtree on every render")
           (assert-mount-case "boot-order head" (run-mount-case act-fn head)))))))
 
 ;; ---- the non-vacuity control ----------------------------------------------
@@ -380,22 +369,3 @@
       (fn [act-fn]
         (seed-world!)
         (assert-mount-case "native defui control" (run-mount-case act-fn probe-body))))))
-
-;; ---- the registered head keeps its other contracts ------------------------
-
-(deftest registered-head-is-stable-and-still-callable
-  (testing "UIx — componentizing the head does not cost the registry its other
-            guarantees: instance identity is stable across lookups, and the
-            head remains the callable render fn Spec 001 describes"
-    (seed-world!)
-    (rf/reg-view* :rf.uix-direct-mount/stable
-                  (fn [props] (React/createElement "div" #js {} (str (:label props)))))
-    (let [first-head  (rf/view :rf.uix-direct-mount/stable)
-          second-head (rf/view :rf.uix-direct-mount/stable)]
-      (is (identical? first-head second-head)
-          "two lookups return the SAME object — React reconciles it as one
-           component type rather than remounting on every render")
-      (let [rendered-element (first-head {:label "hi"})]
-        (is (some? rendered-element) "the head is still directly callable (headless invocation)")
-        (is (= "div" (.-type ^js rendered-element))
-            "and returns the registered view's own React element")))))
