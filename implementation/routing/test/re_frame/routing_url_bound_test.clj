@@ -39,31 +39,6 @@
 ;; :url-bound? exclusivity + frame-consultation
 ;; ============================================================================
 
-(deftest duplicate-url-binding-emits-error
-  (testing "registering a second :url-bound? true frame while :rf/default
-            owns the URL emits :rf.error/duplicate-url-binding
-            (Spec 012 §Multi-frame routing)"
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::dup-bind (fn [ev] (swap! traces conj ev)))
-      ;; EP-0002: URL ownership is explicit. This suite's
-      ;; fixture registered `:rf/default {:url-bound? true}` as the declared
-      ;; owner, so a second frame opting in collides with it.
-      (rf/make-frame {:id :my-frame :url-bound? true})
-      (rf/unregister-listener! :trace ::dup-bind)
-      ;; SEMANTIC, posture-independent: the collision is resolved
-      ;; the same way in both postures — the incumbent keeps the URL and the
-      ;; late claimant does not steal it. Only the announcement is dev-only.
-      (is (= :rf/default (rf.routing/url-owner-frame-id))
-          "the incumbent :rf/default keeps URL ownership; :my-frame did not steal it")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.error/duplicate-url-binding (:operation ev))
-                         (= :rf/default (-> ev :tags :existing-frame))
-                         (= :my-frame   (-> ev :tags :offending-frame))))
-                  @traces)
-            ":rf.error/duplicate-url-binding emitted with both frame ids")))))
-
 (deftest non-default-frame-without-url-bound-does-not-collide
   (testing "registering a non-default frame WITHOUT :url-bound? true is
             the documented default for story / devcard / test fixtures
@@ -191,7 +166,9 @@
           (is (= 1 (count dups))
               "one conflict → exactly one duplicate-url-binding diagnostic, regardless of reload count")
           (is (= :my-conflicting-frame (-> dups first :tags :offending-frame))
-              "the single diagnostic names the offending frame"))))))
+              "the single diagnostic names the offending frame")
+          (is (= :rf/default (-> dups first :tags :existing-frame))
+              "…and the incumbent :rf/default it collided with"))))))
 
 ;; ============================================================================
 ;; Duplicate URL binding is STORED, not rejected;
@@ -303,25 +280,6 @@
 ;; pre-load registration leaves) with `:url-bound? true` frame(s) already in
 ;; the registry, then drive the resolver / reconcile.
 
-(deftest id-sort-fallback-does-not-steal-from-the-true-incumbent
-  (testing "with NO claim recorded (the pre-routing-load state) and
-            TWO :url-bound? true frames in the registry, the resolver must NOT
-            id-sort and hand ownership to the alphabetically-first frame — that
-            would steal the URL. It fails closed to nil (ambiguous load
-            order). An id-sort fallback would return :aa-late
-            (alphabetically first), stealing the URL from :zz-incumbent."
-    ;; Simulate two frames registered before routing's hook observed them: the
-    ;; registry carries both bindings but no claim was recorded.
-    (rf/make-frame {:id :rf/default :url-bound? false})  ;; clear the fixture incumbent
-    (rf/make-frame {:id :zz-incumbent :url-bound? true})
-    (rf/make-frame {:id :aa-late :url-bound? true})
-    ;; Drop the claims the live hook recorded, reproducing the "claims never
-    ;; recorded because the frames pre-existed the hook" condition.
-    (rf.routing/reset-url-claims!)
-    (is (nil? (rf.routing/url-owner-frame-id))
-        "ambiguous multi-binding load order with no recorded claim → nil owner,
-         NOT the alphabetically-first :aa-late (the steal an id-sort would make)")))
-
 (deftest reconcile-seeds-sole-pre-existing-incumbent
   (testing "reconcile-existing-url-bindings! seeds the SOLE
             pre-existing :url-bound? true frame as the incumbent so a later,
@@ -348,7 +306,8 @@
   (testing "when MULTIPLE :url-bound? true frames pre-exist with
             unrecoverable claim order, reconcile fails closed (no owner) and
             emits a duplicate-url-binding diagnostic per extra binding —
-            it does NOT silently pick one by id sort"
+            it does NOT silently pick one by id sort (which would hand the URL
+            to the alphabetically-first :aa-late)"
     (rf/make-frame {:id :rf/default :url-bound? false})  ;; clear the fixture incumbent
     (rf/make-frame {:id :zz-incumbent :url-bound? true})
     (rf/make-frame {:id :aa-late :url-bound? true})

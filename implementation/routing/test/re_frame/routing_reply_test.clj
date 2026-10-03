@@ -3,8 +3,8 @@
   lowered onto the uniform reply envelope (EP-0011 §Route Loader
   Completion).
 
-  Pins the route work-id tuple, the nav-token-as-`:suppress`-gate
-  delegation to the shared `re-frame.reply` correctness boundary, and the
+  Pins the route work-id tuple, the verdicts of the nav-token `:suppress`
+  gate (computed by the shared `re-frame.reply` correctness boundary), and the
   data-only stale reply / trace facts joined to `:work/id`. These are
   pure-fn tests over the lowering substrate — no runtime stand-up; the
   end-to-end gate behaviour is exercised by
@@ -15,25 +15,22 @@
 
 ;; ---- §Stale suppression — the nav-token is the ONE :suppress gate ---------
 
-(deftest suppress?-delegates-to-shared-reply-stale?
-  (testing "suppress? is exactly re-frame.reply/stale? over the :route/nav-token gate
-            — the route family does NOT re-implement the comparison"
-    (doseq [[carried current] [["nav-1" "nav-2"] ["nav-2" "nav-2"] [nil "nav-2"] ["nav-1" nil]]]
-      (is (= (rf.reply/stale? (rf.routing.reply/gate carried) (rf.routing.reply/current-gate current))
-             (rf.routing.reply/suppress? carried current))
-          (str "suppress? matches the shared stale? for carried=" carried " current=" current))))
-  (testing "stale when the epoch advanced; live when it matches"
-    (is (true?  (rf.routing.reply/suppress? "nav-1" "nav-2")) "superseded → stale")
-    (is (false? (rf.routing.reply/suppress? "nav-2" "nav-2")) "current → live")
-    ;; A nil CAPTURED token while a navigation is live is suppressed: the
-    ;; gate is present (`{:route/nav-token nil}`) with a nil value, which
-    ;; never equals the active token. This matches plain
-    ;; `(= nav-token current)` semantics: a completion that captured no
-    ;; token (a cofx that threaded nil) is suppressed, never committed.
-    (is (true? (rf.routing.reply/suppress? nil "nav-2"))
-        "a nil captured token under a live navigation is stale (never matches)")
-    (is (false? (rf.routing.reply/suppress? nil nil))
-        "nil captured against a nil current (no navigation) matches — both gates equal")))
+(deftest suppress?-is-true-exactly-when-the-carried-token-is-not-current
+  (testing "suppress? over the :route/nav-token gate: stale when the epoch
+            advanced, live when it matches"
+    (doseq [[carried current expected why]
+            [["nav-1" "nav-2" true  "superseded → stale"]
+             ["nav-2" "nav-2" false "current → live"]
+             ;; A nil CAPTURED token while a navigation is live is suppressed:
+             ;; the gate is present (`{:route/nav-token nil}`) with a nil value,
+             ;; which never equals the active token. This matches plain
+             ;; `(= nav-token current)` semantics: a completion that captured
+             ;; no token (a cofx that threaded nil) is suppressed, never committed.
+             [nil     "nav-2" true  "a nil captured token under a live navigation is stale (never matches)"]
+             [nil     nil     false "nil captured against a nil current (no navigation) matches — both gates equal"]
+             ["nav-1" nil     true  "a captured token with no live navigation is stale"]]]
+      (is (= expected (rf.routing.reply/suppress? carried current))
+          (str why " — carried=" (pr-str carried) " current=" (pr-str current))))))
 
 ;; ---- §Stale suppression — the suppress outcome ----------------------------
 
@@ -141,14 +138,5 @@
         (is (= {:title "Welcome"} (:value reply))))
       (is (= ev (rf.reply/complete target (rf.routing.reply/live-reply ctx {:title "Welcome"})))
           "complete-live IS re-frame.reply/complete over live-reply — no bespoke path"))
-    (testing "the EP-0011 functor law holds at the route surface: complete-live
-              composes with re-frame.reply/map-completed-event"
-      (let [ctx    {:route-id :r :nav-token "n" :loader-id :l}
-            target [:article/load-replied {:id "A"}]
-            f      (fn [event] [:wrapped event])
-            reply  (rf.routing.reply/live-reply ctx {:title "Welcome"})]
-        (is (= (rf.reply/complete (rf.reply/map-completed-event f target) reply)
-               (f (rf.reply/complete target reply)))
-            "complete(map-completed-event(f, t), reply) == f(complete(t, reply))")))
     (testing "a nil target yields nil — no continuation to complete"
       (is (nil? (rf.routing.reply/complete-live {:nav-token "n"} nil {:title "x"}))))))

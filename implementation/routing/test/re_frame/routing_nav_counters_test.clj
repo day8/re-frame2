@@ -18,8 +18,8 @@
       runtime-db route slice, the NEXT navigate mints a FRESH token that
       does NOT recycle a pre-restore value;
     - the counters are NOT in runtime-db;
-    - `:pending-navigation` STAYS in runtime-db (subscribable) but is
-      stripped from the SSR hydration payload;
+    - `:pending-navigation` STAYS in runtime-db (subscribable) while its
+      pending-nav counter is host-side;
     - the routing classification table + SSR allowlist share one source
       of truth."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -105,9 +105,7 @@
       (let [fresh (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/routing :current :nav-token])]
         (is (= "nav-4" fresh)
-            "post-restore navigation mints nav-4 — monotone past the high-water mark")
-        (is (not (contains? #{"nav-1" "nav-2" "nav-3"} fresh))
-            "the fresh token does NOT recycle any pre-restore value (the invariant host-side allocation protects)")))))
+            "post-restore navigation mints nav-4 — monotone past the high-water mark, so no pre-restore value is recycled")))))
 
 (deftest restore-rewinds-runtime-db-counter-would-recycle-without-the-move
   (testing "control: a counter held IN the restored runtime-db would be
@@ -140,9 +138,6 @@
     (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                            [:rf.runtime/routing :current :nav-token]))
         "the host high-water mark (2) drives the next alloc to nav-3, ignoring the planted stale runtime-db counter")
-    (is (not= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                              [:rf.runtime/routing :current :nav-token]))
-        "the allocator did NOT consult the planted runtime-db counter (which would have minted nav-2)")
     ;; The commit handler never WRITES the counter to runtime-db — the only
     ;; runtime-db routing key it touches is :current (the slice). A stale
     ;; planted key is left as-is (the handler is not responsible for
@@ -150,7 +145,7 @@
     (is (= 3 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
         "the host high-water mark advanced 2 → 3 (the planted runtime-db value never fed it)")))
 
-;; ---- :pending-navigation stays subscribable but is SSR-stripped ----------
+;; ---- :pending-navigation stays subscribable; its counter is host-side ----
 
 (deftest pending-navigation-subscribable-and-pending-nav-counter-host-side
   (testing "a blocked navigation writes :pending-navigation
