@@ -126,6 +126,9 @@ uninstall can restore a previous page's routes.
   timers. Each page registers what it uses.
 - **Never create a `:url-bound? true` frame.** It would take over the docs
   site's address bar. Routing works on in-memory frames.
+- **A link in a cell works as it does in an app.** A fragment link such as
+  `[:a {:href "#" :on-click ...}]` runs its handler and leaves the page where
+  it is. A link to another docs page navigates there.
 
 ## Build
 
@@ -173,7 +176,8 @@ re-render on dispatch (including machine, flow, schema and multi-frame
 cells), that Fresco cells render through the same fence, that stubbed HTTP
 and resource cells load, that routing, epoch and SSR are present, and that
 navigating away releases the outgoing page's React roots, frames and
-registrations. Build both bundles first.
+registrations, and that a fragment link in a cell stays in the cell. Build
+both bundles first.
 
 ## How it works
 
@@ -189,6 +193,12 @@ site.
 1. calls `window.rf2sci.disposePage()` to release the previous page's cells;
 2. injects the engine for each cell kind on the page, once per document;
 3. replaces each `<pre>` with a CodeMirror 6 editor and a result area.
+
+A click on a link in a result area whose href is a fragment, or which has no
+href, stops at the cell and does not navigate. Material's instant navigation
+handles every same-site link click at `document.body` and ignores
+`preventDefault`, so without this it would re-fetch the page and re-run every
+cell.
 
 The re-frame2 engine's URL resolves relative to `playground.js`, so the site
 works both at a domain root and under `/re-frame2/`. Plain-cell pages never load the

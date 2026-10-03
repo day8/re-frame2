@@ -180,6 +180,29 @@ const editorTheme = EditorView.theme({
   ".cm-content span": { backgroundColor: "transparent" },
 });
 
+// --- Links inside a cell ----------------------------------------------------
+//
+// A link in a cell's result area whose href is a fragment (`href="#"`), or
+// which has no href, belongs to the cell's app, so the docs page must not act
+// on it. Material's instant navigation listens for clicks on document.body and
+// ignores preventDefault. On a freshly loaded page it re-fetches the page for
+// a fragment link, which re-runs every cell, and an anchor with no href throws
+// inside it and turns instant navigation off. The browser's own fragment
+// navigation fires popstate, which instant navigation treats the same way. So
+// such a click stops at the cell, after the cell's own handlers have run, and
+// does not navigate. A link to another page still navigates instantly.
+function keepFragmentLinksInCell(wrap, resultEl) {
+  wrap.addEventListener("click", (ev) => {
+    const a = ev.target instanceof Element ? ev.target.closest("a") : null;
+    if (!a || !resultEl.contains(a)) return;
+    const href = a.getAttribute("href");
+    if (href === null || href.startsWith("#")) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+  });
+}
+
 // --- Cell mount ------------------------------------------------------------
 
 function mountCell(preEl) {
@@ -196,6 +219,7 @@ function mountCell(preEl) {
   resultEl.className = kind === "rf2" ? "cljs-result cljs-mount" : "cljs-result";
   wrap.appendChild(editorHost);
   wrap.appendChild(resultEl);
+  keepFragmentLinksInCell(wrap, resultEl);
 
   // Mark both elements so a re-scan after instant navigation skips this cell.
   preEl.dataset.cljsMounted = "1";
