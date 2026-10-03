@@ -124,9 +124,7 @@
           (let [opts (:opts @captured)]
             (is (contains? opts :pump!) ":pump! key is present in the forwarded opts")
             (is (nil? (:pump! opts))
-                "an EXPLICIT nil :pump! is passed through, NOT replaced by the default")
-            (is (not (identical? (default-pump) (:pump! opts)))
-                "…confirming the default did not win")))
+                "an EXPLICIT nil :pump! is passed through, NOT replaced by the default")))
 
         (testing "EXPLICIT values thread through: :ssr-blocking-timeout-ms →
                   :deadline-ms, a custom :pump!, and :tick-ms"

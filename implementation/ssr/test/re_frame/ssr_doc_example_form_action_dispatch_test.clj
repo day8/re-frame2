@@ -220,9 +220,8 @@
                    (get-in db [:cart :add-form :draft]))
                 "the submitted values went back into the draft — with JS off
                  the re-render reads the SLICE, so without this the user's
-                 input is lost")
-            (is (not (contains? (get-in db [:cart :add-form :draft]) :csrf-token))
-                "and the token did NOT, because the page re-renders this slice")
+                 input is lost — and the token did NOT, because the page
+                 re-renders this slice")
             (is (seq (get-in db [:cart :add-form :errors :quantity]))
                 "with the field error beside it")
             (is (nil? (get-in db [:cart :items]))
@@ -366,22 +365,3 @@
         "so an event carrying the identical schema mark ships the token RAW —
          which is exactly why the registration `:sensitive` path is needed
          beside it, not instead of it")))
-
-;; ---------------------------------------------------------------------------
-;; The helpers the page publishes are the ones driven above
-;; ---------------------------------------------------------------------------
-
-(deftest the-published-helpers-are-the-ones-the-dispatched-arm-used
-  (testing "the 400 arm's `:errors` map above came out of the
-            page's own `explain->errors`, not a transcription."
-    (install-action!)
-    (let [explain->errors (extracted 'explain->errors)
-          fields          (extracted 'AddToCartFields)
-          errors          (explain->errors
-                           (m/explain fields {:item-id "sku-1" :quantity 0}))]
-      (is (map? errors) "a per-field error map, as Pattern-Forms expects")
-      (is (contains? errors :quantity)
-          "keyed by the failing field, so the view renders it beside the input")
-      (is (= (me/humanize (m/explain fields {:item-id "sku-1" :quantity 0}))
-             errors)
-          "and it is the humanized explanation, not a re-shaped copy"))))

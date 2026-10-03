@@ -12,10 +12,14 @@
   `:status` onto `:rf/response` whenever an exception escapes a server-
   frame drain — so the listener install MUST survive the JVM dev gate.
 
-  This suite pins that contract: under `with-redefs [interop/debug-
-  enabled? false]` (the same vocabulary jvm_prod_gate_integration_test
-  uses for the same posture), a server-frame handler that throws still
-  results in the projector stamping :status 500 onto :rf/response.
+  This suite pins the install itself: the `::error-projection` listener
+  sits on the always-on registry, and a record delivered through
+  `dispatch-on-error!` reaches the projector buffer and stamps :status 500
+  onto :rf/response without the dev trace bus. The full cascade — a
+  server-frame handler that throws, projected to 500 — is
+  `re-frame.ssr-end-to-end-test/ssr-default-error-projector-handler-exception`,
+  which runs under the real `-Dre-frame.debug=false` gate in
+  `scripts/test-ssr-prod-gate.sh`.
 
   Companion suites:
     - `re-frame.ssr-end-to-end-test` — the end-to-end coverage, run in both
@@ -25,55 +29,17 @@
     - `re-frame.epoch.jvm-prod-gate-test` — the same posture for the
       epoch artefact.
 
-  The shape mirrors `jvm_prod_gate_integration_test`'s `always-on-
-  error-emit-still-fires-when-debug-disabled` test: flip the gate,
-  drive a known-throwing handler through the cascade, observe the
-  always-on surface still works. This suite extends that contract one
-  step further — into the SSR-artefact's framework-internal use of the
-  same substrate."
+  It is the SSR-artefact counterpart of `jvm_prod_gate_integration_test`'s
+  `always-on-error-emit-still-fires-when-debug-disabled` test: the same
+  always-on substrate, reached by the SSR artefact's framework-internal
+  listener."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
-
-(deftest ssr-error-projector-fires-under-production-hardening-rf2-fb598
-  (testing "Spec 011 §Server error projection holds when
-            `interop/debug-enabled? = false` — the always-on error-emit
-            substrate carries the projector install, not the dev-only
-            trace surface. A server-frame handler that throws still
-            stamps :status 500 onto :rf/response."
-    ;; :load/article throws at RENDER time (a post-construction request
-    ;; dispatch against the live frame) — NOT as an :initial-events setup
-    ;; step. Construction-time :initial-events is STRICT (EP-0027 §Failure):
-    ;; a THROWN setup step tears
-    ;; the partial frame down and is the OUTER :on-error transport path (Spec
-    ;; 011 §`:on-error` vs `:error-view`), NOT a projector-catches-it case. The projector covers errors
-    ;; INSIDE the render/cascade drain — exactly what a post-construction
-    ;; request dispatch models. :rf/server-init is a clean no-op setup step.
-    (rf/reg-event :load/article
-      (fn [_ _]
-        (throw (ex-info "Database connection failed" {}))))
-    (rf/reg-event :rf/server-init
-      (fn [_ _] {}))
-
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [f (rf.frame/make-anon-frame-record!
-                {:platform  :server
-                 :initial-events [[:rf/server-init]]
-                 :ssr       {:public-error-id   :rf.ssr/default-error-projector
-                             :dev-error-detail? false}})
-            _ (rf/dispatch-sync [:load/article] {:frame f})
-            response (rf.ssr/get-response f)]
-        (is (= 500 (:status response))
-            "Spec 011 §Server error projection — the default projector
-             stamps :status 500 on :rf/response even with the dev trace
-             gate disabled (production-hardening posture). The install is
-             on the always-on register-error-listener! substrate; an install
-             on register-listener! would elide under this gate.")))))
 
 (deftest ssr-error-projector-direct-substrate-install-rf2-fb598
   (testing "The error-emit listener is registered under
@@ -89,7 +55,7 @@
       ;; on-error!` (the same surface `router.cljc` and `fx.cljc` use).
       ;; This bypasses the cascade so the test isolates the listener-
       ;; install plumbing — the round-trip through the dispatch loop is
-      ;; covered by the end-to-end suite above and ssr_end_to_end_test.
+      ;; pinned by `re-frame.ssr-end-to-end-test/ssr-default-error-projector-handler-exception`.
       (let [dispatch-on-error!
             (requiring-resolve 're-frame.error-emit/dispatch-on-error!)
             ex (ex-info "boom" {})]

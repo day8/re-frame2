@@ -246,6 +246,8 @@
             schema, every client submission would take the
             validation-failure arm — a 400 and no navigation, in production,
             because the handler's arm is ordinary code and does not elide.
+            The CSRF arm is guarded on coeffect PRESENCE, so it does not fire
+            here either — ungated, it would 403 every client submission.
             The success arm is the assertion."
     (let [{:keys [db fx]} (invoke {:server? false} client-dispatch)]
       (is (= [[:dispatch [:rf.route/navigate {:to :route/cart}]]] fx)
@@ -259,7 +261,9 @@
   (testing "The other legitimate call site. The server POST carries
             one extra key — the token — and must be accepted by the same
             handler and the same field schema, then answered with the canonical
-            POST-redirect-GET."
+            POST-redirect-GET. `server-post` is the raw wire body decoded by
+            the page's own seam, so this is the end-to-end claim from the bytes
+            a browser sends to the response."
     (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"} @server-post)]
       (is (= [[:rf.server/redirect {:status 303 :location "/cart"}]] fx)
           "the server arm emits the 303, not the client's :dispatch")
@@ -268,7 +272,7 @@
            written into app-db"))))
 
 ;; ===========================================================================
-;; (1b) THE TRANSPORT SEAM: a real form-urlencoded body reaches the 303
+;; (1b) THE TRANSPORT SEAM: a real form-urlencoded body through the page's seam
 ;; ===========================================================================
 
 (deftest the-parsed-body-is-strings-keyed-by-strings
@@ -301,17 +305,6 @@
           "the seam keywordises the keys and coerces :quantity to an integer,
            leaving the two string fields alone"))))
 
-(deftest the-no-js-post-reaches-303-driven-from-the-wire
-  (testing "The end-to-end claim, from the bytes a browser
-            puts on the wire through the documented seam to the response. A
-            hard-coded body could not make this assertion."
-    (let [{:keys [db fx]} (invoke {:server? true :active-token "tok-abc"}
-                                  (decode-post (parse-form-urlencoded raw-wire-body)))]
-      (is (= [[:rf.server/redirect {:status 303 :location "/cart"}]] fx)
-          "a valid no-JS submission reaches the canonical POST-redirect-GET")
-      (is (= [{:item-id "sku-1" :quantity 2}] (get-in db [:cart :items]))
-          "carrying the coerced integer quantity into the cart, not \"2\""))))
-
 (deftest the-raw-parsed-body-does-not-reach-303-so-the-seam-is-load-bearing
   (testing "The counter-proof. Hand the handler what the
             host adapter actually produced — undecoded — and a CORRECT
@@ -338,9 +331,8 @@
                                                   "csrf-token=tok-abc&item-id=sku-1&quantity=0")))]
         (is (= [[:rf.server/set-status 400]] fx) "the handler's validation arm")
         (is (= {:item-id "sku-1" :quantity 0} (get-in db [:cart :add-form :draft]))
-            "the submitted values went back into the draft, coerced")
-        (is (not (contains? (get-in db [:cart :add-form :draft]) :csrf-token))
-            "and the token did not")))
+            "the submitted values went back into the draft, coerced, and the
+             token did not")))
     (testing "— a value the transformer cannot decode at all"
       (let [decoded (decode-post (parse-form-urlencoded
                                   "csrf-token=tok-abc&item-id=sku-1&quantity=abc"))]
@@ -368,11 +360,9 @@
           "and the event-args schema names exactly them — no field the form
            posts is unnamed, no key the schema names is unposted")
       (is (= #{:item-id :quantity} (entry-keys fields))
-          "while the FIELD schema names only the editable fields")
-      (is (not (contains? (entry-keys fields) :csrf-token))
-          "the token is absent from the field schema — this is the split, and
-           the assertion that fails first if one schema is ever pointed at
-           both jobs"))))
+          "while the FIELD schema names only the editable fields — the token
+           is absent from it. This is the split, and the assertion that fails
+           first if one schema is ever pointed at both jobs"))))
 
 (deftest both-call-sites-satisfy-the-field-schema-and-the-event-tripwire
   (testing "The field schema validates BOTH payloads (Malli maps are
@@ -458,9 +448,8 @@
           "a malformed POST is answered 400 by the handler's own arm")
       (is (= {:item-id "sku-1" :quantity 0} drafted)
           "the submitted values went back into the draft — with JS off the
-           re-render reads the SLICE, so without this the user's input is lost")
-      (is (not (contains? drafted :csrf-token))
-          "and the token did NOT, because the page re-renders this slice")
+           re-render reads the SLICE, so without this the user's input is lost
+           — and the token did NOT, because the page re-renders this slice")
       (is (m/validate draft-schema drafted)
           "the value the arm REALLY writes — the rejected submission, unpatched
            — satisfies the schema registered at the draft path, so
@@ -515,15 +504,6 @@
           "no session ⇒ 403; nil = nil must NOT read as a valid token")
       (is (nil? (get-in db [:cart :items]))
           "and emphatically no cart mutation"))))
-
-(deftest the-csrf-arm-does-not-fire-on-the-client
-  (testing "The CSRF arm is guarded on coeffect PRESENCE. Ungated it
-            would measure every client submission against an absent cofx and
-            403 all of them — the mirror image of the client 400 pinned in
-            (1)."
-    (let [{:keys [fx]} (invoke {:server? false} client-dispatch)]
-      (is (not= [[:rf.server/set-status 403]] fx)
-          "the client never takes the CSRF arm"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The helpers the page publishes are the ones driven above

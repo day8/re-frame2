@@ -45,6 +45,9 @@
       default projector's whole case table.
     - `re-frame.ssr-error-projector-substrate-test` — the always-on
       substrate install.
+    - `re-frame.ssr-error-two-frame-attribution-test` — the always-on
+      listener routing a record to its emitting frame with a sibling
+      server frame live.
     - `re-frame.ssr-routing-egress-production-test` — the
       other always-on witness written to run in this lane."
   (:require [clojure.string :as str]
@@ -318,27 +321,8 @@
             "the projected 404 did not overwrite the redirect's status")))))
 
 ;; ===========================================================================
-;; (5) CONCURRENCY — the miss lands on the emitting frame only
+;; (5) A CLIENT FRAME — the record fans, but there is no response to stamp
 ;; ===========================================================================
-
-(deftest the-404-lands-on-the-emitting-frame-only
-  (testing "under concurrent SSR many server frames
-            are live at once. The always-on record carries the emitting
-            frame's `:frame` slot, so the projection routes to THAT response
-            accumulator; a sibling request serving a routable URL keeps its
-            200. Without the `:frame` stamp the projection would be
-            unroutable and stamp nothing — a silent 200 for a request that
-            should have been a 404."
-    (register-routes!)
-    (let [miss-frame (server-frame)
-          ok-frame   (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
-                        {:frame miss-frame})
-      (rf/dispatch-sync [:rf.route/handle-url-change "/"] {:frame ok-frame})
-      (is (= 404 (:status (rf.ssr/flush-response! miss-frame)))
-          "the frame that missed carries the 404")
-      (is (= 200 (:status (rf.ssr/flush-response! ok-frame)))
-          "its concurrent sibling, which routed fine, is untouched"))))
 
 (deftest a-client-frame-route-miss-stamps-no-status
   (testing "the always-on route miss does not give a CLIENT frame an HTTP
