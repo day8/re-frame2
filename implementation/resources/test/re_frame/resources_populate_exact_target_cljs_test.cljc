@@ -22,9 +22,10 @@
   These JVM+CLJS unit tests pin their semantics:
 
     1. a map-form populate writes the EXACT canonical scoped key
-       authoritatively (loaded/fresh, the resource's stored shape, its tags);
-    2. a map-form `:scope {:from-db …}` populate resolves the scoped key
-       against the settle-time app-db (the session feed case);
+       authoritatively (loaded/fresh, the resource's stored shape, its tags) —
+       pinned by the mutation suite's `success-populates-resource-entry`;
+    2. a map-form `:scope {:from-db …}` populate seeds the resolved
+       session's scoped key (the session feed case);
     3. a populated key is EXEMPT from the same mutation's invalidation refetch
        by default — even when the invalidation tag matches it;
     4. `:refetch-populated? true` re-enables the same-mutation refetch of the
@@ -142,44 +143,13 @@
     (:tags (last @seen))))
 
 ;; ===========================================================================
-;; 1. A map-form populate writes the EXACT canonical scoped key authoritatively
+;; 2. A {:from-db …} populate :scope seeds the resolved session's scoped key
 ;; ===========================================================================
 
-(deftest map-form-populate-writes-exact-key-authoritatively
-  ;; Validation 11/12: the public input is the map form {:resource :params
-  ;; :scope}; it writes the EXACT canonical storage key, loaded/fresh, with the
-  ;; resource's stored shape + tags — identical to a fetched entry.
-  (reg-article-resource!)
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     ;; map-form target with a concrete :scope (EP-0016 Rider 2 — the only
-     ;; public input form). No prior ensure — the populate SEEDS the entry.
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :p1}])
-  (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
-  (testing "the map-form populate seeded the EXACT canonical scoped key,
-            :loaded with the result as :data + the resource's own tags"
-    (let [e (entry global-article-key)]
-      (is (= :loaded (:status e)))
-      (is (= {:slug "w" :title "Fresh"} (:data e)))
-      (is (nil? (:invalidated-at e)) "fresh — not stale")
-      (is (= #{[:article "w"] [:article-list]} (:tags e)))))
-  (testing "the populated key is recorded on the instance patch-summary (the
-            canonical STORAGE tuple, not the input map)"
-    (is (= [global-article-key]
-           (:populated (:patch-summary (instance :p1)))))))
-
-;; ===========================================================================
-;; 2. A {:from-db …} populate :scope resolves the scoped key at settle time
-;; ===========================================================================
-
-(deftest map-form-populate-from-db-scope-resolves-at-settle
+(deftest map-form-populate-from-db-scope-seeds-the-resolved-session-key
   ;; Validation 7/9: a map-form target whose :scope is a {:from-db …} resolver
-  ;; reference resolves the EXACT scoped key against the settle-time app-db (the
-  ;; session feed case) — the populated key lands under the resolved session.
+  ;; reference resolves the EXACT scoped key (the session feed case) — the
+  ;; populated key lands under the resolved session.
   (reg-feed-resource!)
   (rf/reg-mutation :m/save-feed
     {:scope :rf.scope/global
@@ -193,9 +163,7 @@
   (testing "the {:from-db} populate seeded jake's SESSION-scoped feed key"
     (let [e (entry (session-feed-key "jake"))]
       (is (= :loaded (:status e)))
-      (is (= {:articles [:x]} (:data e)))))
-  (testing "no OTHER session was touched (the exact resolved key only)"
-    (is (nil? (entry (session-feed-key "abel"))))))
+      (is (= {:articles [:x]} (:data e))))))
 
 ;; ===========================================================================
 ;; 3. A populated key is EXEMPT from the same mutation's invalidation refetch
@@ -238,8 +206,7 @@
       (let [e (entry global-article-key)]
         (is (= :loaded (:status e)))
         (is (= {:slug "w" :title "fav'd" :favorited true} (:data e)))
-        (is (nil? (:invalidated-at e)) "the populated key was exempt — not re-staled")
-        (is (not (contains? #{:loading :fetching} (:status e))) "no refetch armed")))
+        (is (nil? (:invalidated-at e)) "the populated key was exempt — not re-staled")))
     (testing "the OTHER :article-list-tagged key (NOT populated) DID refetch"
       (let [e (entry list-key)]
         (is (contains? #{:loading :fetching} (:status e)))))

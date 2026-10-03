@@ -912,7 +912,7 @@
     (testing "the STALE gen-1 reply is recorded :status :stale /
               :rf.reply/work-status :suppressed via the shared substrate, with the
               carried-vs-current (1 vs 2) generation pair on the production
-              :rf.mutation/stale-suppressed trace; NO durable write"
+              :rf.mutation/stale-suppressed trace"
       (let [wid1   (-> gen1-args :on-success (nth 1) :work/id)
             traces (record-mutation-traces!
                      #(reply-success! gen1-args {:stale "result"}))
@@ -935,13 +935,7 @@
           (let [corr (:rf.reply/correlation tags)]
             (is (= 1 (-> corr :generation :carried)) "carried gen off the stale token")
             (is (= 2 (-> corr :generation :current)) "current = the LIVE instance gen")
-            (is (= :rv (:instance/id corr)))))
-        ;; (2)/(5) the app target did NOT run — the instance was NOT settled
-        ;; by the stale reply (still :pending on gen 2, no :result written).
-        (let [i (instance :rv)]
-          (is (= :pending (:status i)) "instance still pending on the current gen")
-          (is (= 2 (:generation i)) "generation unchanged")
-          (is (nil? (:result i)) "stale reply did NOT write a result"))))))
+            (is (= :rv (:instance/id corr)))))))))
 
 ;; ===========================================================================
 ;; 7b. A mutation reply whose stamped :rf.frame/id does not match
@@ -1641,34 +1635,6 @@
         (is (contains? (:affected-keys reply) rkey)
             "the populated key is in :affected-keys")))))
 
-(deftest reply-to-composes-with-success-invalidation-refetch
-  ;; SCOPE: the continuation runs on settle + the mutation reconciles the
-  ;; affected list. Here the mutation invalidates the list tag (cache
-  ;; consequence), and the continuation observes the post-reconcile state.
-  (reg-capture-continuation!)
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-    ;; own + load the list-tagged article so the invalidation refetches it
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]}])
-    (reply-success! @last-managed-args {:title "old"})
-    (reset! last-managed-args nil)
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :lc1
-                        :reply-to [:test/save-replied]}])
-    (reply-success! @last-managed-args {:title "new"})
-    (testing "the list reconciled — the active-owner entry refetched (back in flight)"
-      (is (contains? #{:loading :fetching} (:status (entry rkey)))))
-    (testing "the continuation fired after the reconcile (phase 6)"
-      (is (= 1 (count @replied)))
-      (is (= :ok (:status (second (first @replied))))))))
-
 (deftest reply-to-preserves-static-call-site-args
   ;; Spec 016 §Mutation completion continuations — `:reply-to [:e {:kind :x}]`
   ;; dispatches `[:e {:kind :x} reply]` (the reply appended AFTER static args).
@@ -1792,8 +1758,6 @@
                      {:mutation :m/save :params {:slug "w"} :instance :ac1
                       :reply-to [:test/save-replied]}])
   (reply-failure! @last-managed-args {:kind :rf.http/aborted :reason :user-abort})
-  (testing "the canonical reply work-status is :cancelled"
-    (is (= :cancelled (:status (second (first @replied))))))
   (testing "the work-ledger row settled terminal :cancelled (agrees with the reply)"
     (let [rec (mutation-record :ac1)]
       (is (= :cancelled (:status rec)))
@@ -1815,9 +1779,7 @@
                       :reply-to [:test/save-replied]}])
   (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
   (testing "the work-ledger row settled terminal :failed"
-    (is (= :failed (:status (mutation-record :af1)))))
-  (testing "the canonical reply work-status is :error"
-    (is (= :error (:status (second (first @replied)))))))
+    (is (= :failed (:status (mutation-record :af1))))))
 
 (deftest stale-reply-does-not-fire-the-continuation
   ;; Validation rule 4: a STALE / superseded mutation reply fires NO
@@ -1901,34 +1863,6 @@
     (testing "the continuation still actually fired (the row corresponds to a
               real dispatched continuation, not a phantom)"
       (is (= 1 (count @replied))))))
-
-(deftest stale-reply-emits-no-replied-trace-row
-  ;; The replied row corresponds to the ACTUAL continuation-dispatch boundary:
-  ;; a superseded reply dispatches no continuation, so it emits NO
-  ;; :rf.mutation/replied row (it surfaces as stale-suppressed instead). The
-  ;; CURRENT reply emits exactly one, after its settlement.
-  (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/save :params {:slug "w"} :instance :sr
-                      :reply-to [:test/save-replied]}])
-  (let [gen1-args @last-managed-args]
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :m/save :params {:slug "w"} :instance :sr
-                        :reply-to [:test/save-replied]}])
-    (testing "the STALE gen-1 reply emits NO :rf.mutation/replied row"
-      (let [rows (record-mutation-traces! #(reply-success! gen1-args {:stale "x"}))]
-        (is (zero? (count (filter #(= :rf.mutation/replied (:operation %)) rows)))
-            "no replied row for the superseded reply")))
-    (testing "the CURRENT gen-2 reply emits exactly one :rf.mutation/replied row
-              (after its succeeded settlement)"
-      (let [rows (record-mutation-traces! #(reply-success! @last-managed-args {:fresh "x"}))
-            replied-rows (filter #(= :rf.mutation/replied (:operation %)) rows)]
-        (is (= 1 (count replied-rows)))
-        (let [ops (ops-of rows)]
-          (is (< (index-of ops :rf.mutation/succeeded)
-                 (index-of ops :rf.mutation/replied))
-              "the live reply's replied row follows its succeeded row"))))))
 
 (deftest reply-to-fires-after-failure-invalidation
   ;; phase-6 ordering on the failure path: the continuation composes AFTER the

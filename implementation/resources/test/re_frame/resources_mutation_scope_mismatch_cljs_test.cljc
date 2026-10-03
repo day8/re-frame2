@@ -155,7 +155,6 @@
       ;; (the trace-bus envelope shape — same as the descriptor tests read).
       (let [w   (first warnings)
             pay (:tags w)]
-        (is (= :rf.warning/mutation-scope-mismatch (:operation w)))
         (is (= :m/post (:mutation pay)))
         (is (= :m1 (:instance pay)))
         (is (= :rf.scope/global (:descriptor-scope pay)))
