@@ -98,11 +98,6 @@
       (is (not (str/includes? out "```")))
       (is (str/includes? out "stateDiagram-v2")))))
 
-(deftest emit-includes-stateDiagram-v2-header
-  (testing "every emit starts the diagram with `stateDiagram-v2`"
-    (is (str/includes? (m/emit idle-loading-success-error)
-                       "stateDiagram-v2"))))
-
 (deftest emit-renders-initial-state-edge
   (testing "[*] --> initial-state appears at the top of the diagram"
     (is (str/includes? (m/emit idle-loading-success-error)
@@ -201,8 +196,8 @@
       (is (str/includes? out "unauth --> authenticated__browsing : login"))
       (is (str/includes? out "authenticated__browsing --> unauth : logout")))))
 
-(deftest emit-sanitises-namespaced-and-hyphenated-ids
-  (testing "namespaced + hyphenated keywords map to INJECTIVE hex-escaped ids"
+(deftest emit-sanitises-namespaced-ids
+  (testing "namespaced keywords map to INJECTIVE hex-escaped ids"
     (let [out (m/emit namespaced-ids-machine)]
       ;; The id is INJECTIVE: every non-alphanumeric char is
       ;; `_<hex>`-escaped (`/` → `_2f`), so `:auth/idle` → `auth_2fidle`
@@ -210,8 +205,6 @@
       ;; `[^a-zA-Z0-9_]`-collapse would merge `:auth/idle` with a
       ;; hypothetical `:auth-idle` (both → `auth_idle`); the hex escape keeps
       ;; them distinct (`auth_2fidle` vs `auth_2didle`).
-      (is (str/includes? out "auth_2fidle"))
-      (is (str/includes? out "auth_2floading"))
       ;; :rf/load → "rf/load" as the edge label (sanitise-label keeps
       ;; the slash; only sanitise-id escapes it)
       (is (str/includes? out "auth_2fidle --> auth_2floading : rf/load")))))
@@ -697,10 +690,7 @@
             `H` marker inside its owning compound block"
     (let [out (m/emit shallow-history-machine {:fenced? false :header-comment? false})]
       (is (str/includes? out "state \"H\" as player__hist")
-          "the history node is declared as a labelled `H` marker, not a bare state")
-      ;; the incoming edge still lands on the marker id
-      (is (str/includes? out "player__hist")
-          "incoming :target :hist edge targets the marker"))))
+          "the history node is declared as a labelled `H` marker, not a bare state"))))
 
 (deftest emit-history-default-target-note
   (testing "a history :default-target surfaces as a documenting

@@ -326,29 +326,13 @@
                 (str (char 0x11) "1") "a-b" "a/b" "a_b"]]
       (is (= (count segs) (count (distinct (map g/escape-id-segment segs))))))))
 
-;; A non-MAP `:on` / `:after` (e.g. `{:on :retry}` from an LLM) must return
-;; the clean slot-specific defect, NOT throw an uncaught ISeq exception
-;; (which would bypass the emit paths' `:invalid-definition` promise).
-
-(deftest non-map-on-after-rejected-cleanly
-  (testing "a non-map `:on` yields :rf.error/machine-bad-on-clause (no throw)"
-    (is (= :rf.error/machine-bad-on-clause
-           (category {:initial :a :states {:a {:on :retry}}})))
-    (is (= :rf.error/machine-bad-on-clause
-           (category {:initial :a :states {:a {:on [:retry]}}}))))
-  (testing "a non-map `:after` yields :rf.error/machine-bad-after-spec (no throw)"
-    (is (= :rf.error/machine-bad-after-spec
-           (category {:initial :a :states {:a {:after :later}}}))))
-  (testing "`valid-definition?` returns false (rather than throwing) for both"
-    (is (false? (g/valid-definition? {:initial :a :states {:a {:on :retry}}})))
-    (is (false? (g/valid-definition? {:initial :a :states {:a {:after 500}}}))))
-  (testing "a well-formed MAP `:on` / `:after` is still accepted"
-    (is (nil? (g/definition-defect {:initial :a :states {:a {:on {:go :b}} :b {}}})))
-    (is (nil? (g/definition-defect {:initial :a :states {:a {:after {500 :b}} :b {}}})))))
-
-;; The SAME slot-shape rule must cover the FALLBACK `:on` / `:after` at every
-;; root scope (flat root, region root, parallel root), not only ordinary state
-;; nodes. Iterating the flat root `:on` with NO shape guard would throw an
+;; A non-MAP `:on` / `:after` (e.g. `{:on :retry}` from an LLM) returns the
+;; clean slot-specific defect, NOT an uncaught ISeq exception (which would
+;; bypass the emit paths' `:invalid-definition` promise);
+;; `engine_grammar_parity_test`'s `clause-slot-parity` pins that on state
+;; nodes. The SAME slot-shape rule must cover the FALLBACK `:on` / `:after` at
+;; every root scope (flat root, region root, parallel root), not only ordinary
+;; state nodes. Iterating the flat root `:on` with NO shape guard would throw an
 ;; uncaught ISeq exception out of `valid-definition?` / the emitters for
 ;; `{:initial :a :states {:a {}} :on :retry}` instead of returning the
 ;; catalogued defect.
