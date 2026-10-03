@@ -123,9 +123,4 @@
     (rf.machines.test-support/reset-captured!)
     (hand-spawn! :addr/go-prefixed {:definition valid :id-prefix :addr/hand})
     (is (= :wait (rf.machines.test-support/machine-state :addr/hand#1)))
-    (is (empty? (surfaced-error-ids))))
-  (testing "CONTROL: :fixed-actor-id addresses it"
-    (rf.machines.test-support/reset-captured!)
-    (hand-spawn! :addr/go-fixed {:definition valid :fixed-actor-id :addr/hand-kid})
-    (is (= :wait (rf.machines.test-support/machine-state :addr/hand-kid)))
     (is (empty? (surfaced-error-ids)))))

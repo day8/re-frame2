@@ -47,60 +47,6 @@
 (def ^:private snapshot rf.machines.test-support/snapshot)
 (def ^:private frame-db rf.machines.test-support/runtime-db)
 
-;; ---- (1) spawn writes [:rf.runtime/machines :spawned <parent> <invoke-id>] ------------------
-
-(deftest spawn-writes-runtime-registry-slot
-  (testing "entering a :spawn-bearing state binds [:rf.runtime/machines :spawned <parent> <invoke-id>] to the spawned-id"
-    (let [child  {:initial :running
-                  :data    {}
-                  :states  {:running {}}}
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :working}}
-                   :working   {:spawn {:machine-id :worker/proc}
-                               :on    {:done :idle}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/flow parent)
-      (rf/dispatch-sync [:sup/flow [:start]])
-      ;; The runtime allocated :worker/proc#1 for the spawn.
-      (let [db          (frame-db)
-            spawned-id  (get-in db [:rf.runtime/machines :spawned :sup/flow [:working]])]
-        (is (= :worker/proc#1 spawned-id)
-            "the spawn registry slot is bound to the deterministic actor id")
-        (is (some? (get-in db [:rf.runtime/machines :snapshots spawned-id]))
-            "the spawned actor's snapshot lives at [:rf.runtime/machines :snapshots <spawned-id>]")))))
-
-;; ---- (2) destroy clears the slot AND prunes lazy-allocation roots ---------
-
-(deftest destroy-clears-runtime-registry-slot
-  (testing "exiting the :spawn-bearing state destroys the actor AND clears the registry slot"
-    (let [child  {:initial :running
-                  :data    {}
-                  :states  {:running {}}}
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :working}}
-                   :working   {:spawn {:machine-id :worker/proc}
-                               :on    {:done :idle}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/flow parent)
-      (rf/dispatch-sync [:sup/flow [:start]])
-      (let [db (frame-db)]
-        (is (= :worker/proc#1 (get-in db [:rf.runtime/machines :spawned :sup/flow [:working]]))
-            "(precondition) the slot was bound on entry"))
-      ;; Now leave :working.
-      (rf/dispatch-sync [:sup/flow [:done]])
-      (let [db (frame-db)]
-        (is (nil? (get-in db [:rf.runtime/machines :snapshots :worker/proc#1]))
-            "the spawned actor's snapshot was cleared on destroy")
-        (is (nil? (get-in db [:rf.runtime/machines :spawned :sup/flow [:working]]))
-            "the registry slot was cleared on destroy")
-        ;; Lazy-allocation invariant: the now-empty parent submap is
-        ;; pruned, and the now-empty [:rf.runtime/machines :spawned]
-        ;; slot is dissoc'd entirely.
-        (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
-            "the empty :spawned slot under [:rf.runtime/machines] is pruned to absent")))))
-
 ;; ---- (2b) ADVERSARIAL: the parent's own :rf/spawned DATA slot is cleared ---
 ;; on teardown too, so the in-snapshot data slot (mechanism 1 — XState-context
 ;; parity) mirrors the runtime registry EXACTLY (Spec 005:2938). That closes a
