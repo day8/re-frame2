@@ -41,9 +41,10 @@
     :timeout {}
     :ready   {}}})
 
-(deftest cancel-frame-timers-on-restore-releases-the-frames-handles
-  (testing "cancel-frame-timers-on-restore! drops the frame's
-            armed :after host-clock handles (and only that frame's)"
+(deftest restore-hook-releases-only-the-restored-frames-handles
+  (testing "the published :machines/on-frame-restored! hook (the path the epoch
+            boundary uses) drops the restored frame's armed :after host-clock
+            handles, and only that frame's"
     (rf/reg-machine :rq/m spec)
     (rf/make-frame {:id :rq/restored :doc "the frame being restored"})
     (rf/make-frame {:id :rq/sibling :doc "an unrelated concurrent frame"})
@@ -52,7 +53,7 @@
     (is (and (contains? @rf.machines.timer/after-timers :rq/restored)
              (contains? @rf.machines.timer/after-timers :rq/sibling))
         "precondition: both frames armed an :after timer")
-    (rf.machines.timer/cancel-frame-timers-on-restore! :rq/restored)
+    ((rf.late-bind/get-fn :machines/on-frame-restored!) :rq/restored)
     (is (not (contains? @rf.machines.timer/after-timers :rq/restored))
         "the restored frame's armed timer handles are GONE after the quiesce")
     (is (contains? @rf.machines.timer/after-timers :rq/sibling)
@@ -83,13 +84,3 @@
   (testing "quiescing a frame with no armed timers is a no-op"
     (is (nil? (rf.machines.timer/cancel-frame-timers-on-restore! :rq/never-armed)))))
 
-(deftest restore-quiesce-hook-clears-the-restored-frames-timers-end-to-end
-  (testing "driving the published :machines/on-frame-restored!
-            hook (the path the epoch boundary uses) clears the frame's timers"
-    (rf/reg-machine :rq3/m spec)
-    (rf/make-frame {:id :rq3/f :doc "end-to-end hook frame"})
-    (rf/dispatch-sync [:rq3/m [:fetch]] {:frame :rq3/f})
-    (is (contains? @rf.machines.timer/after-timers :rq3/f) "precondition: a timer is armed")
-    ((rf.late-bind/get-fn :machines/on-frame-restored!) :rq3/f)
-    (is (not (contains? @rf.machines.timer/after-timers :rq3/f))
-        "the published restore hook released the frame's armed timer handles")))

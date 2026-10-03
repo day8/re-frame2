@@ -40,59 +40,43 @@
 
 ;; ---- invalid STATIC delay keys are rejected at registration --------------
 
-(deftest negative-integer-delay-key-rejected
-  (testing "an :after key of -1 fails registration with :rf.error/machine-bad-after-delay"
-    (let [thrown (registration-throws? :adv/neg (mk-machine -1))]
-      (is (some? thrown) "negative :after delay SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))
-          "error category names the bad-after-delay contract")
-      (is (= -1 (:delay-key (ex-data thrown)))
-          "ex-data carries the offending delay key")
-      (is (= :after (:slot (ex-data thrown)))
-          "ex-data names the :after slot"))))
-
-(deftest zero-delay-key-rejected
-  (testing "an :after key of 0 fails registration — pos-int? excludes zero"
-    (let [thrown (registration-throws? :adv/zero (mk-machine 0))]
-      (is (some? thrown) "zero :after delay SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))))))
-
-(deftest string-delay-key-rejected
-  (testing "an :after key of \"soon\" fails registration"
-    (let [thrown (registration-throws? :adv/str (mk-machine "soon"))]
-      (is (some? thrown) "string :after delay SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown))))
-      (is (= "soon" (:delay-key (ex-data thrown)))))))
-
-(deftest shorthand-duration-delay-key-rejected
-  (testing "the \"5s\" shorthand is refused on :after, as it is on :timeout"
-    (let [thrown (registration-throws? :adv/shorthand (mk-machine "5s"))]
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown))))
-      (is (= "5s" (:delay-key (ex-data thrown)))))))
-
-(deftest nil-delay-key-rejected
-  (testing "an :after key of nil fails registration"
-    (let [thrown (registration-throws? :adv/nil (mk-machine nil))]
-      (is (some? thrown) "nil :after delay SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))))))
-
-(deftest empty-subscription-vector-delay-key-rejected
-  (testing "an :after key of [] (empty subscription vector) fails registration"
-    (let [thrown (registration-throws? :adv/empty-vec (mk-machine []))]
-      (is (some? thrown) "empty-vector :after delay SHOULD throw at registration")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))))))
+(deftest invalid-static-delay-keys-are-rejected-at-registration
+  (doseq [[label machine-id machine delay-key]
+          [["-1: a negative integer" :adv/neg (mk-machine -1) -1]
+           ["0: pos-int? excludes zero" :adv/zero (mk-machine 0) 0]
+           ["\"soon\": not a duration" :adv/str (mk-machine "soon") "soon"]
+           ["\"5s\": the shorthand :timeout refuses too" :adv/shorthand (mk-machine "5s") "5s"]
+           ["nil" :adv/nil (mk-machine nil) nil]
+           ["[]: an empty subscription vector" :adv/empty-vec (mk-machine []) []]
+           ["-5 on a NESTED compound child" :adv/nested
+            {:initial :outer
+             :data    {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:after {-5 :inner}}}}}}
+            -5]
+           ["0 on a :type :parallel root's :after, the supported root :after"
+            :adv/parallel-root
+            {:type    :parallel
+             :after   {0 {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}}}
+            0]]]
+    (is (= {:rf.error/id :rf.error/machine-bad-after-delay :slot :after :delay-key delay-key}
+           (select-keys (ex-data (registration-throws? machine-id machine))
+                        [:rf.error/id :slot :delay-key]))
+        (str label " throws :rf.error/machine-bad-after-delay naming the :after slot and the key"))))
 
 ;; ---- valid STATIC delay keys register cleanly ----------------------------
 
-(deftest positive-integer-delay-key-accepted
-  (testing "a positive-integer :after key registers without error"
-    (is (nil? (registration-throws? :adv/pos (mk-machine 5000)))
-        "literal pos-int ms is a valid :after delay key")))
-
-(deftest iso-8601-delay-key-accepted
-  (testing "an ISO-8601 duration string registers, as it does on :timeout"
-    (is (nil? (registration-throws? :adv/iso (mk-machine "PT1S"))))
-    (is (nil? (registration-throws? :adv/iso-hm (mk-machine "PT1H30M"))))))
+(deftest valid-static-delay-keys-register
+  (rf/reg-sub :adv/timeout-cfg (fn [_ _] 5000))
+  (doseq [[label machine-id delay-key]
+          [["a positive integer (literal ms)" :adv/pos 5000]
+           ["an ISO-8601 duration string, as on :timeout" :adv/iso "PT1S"]
+           ["an ISO-8601 duration string with hours and minutes" :adv/iso-hm "PT1H30M"]
+           ["a non-empty subscription vector" :adv/sub [:adv/timeout-cfg]]
+           ["a function" :adv/fn (fn [{snap :snapshot}] (* 1000 (:n (:data snap))))]]]
+    (is (nil? (registration-throws? machine-id (mk-machine delay-key)))
+        (str label " is a valid :after delay key"))))
 
 (deftest iso-8601-delay-key-arms-its-ms
   (testing "entering the state arms the timer at the string's milliseconds —
@@ -106,30 +90,7 @@
       (is (= #{"PT1H"} (set (map :delay (keys (get @rf.machines.timer/after-timers :rf/default)))))
           "the timer stays keyed by the key the author wrote"))))
 
-(deftest subscription-vector-delay-key-accepted
-  (testing "a non-empty subscription-vector :after key registers without error"
-    (rf/reg-sub :adv/timeout-cfg (fn [_ _] 5000))
-    (is (nil? (registration-throws? :adv/sub (mk-machine [:adv/timeout-cfg])))
-        "non-empty subscription-vector is a valid :after delay key")))
-
-(deftest function-delay-key-accepted
-  (testing "a function :after key registers without error"
-    (is (nil? (registration-throws?
-                :adv/fn (mk-machine (fn [{snap :snapshot}]
-                                      (* 1000 (:n (:data snap)))))))
-        "fn-valued delay is a valid :after delay key")))
-
-;; ---- coverage: invalid key on a NESTED / ROOT :after also rejected -------
-
-(deftest invalid-delay-key-on-nested-state-rejected
-  (testing "an invalid :after key on a NESTED compound child fails registration"
-    (let [m {:initial :outer
-             :data    {}
-             :states  {:outer {:initial :inner
-                               :states  {:inner {:after {-5 :inner}}}}}}
-          thrown (registration-throws? :adv/nested m)]
-      (is (some? thrown) "nested invalid :after delay SHOULD throw")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))))))
+;; ---- a non-parallel root :after is refused before its delay key is read --
 
 (deftest invalid-delay-key-on-non-parallel-root-after-rejected-categorically
   (testing "a non-parallel root :after fails registration regardless of delay-key validity"
@@ -151,16 +112,3 @@
              (:rf.error/id (ex-data thrown)))
           "the categorical non-parallel-root-:after rejection wins over the delay-key shape check"))))
 
-(deftest invalid-delay-key-on-parallel-root-after-still-rejected
-  (testing "the :after delay-key shape check applies to a :type :parallel root's :after"
-    ;; A :type :parallel root's :after IS the supported, scheduled,
-    ;; resolved feature (Spec 005 §Root-level :after) — the non-parallel-root
-    ;; rejection does not apply to it, so validate-after-delays! gates its
-    ;; delay-key shape.
-    (let [m {:type    :parallel
-             :after   {0 {:target [:a :two]}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}}}
-          thrown (registration-throws? :adv/parallel-root m)]
-      (is (some? thrown) "an invalid delay key on a parallel root's :after SHOULD throw")
-      (is (= :rf.error/machine-bad-after-delay (:rf.error/id (ex-data thrown)))
-          "the delay-key shape check fires for the supported parallel-root :after"))))

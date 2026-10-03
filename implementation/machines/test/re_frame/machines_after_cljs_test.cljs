@@ -175,7 +175,7 @@
 ;; value admits the SAME guarded candidate-vector form as an :on clause —
 ;; [{:guard g :target s} {:target s2 :action a}] — first-guard-pass-wins.
 ;; This is the CLJS / reactive-substrate counterpart to the pure-engine sweep
-;; + JVM integration tests.
+;; in after-value-forms-test.
 
 (deftest machine-after-guarded-vector-cljs
   (testing "guarded candidate-vector :after under the reactive substrate —
