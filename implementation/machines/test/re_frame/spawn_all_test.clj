@@ -509,6 +509,10 @@
             (is (= :a (:child-id tags)) "trace carries the late child's id")
             (is (= :stale (:rf.reply/status tags))
                 "the late completion is classified stale")
+            (is (= :suppressed (:rf.reply/work-status tags)))
+            (is (= :rf.machine.spawn-all/join-resolved (:rf.reply/stale-reason tags)))
+            (is (some? (:rf.reply/work-id tags))
+                "the suppressed late completion carries the canonical :work/id")
             (is (not (contains? tags :folded?))
                 "no :folded? tag — a late completion never folds")))
         (finally
@@ -577,7 +581,7 @@
        (filter #(= :rf.error/machine-spawn-all-bad-child-id
                    (:operation %)))))
 
-(deftest forged-child-id-with-no-live-children-is-rejected
+(deftest unknown-child-id-is-rejected-and-leaves-the-join-untouched
   (testing "a completion carrier naming a child-id NOT in the
   parent's spawned set emits :rf.error/machine-spawn-all-bad-child-id
   and is a no-op (join state untouched, no resolution)"

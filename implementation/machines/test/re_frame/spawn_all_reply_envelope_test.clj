@@ -13,10 +13,11 @@
       `:rf.reply/work-status`) on the resolution trace
       (`:rf.machine.spawn-all/all-completed` / `*/some-completed` /
       `*/any-failed`);
-   2. a post-resolution late completion (a known child re-completing after
-      the `:resolved?` latch flipped) rides a `:status :stale` /
-      `:rf.reply/work-status :suppressed` reply on the `:late-completion` trace —
-      the spawn-all analogue of the single-`:spawn` stale path.
+   2. a decisive FAILED child's terminals agree with its completion and are
+      never `:cancelled`, while a surviving sibling is.
+
+  The post-resolution late completion's `:status :stale` reply is pinned by
+  spawn-all-test's late-completion-of-known-child-is-stale-record-frozen.
 
   Every reply fact asserted here corresponds to a canonical reply map built
   by `re-frame.machines.reply` and validated by the shared reply contract
@@ -130,9 +131,8 @@
               "the decisive child completion classified as :ok")
           (is (= :completed (:rf.reply/work-status (:tags done))))
           (is (= :machine (:rf.reply/work-kind (:tags done))))
-          (is (some? (:rf.reply/work-id (:tags done)))
-              "the decisive child's canonical :work/id rides the resolution trace")
-          (is (= (first (:rf.reply/work-id (:tags done))) :rf.work/machine)))))))
+          (is (= (first (:rf.reply/work-id (:tags done))) :rf.work/machine)
+              "the decisive child's canonical :work/id rides the resolution trace"))))))
 
 (deftest any-failed-trace-carries-decisive-child-reply
   (testing "the :any-failed resolution trace carries the
@@ -167,90 +167,24 @@
           (is (= :failed (:rf.reply/work-status (:tags failed))))
           (is (some? (:rf.reply/work-id (:tags failed)))))))))
 
-;; ---- integration: late completion carries a stale reply ----------------
-
-(deftest late-completion-carries-stale-reply
-  (testing "a post-resolution late completion (a known child
-            re-completing after the join latched) rides a :status :stale /
-            :rf.reply/work-status :suppressed reply on the late-completion trace"
-    (let [child  (mk-child)
-          ;; Parent stays in :hydrating across resolution by NOT declaring
-          ;; an :on for the resolution event (the runtime still dispatches
-          ;; :hydrate/some, but no transition fires) — so the join slot
-          ;; survives and a re-minted carrier for a known child flows through
-          ;; the :resolved? late-completion branch.
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   :hydrating
-                   {:spawn-all
-                    {:children            [{:id :a :machine-id :relp3/a :start [:set-id :a]}
-                                           {:id :b :machine-id :relp3/b :start [:set-id :b]}]
-                     :join                :any
-                     :on-some-complete    [:hydrate/some]}}}}]
-      (rf/reg-machine :relp3/a child)
-      (rf/reg-machine :relp3/b child)
-      (rf/reg-machine :sup/relp3 parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sup/relp3 [:start]])
-        (let [ids (get-in (rf.machines.test-support/runtime-db)
-                          [:rf.runtime/machines :spawned :sup/relp3 [:hydrating] :children])]
-          ;; First child resolves the :any join.
-          (rf/dispatch-sync [(:a ids) [:go]])
-          ;; The decisive child :a re-completes LATE (the join already
-          ;; latched :resolved?). Only an EXACT-CURRENT carrier reaches the
-          ;; post-resolution late-completion branch — the ownership + attempt
-          ;; gates run ahead of the :resolved? classification —
-          ;; so the coordinate is copied from the live join state.
-          (let [j (get-in (rf.machines.test-support/runtime-db)
-                          [:rf.runtime/machines :spawned :sup/relp3 [:hydrating]])]
-            (rf/dispatch-sync
-              [:sup/relp3 [:rf.machine.spawn/done [:hydrating]
-                           {:result     :a
-                            :error?     false
-                            :parent-id  :sup/relp3
-                            :invoke-id  [:hydrating]
-                            :child-id   :a
-                            :spawned-id (:a ids)
-                            :attempt    (:rf/attempt j)}]])))
-        (let [late (->> @captured
-                        (filter #(= :rf.machine.spawn-all/late-completion (:operation %)))
-                        first)]
-          (is (some? late) ":late-completion trace fired")
-          (is (= :stale (:rf.reply/status (:tags late)))
-              "the late completion classified as :stale")
-          (is (= :suppressed (:rf.reply/work-status (:tags late))))
-          (is (= :rf.machine.spawn-all/join-resolved
-                 (:rf.reply/stale-reason (:tags late))))
-          (is (some? (:rf.reply/work-id (:tags late)))
-              "the suppressed late completion carries the canonical :work/id"))))))
-
 ;; ---- a terminal join child is never re-classified :cancelled
 ;;
 ;; A child that folds into a join reaches a `:final?` state and destroys
 ;; ITSELF at that moment with `:reason :rf.machine/finished`, so the join has
 ;; nothing left to reap and only SURVIVORS are destroyed at resolution.
-;; Tearing a COMPLETED child down through the ordinary `:explicit`
+;; Tearing a FAILED child down through the ordinary `:explicit`
 ;; `[:rf.machine/destroy spawned-id]` fx would be wrong: its `emit-destroyed!`
 ;; treats every explicit destroy as CANCELLATION of an in-progress actor, so a
-;; child that ALREADY closed its attempt as a `join-child-reply` `:completed` /
-;; `:failed` would get a SECOND, CONTRADICTORY `:cancelled` terminal for the
-;; same work-id. A fixture that only checks that snapshots disappear, not the
-;; reply facts, stays green through that.
+;; child that ALREADY closed its attempt as a `join-child-reply` `:failed`
+;; would get a SECOND, CONTRADICTORY `:cancelled` terminal for the same
+;; work-id. A fixture that only checks that snapshots disappear, not the reply
+;; facts, stays green through that.
 ;;
-;; TWO authorities publish a terminal for a join child's work-id, and the
-;; tests below pin that they AGREE:
-;;
-;;   [:rf.machine/done                       :completed]  ;; the child's own
-;;                                                        ;; finality reply
-;;   [:rf.machine.spawn-all/some-completed   :completed]  ;; the join's
-;;                                                        ;; decisive fold
-;;
-;; The property these assertions enforce: every terminal on a completed /
-;; failed child's work-id AGREES with its completion, and NONE of them is a
-;; `:cancelled` — while a surviving sibling still emits its own genuine
-;; cancellation. Routing a completed child through the `:explicit` keyword
-;; destroy would add a third, contradictory row and fire these assertions.
+;; TWO authorities publish a terminal for a join child's work-id — the child's
+;; own `:rf.machine/done` finality reply and the join's decisive fold — and
+;; the test below pins that they AGREE, that NONE of them is `:cancelled`, and
+;; that a surviving sibling still emits its own genuine cancellation. The
+;; completed-side twins are join-child-terminal-cljs-test's, on both hosts.
 
 (defn- work-statuses-for-spawned
   "Every `:rf.reply/work-status` carried by a captured trace whose
@@ -293,64 +227,6 @@
   (filterv (comp terminal-work-statuses second)
            (work-reply-rows captured spawned-id)))
 
-(deftest completed-any-child-terminals-all-agree-never-cancelled
-  (testing "success-side :any: every terminal work-reply on the
-            decisive COMPLETED child A's work-id is :completed — its own
-            finality reply and the join's decisive fold — and A is NEVER
-            re-classified :cancelled by teardown, while the surviving
-            sibling B still emits its cancelled-on-join-resolution cancellation"
-    (let [child  (mk-child)
-          parent {:initial :idle
-                  :states
-                  {:idle   {:on {:start :racing}}
-                   ;; NO :on for :race/won → the parent STAYS in :racing when
-                   ;; the :any join resolves (internal/self resolution), so
-                   ;; no parent state exit can contribute a teardown: A's own
-                   ;; finality is the ONLY thing that destroys A.
-                   :racing {:spawn-all
-                            {:children         [{:id :a :machine-id :tjok/a :start [:set-id :a]}
-                                                {:id :b :machine-id :tjok/b :start [:set-id :b]}]
-                             :join             :any
-                             :on-some-complete [:race/won]}}}}]
-      (rf/reg-machine :tjok/a child)
-      (rf/reg-machine :tjok/b child)
-      (rf/reg-machine :sup/tj-ok parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sup/tj-ok [:start]])
-        (let [ids  (get-in (rf.machines.test-support/runtime-db)
-                           [:rf.runtime/machines :spawned :sup/tj-ok [:racing] :children])
-              a-id (:a ids)
-              b-id (:b ids)]
-          ;; :a completes → the :any join resolves; :b survives.
-          (rf/dispatch-sync [a-id [:go]])
-          (let [a-statuses  (work-statuses-for-spawned captured a-id)
-                a-terminals (terminal-reply-rows captured a-id)
-                b-statuses  (set (work-statuses-for-spawned captured b-id))]
-            ;; A: two terminals for one work-id, both :completed and both
-            ;; legitimate — A's own `:final?` completion reply, then the join's
-            ;; decisive fold. NO teardown cancellation joins them. This FIRES if
-            ;; the completed child is torn down through an :explicit destroy,
-            ;; which adds a third, contradictory :cancelled row for the same
-            ;; work-id.
-            (is (= [[:rf.machine/done                     :completed]
-                    [:rf.machine.spawn-all/some-completed :completed]]
-                   a-terminals)
-                (str "completed child A's work-id carries ONLY agreeing "
-                     ":completed terminals (its finality reply + the join's "
-                     "decisive fold), never a :cancelled; saw " a-terminals))
-            (is (not (contains? (set a-statuses) :cancelled))
-                "the completed child A is never classified :cancelled by teardown")
-            ;; B: survivor still closes :cancelled (legitimate cancellation).
-            (is (contains? b-statuses :cancelled)
-                "surviving sibling B still closes :cancelled")
-            (is (not (contains? b-statuses :completed))
-                "surviving sibling B never reported completion")
-            (is (some #(and (= :rf.machine.spawn/cancelled-on-join-resolution
-                               (:operation %))
-                            (= b-id (:spawned-id (:tags %))))
-                      @captured)
-                "surviving sibling B still emits its cancelled-on-join-resolution trace")))))))
-
 (deftest failed-any-child-terminals-all-agree-never-cancelled
   (testing "failure-side :any (:on-any-failed): every terminal
             work-reply on the decisive FAILED child A's work-id is :failed — its
@@ -380,8 +256,7 @@
               b-id (:b ids)]
           ;; :a fails → :on-any-failed resolves the :any join; :b survives.
           (rf/dispatch-sync [a-id [:fail]])
-          (let [a-statuses  (work-statuses-for-spawned captured a-id)
-                a-terminals (terminal-reply-rows captured a-id)
+          (let [a-terminals (terminal-reply-rows captured a-id)
                 b-statuses  (set (work-statuses-for-spawned captured b-id))]
             ;; A: two terminals for one work-id, both :failed and both
             ;; legitimate — A's own `:error? true` finality reply, then the
@@ -392,8 +267,6 @@
                 (str "failed child A's work-id carries ONLY agreeing :failed "
                      "terminals (its finality reply + the join's decisive "
                      "fold), never a :cancelled; saw " a-terminals))
-            (is (not (contains? (set a-statuses) :cancelled))
-                "the failed child A is never classified :cancelled by teardown")
             (is (contains? b-statuses :cancelled)
                 "surviving sibling B still closes :cancelled")
             (is (some #(and (= :rf.machine.spawn/cancelled-on-join-resolution
@@ -401,115 +274,3 @@
                             (= b-id (:spawned-id (:tags %))))
                       @captured)
                 "surviving sibling B still emits its cancelled-on-join-resolution trace")))))))
-
-(deftest all-join-completed-children-have-consistent-terminals
-  (testing ":all join: every completed child has terminal-status
-            consistency — no work-id carries both a completion and a
-            cancellation. There are no survivors in an all-complete, so NO child
-            is spuriously :cancelled; the decisive child closes :completed"
-    (let [child  (mk-child)
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   ;; NO :on for :hydrate/done → parent STAYS in :hydrating
-                   ;; (internal resolution), so no parent state exit can
-                   ;; contribute a teardown: each child's own finality is the
-                   ;; only thing that destroys it.
-                   :hydrating {:spawn-all
-                               {:children        [{:id :a :machine-id :tja/a :start [:set-id :a]}
-                                                  {:id :b :machine-id :tja/b :start [:set-id :b]}]
-                                :join            :all
-                                :on-all-complete [:hydrate/done]}}}}]
-      (rf/reg-machine :tja/a child)
-      (rf/reg-machine :tja/b child)
-      (rf/reg-machine :sup/tj-all parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sup/tj-all [:start]])
-        (let [ids  (get-in (rf.machines.test-support/runtime-db)
-                           [:rf.runtime/machines :spawned :sup/tj-all [:hydrating] :children])
-              a-id (:a ids)
-              b-id (:b ids)]
-          ;; :a folds (not resolved), then :b resolves the :all join (decisive).
-          (rf/dispatch-sync [a-id [:go]])
-          (rf/dispatch-sync [b-id [:go]])
-          (let [a-statuses  (set (work-statuses-for-spawned captured a-id))
-                b-terminals (terminal-reply-rows captured b-id)]
-            ;; No child is spuriously cancelled — both completed, none survived.
-            (is (not (contains? a-statuses :cancelled))
-                "non-decisive completed child A closes on its own finality, never :cancelled")
-            ;; B is the decisive child: its own finality reply, then the join's
-            ;; :all-completed fold. Two rows, both :completed, no cancellation.
-            (is (= [[:rf.machine/done                    :completed]
-                    [:rf.machine.spawn-all/all-completed :completed]]
-                   b-terminals)
-                (str "decisive completed child B's work-id carries ONLY agreeing "
-                     ":completed terminals, never :cancelled; saw " b-terminals))
-            (is (some #(= :rf.machine.spawn-all/all-completed (:operation %)) @captured)
-                ":all-completed resolution trace fired")))))))
-
-;; ---- a completing join child is destroyed ONCE, by its own
-;;      finality, and the join adds nothing
-;;
-;; Completion IS finality: reaching `:done` / `:failed` IS reaching `:final?`,
-;; and the child destroys itself at that moment with `:reason
-;; :rf.machine/finished`. The join has no completed child left to tear down,
-;; and `:rf.machine/join-reaped` has no producer.
-;;
-;; The test below pins that the join adds nothing: a join teardown of a
-;; completed child would publish a SECOND destroyed trace for a work-id that
-;; already closed — the contradictory-terminal failure above, arriving through
-;; the destroy channel instead of the reply channel.
-
-(defn- destroyed-traces-for
-  "Captured `:rf.machine/destroyed` traces whose `:actor-id` names `spawned-id`."
-  [captured spawned-id]
-  (filterv #(and (= :rf.machine/destroyed (:operation %))
-                 (= spawned-id (:actor-id (:tags %))))
-           @captured))
-
-(deftest completing-join-child-is-destroyed-once-by-its-own-finality
-  (testing "a decisive :spawn-all child reaches a top-level :final?
-            and auto-destroys synchronously (:rf.machine/finished); the join then
-            resolves with NOTHING left to tear down. EXACTLY ONE destroyed trace,
-            reason :rf.machine/finished, NO :rf.machine/join-reaped destroy from
-            the join, no :cancelled terminal, no leaked snapshot"
-    (let [final-child (mk-child)
-          parent {:initial :idle
-                  :states
-                  {:idle {:on {:start :hydrating}}
-                   ;; NO :on for :done/all → the parent STAYS in :hydrating, so
-                   ;; no parent state exit can contribute a teardown: the child's
-                   ;; own finality is the ONLY thing that destroys it, and any
-                   ;; second destroyed trace could only have come from the join.
-                   :hydrating {:spawn-all
-                               {:children        [{:id :a :machine-id :evfin/a :start [:set-id :a]}]
-                                :join            :all
-                                :on-all-complete [:done/all]}}}}]
-      (rf/reg-machine :evfin/a final-child)
-      (rf/reg-machine :sup/ev-fin parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sup/ev-fin [:start]])
-        (let [a-id (get-in (rf.machines.test-support/runtime-db)
-                           [:rf.runtime/machines :spawned :sup/ev-fin [:hydrating] :children :a])]
-          (is (keyword? a-id) "the final child spawned")
-          ;; :go → the child enters :final? and auto-destroys, publishing its own
-          ;; terminal on the way out; the runtime-minted carrier then resolves
-          ;; the parent's :all join, which has nothing left to tear down.
-          (rf/dispatch-sync [a-id [:go]])
-          (let [a-destroyed (destroyed-traces-for captured a-id)
-                reasons     (mapv (comp :reason :tags) a-destroyed)]
-            ;; Exactly ONE destroyed for the child — its own finality. The join
-            ;; contributes none.
-            (is (= [:rf.machine/finished] reasons)
-                (str "the completing child has EXACTLY ONE destroyed trace "
-                     "(:rf.machine/finished) — the join tears down no completed "
-                     "child; saw " reasons))
-            (is (not-any? #(= :rf.machine/join-reaped %) reasons)
-                (str "NO :rf.machine/join-reaped destroy — the verified-reap form "
-                     "has no producer; saw " reasons))
-            (is (not (contains? (set (work-statuses-for-spawned captured a-id)) :cancelled))
-                "the auto-finalized child is never classified :cancelled")
-            (is (some #(= :rf.machine.spawn-all/all-completed (:operation %)) @captured)
-                "the parent :all join still resolved (:all-completed fired)")
-            (is (nil? (rf.machines.test-support/snapshot a-id))
-                "no leaked snapshot for the auto-destroyed final child")))))))

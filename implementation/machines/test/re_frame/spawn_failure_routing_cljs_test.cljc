@@ -240,15 +240,10 @@
       (is (= [:the-value] @folds) "the fold ran once, with the success value")
       (is (= :the-value (:slot (data ::p5)))))))
 
-(deftest p6-failed-child-with-no-hooks-still-finishes
-  (testing "P6 (control) — no hooks at all: the error leaf still auto-destroys the child and emits one :rf.machine/done carrying :error? true"
-    (let [child (start-spawn-parent! ::p6 ::p6-child {})]
-      (rf/dispatch-sync [child [:fail]])
-      (is (= :working (state ::p6)) "the parent is unmoved")
-      (is (nil? (snapshot child)) "the child auto-destroyed")
-      (let [dones (filterv #(= child (-> % :tags :actor-id)) (done-traces))]
-        (is (= 1 (count dones)))
-        (is (true? (-> dones first :tags :error?)))))))
+;; The P6 (no hooks: an error leaf still auto-destroys the child and emits one
+;; :error? :rf.machine/done) and P9 (:on-error takes a throw) controls are
+;; machines-on-error-cljs-test's error-leaf-without-on-error-destroys-child-and-leaves-parent-unmoved
+;; and child-action-exception-fires-parent-on-error-transition.
 
 (deftest p7-throwing-child-reaches-an-explicit-error-handler-without-on-error
   (testing "P7 — with no :on-error, a root :on {:rf.machine.spawn/error …} catches an uncaught child action exception"
@@ -266,8 +261,3 @@
       (is (some? (snapshot child)) "the child is still alive")
       (is (= [] (done-traces)) "no :rf.machine/done — an exception is not a completion"))))
 
-(deftest p9-throwing-child-with-on-error-takes-on-error
-  (testing "P9 (control) — :on-error, the child throws: :on-error fires"
-    (let [child (start-spawn-parent! ::p9 ::p9-child {:spawn-extra {:on-error {:target :errored}}})]
-      (rf/dispatch-sync [child [:throw]])
-      (is (= :errored (state ::p9))))))

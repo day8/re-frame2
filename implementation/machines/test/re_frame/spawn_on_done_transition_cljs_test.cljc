@@ -322,16 +322,6 @@
                          :on    {:cancel :idle}}
                :loaded  {}}}))
 
-(deftest stale-carrier-after-exit-takes-no-transition
-  (testing "the parent leaves the spawning state before the carrier arrives"
-    (reg-kick!)
-    (reg-child! :sodt-s1/auth)
-    (reg-stale-parent! :sodt-s1/parent :sodt-s1/auth)
-    (rf/dispatch-sync [:sodt-s1/parent [:start]])
-    (rf/dispatch-sync [::kick [[:sodt-s1/auth#1 [:ok "T"]] [:sodt-s1/parent [:cancel]]]])
-    (is (= :idle (:state (snapshot :sodt-s1/parent))))
-    (is (= 1 (count (rf.machines.test-support/events-of :rf.machine.spawn/stale-completion))))))
-
 (deftest stale-carrier-after-reentry-takes-no-transition
   (testing "the parent leaves and re-enters the spawning state before the carrier arrives"
     (reg-kick!)

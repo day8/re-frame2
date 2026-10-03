@@ -50,48 +50,7 @@
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
-;; ---- (1) two :spawn nodes entered in ONE cascade allocate in --------------
-;;          declaration / shallowest-first order (#1 then #2).
-;;
-;; A compound parent whose entered state-node carries `:spawn` AND whose
-;; entered-into descendant ALSO carries `:spawn` crosses two spawn-bearing
-;; nodes in a single transition's entry cascade. `run-spawn-phase` reduces over
-;; `entered-pairs` shallowest-first, so the OUTER (shallower) node's child is
-;; `#1` and the INNER (deeper) node's child is `#2` — deterministic, per the EP
-;; A7 ordering claim. Both spawns share the same `:rf/spawn-counter` of the
-;; parent, so the two allocations are strictly ordered.
-
-(deftest two-spawns-in-one-cascade-allocate-shallowest-first
-  (testing "entering a compound node with :spawn whose initial descendant ALSO has :spawn allocates outer=#1, inner=#2 (deterministic shallowest-first order)"
-    (rf/reg-machine :ord1/leaf
-      {:initial :running :data {} :states {:running {}}})
-    ;; `:outer` is a COMPOUND state that itself declares `:spawn` and whose
-    ;; `:initial` child `:inner` ALSO declares `:spawn`. Entering `:outer`
-    ;; descends to `:inner` in one cascade, crossing both spawn-bearing nodes.
-    (rf/reg-machine :ord1/parent
-      {:initial :idle
-       :data    {}
-       :states
-       {:idle  {:on {:go :outer}}
-        :outer {:spawn   {:machine-id :ord1/leaf :id-prefix :ord1/leaf}
-                :initial :inner
-                :states  {:inner {:spawn {:machine-id :ord1/leaf
-                                          :id-prefix  :ord1/leaf}}}}}})
-    (rf/dispatch-sync [:ord1/parent [:go]])
-    ;; Two children of the SAME TYPE share one parent counter → strict #1/#2.
-    (let [outer-child (spawned-id-for :ord1/parent [:outer])
-          inner-child (spawned-id-for :ord1/parent [:outer :inner])]
-      (is (= :ord1/leaf#1 outer-child)
-          "the OUTER (shallower) :spawn allocated #1 — entered first in the cascade")
-      (is (= :ord1/leaf#2 inner-child)
-          "the INNER (deeper) :spawn allocated #2 — entered second")
-      (is (some? (snapshot outer-child)) "outer child is alive")
-      (is (some? (snapshot inner-child)) "inner child is alive")
-      ;; The parent's per-TYPE spawn counter advanced to exactly 2.
-      (is (= 2 (get-in (snapshot :ord1/parent) [:rf/spawn-counter :ord1/leaf]))
-          "the parent's :rf/spawn-counter advanced by exactly the two spawns, in one cascade"))))
-
-;; ---- (2) :spawn-all allocates its children in DECLARED order --------------
+;; ---- (1) :spawn-all allocates its children in DECLARED order --------------
 ;;
 ;; A `:spawn-all` fans out N children; the EP A7 ordering claim covers
 ;; `:spawn-all` as well as `:spawn`. The children are allocated in the order
@@ -126,7 +85,15 @@
       (is (= 3 (get-in (snapshot :ord2/parent) [:rf/spawn-counter :ord2/leaf]))
           "the parent's :rf/spawn-counter advanced by exactly the three fan-out children"))))
 
-;; ---- (3) post-action parent data + ordering combined (EP A7 §1 + ordering) ----
+;; ---- (2) two :spawn nodes in ONE cascade: shallowest-first, post-action data --
+;;
+;; A compound parent whose entered state-node carries `:spawn` AND whose
+;; entered-into descendant ALSO carries `:spawn` crosses two spawn-bearing
+;; nodes in a single transition's entry cascade. `run-spawn-phase` reduces over
+;; `entered-pairs` shallowest-first, so the OUTER (shallower) node's child is
+;; `#1` and the INNER (deeper) node's child is `#2` — deterministic, per the EP
+;; A7 ordering claim. Both spawns share the parent's `:rf/spawn-counter`, so the
+;; two allocations are strictly ordered.
 ;;
 ;; The headline EP A7 invariant: a spawn's `:data` fn sees the parent's
 ;; POST-ACTION `:data` (the transition's `:action` has already run), and it
@@ -162,6 +129,8 @@
           inner-child (spawned-id-for :ord3/parent [:outer :inner])]
       (is (= :ord3/leaf#1 outer-child) "outer allocated #1")
       (is (= :ord3/leaf#2 inner-child) "inner allocated #2")
+      (is (= 2 (get-in (snapshot :ord3/parent) [:rf/spawn-counter :ord3/leaf]))
+          "the parent's :rf/spawn-counter advanced by exactly the two spawns, in one cascade")
       (is (= "https://api.example.com/v1/me"
              (:url (:data (snapshot outer-child))))
           "OUTER child's :data fn saw the post-action :endpoint")
