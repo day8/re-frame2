@@ -410,3 +410,39 @@ Events, app-db, subscriptions and the purity rule are identical under both. Fres
 ships its own adapter, `re-frame.fresco.substrate/adapter`, which a Fresco
 application passes to `init!`; a Reagent, reagent-slim or UIx adapter also works
 under a Fresco tree. Fresco is pre-alpha.
+
+Here is the todo list from the top of this page written with Fresco. The cell
+registers no events or subscriptions: it uses the ones the first cell registered,
+and only the views are new.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
+(h/defview fresco-todo-item [{:keys [todo]}]
+  (let [{:keys [id title done?]} todo]
+    [:li
+     [:input {:type :checkbox :checked done?
+              :on-change [:todo/toggle id]}]
+     " " title " "
+     [:button {:on-click [:todo/delete id]} "×"]]))
+
+(h/defview fresco-todo-list [_]
+  [:ul
+   (for [todo (h/sub [:todo/all])]
+     [fresco-todo-item {:key (:id todo) :todo todo}])])
+
+(h/defview fresco-todo-footer [_]
+  [:p (h/sub [:todo/remaining-count]) " left to do"])
+
+[h/frame-root {:id :todos/fresco :initial-events [[:todo/initialise]]}
+ [:div
+  [fresco-todo-list {}]
+  [fresco-todo-footer {}]]]
+```
+
+The handlers are event vectors: Fresco dispatches `[:todo/toggle id]` when the box
+changes, so the view creates no callbacks. `h/sub` returns the value, with no `@`.
+A Fresco view takes one props map, so each row's key goes in it as `:key`. This
+copy runs in its own frame, `:todos/fresco`, so ticking a box here leaves the first
+list alone.
