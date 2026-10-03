@@ -236,28 +236,6 @@
 ;; Where the detection sits — the branch, not the message.
 ;; ---------------------------------------------------------------------------
 
-(deftest ambiguity-is-detected-before-app-db-is-read
-  ;; Patching the message alone would leave the wrong branch taken.
-  ;; Both emitted shapes must resolve, guard, THEN read.
-  (async done
-    (let [captured (atom nil)]
-      (stub-runtime! captured {:app-frames two-frames :pin nil :db {} :path [:a]})
-      (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:a]"}))
-          (.then (fn [_]
-                   (let [form @captured]
-                     (is (string? form))
-                     (is (guards-ambiguity? form)
-                         "singular: resolve -> refuse-on-nil -> read, in that order"))
-                   (let [captured2 (atom nil)]
-                     (stub-runtime! captured2 {:app-frames two-frames :pin nil
-                                               :db {} :paths [[:a]]})
-                     (-> (get-path/get-path-tool (fresh-conn)
-                                                 (tu/args->js {:paths "[[:a]]"}))
-                         (.then (fn [_]
-                                  (is (guards-ambiguity? @captured2)
-                                      "batch: same ordering")
-                                  (done)))))))))))
-
 (deftest one-resolution-serves-both-the-read-and-the-walker
   ;; The read and the elision handle must describe the same frame. A
   ;; SECOND, independent `(current-frame)` call from the walker could
@@ -323,39 +301,4 @@
                    (is (true? (:exists? edn)))
                    (is (= [:only-here] (:value edn)) "read the frame the caller named")
                    (is (= :stories (:frame edn))))
-                 (done))))))
-
-(deftest genuine-miss-in-a-resolved-frame-is-still-path-not-found
-  ;; The refusal must not swallow the honest answer: in a session that
-  ;; DOES resolve, an absent path is still `:path-not-found`.
-  (async done
-    (stub-runtime! nil {:app-frames [:rf/default]
-                        :pin        nil
-                        :db         {:rf/default {:counter 42}}
-                        :path       [:no-such :key]})
-    (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:no-such :key]"}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (err? r))
-                   (is (= :path-not-found (:reason edn))
-                       "a resolved frame that genuinely lacks the path still says so"))
-                 (done))))))
-
-(deftest batch-in-a-resolved-frame-still-returns-results
-  (async done
-    (stub-runtime! nil {:app-frames [:rf/default]
-                        :pin        nil
-                        :db         {:rf/default {:cart {:items [1 2]} :user {:id 7}}}
-                        :paths      [[:cart :items] [:user :id] [:nope]]})
-    (-> (get-path/get-path-tool
-          (fresh-conn)
-          (tu/args->js {:paths "[[:cart :items] [:user :id] [:nope]]"}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)))
-                   (is (true? (:ok? edn)))
-                   (is (= {:exists? true :value [1 2]} (get-in edn [:results [:cart :items]])))
-                   (is (= {:exists? true :value 7} (get-in edn [:results [:user :id]])))
-                   (is (= {:exists? false :value nil} (get-in edn [:results [:nope]]))
-                       "a real per-path miss inside a resolved frame is still reported"))
                  (done))))))

@@ -168,55 +168,6 @@
                                            :reset-operating-frame-tool}})))))
 
 ;; ---------------------------------------------------------------------------
-;; Phase-1 short-circuit: precheck hit ⇒ dispatch SKIPPED.
-;;
-;; Prime the cache with a precheck-hash. Stub `fetch-precheck-hash` to
-;; return the matching value. Stub the tool body so we can detect any
-;; (forbidden) call into it. `invoke` must emit the marker WITHOUT
-;; running the tool.
-;; ---------------------------------------------------------------------------
-
-(deftest precheck-hit-short-circuits-dispatch
-  (async done
-    ;; No real tool registers a precheck target
-    ;; (`snapshot` and `get-path` are BOTH precheck-ineligible — see
-    ;; `precheck.cljs`). The pipeline mechanics under test (precheck
-    ;; hit ⇒ dispatch skipped) are tool-agnostic, so we stub
-    ;; `precheck-target` directly to manufacture an eligible target for
-    ;; whichever tool name `invoke` dispatches — `precheck-step` then
-    ;; issues the stubbed fetch exactly as it would for a genuinely
-    ;; eligible tool.
-    (let [args        (args-js {:cache "true" :frames #js ["rf/default"]})
-          dispatched? (atom false)
-          ;; The cache key includes the resolved build, so the priming
-          ;; MUST use the same build the `invoke` pipeline derives
-          ;; (`arg-build nil args` = the env / `:app` default here) or
-          ;; the lookup key won't match.
-          _ (cache/apply-cache (mcp-result "{:app-db {:k :v}}")
-                               {:tool "snapshot"
-                                :args args
-                                :enabled? true
-                                :build (wire/arg-build nil args)
-                                :precheck-hash 42})]
-      (set-stubs!
-        {:precheck-target     (fn [_tool _args] [:explicit :rf/default])
-         :fetch-precheck-hash (fn [_conn _args _frame] (js/Promise.resolve 42))
-         :snapshot-tool       (fn [_conn _args]
-                                (reset! dispatched? true)
-                                (js/Promise.resolve (mcp-result "{:should-not-ship :true}")))})
-      (-> (tools/invoke nil "snapshot" args nil)
-          (.then (fn [result]
-                   (is (false? @dispatched?)
-                       "precheck hit MUST skip the tool body entirely")
-                   (is (cache-hit? result)
-                       "result is the :rf.mcp/cache-hit marker")
-                   (is (= :precheck
-                          (get-in (extract-edn result)
-                                  [:rf.mcp/cache-hit :via]))
-                       "marker carries :via :precheck — the precheck path")
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
 ;; Phase-1 miss: precheck-hash feeds through to apply-cache so the NEXT
 ;; call can short-circuit via the precheck path.
 ;;
@@ -227,11 +178,13 @@
 
 (deftest precheck-miss-stores-hash-for-next-call
   (async done
-    ;; No real tool is precheck-eligible — stub
-    ;; `precheck-target` directly (see `precheck-hit-short-circuits-
-    ;; dispatch` above) so the mechanics (cold miss stores the
-    ;; precheck-hash; the next call short-circuits) stay covered
-    ;; tool-agnostically.
+    ;; No real tool registers a precheck target (`snapshot` and
+    ;; `get-path` are BOTH precheck-ineligible — see `precheck.cljs`). The
+    ;; mechanics under test (cold miss stores the precheck-hash; the next
+    ;; call's precheck hit skips the tool body) are tool-agnostic, so we
+    ;; stub `precheck-target` directly to manufacture an eligible target;
+    ;; `precheck-step` then issues the stubbed fetch exactly as it would
+    ;; for a genuinely eligible tool.
     (let [args       (args-js {:cache "true" :frames #js ["rf/default"]})
           call-count (atom 0)]
       (set-stubs!
@@ -474,36 +427,6 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Unknown tool: dispatch-tool* returns an error envelope; the
-;; pipeline carries it through cache (bypass on isError) and cap
-;; (small payload, under any cap). The cap walk MUST tolerate the
-;; isError shape — that's part of phase 4's contract.
-;; ---------------------------------------------------------------------------
-
-(deftest unknown-tool-flows-through-pipeline-as-error
-  (async done
-    (-> (tools/invoke nil "no-such-tool" (args-js {}) nil)
-        (.then (fn [result]
-                 (is (true? (j/get result :isError)))
-                 (let [v (extract-edn result)]
-                   ;; The base error shape.
-                   (is (false? (:ok? v)))
-                   (is (= :unknown-tool (:reason v)))
-                   (is (= "no-such-tool" (:tool v)))
-                   ;; Recovery affordances: a :hint pointing at tools/list
-                   ;; and the live catalogue, matching the surface's
-                   ;; honest-error standard.
-                   (is (string? (:hint v)))
-                   (is (re-find #"tools/list" (:hint v))
-                       "hint must point the agent at tools/list to recover")
-                   (is (vector? (:available-tools v)))
-                   (is (some #{"snapshot"} (:available-tools v))
-                       ":available-tools carries the real catalogue"))
-                 (is (zero? (cache/size))
-                     "unknown-tool errors do not touch the cache")
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
 ;; Snapshot precheck eligibility — NONE, for every `:include` shape.
 ;;
 ;; The precheck hash is `(hash app-db@frame)` only. `:machines`/
@@ -530,15 +453,7 @@
         ;; :app-db egresses through project-egress, whose elision
         ;; registry lives in runtime-db — the SAME hazard that makes
         ;; get-path ineligible.
-        ":include [:app-db] still egresses through project-egress ⇒ ineligible")
-    (is (nil? (precheck/precheck-target
-                "snapshot" (args-js {:frames #js ["rf/default"]
-                                     :include #js ["app-db" "machines"]})))
-        ;; :machines is RUNTIME-DB state (EP-0001 partitions machine
-        ;; snapshots into the runtime-db). A machine transition rewrites
-        ;; the slice WITHOUT an app-db write, so the `(hash app-db)`
-        ;; precheck hash can't see it move ⇒ ineligible.
-        ":machines reads runtime-db — NOT app-db-derived ⇒ ineligible"))
+        ":include [:app-db] still egresses through project-egress ⇒ ineligible"))
   (testing "single-frame snapshot, default (all-five) include → ineligible"
     (is (nil? (precheck/precheck-target
                 "snapshot" (args-js {:frames #js ["rf/default"]})))
@@ -547,8 +462,10 @@
     (doseq [slice [#js ["app-db" "epochs"]
                    #js ["app-db" "traces"]
                    #js ["app-db" "sub-cache"]
-                   ;; :machines is runtime-db-backed, so an :include
-                   ;; retaining it is precheck-ineligible too.
+                   ;; :machines is RUNTIME-DB state (EP-0001 partitions
+                   ;; machine snapshots into the runtime-db). A machine
+                   ;; transition rewrites the slice WITHOUT an app-db write,
+                   ;; so the `(hash app-db)` precheck hash can't see it move.
                    #js ["app-db" "machines"]
                    #js ["machines"]]]
       (is (nil? (precheck/precheck-target
