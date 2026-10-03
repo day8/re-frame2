@@ -55,7 +55,7 @@ A read-only search over the source tree surfaces them:
 rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)|reagent\.(dom|core)/render|\b(rdom|r|reagent)/render\b|unmount-component-at-node'
 ```
 
-Flag each for the author, the test-harness mounts included. The rewrite itself — `create-root` + `render`, in the namespace keyed to whichever adapter M-0 commits — belongs to **M-42**: [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). Don't re-derive it here.
+Flag each for the author, the test-harness mounts included. The rewrite itself — the adapter-owned `client-root` handle with `render!` / `unmount!` — belongs to **M-42**: [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). Don't re-derive it here.
 
 ### Check 4 — CLJS / shadow-cljs / Closure-compiler toolchain-skew check (hits almost every older shadow-cljs app)
 
