@@ -325,6 +325,119 @@ Because the prior data is still there, the entry goes to `:fetching` (not `:load
 
 ## See it move
 
+The cell below runs this part's two reads and routes against canned Conduit
+replies, with a trimmed home page and article page, and lists each request
+that reaches the API. Open an article, click **Home**, then open the same
+article again: only the first visit sends a request. **↻ Refresh** always
+sends one.
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.resources]
+         '[re-frame.routing]
+         '[re-frame.http.test-support :as http-test-support]
+         '[reagent2.core :as r])
+
+(def api-base "https://api.realworld.show/api")
+
+;; Canned Conduit replies, so the cell needs no network.
+(def welcome {:slug "welcome" :title "Welcome to Conduit" :description "Start here."
+              :body "Conduit is a Medium clone." :tagList ["intro"]
+              :author {:username "jake"} :createdAt "2026-01-01"})
+(def resources {:slug "resources" :title "Resources in practice" :description "Server data."
+                :body "A resource caches one server read." :tagList ["data"]
+                :author {:username "jane"} :createdAt "2026-01-02"})
+(http-test-support/install-managed-request-stubs!
+  {[:get (str api-base "/articles")]           {:reply {:ok {:articles [welcome resources] :articlesCount 2}}}
+   [:get (str api-base "/articles/welcome")]   {:reply {:ok {:article welcome}}}
+   [:get (str api-base "/articles/resources")] {:reply {:ok {:article resources}}}})
+
+;; Log each request that reaches the stubbed API.
+(def requests (r/atom []))
+(rf/reg-http-interceptor :conduit/request-log
+  {:frame  :conduit
+   :before (fn [ctx] (swap! requests conj (get-in ctx [:request :url])) ctx)})
+
+(rf/reg-resource :conduit/articles
+  {:params-schema  [:map]
+   :scope          :rf.scope/global
+   :stale-after-ms 60000}
+  (fn [_params _ctx]
+    {:request {:method :get
+               :url    (str api-base "/articles")
+               :params {:limit 10}}
+     :decode  :json}))
+
+(rf/reg-resource :conduit/article
+  {:params-schema  [:map [:slug :string]]
+   :scope          :rf.scope/global
+   :stale-after-ms 60000}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get
+               :url    (str api-base "/articles/" slug)}
+     :decode  :json}))
+
+(rf/reg-route :conduit/home
+  {:resources [{:resource  :conduit/articles
+                :params    (fn [_route] {})
+                :blocking? false}]}
+  "/")
+
+(rf/reg-route :conduit.article/show
+  {:params    [:map [:slug :string]]
+   :resources [{:resource  :conduit/article
+                :params    (fn [route] {:slug (get-in route [:params :slug])})
+                :blocking? true}]}
+  "/article/:slug")
+
+(rf/reg-view article-preview [{:keys [article]}]
+  [:div.article-preview
+   [rf/route-link {:to :conduit.article/show :params {:slug (:slug article)}}
+    [:h3 (:title article)]]
+   [:p (:description article)]])
+
+(rf/reg-view home-page []
+  (let [state    @(subscribe [:rf/resource {:resource :conduit/articles :params {}}])
+        articles (:articles (:data state))]
+    (cond
+      (or (= :idle (:status state)) (:loading? state)) [:p "Loading articles…"]
+      (and (:error state) (not (:has-data? state)))    [:p "Couldn't load articles."]
+      :else
+      [:div
+       [:button {:disabled (:fetching? state)
+                 :on-click #(dispatch [:rf.resource/refetch {:resource :conduit/articles
+                                                             :params   {}
+                                                             :cause    [:manual :feed/refresh]}])}
+        "↻ Refresh"]
+       (for [article articles]
+         ^{:key (:slug article)}
+         [article-preview {:article article}])])))
+
+(rf/reg-view article-page []
+  (let [{:keys [slug]} @(subscribe [:rf.route/params])
+        state          @(subscribe [:rf/resource {:resource :conduit/article :params {:slug slug}}])
+        article        (:article (:data state))]
+    (if article
+      [:div [:h2 (:title article)] [:p (:body article)]]
+      [:p "Loading article…"])))
+
+(rf/reg-view root-view []
+  [:div
+   [rf/route-link {:to :conduit/home} "Home"]
+   (case @(subscribe [:rf.route/id])
+     :conduit/home         [home-page]
+     :conduit.article/show [article-page]
+     [:p "Not found"])
+   [:p "Requests sent: " (count @requests)]
+   (into [:ol] (for [url @requests] [:li url]))])
+
+[rf/frame-root {:id :conduit
+                :initial-events [[:rf.route/navigate {:to :conduit/home}]]
+                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [root-view]]
+```
+
 With the dev build running and Xray open:
 
 1. **Load the home page.** The feed shows a skeleton, then the list. In Xray, the route-entry event row shows the ensure it caused, and the Resources panel shows `:conduit/articles` go `:idle → :loading → :loaded`.
