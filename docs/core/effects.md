@@ -241,14 +241,19 @@ drain are on [Run to completion](run-to-completion.md). You don't need them to u
 ## HTTP
 
 A request is an effect like any other. The handler describes it, and the
-`:rf.http/managed` effect performs it:
+`:rf.http/managed` effect performs it. This cell answers its requests from a stub
+instead of a server. Click **Fetch todos**, then **Fetch archived todos**:
 
-```clojure
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
 (rf/reg-event :todo/fetch
-  (fn [{:keys [db]} _]
-    {:db (assoc db :loading? true)
+  (fn [{:keys [db]} [_ url]]
+    {:db (assoc db :loading? true :fetch-error nil)
      :fx [[:rf.http/managed
-           {:request    {:method :get :url "/api/todos"}
+           {:request    {:method :get :url url}
             :decode     :json
             :on-success [:todo/fetched]
             :on-failure [:todo/fetch-failed]}]]}))
@@ -263,13 +268,50 @@ A request is an effect like any other. The handler describes it, and the
 (rf/reg-event :todo/fetch-failed
   (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (assoc db :loading? false :fetch-error error)}))
+
+;; a stand-in server: canned replies keyed by [method url]
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/todos"]          {:reply {:ok [{:id 1 :title "Buy milk"     :done? false}
+                                              {:id 2 :title "Walk the dog" :done? true}]}}
+   [:get "/api/todos/archived"] {:reply {:failure {:kind :rf.http/http-4xx :status 404}}}})
+
+(rf/reg-sub :todo/loading?    (fn [db _] (:loading? db)))
+(rf/reg-sub :todo/fetch-error (fn [db _] (:fetch-error db)))
+(rf/reg-sub :todo/todos       (fn [db _] (:todos db)))
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
+
+(rf/reg-view todo-fetcher []
+  (let [error @(subscribe [:todo/fetch-error])]
+    [:div
+     [:button {:on-click #(dispatch [:todo/fetch "/api/todos"])} "Fetch todos"]
+     [:button {:on-click #(dispatch [:todo/fetch "/api/todos/archived"])}
+      "Fetch archived todos"]
+     (cond
+       @(subscribe [:todo/loading?]) [:p "Loading…"]
+       error [:p "Failed: " (str (:kind error)) ", status " (:status error)])
+     [:ul
+      (for [{:keys [id title]} @(subscribe [:todo/all])]
+        ^{:key id} [:li title])]]))
+
+;; :fx-overrides sends this frame's :rf.http/managed rows to the stub
+[rf/frame-root {:id           :todos/http
+                :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [todo-fetcher]]
 ```
 
 The runtime performs the request. When the reply arrives, it dispatches
 `:on-success` or `:on-failure` as a new event, with the reply map appended as the
 last argument. That map is [the uniform reply](glossary.md#the-uniform-reply):
 success carries `:value`, failure carries `:error`, and every managed async
-effect answers the same way.
+effect answers the same way. Here the first reply reaches `:todo/fetched`; the
+second is a 404, so it reaches `:todo/fetch-failed` with `:kind :rf.http/http-4xx`.
+
+The stub comes from `re-frame.http.test-support`. `install-managed-request-stubs!`
+registers an effect that answers from the map, and the frame's `:fx-overrides`
+routes `:rf.http/managed` to it, so the three handlers are unchanged. A stub replies
+at once, inside the same [drain](#run-to-completion), so `Loading…` never renders
+here; against a real server it shows while the request is in flight.
 
 All three handlers are pure. Each tests as a plain function, and the request tests
 as data: assert on the `:fx` row, with no network.
