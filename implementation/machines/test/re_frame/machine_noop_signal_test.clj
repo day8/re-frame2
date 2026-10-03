@@ -65,44 +65,45 @@
   (rf/dispatch-sync [:rf2-coozg/tl [:rf.machine/start]]))
 
 ;; ---------------------------------------------------------------------------
-;; 1. Unhandled user event — exactly ONE no-op signal (`unhandled-no-op`),
-;;    NOT also a no-change `:rf.machine/transition`.
+;; 1. A declined event — unhandled, guard-blocked, or declined by every
+;;    region of a parallel machine — emits exactly ONE no-op signal
+;;    (`unhandled-no-op`), NOT also a no-change `:rf.machine/transition`.
+;;    For the parallel machine the aggregate signal is emitted once by
+;;    `parallel-machine-transition`, and the no-change transition is
+;;    suppressed through the SAME `commit-or-finalize` seam.
 ;; ---------------------------------------------------------------------------
 
-(deftest unhandled-event-emits-only-the-no-op-signal
-  (testing "an event with no matching `:on` clause emits exactly one
-   `:rf.machine.event/unhandled-no-op` and NO no-change `:rf.machine/transition`"
-    (reg-tl!)
-    (boot!)
-    (let [evs       (record-traces!
-                      (fn [] (rf/dispatch-sync [:rf2-coozg/tl [:no-such-event]])))
-          no-ops    (ops evs :rf.machine.event/unhandled-no-op)
-          trans     (ops evs :rf.machine/transition)]
-      (is (= 1 (count no-ops))
-          "exactly one unhandled-no-op signals the benign no-op")
-      (is (= 0 (count trans))
-          "NO redundant no-change :rf.machine/transition"))))
+(defn- reg-parallel! []
+  (rf/reg-machine :rf2-coozg/par
+    {:type :parallel
+     :regions
+     {:a {:initial :a0 :states {:a0 {:on {:go-a {:target :a1}}}
+                                :a1 {}}}
+      :b {:initial :b0 :states {:b0 {:on {:go-b {:target :b1}}}
+                                :b1 {}}}}}))
+
+(deftest declined-events-emit-only-the-no-op-signal
+  (reg-tl!)
+  (boot!)
+  (reg-parallel!)
+  (rf/dispatch-sync [:rf2-coozg/par [:rf.machine/start]])
+  ;; Every row is a no-op, so each leaves its machine where the next row
+  ;; expects it.
+  (doseq [[label event]
+          [["an event with no matching `:on` clause"
+            [:rf2-coozg/tl [:no-such-event]]]
+           ["an event whose only matching clause has a failing guard"
+            [:rf2-coozg/tl [:force]]]
+           ["a parallel machine's event that EVERY region declines (one aggregate signal)"
+            [:rf2-coozg/par [:no-region-handles-this]]]]]
+    (let [evs (record-traces! (fn [] (rf/dispatch-sync event)))]
+      (is (= 1 (count (ops evs :rf.machine.event/unhandled-no-op)))
+          (str label ": exactly one unhandled-no-op signals the benign no-op"))
+      (is (= 0 (count (ops evs :rf.machine/transition)))
+          (str label ": NO redundant no-change :rf.machine/transition")))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. Guard-blocked event — same single-signal contract.
-;; ---------------------------------------------------------------------------
-
-(deftest guard-blocked-event-emits-only-the-no-op-signal
-  (testing "an event whose only matching clause has a failing guard resolves
-   to no transition — exactly one `unhandled-no-op`, NO no-change transition"
-    (reg-tl!)
-    (boot!)
-    (let [evs    (record-traces!
-                   (fn [] (rf/dispatch-sync [:rf2-coozg/tl [:force]])))
-          no-ops (ops evs :rf.machine.event/unhandled-no-op)
-          trans  (ops evs :rf.machine/transition)]
-      (is (= 1 (count no-ops))
-          "exactly one unhandled-no-op for the guard-blocked no-op")
-      (is (= 0 (count trans))
-          "NO redundant no-change :rf.machine/transition"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. Redundant bootstrap on an already-booted machine — emits NEITHER
+;; 2. Redundant bootstrap on an already-booted machine — emits NEITHER
 ;;    signal (reserved-`:rf/*` lifecycle is exempt from unhandled-no-op,
 ;;    and the no-change transition is suppressed too). The no-op is
 ;;    consistent: nothing fires for genuine non-events.
@@ -115,7 +116,7 @@
    `:rf.machine/started` either (the snapshot is present + not pending, so
    `maybe-boot` does not re-fire and the start marker short-circuits)."
     (reg-tl!)
-    (boot!) ;; first start — the legitimate one (asserted in test 4)
+    (boot!) ;; first start — the legitimate one (asserted in test 3)
     (let [evs     (record-traces!
                     (fn [] (rf/dispatch-sync [:rf2-coozg/tl [:rf.machine/start]])))
           no-ops  (ops evs :rf.machine.event/unhandled-no-op)
@@ -129,7 +130,7 @@
           "no second `:rf.machine/started` — the machine is already alive"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. The LEGITIMATE first start runs its `:initial-entry` cascade and
+;; 3. The LEGITIMATE first start runs its `:initial-entry` cascade and
 ;;    signals the BIRTH with a `:rf.machine/started` trace — NOT a
 ;;    `:rf.machine/transition`. The start marker is a PURE init-kick:
 ;;    it STOPS after initial-entry, so no transition row is emitted (no
@@ -160,7 +161,7 @@
             "the started trace names the machine, its :initial state :red, and :explicit cause")))))
 
 ;; ---------------------------------------------------------------------------
-;; 5. Real transition — exactly ONE `:rf.machine/transition`, NO
+;; 4. Real transition — exactly ONE `:rf.machine/transition`, NO
 ;;    `unhandled-no-op`.
 ;; ---------------------------------------------------------------------------
 
@@ -183,7 +184,7 @@
             "before/after span the real transition")))))
 
 ;; ---------------------------------------------------------------------------
-;; 6. Internal self-transition (action runs, no state change) is NOT a
+;; 5. Internal self-transition (action runs, no state change) is NOT a
 ;;    no-op — its cascade carries an `:action` step, so the transition
 ;;    trace survives even though `:before` == `:after`.
 ;; ---------------------------------------------------------------------------
@@ -216,33 +217,3 @@
             ":cascade carries the :action step (so it's not classified no-op)")
         (is (= 1 (get-in (:after (:tags tr)) [:data :n]))
             "the action bumped :data :n")))))
-
-;; ---------------------------------------------------------------------------
-;; 7. Parallel-region machine: when EVERY region declines, the aggregate
-;;    `unhandled-no-op` (emitted once by `parallel-machine-transition`) is
-;;    the sole signal — the no-change `:rf.machine/transition` is suppressed
-;;    through the SAME `commit-or-finalize` seam.
-;; ---------------------------------------------------------------------------
-
-(defn- reg-parallel! []
-  (rf/reg-machine :rf2-coozg/par
-    {:type :parallel
-     :regions
-     {:a {:initial :a0 :states {:a0 {:on {:go-a {:target :a1}}}
-                                :a1 {}}}
-      :b {:initial :b0 :states {:b0 {:on {:go-b {:target :b1}}}
-                                :b1 {}}}}}))
-
-(deftest parallel-all-regions-decline-emits-only-the-no-op-signal
-  (testing "a parallel machine where every region declines emits exactly one
-   aggregate `unhandled-no-op` and NO no-change `:rf.machine/transition`"
-    (reg-parallel!)
-    (rf/dispatch-sync [:rf2-coozg/par [:rf.machine/start]])
-    (let [evs    (record-traces!
-                   (fn [] (rf/dispatch-sync [:rf2-coozg/par [:no-region-handles-this]])))
-          no-ops (ops evs :rf.machine.event/unhandled-no-op)
-          trans  (ops evs :rf.machine/transition)]
-      (is (= 1 (count no-ops))
-          "exactly one aggregate unhandled-no-op (all regions declined)")
-      (is (= 0 (count trans))
-          "NO redundant no-change :rf.machine/transition"))))

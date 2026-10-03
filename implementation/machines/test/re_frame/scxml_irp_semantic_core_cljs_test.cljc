@@ -51,7 +51,7 @@
     412  default-entry runs the compound's initial child   COVERED (same)
     413  machine placed in the initial-specified config    COVERED
                                   (scxml-initial-cascade-*, initial_entry_test)
-    576  initial attribute present ⇒ enter those states    COVERED (scxml-final-leaf-compound, initial_*)
+    576  initial attribute present ⇒ enter those states    COVERED (scxml-irp-test415-embedded-*, initial_*)
 
   History (also 3xx):
     387  default history target before first visit         COVERED (scxml-history-test387-*)
@@ -94,7 +94,7 @@
     415  final child of <scxml> root halts processing      HERE — re-frame2 top-level
                                   finality (whole-machine done) is the analogue;
                                   scxml-irp-test415-top-level-final-is-machine-final.
-    416  done.state.id for a <final> child of a compound   COVERED (scxml-compound-done-*, scxml-final-leaf-*)
+    416  done.state.id for a <final> child of a compound   COVERED (scxml-compound-done-*, scxml-irp-test415-embedded-*)
     417  done.state.id for <parallel> when all final       COVERED (scxml-parallel-done-*)
     570  parallel done.state when all regions final        COVERED (scxml-parallel-done-when-every-region-final)
 

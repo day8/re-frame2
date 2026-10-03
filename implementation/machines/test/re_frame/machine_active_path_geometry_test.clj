@@ -174,6 +174,10 @@
 ;; (2) — COMPOUND self target, declared on the ancestor it names: node
 ;;       survives, descendants re-resolve.
 ;; ===========================================================================
+;;
+;; Without `:reenter?` the exact log is
+;; ancestor-declared-self-target-keeps-the-ancestor-and-its-child's (below),
+;; on the same machine plus a `:spawn`.
 
 (defn- compound-self-target-machine [log]
   {:initial :process
@@ -197,19 +201,6 @@
      :states  {:step1 {:entry :enter-step1 :exit :exit-step1
                        :on    {:next :step3}}
                :step3 {:entry :enter-step3 :exit :exit-step3}}}}})
-
-(deftest compound-self-target-without-reenter-re-resolves-descendants-only
-  (testing "at [:process :step3], :target :process declared on :process exits
-            :step3 and re-descends :process's :initial (:step1) — :process
-            itself is NEITHER exited NOR entered. NOT a no-op (the targetless
-            control would have preserved :step3)"
-    (let [log (atom [])]
-      (is (= [:exit-step3 :act :enter-step1]
-             (drive! log :geo/ancestor (compound-self-target-machine log)
-                     [[:next]] [:restart]))
-          "descendants re-resolve; the target node survives")
-      (is (= [:process :step1] (rf.machines.test-support/machine-state :geo/ancestor))
-          "the active descendant really was reset to :initial"))))
 
 (deftest compound-self-target-with-reenter-restarts-the-target
   (testing ":reenter? on a compound self target restarts the TARGET: it exits

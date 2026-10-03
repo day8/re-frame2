@@ -124,7 +124,6 @@
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
    [re-frame.machines :as rf.machines]
-   [re-frame.machines.transition :as rf.machines.transition]
    [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize])
   #?(:clj (:import [clojure.lang ExceptionInfo])))
 
@@ -244,7 +243,7 @@
             state, an explicit event match is preferred over the `*` catch-all
             (the explicit descriptor is more specific and earlier in document
             order). Spec 005 §Wildcard — `:*` fires only when no explicit
-            match at the same level."
+            match at the same level (the W3C test 318/319 wildcard family)."
     (let [m {:initial :a :data {}
              :states  {:a {:on {:specific :explicit-target
                                  :*        :wildcard-target}}
@@ -915,21 +914,10 @@
 ;; ANY event, evaluated AFTER more specific descriptors at the same state.
 ;; re-frame2: `:*` in the `:on` table is the catch-all, consulted only when
 ;; no explicit key matches at that level. Spec 005 §Wildcard.
-;; (§2 covers explicit-precedes-wildcard at one level; §3 covers leaf-`:*`
-;; shadowing the parent. Here we pin the basic catch-all + the action.)
+;; (§2 covers explicit-precedes-wildcard at one level, and with it the basic
+;; catch-all; §3 covers leaf-`:*` shadowing the parent. Here we pin the
+;; action.)
 ;; ===========================================================================
-
-(deftest scxml-wildcard-catches-any-unmatched-event
-  (testing "SCXML §3.12.1 `event=\"*\"`: the wildcard descriptor matches any
-            event with no explicit transition (W3C test 318/319 wildcard
-            family). Spec 005 §Wildcard."
-    (let [m {:initial :a :data {}
-             :states  {:a {:on {:known :known-target
-                                 :*     :catch-all}}
-                       :known-target {} :catch-all {}}}
-          r (step m {:state :a :data {}} [:totally-unknown-event :with :args])]
-      (is (= :catch-all (:state r))
-          "the `:*` wildcard catches the otherwise-unmatched event"))))
 
 (deftest scxml-wildcard-action-fail-loudly-idiom
   (testing "SCXML / xstate-v5 'fail loudly on unknown' idiom: a `:*` whose
@@ -1262,12 +1250,13 @@
 
 (deftest scxml-ancestor-restart-regression-disjoint-targets-unchanged
   (testing "the LCCA ancestor-restart does NOT reach
-            DISJOINT-subtree targets. A sibling-leaf transition and a
-            cross-level-to-sibling-subtree transition keep their plain
-            common-prefix LCA — the common-ancestor node neither exits nor
-            enters. Spec 005 §Entry/exit cascading along the LCCA."
-    ;; (a) sibling-leaf: [:p :a] -> :b (sibling under :p). LCCA = :p; only
-    ;;     the leaves cross the boundary, :p untouched.
+            DISJOINT-subtree targets. A sibling-leaf transition keeps its
+            plain common-prefix LCA — the common-ancestor node neither exits
+            nor enters. Spec 005 §Entry/exit cascading along the LCCA."
+    ;; sibling-leaf: [:p :a] -> :b (sibling under :p). LCCA = :p; only the
+    ;; leaves cross the boundary, :p untouched. The cross-level move to a
+    ;; sibling SUBTREE, [:p :a :x] -> [:p :b :y], is
+    ;; scxml-lca-cascade-exit-deepest-first-enter-shallowest-first's.
     (let [[log mk] (order-recorder)
           m {:initial :p :data {}
              :states {:p {:entry (mk :entry-P) :exit (mk :exit-P)
@@ -1278,26 +1267,7 @@
           r (step m {:state [:p :a] :data {}} [:go])]
       (is (= [:p :b] (:state r)) "sibling-leaf transition lands at the sibling")
       (is (= [:exit-A :entry-B] @log)
-          "only :a exits and :b enters; the common ancestor :p neither exits nor enters (unchanged)"))
-    ;; (b) cross-level to a sibling SUBTREE: [:p :a :x] -> [:p :b :y].
-    ;;     LCCA = :p; mirrors scxml-lca-cascade-* — untouched by the ancestor restart.
-    (let [[log mk] (order-recorder)
-          m {:initial :p :data {}
-             :states
-             {:p {:entry (mk :entry-P) :exit (mk :exit-P)
-                  :initial :a
-                  :states
-                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
-                       :initial :x
-                       :states {:x {:entry (mk :entry-X) :exit (mk :exit-X)
-                                    :on {:go {:target [:p :b :y]}}}}}
-                   :b {:entry (mk :entry-B) :exit (mk :exit-B)
-                       :initial :y
-                       :states {:y {:entry (mk :entry-Y) :exit (mk :exit-Y)}}}}}}}
-          r (step m {:state [:p :a :x] :data {}} [:go])]
-      (is (= [:p :b :y] (:state r)) "cross-level lands at the sibling subtree leaf")
-      (is (= [:exit-X :exit-A :entry-B :entry-Y] @log)
-          "exit X,A → enter B,Y; the LCCA :p untouched (the sibling-subtree case keeps its plain LCA)"))))
+          "only :a exits and :b enters; the common ancestor :p neither exits nor enters (unchanged)"))))
 
 ;; ===========================================================================
 ;; §10c. Explicit targets on the active path RE-RESOLVE DESCENDANTS
@@ -1527,47 +1497,17 @@
           "a stale :after timer (epoch mismatch) is a no-op; configuration unchanged"))))
 
 ;; ===========================================================================
-;; §12. Final states (done.state) — compound
-;;
-;; SCXML §3.7 `<final>`: entering a `<final>` child of a compound state
-;; raises done.state.<parent>; the final state itself is a leaf with no
-;; outgoing transitions. re-frame2: `:final? true` marks the leaf; the
-;; lifecycle recomputes finality at the macrostep boundary via the pure
-;; `final-on-leaf?` predicate. Spec 005 §Final states.
-;; (Parallel done.state is §5; the flat top-level final leaf is
-;; scxml_irp_semantic_core_cljs_test's test415 cases; the `:on-done`
-;; parent-notification + auto-destroy LIVE-runtime wiring is covered by
-;; `final_state_cljs_test`.)
-;; ===========================================================================
-
-(deftest scxml-final-leaf-compound
-  (testing "SCXML §3.7: a `<final>` nested inside a compound state raises
-            done.state.<compound>; finality keys off the LEAF, not an
-            ancestor. Spec 005 §Final states — finality is a leaf property."
-    (let [m {:initial :wrapper :data {}
-             :states  {:wrapper {:initial :run
-                                 :states  {:run  {:on {:finish :done}}
-                                           :done {:final? true}}}}}
-          r (step m {:state [:wrapper :run] :data {}} [:finish])]
-      (is (= [:wrapper :done] (:state r)) "transition into the nested final leaf")
-      (is (true? (rf.machines.transition/final-on-leaf? m (:state r)))
-          "the nested [:wrapper :done] leaf is final")
-      (is (false? (rf.machines.transition/final-state-node?
-                    (rf.machines.transition/node-at m [:wrapper])))
-          "the compound :wrapper ancestor is NOT itself final (leaf-only property)"))))
-
-;; ===========================================================================
-;; §13. HISTORY — first-class grammar + record/restore (SCXML §3.10)
+;; §12. HISTORY — first-class grammar + record/restore (SCXML §3.10)
 ;;
 ;; SCXML §3.10 `<history type="shallow|deep">` records and restores the
 ;; most recent active descendant of a compound/parallel state. re-frame2
 ;; ships FIRST-CLASS history:
 ;; `{:type :history :deep? <bool> :default-target <t>}` under a compound's
 ;; `:states`. This section covers BOTH halves:
-;;   §13a — the registration-time PLACEMENT / GRAMMAR-CONSTRAINT rejections the
+;;   §12a — the registration-time PLACEMENT / GRAMMAR-CONSTRAINT rejections the
 ;;          engine enforces (a `:type :history` node MUST have an owning
 ;;          compound; the closed key-set; one-per-compound).
-;;   §13b — the RECORD/RESTORE behavioural corpus, the W3C 387/388/579/580
+;;   §12b — the RECORD/RESTORE behavioural corpus, the W3C 387/388/579/580
 ;;          history family ADAPTED to the re-frame2 grammar shape.
 ;;          The Mode-B `:machine-transition` fixture counterparts live at
 ;;          `spec/conformance/fixtures/scxml-history-test*-*.edn` +
@@ -1605,18 +1545,9 @@
            (history-rejection-id {:type :history :states {:s {}}}))
         "root `:type :history` is rejected with the misplaced-history error")))
 
-(deftest scxml-history-no-owning-compound-rejected
-  (testing "SCXML §3.10: a `:type :history` node declared at the FLAT
-            machine top-level (a sibling of ordinary states, with no owning
-            compound) is rejected — history records an enclosing compound's
-            last-active config, so it must live inside that compound's
-            `:states`. Spec 005 §History states §Pseudo-state constraints."
-    (is (= :rf.error/machine-history-misplaced
-           (history-rejection-id
-             {:initial :a
-              :states  {:a {}
-                        :h {:type :history}}}))
-        "a top-level `:type :history` with no owning compound is misplaced")))
+;; A FLAT top-level `:type :history` (no owning compound) is
+;; machine-registration-grammar-validation-test's
+;; history-misplaced-rejected-at-registration row, on the same validator.
 
 (deftest scxml-history-region-direct-rejected
   (testing "SCXML §3.10 + §3.4: a `:type :history` declared DIRECTLY on a
@@ -1693,7 +1624,7 @@
         "an unresolvable :default-target is rejected")))
 
 ;; ---------------------------------------------------------------------------
-;; §13b. HISTORY record/restore — the W3C 387/388/579/580 family adapted
+;; §12b. HISTORY record/restore — the W3C 387/388/579/580 family adapted
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Behavioural corpus driven through the pure `machine-transition` engine

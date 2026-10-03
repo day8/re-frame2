@@ -104,9 +104,7 @@
       ;; part of the pure-fn result, deterministic from the inputs. No
       ;; USER-domain `:data` key was written; only the reserved capture.
       (is (= {:rf/spawned {[:authenticating] :http/post#1}} (:data snap1))
-          "the spawned id is captured into the parent's :data under :rf/spawned (XState-context parity)")
-      (is (empty? (dissoc (:data snap1) :rf/spawned))
-          "user-domain :data is unchanged — only the reserved :rf/spawned capture is added")
+          "the spawned id is captured into the parent's :data under :rf/spawned (XState-context parity); user-domain :data is unchanged")
       (is (= 1 (get-in snap1 [:rf/spawn-counter :http/post]))
           "the in-snapshot counter advanced to 1 for the :http/post slot")))
 
@@ -181,7 +179,7 @@
       (is (some #(= :bump (-> % :tags :action-id)) @seen)
           "the action-ran trace named the :bump action that ran"))))
 
-(deftest invoke-all-counter-bumps-per-child
+(deftest spawn-all-counter-bumps-per-child
   (testing ":spawn-all spawns N children — each child of the same machine-id bumps the same counter slot"
     (let [spec {:initial :idle
                 :data    {}
