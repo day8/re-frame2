@@ -281,7 +281,7 @@
                     #(not= :saving (:status (read-sub m [::rf.fresco.examples.slice.subs/save-state slug])))
                     {:label (str "the stand-in server's reply for " slug)}))
 
-(deftest a-save-the-server-refuses-shows-its-reason-and-keeps-the-draft
+(deftest a-refused-save-shows-its-reason-keeps-the-draft-and-a-retry-saves
   (if-not (browser?)
     (skip! ":node-test has no React DOM")
     (async done
@@ -313,38 +313,28 @@
                      failure mode")
                 (is (= "Controlled, synchronously"
                        (:title (rf.fresco.examples.slice.db/article (app-db m) "controls")))
-                    "and the article did not move")))
-            (finish-after m done))))))
+                    "and the article did not move")
+                (type-into! m ".field-title" "Controlled, revisited")
+                (click! m ".retry")
+                (replied m "controls")))
+            (.then
+              (fn [_]
+                (is (nil? (node m ".save-problem")))
+                (is (= "Saved." (text m ".save-ok")))
+                (is (= "Controlled, revisited"
+                       (:title (rf.fresco.examples.slice.db/article (app-db m) "controls")))
+                    "the retry with a title the server accepts saves: the
+                     article moved")
+                (is (false? (read-sub m [::rf.fresco.examples.slice.subs/dirty? "controls"]))
+                    "and the draft was cleared by the commit")
 
-(deftest retrying-with-a-title-the-server-accepts-saves-and-clears-the-region
-  (if-not (browser?)
-    (skip! ":node-test has no React DOM")
-    (async done
-      (let [m (at-article! "controls")]
-        (type-into! m ".field-title" "Intents are data")
-        (click! m ".save")
-        (-> (replied m "controls")
-            (.then (fn [_]
-                     (is (some? (node m ".save-problem")) "refused, as above")
-                     (type-into! m ".field-title" "Controlled, revisited")
-                     (click! m ".retry")
-                     (replied m "controls")))
-            (.then (fn [_]
-                     (is (nil? (node m ".save-problem")))
-                     (is (= "Saved." (text m ".save-ok")))
-                     (is (= "Controlled, revisited"
-                            (:title (rf.fresco.examples.slice.db/article (app-db m) "controls")))
-                         "the article moved")
-                     (is (false? (read-sub m [::rf.fresco.examples.slice.subs/dirty? "controls"]))
-                         "and the draft was cleared by the commit")
-
-                     (rf.fresco.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.fresco.examples.slice.routes/feed}])
-                     (is (some #{"Controlled, revisited"}
-                               (mapv #(.-textContent %) (nodes m ".article-link")))
-                         "the feed shows the new title, because it reads the
-                          article — and `dispatch-and-settle!` uses the
-                          runtime's SYNCHRONOUS door, so this one needs no
-                          poll")))
+                (rf.fresco.test.mounted/dispatch-and-settle! m [:rf.route/navigate {:to rf.fresco.examples.slice.routes/feed}])
+                (is (some #{"Controlled, revisited"}
+                          (mapv #(.-textContent %) (nodes m ".article-link")))
+                    "the feed shows the new title, because it reads the
+                     article — and `dispatch-and-settle!` uses the
+                     runtime's SYNCHRONOUS door, so this one needs no
+                     poll")))
             (finish-after m done))))))
 
 (deftest a-locally-invalid-draft-never-reaches-the-server

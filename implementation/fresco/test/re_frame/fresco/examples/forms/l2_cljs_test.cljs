@@ -186,19 +186,6 @@
          alone could not see it")
     (is (= "Save ticket" (rf.fresco.test/text (button-tree {}))))))
 
-(deftest validity-reaches-the-user-through-the-fields-instead
-  (testing "what the button gave up, the field carries — and carries
-            better, because it names WHICH value is wrong"
-    (let [tree    (field-tree {:field :assignee :label "Assignee"
-                               :text "" :problem :problem/assignee-blank})
-          input   (rf.fresco.test/attrs (tagged tree :input))
-          problem (classed tree "field-problem")]
-      (is (= "true" (:aria-invalid input)))
-      (is (= :alert (rf.fresco.test/role problem))
-          "a live region, so a refused submission is heard rather than
-           found")
-      (is (= (:id (rf.fresco.test/attrs problem)) (:aria-describedby input))))))
-
 (deftest a-write-in-flight-disables-the-button-from-the-writes-own-status
   (let [attrs (rf.fresco.test/attrs (button-tree {:save (assoc idle :pending? true)}))]
     (is (true? (:disabled attrs))

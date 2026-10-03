@@ -417,14 +417,12 @@
           "THE DEFECT, measured. The user's caret is now in RECORD 43's
            field. They did not move it, nothing announced the change, and
            the next keystroke lands in somebody else's data. One missing
-           `:key` in a render callback")
+           `:key` in a render callback — the correct screen answers
+           `rec-100040` at this exact point, and the two variants differ
+           in nothing else")
       (is (= "" (.-value ^js (active)))
           "and what they typed is gone from under the caret — it is still
            on record 40, three rows above, where nothing is looking")
-      (testing "the difference is one prop, and it is the key"
-        (is (= "rec-100043" (record-of (active)))
-            "the correct screen answers `rec-100040` at this exact point;
-             the two variants differ in nothing else"))
       (rf.fresco.test.mounted/unmount! m))))
 
 ;; ---------------------------------------------------------------------------

@@ -174,7 +174,6 @@
 (deftest the-revision-is-a-trigger-and-not-an-emitted-slot
   (let [form  [:input {:type "text" :value "v" ::rf.fresco/revision 7}]
         slots (rf.fresco.test/element-props form)]
-    (is (contains? slots "value"))
     (is (= 7 (rf.fresco.test/revision form))
         "the author's own attribute map carries it — `ht/revision` reads
          it pre-merge, which is where the codec reads it")

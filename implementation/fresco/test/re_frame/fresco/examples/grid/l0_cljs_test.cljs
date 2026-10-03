@@ -67,14 +67,6 @@
 ;; Transitions
 ;; ---------------------------------------------------------------------------
 
-(deftest an-accepted-keystroke-lands-in-its-own-cell
-  (with-grid
-    (fn [frame]
-      (type! frame 3 4 "77")
-      (is (= "77" (read-sub frame [::rf.fresco.examples.grid.subs/cell 3 4])))
-      (is (= "35" (read-sub frame [::rf.fresco.examples.grid.subs/cell 3 5]))
-          "and its neighbour is untouched — the seed's own value, still"))))
-
 (deftest a-refused-keystroke-leaves-the-model-where-it-was
   (with-grid
     (fn [frame]
@@ -94,6 +86,8 @@
             after  (:cells (rf/app-db-value frame))]
         (is (= 100 (count before) (count after))
             "no cell arrived and none left")
+        (is (= "77" (read-sub frame [::rf.fresco.examples.grid.subs/cell 3 4]))
+            "the accepted keystroke lands in its own cell")
         (is (= [[3 4]] (vec (for [[k v] after :when (not= v (get before k))] k)))
             "ONE address of a hundred. The per-keystroke walk's first
              number, and it does not grow with the grid")))))

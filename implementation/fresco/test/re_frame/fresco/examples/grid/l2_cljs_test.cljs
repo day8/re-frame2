@@ -145,7 +145,6 @@
                                                     (:col (rf.fresco.test/attrs c))]))))))
                     rows)]
     (is (= 100 (count cells)))
-    (is (= 100 (count (set cells))))
     (is (= (set (for [r rows c (range (:cols dims))] [r c])) (set cells))
         "the coordinate grid, complete and without duplicates — 100 cells,
          100 addresses, 100 notification groups")))
