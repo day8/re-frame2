@@ -16,6 +16,65 @@ Use the registrations from [Getting started](01-getting-started.md#the-todo-mode
 in `src/my/app/model.cljs`. A complete TodoMVC, written for the Reagent
 adapter with its own event names, is `examples/core/todomvc`.
 
+Two recipes below run in the page. They use the model this cell registers,
+which runs first when the page loads.
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(def initial-db
+  {:todos   {1 {:id 1 :title "Buy milk"     :done? false}
+             2 {:id 2 :title "Walk the dog" :done? true}}
+   :showing :all})
+
+(rf/reg-event :todo/initialise
+  (fn [_ _]
+    {:db initial-db}))
+
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} [_ title]]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-event :todo/delete
+  (fn [{:keys [db]} [_ id]]
+    {:db (update db :todos dissoc id)}))
+
+(rf/reg-event :todo/set-showing
+  (fn [{:keys [db]} [_ showing]]
+    {:db (assoc db :showing showing)}))
+
+(rf/reg-sub :todo/todos
+  (fn [db _]
+    (:todos db)))
+
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _]
+    (vec (sort-by :id (vals todos)))))
+
+(rf/reg-sub :todo/by-id
+  (fn [db [_ id]]
+    (get-in db [:todos id])))
+
+(rf/reg-sub :todo/showing
+  (fn [db _]
+    (:showing db)))
+
+(rf/reg-sub :todo/visible
+  {:inputs [[:todo/all] [:todo/showing]]}
+  (fn [[todos showing] _]
+    (case showing
+      :active (filterv (complement :done?) todos)
+      :done   (filterv :done? todos)
+      todos)))
+
+[:p "The todo model is registered for the live recipes on this page."]
+```
+
 ## Boot an application
 
 ```clojure
@@ -73,12 +132,13 @@ Chapter: [Installation](00-installation.md).
 ## A list, a row, and an event
 
 A parent reads a collection, a keyed child renders one member, and every
-handler is an event vector.
+handler is an event vector. The recipe runs below; it ends with the tree the
+boot recipe renders.
 
-```clojure
-(ns my.app.views
-  (:require [my.app.model]
-            [re-frame.fresco :as h]))
+```cljs-rf2
+;; In an application: (ns my.app.views
+;;                      (:require [my.app.model] [re-frame.fresco :as h]))
+(require '[re-frame.fresco :as h])
 
 (h/defview todo-row
   "One todo: a checkbox, its title, and a delete button."
@@ -106,6 +166,9 @@ handler is an event vector.
   [:section.todoapp
    [:h1 "Todos"]
    [todo-list {}]])
+
+[h/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-app {}]]
 ```
 
 - **Write a view as a Hiccup head**: `[todo-row {…}]`, never `(todo-row {…})`.
@@ -125,9 +188,13 @@ data](03-events-as-data.md).
 ## A text field the model owns
 
 A controlled field writes every edit to app-db. Start here for any text field.
-This one adds a todo on Enter and clears on Escape.
+This one adds a todo on Enter and clears on Escape. It runs below the list
+from the previous recipe.
 
-```clojure
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.fresco :as h])
+
 (rf/reg-sub :todo.ui/draft
   (fn [db _]
     (get-in db [:ui :draft] "")))
@@ -163,6 +230,11 @@ This one adds a todo on Enter and clears on Escape.
      ::h/revision (h/sub [:todo.ui/draft-revision])
      :on-input    [:todo.ui/set-draft ::h/value]
      :on-key-down {"Escape" [:todo.ui/clear-draft]}}]])
+
+[h/frame-root {:id :app-new-todo :initial-events [[:todo/initialise]]}
+ [:section
+  [new-todo {}]
+  [todo-list {}]]]
 ```
 
 - **`::h/value` is replaced with the input's value** when the event fires, so
