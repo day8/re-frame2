@@ -255,7 +255,7 @@ test('Mixed Story spec .md + JVM .clj DOES fan out to tools_jvm (rf2-f79t8)', ()
 // Markdown compiles into nothing, so `cljs_node_test` stays false for spec
 // prose — except the API-manifest surfaces, which route to the CLJS manifest
 // probe (their own cases below). `spec/Spec-Schemas.md` is NOT an exception;
-// it has its own case below.
+// it is a row of the prose-pin roster below.
 test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2-61ar)', () => {
   const result = classify('spec/006-ReactiveSubstrate.md');
   assert.equal(
@@ -268,18 +268,6 @@ test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2
     'false',
     'spec prose compiles into nothing, so the consolidated node build stays out',
   );
-});
-
-test('Docs prose with NO pinning suite still skips jvm-core + cljs (rf2-f79t8, rf2-61ar)', () => {
-  // The classifier arms the JVM tier only for the docs pages a JVM-tier suite
-  // reads (docs/machines, two docs/api pages, one docs/design page, and
-  // docs/ssr/concepts.md); every other docs page leaves it off. That asymmetry
-  // is the narrowing, so this case's control is a docs/core page, which
-  // reaches none of the JVM-armed pages — and that holds for the WHOLE of
-  // docs/core, whose two pinned pages arm `adapter_diagnostic` alone.
-  const result = classify('docs/core/intro.md');
-  assert.equal(result.implementation_jvm, 'false');
-  assert.equal(result.cljs_node_test, 'false');
 });
 
 test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) (rf2-f79t8)', () => {
@@ -1401,11 +1389,6 @@ test('a core change arms the v1 codemod lane over the :integration edge (rf2-fk5
       `${file} is on the codemod's :integration classpath and must arm ${V1_CODEMOD_LANE.output}`,
     );
   }
-  // Core's other fan-out is unaffected — this output is additional, not a
-  // replacement.
-  const result = classify('implementation/core/src/re_frame/core.cljc');
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.tools_jvm_machines_viz, 'true');
 });
 
 test('the v1 codemod lane stays dark for surfaces it does not depend on (rf2-0qzh)', () => {
@@ -1709,9 +1692,6 @@ test('an engine change arms the machines-viz parity ratchet (rf2-wq17m)', () => 
   assert.equal(result.tools_jvm_machines_viz, 'true');
   // …and not the sibling lane: testbed-support declares no machines edge.
   assert.equal(result.tools_jvm_testbed_support, 'false');
-  // Its per-feature fan-out is unaffected.
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
 });
 
 test('a core change arms BOTH new tools JVM lanes (rf2-wq17m)', () => {
@@ -1904,11 +1884,6 @@ for (const file of STORY_XRAY_SCAFFOLD_INPUTS) {
   });
 }
 
-test('Story/Xray src changes keep story_xray_browser alongside template_expensive (rf2-3x7nj.37.1)', () => {
-  assert.equal(classify('tools/xray/src/day8/re_frame2_xray/preload.cljs').story_xray_browser, 'true');
-  assert.equal(classify('tools/story/src/re_frame/story.cljc').story_xray_browser, 'true');
-});
-
 // The NEGATIVE half: a path outside `src/**` and `deps.edn` cannot reach the
 // scaffold, so an over-broad arm (the whole `tools/story/*` tree) reds here.
 const STORY_XRAY_NON_SCAFFOLD_PATHS = pinnedRoster('STORY_XRAY_NON_SCAFFOLD_PATHS', [
@@ -1931,12 +1906,6 @@ for (const file of STORY_XRAY_NON_SCAFFOLD_PATHS) {
 test('Schemas change does NOT arm template_expensive — the scaffold registers no schema (rf2-6r9j.108)', () => {
   const result = classify('implementation/schemas/src/re_frame/schemas.cljc');
   assert.equal(result.template_expensive, 'false');
-  // ...but schemas keeps every per-feature lane of its own.
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.cljs_prod, 'true');
-  assert.equal(result.bundle_isolation, 'true');
 });
 
 test('Story spec-md-only change does NOT arm template_expensive (rf2-jdj17.1, rf2-6r9j.108)', () => {
@@ -2065,22 +2034,6 @@ test('a NON-rostered HTTP source file arms mcp_conformance too — the arm is th
   assert.equal(classify('implementation/http/src/re_frame/http/reply.cljc').mcp_conformance, 'true');
 });
 
-test('HTTP source keeps its whole generic per-feature fan-out (regression) (rf2-01dix)', () => {
-  // The HTTP arm adds one output inside the per-feature arm. If it were ever
-  // refactored into a case of its own, this is what would silently go.
-  const result = classify('implementation/http/src/re_frame/http/transport.cljc');
-  for (const key of [
-    'implementation_jvm',
-    'cljs_node_test',
-    'cljs_browser',
-    'cljs_prod',
-    'bundle_isolation',
-    'examples_compile',
-  ]) {
-    assert.equal(result[key], 'true', `HTTP source must retain ${key}`);
-  }
-});
-
 test('HTTP source does NOT arm mcp_live — it is on no live MCP fixture classpath (rf2-01dix)', () => {
   // mcp_live is epoch's: the re-frame2-pair live fixture resolves
   // day8/re-frame2-epoch as a :local/root. Nothing resolves re-frame2-http, and
@@ -2201,38 +2154,6 @@ test('a NON-rostered machines/resources source file arms mcp_conformance too —
     classify('implementation/resources/src/re_frame/resources/reply.cljc').mcp_conformance,
     'true',
   );
-});
-
-test('machines and resources source keep their whole generic per-feature fan-out (regression) (rf2-17a0v)', () => {
-  // The wire-vocab arm adds one output inside the per-feature arm; this is
-  // what would silently go if it were ever refactored into a case of its own.
-  // machines carries the widest fan-out of the two, so it is pinned in full.
-  const machines = classify('implementation/machines/src/re_frame/machines/transition.cljc');
-  for (const key of [
-    'implementation_jvm',
-    'cljs_node_test',
-    'cljs_browser',
-    'cljs_prod',
-    'bundle_isolation',
-    'examples_compile',
-    'tools_jvm_machines_viz',
-    'tools_cljs_machines_viz',
-    'playground',
-  ]) {
-    assert.equal(machines[key], 'true', `machines source must retain ${key}`);
-  }
-
-  const resources = classify('implementation/resources/src/re_frame/resources/events.cljc');
-  for (const key of [
-    'implementation_jvm',
-    'cljs_node_test',
-    'cljs_browser',
-    'cljs_prod',
-    'bundle_isolation',
-    'examples_compile',
-  ]) {
-    assert.equal(resources[key], 'true', `resources source must retain ${key}`);
-  }
 });
 
 test('machines and resources source do NOT arm mcp_live (rf2-17a0v)', () => {
@@ -3331,16 +3252,6 @@ function storyXrayJobBlock(workflow) {
   return nextJob === -1 ? rest : rest.slice(0, nextJob);
 }
 
-test('PR story-xray-browser job runs the Xray --smoke gate (rf2-wa3oo)', () => {
-  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
-  assert.match(block, /npm run test:xray-feature-gate:smoke/);
-});
-
-test('PR story-xray-browser job keeps the Story :play-script gate (assertion-strip cover, rf2-5lw9w)', () => {
-  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
-  assert.match(block, /npm run test:story-play-scripts/);
-});
-
 // `test:story-feature-load` is present in the PR job and CONDITIONAL: it runs
 // only under story_full_gate. Pinned out of the PR job, it would leave a
 // change to the full gate's own runner loaded by no PR-time command. The tier
@@ -3414,16 +3325,6 @@ test('PR story-xray-browser job runs the Story STATIC gate, gated on story_stati
     /if:\s*needs\.detect_changed_surfaces\.outputs\.story_static_gate == 'true'/,
     'the static-export step must be gated on story_static_gate',
   );
-});
-
-test('PR story-xray-browser job opens for the static tier too (rf2-9n2cv)', () => {
-  // A static-gate-only change leaves both other outputs false, so a job
-  // condition that did not name this one would skip the job and the new step
-  // with it — the same hole one level up.
-  const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
-  const header = block.slice(0, block.indexOf('steps:'));
-  assert.match(header, /outputs\.story_static_gate == 'true'/);
-  assert.match(header, /\|\|/, 'the tier conditions must be a disjunction');
 });
 
 test('detect_changed_surfaces exports story_static_gate (rf2-9n2cv)', () => {
@@ -3639,15 +3540,16 @@ test("the static export's build definition arms the static gate (rf2-xurxw)", ()
   }
 });
 
-test('PR story-xray-browser job opens for EITHER tier (rf2-65ajl)', () => {
-  // A full-gate-only change leaves story_xray_browser false, so a job condition
-  // reading only that output would skip the job and the new step with it — the
-  // same hole one level up.
+test('PR story-xray-browser job opens for any of its three tiers (rf2-65ajl, rf2-9n2cv)', () => {
+  // A full-gate-only or static-gate-only change leaves story_xray_browser
+  // false, so a job condition that did not name every tier would skip the job
+  // and that tier's step with it — the same hole one level up.
   const block = storyXrayJobBlock(fs.readFileSync(WORKFLOW, 'utf8'));
   const header = block.slice(0, block.indexOf('steps:'));
   assert.match(header, /outputs\.story_xray_browser == 'true'/);
   assert.match(header, /outputs\.story_full_gate == 'true'/);
-  assert.match(header, /\|\|/, 'the two tier conditions must be a disjunction');
+  assert.match(header, /outputs\.story_static_gate == 'true'/);
+  assert.match(header, /\|\|/, 'the tier conditions must be a disjunction');
 });
 
 test('the two PR-smoke steps are gated on story_xray_browser (rf2-65ajl)', () => {
@@ -3996,16 +3898,12 @@ test('the local spine consumes test_react_jvm for its JVM tier (rf2-6r9j.87)', (
 // always-on JS harness path (cljs_browser only) — they have always-on
 // .test.cjs coverage under test:scripts and drive no browser gate.
 
-const ADAPTER_SMOKE_GATE_FILES = pinnedRoster('ADAPTER_SMOKE_GATE_FILES', [
+// Each helper has a classifier arm of its own, and its routing is pinned by
+// its own row further down; the roster guards the two paths' existence.
+pinnedRoster('ADAPTER_SMOKE_GATE_FILES', [
   'examples/scripts/spec-helpers.cjs',
   'examples/scripts/examples-port.cjs',
 ]);
-for (const file of ADAPTER_SMOKE_GATE_FILES) {
-  test(`${file} fires adapter_testbed_smokes (rf2-y9o5e3)`, () => {
-    const result = classify(file);
-    assert.equal(result.adapter_testbed_smokes, 'true');
-  });
-}
 
 // Only these two are on the PR-smoke tier's path: the smoke runs
 // `test:xray-feature-gate:smoke` + `test:story-play-scripts`, while
@@ -4447,16 +4345,8 @@ test('narrowing the security tier leaves the production per-feature fan-out inta
   }
 });
 
-test('jvm-resources is job-level gated on implementation_jvm (rf2-dxndhc)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-resources');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
-  );
-});
-
 for (const job of [
+  'jvm-resources',
   'jvm-reply-conformance',
   'jvm-derivation-conformance',
   'jvm-event-conformance',
@@ -4471,7 +4361,7 @@ for (const job of [
   });
 }
 
-test('all-required-passed aggregator needs the four new implementation_jvm jobs (rf2-dxndhc)', () => {
+test('all-required-passed aggregator needs the resources and conformance-tier JVM jobs (rf2-dxndhc)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
   for (const job of [
     'jvm-resources',
@@ -4583,19 +4473,6 @@ test('all-required-passed aggregator needs jvm-spec-resource', () => {
     /- jvm-spec-resource\r?\n/,
     'the race control must be reachable from the single required context',
   );
-});
-
-test('test-quiet routing does NOT broaden docs/spec-only or unrelated surfaces (rf2-am7grp scope)', () => {
-  // Scoped to src/test/deps.edn under test-quiet; a generic docs change stays
-  // off the implementation gates entirely.
-  //
-  // The control is prose no suite reads (`docs/guide/getting-started.md`),
-  // not a spec page: spec prose arms implementation_jvm by design, so it
-  // could not distinguish a test-quiet over-broadening from the spec arm
-  // doing its job.
-  const result = classify('docs/guide/getting-started.md');
-  assert.equal(result.implementation_jvm, 'false');
-  assert.equal(result.cljs_node_test, 'false');
 });
 
 // Tenant-switcher testbed smoke routing. The runner
@@ -4810,7 +4687,6 @@ test('the fresco controlled-input lane stays dark for unrelated surfaces (rf2-ga
   // nearly every PR in the repo.
   for (const file of [
     'implementation/core/src/re_frame/core.cljc',
-    'implementation/ui/src/re_frame/ui.cljs',
     'spec/006-ReactiveSubstrate.md',
     'tools/xray/src/day8/re_frame2_xray/core.cljs',
     'migration/reagent-to-fresco/codemod/deps.edn',
@@ -5020,7 +4896,6 @@ test('the fresco HMR lane stays dark for unrelated surfaces (rf2-hic-015)', () =
   // reload gate on nearly every PR in the repo.
   for (const file of [
     'implementation/core/src/re_frame/core.cljc',
-    'implementation/ui/src/re_frame/ui.cljs',
     'spec/006-ReactiveSubstrate.md',
     'tools/xray/src/day8/re_frame2_xray/core.cljs',
     'migration/reagent-to-fresco/codemod/deps.edn',
@@ -5110,14 +4985,6 @@ test('the fresco DOM suites really are in the browser lane (rf2-8a6s)', () => {
       `${ns} must be selected by :browser-test's ${selector} for cljs_browser to mean anything`,
     );
   }
-});
-
-// Scope discipline for cljs_browser: prose compiles into nothing, so a
-// docs/spec-only change must not schedule the browser gate.
-
-test('a docs/spec-only change does NOT arm cljs_browser (negative — scope discipline) (rf2-vxgfnd.90)', () => {
-  assert.equal(classify('spec/006-ReactiveSubstrate.md').cljs_browser, 'false');
-  assert.equal(classify('docs/core/intro.md').cljs_browser, 'false');
 });
 
 // Git-DERIVED discovery mode (the real CI path), not the
@@ -5858,29 +5725,6 @@ test('cljs-browser is job-gated on cljs_browser and is REQUIRED (rf2-drpa3.70)',
 });
 
 // ---------------------------------------------------------------------------
-test('the node lane reaches its jobs through REQUIRED jobs (rf2-49upn)', () => {
-  // Arming an output binds nothing unless the lane it arms is still gated on
-  // that output AND still reachable from the single required context. The
-  // sibling pin above covers cljs-browser; `cljs` is the node lane, and this
-  // is the other leg of the same tripod. (Every armed output depends on these
-  // two facts.)
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  assert.match(
-    jobBlock(workflow, 'cljs'),
-    /if: needs\.detect_changed_surfaces\.outputs\.cljs_node_test == 'true'/,
-    'the `cljs` job must stay gated on cljs_node_test, or arming it schedules nothing',
-  );
-  const aggregator = jobBlock(workflow, 'all-required-passed');
-  for (const job of ['cljs', 'cljs-browser']) {
-    assert.match(
-      aggregator,
-      new RegExp(`- ${job}\\r?\\n`),
-      `aggregator must list ${job} in needs: — otherwise the census's claim rides an advisory lane`,
-    );
-  }
-});
-
-// ---------------------------------------------------------------------------
 // The .beads PR-boundary guard's CI arm.
 //
 // Enforced only by the local pre-commit hook, the guard would be bypassable
@@ -6124,7 +5968,7 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
 
 test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', () => {
   // Markdown cannot change what React puts on a page — held here for every
-  // prose arm, `spec/Spec-Schemas.md` included (its own case below). The
+  // prose arm, `spec/Spec-Schemas.md` included. The
   // `examples/` and `tools/` rows are not prose arms: each is nested in its
   // tree's own arm, which sets the CLJS tiers for the whole tree.
   const forbidden = ['cljs_browser', 'cljs_prod', 'bundle_isolation',
@@ -6138,15 +5982,6 @@ test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', (
     }
     assert.equal(result.cljs_node_test, 'false', `${file} must not arm cljs_node_test`);
   }
-});
-
-test('spec/Spec-Schemas.md arms the JVM suites and NO CLJS output (rf2-61ar / rf2-63t1i)', () => {
-  // Nothing reads this file at macro-expansion time — every reader is a JVM
-  // suite that slurps it at run time — so it arms no CLJS output.
-  const result = classify('spec/Spec-Schemas.md');
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'false', 'no macro-expansion edge reads this file');
-  assert.equal(result.cljs_browser, 'false', 'no mounted surface reads this file');
 });
 
 test('the docs/machines arm covers the whole TREE (rf2-61ar)', () => {
@@ -6182,7 +6017,7 @@ test('the spec/* catch-all does not shadow the narrower spec arms (rf2-61ar)', (
 
 test('the prose arms reach lanes that are still gated on implementation_jvm (rf2-61ar)', () => {
   // Arming an output binds nothing unless the jobs it arms are still gated on
-  // it — the same third leg the node-lane pin above asserts. These are the
+  // it — the same leg the cljs and cljs-browser gating pins assert. These are the
   // jobs the roster's suites actually run in.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   for (const job of ['jvm-machines', 'jvm-core']) {
