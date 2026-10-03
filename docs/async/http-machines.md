@@ -4,12 +4,26 @@ An article request may belong to a screen's loading state: leaving that state
 should stop the request. Spawn `:rf.http/managed` from the state instead of
 issuing a separate effect and arranging cancellation yourself.
 
+The machine lives in an app namespace that requires both artefacts:
+
 ```clojure
 ;; src/app/article_request.cljc
 (ns app.article-request
   (:require [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.http.managed]))
+```
+
+The cell registers the machine and runs it against a stubbed article URL.
+**Load** sends the machine `[:article/load]`:
+
+```cljs-rf2
+(require '[re-frame.core :as rf]
+         '[re-frame.http.managed]
+         '[re-frame.http.test-support :as http-test-support])
+
+(http-test-support/install-managed-request-stubs!
+  {[:get "/api/articles/intro"] {:reply {:ok {:slug "intro" :title "Welcome"}}}})
 
 (rf/reg-machine :article/request
   {:initial :idle
@@ -31,6 +45,19 @@ issuing a separate effect and arranging cancellation yourself.
 
     :ready  {:on {:article/load :loading}}
     :failed {:on {:article/load :loading}}}})
+
+(rf/reg-view article-request-view []
+  (let [{:keys [state data]} (or @(subscribe [:rf/machine :article/request])
+                                 {:state :idle :data {:article nil}})]
+    [:div
+     [:button {:on-click #(dispatch [:article/request [:article/load]])} "Load"]
+     [:p "state: " (str state)]
+     [:p "article: " (pr-str (:article data))]]))
+
+;; :fx-overrides sends the frame's requests, the child's included, to the stub.
+;; A real app leaves it out.
+[rf/frame-root {:id :app/articles :fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}
+ [article-request-view]]
 ```
 
 Add `day8/re-frame2-machines` and `day8/re-frame2-http` to the app's dependencies.
@@ -40,6 +67,7 @@ Requiring both namespaces registers the HTTP child machine. The parent's
 decoded article in the parent's `:data` and enters `:ready`.
 Failure enters `:failed`; `:on-error` also handles a child that fails to start.
 
+The stub answers at once, so the cell moves from `:idle` straight to `:ready`.
 In the tutorial's mounted frame, start the machine from the REPL with:
 
 ```clojure
