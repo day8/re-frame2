@@ -1121,8 +1121,8 @@ else
         # a DATA-LEAK guard), surfacing only in the nightly cron. Split
         # out here so epoch source changes arm the live redaction gate.
         # All the generic per-feature gates fire too (epoch is not in
-        # the scaffold, so no template_expensive; not baked into the SCI
-        # bundle, so no playground).
+        # the scaffold, so no template_expensive). The docs' live-cell SCI
+        # bundle bakes in epoch's source, so source and deps arm playground.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
@@ -1130,6 +1130,9 @@ else
         bundle_isolation=true
         mcp_conformance=true
         mcp_live=true
+        case "$file" in
+          implementation/epoch/src/*|implementation/epoch/deps.edn) playground=true ;;
+        esac
         ;;
       implementation/ssr-node/*)
         # The ssr-node package's own lane, and ONE output.
@@ -1223,9 +1226,13 @@ else
         # or build and then throw at render, and tools-playground is the
         # PR-time proof that it builds + renders live under headless Chromium.
         # All three are in the require graph and in the digest roster, so all
-        # three fire.
+        # three fire. The bundle also bakes in http, resources, routing and
+        # ssr; for those only source and deps fire, because their tests are
+        # not baked in.
         case "$file" in
           implementation/machines/*|implementation/flows/*|implementation/schemas/*) playground=true ;;
+          implementation/http/src/*|implementation/http/deps.edn|implementation/resources/src/*|implementation/resources/deps.edn) playground=true ;;
+          implementation/routing/src/*|implementation/routing/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn) playground=true ;;
         esac
         # The engine half of the
         # machines-viz parity ratchet. tools/machines-viz/deps.edn declares a
@@ -1444,6 +1451,12 @@ else
         # package's own coverage. Over-classifying a seconds-long pure JVM
         # suite is the cheaper error, and TESTING.md says to prefer it.
         migration_fresco_codemod=true
+        # The docs' live-cell SCI bundle bakes in `re-frame.fresco` and its
+        # forms, overlay and motion modules, so a source or deps change must
+        # prove the bundle still builds and renders. Tests are not baked in.
+        case "$file" in
+          implementation/fresco/src/*|implementation/fresco/deps.edn) playground=true ;;
+        esac
         ;;
       implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*|implementation/security/*)
         # All four source-less tiers take the same route, and the security

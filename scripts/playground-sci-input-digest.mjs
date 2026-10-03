@@ -77,6 +77,25 @@ export const ROSTER = [
   // --- schemas: re-frame.schemas (Spec 010) + Malli, :require'd at bundle init
   "implementation/schemas/src",
   "implementation/schemas/deps.edn",
+  // --- fresco: re-frame.fresco + its forms/overlay/motion modules, the view
+  // layer `cljs-fresco` cells render through
+  "implementation/fresco/src",
+  "implementation/fresco/deps.edn",
+  // --- http: re-frame.http (Spec 014), :require'd at bundle init
+  "implementation/http/src",
+  "implementation/http/deps.edn",
+  // --- resources: re-frame.resources, :require'd at bundle init
+  "implementation/resources/src",
+  "implementation/resources/deps.edn",
+  // --- routing: re-frame.routing (Spec 012), :require'd at bundle init
+  "implementation/routing/src",
+  "implementation/routing/deps.edn",
+  // --- epoch: re-frame.epoch, :require'd at bundle init
+  "implementation/epoch/src",
+  "implementation/epoch/deps.edn",
+  // --- ssr: re-frame.ssr (Spec 011), :require'd at bundle init
+  "implementation/ssr/src",
+  "implementation/ssr/deps.edn",
   // --- the SCI bundle source itself
   "docs/tools/playground/sci/src",
   // --- SCI / shadow-cljs build configuration

@@ -2041,6 +2041,38 @@ test('HTTP source does NOT arm mcp_live — it is on no live MCP fixture classpa
   assert.equal(classify('implementation/http/src/re_frame/http/transport.cljc').mcp_live, 'false');
 });
 
+// The docs' live-cell SCI bundle bakes in fresco and the optional artefacts.
+// For these six, source and deps arm the playground job; their tests are not
+// baked in and must not drag the JVM + Playwright job onto a test-only PR.
+test('fresco, http, resources, routing, epoch and ssr arm playground from src and deps.edn only', () => {
+  for (const file of [
+    'implementation/fresco/src/re_frame/fresco.cljc',
+    'implementation/fresco/deps.edn',
+    'implementation/http/src/re_frame/http/managed.cljc',
+    'implementation/http/deps.edn',
+    'implementation/resources/src/re_frame/resources.cljc',
+    'implementation/resources/deps.edn',
+    'implementation/routing/src/re_frame/routing.cljc',
+    'implementation/routing/deps.edn',
+    'implementation/epoch/src/re_frame/epoch.cljc',
+    'implementation/epoch/deps.edn',
+    'implementation/ssr/src/re_frame/ssr.cljc',
+    'implementation/ssr/deps.edn',
+  ]) {
+    assert.equal(classify(file).playground, 'true', `${file} is baked into the playground bundle`);
+  }
+  for (const file of [
+    'implementation/fresco/test/re_frame/fresco/intent_cljs_test.cljs',
+    'implementation/http/test/re_frame/http_cljs_test.cljs',
+    'implementation/resources/test/re_frame/replay_determinism_e2e_cljs_test.cljc',
+    'implementation/routing/test/re_frame/routing_test.clj',
+    'implementation/epoch/test/re_frame/epoch_test.clj',
+    'implementation/ssr/test/re_frame/ssr_test.clj',
+  ]) {
+    assert.equal(classify(file).playground, 'false', `${file} is not baked into the playground bundle`);
+  }
+});
+
 test('HTTP test/ and deps.edn stay OFF mcp_conformance — the suites read src text only (rf2-01dix)', () => {
   // The scope discipline, and the assertion that discriminates this arm from a
   // whole-tree `implementation/http/*` one. implementation/http/test carries the
