@@ -82,25 +82,15 @@
 
 ;; ---- join-summary -------------------------------------------------------
 
-(deftest join-summary-counts
-  (is (= "1/3 done · 1 failed · 1 cancelled"
-         (anchor/join-summary
-           {:children [{:done? true} {:failed? true} {:cancelled? true}]})))
-  (is (= "2/2 done"
-         (anchor/join-summary
-           {:children [{:done? true} {:done? true}]}))))
-
-(deftest join-summary-omits-zero-segments
-  (testing "the `· failed` / `· cancelled` segments appear ONLY when their
-            count is positive — a failed-only join shows the failed
-            segment but no cancelled segment"
-    (is (= "1/2 done · 1 failed"
-           (anchor/join-summary
-             {:children [{:done? true} {:failed? true}]}))
-        "failed present, cancelled absent → only the failed segment")
-    (is (= "0/0 done"
-           (anchor/join-summary {:children []}))
-        "an empty children list still renders the leading done segment")))
+(deftest join-summary-renders-done-and-positive-segments
+  (testing "the leading `n/m done` segment always renders; the `· failed` /
+            `· cancelled` segments appear ONLY when their count is positive"
+    (doseq [[label children expected]
+            [["all three kinds"        [{:done? true} {:failed? true} {:cancelled? true}] "1/3 done · 1 failed · 1 cancelled"]
+             ["all done"               [{:done? true} {:done? true}]                      "2/2 done"]
+             ["failed, none cancelled" [{:done? true} {:failed? true}]                    "1/2 done · 1 failed"]
+             ["no children"            []                                                 "0/0 done"]]]
+      (is (= expected (anchor/join-summary {:children children})) label))))
 
 ;; ---- cascade-counts + summary -------------------------------------------
 

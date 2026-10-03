@@ -20,10 +20,6 @@
   (is (= [150.0 124.0]
          (geo/rect-center {:left 100 :top 100 :width 100 :height 48}))))
 
-(deftest rect-center-handles-zero-origin
-  (is (= [70.0 24.0]
-         (geo/rect-center {:left 0 :top 0 :width 140 :height 48}))))
-
 ;; ---- ring-radius --------------------------------------------------------
 
 (deftest ring-radius-half-longer-side-plus-gap

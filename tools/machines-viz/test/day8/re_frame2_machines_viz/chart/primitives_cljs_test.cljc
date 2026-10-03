@@ -81,7 +81,9 @@
                                    :cancelled? true})
         line (find-tag g :line)]
     (is (= "true" (:data-cancelled (second g))))
-    (is (some? line) "cancelled rings draw a diagonal cross-line")))
+    (is (some? line) "cancelled rings draw a diagonal cross-line")
+    (is (str/starts-with? (:stroke (second line)) "var(--rf-xray-red")
+        "the cross-line strokes through the red token")))
 
 (deftest countdown-ring-not-cancelled-has-no-line
   (let [g (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.3})]
@@ -110,12 +112,6 @@
       ;; track circle uses the subtle border token.
       (is (str/starts-with? (:stroke (second track))
                             "var(--rf-xray-border-subtle")))))
-
-(deftest countdown-ring-cancelled-cross-uses-red-var
-  (let [g    (prim/countdown-ring {:cx 0 :cy 0 :r 40 :fraction 0.2
-                                   :cancelled? true})
-        line (find-tag g :line)]
-    (is (str/starts-with? (:stroke (second line)) "var(--rf-xray-red"))))
 
 (deftest countdown-ring-color-tiers-map-to-tokens
   (is (str/includes? (-> (prim/countdown-ring {:cx 0 :cy 0 :r 9 :fraction 1
