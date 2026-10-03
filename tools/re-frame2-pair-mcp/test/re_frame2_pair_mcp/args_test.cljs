@@ -98,17 +98,22 @@
 ;; the unit it lives in.
 ;; ---------------------------------------------------------------------------
 
-(deftest read-edn-arg-absent-returns-missing-reason
-  ;; nil / blank value yields the caller's `missing` reason keyword.
-  (is (= [:err :missing-db] (args/read-edn-arg nil :missing-db :invalid-db)))
-  (is (= [:err :missing-db] (args/read-edn-arg "" :missing-db :invalid-db)))
-  (is (= [:err :missing-db] (args/read-edn-arg "   " :missing-db :invalid-db))))
-
-(deftest read-edn-arg-unreadable-returns-invalid-reason
-  ;; Unbalanced delimiters → the caller's `invalid` reason keyword, NOT
-  ;; the missing one (the discriminator is read-string success/failure).
-  (is (= [:err :invalid-db] (args/read-edn-arg "{:k" :missing-db :invalid-db)))
-  (is (= [:err :invalid-db] (args/read-edn-arg "(((" :missing-db :invalid-db))))
+(deftest read-edn-arg-err-arms-forward-the-callers-reasons
+  ;; nil / blank value yields the caller's `missing` reason keyword;
+  ;; unbalanced delimiters yield the caller's `invalid` one, NOT the
+  ;; missing one (the discriminator is read-string success/failure). Each
+  ;; consumer passes distinct reason keywords and the helper forwards them
+  ;; verbatim, so the envelope stays per-tool specific (the whole point of
+  ;; taking them as args rather than hard-coding).
+  (doseq [[raw missing invalid expected]
+          [[nil :missing-db :invalid-db [:err :missing-db]]
+           ["" :missing-db :invalid-db [:err :missing-db]]
+           ["   " :missing-db :invalid-db [:err :missing-db]]
+           ["{:k" :missing-db :invalid-db [:err :invalid-db]]
+           ["(((" :missing-db :invalid-db [:err :invalid-db]]
+           [nil :missing-epoch-id :invalid-epoch-id-edn [:err :missing-epoch-id]]
+           ["{:unterminated" :missing-epoch-id :invalid-epoch-id-edn [:err :invalid-epoch-id-edn]]]]
+    (is (= expected (args/read-edn-arg raw missing invalid)) (pr-str raw))))
 
 (deftest read-edn-arg-parses-valid-edn
   ;; A readable value rides back under [:ok parsed] with the EDN shape
@@ -119,15 +124,6 @@
       "leading/trailing whitespace trimmed before read")
   (is (= [:ok :user/login] (args/read-edn-arg ":user/login" :missing :invalid)))
   (is (= [:ok [:a :b 0]] (args/read-edn-arg "[:a :b 0]" :missing :invalid))))
-
-(deftest read-edn-arg-reason-keywords-are-caller-specific
-  ;; Each consumer passes distinct reason keywords; the helper forwards
-  ;; them verbatim so the envelope stays per-tool specific (the whole
-  ;; point of taking them as args rather than hard-coding).
-  (is (= [:err :missing-epoch-id]
-         (args/read-edn-arg nil :missing-epoch-id :invalid-epoch-id-edn)))
-  (is (= [:err :invalid-epoch-id-edn]
-         (args/read-edn-arg "{:unterminated" :missing-epoch-id :invalid-epoch-id-edn))))
 
 (deftest read-edn-arg-reads-only-the-first-form
   ;; read-string reads exactly ONE form and stops — trailing tokens are

@@ -25,26 +25,20 @@
 ;; wrap-form — runtime-side classifier source.
 ;; ---------------------------------------------------------------------------
 
-(deftest wrap-form-round-trip-probes-serializability
-  (let [src (renv/wrap-form "(some-form)")]
-    (is (str/includes? src "cljs.reader/read-string")
-        "the wrap round-trip-probes via read-string — the serializability test")
-    (is (str/includes? src "cljs.core/pr-str")
-        "the wrap pr-str's the value to probe + preview")))
-
-(deftest wrap-form-tags-all-four-outcomes
+(deftest wrap-form-carries-every-classifier-piece
   (let [src (renv/wrap-form "(form)")]
-    (is (str/includes? src ":eval-error") "carries the eval-error tag")
-    (is (str/includes? src ":nil") "carries the genuine-nil tag")
-    (is (str/includes? src ":value") "carries the value tag")
-    (is (str/includes? src ":unserializable") "carries the unserializable tag")
-    (is (str/includes? src "#object") "detects the #object unreadable token")
-    (is (str/includes? src "#js") "detects the #js unreadable token")))
-
-(deftest wrap-form-catches-classifier-failure
-  (let [src (renv/wrap-form "(form)")]
-    (is (str/includes? src ":rf.error/result-envelope-wrap-failed")
-        "an outer try guards the classifier itself so it never throws on the wire")))
+    (doseq [[needle note]
+            [["cljs.reader/read-string" "the wrap round-trip-probes via read-string — the serializability test"]
+             ["cljs.core/pr-str" "the wrap pr-str's the value to probe + preview"]
+             [":eval-error" "carries the eval-error tag"]
+             [":nil" "carries the genuine-nil tag"]
+             [":value" "carries the value tag"]
+             [":unserializable" "carries the unserializable tag"]
+             ["#object" "detects the #object unreadable token"]
+             ["#js" "detects the #js unreadable token"]
+             [":rf.error/result-envelope-wrap-failed"
+              "an outer try guards the classifier itself so it never throws on the wire"]]]
+      (is (str/includes? src needle) note))))
 
 ;; ---------------------------------------------------------------------------
 ;; REPL-special pass-through.

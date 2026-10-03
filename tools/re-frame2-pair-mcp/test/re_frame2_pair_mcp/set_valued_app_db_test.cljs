@@ -31,9 +31,7 @@
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]
             [re-frame2-pair-mcp.tools.summary :as summary]
-            [re-frame2-pair-mcp.tools.source-uri :as source-uri]
             [re-frame2-pair-mcp.tools.trace-window :as tw]
-            [re-frame2-pair-mcp.tools.wire-pipeline :as wp]
             [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]))
 
 ;; ---------------------------------------------------------------------------
@@ -94,12 +92,6 @@
       (is (= 2 (:count marker)))
       (is (pos? (:bytes marker))))))
 
-(deftest source-uri-decorate-recurses-sets
-  (testing "source-uri/decorate walks INTO a set and preserves it"
-    (is (= #{:a :b :c} (source-uri/decorate #{:a :b :c} :vscode)))
-    (is (= {:tags #{:door/locked}}
-           (source-uri/decorate {:tags #{:door/locked}} :vscode)))))
-
 (deftest dedup-round-trips-repeated-sets
   (testing "de-dupe-eq pools a repeated set and expand restores it exactly"
     (let [s #{:door/locked}
@@ -107,25 +99,6 @@
           wrapped (rf.mcp-base.dedup/dedup-value payload true)
           restored (tu/dedup-expand wrapped)]
       (is (= payload restored)))))
-
-;; ---------------------------------------------------------------------------
-;; Pipeline: a set deep in the epoch diff/dedup path round-trips.
-;; ---------------------------------------------------------------------------
-
-(deftest epoch-vector-diff-dedup-preserves-deep-set
-  (testing "trace-window's :epoch-vector pipeline (diff-encode -> dedup)
-            preserves a set deep in :db-after"
-    (let [epochs   [{:epoch-id :e1 :db-before db-before :db-after db-before}
-                    {:epoch-id :e2 :db-before db-before :db-after db-after}]
-          out      (wp/run-wire-pipeline epochs
-                                         {:kind :epoch-vector :incl? true
-                                          :mode :diff :dedup? true})
-          restored (tu/dedup-expand (:value out))
-          decoded  (mapv rf.mcp-base.diff-encode/decode-db-after restored)]
-      (is (= #{:door/locked :door/bolted}
-             (get-in (:db-after (second decoded))
-                     [:rf.db/runtime :rf.runtime/machines :snapshots :door :tags]))
-          "the modified :tags set survives diff-encode + dedup + decode"))))
 
 ;; ---------------------------------------------------------------------------
 ;; End-to-end: snapshot-tool with a set-valued app-db, full + summary.

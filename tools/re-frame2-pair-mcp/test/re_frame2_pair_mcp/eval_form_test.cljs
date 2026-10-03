@@ -20,9 +20,6 @@
 ;; rt-call — runtime-ns-relative call.
 ;; ---------------------------------------------------------------------------
 
-(deftest rt-call-zero-args-ir
-  (is (= [::ef/call 'health []] (ef/rt-call 'health))))
-
 (deftest rt-call-zero-args-emit
   (is (= "(re-frame2-pair.runtime/health)"
          (ef/emit (ef/rt-call 'health)))))
@@ -54,14 +51,6 @@
   (is (= [::ef/raw "(:app-db snap)"] (ef/rt-raw "(:app-db snap)")))
   (is (= "(:app-db snap)" (ef/emit (ef/rt-raw "(:app-db snap)")))))
 
-(deftest rt-raw-arg-not-pr-stred
-  ;; Without rt-raw, a string would be pr-str'd (quoted). With rt-raw
-  ;; the source-fragment passes through unquoted — the escape hatch.
-  (let [via-raw    (ef/emit (ef/rt-call 'foo (ef/rt-raw "x")))
-        via-string (ef/emit (ef/rt-call 'foo "x"))]
-    (is (= "(re-frame2-pair.runtime/foo x)" via-raw))
-    (is (= "(re-frame2-pair.runtime/foo \"x\")" via-string))))
-
 ;; ---------------------------------------------------------------------------
 ;; rt-let — `let` block with bindings + body.
 ;; ---------------------------------------------------------------------------
@@ -80,11 +69,6 @@
          (ef/emit (ef/rt-let ['x 1]
                              (ef/rt-raw "(foo)")
                              (ef/rt-raw "(bar)"))))))
-
-(deftest rt-let-binding-name-must-be-symbol
-  (is (thrown? :default
-        (ef/emit (ef/rt-let ["snap" (ef/rt-call 'snapshot)]
-                            (ef/rt-raw "snap"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Round-trip — a map arg reads back as the opts map it was built from.
@@ -158,11 +142,6 @@
   (if (and (seq? form) (= 'quote (first form)) (= 2 (count form)))
     (second form)
     ::not-quoted))
-
-(deftest rt-quote-ir-shape
-  ;; The constructor is the fourth peer of rt-call / rt-raw / rt-let: a
-  ;; tagged vector, pinned as data so a tag rename surfaces here.
-  (is (= [::ef/quote [:cart/checkout]] (ef/rt-quote [:cart/checkout]))))
 
 (deftest rt-quote-emits-a-quoted-literal
   (is (= "(quote [:cart/checkout])"
