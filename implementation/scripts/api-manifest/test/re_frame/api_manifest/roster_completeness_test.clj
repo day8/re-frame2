@@ -207,7 +207,9 @@
   (testing "`build-manifest` itself refuses an unaccounted namespace, naming
             it. This drives the production call site rather than the helper, so
             it is what goes red if that call is ever removed and the gate is
-            orphaned."
+            orphaned. The refusal carries `:unaccounted` in its ex-data, which
+            is what distinguishes the ROSTER assertion from the
+            missing/stale/duplicate throws that follow it in the same fn."
     (let [live    (rf.api-manifest.gen/covered-source-namespaces)
           sidecar (rf.api-manifest.gen/read-sidecar)]
       ;; CONTROL FIRST: the live tree is fully accounted for, so `build-manifest`
@@ -218,26 +220,12 @@
           "control: the live tree builds a manifest")
       (with-redefs [rf.api-manifest.gen/covered-source-namespaces
                     (constantly (conj live synthetic-unaccounted))]
-        (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo
-              #"re-frame\.ssr\.synthetic-unaccounted-probe"
-              (rf.api-manifest.gen/build-manifest sidecar))
-            "build-manifest must refuse, naming the unaccounted namespace")))))
-
-(deftest build-manifest-roster-refusal-carries-ex-data
-  (testing "the refusal `build-manifest` raises is the ROSTER one — carrying
-            `:unaccounted` — and not some later reconciliation failing to
-            resemble it. Pinning the ex-data key is what distinguishes the
-            roster assertion from the missing/stale/duplicate throws that
-            follow it in the same fn."
-    (let [live    (rf.api-manifest.gen/covered-source-namespaces)
-          sidecar (rf.api-manifest.gen/read-sidecar)]
-      (with-redefs [rf.api-manifest.gen/covered-source-namespaces
-                    (constantly (conj live synthetic-unaccounted))]
         (try
           (rf.api-manifest.gen/build-manifest sidecar)
           (is false "expected build-manifest to throw on the unaccounted namespace")
           (catch clojure.lang.ExceptionInfo e
+            (is (re-find #"re-frame\.ssr\.synthetic-unaccounted-probe" (ex-message e))
+                "build-manifest must refuse, naming the unaccounted namespace")
             (is (= [synthetic-unaccounted] (:unaccounted (ex-data e)))
                 "ex-data must name the unaccounted namespace")))))))
 

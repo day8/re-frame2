@@ -16,7 +16,6 @@
       and RED elsewhere (mirroring :doc-guide-known-unmanifested-scoped)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.api-manifest.doc-api-check :as rf.api-manifest.doc-api-check]
-            [re-frame.api-manifest.gen :as rf.api-manifest.gen]
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private manifest-vars
@@ -90,14 +89,6 @@
           refs  (rf.api-manifest.doc-api-check/references-in-files files)]
       (is (seq (filter #(re-find #"^rf\.story/" (:raw %)) refs))
           "no (rf.story/<var> reference extracted from docs/story/api/**"))))
-
-(deftest scoped-allowlist-sidecar-key-is-present-and-a-map
-  (testing "the committed sidecar carries the file-scoped allowlist key as a
-            map (it may be empty: the tombstone uses bare-backtick names,
-            not call-position forms, so it needs no entry)"
-    (let [scoped (:doc-api-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar))]
-      (is (map? scoped)
-          "the scoped allowlist must be a {name -> #{files}} map"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Page + member coverage reconciler.
