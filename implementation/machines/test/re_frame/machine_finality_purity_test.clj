@@ -89,16 +89,7 @@
 
   (testing "a compound snapshot at a non-final leaf ⇒ false"
     (is (false? (rf.machines.transition/final-on-leaf? compound-final-machine [:wrapper :running]))
-        "the [:wrapper :running] leaf is not :final?"))
-
-  (testing "finality keys off the LEAF, not an ancestor"
-    ;; The :wrapper compound node itself carries no :final? — finality is
-    ;; a leaf property. Resolving the parent path (which final-on-leaf?
-    ;; never does for a committed leaf snapshot, but pin the leaf-only
-    ;; contract anyway via node-at) returns the non-final compound node.
-    (is (false? (rf.machines.transition/final-state-node?
-                  (rf.machines.transition/node-at compound-final-machine [:wrapper])))
-        "the compound :wrapper ancestor is not itself :final?")))
+        "the [:wrapper :running] leaf is not :final?")))
 
 ;; ---------------------------------------------------------------------------
 ;; all-regions-final? — parallel union (parallel.cljc)

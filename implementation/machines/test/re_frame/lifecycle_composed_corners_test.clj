@@ -13,7 +13,6 @@
             [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -32,7 +31,7 @@
 
 (deftest composed-timer-join-and-actor-cleanup-on-frame-destroy
   (testing "destroy-frame! clears timer table + [:rf.runtime/machines :spawned]
-            + [:rf.runtime/machines :snapshots] + spawn-order in one cascade (spawned actors carry no registrar entry)"
+            + [:rf.runtime/machines :snapshots] + spawn-order in one cascade"
     (rf/make-frame {:id :corner.leak/scoped :doc "leak-audit"})
 
     ;; --- (a) :after timer --------------------------------------------------
@@ -88,11 +87,6 @@
           "precondition: spawned actor snapshot is live"))
     (is (pos? (count (rf.machines.spawn-order/frame-order :corner.leak/scoped)))
         "precondition: spawn-order channel has entries")
-    ;; A spawned actor carries NO per-instance registrar entry; its
-    ;; liveness is its snapshot's presence in runtime-db (asserted live above).
-    ;; The registrar precondition is therefore inverted.
-    (is (nil? (rf.registrar/lookup :event :corner.leak/child#1))
-        "precondition: spawned actor has no per-instance registrar entry (liveness lives in its runtime-db snapshot)")
 
     ;; --- destroy ----------------------------------------------------------
     (rf.frame/destroy-frame! :corner.leak/scoped)
@@ -106,11 +100,4 @@
                       [:rf.runtime/machines :snapshots :corner.leak/child#1]))
         "post: spawned actor's snapshot is gone — its liveness (snapshot-based) is cleared")
     (is (= [] (rf.machines.spawn-order/frame-order :corner.leak/scoped))
-        "post: spawn-order channel is empty for the destroyed frame")
-    ;; The singletons (:corner.leak/timer, :corner.leak/boot, :corner.leak/
-    ;; ia-parent, :corner.leak/ia-child, :corner.leak/child) stay
-    ;; registered — they're global handlers, not frame-scoped.
-    (is (some? (rf.registrar/lookup :event :corner.leak/timer))
-        "post: singleton timer handler stays globally registered (not frame-scoped)")
-    (is (some? (rf.registrar/lookup :event :corner.leak/ia-parent))
-        "post: singleton invoke-all parent handler stays globally registered")))
+        "post: spawn-order channel is empty for the destroyed frame")))

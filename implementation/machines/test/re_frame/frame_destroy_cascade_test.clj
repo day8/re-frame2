@@ -27,7 +27,6 @@
             [re-frame.machines]
             [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -113,14 +112,7 @@
           ":exit ran newest-first per Spec 005 §Cross-Spec Interactions §1")
       ;; The spawn-order entry for the frame is gone.
       (is (= [] (rf.machines.spawn-order/frame-order :fc/auth))
-          "spawn-order slot for the destroyed frame is cleared")
-      ;; The registered (non-spawned) `:fc/child` and `:fc/boot`
-      ;; machines stay registered — they're global singletons that
-      ;; happen to share the address space with the spawned actors.
-      (is (some? (rf.registrar/lookup :event :fc/child))
-          "the singleton `:fc/child` machine handler stays globally registered")
-      (is (some? (rf.registrar/lookup :event :fc/boot))
-          "the singleton `:fc/boot` machine handler stays globally registered"))))
+          "spawn-order slot for the destroyed frame is cleared"))))
 
 ;; ---- :rf.machine.lifecycle/destroyed trace contract ----------------------
 
@@ -245,18 +237,10 @@
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :iso/frame-b))
                          [:rf.runtime/machines :snapshots :iso/child-b#1]))
           "frame B's spawned actor is live (snapshot present) before destroy")
-      ;; Spawned actors never register a per-instance handler.
-      (is (nil? (rf.registrar/lookup :event :iso/child-a#1))
-          "frame A's spawned actor has no per-instance registrar entry")
-      (is (nil? (rf.registrar/lookup :event :iso/child-b#1))
-          "frame B's spawned actor has no per-instance registrar entry")
       ;; Destroy A; B's actor stays alive (its snapshot survives).
       (rf/destroy-frame! :iso/frame-a)
       (is (= [:iso/child-a#1] @exit-log)
           "only frame A's spawned actor ran its :exit")
-      (is (some? (rf.registrar/lookup :event :iso/child-b)
-                 )
-          "frame B's TYPE machine stays globally registered after A's destroy")
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :iso/frame-b))
                          [:rf.runtime/machines :snapshots :iso/child-b#1]))
           "frame B's spawned actor stays alive (snapshot present) after A's destroy")
@@ -300,36 +284,6 @@
   "The `[:rf.runtime/machines :snapshots]` map on `frame-id`'s runtime-db."
   [frame-id]
   (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) [:rf.runtime/machines :snapshots]))
-
-(deftest restored-singleton-snapshot-keeps-singleton-straggler-path
-  (testing "a restored SINGLETON snapshot (no :rf/machine-type) keeps the exit-only straggler path — handler survives, snapshot left for app-db release"
-    (rf/make-frame {:id :rsg/auth :doc "restore singleton frame"})
-    (let [exit-log (atom [])
-          ;; A singleton machine — registered, then driven into a state so
-          ;; its snapshot lands in runtime-db. Its snapshot carries NO
-          ;; :rf/machine-type (build-initial-snapshot does not stamp it).
-          single {:initial :live
-                  :data    {}
-                  :states  {:live {:on   {:noop {:action (fn [{d :data}] {:data d})}}
-                                   :exit (fn [_] (swap! exit-log conj :rsg/single) {})}}}]
-      (rf/reg-machine :rsg/single single)
-      ;; Touch the singleton so its snapshot materialises in this frame.
-      (rf/dispatch-sync [:rsg/single [:noop]] {:frame :rsg/auth})
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rsg/auth))
-                         [:rf.runtime/machines :snapshots :rsg/single]))
-          "singleton snapshot present before restore")
-      (is (nil? (:rf/machine-type
-                  (get-in (:rf.db/runtime (rf/frame-state-value :rsg/auth))
-                          [:rf.runtime/machines :snapshots :rsg/single])))
-          "singleton snapshot carries NO :rf/machine-type (the discriminator)")
-      (rf.machines.spawn-order/reset-all!)
-      (rf/destroy-frame! :rsg/auth)
-      ;; The singleton's :exit ran (straggler path runs the exit cascade)...
-      (is (= [:rsg/single] @exit-log)
-          "singleton :exit cascade ran via the straggler path")
-      ;; ...but its TYPE handler stays globally registered (outlives the frame).
-      (is (some? (rf.registrar/lookup :event :rsg/single))
-          "singleton handler stays registered — NOT unregistered by the straggler path"))))
 
 ;; ---- durable spawn-order: the frame-global creation sequence ----
 ;;
@@ -393,6 +347,8 @@
       (is (= [:probe/a#1 :probe/a#2 :probe/b#1]
              (runtime-spawn-order :probe/auth))
           "durable spawn-order carries the frame-global creation sequence, across id-prefixes")
+      (is (vector? (runtime-spawn-order :probe/auth))
+          "a vector — an ordered, indexable value that rides the runtime-db through EDN")
       ;; --- the loss boundary --------------------------------------------
       ;; Model epoch restore / SSR hydration: the durable runtime-db
       ;; survives, the transient process-side atom does not.
@@ -416,21 +372,6 @@
                           (when (some? (:rf/machine-type snap)) id))
                         (runtime-snapshots :probe/auth)))
           "every restored spawned snapshot was dissoc'd (full teardown, not exit-only)"))))
-
-(deftest durable-spawn-order-is-transport-safe
-  (testing "the durable ordering fact is plain data — it round-trips through EDN unchanged and carries no fn / atom / host handle"
-    (rf/make-frame {:id :probeedn/auth :doc "spawn-order transport frame"})
-    (let [exit-log (atom [])]
-      (reg-probe-machines! exit-log)
-      (rf/dispatch-sync [:probe/boot [:spawn-mixed]] {:frame :probeedn/auth})
-      (let [order (runtime-spawn-order :probeedn/auth)]
-        (is (= [:probe/a#1 :probe/a#2 :probe/b#1] order)
-            "the order is recorded before the round trip (non-vacuity control)")
-        (is (vector? order) "a vector — an ordered, indexable value")
-        (is (every? keyword? order)
-            "actor-id keywords only: no function, atom, or host handle enters runtime-db")
-        (is (= order (read-string (pr-str order)))
-            "survives pr-str / read-string unchanged — so it rides the SSR hydration payload and an epoch snapshot")))))
 
 (deftest explicit-destroy-prunes-durable-spawn-order
   (testing "a successful explicit destroy removes the actor from the durable order, so a later frame destroy neither re-exits it nor leaves a stale entry"

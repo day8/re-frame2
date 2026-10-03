@@ -224,7 +224,7 @@
       (is (not-any? #(= :rf.machine/dispatched-while-done (:operation %)) @traces)
           "no :rf.machine/dispatched-while-done half-state (D5)"))))
 
-(deftest dispatch-to-destroyed-spawned-actor-still-reuses-no-such-handler
+(deftest dispatch-to-destroyed-spawned-actor-surfaces-no-such-handler
   (testing "D5's OTHER half: an address carrying
             NO definition — a destroyed spawned actor at its own `:fixed-actor-id`
             — surfaces :rf.error/no-such-handler"
@@ -295,26 +295,10 @@
       (is (nil? (snapshot spawned-id))
           "child cleaned up even without :on-done"))))
 
-;; ---- parallel: all-regions-final triggers auto-destroy -------------------
-
-(deftest parallel-all-regions-final-auto-destroys
-  (testing "a parallel-region machine where EVERY region's leaf is :final? auto-destroys (D7 + parallel composition)"
-    (rf/reg-machine :rf2-gn80/par
-      {:type    :parallel
-       :regions {:left  {:initial :a
-                         :states  {:a {:on {:end :z}}
-                                   :z {:final? true}}}
-                 :right {:initial :a
-                         :states  {:a {:on {:end :z}}
-                                   :z {:final? true}}}}})
-    (rf/dispatch-sync [:rf2-gn80/par [:end]])
-    ;; Both regions transition to :z on the broadcast :end event; once
-    ;; every region's leaf is :final?, the parallel machine itself is
-    ;; final and the auto-destroy fires synchronously.
-    (is (nil? (snapshot :rf2-gn80/par))
-        "snapshot cleared once every region reached :final?")
-    (is (some? (rf.registrar/lookup :event :rf2-gn80/par))
-        "the parallel machine's DEFINITION survives its instance's auto-destroy")))
+;; ---- parallel: a region still non-final keeps the machine alive ----------
+;;
+;; The all-regions-final auto-destroy is done-signal-cljs-test's
+;; parallel-no-on-done-still-auto-destroys.
 
 (deftest parallel-one-region-final-stays-alive
   (testing "a parallel-region machine with one region still non-final stays alive (per spec composition rule)"

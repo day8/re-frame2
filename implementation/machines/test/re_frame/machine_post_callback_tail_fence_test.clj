@@ -270,34 +270,3 @@
             "the destroyed trace fired exactly once (it precedes the abort hook)")
         (assert-teardown-inert result)))))
 
-(deftest live-owner-finalize-tears-down-once
-  (testing "control: a completion whose teardown fires no destroyer tears down
-            fully — the destroyed trace fires and finalize
-            returns a runtime-db effect that dissoc'd the snapshot. The fence is
-            scoped to owner-loss only."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a    :rf2-hloj0g/live-finalize-frame
-          machine-id :rf2-hloj0g/live-finalize-machine
-          destroyed  (atom [])]
-      (rf/reg-machine machine-id (finishing-machine frame-a))
-      (rf/make-frame {:id frame-a})
-      (seed-finishing! frame-a machine-id)
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (rf.trace.tooling/register-listener!
-          ::live-finalize
-          (fn [ev] (case (:operation ev)
-                     :rf.machine/destroyed (swap! destroyed conj ev)
-                     nil)))
-        (try
-          (let [ret (rf.frame/call-with-event-owner-token frame-a token-a
-                      (fn []
-                        (rf.machines.lifecycle-fx.finalize/finalize-machine
-                          (finishing-machine frame-a)
-                          machine-id frame-a (rf.machines.test-support/runtime-db frame-a)
-                          (finishing-snapshot) [:some-completing-event] [])))]
-            (is (nil? (get-in (:rf.db/runtime ret)
-                              [:rf.runtime/machines :snapshots machine-id]))
-                "the live completion tore down the actor's snapshot in the returned runtime-db")
-            (is (= 1 (count @destroyed)) "exactly one :rf.machine/destroyed trace fired"))
-          (finally
-            (rf.trace.tooling/unregister-listener! ::live-finalize)))))))

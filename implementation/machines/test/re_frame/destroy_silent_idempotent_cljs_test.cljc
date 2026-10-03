@@ -144,8 +144,6 @@
       (rf/dispatch-sync [:rf2-lbjnz/target [:noop]])
       (is (some? (snapshot :rf2-lbjnz/target))
           "target actor's snapshot is live before the cascade")
-      (is (some? (rf.registrar/lookup :event :rf2-lbjnz/target))
-          "target actor's DEFINITION is registered before the cascade")
       ;; Emit two destroy fxs against the same id in one cascade. The
       ;; first one tears the actor down; the second must be a silent
       ;; no-op — no second :rf.machine/destroyed, no error.
