@@ -176,8 +176,8 @@ re-render on dispatch (including machine, flow, schema and multi-frame
 cells), that Fresco cells render through the same fence, that stubbed HTTP
 and resource cells load, that routing, epoch and SSR are present, and that
 navigating away releases the outgoing page's React roots, frames and
-registrations, and that a fragment link in a cell stays in the cell. Build
-both bundles first.
+registrations, that a fragment link in a cell stays in the cell, and that a
+same-page re-fetch keeps the mounted cells. Build both bundles first.
 
 ## How it works
 
@@ -199,6 +199,17 @@ href, stops at the cell and does not navigate. Material's instant navigation
 handles every same-site link click at `document.body` and ignores
 `preventDefault`, so without this it would re-fetch the page and re-run every
 cell.
+
+Instant navigation starts with no current location, so the first navigation
+it sees after a full page load re-fetches and re-injects the page even when
+only the fragment changes: a table-of-contents entry, a heading permalink, a
+`[text](#anchor)` link, or Back and Forward between fragments. When the
+injected page is the one already mounted, the bootstrap moves the mounted
+cells into it in place of the fresh `<pre>`s, so the reader's edits, the
+rendered output and the app state survive, and then redoes Material's scroll.
+The bootstrap cannot stop that re-fetch: Material hears `popstate` on `window`
+ahead of any listener the bootstrap adds, and its scroll to the first
+fragment clicked comes from the re-fetch.
 
 The re-frame2 engine's URL resolves relative to `playground.js`, so the site
 works both at a domain root and under `/re-frame2/`. Plain-cell pages never load the

@@ -30,6 +30,9 @@
  *   - a fragment link and an href-less link in a cell run their handlers
  *     without reaching document.body, where instant navigation listens, and
  *     without navigating; a fragment link in prose still reaches it.
+ *   - a same-page re-fetch, which Material's first navigation after a full
+ *     load performs even for a fragment link, keeps the mounted cells and
+ *     their state instead of re-running them.
  *   - no uncaught page errors. Scittle reports a failed eval with
  *     console.error, which is not a page error and is not counted.
  *
@@ -1062,6 +1065,49 @@ const bodyLinkClicks = await page.evaluate(() => window.__rf2BodyLinkClicks);
 assert(
   JSON.stringify(bodyLinkClicks) === JSON.stringify(["prose-frag"]),
   `only the prose link reaches document.body (got ${JSON.stringify(bodyLinkClicks)})`
+);
+
+// --- same-page re-fetch ----------------------------------------------------
+//
+// Material's first navigation after a full load re-fetches and re-injects the
+// page even for a same-page fragment link, and Back and Forward between
+// fragments. The bootstrap moves the mounted cells into the injected copy
+// instead of re-running them. Navigate to a one-cell page, change the cell's
+// state, then inject an identical copy of that page and drive the document$
+// entry point again: the cell must be the same node, holding its state.
+const SAME_PAGE_CELL = [
+  "(require '[re-frame.core :as rf])",
+  "(rf/reg-event :same/inc (fn [{:keys [db]} _] {:db (update db :same (fnil inc 0))}))",
+  "(rf/reg-sub :same/n (fn [db _] (:same db 0)))",
+  "(defn same-view []",
+  '  [:button#same-btn {:on-click #(rf/dispatch [:same/inc])} "n: " @(rf/subscribe [:same/n])])',
+  "[same-view]",
+].join("\n");
+const injectSamePage = (src) => {
+  document.querySelectorAll(".cljs-cell").forEach((el) => el.remove());
+  const cell = document.createElement("pre");
+  cell.className = "language-cljs-rf2";
+  cell.textContent = src;
+  document.body.appendChild(cell);
+  return window.__rf2PlaygroundLoad();
+};
+await page.evaluate(injectSamePage, SAME_PAGE_CELL);
+await page.waitForSelector("#same-btn", { timeout: 20000 });
+await page.click("#same-btn");
+await waitText("#same-btn", "n: 1");
+await page.evaluate(() => {
+  window.__rf2SameCell = document.querySelector(".cljs-cell");
+});
+await page.evaluate(injectSamePage, SAME_PAGE_CELL);
+const sameRefetch = await page.evaluate(() => ({
+  sameNode: window.__rf2SameCell === document.querySelector(".cljs-cell"),
+  unmounted: document.querySelectorAll("pre.language-cljs-rf2:not([data-cljs-mounted])").length,
+  text: document.querySelector("#same-btn") && document.querySelector("#same-btn").innerText.trim(),
+  roots: window.rf2sci.liveRootCount(),
+}));
+assert(
+  sameRefetch.sameNode && sameRefetch.unmounted === 0 && sameRefetch.text === "n: 1" && sameRefetch.roots === 1,
+  `a same-page re-fetch keeps the mounted cell and its state (got ${JSON.stringify(sameRefetch)})`
 );
 
 assert(pageErrors.length === 0, `no uncaught page errors (saw: ${JSON.stringify(pageErrors)})`);
