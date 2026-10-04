@@ -31,16 +31,16 @@
   carrier matters more than the trace / tool one, which can be reasoned about
   as a tool-console guarantee.
 
-  ## The re-key is the mechanism, not a hazard — §2 pins it
+  ## The re-key is the mechanism, not a hazard
 
   `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id
   params]` vector, so projecting EITHER component necessarily changes it.
   `project-resources-runtime-db` re-keys each wire entry on the key-id of its
   own PROJECTED `:resource/key`, exactly as the coarse `:redact` / `:omit`
-  digests re-key BOTH components and the params arm re-keys index 2. §2 pins
+  digests re-key BOTH components and the params arm re-keys index 2. §4 pins
   the invariant that actually has to hold — the wire MAP key and the wire
-  ENTRY's own `:resource/key` are one value — and §4 pins that the client's
-  `recompute-indexes` round-trip lands on it.
+  ENTRY's own `:resource/key` are one value — through the client's
+  `recompute-indexes` round-trip.
 
   ## No over-redaction — every assertion has a two-sided control
 
@@ -201,7 +201,7 @@
   assertion in this suite reads what the projection does to a key.
 
   For an entry that DOES ride, this is byte-identical to the wire row's own
-  `:resource/key`, which `every-wire-map-key-is-the-key-id-of-its-entrys-own-key`
+  `:resource/key`, which `recompute-indexes-round-trips-over-the-projected-entries`
   pins directly against the map key."
   [frame-id resource-id]
   (some (fn [m] (when (= resource-id (second (:resource/key m))) (:projected-key m)))
@@ -279,52 +279,6 @@
           "the undeclared scope sibling still rides"))))
 
 ;; ===========================================================================
-;; 2. THE RE-KEYING INTERACTION, pinned rather than argued.
-;;
-;;    `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE key vector, so
-;;    projecting index 0 CHANGES it. The invariant that has to hold is not
-;;    "the key-id is stable" — it is "the wire MAP key and the wire ENTRY's own
-;;    :resource/key are ONE value". `project-resources-runtime-db` maintains
-;;    that by construction: the coarse :redact / :omit digests re-key both
-;;    components, and the params arm re-keys index 2.
-;; ===========================================================================
-
-(deftest every-wire-map-key-is-the-key-id-of-its-entrys-own-key
-  (testing "every wire entry is keyed on the byte key-id of its
-            OWN projected :resource/key, so a projected component can never
-            leave the map key and the in-entry copy disagreeing"
-    (install-entry! :rf/default (key-for :tenant/report))
-    (install-entry! :rf/default (key-for :both/report
-                                         {:account-id account-secret :page 3}))
-    (install-entry! :rf/default (key-for :plain/report))
-    (install-entry! :rf/default (global-key-for :plain/report))
-    (install-entry! :rf/default (key-for :sealed/report))
-    (is (= 2 (count (wire-entries :rf/default)))
-        "premise: two of the five rows ride — the two re-keyed by a per-slot
-         declaration and the coarse one are withheld, so a `doseq` over the
-         wire is not a `doseq` over nothing")
-    (doseq [[k-id e] (wire-entries :rf/default)]
-      (is (= k-id (rf.resources.state/key-id (:resource/key e)))
-          (str "wire map key must equal key-id of the entry's own projected "
-               ":resource/key — entry " (pr-str (:resource/key e)))))))
-
-(deftest only-an-undeclared-key-rides-under-its-raw-key-id
-  (testing "the honest statement of the interaction: the raw key's key-id is
-            NOT a wire map key once a component projects, and that is true of
-            the SCOPE arm for exactly the same reason it is true of the PARAMS
-            arm and of the coarse digests"
-    (let [scope-k  (install-entry! :rf/default (key-for :tenant/report))
-          plain-k  (install-entry! :rf/default (key-for :plain/report))
-          sealed-k (install-entry! :rf/default (key-for :sealed/report))
-          wired    (wire-entries :rf/default)]
-      (is (not (contains? wired (rf.resources.state/key-id scope-k)))
-          "a declared SCOPE re-keys the entry — the raw key-id is gone")
-      (is (not (contains? wired (rf.resources.state/key-id sealed-k)))
-          "…as the coarse whole-component digests do")
-      (is (contains? wired (rf.resources.state/key-id plain-k))
-          "…while an UNDECLARED key keeps its byte identity exactly"))))
-
-;; ===========================================================================
 ;; 3. NO OVER-REDACTION. The two-sided control.
 ;; ===========================================================================
 
@@ -391,7 +345,7 @@
 (deftest a-key-declaration-withholds-the-entry-from-the-wire
   (testing "the DECLARING owner's own entry does not ride AT ALL, and the
             reason is reachability rather than privacy. Projecting a key
-            component re-keys the entry (§2 above), and the live client derives
+            component re-keys the entry (see the ns docstring), and the live client derives
             the RAW key, so a shipped row would be unaddressable: dead payload
             beside the duplicate the client loads anyway, and — because the
             per-slot substitution is a CONSTANT sentinel rather than a
@@ -527,30 +481,6 @@
       (is (some? (wire-entry-for :rf/default :plain/report))
           "…while the addressable control still rides: the withholding is
            targeted, not a silenced projection"))))
-
-;; ===========================================================================
-;; 7. `project-scoped-key` DEFERS on `:serialize`: the per-slot arm is not in
-;;    the shared projection.
-;;
-;;    The standing statement lives in
-;;    `resources_trace_key_declarations_egress_cljs_test` §5
-;;    (`project-scoped-key-still-defers-on-serialize`); this is the local
-;;    restatement, so a reader of THIS suite sees the fence too.
-;; ===========================================================================
-
-(deftest project-scoped-key-still-defers-on-serialize-for-a-scope-declaration
-  (testing "the per-slot answer is the REGISTRY's on this path (it has the
-            entry's key-id and the live frame). The shared
-            `project-scoped-key` rides a `:serialize` key verbatim and ignores
-            its spec, for a :scope declaration exactly as for a :params one. This test reds if anyone moves the arm into the
-            shared projection"
-    (let [k    (key-for :tenant/report)
-          spec (rf.resources.registry/resource-meta :tenant/report)]
-      (is (= k (rf.resources.ssr/project-scoped-key k :serialize spec))
-          "`:serialize` rides VERBATIM through `project-scoped-key`")
-      (is (= (rf.resources.ssr/project-scoped-key k :serialize spec)
-             (rf.resources.ssr/project-scoped-key k :serialize nil))
-          "…and it ignores the spec argument, exactly as documented"))))
 
 ;; ===========================================================================
 ;; 8. THE UNIT, DIRECTLY. `project-entry-scope` is the co-equal sibling of
