@@ -12,8 +12,9 @@
   ns suffix rides the consolidated node-test gate, and the JVM runner scans the
   same deftests.
 
-  Five tails, each with a live-owner control (the fence is scoped to owner-loss
-  only, never over-eager):
+  Five tails. Each fence is scoped to owner-loss only, never over-eager: the
+  live-owner side of each tail is pinned by the ordinary lifecycle suites, and
+  the `:on-exit` timer tail keeps its own live-owner control:
 
     1. ORDINARY DESTROY terminal fence — the `:rf.machine/destroyed`
        trace + `rf.registrar/unregister!` do not share one precheck: a listener
@@ -125,28 +126,6 @@
           (rf.trace.tooling/unregister-listener! ::released-handoff)
           (rf.registrar/unregister! :event actor-id))))))
 
-(deftest live-owner-destroy-unregisters-exactly-once
-  (testing "control: an ordinary destroy whose tail fires no destroyer clears the
-            actor's registrar entry EXACTLY once. The terminal fence is scoped to
-            owner-loss only — a live destroy unregisters."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a  :rf2-rbxdxa/live-unregister-frame
-          actor-id (keyword "rf2-rbxdxa" "live-unregister#1")]
-      (rf/make-frame {:id frame-a})
-      (seed-actor! frame-a actor-id nil)
-      ;; Install a registrar entry so there is something to clear.
-      (rf.registrar/register! :event actor-id {:fn (fn [db _] db) :rf/provenance :A})
-      (try
-        (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-          (rf.frame/call-with-event-owner-token frame-a token-a
-            (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))
-        (is (nil? (rf.registrar/lookup :event actor-id))
-            "the live destroy unregistered the actor's handler exactly once")
-        (is (nil? (rf.machines.test-support/snapshot frame-a actor-id))
-            "the live destroy dissoc'd the snapshot")
-        (finally
-          (rf.registrar/unregister! :event actor-id))))))
-
 ;; ===========================================================================
 ;; (2) SPAWN — the classification-lowering seam: a loss DURING `lower-at-spawn!`
 ;;     must fence the bare-id `rf.machines.spawn-order/record!`.
@@ -192,30 +171,6 @@
         (is (true? @fired?) "the classification-lowering loss ran (fence exercised)")
         (is (empty? (rf.machines.spawn-order/frame-order frame-a))
             "successor B's spawn-order is empty — A's ghost child was NOT recorded after the loss")
-        (finally
-          (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))
-
-(deftest spawn-classification-live-records-child-once
-  (testing "control: a spawn whose classification lowering runs cleanly records
-            the child in spawn-order exactly once. The recheck must not suppress
-            the live spawn-order record."
-    (rf.machines.spawn-order/reset-all!)
-    (rf/reg-machine actor-type (actor-spec nil))
-    (let [frame-a        :rf2-rbxdxa/spawn-class-live-frame
-          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-      (rf/make-frame {:id frame-a})
-      (try
-        (rf.late-bind/set-fn! :router/dispatch! (fn [_ev _opts] nil))
-        (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-          (rf.frame/call-with-event-owner-token frame-a token-a
-            (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
-                                   {:machine-id actor-type
-                                    :start      [:go]}))))
-        (let [order (vec (rf.machines.spawn-order/frame-order frame-a))]
-          (is (= 1 (count order))
-              "the live spawn recorded exactly one spawn-order entry")
-          (is (some? (rf.machines.test-support/snapshot frame-a (first order)))
-              "the live spawn installed the recorded child's snapshot"))
         (finally
           (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))
 
@@ -281,28 +236,6 @@
         (is (= [] (:fx ret))
             "finalize returned the inert outcome — no A-derived fx published onto B")))))
 
-(deftest finalize-classification-live-forgets-spawn-order
-  (testing "control: a finalize whose classification drop runs cleanly forgets the
-            actor from spawn-order and dissocs its snapshot in the returned
-            runtime-db. The recheck must not suppress the live teardown."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a    :rf2-rbxdxa/finalize-class-live-frame
-          machine-id :rf2-rbxdxa/finalize-class-live-machine]
-      (rf/reg-machine machine-id (finishing-machine frame-a))
-      (rf/make-frame {:id frame-a})
-      (seed-finishing! frame-a machine-id)
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)
-            ret     (rf.frame/call-with-event-owner-token frame-a token-a
-                      (fn []
-                        (rf.machines.lifecycle-fx.finalize/finalize-machine
-                          (finishing-machine frame-a)
-                          machine-id frame-a (rf.machines.test-support/runtime-db frame-a)
-                          (finishing-snapshot) [:some-completing-event] [])))]
-        (is (empty? (rf.machines.spawn-order/frame-order frame-a))
-            "the live finalize forgot the actor from spawn-order")
-        (is (nil? (get-in (:rf.db/runtime ret) (snapshot-path machine-id)))
-            "the live finalize dissoc'd the actor's snapshot in the returned runtime-db")))))
-
 ;; ===========================================================================
 ;; (4) `destroy-single-actor!` — success report only on a genuine teardown.
 ;; ===========================================================================
@@ -332,26 +265,6 @@
           (is (true? @fired?) "the actor's :exit cascade ran + lost the owner (fence exercised)")
           (is (not ret)
               "destroy-single-actor! reported falsey — teardown aborted on owner loss, no phantom destroyed"))))))
-
-(deftest destroy-single-actor-reports-success-when-live
-  (testing "control: `destroy-single-actor!` on a live actor whose teardown fires
-            no destroyer reports TRUTHY (the teardown projection committed) and
-            dissocs the snapshot — so a `:spawn-all` caller emits `destroyed`
-            exactly once for a genuinely-torn-down child."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a  :rf2-rbxdxa/single-live-frame
-          actor-id (keyword "rf2-rbxdxa" "single-live#1")]
-      (rf/make-frame {:id frame-a})
-      (seed-actor! frame-a actor-id nil)
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)
-            fence   {:owner-gone? (fn [] (not (rf.frame/event-continuation-live? frame-a token-a)))
-                     :owner-token token-a}
-            ret     (rf.frame/call-with-event-owner-token frame-a token-a
-                      (fn [] (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-a actor-id fence)))]
-        (is (true? (boolean ret))
-            "destroy-single-actor! reported truthy — the teardown committed while exact")
-        (is (nil? (rf.machines.test-support/snapshot frame-a actor-id))
-            "the live teardown dissoc'd the actor's snapshot")))))
 
 ;; ===========================================================================
 ;; (5) NON-DESTROY timer cancellation (`:on-exit`) — the shared subscription
