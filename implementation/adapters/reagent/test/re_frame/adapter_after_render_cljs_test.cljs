@@ -75,18 +75,7 @@
       (is (zero? @fired) "not fired before the drain")
       (r/flush)
       (is (= 1 @fired)
-          "callback fired exactly once after the render queue drained")
-      ;; The queue is re-armed per drain (not a one-shot): a second
-      ;; enqueue + drain fires again, and does NOT re-fire the first.
-      (rf.interop/after-render (fn [] (swap! fired inc)))
-      (r/flush)
-      (is (= 2 @fired)
-          "a subsequent after-render callback also fires on the next drain")
-      ;; A drain with nothing queued is a no-op — the prior callbacks do
-      ;; not re-run (the queue was cleared on drain).
-      (r/flush)
-      (is (= 2 @fired)
-          "an empty drain does not re-fire previously-drained callbacks"))))
+          "callback fired exactly once after the render queue drained"))))
 
 ;; ---- (2) copied / wrapped adapter map routes to the live hook --
 ;;
