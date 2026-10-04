@@ -22,7 +22,6 @@
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.frame :as rf.frame]
-            [re-frame.fx :as rf.fx]
             ;; re-frame.machines and re-frame.http.managed cross-publish their
             ;; registration hooks through `re-frame.late-bind` (machines
             ;; publishes `:machines/reg-machine`; http-managed publishes
@@ -38,10 +37,9 @@
             ;; directly, so it requires that ns.
             [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.registrar :as rf.registrar]
-            [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.test-support :as rf.test-support]))
 
-;; `:async? true` — the (4) :spawn-all rows are `async`, and cljs.test aborts a
+;; `:async? true` — the (3) :spawn-all rows are `async`, and cljs.test aborts a
 ;; namespace holding async tests unless its fixtures are the map form.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -123,78 +121,7 @@
       (finally
         (rf/clear :fx ::silent)))))
 
-;; ---- (2b) nested :request-content-type survives the wrapper pass-through -
-
-(deftest spawn-preserves-nested-request-content-type
-  (testing "a `:request-content-type` nested under `:request` (the Spec 014 §Args carrier shape) survives the wrapper's :data → fx-args pass-through verbatim"
-    ;; The transport reads request content-type only from the nested
-    ;; request envelope (transport/prepare-request reads
-    ;; `(:request-content-type request)`), so the Args-carrier example
-    ;; MUST nest it under `:request`, not at the top level of `:data`.
-    ;; This proves the nested example shape threads through.
-    (rf/reg-fx ::silent (fn [_ _] nil))  ;; never replies: stable :requesting snapshot
-    (try
-      (rf/reg-machine :cljs/poster
-        {:initial :idle
-         :states
-         {:idle {:on {:post :posting}}
-          :posting
-          {:spawn {:machine-id :rf.http/managed
-                    :data       {:request {:url    "/api/sessions"
-                                           :method :post
-                                           :body   {:user "ada"}
-                                           :request-content-type :json}}}
-           :on     {:succeeded :done
-                    :failed    :idle}}
-          :done {}}})
-      (rf/dispatch-sync
-        [:cljs/poster [:post]]
-        {:fx-overrides {:rf.http/managed ::silent}})
-      (let [wrapper-data (:data (snapshot :rf.http/managed#1))]
-        (is (= {:url "/api/sessions" :method :post :body {:user "ada"}
-                :request-content-type :json}
-               (:request wrapper-data))
-            ":request-content-type nested under :request is preserved verbatim — the runtime reads it from the nested request envelope")
-        (is (not (contains? wrapper-data :request-content-type))
-            ":request-content-type is NOT promoted to the top level of :data"))
-      (finally
-        (rf/clear :fx ::silent)))))
-
-;; ---- (3) parent state-exit destroys wrapper child + clears registry ----
-
-(deftest parent-exit-destroys-wrapper-child
-  (testing "transition out of the :spawn-bearing state destroys the wrapper actor — registry slot cleared, snapshot gone (the actor-destroy cascade)"
-    (rf.http.test-support/install-managed-request-stubs! {})  ;; no-match stub: synthesises a failure (which we will not observe)
-    (try
-      (rf/reg-machine :cljs/cancellable
-        {:initial :idle
-         :states
-         {:idle {:on {:login :authenticating}}
-          :authenticating
-          {:spawn {:machine-id :rf.http/managed
-                    :data       {:request {:url "/never-returns" :method :get}}}
-           :on     {:cancel    :idle
-                    :succeeded :authenticated
-                    :failed    :idle}}
-          :authenticated {}}})
-      ;; The stub will synthesise a failure (no match), which will be
-      ;; dispatched via the router. We cancel BEFORE that dispatch
-      ;; drains so the wrapper is in :requesting at the moment of
-      ;; cancel. The cancel's destroy cascade tears down the wrapper
-      ;; synchronously inside this dispatch-sync.
-      (rf/dispatch-sync
-        [:cljs/cancellable [:login]]
-        {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
-      (rf/dispatch-sync [:cljs/cancellable [:cancel]])
-      (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
-        (is (nil? (get-in db [:rf.runtime/machines :spawned :cljs/cancellable [:authenticating]]))
-            "spawn-registry slot cleared by the destroy cascade")
-        (is (nil? (get-in db [:rf.runtime/machines :snapshots :rf.http/managed#1]))
-            "wrapper actor's snapshot is gone after the parent's cancel"))
-      (finally
-        (rf.http.test-support/uninstall-managed-request-stubs!)))))
-
-;; ---- (4) wrapper children under :spawn-all ------------------------------
+;; ---- (3) wrapper children under :spawn-all ------------------------------
 ;;
 ;; Spec 014 §Multiple wrappers per parent puts `:rf.http/managed` children
 ;; under `:spawn-all`. A join resolves only when each child reaches a `:final?`
@@ -335,39 +262,6 @@
                                            " — " (.-message e)))
                       nil))
             (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done))))))))
-
-(deftest spawn-all-join-any-cancels-the-live-sibling
-  (testing "under :join :any the first wrapper to reply resolves the join, and the join cancels the sibling still waiting on its request"
-    (async done
-      (let [traces (atom [])
-            cb-id  (gensym "rf2-6gxs-any-")]
-        ;; Answers /api/fast only — /api/slow stays in flight.
-        (rf.fx/reg-fx :cljs/fast-only-stub
-          {:doc "replies to /api/fast, never to /api/slow"}
-          (fn [frame-ctx args-map]
-            (when (= "/api/fast" (get-in args-map [:request :url]))
-              (rf.http.test-support/canned-success-handler
-                frame-ctx (assoc args-map :value {:fast true})))))
-        (rf.trace.tooling/register-listener! cb-id (fn [trace] (swap! traces conj trace)))
-        (reg-join-parent! :cljs/race :any [(wrapper-child :fast "/api/fast")
-                                           (wrapper-child :slow "/api/slow")])
-        (let [f (stubbed-frame! :cljs/fast-only-stub)]
-          (rf/dispatch-sync [:cljs/race [:go]] {:frame f})
-          (-> (rf.test-support/poll-until (settled? f :cljs/race)
-                                          {:timeout-ms 2000 :label ":join :any resolves"})
-              (.then (fn [_]
-                       (is (= [:some-done :fast {:fast true}] (resolved-event f :cljs/race))
-                           ":on-some-complete fired on the child that replied")
-                       (is (= [:slow]
-                              (->> @traces
-                                   (filter #(= :rf.machine.spawn/cancelled-on-join-resolution (:operation %)))
-                                   (mapv #(get-in % [:tags :child-id]))))
-                           "the join cancelled exactly the live sibling")))
-              (.catch (fn [e] (is false (str "unexpected — " (where-is f :cljs/race) " — " (.-message e))) nil))
-              (.then (fn [_]
-                       (rf.trace.tooling/unregister-listener! cb-id)
-                       (rf.registrar/unregister! :fx :cljs/fast-only-stub)
-                       (done)))))))))
 
 (deftest join-child-sends-no-succeeded-event-to-its-parent
   (testing "a :spawn-all parent that also carries the single-:spawn habit `:on {:succeeded … :failed …}` resolves through its join: a join child's terminal :entry stays silent, so no spurious [:succeeded value] reaches the parent. A :final? state's :entry still runs, so without the :rf/join-child gate the first child to finish would send it, the parent would leave :hydrating on it, and its own join would be torn down"

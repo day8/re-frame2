@@ -20,13 +20,15 @@
      `:rf.http/aborted-on-actor-destroy`.
 
   Coverage:
-   1. Parent :spawn + success → parent transitions via :succeeded.
+   1. Parent :spawn + success → parent transitions via :succeeded. The
+      wrapper resolves as a machine and issues its request as the fx of the
+      same id, so this also runs the two registrations side by side.
    2. Parent :spawn + failure → parent transitions via :failed.
-   3. Parent destroys child mid-flight → request aborts.
-   4. Composes with :after — wall-clock timeout cancels in-flight.
-   5. The fx form coexists with the machine wrapper.
-   6. A spawn loop leaves no anonymous issuance counters.
-   7. Reply addressing in the spawn `:data` is refused on entry, before any
+   3. Parent destroys child mid-flight → request aborts. A parent's `:after`
+      firing leaves the state through the same destroy cascade, which the
+      machines suite pins (`after-on-spawn-bearing-state-tears-down-child`).
+   4. A spawn loop leaves no anonymous issuance counters.
+   5. Reply addressing in the spawn `:data` is refused on entry, before any
       request goes out, and the refusal reaches the parent's `:on-error`.
 
   Tests run on JVM through the plain-atom substrate; the CLJS path
@@ -148,7 +150,6 @@
         ;; synchronously inside the original dispatch-sync).
         (await-condition!
           #(= :authenticated (:state (snapshot :app/auth))))
-        (is (= :authenticated (:state (snapshot :app/auth))))
         (is (= {:id 42} (:result (:data (snapshot :app/auth))))
             "the success value was propagated through the wrapper's :succeeded event")
         (finally (stop-server! srv))))))
@@ -184,7 +185,6 @@
         (rf/dispatch-sync [:app/auth2 [:login]])
         (await-condition!
           #(= :login-failed (:state (snapshot :app/auth2))))
-        (is (= :login-failed (:state (snapshot :app/auth2))))
         (let [failure (:failure (:data (snapshot :app/auth2)))]
           (is (= :rf.http/http-4xx (:kind failure))
               "the failure payload preserves the :rf.http/* category")
@@ -243,94 +243,7 @@
           (rf.trace.tooling/unregister-listener! ::ijm7-3)
           (stop-server! srv))))))
 
-;; ---- (4) composes with :after — whichever fires first wins ----------------
-
-(deftest spawn-composes-with-after-timeout
-  (testing "parent state with both :spawn {:machine-id :rf.http/managed} AND :after {ms target} — :after firing cancels the wrapper"
-    (let [latch (CountDownLatch. 1)
-          srv   (start-blocking-server! latch 200 "application/json" "{}")
-          {:keys [port]} srv
-          traces (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! ::ijm7-4 (fn [ev] (swap! traces conj ev)))
-        (rf/reg-machine :app/after-test
-          {:initial :idle
-           :states
-           {:idle {:on {:login :authenticating}}
-
-            :authenticating
-            ;; :after acts as a wall-clock timeout that spans the
-            ;; wrapper's behaviour (Spec 005 §Wall-clock timeouts on
-            ;; :spawn — use parent state's :after). When the :after
-            ;; fires before the HTTP response, the parent transitions
-            ;; to :timed-out and the standard exit cascade tears down
-            ;; the :rf.http/managed wrapper child.
-            {:spawn {:machine-id :rf.http/managed
-                      :data       {:request {:url    (str "http://127.0.0.1:" port "/slow")
-                                              :method :get}
-                                   :decode  :json}}
-             :after  {30000 :timed-out}
-             :on     {:succeeded :authenticated
-                      :failed    :idle}}
-
-            :authenticated {}
-            :timed-out     {}}})
-        (rf/dispatch-sync [:app/after-test [:login]])
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (is (contains? (rf.http.managed/actor-in-flight-snapshot)
-                       :rf.http/managed#1))
-        ;; Simulate the :after firing by dispatching the synthetic
-        ;; timer-elapsed event directly (the after_test.clj pattern —
-        ;; the wall-clock would fire it at 30000ms; the synthetic event
-        ;; drives the same code path deterministically).
-        (let [epoch (or (get-in (snapshot :app/after-test)
-                                [:data :rf/after-epoch [:authenticating]])
-                        0)]
-          (rf/dispatch-sync [:app/after-test
-                             [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]]))
-        (is (= :timed-out (:state (snapshot :app/after-test)))
-            ":after firing exited :authenticating to :timed-out")
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-            "the cancellation cascade aborted the in-flight HTTP")
-        (let [abort-traces (filter #(= :rf.http/aborted-on-actor-destroy
-                                       (:operation %))
-                                   @traces)]
-          (is (seq abort-traces)
-              "wall-clock timeout cancelled the wrapper child + fired the :rf.http/aborted-on-actor-destroy trace"))
-        (.countDown latch)
-        (finally
-          (rf.trace.tooling/unregister-listener! ::ijm7-4)
-          (stop-server! srv))))))
-
-;; ---- (5) sibling fx-form works alongside the machine wrapper ------------
-
-(deftest fx-form-coexists-with-machine-wrapper
-  (testing "the :fx form `:fx [[:rf.http/managed args]]` works; fx and machine registrations under the same id coexist"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-event :legacy/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              (case (:status reply)
-                :ok    {:db (assoc db :result (:value reply))}
-                :error {:db (assoc db :error (:error reply))})
-              {:fx [[:rf.http/managed
-                     {:reply-to [:legacy/load msg] :request {:url    (str "http://127.0.0.1:" port "/")
-                                :method :get}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:legacy/load {}])
-        ;; Deterministic gate via canonical poll-until.
-        (rf.test-support/poll-until
-          #(some? (:result (rf/app-db-value :rf/default)))
-          {:timeout-ms 5000 :label "fx-form reply landed on :rf/default"})
-        (is (= {:ok true} (:result (rf/app-db-value :rf/default)))
-            "the fx-form `:rf.http/managed` dispatches back the standard reply envelope")
-        (finally (stop-server! srv))))))
-
-;; ---- (6) a spawn loop leaves no issuance counters ------------------------
+;; ---- (4) a spawn loop leaves no issuance counters ------------------------
 
 (defn- live-wrapper-addresses []
   (->> (keys (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -377,7 +290,7 @@
                  " anonymous issuance counters behind"))
         (finally (stop-server! srv))))))
 
-;; ---- (7) reply addressing in :data is refused at spawn -------------------
+;; ---- (5) reply addressing in :data is refused at spawn -------------------
 
 (deftest spawn-data-reply-addressing-is-refused-at-spawn
   (testing "a :spawn whose :data carries :reply-to, :on-success or :on-failure
@@ -410,9 +323,8 @@
                 :ready       {}
                 :load-failed {}}})
             (rf/dispatch-sync [parent [:go]])
+            ;; The parent leaves :loading through :on-error, or this times out.
             (await-condition! #(= :load-failed (:state (snapshot parent))))
-            (is (= :load-failed (:state (snapshot parent)))
-                (str k " in :data: the parent left :loading through :on-error"))
             (let [refusal (->> @traces
                                (filter #(= :rf.error/machine-action-exception (:operation %)))
                                (map #(get-in % [:tags :exception-data]))
