@@ -45,8 +45,9 @@
        reserved `:rf/*` captures are added).
     6. ACTOR LIFECYCLE — every `:rf.machine/spawn` a state emits on ENTRY
        is matched by a `:rf.machine/destroy` carrying the SAME
-       `:rf/invoke-id` when that state is EXITED (no leaked actors); the
-       spawn allocator id is monotone per machine-id.
+       `:rf/invoke-id` when that state is EXITED (no leaked actors). This
+       tier does not draw it: the spawn conformance fixtures
+       (`spawn-on-entry-destroy-on-exit` among them) pin it by example.
     7. REPLAY DETERMINISM — the same machine + the same event sequence
        yields a byte-identical FINAL snapshot (the EP-0010 / EP-0017 replay
        claim, at the machine-engine level). It follows from 4 by induction:
@@ -734,73 +735,6 @@
         (is (= 1 (reduce + 0 (vals (:rf/spawn-counter (:snapshot r)))))
             "entering a :spawn state bumps the in-snapshot counter to 1")))))
 
-;; ---- INVARIANT 6: spawned-actor lifecycle (entry spawn → exit destroy) ----
-
-(deftest prop-spawned-actor-lifecycle-is-balanced
-  (testing "every :rf.machine/spawn emitted on ENTRY of a state is matched
-            by a :rf.machine/destroy carrying the SAME :rf/invoke-id when
-            that state is EXITED — no leaked actors"
-    ;; A flat machine with a spawn-bearing state; drive in then out and
-    ;; assert the spawn / destroy invoke-ids pair up. The pure engine emits
-    ;; the spawn fx on entry and the destroy fx on exit (build-destroy-fx),
-    ;; both keyed on the state's path under :rf/invoke-id.
-    (let [spawn-invoke-ids
-          (fn [fx] (->> fx
-                        (filter #(= :rf.machine/spawn (first %)))
-                        (map (comp :rf/invoke-id second))
-                        set))
-          destroy-invoke-ids
-          (fn [fx] (->> fx
-                        (filter #(= :rf.machine/destroy (first %)))
-                        (map (comp :rf/invoke-id second))
-                        set))
-          failure
-          (loop [i 0, s 6006]
-            (if (= i 200)
-              nil
-              ;; Build a 3-state machine: idle → working(:spawn) → done,
-              ;; with a drawn extra event back to idle so exit fires.
-              (let [extra (nth event-pool (rnd s (count event-pool)))
-                    m {:initial :idle
-                       :data    {}
-                       :guards  shared-guards
-                       :actions shared-actions
-                       :states  {:idle    {:on {:e0 :working}}
-                                 :working {:spawn {:machine-id :child/worker :start [:begin]}
-                                           :on    {:e1 :done :e2 :idle}}
-                                 :done    {:on {:e3 :idle}}}}
-                    s0       (initial-snapshot m)
-                    ;; enter the spawn state
-                    r-enter  (rf.machines/machine-transition m s0 [:e0])
-                    spawned  (spawn-invoke-ids (:fx r-enter))
-                    ;; exit the spawn state (→ :done)
-                    r-exit   (rf.machines/machine-transition m (:snapshot r-enter) [:e1])
-                    destroyed (destroy-invoke-ids (:fx r-exit))]
-                (cond
-                  (not= #{[:working]} spawned)
-                  [:spawn-not-emitted extra spawned]
-                  ;; every spawned invoke-id must be destroyed on exit
-                  (not= spawned destroyed)
-                  [:unbalanced extra :spawned spawned :destroyed destroyed]
-                  :else (recur (inc i) (lcg-next s))))))]
-      (is (nil? failure)
-          (str "actor-lifecycle property failed: " (pr-str failure))))
-    ;; spawn allocator id is monotone per machine-id across re-entries.
-    (let [m {:initial :idle
-             :data    {}
-             :guards  shared-guards
-             :actions shared-actions
-             :states  {:idle    {:on {:e0 :working}}
-                       :working {:spawn {:machine-id :child/worker :start [:begin]}
-                                 :on    {:e1 :idle}}}}
-          s0 (initial-snapshot m)
-          r1 (rf.machines/machine-transition m s0 [:e0])           ;; spawn #1
-          r2 (rf.machines/machine-transition m (:snapshot r1) [:e1]) ;; exit (destroy)
-          r3 (rf.machines/machine-transition m (:snapshot r2) [:e0])] ;; spawn #2
-      (is (= 1 (get-in (:snapshot r1) [:rf/spawn-counter :child/worker])))
-      (is (= 2 (get-in (:snapshot r3) [:rf/spawn-counter :child/worker]))
-          "re-entering the spawn state allocates the NEXT id — counter monotone, never rewound"))))
-
 ;; ---- INVARIANT 8: parallel declaration-order independence ------------------
 
 (deftest prop-parallel-selection-is-declaration-order-independent
@@ -932,8 +866,9 @@
 ;; the next region — would satisfy NEITHER. Under it, a region drained BEFORE
 ;; the sibling it watches has applied would see no flag and strand; move that
 ;; region later in the declaration and it would converge. That order
-;; sensitivity is exactly what this property detects (see the pinned
-;; `parallel-always-round-*` deftests below for the minimal counterexample).
+;; sensitivity is exactly what this property detects (the minimal
+;; counterexample is pinned by `parallel_always_round_cljs_test`'s
+;; `event-round-is-order-invariant-and-sees-complete-event-set`).
 ;;
 ;; DISCRIMINATION BY CONSTRUCTION — every write here is COMMUTATIVE: a region
 ;; only ever writes its OWN two flag keys, and only ever to the constant
@@ -1103,55 +1038,3 @@
                   (recur (inc i) (lcg-next s2))))))]
       (is (nil? failure)
           (str "parent-owned-always-rounds property failed: " (pr-str failure))))))
-
-;; The MINIMAL counterexample the property above generalises — pinned by hand
-;; so the discriminating shape is readable, and so a regression names itself
-;; instead of arriving as a random seed. `:rB` watches `:rA`; only `:rA`
-;; handles the event.
-;;
-;;   region-local drain, order [:rA :rB] → :rA applies+drains, THEN :rB drains
-;;                                          and sees flag-rA  ⇒ {:rA :s1 :rB :s2}
-;;   region-local drain, order [:rB :rA] → :rB drains FIRST, no flag yet, and
-;;                                          STRANDS at :s0    ⇒ {:rA :s1 :rB :s0}
-;;   parent-owned rounds, EITHER order   → the whole event set applies first,
-;;                                          then round 1 observes flag-rA
-;;                                                             ⇒ {:rA :s1 :rB :s2}
-
-(def ^:private watcher-machine-regions
-  {:rA {:initial :s0
-        :states  {:s0 {:on {:e0 {:target :s1 :action :a/flag-rA}}}
-                  :s1 {}}}
-   :rB {:initial :s0
-        :states  {:s0 {:always [{:guard :g/flag-rA? :target :s2}]}
-                  :s2 {}}}})
-
-(defn- watcher-machine [order]
-  (rf.machines.parallel/install-region-cache
-    {:type    :parallel
-     :data    {}
-     :guards  (merge shared-guards cross-region-guards)
-     :actions (merge shared-actions cross-region-actions)
-     :regions (into {} (map (fn [k] [k (get watcher-machine-regions k)])) order)}))
-
-(deftest parallel-always-round-converges-in-the-same-macrostep
-  (testing "a sibling-reading :always converges in the SAME macrostep as the
-            event that enables it — the first post-event round observes the
-            complete applied event set (NOT 'settles on the next event')"
-    (let [m (watcher-machine [:rA :rB])
-          r (rf.machines/machine-transition m (initial-snapshot m) [:e0])]
-      (is (= :ok (:status r)))
-      (is (= {:rA :s1 :rB :s2} (:state (:snapshot r)))
-          ":rB's :always read :rA's same-macrostep flag write and moved in THIS
-           macrostep — one dispatch, no second event")
-      (is (true? (:flag-rA (:data (:snapshot r)))))))
-  (testing "and it does so with the WATCHER declared first too — a region-local
-            drain would strand :rB at :s0 when :rB is declared first; parent-owned
-            frozen rounds cannot, because the whole event set applies before
-            any :always round selects"
-    (let [final (fn [order]
-                  (let [m (watcher-machine order)]
-                    (:state (:snapshot (rf.machines/machine-transition
-                                m (initial-snapshot m) [:e0])))))]
-      (is (= {:rA :s1 :rB :s2} (final [:rB :rA]))
-          "declaring the WATCHER first must not strand it — this is the
-           assertion a region-local drain would fail"))))
