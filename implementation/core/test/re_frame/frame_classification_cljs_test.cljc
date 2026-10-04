@@ -65,15 +65,7 @@
       (is (= :sensitive (:bad-key data))
           "the retired :sensitive frame key is the offending slot"))
     (is (nil? (rf.frame/frame :app/retired-sens-appdb))
-        "the retired annotation threw before any frame state mutated")
-    ;; The retired `:http` carrier block (carriers live on :rf.http/managed).
-    (let [data (bad-classification-ex
-                 #(rf/make-frame {:id :app/retired-sens-http :sensitive {:http {:headers ["X-Honeycomb-Team"]}}}))]
-      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= :sensitive (:bad-key data))
-          "the retired :sensitive frame key (carrying :http) is the offending slot"))
-    (is (nil? (rf.frame/frame :app/retired-sens-http))
-        "the retired carrier annotation threw before any frame state mutated")))
+        "the retired annotation threw before any frame state mutated")))
 
 (deftest retired-large-frame-key-fails-loud
   (testing "EP-0025: the retired top-level `:large {:app-db …}` frame
@@ -104,12 +96,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest fail-loud-on-unknown-classification-key
-  (testing "any :sensitive block fails loud — the whole frame key is retired"
-    (let [data (bad-classification-ex
-                 #(rf/make-frame {:id :app/bad2 :sensitive {:bogus [:x]}}))]
-      (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
-      (is (= :sensitive (:bad-key data))))
-    ;; Unknown :observability stream key.
+  (testing "an unknown :observability stream key fails loud"
     (let [data (bad-classification-ex
                  #(rf/make-frame {:id :app/bad2b :observability {:bogus-stream []}}))]
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
