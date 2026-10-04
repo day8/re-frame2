@@ -22,13 +22,14 @@
      the frame its reads resolve through.
   4. **Registry install** — `registry.cljs` calls
      `edn-inspector-popup/install!` so the open/close events resolve
-     through `rf/dispatch-sync` post-registration.
+     through `rf/dispatch-sync` post-registration; `registry_cljs_test`'s
+     registry snapshot pins the popup event and sub ids it registers.
 
   Driving the on-click through a captured dispatch-fn stub avoids the
   router's `next-tick` drain in node-test mode — the affordance's
   contract is the event vector it dispatches, not the router round-
-  trip (the popup ns's own tests + the registry-wiring test below
-  cover that)."
+  trip (the popup ns's own tests + the registry snapshot cover
+  that)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -210,23 +211,6 @@
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
-
-;; =========================================================================
-;; registry wiring
-;; =========================================================================
-
-(deftest registry-wires-popup-handlers
-  (testing "`register-xray-handlers!` installs the popup
-            events so `:open` lands a real entry without a separate
-            install call from a test fixture"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.edn-inspector-popup/open
-         "smoke" {:value :hi :opts {:title "Smoke"}}])
-      (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
-        (is (= ["smoke"] stack)
-            "open event resolved through the registry-installed handler")))))
 
 ;; =========================================================================
 ;; frame context
