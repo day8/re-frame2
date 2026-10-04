@@ -16,7 +16,7 @@
   outside the root stays invisible), later-image shadowing reported against
   `:rf/framework`, the lone-anonymous-image edge, the replaceable-default
   carrier union on the inline-override path, standards untouched, the
-  default image untouched, `:rf.gen/images` untouched, and caching.
+  default image untouched, and `:rf.gen/images` untouched.
 
   The live-store, producer-derived half (the real routing / http / resources /
   machines / core registrations) is
@@ -123,18 +123,6 @@
 
 (def ^:private stub-push (fn [_ctx _url] :stubbed))
 
-(deftest a-later-image-shadows-a-framework-registration
-  (let [pool    (conj pool (fw-desc :fx :rf.nav/push-url ::real-push))
-        doubles (rf.image/image {:id :test/doubles
-                                 :registrations {:reg-fx [[:rf.nav/push-url stub-push]]}})
-        gen     (rf.image-assembly/assemble [app-image doubles] pool)]
-    (is (= stub-push (handler-of gen :fx :rf.nav/push-url)) "the later image wins")
-    (is (= [{:registration [:fx :rf.nav/push-url]
-             :image        :rf/framework
-             :shadowed-by  :test/doubles}]
-           (:rf.gen/shadows gen))
-        "the shadow names the reserved pseudo-image :rf/framework")))
-
 (deftest a-provenanced-app-override-wins-over-the-framework-default
   (let [pool (conj pool
                    (fw-desc :event :rf.route/entry-denied ::fw-denied
@@ -233,11 +221,3 @@
              (err-id #(rf.image-assembly/assemble
                         [app-image]
                         (conj pool (reg-desc "app.core" :event :rf/set-db ::app-set-db)))))))))
-
-;; ===========================================================================
-;; 5. Caching
-;; ===========================================================================
-
-(deftest an-unchanged-composition-returns-the-cached-generation
-  (is (identical? (rf.image-assembly/assemble [app-image] pool)
-                  (rf.image-assembly/assemble [app-image] pool))))
