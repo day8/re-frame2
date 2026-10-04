@@ -524,12 +524,10 @@
       (is (= 500 (:status response))
           "head-materialisation throw routed to the :on-error 500
            (locked default), not a partially-streamed body")
-      (is (not (instance? InputStream (:body response)))
-          "the response body is the :on-error string body, NOT a
-           PipedInputStream — no streaming pipe was ever handed out")
       (is (= "Internal error" (:body response))
-          "locked default-on-error body — the topology-leak contract
-           holds; no cookie internals reach the wire")
+          "the locked default-on-error String body, NOT a PipedInputStream —
+           no streaming pipe was ever handed out, and no cookie internals
+           reach the wire (the topology-leak contract)")
       ;; The load-bearing assertion: NO writer thread leaked. Under a
       ;; writer-first ordering the writer would be spawned before the head throw and,
       ;; with this oversized body, would block forever on a reader-less
