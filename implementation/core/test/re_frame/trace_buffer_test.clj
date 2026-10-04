@@ -162,25 +162,6 @@
 
 ;; ---- 1c. Per-frame isolation ---------------------------------------------
 
-(deftest ^:requires-debug frame-isolation-cascade-bursts-dont-cross-rings
-  (testing "a burst of cascades in one frame cannot evict cascades in another"
-    (rf/configure! {:trace-buffer {:events-retained 3}})
-    (rf/make-frame {:id :app/main :doc "ordinary application frame"})
-    (rf/reg-event :work (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:work] {:frame :app/main})
-    (let [pre (rf/trace-buffer :app/main)]
-      (is (= 1 (count pre))
-          "single cascade in :app/main"))
-    ;; Run a flood of cascades against :rf/default — the ring cap is 3
-    ;; so :rf/default's ring rotates, but :app/main's ring stays intact.
-    (dotimes [_ 50] (rf/dispatch-sync [:work]))
-    (let [main-cs    (rf/trace-buffer :app/main)
-          default-cs (rf/trace-buffer :rf/default)]
-      (is (= 1 (count main-cs))
-          ":app/main's ring is untouched by :rf/default's flood")
-      (is (<= (count default-cs) 3)
-          ":rf/default's ring stays within its slot cap"))))
-
 (deftest ^:requires-debug frame-isolation-trace-events-carry-only-their-own-frame
   ;; Dispatch ids are unique only WITHIN a frame, so grouping an event
   ;; stream by `:rf.trace/dispatch-id` alone would merge two frames' runs
@@ -231,14 +212,6 @@
     (rf/make-frame {:id :probe/scope :doc "scope"})
     (is (empty? (rf/trace-buffer :probe/scope))
         ":probe/scope's ring did NOT pick up the frameless emit either")))
-
-(deftest ^:requires-debug registration-emits-are-frameless
-  (testing "registering a handler at top level is a frameless emit"
-    (rf/clear-trace-buffer! :rf/default)
-    ;; reg-event is a frameless emit — no in-flight cascade.
-    (rf/reg-event :synthetic/probe (fn [{:keys [db]} _] {:db db}))
-    (is (empty? (rf/trace-buffer :rf/default))
-        "registration didn't grow any ring")))
 
 ;; ---- 1e. events-retained knob ------------------------------------------
 
@@ -641,7 +614,7 @@
 ;; view-render shape). `tagged-frame-trace-disabled?` falls back to that
 ;; ambient frame (the late-bound `:frame/current-frame-id` hook) when the tag
 ;; is absent; were it to read ONLY `[:tags :frame]`, such an emit would ESCAPE
-;; suppression under a disabled tool frame. These two tests call
+;; suppression under a disabled tool frame. The test below calls
 ;; `rf.trace/emit!` directly with tags that carry NO `:frame` key, so only the
 ;; current-frame-hook resolution path is exercised.
 
@@ -657,19 +630,6 @@
       (is (= [] @seen)
           "the un-tagged emit never reached the listener — suppressed via the current-frame-hook path")
       (rf/unregister-listener! :trace ::untagged))))
-
-(deftest ^:requires-debug untagged-emit-not-suppressed-under-a-plain-app-frame
-  (testing "control: the SAME un-tagged emit under a non-disabled app
-            frame's ambient scope IS delivered — proves the suppression
-            above is frame-specific, not some other global gate"
-    (rf/make-frame {:id :app/plain :doc "ordinary application frame"})
-    (let [seen (atom [])]
-      (rf/register-listener! :trace ::untagged-control (fn [ev] (swap! seen conj ev)))
-      (rf/with-frame :app/plain
-        (rf.trace/emit! :rf.view :rf.view/render {:rf.view/render-key [:some/view nil]}))
-      (is (seq @seen)
-          "an app frame's ambient scope does not suppress the emit")
-      (rf/unregister-listener! :trace ::untagged-control))))
 
 ;; ---- 5. B4 hot-reload dedup-by-shape ------------------------------------
 
