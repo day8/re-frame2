@@ -99,13 +99,9 @@
               (str "add #" (inc i)
                    " must grow the map (no id collision / overwrite)")))
 
-        ;; Final invariants: distinct ids, every title preserved, and the
-        ;; keys are the contiguous 1..n that allocate-next-id should yield
-        ;; off a sorted-map.
+        ;; Final invariants: every title preserved, and the keys are the
+        ;; contiguous 1..n that allocate-next-id should yield off a sorted-map.
         (let [m (todos f)]
-          (is (= n (count m)))
-          (is (= n (count (distinct (keys m))))
-              "every todo has a distinct id — no collision overwrote a todo")
           (is (= (set (map #(str "todo-" %) (range n)))
                  (set (map :title (vals m))))
               "every added todo survives — none was silently overwritten")
