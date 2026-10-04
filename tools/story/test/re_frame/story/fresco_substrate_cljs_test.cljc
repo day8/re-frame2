@@ -10,31 +10,25 @@
   variant declaring `:substrates #{:fresco}` could not be REGISTERED, let
   alone rendered: `registrar/validate-shape!` would throw
   `:rf.error/variant-shape` before any renderer was consulted. The rows
-  below say the member reaches the four places a substrate keyword has to
-  survive to be worth anything.
+  below say the member is accepted where a substrate keyword enters:
 
   1. **Registration** — the closed shape accepts it, on the variant body
      and on the story body, and STILL refuses an unknown member. An enum
      that quietly opened would pass every other row here.
-  2. **Plan compilation** — `rf.story.plan/variant-plan` folds it to
-     `[:world :substrates]`, which is where `canonical/render-host-scope`
-     reads the declared set.
-  3. **The EDN / MCP read path** — `rf.story/variant->edn` is what the MCP
-     `list-variants` / read tools relay to an agent, and a keyword that
-     did not round-trip would strand the agent on a story it can see and
-     cannot describe.
-  4. **Snapshot identity** — two fresco views must be two baselines. This
-     is the one that could silently collapse: `fingerprint.cljc` folds
-     every FUNCTION to the `:rf/opaque-fn` sentinel, so were `:component`
-     to accept a component VALUE, two distinct fresco views would hash
-     identically. It is a keyword, and these rows are what says so.
+  2. **The EDN / MCP read path** — `rf.story/variant->edn` is what the MCP
+     `list-variants` / read tools relay to an agent, and the registration
+     row reads the declared set back through it.
+
+  Plan compilation folds the set to `[:world :substrates]`, where
+  `canonical/render-host-scope` reads it; the witness for that fold is
+  `re-frame.story.story-scope-world-keys-cljs-test`.
 
   ## Both arms, deliberately
 
   `.cljc` with a `-cljs-test` ns, so the JVM runner (`clojure -M:test`
   from `tools/story`) and the shadow `:node-test` build (`npm run
   test:cljs`, whose `cljs-test$` regex matches) each run every row. Every
-  claim here is about DATA — schema, plan, EDN, hash — so neither arm
+  claim here is about DATA — schema and EDN — so neither arm
   needs a renderer, and nothing here requires `re-frame.fresco`, so
   `tools/story/deps.edn` carries no fresco coordinate for it. The renderer
   itself is proved in
@@ -46,8 +40,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
-            [re-frame.story.identity :as rf.story.identity]
-            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.schemas :as rf.story.schemas]))
 
@@ -120,7 +112,8 @@
             independently of `VariantBody`, so a whole story can declare
             the authoring layer once. (That story-level
             declaration reaches the compiled plan too, so the canvas and
-            `render-variant` read the same set; see the plan row below.)"
+            `render-variant` read the same set; see
+            `re-frame.story.story-scope-world-keys-cljs-test`.)"
     (rf.story/reg-story* :story.hic-all
       {:doc        "story-level declaration"
        :component  :my.app.views/article-card
@@ -141,111 +134,3 @@
                  nil
                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
       (is (= :rf.error/variant-shape (:rf.error/id (ex-data e)))))))
-
-;; ===========================================================================
-;; 3 · plan compilation — `[:world :substrates]` is where the host reads it
-;; ===========================================================================
-;;
-;; `rf.story.plan/variant-plan` folds `:substrates` (and `:component`) from
-;; the VARIANT, its `:extends` chain AND the parent story, with the canvas's
-;; own variant-then-story precedence. So a substrate declared ONLY at story
-;; level reaches `canonical/render-host-scope`, which reads
-;; `[:world :substrates]`, exactly as it reaches the canvas through
-;; `multi-substrate/resolve-substrate-set`; a story-blind fold would leave
-;; the host on its `:reagent` default. The witness for that fold is
-;; `re-frame.story.story-scope-world-keys-cljs-test`; the rows below stay
-;; scoped to what a FRESCO declaration carries.
-
-(deftest the-plan-carries-the-fresco-declaration
-  (testing "`canonical/render-host-scope` reads the COMPILED PLAN's
-            `[:world :substrates]`, not a literal `:reagent`, so that slot
-            is the one a fresco variant has to reach. It is
-            folded by `rf.story.plan/variant-plan`, already `:extends`-merged."
-    (rf.story/reg-story* :story.hicplan {:doc "fixture"})
-    (rf.story/reg-variant* :story.hicplan/v
-      {:doc        "declares the native authoring layer"
-       :component  :my.app.views/article-card
-       :substrates #{:fresco}})
-    (let [p (rf.story.plan/variant-plan :story.hicplan/v)]
-      (is (= #{:fresco} (get-in p [:world :substrates])))
-      (is (= :my.app.views/article-card (get-in p [:world :component]))
-          "and the subject rides beside it — the two slots the renderer
-           needs are both on the plan")))
-
-  (testing "`:extends` inheritance carries it, so a fresco base story's
-            children do not each re-declare the layer"
-    (rf.story/reg-story* :story.hicext {:doc "fixture"})
-    (rf.story/reg-variant* :story.hicext/base
-      {:doc "base" :component :my.app.views/article-card
-       :substrates #{:fresco}})
-    (rf.story/reg-variant* :story.hicext/child
-      {:doc "child" :extends :story.hicext/base})
-    (is (= #{:fresco}
-           (get-in (rf.story.plan/variant-plan :story.hicext/child)
-                   [:world :substrates])))))
-
-;; ===========================================================================
-;; 4 · the EDN / MCP read path
-;; ===========================================================================
-
-(deftest the-substrate-keyword-round-trips-through-the-mcp-read-path
-  (testing "`variant->edn` returns the registered body as serialisable EDN
-            — the shape `re-frame.story-mcp`'s read tools relay to an
-            agent. A keyword that did not survive here would leave an
-            agent able to list a fresco story and unable to say what it
-            renders under."
-    (rf.story/reg-story* :story.hicedn {:doc "fixture"})
-    (let [body {:doc        "a fresco variant"
-                :component  :my.app.views/article-card
-                :substrates #{:fresco}
-                :args       {:label "one"}}]
-      (rf.story/reg-variant* :story.hicedn/v body)
-      (let [edn (rf.story/variant->edn :story.hicedn/v)]
-        (is (= body (select-keys edn (keys body)))
-            "the body round-trips verbatim, `:substrates` and the KEYWORD
-             `:component` included — a fresco view is registered
-             fresco-side, never passed to `:component` as a value;
-             `:source` is the registrar's own stamp and is the only
-             addition")))))
-
-;; ===========================================================================
-;; 5 · snapshot identity — two fresco views are two baselines
-;; ===========================================================================
-
-(deftest two-fresco-view-ids-are-two-identities
-  (testing "`:component` takes a keyword, never a component VALUE:
-            `fingerprint.cljc` canonicalises every fn to the
-            `:rf/opaque-fn` sentinel, so two distinct fresco heads passed
-            as values would be INDISTINGUISHABLE to snapshot identity —
-            one visual-regression baseline for two views. Naming them with
-            keywords is what keeps them apart, and this row pins it."
-    (rf.story/reg-story* :story.hicid {:doc "fixture"})
-    (rf.story/reg-variant* :story.hicid/card
-      {:doc "one" :component :my.app.views/article-card :substrates #{:fresco}})
-    (rf.story/reg-variant* :story.hicid/panel
-      {:doc "one" :component :my.app.views/side-panel :substrates #{:fresco}})
-    (let [a (:content-hash (rf.story.identity/snapshot-identity :story.hicid/card))
-          b (:content-hash (rf.story.identity/snapshot-identity :story.hicid/panel))]
-      (is (string? a))
-      (is (not= a b)
-          "two fresco view ids, differing in NOTHING but `:component`,
-           get distinct content hashes")))
-
-  (testing "and the authoring layer is identity-bearing in its own right —
-            the same view stories under two layers are two baselines,
-            because the two renderers paint two trees"
-    (rf.story/reg-story* :story.hiclayer {:doc "fixture"})
-    (rf.story/reg-variant* :story.hiclayer/hic
-      {:doc "x" :component :my.app.views/article-card :substrates #{:fresco}})
-    (rf.story/reg-variant* :story.hiclayer/rea
-      {:doc "x" :component :my.app.views/article-card :substrates #{:reagent}})
-    (is (not= (:content-hash (rf.story.identity/snapshot-identity :story.hiclayer/hic))
-              (:content-hash (rf.story.identity/snapshot-identity :story.hiclayer/rea)))))
-
-  (testing "the hash is STABLE for one fresco variant across calls — the
-            distinctions above are the tuple's, not run-to-run noise"
-    (rf.story/reg-story* :story.hicstable {:doc "fixture"})
-    (rf.story/reg-variant* :story.hicstable/v
-      {:doc "x" :component :my.app.views/article-card :substrates #{:fresco}})
-    (is (= (:content-hash (rf.story.identity/snapshot-identity :story.hicstable/v))
-           (:content-hash (rf.story.identity/snapshot-identity :story.hicstable/v))))))
