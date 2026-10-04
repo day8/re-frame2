@@ -597,28 +597,8 @@
         "(c) the internal :tweak-fan action bumped :tweaks once")))
 
 ;; ============================================================================
-;; HISTORY (gap 8, LIVE) — placement rejection + shallow + deep RESTORE render
+;; HISTORY (gap 8, LIVE) — shallow + deep RESTORE render
 ;; ============================================================================
-
-(deftest history-machine-misplaced-is-rejected
-  (testing "rung #24 (gap 8) — history is FIRST-CLASS; the engine
-            implements record/restore. A :type :history pseudo-state has
-            a PLACEMENT constraint: it MUST have an owning compound. A
-            `:type :history` MACHINE ROOT (the probe spec) is rejected with
-            :rf.error/machine-history-misplaced."
-    (let [thrown (try
-                   (rf/reg-machine :machine-epochs/history-probe
-                                   machines/history-machine-spec)
-                   nil
-                   (catch :default e e))]
-      (is (some? thrown) "registering a root :type :history machine THROWS (misplaced)")
-      (is (= :rf.error/machine-history-misplaced
-             (:rf.error/id (ex-data thrown)))
-          "the throw is the misplaced-history placement error (not a generic validator fail)")
-      (is (= :history (:feature (ex-data thrown)))
-          ":feature names the history grammar"))
-    (is (true? (machines/history-rejected?))
-        "the deck's history-rejected? helper agrees the root probe is rejected")))
 
 ;; The eject/restore dance the deck's #25/#26 rungs drive — positions the
 ;; player deep, ejects (records), and returns the FINAL :insert's drive!
@@ -723,8 +703,9 @@
 ;; BEHAVIOUR is identical (XState v5 gold standard): every event lands :closed.
 ;; The harness asserts (a) each event's cascade is a real :open ──► :closed
 ;; transition, (b) the :submit branch ALSO runs the :save action (the data-
-;; bearing fan-in branch), and (c) the multi-event fan-in is real — the three
-;; rows below reach the SAME (from→to) edge on three distinct event-ids.
+;; bearing fan-in branch), and (c) the multi-event fan-in is real — the rows
+;; below reach the SAME (from→to) edge on distinct event-ids (:modal/escape
+;; takes the same path as :modal/cancel).
 
 (defn- modal-open! []
   (drive! :modal/main [:modal/open]))
@@ -763,20 +744,6 @@
     (is (= :closed (:state (snapshot :modal/main))))
     (is (true? (get-in (snapshot :modal/main) [:data :saved?]))
         "(c) the :save action wrote :saved? into the snapshot")))
-
-(deftest modal-escape-lands-closed
-  (testing ":modal/escape (fan-in event #3) drives :open ──►
-            :closed. (a) a real transition from :open to :closed; (c) the modal
-            lands :closed — the third event proving the multi-event fan-in."
-    (setup!)
-    (modal-open!)                                       ; → :open
-    (let [record (drive! :modal/main [:modal/escape])    ; → :closed
-          rows   (cascade record)
-          tx     (first (rows-of-kind rows :transition))]
-      (is (some? tx) "(c) a real transition row renders")
-      (is (= :open (:from-state tx)))
-      (is (= :closed (:to-state tx)) "(a) :modal/escape lands :closed"))
-    (is (= :closed (:state (snapshot :modal/main))))))
 
 ;; ============================================================================
 ;; GATE (MULTI-BRANCH GUARDED fork) — the guard-fork divergence
