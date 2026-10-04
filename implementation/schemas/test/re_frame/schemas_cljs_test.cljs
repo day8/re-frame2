@@ -414,7 +414,5 @@
       (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                              @traces))]
         (is (some? v) "a validation-failure trace fired")
-        (is (contains? (:tags v) :explain-humanized)
-            ":explain-humanized is present alongside :explain")
         (is (= ["should be a string"] (-> v :tags :explain-humanized))
             ":explain-humanized is Malli's humanized payload for the failing slot")))))

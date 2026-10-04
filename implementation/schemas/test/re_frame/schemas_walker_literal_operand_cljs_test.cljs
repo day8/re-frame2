@@ -80,11 +80,9 @@
                       [:cat [:= :demo/e] [:enum 1 2]]
                       [:= 42]
                       [:enum "a" "b"]]]
-        (let [out (rf.schemas/redact-validation-tags schema tags)]
-          (is (= tags out)
-              (str "non-sensitive literal schema rides verbatim: " (pr-str schema)))
-          (is (not (contains? out :sensitive?))
-              (str "no :sensitive? stamp for: " (pr-str schema))))))))
+        (is (= tags (rf.schemas/redact-validation-tags schema tags))
+            (str "non-sensitive literal schema rides verbatim, unstamped: "
+                 (pr-str schema)))))))
 
 (deftest cljs-redact-validation-tags-sensitive-and-opaque-still-redact
   (testing "the boundary redactor fails closed for a
@@ -123,5 +121,4 @@
     (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}
           out  (rf.schemas/redact-validation-tags
                  [:map [:ref {:optional true} :string]] tags)]
-      (is (= tags out) "map entry keyed :ref rides verbatim")
-      (is (not (contains? out :sensitive?)) "no :sensitive? stamp"))))
+      (is (= tags out) "map entry keyed :ref rides verbatim, unstamped"))))
