@@ -25,7 +25,7 @@
   The effect is gated on `interop/debug-enabled?` and DCE'd in
   production; the JVM test build is always dev-enabled."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             ;; Compiled `m/schema` objects exercise
             ;; the opaque-schema fail-closed redaction arm of the hot-reload
             ;; `:rf.schema/violation` path. Malli is on the schemas test
@@ -60,6 +60,16 @@
     (body-fn)
     (filterv #(= operation (:operation %)) @traces)))
 
+(defn- violations-on-re-registration
+  "Register `prior` at `[k]` unless it is `::absent`, set the live app-db to
+  `{k live}`, then register `new` at `[k]`; return the
+  `:rf.schema/violation` traces that last registration emitted."
+  [k prior live new]
+  (when-not (= ::absent prior)
+    (rf/reg-app-schema [k] prior))
+  (set-app-db! {k live})
+  (capture :rf.schema/violation #(rf/reg-app-schema [k] new)))
+
 ;; ===========================================================================
 ;; :rf.schema/violation hot-reload trace
 ;; ===========================================================================
@@ -93,33 +103,17 @@
         (is (= :logged-and-skipped recovery)
             (str ":recovery hoisted to top level; envelope=" (pr-str ev)))))))
 
-(deftest violation-suppressed-when-schema-unchanged
-  (testing "a no-op re-eval (identical schema) does NOT
-            emit a violation, even if the live value fails the schema"
-    (rf/reg-app-schema [:count] :int)
-    (set-app-db! {:count "not-an-int"})
-    (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] :int)))]
-      (is (empty? violations)
-          "identical schema re-eval is a silent swap! — nothing to flag"))))
-
-(deftest violation-suppressed-on-first-registration
-  (testing "the FIRST registration of a path never emits a
-            violation (there is no pre-reload schema to compare against),
-            even when the live value already fails"
-    (set-app-db! {:count "not-an-int"})
-    (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] :int)))]
-      (is (empty? violations) "first registration has no prior schema"))))
-
-(deftest violation-suppressed-when-live-value-validates
-  (testing "when the schema changes but the live value
-            still satisfies the NEW schema, no violation fires"
-    (rf/reg-app-schema [:count] :int)
-    (set-app-db! {:count 5})
-    (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] [:int {:min 0}])))]
-      (is (empty? violations) "live value 5 satisfies [:int {:min 0}]"))))
+(deftest violation-suppressed-unless-the-schema-changes-under-a-failing-value
+  (testing "each row breaks exactly one firing condition, so none emits:
+            the schema is unchanged, there is no prior registration to
+            compare against, or the live value satisfies the NEW schema"
+    (are [k prior live new] (empty? (violations-on-re-registration k prior live new))
+      ;; identical schema re-eval: a silent swap!, even though the value fails
+      :unchanged   :int     "not-an-int" :int
+      ;; first registration: no pre-reload schema, even though the value fails
+      :first       ::absent "not-an-int" :int
+      ;; the schema changed, but the live value 5 satisfies [:int {:min 0}]
+      :still-valid :int     5            [:int {:min 0}])))
 
 ;; ===========================================================================
 ;; A REGISTERED nil token is a PRESENT declaration
@@ -181,28 +175,17 @@
         (is (= :rf/default (:frame tags)))
         (is (= :logged-and-skipped recovery))))))
 
-(deftest violation-suppressed-on-first-registration-of-a-nil-token
-  (testing "ABSENCE is distinguished from a present-nil
-            entry: the FIRST registration of a path never emits, even when
-            the token is nil and the live value fails it"
+(deftest violation-suppressed-for-an-absent-or-unchanged-nil-token
+  (testing "ABSENCE is distinguished from a present-nil entry, and the token
+            must still CHANGE: the first registration of a nil token and a
+            nil -> nil re-eval both stay silent, though the live value
+            fails nil"
     (nil-token-validator!)
-    (set-app-db! {:count :bad})
-    (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] nil)))]
-      (is (empty? violations)
-          "no prior registry entry — nothing changed, nothing to flag"))))
-
-(deftest violation-suppressed-when-a-nil-token-is-re-registered-unchanged
-  (testing "a nil -> nil re-eval stays silent: the entry is
-            present, but the schema did not CHANGE"
-    (nil-token-validator!)
-    (rf/reg-app-schema [:count] nil)
-    (set-app-db! {:count :bad})
-    (let [violations (capture :rf.schema/violation
-                       (fn [] (rf/reg-app-schema [:count] nil)))]
-      (is (empty? violations)
-          "identical token re-eval is a silent swap!, exactly as for a
-           truthy token"))))
+    (are [k prior] (empty? (violations-on-re-registration k prior :bad nil))
+      ;; no prior registry entry: nothing changed, nothing to flag
+      :first     ::absent
+      ;; the entry is present, but the token did not change
+      :unchanged nil)))
 
 ;; CONFIRM-BY-REVERT: gating `maybe-emit-schema-violation!` on
 ;; `(some? prior-schema)` in place of the `prior-registered?`
