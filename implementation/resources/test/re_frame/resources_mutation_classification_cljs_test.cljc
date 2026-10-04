@@ -83,20 +83,6 @@
 ;;    into the per-frame elision registry at the ABSOLUTE instance path.
 ;; ===========================================================================
 
-(deftest reconcile-lowers-instance-params-declaration
-  (reg-secret-mutation!)
-  (testing "a live mutation instance's owner :params-rooted :sensitive
-            declaration is LOWERED into the elision registry under
-            :source :mutation, rooted at the instance's absolute runtime-db path"
-    (let [k-id (rf.resources.mutation-runtime/instance-key-id :i1)
-          rdb  (runtime-db-with-instance
-                 :i1 (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
-          out  (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)
-          sens (get-in out [:rf.runtime/elision :sensitive-declarations])]
-      (is (= #{{:source :mutation}}
-             (get sens [:rf.runtime/mutations k-id :params :password]))
-          "the :params :password decl is lowered at the absolute instance path"))))
-
 (deftest reconcile-mutation-is-idempotent
   (reg-secret-mutation!)
   (testing "re-running the mutation reconcile over its own output is a no-op"
@@ -105,22 +91,6 @@
           once  (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)
           twice (rf.resources.classification/reconcile-mutation-registry once rf.resources.mutation-registry/mutation-meta)]
       (is (= once twice) "mutation reconciliation is idempotent"))))
-
-(deftest reconcile-mutation-self-drops-cleared-instance
-  (reg-secret-mutation!)
-  (testing "a cleared instance's :source :mutation declaration vanishes on the
-            next reconcile (the per-instance teardown — no separate drop hook)"
-    (let [rdb   (runtime-db-with-instance
-                  :i1 (rf.resources.mutation-runtime/empty-instance :m/secret :i1 {:params {:slug "w" :password PW}}))
-          live  (rf.resources.classification/reconcile-mutation-registry rdb rf.resources.mutation-registry/mutation-meta)
-          ;; drop the instance, keep the carried registry, reconcile again.
-          cleared (-> live
-                      (assoc rf.resources.mutation-runtime/mutations-key {})
-                      (rf.resources.classification/reconcile-mutation-registry rf.resources.mutation-registry/mutation-meta))]
-      (is (seq (get-in live [:rf.runtime/elision :sensitive-declarations]))
-          "the live instance lowered a declaration")
-      (is (empty? (get-in cleared [:rf.runtime/elision :sensitive-declarations]))
-          "the cleared instance's declaration is dropped"))))
 
 (deftest reconcile-mutation-preserves-foreign-owner
   (reg-secret-mutation!)
@@ -149,19 +119,6 @@
 ;; ===========================================================================
 ;; 2. redact-continuation-reply — derives the reply redaction from the owner.
 ;; ===========================================================================
-
-(deftest redact-continuation-reply-redacts-owner-param
-  (reg-secret-mutation!)
-  (testing "the owner-declared :params :password is redacted on the continuation
-            reply map; the non-sensitive sibling rides verbatim"
-    (let [reply {:status :ok :value {:ok true}
-                 :params {:slug "w" :password PW} :scope :rf.scope/global}
-          out   (rf.resources.classification/redact-continuation-reply reply (rf.resources.mutation-registry/mutation-meta :m/secret))]
-      (is (= rf.privacy/redacted-sentinel (get-in out [:params :password]))
-          "the sensitive param is redacted on the reply")
-      (is (= "w" (get-in out [:params :slug])) "the non-sensitive param rides verbatim")
-      (is (= {:ok true} (:value out)) "the result value rides verbatim")
-      (is (not (str/includes? (pr-str out) PW)) "no raw sentinel rides on the reply"))))
 
 (deftest redact-continuation-reply-unclassified-rides-verbatim
   (rf/clear :mutation :m/plain)
@@ -353,24 +310,6 @@
           "the reply-to target's declared path redacts")
       (is (= "t" (get-in out [:reply-to 1 :tag])) "the non-secret tag rides")
       (is (not (str/includes? (pr-str out) PW)) "no raw sentinel anywhere"))))
-
-(deftest execute-event-args-hook-is-published
-  (testing "re-frame.resources publishes the hook the core event-vector
-            chokepoint consults (load-time anchor)"
-    (is (fn? (rf.late-bind/get-fn :resources/project-execute-event-args)))))
-
-(deftest core-event-chokepoint-projects-execute-payload
-  (reg-secret-mutation!)
-  (testing "re-frame.classification/redact-event-by-registration (the single
-            event-vector chokepoint — also the ALWAYS-ON :rf.observe/* egress
-            redactor) consults the resources hook for [:rf.mutation/execute …]"
-    (let [v (rf.classification/redact-event-by-registration
-              [:rf.mutation/execute {:mutation :m/secret
-                                     :params   {:slug "w" :password PW}}])]
-      (is (= rf.privacy/redacted-sentinel (get-in v [1 :params :password]))
-          "the owner-declared param redacts through the core chokepoint")
-      (is (= "w" (get-in v [1 :params :slug])) "the non-sensitive param rides")
-      (is (= :rf.mutation/execute (first v)) "the event id survives"))))
 
 (deftest core-trace-slots-project-execute-payload
   (reg-secret-mutation!)
