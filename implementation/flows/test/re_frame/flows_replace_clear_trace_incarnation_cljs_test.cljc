@@ -306,6 +306,10 @@
       (is (= #{:left :right}
              (set (map #(get-in % [:tags :frame]) @captured)))
           "the two events are attributable to their distinct :frame slots")
+      (is (every? #(= :shared (get-in % [:tags :id])) @captured)
+          "both name the :shared flow-id")
+      (is (every? #(true? (get-in % [:tags :different-fn?])) @captured)
+          "both are real body swaps (:different-fn? true)")
       ;; Independent per-frame suppression: an identical reload in each frame
       ;; (same f2 object) is suppressed within that frame.
       (reset! captured [])

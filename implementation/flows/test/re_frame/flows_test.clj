@@ -1017,59 +1017,10 @@
         ":out is NOT vacated — same :output-path, so the prior value survives until the next recompute")))
 
 ;; ---------------------------------------------------------------------------
-;; 9c. Flow replacement evidence is scoped to the AUTHORITATIVE frame slot,
-;;     not the frame-blind process-global registrar dedup table.
-;;
-;; The same flow-id is an INDEPENDENT definition per frame (Spec 013
-;; §Frame-scoping). Deciding replacement suppression from a process-global
-;; `[:flow flow-id]` dedup key would let one frame's recorded shape suppress
-;; a sibling frame's genuine replacement, emit one unattributable event (no
-;; `:frame`), and let a destroyed frame's shape bleed into its same-id successor.
-;; This test pins the per-frame decision, the `:frame` attribution and
-;; `:different-fn? true` on a real body swap; it would be RED on a
-;; process-global dedup path. The identical-reload and reincarnation cases run
-;; on both hosts in `re-frame.flows-replace-clear-trace-incarnation-cljs-test`.
+;; 9c. Flow replacement evidence (per-frame decision, `:frame` attribution,
+;;     `:different-fn?`, identical-reload suppression and reincarnation) runs
+;;     on both hosts in `re-frame.flows-replace-clear-trace-incarnation-cljs-test`.
 ;; ---------------------------------------------------------------------------
-
-(deftest flow-replacement-evidence-is-per-frame-not-process-global
-  (testing "two LIVE frames replacing the same flow-id from the SAME
-            prior derive to the SAME new derive each emit their OWN
-            :rf.registry/handler-replaced, attributed to their frame. A
-            process-global [:flow flow-id] dedup key would let :left's recorded
-            shape suppress :right's genuine replacement — 1 unattributable emit."
-    (let [captured (atom [])
-          f1       (fn [n] (* 2 (or n 0)))
-          f2       (fn [n] (* 3 (or n 0)))]
-      (re-frame.trace.tooling/register-listener!
-        ::repl-recorder
-        (fn [ev]
-          (when (= :rf.registry/handler-replaced (:operation ev))
-            (swap! captured conj ev))))
-      (try
-        (rf/make-frame {:id :left  :doc "left frame"})
-        (rf/make-frame {:id :right :doc "right frame"})
-        ;; First registrations (emit :rf.flow/registered, not handler-replaced).
-        (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f1)
-        (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f1)
-        (is (empty? @captured)
-            "no :rf.registry/handler-replaced from the first-time registrations")
-        ;; Two REAL replacements f1→f2, one per frame — identical prior and
-        ;; identical new derive object, so their observable shapes coincide. Each
-        ;; is nonetheless a genuine replacement in its OWN frame.
-        (rf/reg-flow :shared {:frame :left  :inputs [[:n]] :output-path [:out]} f2)
-        (rf/reg-flow :shared {:frame :right :inputs [[:n]] :output-path [:out]} f2)
-        (is (= 2 (count @captured))
-            "each frame's genuine replacement emits once — no cross-frame
-             suppression from a shared process-global dedup key")
-        (is (= #{:left :right}
-               (set (map #(get-in % [:tags :frame]) @captured)))
-            "the two events are attributable to their distinct :frame slots")
-        (is (every? #(= :shared (get-in % [:tags :id])) @captured)
-            "both name the :shared flow-id")
-        (is (every? #(true? (get-in % [:tags :different-fn?])) @captured)
-            "both are real body swaps (:different-fn? true)")
-        (finally
-          (re-frame.trace.tooling/unregister-listener! ::repl-recorder))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 10. Ordering: flows transform the pending `:db` effect as the OUTERMOST
