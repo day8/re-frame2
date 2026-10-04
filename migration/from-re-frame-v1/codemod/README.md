@@ -24,10 +24,37 @@ on a bare JVM with `clojure` on the path — no re-frame2 build in the loop.
 | nil-capable `reg-event-db` | **flag** (`:nil-capable`) | left unchanged — D7: under v2 a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}`, so the author chooses the intended reading |
 | complex `reg-event-db` | **flag** (`:complex`) | left unchanged — non-literal handler (var / higher-order / multi-arity) or a destructured first param |
 | `reg-event-ctx` | **flag** (`:ctx`) | left unchanged — withdrawn from the public surface; rewrite the full-context work to a **registered interceptor** (`reg-interceptor`, referenced by id in `:interceptors`; EP-0022) by hand |
+| a bare head whose `reg-event` binding cannot be proved | **flag** (`:binding`) | left unchanged — see the bare-head binding rules below |
 
 Detection is alias-agnostic: `rf/reg-event-db`, `re-frame.core/reg-event-db`,
 and bare `reg-event-db` are all recognised, and the rename preserves whatever
 alias/namespace was on the symbol.
+
+### Bare heads — the `reg-event` binding
+
+A qualified rename keeps its alias, so `rf/reg-event` resolves wherever
+`rf/reg-event-fx` did. A bare `(reg-event …)` resolves only through what the
+ns form refers, so renaming a bare head also makes the ns form bind
+`reg-event`:
+
+- When the ns form refers the old name from `re-frame.core` in a plain
+  `[re-frame.core … :refer [...]]` vector (or a `:use` libspec's `:only`
+  vector), `reg-event` is appended to that vector, once per file. The old name
+  stays referred: flagged and untouched sites still call it, and v2 still
+  exports it as a stub that names the replacement. Delete it by hand once
+  nothing calls it.
+- When `reg-event` is already referred from `re-frame.core`, by name or by
+  `:refer :all`, the ns form is left alone.
+- Otherwise the site is flagged `:binding` and left unchanged. That covers an
+  ns form that does not refer the bare head from `re-frame.core`, a
+  `reg-event` already bound some other way (referred from another namespace,
+  or defined in the file), which the codemod never overwrites, and a refer in
+  a libspec shape it does not edit, such as a prefix list. Refer `reg-event`
+  from `re-frame.core`, or call it through a `re-frame.core` alias, then
+  re-run.
+
+A source with no ns form, such as a REPL fragment, has nothing to bind
+through and keeps the plain rename.
 
 ### Interceptor chains — the M-70 × M-73 composition
 
@@ -134,6 +161,7 @@ A `finding` is a map:
  :action :rewrite | :rename | :flag
  :flag   nil | :nil-capable | :complex | :ctx
          | :interceptors                          ;; unresolved M-70 Type B
+         | :binding                               ;; bare `reg-event` not bindable
  :target :reg-event | nil
  :note   "human-readable explanation"}
 ```
@@ -163,7 +191,9 @@ same name), custom inline interceptors
 flagged as unresolved M-70 Type B, the `reg-event` invalid-survivor rescan,
 `-fx` rename, `-ctx`, nil-capable bodies (`when` / `if` / `get` / `cond` / `and` / `or` /
 `some->` / literal `nil`), complex `-db` (var / multi-arity / destructured db
-param), alias-agnostic detection, shape non-corruption (untouched code
+param), alias-agnostic detection, bare-head binding (every bare call in the
+output resolves through the emitted ns form, or its site flags `:binding`),
+shape non-corruption (untouched code
 round-trips byte-for-byte), comment/whitespace preservation, idempotence, and the
 filesystem entry points.
 

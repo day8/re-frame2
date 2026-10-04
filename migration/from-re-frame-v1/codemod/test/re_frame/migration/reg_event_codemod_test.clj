@@ -21,7 +21,9 @@
     |   destructured db param)         |                   |                       |
 
   Plus: shape-non-corruption (round-trips of untouched code), alias-agnostic
-  registrar detection, path-head RESOLUTION (only a head resolving to
+  registrar detection, bare-head binding (a renamed bare head's `reg-event`
+  resolves through the emitted ns form, or the site flags `:binding`),
+  path-head RESOLUTION (only a head resolving to
   re-frame.core/path lowers; custom `*/path` fns flag — rf2-8odvg reopen),
   scan-file/scan-paths over the filesystem, write-mode line-ending fidelity,
   and idempotence. The
@@ -688,6 +690,110 @@
             (is (str/includes? source "(reg-event "))))))))
 
 ;; ---------------------------------------------------------------------------
+;; bare heads — the emitted call must resolve through the emitted ns form
+;; ---------------------------------------------------------------------------
+;; A bare `(reg-event ...)` resolves only through what the ns form refers. These
+;; tests READ the output's ns form and check that every bare registrar call in
+;; the output — renamed or held — is referred from re-frame.core.
+
+(defn- unbound-bare-heads
+  "The bare registrar heads of `src`'s top-level calls that its ns form does
+  not refer from re-frame.core (by name or `:refer :all`); empty when every
+  bare call resolves."
+  [src]
+  (let [forms   (read-string (str "[" src "]"))
+        ns-form (first (filter #(and (seq? %) (= 'ns (first %))) forms))
+        refers  (for [clause (rest ns-form)
+                      :when  (and (seq? clause) (#{:require :use} (first clause)))
+                      spec   (rest clause)
+                      :when  (and (vector? spec) (= 're-frame.core (first spec)))
+                      :let   [opts (apply hash-map (rest spec))]]
+                  (or (:refer opts) (:only opts)))
+        bound?  (fn [sym] (some #(or (= :all %) (some #{sym} %)) refers))]
+    (vec (for [form forms
+               :let [hd (when (seq? form) (first form))]
+               :when (and (symbol? hd) (nil? (namespace hd))
+                          (str/starts-with? (name hd) "reg-event")
+                          (not (bound? hd)))]
+           hd))))
+
+(deftest bare-rename-binds-reg-event-through-the-ns-form
+  (testing "an accepted bare rename adds `reg-event` to the re-frame.core refer, keeping the old name for held sites"
+    (doseq [[label ns-in ns-out body-in body-out actions]
+            [["fx rename"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx]]))"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx reg-event]]))"
+              "(reg-event-fx :a (fn [cofx event] {}))"
+              "(reg-event :a (fn [cofx event] {}))"
+              [:rename]]
+             ["db rewrite"
+              "(ns demo (:require [re-frame.core :refer [reg-event-db]]))"
+              "(ns demo (:require [re-frame.core :refer [reg-event-db reg-event]]))"
+              "(reg-event-db :a (fn [db _] (assoc db :k 1)))"
+              "(reg-event :a (fn [{:keys [db]} _] {:db (assoc db :k 1)}))"
+              [:rewrite]]
+             ["fx and db in one namespace add one binding"
+              "(ns demo (:require [re-frame.core :refer [reg-event-db reg-event-fx]]))"
+              "(ns demo (:require [re-frame.core :refer [reg-event-db reg-event-fx reg-event]]))"
+              "(reg-event-db :a (fn [db _] (assoc db :k 1)))\n(reg-event-fx :b (fn [cofx event] {}))"
+              "(reg-event :a (fn [{:keys [db]} _] {:db (assoc db :k 1)}))\n(reg-event :b (fn [cofx event] {}))"
+              [:rewrite :rename]]
+             ["accepted beside a held site keeps the held site's import"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx]]))"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx reg-event]]))"
+              "(reg-event-fx :a (fn [cofx event] {}))\n(reg-event-fx :held [my-interceptor] (fn [cofx event] {}))"
+              "(reg-event :a (fn [cofx event] {}))\n(reg-event-fx :held [my-interceptor] (fn [cofx event] {}))"
+              [:rename :flag]]
+             ["target already referred"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx reg-event]]))"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx reg-event]]))"
+              "(reg-event-fx :a (fn [cofx event] {}))"
+              "(reg-event :a (fn [cofx event] {}))"
+              [:rename]]
+             ["target supplied by :refer :all"
+              "(ns demo (:require [re-frame.core :refer :all]))"
+              "(ns demo (:require [re-frame.core :refer :all]))"
+              "(reg-event-fx :a (fn [cofx event] {}))"
+              "(reg-event :a (fn [cofx event] {}))"
+              [:rename]]
+             ["unrelated bindings and a qualified call untouched"
+              "(ns demo\n  (:require [re-frame.core :as rf :refer [dispatch reg-event-fx]]\n            [app.util :refer [reg-event-helper]]))"
+              "(ns demo\n  (:require [re-frame.core :as rf :refer [dispatch reg-event-fx reg-event]]\n            [app.util :refer [reg-event-helper]]))"
+              "(reg-event-fx :a (fn [cofx event] {}))\n(rf/reg-event-fx :b (fn [cofx event] {}))"
+              "(reg-event :a (fn [cofx event] {}))\n(rf/reg-event :b (fn [cofx event] {}))"
+              [:rename :rename]]
+             [":use with :only"
+              "(ns demo (:use [re-frame.core :only [reg-event-fx]]))"
+              "(ns demo (:use [re-frame.core :only [reg-event-fx reg-event]]))"
+              "(reg-event-fx :a (fn [cofx event] {}))"
+              "(reg-event :a (fn [cofx event] {}))"
+              [:rename]]]]
+      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string
+                                        (str ns-in "\n" body-in "\n"))]
+        (is (= actions (mapv :action findings)) label)
+        (is (= (str ns-out "\n" body-out "\n") source) label)
+        (is (= [] (unbound-bare-heads source)) (str label ": every bare call resolves"))))))
+
+(deftest bare-rename-without-a-provable-binding-flags
+  (testing "a bare rename whose `reg-event` binding cannot be proved flags, source unchanged"
+    (doseq [[label ns-form]
+            [["head not referred"
+              "(ns demo (:require [re-frame.core :as rf]))"]
+             ["head referred from another namespace"
+              "(ns demo (:require [app.events :refer [reg-event-fx]]))"]
+             ["reg-event referred from another namespace"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx]] [app.events :refer [reg-event]]))"]
+             ["reg-event defined in the namespace"
+              "(ns demo (:require [re-frame.core :refer [reg-event-fx]]))\n(defn reg-event [& args] args)"]
+             ["prefix-list libspec"
+              "(ns demo (:require [re-frame [core :refer [reg-event-fx]]]))"]]]
+      (let [src (str ns-form "\n(reg-event-fx :a (fn [cofx event] {}))\n")
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+        (is (= [[:flag :binding]] (mapv (juxt :action :flag) findings)) label)
+        (is (str/includes? (:note (first findings)) "Refer `reg-event` from re-frame.core") label)
+        (is (= src source) (str label " left byte-for-byte unchanged"))))))
+
+;; ---------------------------------------------------------------------------
 ;; shape non-corruption + idempotence
 ;; ---------------------------------------------------------------------------
 
@@ -786,27 +892,33 @@
          (.getName (io/file (:path r))))))
 
 (deftest write-keeps-line-endings
-  (let [sources {"no-event" ["(ns eol-control)" "(def value 1)"]
-                 "flagged"  ["(ns eol-control)" "(rf/reg-event-db :eol-control/event [(rf/unwrap)] (fn [db event] db))"]
-                 "rename"   ["(ns eol-control)" "(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]}
-        files   (into {} (for [[n lines] sources
-                               [eol sep] {"lf" "\n" "crlf" "\r\n"}]
-                           [(str n "-" eol ".cljs") (str (str/join sep lines) sep)]))]
-    (testing "no-event and flagged-only files are left byte-identical; a rename keeps its convention"
+  (let [sources   {"no-event" ["(ns eol-control)" "(def value 1)"]
+                   "flagged"  ["(ns eol-control)" "(rf/reg-event-db :eol-control/event [(rf/unwrap)] (fn [db event] db))"]
+                   "rename"   ["(ns eol-control)" "(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]
+                   "bare"     ["(ns eol-control (:require [re-frame.core :refer [reg-event-fx]]))"
+                               "(reg-event-fx :eol-control/event (fn [cofx event] {}))"]}
+        rewritten {"rename"   ["(ns eol-control)" "(rf/reg-event :eol-control/event (fn [cofx event] {}))"]
+                   "bare"     ["(ns eol-control (:require [re-frame.core :refer [reg-event-fx reg-event]]))"
+                               "(reg-event :eol-control/event (fn [cofx event] {}))"]}
+        eols      {"lf" "\n" "crlf" "\r\n"}
+        text      (fn [lines sep] (str (str/join sep lines) sep))
+        files     (into {} (for [[n lines] sources [eol sep] eols]
+                             [(str n "-" eol ".cljs") (text lines sep)]))]
+    (testing "no-event and flagged-only files are left byte-identical; a rename, qualified or bare, keeps its convention"
       (with-source-dir files
         (fn [dir]
-          (is (= #{"rename-lf.cljs" "rename-crlf.cljs"} (rewrite-dir! dir)))
+          (is (= (set (for [n (keys rewritten) eol (keys eols)] (str n "-" eol ".cljs")))
+                 (rewrite-dir! dir)))
           (doseq [n ["no-event-lf.cljs" "no-event-crlf.cljs" "flagged-lf.cljs" "flagged-crlf.cljs"]]
             (is (= (text-bytes (files n)) (file-bytes (io/file dir n))) n))
-          (is (= (text-bytes "(ns eol-control)\r\n(rf/reg-event :eol-control/event (fn [cofx event] {}))\r\n")
-                 (file-bytes (io/file dir "rename-crlf.cljs"))))
-          (is (= (text-bytes "(ns eol-control)\n(rf/reg-event :eol-control/event (fn [cofx event] {}))\n")
-                 (file-bytes (io/file dir "rename-lf.cljs")))))))
+          (doseq [[n lines] rewritten [eol sep] eols]
+            (is (= (text-bytes (text lines sep)) (file-bytes (io/file dir (str n "-" eol ".cljs"))))
+                (str n "-" eol))))))
     (testing "the CLI counts only the renamed files as rewritten"
       (with-source-dir files
         (fn [dir]
           (is (str/includes? (with-out-str (rf.migration.reg-event-codemod/-main "--rewrite" "--write" (.getPath dir)))
-                             "2 file(s) rewritten")))))))
+                             "4 file(s) rewritten")))))))
 
 (deftest write-mixed-line-endings
   (testing "a mixed file is left alone unless rewritten, then takes its first break's convention"

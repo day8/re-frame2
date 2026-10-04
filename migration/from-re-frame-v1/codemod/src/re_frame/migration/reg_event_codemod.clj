@@ -103,6 +103,13 @@
       interceptor (`reg-interceptor`, referenced by id in `:interceptors`;
       EP-0022), which is a human-judgment rewrite.
 
+  * BARE HEADS — a renamed bare `(reg-event-fx ...)` emits a bare
+      `(reg-event ...)`, so the ns form must bind `reg-event` too. The codemod
+      appends it to the `:refer` vector that refers the old name from
+      re-frame.core, keeping the old name for the sites still calling it, and
+      FLAGS the site (`:flag :binding`, source unchanged) whenever it cannot
+      prove that binding. Decision table at `bare-rename-binding` below.
+
   ---------------------------------------------------------------------------
   PROGRAMMATIC API (the atomic-flip slice calls these corpus-wide)
   ---------------------------------------------------------------------------
@@ -122,6 +129,7 @@
      :action     :rewrite | :rename | :flag
      :flag       nil | :nil-capable | :complex | :ctx
                  | :interceptors                               ;; unresolved M-70 Type B
+                 | :binding                                    ;; bare `reg-event` not bindable
      :target     :reg-event | nil                              ;; suggested target form
      :note       \"human-readable explanation\"}"
   (:require [clojure.java.io :as io]
@@ -496,6 +504,35 @@
       :else [])
     (catch Exception _ [])))
 
+(defn- ns-form-zloc
+  "The zipper at the first top-level `ns` form of the source whose first
+  top-level form is `zroot`, or nil when it has none."
+  [zroot]
+  (loop [zloc zroot]
+    (when zloc
+      (if (and (= :list (z/tag zloc))
+               (= 'ns (try (some-> (z/down zloc) z/sexpr)
+                           (catch Exception _ nil))))
+        zloc
+        (recur (z/right zloc))))))
+
+(defn- ns-libspec-entries
+  "Every libspec entry (per `libspec-entries`) of the `:require` / `:use`
+  clauses of `ns-zloc`'s ns form. A bare or optless `:use` spec refers
+  everything. An ns form whose sexpr cannot be read yields no entries."
+  [ns-zloc]
+  (when-let [ns-sexpr (try (z/sexpr ns-zloc) (catch Exception _ nil))]
+    (mapcat (fn [clause]
+              (when (and (sequential? clause)
+                         (#{:require :use} (first clause)))
+                (let [use? (= :use (first clause))]
+                  (map (fn [e]
+                         (cond-> e
+                           (and use? (nil? (:refers e)))
+                           (assoc :refers :all)))
+                       (mapcat libspec-entries (rest clause))))))
+            (rest ns-sexpr))))
+
 (defn- path-head-context
   "Derive the path-head resolution context for ONE source (decision table in
   the section comment above) from `zroot`, the zipper positioned at its first
@@ -506,29 +543,10 @@
   An ns form whose sexpr cannot be read yields `{:ns? true}` with nothing
   resolved — every path head then takes the conservative flag route."
   [zroot]
-  (let [ns-sexpr (loop [zloc zroot]
-                   (when zloc
-                     (or (when (= :list (z/tag zloc))
-                           (let [head (try (some-> (z/down zloc) z/sexpr)
-                                           (catch Exception _ nil))]
-                             (when (= 'ns head)
-                               (or (try (z/sexpr zloc) (catch Exception _ nil))
-                                   ::unreadable))))
-                         (recur (z/right zloc)))))]
-    (if (nil? ns-sexpr)
+  (let [ns-zloc (ns-form-zloc zroot)]
+    (if (nil? ns-zloc)
       {:ns? false}
-      (let [entries (when (not= ::unreadable ns-sexpr)
-                      (mapcat (fn [clause]
-                                (when (and (sequential? clause)
-                                           (#{:require :use} (first clause)))
-                                  ;; a bare/optless :use spec refers EVERYTHING
-                                  (let [use? (= :use (first clause))]
-                                    (map (fn [e]
-                                           (cond-> e
-                                             (and use? (nil? (:refers e)))
-                                             (assoc :refers :all)))
-                                         (mapcat libspec-entries (rest clause))))))
-                              (rest ns-sexpr)))
+      (let [entries (ns-libspec-entries ns-zloc)
             rf      (filter #(= standard-path-ns (:ns %)) entries)]
         {:ns?        true
          :rf-aliases (into #{} (keep :alias) rf)
@@ -927,6 +945,138 @@
          base extra))
 
 ;; ---------------------------------------------------------------------------
+;; Bare-head binding — a renamed bare head must still resolve
+;; ---------------------------------------------------------------------------
+;;
+;; A qualified head keeps its qualifier, so `rf/reg-event-fx` -> `rf/reg-event`
+;; resolves through the same alias. A BARE head resolves only through what the
+;; ns form refers, so renaming `(reg-event-fx ...)` to `(reg-event ...)` emits a
+;; call the namespace must also bind. The old name stays referred: held and
+;; flagged sites still call it, and v2 re-frame.core still exports it, as a
+;; stub naming the replacement. Decision table at `bare-rename-binding`.
+
+(def ^:private registrar-ns
+  "The v1 namespace the registrars come from."
+  "re-frame.core")
+
+(defn- node-value [node]
+  (try (n/sexpr node) (catch Exception _ nil)))
+
+(defn- ns-list-node?
+  "Is `node` an `(ns ...)` form?"
+  [node]
+  (and (= :list (n/tag node))
+       (= 'ns (node-value (first (sig-children node))))))
+
+(defn- rf-refer-vector
+  "The `:refer` vector (`:only`, under `:use`) of a plain
+  `[re-frame.core ...]` libspec in `ns-node` that names `head-name`, or nil.
+  It is the one place a bare rename appends `reg-event`; any other libspec
+  shape (a prefix list, say) is left alone and its bare sites flag."
+  [ns-node head-name]
+  (first
+    (for [clause (sig-children ns-node)
+          :when  (= :list (n/tag clause))
+          :let   [[kw & specs] (sig-children clause)]
+          :when  (#{:require :use} (node-value kw))
+          spec   specs
+          :when  (= :vector (n/tag spec))
+          :let   [[lib & opts] (sig-children spec)]
+          :when  (= (symbol registrar-ns) (node-value lib))
+          [k v]  (partition 2 opts)
+          :when  (and (#{:refer :only} (node-value k))
+                      (= :vector (n/tag v))
+                      (some #(= (symbol head-name) (node-value %))
+                            (sig-children v)))]
+      v)))
+
+(defn- top-level-defines?
+  "Does a top-level form among `nodes` define `sym`: a `def`-family form
+  (`def`, `defn`, `defmacro`, ...) naming it, or a `declare` of it?"
+  [nodes sym]
+  (boolean
+    (some (fn [form]
+            (when (= :list (n/tag form))
+              (let [[hd nm & more] (sig-children form)
+                    hv (node-value hd)]
+                (and (symbol? hv)
+                     (or (and (str/starts-with? (name hv) "def")
+                              (= sym (node-value nm)))
+                         (and (= "declare" (name hv))
+                              (some #(= sym (node-value %)) (cons nm more))))))))
+          nodes)))
+
+(defn- bare-binding-context
+  "What the ns form of the source rooted at `zroot` binds, for
+  `bare-rename-binding`:
+    {:ns?        bool
+     :referred   #{\"reg-event-fx\" ...} ;; names it refers from re-frame.core
+     :appendable #{\"reg-event-fx\" ...} ;; names whose refer vector takes `reg-event`
+     :conflict   \"...\" | nil}           ;; how `reg-event` is otherwise bound
+  A `:refer :all` or bare `:use` of re-frame.core refers every name."
+  [zroot]
+  (if-let [ns-zloc (ns-form-zloc zroot)]
+    (let [names    ["reg-event-db" "reg-event-fx" "reg-event"]
+          entries  (ns-libspec-entries ns-zloc)
+          {rf true other false} (group-by #(= registrar-ns (:ns %)) entries)
+          refers?  (fn [nm e] (let [r (:refers e)]
+                                (or (= :all r) (and (set? r) (contains? r nm)))))
+          foreign  (first (filter #(and (set? (:refers %))
+                                        (contains? (:refers %) "reg-event"))
+                                  other))]
+      {:ns?        true
+       :referred   (set (filter (fn [nm] (some #(refers? nm %) rf)) names))
+       :appendable (set (filter #(rf-refer-vector (z/node ns-zloc) %) names))
+       :conflict   (cond
+                     foreign (str "referred from " (:ns foreign))
+                     (top-level-defines? (n/children (z/root zroot)) 'reg-event)
+                     "defined in this namespace")})
+    {:ns? false}))
+
+(defn- bare-rename-binding
+  "How a bare head named `head-name`, renamed to `reg-event`, gets its binding
+  under `ctx` (per `bare-binding-context`). Returns
+    nil         — nothing to add: an ns-less fragment (a REPL or test snippet,
+                  with nothing to bind through), or `reg-event` already
+                  referred from re-frame.core (explicitly, or by `:refer :all`)
+    :append     — append `reg-event` to the head's re-frame.core refer vector
+    {:why \"\"}   — no binding can be proved, so the site flags. The codemod
+                  never overwrites an existing `reg-event` binding."
+  [head-name {:keys [ns? referred appendable conflict]}]
+  (cond
+    (not ns?) nil
+
+    (not (contains? referred head-name))
+    {:why (str "the ns form does not refer `" head-name "` from re-frame.core")}
+
+    conflict
+    {:why (str "`reg-event` is already " conflict)}
+
+    (contains? referred "reg-event") nil
+
+    (contains? appendable head-name) :append
+
+    :else
+    {:why (str "`" head-name "` is referred from re-frame.core by a libspec"
+               " other than a plain `[re-frame.core ... :refer [...]]` vector")}))
+
+(defn- append-reg-event-refer
+  "Return the source root node `root` with `reg-event` appended to the
+  re-frame.core refer vector of its ns form that names `head-name`."
+  [root head-name]
+  (let [ns-node (first (filter ns-list-node? (n/children root)))
+        v       (rf-refer-vector ns-node head-name)
+        v'      (n/replace-children v (concat (n/children v)
+                                              [(n/spaces 1) (n/token-node 'reg-event)]))
+        swap    (fn swap [node]
+                  (cond
+                    (identical? node v) v'
+                    (n/inner? node)     (n/replace-children node (map swap (n/children node)))
+                    :else               node))]
+    (n/replace-children root (map #(if (identical? % ns-node) (swap %) %)
+                                  (n/children root)))))
+
+;; ---------------------------------------------------------------------------
 ;; Per-call-site analysis + rewrite
 ;; ---------------------------------------------------------------------------
 
@@ -951,6 +1101,31 @@
                          " then re-run the codemod. Left unrewritten — inline"
                          " values / positional chains hard-fail v2 registration"
                          " at namespace load.")})))
+
+(defn- bind-bare-rename
+  "Settle the binding of an accepted rename of a BARE head at `zloc` (per
+  `bare-rename-binding`): the analysis unchanged, the analysis marked
+  `:append-refer <head-name>`, or a `:flag :binding` finding in its place."
+  [{:keys [kind rename-head?] :as analysis} zloc {:keys [binding-ctx]}]
+  (let [head (try (z/sexpr (z/down zloc)) (catch Exception _ nil))]
+    (if-not (and (= :rewrite kind) rename-head?
+                 (symbol? head) (nil? (namespace head)))
+      analysis
+      (let [head-name (name head)
+            binding   (bare-rename-binding head-name binding-ctx)]
+        (cond
+          (nil? binding)      analysis
+          (= :append binding) (assoc analysis :append-refer head-name)
+          :else
+          {:kind    :flag
+           :finding (finding (select-keys (:finding analysis) [:file :line :col :form])
+                             {:action :flag :flag :binding :target :reg-event
+                              :note (str head-name " -> reg-event would emit a bare"
+                                         " `reg-event` this namespace does not bind: "
+                                         (:why binding) ". Refer `reg-event` from"
+                                         " re-frame.core, or call it through a"
+                                         " re-frame.core alias, then re-run the"
+                                         " codemod. Left unrewritten.")})})))))
 
 (defn- analyse-call
   "Analyse a registrar call-site list zipper `zloc` (head already known to be
@@ -1389,22 +1564,27 @@
 (defn- walk
   "Walk every node of the zipper rooted at `zroot` (the value-stripping zipper
   positioned at its first form), collecting findings and — when `rewrite?` —
-  applying the codemod in place. Returns {:zip <last-zloc> :findings v}."
+  applying the codemod in place. Returns {:zip <last-zloc> :findings v
+  :append-refer <head-name>|nil}, the last naming a bare head whose accepted
+  rename needs `reg-event` added to the ns form (`append-reg-event-refer`)."
   [zroot {:keys [rewrite?] :as opts}]
   (loop [zloc     zroot
-         findings (transient [])]
+         findings (transient [])
+         append   nil]
     (let [form-kw (registrar-call? zloc)
           ;; analyse-call may return nil: a `reg-event` site whose middle slot
           ;; is already valid v2 yields no finding and no rewrite.
-          analysis (when form-kw (analyse-call zloc form-kw opts))
+          analysis (when form-kw
+                     (some-> (analyse-call zloc form-kw opts) (bind-bare-rename zloc opts)))
           [zloc' fs] (if analysis
                        (let [z* (if rewrite? (apply-rewrite-at zloc form-kw analysis) zloc)]
                          [z* (conj! findings (:finding analysis))])
                        [zloc findings])
+          append' (or append (:append-refer analysis))
           nxt (z/next zloc')]
       (if (z/end? nxt)
-        {:zip nxt :findings (persistent! fs)}
-        (recur nxt fs)))))
+        {:zip nxt :findings (persistent! fs) :append-refer append'}
+        (recur nxt fs append')))))
 
 ;; ---------------------------------------------------------------------------
 ;; Public API
@@ -1417,19 +1597,26 @@
    (let [zroot (z/of-string s {:track-position? true})]
      (:findings (walk zroot (assoc opts
                                    :rewrite? false
-                                   :path-ctx (path-head-context zroot)))))))
+                                   :path-ctx (path-head-context zroot)
+                                   :binding-ctx (bare-binding-context zroot)))))))
 
 (defn rewrite-string
   "Apply the conservative codemod to a source string. Returns
   {:source <new-source> :findings [...]}. The source is unchanged for any site
-  whose action is :flag."
+  whose action is :flag. An accepted rename of a bare head also adds
+  `reg-event` to the ns form's re-frame.core `:refer` when it is not already
+  referred."
   ([s] (rewrite-string s {}))
   ([s opts]
    (let [zroot  (z/of-string s {:track-position? true})
-         {:keys [zip findings]} (walk zroot (assoc opts
-                                                   :rewrite? true
-                                                   :path-ctx (path-head-context zroot)))]
-     {:source   (z/root-string (or zip zroot))
+         {:keys [zip findings append-refer]}
+         (walk zroot (assoc opts
+                            :rewrite? true
+                            :path-ctx (path-head-context zroot)
+                            :binding-ctx (bare-binding-context zroot)))
+         root   (z/root (or zip zroot))]
+     {:source   (n/string (cond-> root
+                            append-refer (append-reg-event-refer append-refer)))
       :findings findings})))
 
 (defn scan-file

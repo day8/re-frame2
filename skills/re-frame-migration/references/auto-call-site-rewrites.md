@@ -602,10 +602,22 @@ The mechanical (Type A) cases:
   (fn [{:keys [db]} _] {:db (update db :value inc)}))
 ```
 
+**A bare head needs a bare binding.** `rf/reg-event-fx` → `rf/reg-event` resolves through the same alias, but a bare `(reg-event-fx …)` renamed to `(reg-event …)` resolves only if the ns form refers `reg-event`. So the codemod appends `reg-event` to the `:refer` vector that already refers the old name from `re-frame.core`, once per file, and keeps the old name there for the flagged and untouched sites still calling it (v2 still exports it as a stub naming the replacement). It leaves the ns form alone when `reg-event` is already referred, by name or by `:refer :all`. When it cannot prove the binding, it flags the site `:binding` and leaves it unchanged; see the Type B list below. A source with no ns form (a REPL fragment) keeps the plain rename. Migrating by hand, apply the same contract: add `reg-event` to the refer, and never rebind a `reg-event` that already means something else. The sha pinned above predates this repair, so there a bare rename leaves the ns form unchanged: pin a later sha, or add the refer by hand.
+
+```clojure
+;; before
+(ns app.events (:require [re-frame.core :refer [reg-event-fx]]))
+(reg-event-fx :todo/add (fn [cofx [_ text]] {}))
+;; after
+(ns app.events (:require [re-frame.core :refer [reg-event-fx reg-event]]))
+(reg-event :todo/add (fn [cofx [_ text]] {}))
+```
+
 The **Type B** cases the codemod flags rather than rewrites (resolve each by hand):
 
 - **nil-capable `reg-event-db` body** — a body that can evaluate to `nil` (a `when` / `if`-without-else / `cond` / `and` / `or` / bare `get` / `some->` tail, a literal `nil`). Faithfully wrapping it (`{:db BODY}`) preserves v1's "write nil to app-db" footgun, but under the one form a bare `nil` is a no-op and `{:db nil}` coerces to `{:db {}}` — so the author chooses the intended reading.
 - **complex `reg-event-db`** — a non-literal handler (a var, a higher-order construction, a multi-arity `fn`) or a first param that is itself destructured; the safe `db`-rebind can't be proven.
+- **a bare head whose `reg-event` binding can't be proved** (`:flag :binding`) — the ns form does not refer the bare head from `re-frame.core`, `reg-event` is already referred from another namespace or defined in the file, or the refer sits in a libspec shape the codemod does not edit (a prefix list). Refer `reg-event` from `re-frame.core`, or call it through a `re-frame.core` alias, then re-run.
 - **every `reg-event-ctx`** — withdrawn from the public surface; register the full-context behaviour with `reg-interceptor` and reference it by id from the rewritten `reg-event`'s `:interceptors` chain (the public authoring form is `reg-interceptor`, not `->interceptor`, per EP-0022).
 - **a chain entry with no mechanically derivable v2 reference** — the standard `(rf/path …)` constructor is the *one* inline value the codemod lowers mechanically (to `[:rf.interceptor/path [<path>]]`, in metadata, positional-vector, bare-middle, and metadata-plus-vector source shapes, with entries that are already v2 refs preserved verbatim). Any *other* inline interceptor — a custom value, a var, `(rf/debug)`, a `path` call with a non-literal arg — has no derivable registered id, so the codemod surfaces the whole site as an unresolved **M-70 Type B** finding (`:flag :interceptors`) and leaves it unchanged rather than certifying output v2 rejects at namespace load (`:rf.error/path-removed` / `:rf.error/reg-event-bad-middle-slot` / `:rf.error/inline-interceptor-removed`). Register the interceptor with `reg-interceptor`, reference it by id, re-run. The codemod also **rescans already-renamed `reg-event` forms** for such invalid chain survivors, so a partially migrated tree recovers on a re-run.
 
