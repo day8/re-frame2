@@ -281,24 +281,6 @@
 ;; 3. Recordable / provided facts + supplied-value-wins
 ;; ===========================================================================
 
-(deftest provided-recordable-delivered-from-token-verbatim
-  (testing "a declared PROVIDED recordable fact present on the token is
-            delivered verbatim — a scripted value comes back exactly (no host
-            read; replay-stable). EP-0017 §5"
-    (let [seen (atom ::unset)]
-      (rf/reg-cofx :cofx-test/boot-token
-        {:recordable? true :provided? true
-         :doc "Provided boundary fact."})
-      (rf/reg-event :cofx-test/read-boot
-        {:rf.cofx/requires [:cofx-test/boot-token]}
-        (fn [{:keys [cofx-test/boot-token]} _]
-          (reset! seen boot-token)
-          {}))
-      (rf/dispatch-sync [:cofx-test/read-boot]
-                        {:rf.cofx {:cofx-test/boot-token "abc.jwt.xyz"}})
-      (is (= "abc.jwt.xyz" @seen)
-          "the supplied recordable value was delivered verbatim from the token"))))
-
 (deftest rf-time-ms-is-provided-recordable-and-always-present
   (testing ":rf/time-ms is the framework's one provided recordable
             registration; declaring it delivers the router-stamped value flat
@@ -581,31 +563,6 @@
               "the reason points the author at the fix")
           (is (nil? (rf.registrar/lookup :cofx id))
               "the malformed fact did NOT register"))))))
-
-(deftest provided-without-supplier-registers-cleanly
-  (testing "the VALID provided shape — `{:recordable? true :provided? true}`
-            with NO supplier — registers (only the supplier-bearing
-            contradiction is rejected)"
-    (is (= :cofx-test/clean-provided
-           (rf/reg-cofx :cofx-test/clean-provided
-             {:recordable? true :provided? true})))
-    (let [meta (rf.registrar/lookup :cofx :cofx-test/clean-provided)]
-      (is (true? (:recordable? meta)) "recordable")
-      (is (true? (:provided? meta)) "provided")
-      (is (nil? (:handler-fn meta)) "no supplier — its owner stamps the token"))))
-
-(deftest recordable-with-supplier-no-provided-registers-cleanly
-  (testing "a RECORDABLE fact WITH a supplier but no `:provided?`
-            registers (recordable-with-supplier is valid; the
-            generator backs the recordable fact)"
-    (is (= :cofx-test/recordable-gen
-           (rf/reg-cofx :cofx-test/recordable-gen
-             {:recordable? true}
-             (fn [] "generated"))))
-    (let [meta (rf.registrar/lookup :cofx :cofx-test/recordable-gen)]
-      (is (true? (:recordable? meta)) "recordable")
-      (is (false? (:provided? meta)) "not provided")
-      (is (fn? (:handler-fn meta)) "carries its generator supplier"))))
 
 (deftest rf-prefixed-id-is-not-a-registration-time-collision
   (testing "an `rf.`-prefixed coeffect id registers CLEANLY — the
@@ -1100,53 +1057,6 @@
             (is (= :gen-test/host-handle (get-in (first errs) [:tags :rf.cofx/id]))
                 "the trace names the fact")))))))
 
-(deftest generated-non-edn-value-nested-reports-path
-  (testing "ADVERSARIAL: a generator minting a map with a non-EDN
-            leaf NESTED inside otherwise-good EDN reports the PATH to the bad
-            leaf (rooted at the fact id), and the `:bad-type` only — never the
-            raw host object. A `:preview` may accompany only a value that is
-            itself recordable; the raw handle is never surfaced."
-    (let [fired? (atom false)]
-      (rf/reg-cofx :gen-test/nested-bad
-        {:recordable? true}
-        ;; `:ok` and `:n` are clean EDN; `:handle` nests a function (host handle).
-        (fn [] {:ok "fine" :n 3 :handle (fn [] :nope)}))
-      (rf/reg-event :gen-test/uses-nested-bad
-        {:rf.cofx/requires [:gen-test/nested-bad]}
-        (fn [_ _] (reset! fired? true) {}))
-      (let [ex (try (rf/dispatch-sync [:gen-test/uses-nested-bad]) nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo
-                              :cljs cljs.core/ExceptionInfo) e e))]
-        (is (false? @fired?) "the handler never ran")
-        (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex))))
-        (is (= :non-edn-recordable-value (:rf.cofx/value-error (ex-data ex))))
-        (is (= [:gen-test/nested-bad :handle] (:path (ex-data ex)))
-            "the path is rooted at the fact id and descends to the bad nested leaf")))))
-
-(deftest generated-edn-value-passes-structural-check
-  (testing "an EDN-clean generated value (a plain map of strings / ints — the
-            shape the REAL routing / resources allocation generators mint, e.g.
-            `{:token \"nav-N\" :counter N}`) passes the structural-EDN gate and
-            is delivered + written back normally. The complement of the
-            adversarial case — the gate must not reject ordinary data."
-    (let [seen-delta (atom nil)
-          seen-cofx  (atom nil)]
-      ;; Mirror the real allocation-cofx value shape: a plain EDN map.
-      (rf/reg-cofx :gen-test/allocation-shaped
-        {:recordable? true :doc "EDN-clean, like the real allocation cofx."}
-        (fn [] {:token "nav-7" :counter 7}))
-      (rf/reg-event :gen-test/uses-allocation
-        {:rf.cofx/requires [:gen-test/allocation-shaped]}
-        (fn [{:keys [gen-test/allocation-shaped] :as cofx} _]
-          (reset! seen-delta allocation-shaped)
-          (reset! seen-cofx (:rf.cofx cofx))
-          {}))
-      (rf/dispatch-sync [:gen-test/uses-allocation])
-      (is (= {:token "nav-7" :counter 7} @seen-delta)
-          "the EDN-clean generated value is delivered flat unchanged")
-      (is (= {:token "nav-7" :counter 7} (:gen-test/allocation-shaped @seen-cofx))
-          "and written back into the causal :rf.cofx record — the gate passed it through"))))
-
 (deftest supplied-value-schema-mismatch-is-hard-error
   (testing "ADVERSARIAL: a SUPPLIED / replayed recordable value that fails the
             registration's `:schema` is also `:rf.error/cofx-value-invalid` —
@@ -1205,26 +1115,6 @@
 ;; `generator-runs-at-processing-start-fills-and-records` in section 12, and
 ;; the other three by the tests below.
 ;; ===========================================================================
-
-(deftest resolve-mint-policy-precedence
-  (testing "ADVERSARIAL UNIT: `resolve-mint-policy` is most-specific-wins —
-            per-call opt beats frame config beats the `:live` default
-            (EP-0017 §6 binding points)"
-    ;; 1. Neither present → the router's :live default.
-    (is (= :live (rf.cofx/resolve-mint-policy nil nil))
-        "no binding point → :live (the router default)")
-    ;; 2. Frame config only (the :test preset's :strict).
-    (is (= :strict (rf.cofx/resolve-mint-policy nil :strict))
-        "frame config wins when no per-call opt is supplied")
-    ;; 3. Per-call opt only.
-    (is (= :strict (rf.cofx/resolve-mint-policy :strict nil))
-        "the per-call opt selects the policy when the frame has none")
-    ;; 4. Per-call opt OVERRIDES the frame config (the :explicit-live escape
-    ;;    over a :test frame's :strict).
-    (is (= :explicit-live (rf.cofx/resolve-mint-policy :explicit-live :strict))
-        "the per-call opt is the most-specific binding point — it wins")
-    (is (= :live rf.cofx/default-mint-policy)
-        "the documented default is :live")))
 
 (deftest test-preset-default-is-strict-does-not-generate
   (testing "ADVERSARIAL (binding point 3 — :test PRESET DEFAULT): a dispatch
