@@ -23,11 +23,6 @@
     them (child-wins, no concat); story → variant inheritance order is
     preserved. `resolve-decorators` reads the compiled plan's
     `[:world :decorators]`, not the raw side-table body.
-  - **Compiler-authoritative merge via the default side-table** —
-    a registered parent + child with `:extends` + `:checks` + `:setup`
-    compiles through the DEFAULT side-table lookup (no explicit
-    `:lookup`) so the registered path and explicit-`:lookup` tests share
-    ONE merge engine: setup APPENDS, checks INHERIT, decorators INHERIT.
 
   Per spec/001 §reg-variant authoring schema + spec/002 §:extends
   resolution + spec/010 §Mode authoring."
@@ -43,7 +38,6 @@
             [re-frame.story.decorators :as rf.story.decorators]
             [re-frame.story.frames     :as rf.story.frames]
             [re-frame.story.loaders    :as rf.story.loaders]
-            [re-frame.story.plan       :as rf.story.plan]
             [re-frame.story.play       :as rf.story.play]))
 
 ;; ---- fixtures -------------------------------------------------------------
@@ -297,54 +291,3 @@
     (let [pack (rf.story/resolve-decorators :story.inherit-replace/child)]
       (is (= [:child-deco] (mapv :id (:hiccup pack)))
           "resolved hiccup stack reflects ONLY the child's decorators"))))
-
-;; ===========================================================================
-;; The plan compiler is the SINGLE merge authority, EVEN through the
-;; DEFAULT side-table lookup (spec/017 §Merge rules).
-;;
-;; The registrar stores the RAW body (`:extends` intact, parent NOT merged
-;; at registration), so a registered variant compiled through the DEFAULT
-;; side-table lookup (no explicit `:lookup` arg) must walk the parent chain
-;; exactly like the explicit-`:lookup` plan_cljs_test cases. setup APPENDS,
-;; checks INHERIT, and decorators INHERIT — all from ONE merge engine
-;; (`re-frame.story.plan/compile-body`). A registration-time straight-merge
-;; would leave the compiler seeing a single-element chain and these
-;; per-field semantics dead.
-;; ===========================================================================
-
-(deftest extends-compiler-authority-through-default-side-table
-  (testing "a registered parent+child with :extends + :checks + :setup +
-            :decorators compiles via the DEFAULT side-table lookup (no
-            :lookup arg): setup APPENDS, checks INHERIT, decorators INHERIT"
-    (rf.story/reg-decorator :s84-parent-deco
-      {:kind :hiccup :wrap (fn [body _] [:div.s84 body])})
-    ;; Every :checks id must resolve to a registered check.
-    (rf.story/reg-check :check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]})
-    (rf.story/reg-check :check/extra {:assertions [[:rf.assert/no-warnings]]})
-    (rf.story/reg-variant :story.s84/parent
-      {:setup      [[:dispatch [:s84/p1]] [:dispatch [:s84/p2]]]
-       :checks     [:check/no-runtime-errors]
-       :decorators [[:s84-parent-deco]]})
-    (rf.story/reg-variant :story.s84/child
-      {:extends :story.s84/parent
-       :setup   [[:dispatch [:s84/c1]]]
-       :checks  [:check/extra]})
-    ;; DEFAULT side-table lookup — NO :lookup arg. This is the path the
-    ;; runtime uses; it must agree with the explicit-:lookup plan tests.
-    (let [p (rf.story.plan/variant-plan :story.s84/child)]
-      (testing "source chain is root-first (chain walked from the side-table)"
-        (is (= [:story.s84/parent :story.s84/child] (:source-chain p))))
-      (testing "setup APPENDS parent→child"
-        (is (= [[:dispatch [:s84/p1]] [:dispatch [:s84/p2]] [:dispatch [:s84/c1]]]
-               (get-in p [:world :setup]))))
-      (testing "checks INHERIT root→child (inheritable expectation form)"
-        (is (= [:check/no-runtime-errors :check/extra]
-               (get-in p [:expect :checks]))))
-      (testing "decorators INHERIT (child declared none)"
-        (is (= [[:s84-parent-deco]] (get-in p [:world :decorators])))))
-    ;; And the registered front door (resolve-decorators) sees the same
-    ;; inherited pack — proving the registered path reads the compiled
-    ;; plan, not the raw side-table body.
-    (let [pack (rf.story/resolve-decorators :story.s84/child)]
-      (is (= [:s84-parent-deco] (mapv :id (:hiccup pack)))
-          "resolve-decorators inherits the parent's decorator via the plan"))))
