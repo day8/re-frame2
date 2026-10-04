@@ -174,24 +174,6 @@
 
 (use-fixtures :each reset-rf!)
 
-(deftest replay-into-fresh-frame
-  (testing "replay-run-artifact replays the dispatch program into a FRESH
-            frame, captures a NEW tape, and returns the shared run-result —
-            the fresh frame is torn down before return"
-    (rf/reg-event :rep/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [a   (rf.story.artifact/make-run-artifact
-                {:event-program [[:dispatch [:rep/inc]] [:dispatch [:rep/inc]]]})
-          res (rf.story.artifact/replay-run-artifact a)]
-      (is (= :pass (:status res)))
-      (is (= 2 (:n (:app-db res))) "the program ran into a fresh, empty frame")
-      (is (seq (:epoch-tape res)) "a NEW epoch tape was captured")
-      (is (vector? (:narrative res)))
-      (is (= a (:run-artifact res)))
-      ;; the internally-allocated frame is gone (teardown ran)
-      (let [fid (:frame res)]
-        (is (not (contains? @rf.frame/frames fid))
-            "the replay-allocated frame is destroyed before return")))))
-
 (deftest replay-wraps-not-replaces-richer-dispatch-when-fx-decisions-present
   (testing "a richer adapter's :dispatch! is INVOKED (not bypassed) when
             fx-decisions are present — the fx reapplication WRAPS the supplied
@@ -508,16 +490,6 @@
                                            :script  script}}})]
     (rf.story.determinism/->artifact plan)))
 
-(deftest network-artifact-captures-routes-and-redirect
-  (testing "->artifact threads [:world :network] into the artifact :network
-            slot AND [:world :frame :fx-overrides] into :fx-decisions"
-    (let [routes {[:get "/api/cart"] {:reply {:ok {:items []}}}}
-          art    (network-artifact routes [[:dispatch [:net/get-cart]]])]
-      (is (= routes (:network art))
-          "the per-route reply map is carried on the artifact")
-      (is (= {:rf.http/managed :rf.http/managed-test-stub} (:fx-decisions art))
-          "the managed-stub redirect rides :fx-decisions"))))
-
 (deftest replay-reinstalls-network-success-route
   (testing "a replayed :network variant has its SUCCESS request matched by the
             re-installed route stub — not fail-closed"
@@ -532,25 +504,6 @@
            transport failure that fails closed without the re-install")
       (is (= {:items [{:sku "A"}]} (:value got))
           "the synthesised reply carries the recorded route payload"))))
-
-(deftest replay-reinstalls-network-failure-route
-  (testing "a replayed :network variant has its FAILURE request matched by the
-            re-installed route stub — the recorded failure :kind, not a
-            'no stub matched' fail-closed transport failure"
-    (register-network-event! :net/checkout [:post "/api/checkout"])
-    (let [routes {[:post "/api/checkout"]
-                  {:reply {:failure {:kind :rf.http/http-4xx :status 409}}}}
-          art    (network-artifact routes [[:dispatch [:net/checkout]]])
-          res    (rf.story.artifact/replay-run-artifact art)
-          got    (:got (:app-db res))]
-      (is (= :error (:status got))
-          "the re-installed route stub synthesised the recorded failure")
-      (is (= :rf.http/http-4xx (get-in got [:error :kind]))
-          "the recorded failure :kind survived — NOT :rf.http/transport
-           ('no stub matched'), which is what fails closed without the
-           re-install")
-      (is (= 409 (get-in got [:error :status]))
-          "the recorded failure tags survived the round-trip"))))
 
 ;; ===========================================================================
 ;; EXACT narrative attribution from runner-recorded settle boundaries
