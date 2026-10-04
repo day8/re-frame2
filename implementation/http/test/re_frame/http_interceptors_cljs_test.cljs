@@ -100,17 +100,7 @@
              (mapv :id (rf.http.managed/interceptors-snapshot :realworld/app)))
           "with-frame scoped the reg onto the app frame's chain (the example's pattern)"))))
 
-;; ---- 2. registration order is preserved -----------------------------------
-
-(deftest registration-order-preserved
-  (testing "first / second / third register in order"
-    (rf/reg-http-interceptor :first  {:before (fn [c] c)})
-    (rf/reg-http-interceptor :second {:before (fn [c] c)})
-    (rf/reg-http-interceptor :third  {:before (fn [c] c)})
-    (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
-      (is (= [:first :second :third] (mapv :id chain))))))
-
-;; ---- 3. re-register replaces in place -------------------------------------
+;; ---- 2. a new id appends; re-registering an id replaces it in place ------
 
 (deftest re-register-replaces-in-place
   (testing "re-registering :a keeps its position; second :a does not duplicate"
@@ -122,7 +112,7 @@
       (is (= {::v 2} ((:before (first chain)) {}))
           ":a's :before fn is the v2 fn (replacement)"))))
 
-;; ---- 4. per-frame scope ---------------------------------------------------
+;; ---- 3. per-frame scope ---------------------------------------------------
 
 (deftest per-frame-scope
   (testing "interceptors registered on different frames do not collide"
@@ -135,7 +125,7 @@
     (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default))))
     (is (= [:on-other] (mapv :id (rf.http.managed/interceptors-snapshot :other))))))
 
-;; ---- 6. late-bind hooks publish under documented keys ---------------------
+;; ---- 4. late-bind hooks publish under documented keys ---------------------
 
 (deftest late-bind-hooks-published
   (testing ":http/reg-http-interceptor and :http/clear-http-interceptor land in the late-bind registry"

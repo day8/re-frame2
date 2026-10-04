@@ -26,7 +26,6 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.middleware :as rf.http.middleware]
@@ -353,17 +352,15 @@
         ;; stream so tools / 10x panels can attribute the failure.
         (rf/dispatch-sync [:load])
         ;; Wait for the interceptor-failure trace to land —
-        ;; the trace event IS the observable signal. server-hits is then
-        ;; asserted as zero (proven absence within the trace-fired window).
+        ;; the trace event IS the observable signal, and `poll-until` throws
+        ;; on timeout, so this wait is the trace assertion. server-hits is
+        ;; then asserted as zero (proven absence within the trace-fired window).
         (rf.test-support/poll-until
           #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
                  @traces)
           {:label ":rf.error/http-interceptor-failed surfaced"})
         (is (zero? @server-hits)
             "request was NOT dispatched — server saw zero requests")
-        (is (some #(= :rf.error/http-interceptor-failed (:operation %))
-                  @traces)
-            ":rf.error/http-interceptor-failed appears on the trace stream")
         (finally
           (rf.trace.tooling/unregister-listener! listener-id)
           (stop-server! srv))))))
@@ -851,35 +848,23 @@
       (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
-      ;; every malformed 2-arg form fails closed
-      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {}))
-          "empty opts map (no :frame) fails closed")
-      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame nil}))
-          "nil :frame fails closed")
-      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:fram :rf/default}))
-          "misspelled opts key fails closed")
-      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient {:frame :rf/default :extra 1}))
-          "extra opts key fails closed (map must be exactly {:frame target})")
-      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient "not-a-map"))
-          "non-map second arg fails closed")
+      ;; every malformed 2-arg form fails closed at BOTH doors; the SECOND
+      ;; door — the artefact-level fn the `:http/clear-http-interceptor` hook
+      ;; reaches — keeps its own typed error over the same shared validator.
+      (doseq [[label opts]
+              [["empty opts map (no :frame)"                           {}]
+               ["nil :frame"                                           {:frame nil}]
+               ["misspelled opts key"                                  {:fram :rf/default}]
+               ["extra opts key (map must be exactly {:frame target})" {:frame :rf/default :extra 1}]
+               ["non-map second arg"                                   "not-a-map"]
+               ["two-scalar frame-first is not a public shape"         :some-frame]]]
+        (testing label
+          (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient opts))
+              "public door fails closed with :rf.error/registrar-clear-bad-request")
+          (is (artefact-threw-bad? opts)
+              "artefact door fails closed with :rf.error/http-bad-interceptor")))
       (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient 42))
-          "non-map scalar second arg fails closed")
-      (is (threw-bad? #(rf/clear :http-interceptor :s32bf/ambient :some-frame))
-          "two-scalar frame-first is not a public shape — fails closed")
-      ;; the SECOND door — the artefact-level fn the `:http/clear-http-interceptor`
-      ;; hook reaches — keeps its own typed error over the same shared validator.
-      (is (artefact-threw-bad? {})
-          "artefact door: empty opts map fails closed with :rf.error/http-bad-interceptor")
-      (is (artefact-threw-bad? {:frame nil})
-          "artefact door: nil :frame fails closed")
-      (is (artefact-threw-bad? {:fram :rf/default})
-          "artefact door: misspelled opts key fails closed")
-      (is (artefact-threw-bad? {:frame :rf/default :extra 1})
-          "artefact door: extra opts key fails closed")
-      (is (artefact-threw-bad? "not-a-map")
-          "artefact door: non-map second arg fails closed")
-      (is (artefact-threw-bad? :some-frame)
-          "artefact door: two-scalar frame-first fails closed")
+          "public door: a non-map scalar second arg fails closed")
       ;; NO rejected call touched the ambient chain
       (is (= [:s32bf/ambient]
              (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
@@ -986,51 +971,31 @@
   (testing "reg-http-interceptor rejects non-keyword
             id, non-map interceptor-map, non-fn :before / :after, missing
             both :before and :after, or non-keyword :frame"
-    ;; non-keyword id
-    (let [thrown (try (rf/reg-http-interceptor "string-id" {:before identity})
-                      nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown))
-      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
-    ;; non-map interceptor-map
-    (let [thrown (try (rf/reg-http-interceptor :x "not-a-map")
-                      nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown))
-      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
-    ;; non-fn :before
-    (let [thrown (try (rf/reg-http-interceptor :x {:before "not-a-fn"})
-                      nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown))
-      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
-    ;; non-fn :after
-    (let [thrown (try (rf/reg-http-interceptor :x {:after "not-a-fn"})
-                      nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown))
-      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
-    ;; missing both :before AND :after — a no-op interceptor is rejected
-    (let [thrown (try (rf/reg-http-interceptor :x {:doc "no fns at all"})
-                      nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown))
-      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))
-    ;; non-keyword :frame
-    (let [thrown (try (rf/reg-http-interceptor :x {:frame "not-a-keyword" :before identity})
-                      nil
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown))
-      (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))))
+    (doseq [[label id interceptor-map]
+            [["non-keyword id"           "string-id" {:before identity}]
+             ["non-map interceptor-map"  :x          "not-a-map"]
+             ["non-fn :before"           :x          {:before "not-a-fn"}]
+             ["non-fn :after"            :x          {:after "not-a-fn"}]
+             ["neither :before nor :after — a no-op interceptor"
+              :x {:doc "no fns at all"}]
+             ["non-keyword :frame"       :x          {:frame "not-a-keyword" :before identity}]]]
+      (testing label
+        (let [thrown (try (rf/reg-http-interceptor id interceptor-map)
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? thrown))
+          (is (= :rf.error/http-bad-interceptor (:rf.error/id (ex-data thrown)))))))))
 
 ;; ---- 8. clear-all-http-interceptors! bulk-clear ---------------------------
 ;;
 ;; The test above (`clear-http-interceptor-unregisters`) covers the single-id
-;; `clear-http-interceptor`; these cover the bulk-clear
+;; `clear-http-interceptor`; this one covers the bulk-clear
 ;; helper `clear-all-http-interceptors!`. Test fixtures and the
 ;; reset-runtime path use the bulk form to drop every registered chain;
 ;; a regression that left even one slot populated would only surface as
-;; cross-test pollution.
+;; cross-test pollution. Its post-clear request re-runs a registered event
+;; through the `:rf.http/managed` fx, so a bulk-clear that reached any other
+;; registry goes red here as well.
 
 (deftest clear-all-http-interceptors-empties-every-frame-chain
   (testing "clear-all-http-interceptors! drops every registered :before
@@ -1100,28 +1065,6 @@
           (is (nil? (:c second-req)) "X-C is absent after bulk-clear"))
 
         (finally (stop-server! srv))))))
-
-(deftest clear-all-http-interceptors-leaves-other-registries-untouched
-  (testing "clear-all-http-interceptors! touches only the http interceptor
-            registry — :event / :sub / :fx slots are preserved"
-    (rf/reg-http-interceptor :test.lfvi/dummy {:before identity})
-    (rf/reg-event :test.lfvi/ev (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-sub :test.lfvi/sub (fn [_ _] :stub))
-    (rf/reg-fx :test.lfvi/fx (fn [_ _] nil))
-
-    (is (seq (rf.http.managed/interceptors-snapshot))
-        "pre-clear: interceptor atom has entries")
-
-    (rf.http.managed/clear-all-http-interceptors!)
-
-    (is (= {} (rf.http.managed/interceptors-snapshot))
-        ":http interceptor atom is empty")
-    (is (some? (rf.registrar/lookup :event :test.lfvi/ev))
-        ":event kind is untouched by the bulk-clear")
-    (is (some? (rf.registrar/lookup :sub :test.lfvi/sub))
-        ":sub kind is untouched")
-    (is (some? (rf.registrar/lookup :fx :test.lfvi/fx))
-        ":fx kind is untouched")))
 
 ;; ---- sensitivity recomputed from the POST-:before request -----------------
 ;;
@@ -1303,7 +1246,7 @@
             ":after fires in reverse registration order")
         (finally (stop-server! srv))))))
 
-;; ---- 3. response transform threads through -------------------------------
+;; ---- 2. response transform threads through -------------------------------
 
 (deftest after-can-transform-the-response-shape
   (testing "`:after` returns the (possibly-transformed)
@@ -1334,7 +1277,7 @@
               "the underlying response value is preserved"))
         (finally (stop-server! srv))))))
 
-;; ---- 4. interceptors without :after are transparent in the response chain
+;; ---- 3. interceptors without :after are transparent in the response chain
 
 (deftest after-less-interceptors-are-transparent
   (testing "interceptors registered with only `:before` (no

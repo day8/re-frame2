@@ -60,13 +60,6 @@
        nil
        (catch clojure.lang.ExceptionInfo e e)))
 
-(defn- bad-abort-config-throw?
-  "True when the call threw `:rf.error/http-bad-abort-config`, which no
-  dispatch site raises."
-  [ex]
-  (and (some? ex)
-       (= :rf.error/http-bad-abort-config (:rf.error/id (ex-data ex)))))
-
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
@@ -119,10 +112,8 @@
                              :request-id   :article/load
                              :abort-signal signal-stub
                              :reply-to     [:no-op]})]
-      (is (not (bad-abort-config-throw? ex))
-          "dual-source config must NOT be rejected at the dispatch site")
       (is (nil? ex)
-          "the call dispatches without throwing at all"))))
+          "the dual-source config is not rejected at the dispatch site: the call dispatches without throwing at all"))))
 
 ;; ---- (2a) finalise order: user-abort-first => one :reason :user reply ------
 ;;
@@ -231,7 +222,9 @@
         (rf/dispatch-sync [:search/fresh])
         ;; Release the server so the fresh request can complete.
         (.countDown release)
-        ;; Wait for the fresh request's reply + the stale trace.
+        ;; Wait for the fresh request's reply + the stale trace. Each wait throws
+        ;; on timeout, so it is the witness that the superseding request
+        ;; yielded its outcome and that the stale trace fired.
         (await-condition! #(true? @fresh-ok?))
         (await-condition! #(seq @stale-traces) 2000)
         ;; Quiescence — prove the superseded attempt never dispatches a reply.
@@ -239,8 +232,6 @@
 
         (is (false? @prior-fired?)
             "the superseded request's reply target MUST NOT run (supersede-first wins)")
-        (is (true? @fresh-ok?)
-            "the superseding request yields its own single outcome")
         (let [ev   (first @stale-traces)
               tags (:tags ev)]
           (is (= :rf.http/stale-suppressed (:operation ev))

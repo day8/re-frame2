@@ -13,8 +13,9 @@
   ex-info — per Spec 009 §Error event catalogue. The throw fires
   BEFORE the middleware chain and BEFORE any attempt is issued.
 
-  Counter-tests: every member of the closed set, plus absent `:retry`,
-  absent `:on`, and an empty `:on` set, all pass through cleanly."
+  Counter-tests: every member of the closed set, plus absent `:on`, an
+  explicit nil `:on`, and an empty `:on` set, all pass through cleanly. An
+  absent `:retry` passes on every managed request that configures none."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.registrar :as rf.registrar]
@@ -115,23 +116,17 @@
 
 ;; ---- rejection: non-set `:on` shapes --------------------------------------
 
-(deftest keyword-on-rejected
-  (testing "a bare keyword `:on` throws
-    :rf.error/http-bad-retry-on with :bad-shape, not a
-    raw IllegalArgumentException (\"Don't know how to create ISeq from:
-    clojure.lang.Keyword\") from a `(remove …)` ISeq coercion."
-    (let [ex (call-managed! {:on :rf.http/transport :max-attempts 3})]
-      (is (bad-retry-shape-throw? ex :rf.http/transport))
-      (is (not (instance? IllegalArgumentException ex))
-          "must be the canonical :rf.error/http-bad-retry-on, not a raw IllegalArgumentException"))))
-
 (deftest non-set-on-shapes-rejected
-  (testing "a vector, list, string or map `:on` throws
+  (testing "a keyword, vector, list, string or map `:on` throws
     :rf.error/http-bad-retry-on carrying the value at `:bad-shape`; only a
-    set is valid. A vector reaching run-attempt! would make
-    `(contains? on-set kind)` test INDEX membership, not category
-    membership — silently disabling retry."
-    (doseq [bad [[:rf.http/transport]
+    set is valid. A bare keyword reaching the membership check would throw a
+    raw IllegalArgumentException (\"Don't know how to create ISeq from:
+    clojure.lang.Keyword\") from a `(remove …)` ISeq coercion, which escapes
+    `call-managed!` and errors this test. A vector reaching run-attempt!
+    would make `(contains? on-set kind)` test INDEX membership, not
+    category membership — silently disabling retry."
+    (doseq [bad [:rf.http/transport
+                 [:rf.http/transport]
                  (list :rf.http/transport :rf.http/http-5xx)
                  "rf.http/transport"
                  {:rf.http/transport true}]]
@@ -151,16 +146,6 @@
         (is (not (and (some? ex)
                       (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))
             (str "single-member set #{" k "} must pass closed-set validation"))))))
-
-(deftest absent-retry-passes-through
-  (testing "no `:retry` key at all: the validator is a
-    no-op. Most calls don't configure retry."
-    (let [args {:request {:method :get :url "http://localhost/x"}}
-          ex   (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]} args)
-                    nil
-                    (catch clojure.lang.ExceptionInfo e e))]
-      (is (not (and (some? ex)
-                    (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
 
 (deftest retry-without-members-passes-through
   (testing "an empty `:on` set, a `:retry` with no `:on` key, and an
