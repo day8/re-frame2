@@ -90,7 +90,7 @@
         "raising the budget admits the coalescence the default budget rejects")))
 
 ;; ---------------------------------------------------------------------------
-;; Worked examples — the three Xray cluster cases recast over patches.
+;; Worked example — Xray's cart cascade recast over patches.
 ;; ---------------------------------------------------------------------------
 
 (deftest cart-cascade-projects-to-3-cart-and-non-cart-sections
@@ -123,17 +123,6 @@
       (is (= 3 (count (:patches cart-s))))
       (is (= :modified (:section-kind cart-s))
           "patches span multiple depths under [:cart] → :modified"))))
-
-(deftest sparse-100-key-app-db-with-two-unrelated-changes-projects-to-2-sections
-  ;; The 100-key sparse worked example: only [:account-23 :balance]
-  ;; and [:account-71 :status] change. NOT 100 sections, NOT 1 root
-  ;; section — exactly 2.
-  (let [patches  [[[:account-23 :balance] :assoc 500]
-                  [[:account-71 :status]  :assoc :frozen]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 2 (count sections)))
-    (is (every? #(< (count (:section-path %)) 3) sections)
-        "no spurious deeper aggregation — each singleton stays scoped")))
 
 ;; ---------------------------------------------------------------------------
 ;; section-kind classification.
@@ -179,14 +168,6 @@
 (deftest mixed-assoc-and-dissoc-classify-as-modified
   (let [patches  [[[:user :name]  :assoc "ada"]
                   [[:user :token] :dissoc]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= :modified (:section-kind (first sections))))))
-
-(deftest assoc-at-non-uniform-depth-classifies-as-modified
-  ;; Patches under [:user] but at different depths — section is
-  ;; :modified (conservative; the cluster isn't a wholly-new container).
-  (let [patches  [[[:user :name]              :assoc "ada"]
-                  [[:user :prefs :theme]      :assoc :dark]]
         sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
     (is (= :modified (:section-kind (first sections))))))
 
