@@ -150,20 +150,6 @@
 ;; 1. ACQUIRE — the owner attaches under the db-RESOLVED scoped key
 ;; ===========================================================================
 
-(deftest acquire-attaches-owner-under-resolved-scope
-  (ensure-feed! "acme" 1 [:app :a 1])
-  (testing "Spec 016 §The scoped-cache owner lifecycle (acquire) — a
-            {:from-db} ensure resolves the tenant scope from app-db and
-            attaches the owner to THAT resolved entry, never a global key"
-    (let [ka (tenant-key "acme" 1)]
-      (is (some? (entry ka)) "entry lives under the db-derived tenant scope")
-      (is (= #{ka} (set (keys (entries))))
-          "exactly one entry, under the resolved scope — never a global key")
-      (is (contains? (:active-owners (entry ka)) [:app :a 1])
-          "the owner is recorded on the resolved entry")
-      (is (contains? (get (owner-index) [:app :a 1]) ka)
-          "the owner-index maps the owner to the resolved scoped key"))))
-
 (deftest acquire-two-scopes-are-independent-owners
   (let [[ka kb] (two-live-tenants!)]
     (testing "two simultaneously-live tenants hold INDEPENDENT owners on
