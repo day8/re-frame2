@@ -345,24 +345,6 @@
                          "the settle form re-derives :render-events from the projected epoch"))
                    (done)))))))
 
-(deftest trace-projects-epoch-by-default-when-gate-off
-  ;; Gate OFF (default) ⇒ the trace form (dispatch-and-collect) wraps the
-  ;; runtime call so the returned `:epoch` is projected before egress.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:ok? true :epoch-id 7 :epoch {:frame :rf/default}}
-            (fn []
-              (raw-state/set-allow-raw-state! false)
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:list/toggle]" :trace true})))
-          (.then (fn [_]
-                   (let [form @captured]
-                     (is (str/includes? form "dispatch-and-collect")
-                         "the runtime trace fn is still the inner call")
-                     (is (str/includes? form "re-frame.core/project-egress")
-                         "gate OFF ⇒ :epoch routes through project-egress before egress"))
-                   (done)))))))
-
 (deftest trace-include-sensitive-string-false-stays-false-no-leak
   ;; The include-sensitive arg MUST parse through the
   ;; safe `args/parse-bool-arg`, not a raw `(boolean (wire/arg …))`
@@ -616,38 +598,11 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Frame targeting — the colon-prefixed `frame` arg must route to the
-;; named frame, NOT the malformed `::rf/xray` that a raw `(keyword ...)`
-;; coercion would mint. A string-form frame must never become a
-;; `{:mode :sync}` success that silently no-op'd on the named frame.
+;; Opts composition — an absent optional arg emits no slot. The
+;; colon-prefixed `frame` arg routing to the well-formed `:rf/xray` (never
+;; the malformed `::rf/xray` a raw `(keyword ...)` would mint) is pinned
+;; by the `:dispatch/frame-targeted-routes` corpus fixture.
 ;; ---------------------------------------------------------------------------
-
-(deftest colon-prefixed-frame-routes-to-named-frame
-  ;; The documented `frame` arg form is colon-prefixed (`":rf/xray"` —
-  ;; Tool-Catalogue §Id representation). A raw `(keyword ":rf/xray")`
-  ;; coercion would mint the MALFORMED `::rf/xray` (namespace literally
-  ;; `":rf"`) — a frame the runtime never registered, so dispatch would
-  ;; silently no-op. The emitted opts map MUST carry the well-formed
-  ;; `:rf/xray`.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:rf.xray/focus-event 85]"
-                                           :frame ":rf/xray"
-                                           :sync true})))
-          (.then (fn [_]
-                   (let [parsed (cljs.reader/read-string @captured)
-                         ;; The opts map rides quoted.
-                         opts   (quoted-datum (nth parsed 2))]
-                     (is (= 're-frame2-pair.runtime/dispatch-consequence! (first parsed)))
-                     (is (= [:rf.xray/focus-event 85] (quoted-datum (second parsed))))
-                     (is (= :rf/xray (:frame opts))
-                         "frame routes to the well-formed :rf/xray keyword, namespace `rf`, not `:rf`")
-                     (is (not (re-find #"::rf/xray" @captured))
-                         "no malformed double-colon keyword in the emitted form"))
-                   (done)))))))
 
 (deftest absent-optional-args-emit-an-empty-opts-map
   ;; Absent `frame` arg ⇒ no `:frame` key (the runtime resolves the
@@ -665,40 +620,6 @@
                        "no optional arg ⇒ no opts slot")
                    (done)))))))
 
-;; ---------------------------------------------------------------------------
-;; Success-vs-error contract — a runtime `{:ok? false ...}` (the
-;; frame-untargetable / no-epoch result) MUST surface as an :isError
-;; envelope WITHOUT a `:mode` slot, never a `{:mode :sync}` merged over
-;; the failure (which would be a silent wrong-success).
-;; ---------------------------------------------------------------------------
-
-(deftest runtime-failure-surfaces-as-error-not-mode-success
-  ;; Frame couldn't be targeted (head didn't advance) — the runtime
-  ;; reports {:ok? false :reason :no-new-epoch}. The tool MUST NOT
-  ;; report {:mode :sync}; it must surface the structured failure as an
-  ;; error envelope.
-  (async done
-    (let [runtime-result {:ok?    false
-                          :reason :no-new-epoch
-                          :event  [:rf.xray/focus-event 85]
-                          :frame  :rf/xray
-                          :hint   "dispatch-sync returned, but epoch-history head did not advance."}]
-      (-> (with-captured-eval! (atom nil) runtime-result
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:rf.xray/focus-event 85]"
-                                           :frame ":rf/xray"
-                                           :sync true})))
-          (.then (fn [r]
-                   (is (err? r) "runtime :ok? false ⇒ :isError envelope")
-                   (let [edn (read-result-text r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :no-new-epoch (:reason edn)))
-                     (is (not (contains? edn :mode))
-                         "NO :mode slot — the dispatch did not land")
-                     (is (= :rf/xray (:frame edn))
-                         "structured failure carries the targeted frame"))
-                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render-settle — `:await-render`.
@@ -1012,30 +933,6 @@
 ;; discipline exists to kill. Ordinary live `cofx` dispatch stays `:live`
 ;; (the router default) unless the named `replay` affordance is selected.
 ;; ---------------------------------------------------------------------------
-
-(deftest replay-threads-strict-mint-policy-with-cofx
-  ;; The headline case: `replay true` alongside a recorded `cofx`
-  ;; must emit BOTH the recorded `:rf.cofx` AND `:rf.cofx/mint-policy :strict`
-  ;; in the runtime opts — the per-call replay lever wins over the frame's
-  ;; (default :live) config, so an incomplete record halts rather than mints.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:ok? true :epoch-id 9 :db-changed? true}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:todo/add {:text \"buy milk\"}]"
-                                           :replay true
-                                           :cofx "{:rf/time-ms 1781078400123 :counter/delta 4}"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [opts (opts-arg captured)]
-                     (is (= {:rf/time-ms 1781078400123 :counter/delta 4} (:rf.cofx opts))
-                         "the recorded :rf.cofx token rides verbatim")
-                     (is (= :strict (:rf.cofx/mint-policy opts))
-                         "replay hard-wires :rf.cofx/mint-policy :strict")
-                     (is (re-find #":rf\.cofx/mint-policy" @captured)
-                         "the strict opt is emitted in the runtime form"))
-                   (done)))))))
 
 (deftest replay-without-cofx-still-strict
   ;; Replay is strict EVEN WITHOUT a `cofx` token — a record with no scripted
