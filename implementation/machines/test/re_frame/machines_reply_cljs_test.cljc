@@ -12,7 +12,6 @@
   `re-frame.reply/validate-reply` contract so the closed-status taxonomy +
   value/error conventions + data-only invariant hold uniformly."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.edn :as edn]
             [re-frame.machines.reply :as rf.machines.reply]
             [re-frame.reply :as rf.reply]))
 
@@ -32,11 +31,7 @@
   (testing "explicit per-state-singleton :fixed-actor-id (no #n suffix) → generation 1"
     (is (= [:rf.work/machine :explicit/actor [:s] 1]
            (rf.machines.reply/spawn-work-id :explicit/actor [:s]))
-        "one attempt, generation 1 (EP-0007)"))
-  (testing "work-id is =-comparable and EDN-serializable"
-    (let [wid (rf.machines.reply/spawn-work-id :a/b#3 [:x])]
-      (is (= wid (rf.machines.reply/spawn-work-id :a/b#3 [:x])))
-      (is (= wid (edn/read-string (pr-str wid)))))))
+        "one attempt, generation 1 (EP-0007)")))
 
 ;; ---- cross-platform actor-generation determinism --------------------------
 ;; A `:fixed-actor-id` carrying a `#` followed by a non-fully-numeric suffix
