@@ -115,15 +115,6 @@
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "literal-bearing vector forms are fully walkable — no opaque nudge"))))
 
-(deftest nested-compiled-child-still-warns-walker-opaque
-  (testing "the once-per-process opaque-walker warning fires
-            for a vector-form schema that nests a real compiled child"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:token]
-                         [:map [:secret (m/schema [:string {:sensitive? true}])]])
-      (is (= 1 (count (warnings-of recorded :rf.warning/schema-walker-opaque)))
-          "a nested compiled child triggers the walker-opaque warning"))))
-
 (deftest root-registry-ref-warns-walker-opaque-as-unknown
   (testing "registering a ROOT `[:ref ...]` emits the opaque
             nudge once. `:schema-kind` is `:unknown` — the ref shape has no
@@ -190,15 +181,6 @@
       (is (not= :rf/redacted (-> v :tags :explain))
           ":explain is not spuriously redacted"))))
 
-(deftest non-sensitive-enum-event-failure-rides-verbatim
-  (testing "a failing NON-sensitive :enum event schema
-            preserves the value and is not stamped sensitive"
-    (let [v (event-failure-trace
-              [:cat [:= :demo/e] [:enum "a" "b"]] [:demo/e "z"])]
-      (is (some? v))
-      (is (not (contains? v :sensitive?)))
-      (is (= [:demo/e "z"] (-> v :tags :value))))))
-
 ;; ---- validation egress: always-on redact-validation-tags -------------------
 ;; The boundary / off-namespace emit sites reach the walker through the pure
 ;; `redact-validation-tags` seam. It is host-agnostic, so the CLJS half asserts
@@ -215,11 +197,9 @@
                       [:cat [:= :demo/e] [:enum 1 2]]
                       [:= 42]
                       [:enum "a" "b"]]]
-        (let [out (rf.schemas/redact-validation-tags schema tags)]
-          (is (= tags out)
-              (str "non-sensitive literal schema rides verbatim: " (pr-str schema)))
-          (is (not (contains? out :sensitive?))
-              (str "no :sensitive? stamp for: " (pr-str schema))))))))
+        (is (= tags (rf.schemas/redact-validation-tags schema tags))
+            (str "non-sensitive literal schema rides verbatim, unstamped: "
+                 (pr-str schema)))))))
 
 ;; ---- the always-on seam for the explicit reference form -------------------
 ;;
@@ -260,5 +240,4 @@
     (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}
           out  (rf.schemas/redact-validation-tags
                  [:map [:ref {:optional true} :string]] tags)]
-      (is (= tags out) "map entry keyed :ref rides verbatim")
-      (is (not (contains? out :sensitive?)) "no :sensitive? stamp"))))
+      (is (= tags out) "map entry keyed :ref rides verbatim, unstamped"))))

@@ -159,39 +159,23 @@
 
 ;; ---- negative paths (no warning) ------------------------------------------
 
-(deftest warning-suppressed-when-schema-is-vector-form
-  (testing "reg-app-schema with a vector-form Malli schema (introspectable)
-            does NOT emit the warning"
+(deftest warning-suppressed-on-introspectable-schemas
+  (testing "introspectable schemas never warn: a vector form with no opaque
+            descendant, a primitive keyword (`:int` / `:string` /
+            `:boolean` / `:any`), and a registry-ref keyword
+            (`:my/user-schema`). A keyword cannot carry per-slot props, so
+            the walker provably skips nothing on a primitive; a registry-ref
+            keyword cannot be told from a primitive without a forbidden
+            registry consult, so the whole keyword case is suppressed"
     (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:user] [:map [:id :int] [:name :string]])
+      (rf/reg-app-schema [:user]    [:map [:id :int] [:name :string]])
+      (rf/reg-app-schema [:age]     :int)
+      (rf/reg-app-schema [:name]    :string)
+      (rf/reg-app-schema [:active]  :boolean)
+      (rf/reg-app-schema [:misc]    :any)
+      (rf/reg-app-schema [:profile] :my/user-schema)
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
-          "vector-form schema -> no warning"))))
-
-(deftest warning-suppressed-on-primitive-keyword-schemas
-  (testing "primitive keyword schemas (`:int` / `:string`
-            / `:boolean` / `:any`) are valid Malli schemas that cannot
-            carry per-slot props; the walker provably skips nothing, so
-            registering one does NOT emit the false-positive warning"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:age]    :int)
-      (rf/reg-app-schema [:name]   :string)
-      (rf/reg-app-schema [:active] :boolean)
-      (rf/reg-app-schema [:misc]   :any)
-      (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
-          "primitive keyword schemas -> no spurious 'per-slot flags
-           skipped' nudge"))))
-
-(deftest warning-suppressed-on-registry-ref-keyword-schemas
-  (testing "registry-ref keyword schemas (`:my/user-schema`)
-            also do NOT warn: they are indistinguishable from primitive
-            keywords without a forbidden registry consult, so the
-            keyword case is suppressed entirely. The advanced registry-
-            ref-hides-per-slot-flags shape is covered by the walker
-            docstring's discoverability caveat"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:user] :my/user-schema)
-      (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
-          "registry-ref keyword schema -> no warning"))))
+          "no 'per-slot flags skipped' nudge for an introspectable schema"))))
 
 ;; ---- cache-clear semantics ------------------------------------------------
 
