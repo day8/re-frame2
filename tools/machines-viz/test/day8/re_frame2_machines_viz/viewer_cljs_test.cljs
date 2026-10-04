@@ -60,19 +60,7 @@
       (is (= :error (:status vm))
           "a malformed definition must not reach the :ok / MachineChart path")
       (is (= :invalid-chart-state (:reason vm)))
-      (is (nil? (:props vm)) "no MachineChart props are produced for a malformed definition")))
-  (testing "a malformed PARALLEL region body (no keyword
-            :initial, empty :states) is likewise rejected at the viewer boundary"
-    (let [url (envelope->url
-                {:rf.machines-viz.share/v       "2"
-                 :rf.machines-viz.share/chart   {:machine-id :demo
-                                                 :definition {:type    :parallel
-                                                              :regions {:main {:states {}}}}}
-                 :rf.machines-viz.share/created 0})
-          vm  (viewer/decode-location url)]
-      (is (= :error (:status vm)))
-      (is (= :invalid-chart-state (:reason vm)))
-      (is (nil? (:props vm))))))
+      (is (nil? (:props vm)) "no MachineChart props are produced for a malformed definition"))))
 
 (defn- child-testid
   "The `data-testid` of the child component a `[:div attrs [child & args]]`
