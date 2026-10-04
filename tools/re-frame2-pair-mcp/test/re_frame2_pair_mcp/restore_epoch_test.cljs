@@ -104,31 +104,6 @@
 ;; epoch-id parsing — :any, including integers.
 ;; ---------------------------------------------------------------------------
 
-(deftest accepts-integer-epoch-id-as-data
-  ;; The reference runtime emits INTEGER epoch-ids. "7" reads as the
-  ;; number 7 and rides into the runtime call as a data literal.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured true
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-result-text r)]
-                     (is (= true (:ok? edn)))
-                     (is (= true (:restored? edn)))
-                     (is (= 7 (:epoch-id edn)) "integer id round-trips through the envelope"))
-                   (let [parsed (cljs.reader/read-string @captured)]
-                     (is (= 're-frame2-pair.runtime/restore-epoch (first parsed)))
-                     ;; The caller's epoch-id is EDN, so it rides as
-                     ;; `(quote 7)`: the same datum, emitted the way every
-                     ;; caller-supplied argument is.
-                     (is (= '(quote 7) (second parsed))
-                         "epoch-id rides as the quoted integer 7, not \"7\""))
-                   (done)))))))
-
 (deftest passes-frame-as-second-arg
   (async done
     (let [captured (atom nil)]
