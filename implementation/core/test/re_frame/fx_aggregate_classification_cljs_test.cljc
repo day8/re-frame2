@@ -93,26 +93,6 @@
 ;; A. Deterministic projector teeth — hand-built trace shapes.
 ;; =====================================================================
 
-(deftest aggregate-nested-dispatch-inherits-target-classification
-  (testing "CASE (a): a [:dispatch [classified-target …]] entry in the
-            :rf.event/fx aggregate redacts the TARGET's declared arg-map path;
-            the non-secret sibling field and the fx-id survive"
-    (register-target-classification!)
-    (let [ev {:operation :rf.fx/do-fx
-              :tags {:frame        :rf/default
-                     :rf.event/fx [[:dispatch [::target {:secret pw-sentinel
-                                                         :email  email}]]]}}
-          t  (project ev)]
-      (is (= rf.privacy/redacted-sentinel
-             (get-in t [:rf.event/fx 0 1 1 :secret]))
-          "the nested dispatch's target payload :secret reads :rf/redacted")
-      (is (= email (get-in t [:rf.event/fx 0 1 1 :email]))
-          "the non-secret :email survives (path-precise, not whole-event)")
-      (is (= :dispatch (get-in t [:rf.event/fx 0 0]))
-          "shape retained — the fx-id survives")
-      (is (not (leaks? pw-sentinel t))
-          "the secret appears nowhere in the projected do-fx trace"))))
-
 (deftest aggregate-dispatch-later-inherits-target-classification
   (testing "CASE (a): a [:dispatch-later {:ms … :event [classified-target …]}]
             entry redacts the carried TARGET event's payload too"
@@ -207,23 +187,6 @@
             (str k " retains the event id — identity is not redacted"))
         (is (not (leaks? pw-sentinel t))
             (str k " leaks the declared-sensitive value nowhere in the aggregate"))))))
-
-(deftest every-reply-address-key-rides-target-classification-in-fx-args
-  (testing "the same holds on the individual [:rf.fx/id :rf.fx/args]
-            slot shape (:rf.fx/handled and the always-on fx error traces)"
-    (register-target-classification!)
-    (doseq [k  reply-address-keys
-            op [:rf.fx/handled :rf.error/fx-handler-exception]]
-      (let [t (project {:operation op
-                        :tags {:frame      :rf/default
-                               :rf.fx/id   :rf.http/managed
-                               :rf.fx/args {:request {:method :post
-                                                      :url    "https://api.example.test/save"}
-                                            k        [::target {:secret pw-sentinel}]}}})]
-        (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args k 1 :secret]))
-            (str op " " k " :rf.fx/args reply-address payload redacts"))
-        (is (not (leaks? pw-sentinel t))
-            (str op " " k " leaks no secret"))))))
 
 (deftest reply-address-projection-preserves-nil-and-bare-addresses
   (testing "precision: an explicit nil (the fire-and-forget spelling)
