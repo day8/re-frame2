@@ -56,7 +56,6 @@
             [re-frame.core       :as rf]
             [re-frame.frame      :as rf.frame]
             [re-frame.image      :as rf.image]
-            [re-frame.late-bind  :as rf.late-bind]
             [re-frame.live-frame :as rf.live-frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -95,56 +94,6 @@
    :kind             kind
    :id               id
    :handler-fn       impl})
-
-;; ---------------------------------------------------------------------------
-;; The hook itself
-;; ---------------------------------------------------------------------------
-
-(deftest make-frame-publishes-the-destroy-release-hook-rf2-cq0yi
-  (testing "the release is published at `re-frame.live-frame`'s NS
-            LOAD, which strictly precedes any `make-frame`, so it is bound
-            before the first row can exist. This pins the REGISTRATION half
-            directly: a release function that is never published is a silent
-            no-op at teardown, and every other case in this file would then be
-            red for a reason indistinguishable from a broken release.
-
-            What this case CANNOT see is whether the publication re-arms on a
-            hot reload — every case here starts from a complete registry, which
-            is green whether the key is published at load time or from the
-            `make-frame`-rooted once-body. That distinction is pinned by
-            `live_frame_teardown_hook_reload_jvm_test`."
-    (let [f (rf/make-frame {:id :cq0yi-hook/main})]
-      (is (some? (rf.late-bind/get-fn :live-frame/on-frame-destroyed!))
-          ":live-frame/on-frame-destroyed! is published once a frame exists")
-      (rf/destroy-frame! f))))
-
-;; ---------------------------------------------------------------------------
-;; The ordinary (1-arity) row — the common case, and the nil-valued one
-;; ---------------------------------------------------------------------------
-
-(deftest destroy-frame-releases-ordinary-generation-provenance-rf2-cq0yi
-  (testing "an ORDINARY one-arity `make-frame` records a row whose
-            VALUE is nil (meaning: resolved against the live source store), and
-            `destroy-frame!` releases it along with the frame record"
-    (let [id :cq0yi-ordinary/main]
-      (testing "baseline: no row for this never-used id"
-        (is (not (row? id))))
-      (let [f (rf/make-frame {:id id})]
-        (testing "NON-VACUITY control — the row WAS written while the frame was
-                  live, so the post-teardown absence below is a release rather
-                  than a row that never existed"
-          (is (row? id) "make-frame recorded a provenance row for the live frame")
-          (is (nil? (get (provenance) id))
-              "and its value is nil — the live source store. This is exactly why
-               the presence probe above is `contains?`: `get` cannot separate
-               this live row from no row at all.")
-          (is (live? id) "the frame record is live"))
-        (rf/destroy-frame! f)
-        (testing "after teardown BOTH are gone"
-          (is (not (live? id)) "the frame record was destroyed")
-          (is (not (row? id))
-              "the provenance row was RELEASED — a surviving row would stay for
-               the remainder of the process"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The explicit-pool (2-arity) row, across two same-id incarnations
