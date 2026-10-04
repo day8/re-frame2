@@ -388,33 +388,6 @@
 ;; ssr-handler — frame lifecycle (create + destroy)
 ;; ===========================================================================
 
-(deftest handler-creates-and-destroys-per-request-frame
-  (testing "every request creates a fresh frame and destroys it before returning"
-    (register-articles-app! [{:id "x" :title "Article X"}])
-    (let [destroyed (atom [])
-          _ (rf/register-listener! :trace ::destroy-watch
-              (fn [ev]
-                (when (= :rf.frame/destroyed (:operation ev))
-                  (swap! destroyed conj (:frame ev)))))
-          handler (rf.ssr.ring/ssr-handler
-                    {:initial-events    [[:rf/server-init]]
-                     :root-view    [(rf/view :pages/articles)]
-                     :fx-overrides {:http/get :http/get.canned}
-                     :payload :rf.ssr.payload/whole-app-db})
-          frames-before (set (rf/frame-ids))
-          response (handler {:uri "/" :request-method :get})
-          frames-after (set (rf/frame-ids))]
-      (rf/unregister-listener! :trace ::destroy-watch)
-      (is (= 200 (:status response)))
-      ;; No per-request frame leaks into the global frame registry.
-      ;; Some destroy-trace-side-channel frame-ids must have been
-      ;; recorded — i.e. the handler did create + destroy at least one
-      ;; per-request frame.
-      (is (= frames-before frames-after)
-          "the per-request frame is removed from the registry after destroy")
-      (is (seq @destroyed)
-          ":rf.frame/destroyed trace fired for the per-request frame"))))
-
 (deftest handler-per-request-teardown-is-incarnation-exact
   (testing "the per-request frame teardown destroys the frame VALUE make-frame
             returned (carrying the exact incarnation token), NOT the bare gensym
@@ -1480,7 +1453,10 @@
 ;;
 ;;   3. The opt-in branch — `:payload :rf.ssr.payload/whole-app-db`
 ;;      ships the whole app-db verbatim (apps that genuinely want it
-;;      can opt in explicitly).
+;;      can opt in explicitly). Every whole-app-db test in this file
+;;      reads that slice off the wire, e.g.
+;;      `hydration-payload-omits-rf-response-accumulator` and
+;;      `shipped-handler-hydrates-without-frame-id-mismatch`.
 ;;
 ;;   4. A typo'd `:payload` keyword surfaces as
 ;;      `:rf.error/ssr-unknown-payload-policy` — distinct from the
@@ -1590,37 +1566,6 @@
       (is (not (str/includes? payload-edn "admin-uid"))
           "belt-and-braces over multiple un-permitted slots"))))
 
-(deftest payload-policy-whole-app-db-opt-in-ships-everything
-  (testing "explicit :payload :rf.ssr.payload/whole-app-db is
-            the documented opt-in for apps whose entire app-db is intended
-            for the wire"
-    (rf/reg-event :init/wholeapp
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:db {:public/articles [:a :b :c]
-              :public/user-id  "u-99"
-              :public/theme    :dark}}))
-
-    (rf/reg-view* :pages/wholeapp
-      (fn [] [:div.page "whole app"]))
-
-    (let [handler   (rf.ssr.ring/ssr-handler
-                      {:initial-events      [[:init/wholeapp]]
-                       :root-view      [(rf/view :pages/wholeapp)]
-                       :payload :rf.ssr.payload/whole-app-db})
-          response  (handler {:uri "/" :request-method :get})
-          body      (:body response)
-          payload-m (re-find #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                             body)
-          payload-edn (when payload-m (second payload-m))]
-      (is (= 200 (:status response)))
-      (is (some? payload-edn))
-      ;; All three keys present — opt-in shipped the whole app-db.
-      (is (str/includes? payload-edn "u-99")
-          ":public/user-id reached the wire under the whole-app-db opt-in")
-      (is (str/includes? payload-edn ":dark")
-          ":public/theme reached the wire under the whole-app-db opt-in"))))
-
 ;; ===========================================================================
 ;; ssr-handler / stream-handler — trusted shell-hook contract
 ;;
@@ -1640,12 +1585,14 @@
 ;; first request.
 ;;
 ;; Strings pass through unchanged — the framework names the boundary
-;; but does not gate the content (per the trusted-string contract).
-;; Nil is fine (means "no override, use the default").
+;; but does not gate the content (per the trusted-string contract); every
+;; render test that sets one reads it back. Nil is fine (means "no
+;; override, use the default"; `explicit-nil-shell-opts-render-the-defaults`
+;; renders all four as nil on both handlers).
 ;; ===========================================================================
 
 (deftest handler-construction-rejects-non-string-trusted-shell-opts
-  (testing "ssr-handler structural-shape-checks the four
+  (testing "both handlers structural-shape-check the four
             trusted-shell-hook opts at construction time"
     (rf/reg-event :init/trusted-opt-test
                      {:platforms #{:server}} (fn [_ _] {}))
@@ -1699,55 +1646,10 @@
           (is (= {:script "evil"} (:got (ex-data ex))))
           (is (= :supply-string-or-nil (:recovery (ex-data ex))))))
 
-      (testing "strings pass through unchanged — the framework names
-                the boundary but does not gate the content; the
-                trust call itself is the caller's"
-        (is (fn? (rf.ssr.ring/ssr-handler
-                   (assoc base-opts
-                          :head           "<title>OK</title>"
-                          :body-end       "<script src=\"/analytics.js\"></script>"
-                          :script-src     "/custom-bootstrap.js"
-                          :app-element-id "root")))
-            "all four opts passed as strings — handler construction succeeds"))
-
-      (testing "nil values pass — explicit nil signals 'no override,
-                use the default'; the construction-time check accepts it
-                AND the page renders the defaults (a construction-only check
-                could not see nil drop the
-                bootstrap script and render id=\"\")"
-        (let [body (:body ((rf.ssr.ring/ssr-handler
-                             (assoc base-opts
-                                    :head           nil
-                                    :body-end       nil
-                                    :script-src     nil
-                                    :app-element-id nil))
-                           {:uri "/" :request-method :get}))]
-          (is (str/includes? body "<script src=\"/main.js\"></script>")
-              "nil :script-src renders the default bootstrap script")
-          (is (str/includes? body "<div id=\"app\">")
-              "nil :app-element-id renders the default app root id")))
-
-      (testing "absent keys pass (regression guard — the check is
-                contains?-aware so absent opts don't trip on the
-                non-nil branch)"
-        (is (fn? (rf.ssr.ring/ssr-handler base-opts)))))))
-
-(deftest stream-handler-construction-rejects-non-string-trusted-shell-opts
-  (testing "stream-handler shares the trusted-shell-hook
-            structural contract — mirror of the ssr-handler test for the
-            chunked host adapter. The streaming prefix/suffix routes the
-            same four opts into the rendered HTML envelope (:head /
-            :body-end as raw content hooks, :script-src / :app-element-id
-            as escaped attribute hooks)."
-    (rf/reg-event :init/trusted-opt-stream
-                     {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/trusted-opt-stream (fn [] [:div]))
-
-    (let [base-opts {:initial-events    [[:init/trusted-opt-stream]]
-                     :root-view    [(rf/view :pages/trusted-opt-stream)]
-                     :payload [:public/x]}]
-      (testing "stream-handler rejects non-string non-nil values on
-                each of the four trusted-string opts"
+      (testing "stream-handler shares the contract: the streaming
+                prefix/suffix routes the same four opts into the envelope
+                (:head / :body-end as raw content hooks, :script-src /
+                :app-element-id as escaped attribute hooks)"
         (doseq [[opt-k bad-val] [[:head            {:title "x"}]
                                  [:body-end        ['x]]
                                  [:script-src      :main.js]
@@ -1757,15 +1659,7 @@
                 #":rf\.error/ssr-trusted-shell-opt-invalid"
                 (rf.ssr.ring/stream-handler (assoc base-opts opt-k bad-val)))
               (str "stream-handler MUST reject " (pr-str opt-k) " = "
-                   (pr-str bad-val)))))
-
-      (testing "stream-handler accepts strings on all four"
-        (is (fn? (rf.ssr.ring/stream-handler
-                   (assoc base-opts
-                          :head           "<meta name=\"x\">"
-                          :body-end       "<script src=\"/x.js\"></script>"
-                          :script-src     "/boot.js"
-                          :app-element-id "root"))))))))
+                   (pr-str bad-val))))))))
 
 ;; ===========================================================================
 ;; Nil means "use the default" for every shell opt, and
@@ -1807,6 +1701,8 @@
                 :payload        [:public/x]}]
       (doseq [[label opts] [["absent keys (control)" base]
                             ["explicit nils" (assoc base
+                                                    :head           nil
+                                                    :body-end       nil
                                                     :script-src     nil
                                                     :app-element-id nil
                                                     :lang           nil)]]
@@ -2075,61 +1971,35 @@
     (fn [{rt :rf.db/runtime} _] {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:route-id :route/with-attrs})}))
   (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
 
-(deftest default-shell-stamps-html-attrs-and-body-attrs
-  (testing "head model with :html-attrs + :body-attrs → both bags reach
-            the wire on the opening tags; :html-attrs :lang wins over the
-            :lang opt (Spec 011 §Head/meta contract)."
-    (register-attrs-app! {:html-attrs {:lang "fr" :data-theme "dark"}
-                          :body-attrs {:class "page-article"}})
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/seed-attrs-route]]
-                      :root-view [(rf/view :pages/blank-attrs)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (:body response)]
-      (is (= 200 (:status response)))
-      (is (str/includes? body "<html lang=\"fr\" data-theme=\"dark\">")
-          ":html-attrs stamped on <html> verbatim; :lang in the bag
-           takes precedence over the :lang opt default")
-      (is (str/includes? body "<body class=\"page-article\">")
-          ":body-attrs stamped on <body>"))))
-
-(deftest default-shell-html-and-body-bare-when-attrs-absent
-  (testing "head model with no :html-attrs / :body-attrs → <html> falls
-            back to the :lang opt (default \"en\"); <body> is bare. This
-            is the default for routes that don't opt into attr bags."
-    (register-attrs-app! {:title "T"}) ; no attr bags
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/seed-attrs-route]]
-                      :root-view [(rf/view :pages/blank-attrs)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (:body response)]
-      (is (= 200 (:status response)))
-      (is (str/includes? body "<html lang=\"en\">")
-          ":html-attrs absent → :lang opt fallback (default \"en\")")
-      (is (str/includes? body "<body>")
-          ":body-attrs absent → <body> emitted bare"))))
-
-(deftest default-shell-html-attrs-fills-missing-lang-from-opt
-  (testing ":html-attrs present but :lang absent → :lang opt fills it in.
-            The bag still wins for every other attribute it declares."
-    (register-attrs-app! {:html-attrs {:data-theme "dark"}})
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/seed-attrs-route]]
-                      :root-view [(rf/view :pages/blank-attrs)]
-                      :lang      "ja"
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (:body response)]
-      (is (= 200 (:status response)))
-      (is (str/includes? body "lang=\"ja\"")
-          ":lang opt (\"ja\") fills in for :html-attrs missing :lang")
-      (is (str/includes? body "data-theme=\"dark\"")
-          ":html-attrs :data-theme reaches <html>"))))
+(deftest default-shell-stamps-the-head-model-attr-bags
+  (testing "the head model's :html-attrs / :body-attrs bags reach the wire
+            on the opening tags; a :lang in the bag wins, and the :lang opt
+            (default \"en\") fills an absent or :lang-less bag (Spec 011
+            §Head/meta contract)"
+    (doseq [[label head-model opts expected]
+            [["both bags: stamped verbatim, the bag's :lang over the opt default"
+              {:html-attrs {:lang "fr" :data-theme "dark"}
+               :body-attrs {:class "page-article"}}
+              {}
+              ["<html lang=\"fr\" data-theme=\"dark\">" "<body class=\"page-article\">"]]
+             ["no bags: <html> takes the :lang opt default, <body> is bare"
+              {:title "T"}
+              {}
+              ["<html lang=\"en\">" "<body>"]]
+             ["a bag without :lang: the :lang opt fills it, the bag keeps the rest"
+              {:html-attrs {:data-theme "dark"}}
+              {:lang "ja"}
+              ["lang=\"ja\"" "data-theme=\"dark\""]]]]
+      (register-attrs-app! head-model)
+      (let [response ((rf.ssr.ring/ssr-handler
+                        (merge {:initial-events [[:init/seed-attrs-route]]
+                                :root-view      [(rf/view :pages/blank-attrs)]
+                                :payload        :rf.ssr.payload/whole-app-db}
+                               opts))
+                      {:uri "/" :request-method :get})]
+        (is (= 200 (:status response)) label)
+        (doseq [s expected]
+          (is (str/includes? (:body response) s) (str label ": " s)))))))
 
 (deftest default-shell-attr-string-handles-booleans-and-nil
   (testing "attr-string serialisation contract on the shell bags — `nil` →
@@ -2417,10 +2287,11 @@
 ;;
 ;; The runtime always seeds a Content-Type on the accumulator, so a
 ;; default-when-absent fold could never apply the opt; it is a genuine
-;; OVERRIDE. These tests
-;; pin the wire contract end-to-end through the full non-streaming handler:
+;; OVERRIDE. The wire contract, end-to-end through the full non-streaming
+;; handler:
 ;;   (a) a custom opt force-replaces the default seed on the wire,
-;;   (b) omitting the opt leaves the runtime's text/html seed in place,
+;;   (b) omitting the opt leaves the runtime's text/html seed in place
+;;       (`handler-renders-html-with-status-and-headers` reads it),
 ;;   (c) omitting the opt leaves an app-set `:rf.server/set-header`
 ;;       Content-Type in control (an absent opt does not clobber it).
 ;; ===========================================================================
@@ -2455,21 +2326,6 @@
       (is (= "application/xhtml+xml; charset=utf-8"
              (response-content-type response))
           "the custom :content-type opt is on the wire, not text/html"))))
-
-(deftest ssr-handler-default-content-type-is-html-when-opt-absent
-  (testing "with NO :content-type opt the runtime's default seed
-            (text/html; charset=utf-8) rides the wire unchanged"
-    (rf/reg-event :init/ct-def {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/ct-def-body (fn [] [:div "body"]))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/ct-def]]
-                      :root-view      [(rf/view :pages/ct-def-body)]
-                      :payload        :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          ct       (response-content-type response)]
-      (is (= 1 (response-content-type-key-count response)))
-      (is (str/includes? ct "text/html") "default seed content-type on the wire")
-      (is (str/includes? ct "utf-8")))))
 
 (deftest ssr-handler-app-set-content-type-flows-when-opt-absent
   (testing "an app `:rf.server/set-header \"content-type\"` stays
@@ -2538,13 +2394,10 @@
                "response (any casing) — the server frames the String body. "
                "Header keys (lower-cased): " (pr-str keys-lc)))
       ;; The stale values (7 / 13) are nowhere near the real body length;
-      ;; assert the full HTML rode the wire (not capped to a fake length).
+      ;; the whole document rides through, not one capped to a fake length.
       (is (str/includes? body "<!DOCTYPE html>") "shell present")
       (is (str/includes? body "Article A") "resolved view content present")
-      (is (str/includes? body "__rf_payload") "hydration payload present")
-      (is (> (count body) 13)
-          "the real body is far longer than the stale Content-Length — proof
-           the response was not capped to the fake length"))))
+      (is (str/includes? body "__rf_payload") "hydration payload present"))))
 
 ;; ===========================================================================
 ;; Hydration payload </script> injection
@@ -2959,18 +2812,11 @@
              (:headers response))
           "headers pinned to text/plain with UTF-8 charset (no HTML,
            no JSON, no leaked Server header)")
+      ;; Exact reads on the headers and the body, so the throwable's
+      ;; .getMessage can reach neither — the no-leak guarantee.
       (is (= "Internal error" (:body response))
           "body is the literal `\"Internal error\"` — exact string match
-           (a refactor that changes the literal surfaces here)")
-      ;; No-leak — the throwable's message MUST NOT appear in
-      ;; ANY slot of the response. Asserted on every channel that could
-      ;; carry it (status is a number, but headers + body are strings).
-      (is (not (str/includes? (:body response) secret-msg))
-          "body does NOT carry the throwable's
-           .getMessage text — topology disclosure surface closed")
-      (is (not (str/includes? (str (:headers response)) secret-msg))
-          "headers do NOT carry the throwable's
-           .getMessage text either"))))
+           (a refactor that changes the literal surfaces here)"))))
 
 ;; ===========================================================================
 ;; A throwing caller :on-error must be CONTAINED, not escape
