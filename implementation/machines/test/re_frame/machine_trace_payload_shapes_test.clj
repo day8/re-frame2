@@ -4,8 +4,8 @@
 
     1. `:rf.machine/action-ran` carries `:phase` from the closed set
        `:exit / :transition / :entry / :always / :after-action /
-       :initial-entry / :destroy-exit` (`:initial-entry` is pinned in
-       `action_ran_decl_path_test`).
+       :initial-entry / :destroy-exit` (`:exit` / `:transition` / `:entry`
+       and `:initial-entry` are pinned in `action_ran_decl_path_test`).
     2. `:rf.machine/guard-evaluated` carries `:outcome :threw` with
        `:exception` when the guard fn throws. Per Spec 005
        §`:rf.machine/guard-evaluated` (XState v5 alignment):
@@ -44,27 +44,6 @@
 ;; =====================================================================
 ;; (1) :rf.machine/action-ran carries :phase
 ;; =====================================================================
-
-(deftest action-ran-phase-exit-transition-entry
-  (testing "an :on-driven cascade emits one action-ran per slot with
-            :phase :exit / :transition / :entry shallowest-first"
-    (rf/reg-machine :rf2-82a0u/cascade
-      {:initial :idle
-       :actions {:exit-idle  (fn [_] nil)
-                 :do-go      (fn [_] nil)
-                 :enter-done (fn [_] nil)}
-       :states  {:idle {:exit :exit-idle
-                        :on   {:go {:target :done :action :do-go}}}
-                 :done {:entry :enter-done}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rf2-82a0u/cascade [:go]])))
-          as  (ops evs :rf.machine/action-ran)
-          phases (mapv #(-> % :tags :phase) as)
-          ids    (mapv #(-> % :tags :action-id) as)]
-      (is (= [:exit-idle :do-go :enter-done] ids)
-          "cascade order preserved")
-      (is (= [:exit :transition :entry] phases)
-          "phase tags per slot — exit / transition / entry"))))
 
 (deftest action-ran-phase-always
   (testing "an `:always` step's action-ran carries :phase :always"
