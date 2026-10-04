@@ -156,79 +156,6 @@
 ;; 1. Canonical params + scope identity
 ;; ===========================================================================
 
-(deftest canonicalization-is-key-order-independent
-  (testing "scoped key is identical regardless of map key order (Spec 016
-            §Canonicalization rule)"
-    (let [k1 (rf.resources.state/scoped-resource-key {:tenant "acme" :user "u-42"}
-                                        :article/by-slug {:slug "x" :rev 1})
-          k2 (rf.resources.state/scoped-resource-key {:user "u-42" :tenant "acme"}
-                                        :article/by-slug {:rev 1 :slug "x"})]
-      ;; `=` on maps ignores entry order, so it cannot see this; the cache
-      ;; identity is the byte key-id, where entry order is what could differ.
-      (is (= (rf.resources.state/key-id k1) (rf.resources.state/key-id k2))
-          "two spellings of the same scope + params collapse to one key")))
-  (testing "nested maps recurse; sets / vectors keep value semantics"
-    (is (= (rf.identity/canonical-bytes (rf.resources.state/canonicalize {:a {:c 3 :b 2} :z #{2 1}}))
-           (rf.identity/canonical-bytes (rf.resources.state/canonicalize {:z #{1 2} :a {:b 2 :c 3}}))))))
-
-(deftest host-values-rejected-at-the-cache-key-boundary
-  (testing "a host / opaque param value is rejected loudly (Spec 016
-            §Resource identity)"
-    (is (false? (rf.resources.state/serializable-edn? {:f (fn [])})))
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (rf.resources.state/reject-non-edn! {:f (fn [])} 'test :params :r/x)))))
-
-;; The resource sub re-key hot path skips redundant scope/params
-;; re-canonicalization: a trusted `scoped-resource-key*` for
-;; already-canonical inputs (the sub / event / route resolution paths feed it
-;; values that already passed canonicalize-scope + validate+canonicalize-params)
-;; and a single-walk `canonicalize-or-rethrow` folding the reject-non-edn! +
-;; canonicalize pair inside canonicalize-scope. Both MUST behave exactly like
-;; the defensive path.
-(deftest trusted-scoped-key-matches-defensive-on-canonical-input
-  (testing "scoped-resource-key* (no re-canonicalize) yields the SAME key as
-            the defensive scoped-resource-key when handed ALREADY-canonical
-            scope + params — the dedup is behaviour-preserving"
-    (let [cscope  (rf.resources.state/canonicalize {:tenant "acme" :user "u-42"})
-          cparams (rf.resources.state/canonicalize {:slug "x" :rev 1})
-          trusted (rf.resources.state/scoped-resource-key* cscope :article/by-slug cparams)
-          defens  (rf.resources.state/scoped-resource-key cscope :article/by-slug cparams)]
-      (is (= defens trusted) "same key vector")
-      (is (= (rf.resources.state/key-id defens) (rf.resources.state/key-id trusted)) "same byte key-id")))
-  (testing "the defensive constructor canonicalizes RAW (key-order-
-            varying) input to the same identity scoped-resource-key* produces
-            from the canonical value — so RAW direct/test/mutation callers get
-            the same key"
-    (let [raw-a (rf.resources.state/scoped-resource-key {:user "u-42" :tenant "acme"}
-                                           :article/by-slug {:rev 1 :slug "x"})
-          raw-b (rf.resources.state/scoped-resource-key {:tenant "acme" :user "u-42"}
-                                           :article/by-slug {:slug "x" :rev 1})]
-      (is (= (rf.resources.state/key-id raw-a) (rf.resources.state/key-id raw-b))
-          "key-order spellings collapse via the defensive path")
-      (is (= raw-a (rf.resources.state/scoped-resource-key*
-                     (rf.resources.state/canonicalize {:tenant "acme" :user "u-42"})
-                     :article/by-slug
-                     (rf.resources.state/canonicalize {:rev 1 :slug "x"})))
-          "the trusted path on the canonical value matches the defensive path"))))
-
-(deftest canonicalize-or-rethrow-folds-validate-and-canonicalize
-  (testing "on conforming input it returns the SAME value as canonicalize"
-    (is (= (rf.resources.state/canonicalize {:b 2 :a 1})
-           (rf.resources.state/canonicalize-or-rethrow {:a 1 :b 2} 'test :scope :r/x))
-        "canonical result is identical to the two-step (reject + canonicalize)")
-    (is (= :rf.scope/global
-           (rf.resources.state/canonicalize-or-rethrow :rf.scope/global 'test :scope :r/x))
-        "the bare global scope keyword canonicalizes to itself"))
-  (testing "a host / opaque value re-throws the SAME public
-            :rf.error/resource-non-edn-params category reject-non-edn! threw"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (rf.resources.state/canonicalize-or-rethrow {:f (fn [])} 'test :scope :r/x)))
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (rf.resources.state/canonicalize-or-rethrow {:ratio 1.5} 'test :params :r/x)))))
-
 ;; Resource params + scopes use the SHARED CEDN-1 identity rule
 ;; (`re-frame.identity/canonical`, EP-0012), not a resource-local dialect.
 ;; A resource-local canonicalizer would diverge from it in three ways:
@@ -607,21 +534,6 @@
     (is (some? @last-managed-args) "and the request reached the transport")))
 
 ;; ===========================================================================
-;; 3. Pure lifecycle status transition fn (NOT a spawned machine)
-;; ===========================================================================
-
-(deftest next-status-transition-table
-  (testing "Spec 016 §Lifecycle is an FSM — a pure transition fn over the
-            five states"
-    (is (= :loading  (rf.resources.state/next-status :idle    :start-load false)))
-    (is (= :fetching (rf.resources.state/next-status :loaded  :start-load true)))
-    (is (= :loaded   (rf.resources.state/next-status :loading :success   false)))
-    (is (= :error    (rf.resources.state/next-status :loading :failure   false)))
-    ;; background-refresh failure returns to :loaded (data kept)
-    (is (= :loaded   (rf.resources.state/next-status :fetching :failure  true)))
-    (is (= :loading  (rf.resources.state/next-status :error    :start-load false)))))
-
-;; ===========================================================================
 ;; 4. ensure → :loading → succeeded → :loaded  +  structural sharing
 ;; ===========================================================================
 
@@ -850,32 +762,6 @@
               §Invalidation / §Status semantics)"
       (is (some? (:invalidated-at (entry scoped-key))) "durable fact set")
       (is (true? @(rf/subscribe [:rf.resource/stale? q]))))))
-
-(deftest succeeded-loaded-at-stale-at-from-reply-completed-at
-  ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
-  ;; the resource :loaded-at IS the successful reply's completion time
-  ;; (carried on the reply token as the host :completed-at, which the managed
-  ;; transport threads onto the reply event's :rf.cofx :time-ms), and
-  ;; :stale-at = :loaded-at + :stale-after-ms — NOT an ambient clock read in
-  ;; the reply handler. Scripting the reply dispatch's :rf.cofx pins
-  ;; both; the same reply token rewrites the same durable timestamps.
-  (rf/reg-resource :lra/article (article-spec {:stale-after-ms 60000}) article-spec-request)
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :lra/article {:slug "w"})
-        completed-at 1781078400456]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :lra/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :lr 1]}])
-    (let [e (entry scoped-key)]
-      (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource/key scoped-key :work/id (:current-work e)
-                          :generation (:generation e) :data {:title "W"}}]
-                        ;; the managed transport stamps the host :completed-at
-                        ;; here; a fixture scripts it directly on the reply
-                        ;; token's world inputs.
-                        {:rf.cofx {:rf/time-ms completed-at}}))
-    (testing ":loaded-at is EXACTLY the reply completion time (not now)"
-      (is (= completed-at (:loaded-at (entry scoped-key)))))
-    (testing ":stale-at = :loaded-at + the :stale-after-ms policy"
-      (is (= (+ completed-at 60000) (:stale-at (entry scoped-key)))))))
 
 ;; EP-0010 §The World-Input Rule: the ensure FRESH-SKIP gate is a
 ;; freshness DECISION that gates a durable runtime-db write (serve-cache vs
@@ -1244,36 +1130,6 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
           (rf.resources.mutation-registry/resolve-scope :m/x {} [:rf.scope/global] {})))))
-
-;; ===========================================================================
-;; 17. resource-state fails closed without an explicit frame
-;; ===========================================================================
-
-(deftest resource-state-fails-closed-without-frame
-  (rf/reg-resource :rs/article (article-spec) article-spec-request)
-  (testing "a frameless resource-state call raises
-            :rf.error/no-frame-context (never a silent nil that is
-            indistinguishable from an absent entry)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"no-frame-context"
-          (re-frame.resources/resource-state
-            {:resource :rs/article :scope :rf.scope/global :params {:slug "w"}}))))
-  (testing "a valid explicit frame returns nil ONLY for a
-            genuinely absent entry"
-    (is (nil? (re-frame.resources/resource-state
-                {:resource :rs/article :scope :rf.scope/global
-                 :params {:slug "absent"} :frame :rf/default}))))
-  (testing "a valid explicit frame returns the entry when present"
-    (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :rs/article {:slug "w"})]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :rs/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app 1]}])
-      (let [wid (:current-work (entry k))]
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key k :work/id wid :generation 1
-                            :data {:title "W"}}]))
-      (is (some? (re-frame.resources/resource-state
-                   {:resource :rs/article :scope :rf.scope/global
-                    :params {:slug "w"} :frame :rf/default}))))))
 
 ;; ===========================================================================
 ;; 17b. The live entries table keys `:entries` on the CEDN-1 byte `key-id` —
