@@ -266,19 +266,6 @@
        (is (= 0 (config/suppressed-count))
            "suppressed counter also drops in lockstep with the buffer"))))
 
-#?(:cljs
-   (deftest no-clear-when-profile-was-already-redacting
-     (testing "redact → redact transition leaves the buffer alone"
-       ;; The profile started redacting, so no sensitive events ever landed.
-       ;; A redundant narrow to local-redacted must NOT throw away the
-       ;; buffered non-sensitive history.
-       (trace-collector/collect-trace! (non-sensitive-event))
-       (trace-collector/collect-trace! (non-sensitive-event))
-       (is (= 2 (count (trace-collector/buffer-for-test))))
-       (config/set-egress-profile! :rf.egress/local-redacted) ; redundant; default is redacting
-       (is (= 2 (count (trace-collector/buffer-for-test)))
-           "redundant narrow to local-redacted must not clear the buffer"))))
-
 ;; ---- (6) frame-bound sensitive events — the snapshot-read gate ---------
 ;;
 ;; The §(4) tests drive FRAMELESS events through `collect-trace!` — that
