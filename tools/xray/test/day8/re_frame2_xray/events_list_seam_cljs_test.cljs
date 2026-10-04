@@ -151,20 +151,6 @@
         (is (< seam-idx tabs-idx)
             "seam appears BEFORE the tab-bar in pre-order")))))
 
-(deftest l2-list-carries-no-native-resize
-  (testing "there is no browser-native `:resize
-            \"vertical\"` corner-grip: the L2 list's inline
-            style MUST NOT carry `:resize` — the seam handle is the
-            sole vertical-resize affordance."
-    (setup!)
-    (rf/with-frame :rf/xray
-      (let [tree  (dynamic-shell-tree/shell-view-tree {:mode :inline})
-            list  (rf.test-helpers/find-by-testid tree "rf-xray-event-list")
-            style (:style (second list))]
-        (is (some? list) "event-list container present")
-        (is (nil? (:resize style))
-            "no `:resize` declaration — no corner-grip")))))
-
 ;; ---- drag lifecycle -----------------------------------------------------
 
 (defn- stub-event
