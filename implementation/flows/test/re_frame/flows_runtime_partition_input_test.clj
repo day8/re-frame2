@@ -158,7 +158,7 @@
         (is (= :about (get-in db2 [:derived :slug]))
             "drain 2 recomputed onto the CHANGED runtime-db value V2 — app-db was value-identical")
         (is (= [:home :about] @calls)
-            (str "the :derive fn fired on BOTH drains — a runtime-only change "
+            (str "the :derive fn fired on drains 1 and 2 but not 3 — a runtime-only change "
                  "forced the recompute the EP-0001 §542-544 both-partitions "
                  "dirty-check requires. [:home] alone means the resolved runtime "
                  "value is missing from the dirty vector (regression ships green)"))
@@ -166,9 +166,9 @@
             "drain 2 emitted :rf.flow/computed — the recompute is observable on the trace bus")
         ;; drain 3: runtime-db value-equal to drain 2 (and app-db still identical)
         ;; → the dirty-check MUST skip (proves it is genuinely keying, not
-        ;; unconditionally recomputing).
-        (is (= [:home :about] @calls)
-            "the value-equal runtime re-drive did NOT recompute (:derive not re-invoked)")
+        ;; unconditionally recomputing). All three drains ran before the
+        ;; first read, so the @calls read above already shows drain 3 did
+        ;; not re-invoke :derive.
         (is (= 1 (count skip-3))
             "drain 3 emitted :rf.flow/skip — value-equal inputs across BOTH partitions suppress recompute")
         ;; A skip returns the passed db UNCHANGED (no re-derive, no re-write) —
