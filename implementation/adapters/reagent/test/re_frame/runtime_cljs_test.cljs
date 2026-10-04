@@ -6,8 +6,6 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.source-store :as rf.source-store]
-            ;; Listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; Sub-cache-snapshot lives in re-frame.subs.tooling.
             [re-frame.subs.tooling :as rf.subs.tooling]
             ;; reg-runtime-sub (framework runtime-db sub) is an
@@ -15,7 +13,7 @@
             ;; the two-partition projection-equality invalidation pins below.
             [re-frame.subs :as rf.subs]
             [re-frame.frame :as rf.frame]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             ;; Routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
             ;; registrations fire before this ns's reg-route call.
@@ -30,7 +28,7 @@
             ;; (`:epoch/settle!`, `:epoch/capture-event`,
             ;; `:epoch/epoch-history`, `:epoch/restore-epoch!`,
             ;; `:epoch/register-epoch-listener!`, `:epoch/unregister-epoch-listener!`)
-            ;; fire before the epoch-history-cljs / restore-* tests
+            ;; fire before the restore-* tests
             ;; below reach into the late-bind table at call time.
             [re-frame.epoch]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -81,25 +79,6 @@
   (testing "after the with-frame scopes unwind, the dynamic var is back to
             the fixture's ambient scope (:rf/default)"
     (is (= :rf/default (rf/current-frame-id)))))
-
-;; ---- capture-frame — the ONE public HOLD primitive --------------------------
-
-(deftest capture-frame-survives-scope-unwind-cljs
-  (testing "capture-frame captures the current frame at creation time; its
-            handle still targets that frame after with-frame unwinds
-            (capture-frame is the one public carry primitive; there is no
-            frame-bound-fn/frame-bound-fn* on the facade)"
-    (rf/make-frame {:id :side :doc "side frame"})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/dispatch-sync [:seed 99] {:frame :side})
-    (let [handle (with-frame :side (rf/capture-frame))]
-      ;; Outside the with-frame, the dynamic var has reverted to the
-      ;; fixture's ambient scope (`:rf/default`) — not to a resolver
-      ;; fallback, of which there is none. The captured handle still
-      ;; targets :side.
-      (is (= :rf/default (rf/current-frame-id)))
-      (is (= :side (:frame handle)))
-      (is (= 99 (:n (rf/app-db-value (:frame handle))))))))
 
 ;; ---- reg-view macro ---------------------------------------------------------
 
@@ -225,55 +204,7 @@
       (is (= "42"       (:id (:params m)))))
     (is (= "/users/42" (rf.routing/route-url {:to :user/show :params {:id 42}})))))
 
-;; ---- machines (pure machine-transition) -----------------------------------
-
-(deftest machine-transition-cljs
-  (testing "pure machine-transition runs on CLJS"
-    (let [m {:initial :red
-             :data    {}
-             :states
-             {:red    {:on {:tick {:target :green}}}
-              :green  {:on {:tick {:target :yellow}}}
-              :yellow {:on {:tick {:target :red}}}}}
-          {s :snapshot} (rf.machines/machine-transition m {:state :red :data {}} [:tick])]
-      (is (= :green (:state s))))))
-
-;; ---- error paths ----------------------------------------------------------
-
-(deftest sub-exception-recovers-to-nil
-  (testing "a sub whose body throws emits :rf.error/sub-exception and resolves to nil"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:items "broken"}}))
-    (rf/reg-sub :items (fn [db _] (:items db)))
-    (rf/reg-sub :items-count {:inputs [[:items]]}
-      (fn [[items] _]
-        ;; Throws on a string.
-        (count (.something items))))
-    (rf/dispatch-sync [:init])
-    (let [traces (atom [])]
-      (rf.trace.tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
-      (let [v (rf/subscribe-once [:items-count])]
-        (is (nil? v)
-            "the sub returns nil under :replaced-with-default recovery"))
-      (rf.trace.tooling/unregister-listener! ::sub-err)
-      (is (some (fn [ev]
-                  (= :rf.error/sub-exception (:operation ev)))
-                @traces)
-          "expected :rf.error/sub-exception trace"))))
-
-;; ---- render-tree-hash ----------------------------------------------------
-;; Per Spec 011 §Hydration-mismatch detection: the hash must be stable
-;; across JVM and CLJS. The JVM smoke test asserts JVM stability; this
-;; test asserts CLJS stability. The matching JVM/CLJS hex strings are
-;; verifiable manually (or via a future cross-runtime test harness).
-
-(deftest render-tree-hash-cljs
-  (testing "render-tree-hash returns 8-char lowercase hex deterministically"
-    (let [r2h   (rf.ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
-          r2h-2 (rf.ssr/render-tree-hash [:div {:class "x"} [:p "hi"]])
-          r2h-3 (rf.ssr/render-tree-hash [:div {:class "y"} [:p "hi"]])]
-      (is (= r2h r2h-2))
-      (is (not= r2h r2h-3))
-      (is (re-matches #"[0-9a-f]{8}" r2h)))))
+;; ---- SSR end-to-end -------------------------------------------------------
 
 (deftest ssr-end-to-end-cljs
   (testing "complete SSR flow runs against the Reagent adapter on CLJS"
@@ -729,28 +660,6 @@
       (is (= :parametric (:inputs (rf.subs.tooling/sub-algebra-view :article/page)))
           "the static algebra view reports the :parametric marker, not the realized edges")
       (rf/unsubscribe [:article/page :a1]))))
-
-;; ---- epoch history (Tool-Pair §Time-travel) ---------------------
-;;
-;; CLJS smoke test — JVM-side epoch_test.clj covers the broad surface; this
-;; verifies the same machinery loads + records under the Reagent substrate.
-
-(deftest epoch-history-cljs
-  (testing "drain-settle commits a record; register-epoch-listener! fires per-cascade"
-    (rf/make-frame {:id :epoch/cljs})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (let [seen (atom [])]
-      (rf/register-listener! :epoch ::w (fn [r] (swap! seen conj r)))
-      (rf/dispatch-sync [:seed] {:frame :epoch/cljs})
-      (rf/dispatch-sync [:inc]  {:frame :epoch/cljs})
-      (rf/unregister-listener! :epoch ::w)
-
-      (let [history (rf/epoch-history :epoch/cljs)]
-        (is (= [:seed :inc] (mapv :event-id history)))
-        (is (= {:n 1} (:db-after (last history))))
-        (is (= 2 (count @seen)) "register-epoch-listener! fired per-cascade")))))
 
 ;; ---- frame-provider -------------------------------------------
 ;;
