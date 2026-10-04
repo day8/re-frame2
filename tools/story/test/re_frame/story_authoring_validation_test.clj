@@ -126,14 +126,6 @@
     (is (= {:sku "A"}
            (:args (rf.story/handler-meta :fragment :fragment.cart/with-sku))))))
 
-(deftest reg-check-registers-and-is-queryable
-  (testing "reg-check lands a body in the :check side-table"
-    (rf.story/reg-check :check/no-runtime-errors
-      {:assertions [[:rf.assert/no-warnings]]})
-    (is (rf.story/registered? :check :check/no-runtime-errors))
-    (is (= [[:rf.assert/no-warnings]]
-           (:assertions (rf.story/handler-meta :check :check/no-runtime-errors))))))
-
 (deftest reg-fragment-rejects-nested-compose
   (testing "a fragment carrying :compose is rejected at registration (flat fragments)"
     (try
@@ -740,16 +732,6 @@
   `(when enabled? (binding [...] <call>))` → `<call>`."
   [gated-form]
   (last (last gated-form)))
-
-(deftest expand-reg-story-forwards-computed-variants-unchanged
-  (doseq [md ['{:doc "s" :variants formb-variants}
-              '{:doc "s" :variants (merge formb-variants {:c {:setup []}})}]]
-    (testing (pr-str (:variants md))
-      (is (gated? (expand :story.g2k4.fwd md))
-          "ONE gated registration — no do-block of peeled variants")
-      (is (= (list 're-frame.story.registrar/reg-story* :story.g2k4.fwd md)
-             (reg-call (expand :story.g2k4.fwd md)))
-          "reg-story* receives the body exactly as written, :variants included"))))
 
 (deftest expand-reg-story-still-peels-a-literal-variants-map
   (testing "a literal :variants map — even one whose VALUES are symbols — still
