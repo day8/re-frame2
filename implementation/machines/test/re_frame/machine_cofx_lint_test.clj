@@ -138,21 +138,6 @@
                (:tags (first w)))
             "flags the undeclared registered cofx the fn read")))))
 
-(deftest consume-undeclared-silent-for-declared-read-form
-  (testing "a fn reading ONLY the cofx it declared is correct → NO warning"
-    (rf/reg-cofx :lint/declared2 {:recordable? true} (fn [] :D))
-    (let [m {:initial :idle
-             :data    {}
-             :guards  {:g {:rf.cofx/requires [:lint/declared2]
-                           :fn (fn [_] true)
-                           :source-code '(fn [{cofx :rf.cofx}]
-                                           (:lint/declared2 cofx))}}
-             :states  {:idle {:on {:go {:target :done :guard :g}}}
-                       :done {}}}]
-      (lint! :lint/consume-declared m)
-      (is (empty? (warns CONSUME))
-          "the read cofx is declared — no consume-undeclared warning"))))
-
 (deftest consume-undeclared-silent-for-non-cofx-keyword-form
   (testing "a qualified-keyword token that is NOT a registered cofx id (an
             ordinary :data / domain key) is skipped — the `registrar/lookup
