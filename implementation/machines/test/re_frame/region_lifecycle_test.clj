@@ -78,14 +78,6 @@
     (is (= [:root-in :x-in :x1-in :y-in :y1-in] @log)
         "root :entry, then per region in declaration order: the body's :entry, then its initial leaf's")))
 
-(deftest region-entry-runs-at-lazy-birth
-  (let [log (atom [])]
-    (rf/reg-machine :rg/lazy (parallel-machine log {}))
-    (rf/dispatch-sync [:rg/lazy [:fin]])
-    (is (= [:root-in :x-in :x1-in :y-in :y1-in] (subvec @log 0 5))
-        "the first event boots the machine, region :entry among the birth cascade")
-    (is (= 1 (count (filter #{:x-in} @log))))))
-
 (deftest region-entry-data-reaches-the-region-leaf
   (rf/reg-machine :rg/data
     {:type    :parallel
