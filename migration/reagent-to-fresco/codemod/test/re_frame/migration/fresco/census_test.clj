@@ -77,12 +77,15 @@
       (is (str/includes? (:note (first entries)) "NO view-local state tier")))))
 
 (deftest every-roster-class-has-a-recovery-sentence
-  (doseq [[api {:keys [class verdict]}] rf.migration.fresco.census/surface]
-    (testing (str api)
+  (doseq [[label roster require-spec alias]
+          [["reagent"   rf.migration.fresco.census/surface           "[reagent.core :as r]"          "r"]
+           ["substrate" rf.migration.fresco.census/substrate-surface "[re-frame.adapter.uix :as ad]" "ad"]]
+          [api {:keys [verdict]}] roster]
+    (testing (str label " " api)
       (is (contains? (set rf.migration.fresco.census/verdicts) verdict))
       (is (string? (:note (first (:entries (rf.migration.fresco.census/scan
-                                            (str "(ns a (:require [reagent.core :as r]))\n"
-                                                 "(r/" api " x)\n")
+                                            (str "(ns a (:require " require-spec "))\n"
+                                                 "(" alias "/" api " x)\n")
                                             "a.cljs")))))
           "a class the roster can produce but the notes cannot describe"))))
 
@@ -483,16 +486,6 @@
       (is (= [{:api "client-root"} {:api "render!"}] (mapv :detail entries)))
       (testing "and each carries the recovery sentence for boot ceremony"
         (is (str/includes? (:note (first entries)) "Fresco mounts its own root"))))))
-
-(deftest every-substrate-class-has-a-recovery-sentence
-  (doseq [[api {:keys [verdict]}] rf.migration.fresco.census/substrate-surface]
-    (testing (str api)
-      (is (contains? (set rf.migration.fresco.census/verdicts) verdict))
-      (is (string? (:note (first (:entries (rf.migration.fresco.census/scan
-                                            (str "(ns a (:require [re-frame.adapter.uix :as ad]))\n"
-                                                 "(ad/" api " x)\n")
-                                            "a.cljs")))))
-          "a class the roster can produce but the notes cannot describe"))))
 
 (deftest a-shared-roster-name-resolves-by-require
   (testing "this used to assert the two rosters were DISJOINT, on the reasoning
