@@ -141,17 +141,15 @@
   ## Where its own coverage lives, and why it is not here
 
   This namespace holds no `deftest`s, and the rejection arm is on NO green
-  path — a branch nothing takes is untested by construction. So
-  each adopting suite keeps its OWN rejection control, written against that
-  suite's row shape and its own releasables: the two rows under
-  `server-render-ssr-dom-cljs-test`'s §6, and one apiece in
-  `identifier-prefix-ssr-dom-cljs-test` (§6),
-  `presence-ssr-seam-dom-cljs-test` (§6) and
-  `roots-frames-hydration-dom-cljs-test` (H7). Those controls are not
-  duplicates of one another — each manufactures its rejection from the
-  handles its own lane holds, and what they assert is that THIS function
-  reports once and releases everything that lane had open. Centralising
-  them would mean a control that releases nothing real."
+  path — a branch nothing takes is untested by construction. So two
+  adopting suites carry rejection controls, written against their own
+  row shapes and releasables: `server-render-ssr-dom-cljs-test`'s §3b —
+  a throwing body and a rejected adoption, through the public door with
+  a console capture open — and `roots-frames-hydration-dom-cljs-test`'s
+  H7, which adopts two roots through the impl door. What they assert is
+  that THIS function reports once and runs the row's teardown; the other
+  adopting suites hand it the same kinds of releasable, so they keep no
+  copy of their own."
   [p {:keys [row done release! report!]}]
   (let [report!  (or report!  (fn [e] (is false (str row " did not settle cleanly — " e))))
         release! (or release! (fn [] nil))
