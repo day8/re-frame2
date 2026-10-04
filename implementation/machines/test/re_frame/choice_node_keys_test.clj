@@ -4,14 +4,14 @@
 
   - An unknown BARE key on a choice state is refused with
     `:rf.error/machine-unknown-node-key`; a namespaced key passes.
-  - A choice state is a leaf, so an `:on-done` on it is refused with
-    `:rf.error/machine-unknown-node-key`, as any leaf's is.
+  - A choice state is a leaf, so an `:on-done` on it is refused as any leaf's
+    is (pinned in `machine_registration_refusals_test`), and a waiting-state
+    key keeps `:rf.error/machine-choice-extra-keys` (pinned in `choice_test`).
 
   Controls: a well-formed choice state registers, with `:meta` and a
-  namespaced extension; a waiting-state key keeps
-  `:rf.error/machine-choice-extra-keys`; the same checks hold for a choice
-  state inside a parallel region."
-  (:require [clojure.test :refer [deftest is testing]]
+  namespaced extension; the same checks hold for a choice state inside a
+  parallel region."
+  (:require [clojure.test :refer [deftest is]]
             [re-frame.machines :as rf.machines]))
 
 (defn- refusal
@@ -44,22 +44,9 @@
       (is (= :rf.error/machine-unknown-node-key (:rf.error/id d)))
       (is (= [:bogus] (:offending-keys d))))))
 
-(deftest choice-state-refuses-on-done
-  (doseq [build [with-choice-key region-with-choice-key]]
-    (let [d (refusal (build :on-done :a))]
-      (is (= :rf.error/machine-unknown-node-key (:rf.error/id d)))
-      (is (= [:on-done] (:offending-keys d))))))
-
 ;; ---- controls ----------------------------------------------------------------
 
 (deftest well-formed-choice-states-register
   (is (nil? (refusal (with-choice-key :meta {:note "x"}))))
   (is (nil? (refusal (with-choice-key :my.app/note "x"))) "a namespaced key passes")
   (is (nil? (refusal (region-with-choice-key :my.app/note "x")))))
-
-(deftest waiting-state-keys-keep-the-choice-refusal
-  (testing "a reserved key is named by the choice validator, which runs first"
-    (is (= :rf.error/machine-choice-extra-keys
-           (:rf.error/id (refusal (with-choice-key :entry (fn [_] nil))))))
-    (is (= :rf.error/machine-choice-extra-keys
-           (:rf.error/id (refusal (with-choice-key :on {:go :a})))))))
