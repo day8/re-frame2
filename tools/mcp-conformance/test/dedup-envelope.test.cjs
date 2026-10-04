@@ -234,7 +234,7 @@ test('ordinary payload strings in the reference namespace decode verbatim, besid
   const cache = {
     [cacheId(0)]: {
       literal: CACHE_NS_PREFIX + 'not-a-ref', // ordinary: no escape needed
-      'look-alike': escaped('cache-1'), // ordinary, but spells a reference
+      'look-alike': escaped('cache-1'), // ordinary, but spells a slot the table holds
       a: cacheId(1), // the real reference
       b: cacheId(1),
     },
@@ -286,22 +286,6 @@ test('escaping is reversible under repetition — one marker is stripped, not al
   assert.equal(out.once, 'de-dupe.cache/cache-1');
   assert.equal(out.twice, 'de-dupe.cache/!cache-1');
   assert.equal(out.other, 'de-dupe.cache/not-a-ref');
-});
-
-test('a namespace-occupying string is not a reference even when a same-named slot exists (rf2-kjv05)', () => {
-  // The aliasing case at its sharpest: the table really does hold
-  // `cache-1`, and the payload really does contain that spelling as
-  // data. A prefix-only decoder would decode the literal as the cached
-  // subtree.
-  const cache = {
-    [cacheId(0)]: { data: escaped('cache-1'), ref: cacheId(1) },
-    [cacheId(1)]: { i: 'am the subtree' },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.deepEqual(out, {
-    data: 'de-dupe.cache/cache-1',
-    ref: { i: 'am the subtree' },
-  });
 });
 
 test('an escaped literal used as a map KEY is unescaped too (rf2-kjv05)', () => {
