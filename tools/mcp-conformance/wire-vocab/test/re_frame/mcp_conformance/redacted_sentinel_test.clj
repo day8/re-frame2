@@ -88,12 +88,11 @@
   ;; anywhere in the conformance-tracked sources. A doc-drift such as a
   ;; `:rf.size/redacted` row in `tools/mcp-base/spec/vocab.md` would
   ;; surface here — the anti-pin catches it before the doc ships.
-  (doseq [variant        redacted-sentinel-near-miss-variants
-          [server files] rf.mcp-conformance.wire-vocab.source-pins/all-source-files
-          rel            files]
-    (testing (str server " — " rel " — near-miss " variant)
+  (doseq [variant redacted-sentinel-near-miss-variants
+          rel     rf.mcp-conformance.wire-vocab.source-pins/all-source-files]
+    (testing (str rel " — near-miss " variant)
       (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
           (str "Found near-miss variant " variant
-               " for :rf/redacted scalar sentinel in " server "/" rel
+               " for :rf/redacted scalar sentinel in " rel
                " — vocabulary-drift bug. The canonical form is "
                ":rf/redacted (per mcp-base/vocab.cljc `redacted-sentinel`).")))))

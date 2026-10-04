@@ -201,9 +201,9 @@
   near-miss anti-pin sweeps. The base
   `rf.mcp-conformance.wire-vocab.source-pins/all-source-files` covers the shared vocab declaration + pair-mcp
   specs; cursor-stale ALSO rides story-mcp's own cursor source, so that
-  file is folded into story-mcp's sweep here. A near-miss spelling
-  introduced on EITHER server's cursor surface trips the gate."
-  (update rf.mcp-conformance.wire-vocab.source-pins/all-source-files :story-mcp (fnil conj []) story-mcp-cursor-source))
+  file joins the sweep here. A near-miss spelling introduced on EITHER
+  server's cursor surface trips the gate."
+  (conj rf.mcp-conformance.wire-vocab.source-pins/all-source-files story-mcp-cursor-source))
 
 (deftest cursor-stale-literal-in-re-frame2-pair-mcp-emit-source
   ;; The canonical declaration lives in mcp-base/vocab.cljc — same
@@ -255,10 +255,9 @@
   ;; cursor source so a near-miss introduced on the
   ;; SECOND server's pagination surface trips here too.
   (doseq [variant (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants :rf.mcp/cursor-stale)
-          [server files] cursor-stale-near-miss-source-files
-          rel files]
-    (testing (str server " — " rel " — near-miss " variant)
+          rel     cursor-stale-near-miss-source-files]
+    (testing (str rel " — near-miss " variant)
       (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
           (str "Found near-miss variant " variant
-               " for :rf.mcp/cursor-stale in " server "/" rel
+               " for :rf.mcp/cursor-stale in " rel
                " — vocabulary-drift bug.")))))

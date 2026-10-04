@@ -256,14 +256,13 @@
   ;; anywhere in the conformance-tracked source/spec tree. Mirrors the
   ;; marker-key near-miss anti-pin. The mcp-base vocab spec is folded
   ;; into the sweep so a near-miss in the catalogue row trips here too.
-  (let [sweep (update rf.mcp-conformance.wire-vocab.source-pins/all-source-files :re-frame2-pair-mcp
-                      (fnil conj []) "tools/mcp-base/spec/vocab.md")]
-    (doseq [variant         (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants :rf.mcp/result)
-            [server files]  sweep
-            rel             files]
-      (testing (str server " — " rel " — near-miss " variant)
+  (let [sweep (conj rf.mcp-conformance.wire-vocab.source-pins/all-source-files
+                    "tools/mcp-base/spec/vocab.md")]
+    (doseq [variant (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants :rf.mcp/result)
+            rel     sweep]
+      (testing (str rel " — near-miss " variant)
         (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
             (str "Found near-miss variant " variant
-                 " for :rf.mcp/result in " server "/" rel
+                 " for :rf.mcp/result in " rel
                  " — vocabulary-drift bug. The canonical form is "
                  ":rf.mcp/result (per mcp-base/vocab.cljc `result-key`)."))))))

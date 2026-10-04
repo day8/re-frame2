@@ -38,10 +38,12 @@
    :story-mcp []})
 
 (def all-source-files
-  "Union of emit-sources and doc-sources, by server. Used by the
-  near-miss anti-pin: we want to forbid near-miss spellings anywhere
-  in any conformance-tracked file, not just emit-sites."
-  (merge-with into emit-source-files doc-source-files))
+  "Every distinct emit-source and doc-source file, across servers. Used
+  by the near-miss anti-pins: we want to forbid near-miss spellings
+  anywhere in any conformance-tracked file, not just emit-sites. A
+  near-miss is a fact about a file, not a server, so the set is flat:
+  both servers list `mcp-base/vocab.cljc`, and it is swept once."
+  (into (sorted-set) cat (concat (vals emit-source-files) (vals doc-source-files))))
 
 (defn marker-key->literal
   "Render a marker key as the literal string that MUST appear in the
