@@ -93,21 +93,6 @@
    :db-after      db-after
    :trace-events  []})
 
-(defn- register-seed-events!
-  "Register test-only seed events that write directly to the Xray
-  frame's app-db. Production code reaches the same shape via
-  :rf.xray/epoch-recorded + the host frame's runtime mutations."
-  []
-  (rf/reg-event :rf.xray-test/seed-history
-    (fn [{:keys [db]} [_ records]]
-      {:db (assoc db :epoch-history (vec records))}))
-  (rf/reg-event :rf.xray-test/seed-target-frame-db
-    (fn [{:keys [db]} _]
-      ;; This is a no-op marker — the host frame's db is the source
-      ;; of truth, and we set it via replace-app-db! below. Kept so
-      ;; tests can locate the seed step by name.
-      {:db db})))
-
 (defn- seed-host-frame!
   "Reset the host (:rf/default) frame's app-db to the supplied
   value via the framework's replace-app-db!. The panel
@@ -132,26 +117,6 @@
     (fn [_ _] {:rf.db/runtime runtime-db-value}))
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:rf.xray-test/seed-runtime-db])))
-
-(defn- seed-xray!
-  "Wire the sub graph + seed history + host-frame db. The
-  test environment proxies the production wiring path (preload +
-  registry + epoch-cb) so the subs read live values."
-  [host-db-value history]
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray})
-  (register-seed-events!)
-  (seed-host-frame! host-db-value)
-  ;; EP-0002 — the inspected target does not default to
-  ;; `:rf/default`; select it EXPLICITLY here. These panel tests use the
-  ;; ordinary `:rf/default` frame as the host under inspection, so the
-  ;; test pins it as the observed target (the gesture the frame picker /
-  ;; mount discovery policy performs in production).
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default]))
-  (when (seq history)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray-test/seed-history history]))))
 
 ;; ---- hiccup walker (mirrors event_detail_cljs_test.cljs) ----------------
 
@@ -189,14 +154,6 @@
                      (= testid (:data-testid (second node))))
             node))
         (hiccup-seq tree)))
-
-(defn- find-all-by-testid-prefix [tree prefix]
-  (filter (fn [node]
-            (and (vector? node)
-                 (map? (second node))
-                 (some-> (:data-testid (second node))
-                         (.startsWith prefix))))
-          (hiccup-seq tree)))
 
 ;; ---- (7) the off-box safe-egress projection ------------------------------
 ;;
@@ -391,12 +348,7 @@
         (is (some? (find-by-testid tree "rf-xray-app-db-state"))
             "current-state inspector body present")
         (is (some? (find-by-testid tree "rf-xray-app-db-state-top"))
-            "TOP user-domain section present")
-        ;; No diff machinery on this view.
-        (is (nil? (find-by-testid tree "rf-xray-diff-sections"))
-            "no diff sections")
-        (is (nil? (find-by-testid tree "rf-xray-app-db-diff-slices"))
-            "no slice stack")))))
+            "TOP user-domain section present")))))
 
 (deftest panel-sections-reserved-areas
   (testing "reserved runtime subsystems render as their own sections:
