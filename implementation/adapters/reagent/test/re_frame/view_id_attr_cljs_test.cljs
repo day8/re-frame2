@@ -8,13 +8,14 @@
 
   Coverage (mirrors `source_coord_dom_cljs_test.cljs` shape):
 
-    - DOM-keyword root with no attrs map: the wrapper splices an attrs
-      map carrying BOTH data-rf2-source-coord AND data-rf-view, the view
-      attribute's value being `(str id)` — i.e. `\":ns/sym\"`.
     - DOM-keyword root WITH an existing attrs map: both attributes are
       merged in alongside the user's attrs.
     - User-supplied data-rf-view wins (don't overwrite).
-    - Form-2 (render-fn returns a fn): inner-fn output gets BOTH attrs.
+    - Form-2 (render-fn returns a fn): inner-fn output gets BOTH attrs,
+      spliced into a root with no attrs map, the view attribute's value
+      being `(str id)` — i.e. `\":ns/sym\"`. A top-level root with no
+      attrs map takes the same splice; `source_coord_dom_cljs_test.cljs`
+      pins its coord.
 
   React Fragment and `[:> Cmp …]` interop roots are exempt from both
   attributes by the same branch; `re-frame.source-coord-dom-cljs-test`
@@ -52,22 +53,6 @@
        (:data-rf2-source-coord (second hiccup))))
 
 ;; ---- DOM-keyword root, no existing attrs map ------------------------------
-
-(deftest tags-dom-root-without-attrs
-  (testing "a reg-view'd component with [:tag children…] gets BOTH
-            :data-rf2-source-coord AND :data-rf-view spliced in"
-    (rf/reg-view ^{:rf/id :rf.view-id-test/no-attrs} no-attrs-view []
-      [:span "hi"])
-    (let [render (rf/view :rf.view-id-test/no-attrs)
-          out    (render)
-          view   (root-view-attr out)
-          coord  (root-coord-attr out)]
-      (is (vector? out))
-      (is (= :span (first out)) "root tag preserved")
-      (is (string? view) ":data-rf-view present alongside :data-rf2-source-coord")
-      (is (string? coord) ":data-rf2-source-coord present (parity)")
-      (is (= ":rf.view-id-test/no-attrs" view)
-          "view attribute value is (str id) — leading-colon preserved"))))
 
 ;; ---- DOM-keyword root with attrs map --------------------------------------
 
