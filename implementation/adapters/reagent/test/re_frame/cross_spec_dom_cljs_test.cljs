@@ -210,7 +210,7 @@
 ;; spec/Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset
 ;; ---------------------------------------------------------------------------
 
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-after-noop-shape-under-ssr-server-preset`,
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-machines-under-ssr`,
 ;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
@@ -271,7 +271,7 @@
 ;; spec/Cross-Spec-Interactions.md#7-route-not-found-under-ssr
 ;; ---------------------------------------------------------------------------
 
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-route-not-found-ssr-status`,
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-route-not-found-ssr`,
 ;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
@@ -1051,7 +1051,7 @@
 ;; spec/Cross-Spec-Interactions.md#16-error-projection-on-the-server
 ;; ---------------------------------------------------------------------------
 
-;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-server-error-projection-shape`,
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-server-error-projection`,
 ;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
