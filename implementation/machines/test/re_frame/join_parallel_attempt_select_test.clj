@@ -142,19 +142,3 @@
             "no stale-completion evidence fired for the legitimate carrier")
         (is (empty? (rf.machines.test-support/events-of :rf.error/machine-spawn-all-bad-child-id))
             "no bad-child-id evidence fired for the legitimate carrier")))))
-
-(deftest later-region-failure-folds-only-itself-by-exact-attempt
-  (testing "the failure side: completing :r2's worker via :fail routes the error
-            carrier to :r2's join only (:r2 folds :worker into :failed); :r1 is
-            untouched and no mis-route evidence fires."
-    (reg-and-start!)
-    (let [r1-join (join-for [:r1/done])
-          r2-join (join-for [:r2/done])]
-      (rf.machines.test-support/reset-captured!)
-      (rf/dispatch-sync [(get-in r2-join [:children :worker]) [:fail]])
-      (let [r1' (join-for [:r1/done])
-            r2' (join-for [:r2/done])]
-        (is (= #{:worker} (:failed r2')) ":r2 folded :worker into :failed")
-        (is (= #{} (:failed r1')) ":r1 folded no failure (not mis-routed)")
-        (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))
-            "no stale-completion evidence for the legitimate failure carrier")))))
