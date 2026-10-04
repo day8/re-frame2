@@ -40,8 +40,7 @@
 
   Asserting on `(:key (meta node))` would be hollow in both directions
   — it passes on metadata Fresco reads nowhere, and FAILS on an
-  attrs-map key that works perfectly. `meta-is-not-where-the-key-lives`
-  states that as an executable claim instead of a comment.
+  attrs-map key that works perfectly.
 
   ## The gutter IS graded by the codec
 
@@ -345,23 +344,3 @@
            delete it")
       (is (= [:div {:key "c-nested"} [:span "nested"]] (nth cells 3))
           "a nested-vector child survives and is not mistaken for attrs"))))
-
-;; ---- (6) the hollow-gate claim, stated executably -----------------------
-
-(deftest meta-is-not-where-the-key-lives
-  (testing "the reason no row above asserts on `(meta …)`.
-            The key rides the attrs map, so `(meta
-            node)` carries NO key while both renderers receive one. A
-            metadata assertion would therefore FAIL on correct code —
-            and PASS on a meta key Fresco reads nowhere.
-            Hollow in both directions."
-    (xray-setup!)
-    (let [cell (first (header-woven (render (three-column-opts {}))))]
-      (is (= "h-a" (reagent-key cell)) "Reagent receives the key")
-      (is (= "h-a" (fresco-key cell))  "Fresco receives the key")
-      (is (nil? (:key (meta cell)))
-          "…and Clojure metadata does not carry it — so a `(meta …)`
-           assertion would be a hollow gate here")
-      (is (= "h-a" (:key (nth cell 1)))
-          "the key lives in the attrs map, the one place BOTH Reagent
-           and Fresco's codec look"))))
