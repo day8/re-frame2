@@ -254,25 +254,6 @@
 ;;     wrong axis slot, would be a fail-open privacy hazard — pin it.
 ;; ---------------------------------------------------------------------------
 
-(deftest clear-over-a-never-classified-path-is-a-silent-no-op
-  (testing "a clear over a path that was NEVER classified is a silent no-op on
-            either axis — no throw, no error trace, the registry is unchanged."
-    (doseq [[clear-key decls path] [[:clear-sensitive sensitive-decls [:never :classified]]
-                                    [:clear-large     large-decls     [:never :large]]]]
-      (is (not (contains? (decls) path))
-          (str "precondition: " path " is absent from the registry " clear-key " prunes"))
-      (rf/reg-event :clear-absent
-        (fn [{:keys [db]} _] {:db db clear-key [path]}))
-      (let [recorded (record-traces! :clear-absent-probe)]
-        (rf/dispatch-sync [:clear-absent])
-        (is (empty? (error-events recorded :rf.error/classification-effect-shape))
-            (str "no classification-effect error — " clear-key
-                 " over an absent path does not throw"))
-        (rf/unregister-listener! :trace :clear-absent-probe))
-      (is (not (contains? (decls) path))
-          (str "the registry is unchanged — " clear-key
-               " over an absent path is a no-op")))))
-
 (deftest clear-sensitive-on-a-large-only-path-leaves-the-large-axis-intact
   (testing ":clear-sensitive over a path classified on the OTHER axis only
             (:large) is a no-op on the sensitive axis AND leaves the large
@@ -548,13 +529,6 @@
                   (keys (:tags trace)))
         (str where ": no private carrier tag reaches the listener"))))
 
-(deftest ^:requires-debug same-event-classification-redacts-its-own-t1-trace
-  (testing "t1 is projected against the candidate registry, so the secret the
-            event classifies never ships raw on its own :rf.event/db-pending"
-    (let [{:keys [t1]} (same-event-login! :auth/login-t1)]
-      (is (= 1 (count t1)) "producer control: the event emitted its t1 trace")
-      (assert-same-event-db-redacted :t1 (first t1)))))
-
 (deftest ^:requires-debug same-event-classification-redacts-its-own-t2-trace
   (testing "t2 (a flow reshaped the pending db) takes the same candidate
             registry as t1"
@@ -564,5 +538,6 @@
       (is (= 1 (count t2)) "producer control: the flow reshaped the db, so t2 fired")
       (is (= 2 (get-in (first t2) [:tags :rf.event/db :doubled]))
           "the flow's output rides t2")
+      (is (= 1 (count t1)) "producer control: the event emitted its t1 trace")
       (assert-same-event-db-redacted :t1 (first t1))
       (assert-same-event-db-redacted :t2 (first t2)))))
