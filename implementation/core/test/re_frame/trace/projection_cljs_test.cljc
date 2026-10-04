@@ -167,9 +167,7 @@
           [c] (rf.trace.projection/group-by-event evs)]
       (is (= 20 (:dispatch-id c)))
       (is (= 10 (:parent-dispatch-id c))
-          "the spawning cascade's id is surfaced on the child cascade"))))
-
-(deftest group-by-event-root-cascade-has-nil-parent
+          "the spawning cascade's id is surfaced on the child cascade")))
   (testing "a root (user / external) dispatch carries no
             :rf.trace/parent-dispatch-id tag, so :parent-dispatch-id is nil"
     (let [evs [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
