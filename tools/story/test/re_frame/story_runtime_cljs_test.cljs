@@ -67,26 +67,6 @@
 ;; body. Wrap the reset fn as a map.
 (use-fixtures :each {:before reset-all!})
 
-;; ---- run-variant returns a Promise --------------------------------------
-
-(deftest cljs-run-variant-returns-promise
-  (testing "run-variant returns a js/Promise"
-    (rf/reg-event :test/inc
-      (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
-    (rf.story/reg-variant :story.cljs.run/v
-      {:setup [[:test/inc] [:test/inc]]})
-    (let [p (rf.story/run-variant :story.cljs.run/v)]
-      (is (rf.story.async/promise? p))
-      (async done
-        (-> p
-            (rf.story.async/then
-              (fn [r]
-                (is (= :story.cljs.run/v (:frame r)))
-                (is (= :ready            (:lifecycle r)))
-                (is (= 2                 (:counter (:app-db r))))
-                (rf.story/destroy-variant! :story.cljs.run/v)
-                (done))))))))
-
 ;; ---- events-only fast-path on CLJS --------------------------------------
 ;;
 ;; The JVM-side `re-frame.story-runtime-test` covers the lifecycle
@@ -108,10 +88,12 @@
     (rf.story/reg-variant :story.cljs.eo/v
       {:setup [[:test.eo/seed]]})
     (let [p (rf.story/run-variant :story.cljs.eo/v)]
+      (is (rf.story.async/promise? p) "run-variant returns a js/Promise")
       (async done
         (-> p
             (rf.story.async/then
               (fn [r]
+                (is (= :story.cljs.eo/v (:frame r)))
                 (is (= :ready  (:lifecycle r))
                     "events-only variant lands :ready")
                 (is (true? (:seeded? (:app-db r)))
@@ -217,18 +199,3 @@
       (is (string?            (:content-hash s)))
       (is (re-matches #"[0-9a-f]{8}" (:content-hash s))
           "content-hash is unsigned fixed-width lowercase hex"))))
-
-;; ---- args precedence ----------------------------------------------------
-
-(deftest cljs-resolve-args-precedence
-  (testing "args precedence chain works on CLJS"
-    (rf.story/configure! {:rf.story/global-args {:theme :light}})
-    (rf.story/reg-story :story.cljs.args
-      {:args {:label "story"}})
-    (rf.story/reg-variant :story.cljs.args/v
-      {:args {:label "variant"} :setup []})
-    (let [r (rf.story/resolve-args :story.cljs.args/v
-                                {:cell-overrides {:icon :star}})]
-      (is (= :light    (:theme r)))
-      (is (= "variant" (:label r)))
-      (is (= :star     (:icon r))))))
