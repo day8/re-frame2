@@ -7,7 +7,9 @@
   held in the flows registry's `frame-last-inputs` map keyed by frame-id. The
   rollback snapshots / restores ONLY the draining frame's atom — a sibling's
   container is a different atom and is structurally untouchable. Cross-frame
-  interference is impossible BY CONSTRUCTION, not merely avoided.
+  interference is impossible BY CONSTRUCTION, not merely avoided. Same-frame
+  rollback atomicity is pinned by `re-frame.flows-trace-test`'s
+  `failed-flow-rolls-back-last-inputs-so-prior-flows-retry`.
 
   Why this matters under concurrency: drain-locks are PER-FRAME (no global
   cross-frame serialization — Spec 002 rule 1 + the flows concurrency stress
@@ -85,34 +87,7 @@
         "the aggregated snapshot still shows B's row")))
 
 ;; ---------------------------------------------------------------------------
-;; 2. Single-frame rollback — atomicity within ONE frame holds under the
-;;    per-frame containers.
-;;
-;; A prior successful flow's advance on the SAME frame must be rolled back
-;; when a later flow on that frame throws (so it re-attempts next drain).
-;; This is the per-frame mirror of
-;; flows_trace_test.clj/failed-flow-rolls-back-last-inputs-so-prior-flows-retry;
-;; pinned here so the per-frame container layout cannot silently regress
-;; the same-frame atomicity contract.
-;; ---------------------------------------------------------------------------
-
-(deftest single-frame-rollback-still-reverts-prior-flow-advance
-  (testing "on one frame, a throwing flow rolls back a prior flow's last-inputs advance"
-    (rf/make-frame {:id :solo :doc "single frame"})
-    (let [a-row-before (atom nil)]
-      ;; :A succeeds (advances its row); :B (downstream of :A's output)
-      ;; throws — so :A's advance must be rolled back.
-      (rf/reg-flow :A {:frame :solo :inputs [[:n]] :output-path [:a-out]} (fn [n] (* 10 (or n 0))))
-      (rf/reg-flow :B {:frame :solo :inputs [[:a-out]] :output-path [:b-out]} (fn [_] (throw (ex-info "boom-B" {}))))
-      (is (thrown? Throwable (rf.flows/run-flows-on-db :solo {:n 5} nil)))
-      (reset! a-row-before (rf.flows.registry/get-frame-flow-last-inputs :solo :A))
-      (is (nil? @a-row-before)
-          ":A's last-inputs advance was rolled back (single-frame atomicity intact)")
-      (is (nil? (rf.flows.registry/get-frame-flow-last-inputs :solo :B))
-          ":B never advanced (it threw)"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. JVM concurrency stress — the interleaving the isolation guards.
+;; 2. JVM concurrency stress — the interleaving the isolation guards.
 ;;
 ;; Frame A repeatedly drains a flow that ALWAYS throws; frame B repeatedly
 ;; drains a SUCCESSFUL flow whose inputs are STABLE after the first drain.

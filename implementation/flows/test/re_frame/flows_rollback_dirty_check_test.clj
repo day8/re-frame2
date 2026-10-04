@@ -110,8 +110,6 @@
       ;; --- Post-rejection state -----------------------------------------
       (is (= {:n 1} (rf/app-db-value :rf/default))
           "app-db keeps {:n 1} — the rejected :out write was discarded")
-      (is (not (contains? (rf/app-db-value :rf/default) :out))
-          ":out absent after the rejection")
       ;; THE LOAD-BEARING ASSERT: the flow's dirty-check row was rolled back
       ;; in lock-step. A surviving advanced row would leave the flow looking
       ;; up-to-date despite its output never reaching app-db.
@@ -137,27 +135,10 @@
                (pr-str (rf/app-db-value :rf/default))))
       (is (:other (rf/app-db-value :rf/default))
           "the no-op event's own write also landed")
+      ;; A durable commit leaves the row advanced: the bookkeeping rolls back
+      ;; only on an actual rejection, never on the happy path.
       (is (= [1] (get-in (rf.flows/last-inputs-snapshot) [:double :rf/default]))
           "after the successful recompute the dirty-check row is advanced to [1]"))))
-
-;; ---------------------------------------------------------------------------
-;; Companion — a DURABLE commit (no rejection) leaves the dirty-check advanced
-;; as normal. Pins that the bookkeeping rolls back only on an actual
-;; rejection (no over-restore on the happy path).
-;; ---------------------------------------------------------------------------
-
-(deftest durable-commit-leaves-dirty-check-advanced
-  (testing "a flow whose output passes candidate validation commits durably and advances last-inputs"
-    (install-predicate-validator!)
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 3}}))
-    (rf/reg-flow :double {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
-    ;; Schema always accepts.
-    (rf/reg-app-schema [:out] {:frame :rf/default} (fn [_] true))
-    (rf/dispatch-sync [:seed])
-    (is (= 6 (:out (rf/app-db-value :rf/default)))
-        "the flow output committed durably")
-    (is (= [3] (get-in (rf.flows/last-inputs-snapshot) [:double :rf/default]))
-        "last-inputs advanced normally on a durable commit (no over-restore)")))
 
 ;; ===========================================================================
 ;; A CHAIN error (`:error` outcome) rolls back the flow dirty-
