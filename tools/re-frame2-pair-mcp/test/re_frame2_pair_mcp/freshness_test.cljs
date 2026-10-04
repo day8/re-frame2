@@ -376,6 +376,27 @@
           (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
           (.then (fn [_] (done)))))))
 
+(deftest jvm-build-freshness-parses-a-success-payload-into-the-documented-shape
+  ;; A realistic JVM success payload must parse back into the four
+  ;; documented keys — proving `jvm-build-freshness-once`'s
+  ;; `(some-> (:value resp) cljs.reader/read-string)` + `map?` guard read
+  ;; the emitted form's return shape, not a degraded nil.
+  (async done
+    (let [payload {:compile-cycle 12 :build-flushed-at 1699999999999
+                   :runtime-count 2 :heartbeat-age-ms 42}
+          orig nrepl/jvm-eval
+          stub (fn
+                 ([_c _form] (js/Promise.resolve {:value (pr-str payload)}))
+                 ([_c _form _o] (js/Promise.resolve {:value (pr-str payload)})))]
+      (set! nrepl/jvm-eval stub)
+      (-> (fresh/jvm-build-freshness (socket-conn) :app)
+          (.then
+            (fn [half]
+              (is (= payload half) "the four documented keys round-trip verbatim")
+              nil))
+          (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
+          (.then (fn [_] (done)))))))
+
 (deftest jvm-build-freshness-blank-value-degrades-to-nil
   ;; A blank/non-map JVM value (a socket hiccup, an old shadow) must degrade
   ;; to nil through the REAL once + retry so the caller sees :liveness
