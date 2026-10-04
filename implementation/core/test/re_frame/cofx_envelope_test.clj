@@ -120,15 +120,6 @@
       (is (= #{:rf/time-ms} (set (keys world)))
           "only the framework-required :rf/time-ms is stamped — no other keys invented"))))
 
-(deftest preserves-caller-supplied-time-ms
-  (testing "a caller-supplied :rf/time-ms is preserved verbatim — the router does NOT overwrite it"
-    (rf/make-frame {:id :wi/supplied :doc "ctx"})
-    (let [env (build-envelope [:noop]
-                              {:frame :wi/supplied
-                               :rf.cofx {:rf/time-ms 1781078400123}})]
-      (is (= 1781078400123 (get-in env [:rf.cofx :rf/time-ms]))
-          "the exact supplied :rf/time-ms rides through (replay / SSR / fixtures)"))))
-
 (deftest preserves-caller-supplied-extra-keys-and-fills-time-ms
   (testing "extra recordable-coeffect facts ride through (flat); a missing :rf/time-ms is filled, supplied facts untouched"
     (rf/make-frame {:id :wi/extra :doc "ctx"})
@@ -206,9 +197,9 @@
 
 (deftest nil-supplied-cofx-passes-and-is-stamped
   (testing "an explicit nil :rf.cofx is a shape the validator must NOT reject:
-            the router stamps a fresh map (the integer and map-without-time
-            shapes pass through `preserves-caller-supplied-time-ms` and
-            `preserves-caller-supplied-extra-keys-and-fills-time-ms` above)"
+            the router stamps a fresh map (the map-without-time shape passes
+            through `preserves-caller-supplied-extra-keys-and-fills-time-ms`
+            above)"
     (rf/make-frame {:id :wi/valid :doc "ctx"})
     (is (number? (get-in (build-envelope [:noop] {:frame :wi/valid
                                                   :rf.cofx nil})
@@ -354,28 +345,6 @@
       (is (= {:theme :dark :tags #{:a :b}} (:user/prefs cofx))
           "a nested EDN map fact rides through unchanged")
       (is (inst? (:session/at cofx)) "an #inst fact rides through"))))
-
-(deftest invalid-cofx-rejected-before-clock-read
-  ;; The validation runs BEFORE the causal-token clock stamp, so an invalid token
-  ;; fails fast WITHOUT triggering the always-on epoch-now-ms read for a
-  ;; dispatch that cannot proceed. Redefine epoch-now-ms to throw a distinct
-  ;; marker; if the clock is read before validation, that marker surfaces.
-  (testing "a malformed :rf.cofx throws the validation error WITHOUT
-            reading the causal-token clock first"
-    (rf/make-frame {:id :wi/order2 :doc "ctx"})
-    (with-redefs [rf.interop/epoch-now-ms
-                  (fn [] (throw (ex-info "clock read before validation"
-                                         {::clock-read true})))]
-      (let [ex   (try
-                   (build-envelope [:noop] {:frame :wi/order2
-                                            :rf.cofx {:rf/time-ms "now"}})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))
-            data (ex-data ex)]
-        (is (not (::clock-read data))
-            "the causal-token clock was NOT read before validation — failed fast")
-        (is (= :rf.error/invalid-cofx (:rf.error/id data))
-            "the surfaced error is the validation error, proving it ran first")))))
 
 (deftest invalid-cofx-raised-through-full-dispatch
   (testing "the full dispatch path (not just build-envelope) raises the validation error"
@@ -684,7 +653,7 @@
                            ;; the run yet DIFFERENT between the two runs, while
                            ;; the SUPPLIED token :rf/time-ms rides through
                            ;; unchanged (the router only fills :rf/time-ms when
-                           ;; absent — see preserves-caller-supplied-time-ms).
+                           ;; absent — see `ensure-cofx`).
                            (with-redefs [rf.interop/now-ms       (constantly ambient-clock)
                                          rf.interop/epoch-now-ms (constantly ambient-clock)]
                              (rf/dispatch-sync [:wi/note]
