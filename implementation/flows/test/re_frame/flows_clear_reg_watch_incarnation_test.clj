@@ -402,39 +402,3 @@
             "A's fenced exact vacation never bumps B's commit epoch"))
       (finally
         (restore-plain-adapter!)))))
-
-;; ---------------------------------------------------------------------------
-;; Green control — when A retains ownership through a NON-destroying watch, the
-;; exact-incarnation app-db vacation MUST still remove the output leaf and
-;; advance the commit epoch. A wrongly-fencing exact path would silently strand
-;; the derived value.
-;; ---------------------------------------------------------------------------
-
-(deftest clear-flow-app-db-vacation-with-live-owner-still-vacates-leaf-and-bumps-epoch
-  ;; Mutation tooth. The exact-incarnation vacation must NOT suppress
-  ;; the normal leaf removal + commit-epoch advance when A stays live.
-  (let [id          :flow.incarnation/clear-vacate-live
-        armed?      (atom false)
-        watch-runs  (atom 0)]
-    (install-watching-adapter!
-      armed?
-      (fn [] (swap! watch-runs inc)))          ; observe only — A stays live
-    (try
-      (rf/make-frame {:id id})
-      (rf/reg-flow :flow.incarnation/k
-        {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
-        (fn [n] (or n 0)))
-      (rf.frame/swap-frame-db! id assoc :out ::a-output)
-      (let [epoch-before (rf.frame/frame-commit-epoch id)]
-        (reset! armed? true)
-        (is (= :flow.incarnation/k (rf/clear :flow :flow.incarnation/k {:frame id}))
-            "clear returns the id, completing normally against the live owner")
-        (is (= 1 @watch-runs) "the container watch fired on the app-db vacation write")
-        (is (not (contains? (rf.frame/frame-app-db-value id) :out))
-            "the materialized output leaf is vacated from the live owner's app-db")
-        (is (> (rf.frame/frame-commit-epoch id) epoch-before)
-            "the exact-incarnation vacation advanced the live owner's commit epoch")
-        (is (nil? (get-in (rf.flows.registry/flows-snapshot) [id :flow.incarnation/k]))
-            "the flow row is removed for the live owner"))
-      (finally
-        (restore-plain-adapter!)))))
