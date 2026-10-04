@@ -104,18 +104,6 @@
   (let [we (val (first (get-in proj [rf.resources.state/resources-key :entries])))]
     [(:resource/key we) we]))
 
-(defn- only-projection-metadata
-  "The single per-entry projection metadata map for a one-entry `runtime-db`.
-
-  The observation point for an entry whose ROW is withheld. A coarse
-  `:redact` / `:omit` key is re-keyed on both components, so like a
-  per-slot-declared `:serialize` key it is not addressable by anything the live
-  client derives, and its row does not ride. What the projection DECIDED is
-  fully reported: `:disposition`, `:projected-key`, `:withheld?`."
-  [runtime-db]
-  (first (rf.resources.ssr/projection-metadata
-           nil 5000 (get-in runtime-db [rf.resources.state/resources-key :entries]))))
-
 (defn- ssr-projected-key
   "The key the SSR projection PRODUCED for the single entry in `runtime-db`.
 
