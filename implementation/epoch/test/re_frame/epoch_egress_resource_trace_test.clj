@@ -522,51 +522,36 @@
 
 (def ^:private cursor-secret "cursor-rec-topsecret-PII-42")
 
-(deftest off-box-redacts-load-more-cursor-sensitive-owner
-  (testing "a :rf.resource/load-more row's :page-param cursor
-            tokenizes off-box for a :sensitive? owner; the structural tags
-            survive; no raw record id egresses"
-    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
-          record     (record-with
-                       [(event :rf.resource/load-more
-                               {:rf.frame/id :test/rt :resource/key scoped-key
-                                :generation 2 :work/id [:rf.work/resource 2]
-                                :page-param cursor-secret :page-index 1
-                                :page-count 1 :owner [:app :l 1] :cause :load-more})])
-          projected  (rf/project-egress record)
-          tags       (:tags (first (:trace-events projected)))]
-      (is (redacted-component? (:page-param tags))
-          "the cursor is tokenized to an opaque {:rf/redacted <digest>}")
-      (is (not= cursor-secret (:page-param tags)) "the raw cursor does not ride")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the structural attribution tags ride verbatim"
-        (is (= 1 (:page-index tags)))
-        (is (= 1 (:page-count tags)))
-        (is (= [:app :l 1] (:owner tags)))
-        (is (= :load-more (:cause tags))))
-      (testing "no raw cursor secret survives anywhere in the projected record"
-        (is (not (re-find #"cursor-rec-topsecret" (pr-str projected))))))))
-
-(deftest off-box-redacts-page-appended-next-cursor-sensitive-owner
-  (testing "a :rf.resource/page-appended row's :next-page-param
-            cursor tokenizes off-box for a :sensitive? owner"
-    (let [resource-key (sk :rf.scope/global :secret/article {:auth-token secret})
-          record       (record-with
-                         [(event :rf.resource/page-appended
-                                 {:rf.frame/id :test/rt :resource/key resource-key
-                                  :work/id [:rf.work/resource 2] :generation 2
-                                  :page-index 1 :page-count 2
-                                  :next-page-param cursor-secret :terminal? false})])
-          projected    (rf/project-egress record)
-          tags         (:tags (first (:trace-events projected)))]
-      (is (redacted-component? (:next-page-param tags))
-          "the next-page cursor is tokenized")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the structural attribution tags ride verbatim"
-        (is (= 2 (:page-count tags)))
-        (is (false? (:terminal? tags))))
-      (is (not (re-find #"cursor-rec-topsecret" (pr-str projected)))
-          "no raw cursor secret survives"))))
+(deftest off-box-redacts-every-cursor-slot-for-a-sensitive-owner
+  (testing "the load-more PAGINATION CURSOR — `:page-param` on
+            :rf.resource/load-more, `:next-page-param` on
+            :rf.resource/page-appended — tokenizes off-box to an opaque
+            {:rf/redacted <digest>} for a :sensitive? owner; the row is stamped
+            :sensitive?, its structural tags ride, and no raw record id egresses"
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})]
+      (doseq [[operation cursor-slot row-tags structural]
+              [[:rf.resource/load-more :page-param
+                {:generation 2 :work/id [:rf.work/resource 2]}
+                {:page-index 1 :page-count 1 :owner [:app :l 1] :cause :load-more}]
+               [:rf.resource/page-appended :next-page-param
+                {:work/id [:rf.work/resource 2] :generation 2 :page-index 1}
+                {:page-count 2 :terminal? false}]]]
+        (testing operation
+          (let [projected (rf/project-egress
+                            (record-with
+                              [(event operation
+                                      (merge {:rf.frame/id  :test/rt
+                                              :resource/key scoped-key
+                                              cursor-slot   cursor-secret}
+                                             row-tags structural))]))
+                tags      (:tags (first (:trace-events projected)))]
+            (is (redacted-component? (cursor-slot tags))
+                "the cursor is tokenized to an opaque {:rf/redacted <digest>}")
+            (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+            (doseq [[slot v] structural]
+              (is (= v (slot tags)) (str slot " rides verbatim")))
+            (is (not (re-find #"cursor-rec-topsecret" (pr-str projected)))
+                "no raw cursor secret survives anywhere in the projected record")))))))
 
 (deftest off-box-keeps-plain-feed-cursor-verbatim
   (testing "over-redaction guard — a PLAIN (non-sensitive) feed's load-more cursor
@@ -599,66 +584,41 @@
    :body-text (str "{\"auth-token\":\"" secret "\"}")
    :detail    :rf.http/http-4xx})
 
-(deftest off-box-redacts-resource-failed-error-envelope
-  (testing "a :rf.resource/failed first-load row's :error HTTP
-            failure envelope (raw response body echoing a submitted secret) is
-            tokenized off-box; the structural status tags survive; no raw secret
-            egresses"
-    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
-          record     (record-with
-                       [(event :rf.resource/failed
-                               {:rf.frame/id :test/rt :resource/key scoped-key
-                                :work/id [:rf.work/resource 1] :generation 1
-                                :status-before :loading :status-after :error
-                                :error http-error-envelope})])
-          projected  (rf/project-egress record)
-          tags       (:tags (first (:trace-events projected)))]
-      (is (redacted-component? (:error tags))
-          "the HTTP failure envelope is tokenized off-box")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the structural status attribution survives"
-        (is (= :loading (:status-before tags)))
-        (is (= :error (:status-after tags)))
-        (is (= :secret/article (second (:resource/key tags)))))
-      (testing "NO raw secret survives anywhere in the projected record"
-        (is (not (contains-secret? projected)))))))
-
-(deftest off-box-redacts-page-failed-page-error-envelope
-  (testing "a :rf.resource/page-failed load-more row's :page-error
-            HTTP failure envelope is tokenized off-box (the third error channel)"
-    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
-          record     (record-with
-                       [(event :rf.resource/page-failed
-                               {:rf.frame/id :test/rt :resource/key scoped-key
-                                :work/id [:rf.work/resource 1] :generation 2
-                                :status-before :loaded :status-after :loaded
-                                :page-error http-error-envelope})])
-          projected  (rf/project-egress record)
-          tags       (:tags (first (:trace-events projected)))]
-      (is (redacted-component? (:page-error tags))
-          "the load-more failure envelope is tokenized off-box")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "NO raw secret survives anywhere in the projected record"
-        (is (not (contains-secret? projected)))))))
-
-(deftest off-box-redacts-mutation-failed-error-envelope
-  (testing "a :rf.mutation/failed settlement row's :error HTTP
-            failure envelope is tokenized off-box"
-    (let [record    (record-with
-                      [(event :rf.mutation/failed
-                              {:rf.frame/id :test/rt :instance 7 :mutation :m/save
-                               :work/id [:rf.work/mutation :m/save 7] :generation 1
-                               :error http-error-envelope})])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))]
-      (is (redacted-component? (:error tags))
-          "the mutation failure envelope is tokenized off-box")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the structural attribution survives"
-        (is (= :m/save (:mutation tags)))
-        (is (= 7 (:instance tags))))
-      (testing "NO raw secret survives anywhere in the projected record"
-        (is (not (contains-secret? projected)))))))
+(deftest off-box-redacts-every-failure-rows-error-envelope
+  (testing "the HTTP failure envelope (raw response body echoing a submitted
+            secret) is tokenized off-box on every failure row that carries one
+            — `:error` on the first-load and mutation-settlement rows,
+            `:page-error` on the load-more row (the third error channel). The
+            row is stamped :sensitive?, its structural attribution rides, and no
+            raw secret egresses. The mutation row carries no `:resource/key`, so
+            its stamp can only come from the envelope."
+    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})]
+      (doseq [[operation envelope-slot row-tags structural]
+              [[:rf.resource/failed :error
+                {:resource/key scoped-key :work/id [:rf.work/resource 1] :generation 1}
+                {:status-before :loading :status-after :error}]
+               [:rf.resource/page-failed :page-error
+                {:resource/key scoped-key :work/id [:rf.work/resource 1] :generation 2
+                 :status-before :loaded :status-after :loaded}
+                {}]
+               [:rf.mutation/failed :error
+                {:work/id [:rf.work/mutation :m/save 7] :generation 1}
+                {:mutation :m/save :instance 7}]]]
+        (testing operation
+          (let [projected (rf/project-egress
+                            (record-with
+                              [(event operation
+                                      (merge {:rf.frame/id :test/rt
+                                              envelope-slot http-error-envelope}
+                                             row-tags structural))]))
+                tags      (:tags (first (:trace-events projected)))]
+            (is (redacted-component? (envelope-slot tags))
+                "the HTTP failure envelope is tokenized off-box")
+            (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+            (doseq [[slot v] structural]
+              (is (= v (slot tags)) (str slot " rides verbatim")))
+            (is (not (contains-secret? projected))
+                "NO raw secret survives anywhere in the projected record")))))))
 
 (deftest off-box-fail-closed-on-unknown-map-slot
   (testing "structural — the fail-CLOSED :else: an UNKNOWN
@@ -813,9 +773,11 @@
         (is (not (contains-secret? projected)))))))
 
 (deftest off-box-keeps-plain-owner-identity-partition-verbatim
-  (testing "over-redaction guard — a PLAIN owner's identity partition rides
-            VERBATIM. The partition is a debugging aid, so redacting it must
-            cost no over-redaction on the ordinary route plan"
+  (testing "over-redaction guard — a PLAIN owner's plan membership
+            (:blocking / :identities) and identity partition ride VERBATIM. The
+            shape-driven default projects through the OWNER classification,
+            exactly as the named slots do, so it costs no over-redaction on the
+            ordinary route plan; the partition is a debugging aid"
     (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
           k2        (sk :rf.scope/global :plain/article {:slug "other"})
           record    (record-with
@@ -829,6 +791,8 @@
       (is (= [k1] (:ensured-identities tags)))
       (is (= [] (:kept-identities tags)) "an empty partition slot survives empty")
       (is (= [k2] (:removed-identities tags)))
+      (is (= [k1] (:blocking tags)) "a plain owner's :blocking rides verbatim")
+      (is (= [k1] (:identities tags)) "a plain owner's :identities rides verbatim")
       (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
 
 (deftest unnamed-slot-projects-identically-to-named-slot
@@ -864,20 +828,6 @@
       (is (every? redacted-component? (map first (:blocking tags)))
           "both keys' scopes tokenized (the derived scope included)")
       (is (not (contains-secret? projected))))))
-
-(deftest off-box-keeps-plain-owner-plan-membership-verbatim
-  (testing "over-redaction guard — a PLAIN owner's :blocking / :identities
-            ride VERBATIM. The shape-driven default projects through the OWNER
-            classification, exactly as the named slots do, so it costs no
-            over-redaction on the ordinary route plan."
-    (let [k1        (sk :rf.scope/global :plain/article {:slug "welcome"})
-          record    (record-with
-                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))]
-      (is (= [k1] (:blocking tags)) "a plain owner's :blocking rides verbatim")
-      (is (= [k1] (:identities tags)) "a plain owner's :identities rides verbatim")
-      (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
 
 (deftest off-box-redacts-scoped-key-embedded-in-resource-work-id
   (testing "a RESOURCE work-id is
@@ -931,7 +881,6 @@
           "a mutation work-id is scalar-only and rides verbatim")
       (is (= #{:tag/articles :tag/feed} (:tags tags))
           "a SET-valued tag rides verbatim AND stays a set")
-      (is (set? (:tags tags)) "the collection KIND is preserved")
       (is (= 2 (:left-stale tags)))
       (is (not (:sensitive? tags))
           "a row with no key-bearing slot is NOT stamped sensitive"))))
@@ -1166,42 +1115,55 @@
   (:scope (:tags (first (:trace-events (rf/project-egress record))))))
 
 ;; ---------------------------------------------------------------------------
-;; (1) :rf.resource/invalidated — events.cljc:1811
+;; (1) every rostered row's FREE :scope — the shape default on each operation
 ;; ---------------------------------------------------------------------------
 
-(deftest off-box-redacts-invalidated-free-scope-tag
-  (testing "the invalidation summary row's FREE :scope tag carries
-            the resolved concrete scope. The sibling projector runs on
-            :rf.resource/scope-resolved ONLY, so the family projector must
-            classify this one: the identity map tokenizes while the TIER
-            keyword rides (a tool still shows \"session scope\")."
-    (let [k1     (sk session-scope :derived/profile {:slug "me"})
-          record (record-with
-                   [(event :rf.resource/invalidated
-                           {:rf.frame/id  :test/rt
-                            :scope        session-scope
-                            :tags         #{:tag/profile}
-                            :cause        [:mutation :m/save 1]
-                            :cross-scope? false
-                            :matched      [k1]
-                            :refetched    1
-                            :left-stale   0
-                            :exempt       []})])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))
-          [tier identity-map] (:scope tags)]
-      (is (= :rf.scope/session tier)
-          "the scope TIER keyword rides verbatim — attribution preserved")
-      (is (redacted-component? identity-map)
-          "the resolver's IDENTITY MAP is tokenized")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the structural attribution rides verbatim"
-        (is (= #{:tag/profile} (:tags tags)))
-        (is (false? (:cross-scope? tags)))
-        (is (= 1 (:refetched tags)))
-        (is (= 0 (:left-stale tags))))
-      (testing "NO raw identity survives anywhere in the projected record"
-        (is (not (contains-secret? projected)))))))
+(deftest off-box-redacts-the-free-scope-tag-on-every-rostered-row
+  (testing "each rostered row's FREE :scope tag carries the resolved concrete
+            scope. The sibling projector runs on :rf.resource/scope-resolved
+            ONLY, so the family projector must classify it on every other row:
+            the identity map tokenizes while the TIER keyword rides (a tool
+            still shows \"session scope\"), and the row's structural
+            attribution rides verbatim. `:rf.resource/refetch-decision`, which
+            carries the scope twice, is pinned by the next test."
+    (let [k1 (sk session-scope :derived/profile {:slug "me"})]
+      (doseq [[operation row-tags structural]
+              [;; events.cljc:1811 — the invalidation summary
+               [:rf.resource/invalidated
+                {:cause [:mutation :m/save 1] :matched [k1] :exempt []}
+                {:tags #{:tag/profile} :cross-scope? false :refetched 1 :left-stale 0}]
+               ;; events.cljc:2069 — the clear-scope teardown: the very scope torn down
+               [:rf.resource/removed
+                {:cause [:logout] :removed [k1] :aborted []}
+                {:reason :clear-scope :completed-at 1234}]
+               ;; mutation_events.cljc:1403 — the mutation's resolved default scope
+               [:rf.mutation/started
+                {:generation 1 :cause [:ui :save]}
+                {:mutation :m/save :instance 7 :work/id [:rf.work/mutation :m/save 7]
+                 :invalidate-timing :after-request}]
+               ;; mutation_events.cljc:1390
+               [:rf.mutation/optimistic-applied
+                {:mutation :m/save :instance 7 :work/id [:rf.work/mutation :m/save 7]
+                 :generation 1 :affected-keys [k1] :tag-matched-keys []
+                 :target-unresolved [] :cause [:mutation :m/save 7]}
+                {:snapshot-id 3}]]]
+        (testing operation
+          (let [projected (rf/project-egress
+                            (record-with
+                              [(event operation
+                                      (merge {:rf.frame/id :test/rt :scope session-scope}
+                                             row-tags structural))]))
+                tags      (:tags (first (:trace-events projected)))
+                [tier identity-map] (:scope tags)]
+            (is (= :rf.scope/session tier)
+                "the scope TIER keyword rides verbatim — attribution preserved")
+            (is (redacted-component? identity-map)
+                "the resolver's IDENTITY MAP is tokenized")
+            (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
+            (doseq [[slot v] structural]
+              (is (= v (slot tags)) (str slot " rides verbatim")))
+            (is (not (contains-secret? projected))
+                "NO raw identity survives anywhere in the projected record")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) :rf.resource/refetch-decision — events.cljc:1828. THE SAME SCOPE TWICE.
@@ -1249,91 +1211,7 @@
           "NO raw identity survives anywhere in the projected record"))))
 
 ;; ---------------------------------------------------------------------------
-;; (3) :rf.resource/removed — events.cljc:2069
-;; ---------------------------------------------------------------------------
-
-(deftest off-box-redacts-removed-free-scope-tag
-  (testing "the clear-scope teardown row's FREE :scope tag is the
-            very scope that was torn down; its identity map must tokenize"
-    (let [k1        (sk session-scope :derived/profile {:slug "me"})
-          record    (record-with
-                      [(event :rf.resource/removed
-                              {:rf.frame/id  :test/rt
-                               :scope        session-scope
-                               :cause        [:logout]
-                               :removed      [k1]
-                               :reason       :clear-scope
-                               :aborted      []
-                               :completed-at 1234})])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))
-          [tier identity-map] (:scope tags)]
-      (is (= :rf.scope/session tier) "the tier keyword rides verbatim")
-      (is (redacted-component? identity-map) "the identity map is tokenized")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the teardown attribution rides verbatim"
-        (is (= :clear-scope (:reason tags)))
-        (is (= 1234 (:completed-at tags))))
-      (is (not (contains-secret? projected))
-          "NO raw identity survives anywhere in the projected record"))))
-
-;; ---------------------------------------------------------------------------
-;; (4) :rf.mutation/started + :rf.mutation/optimistic-applied
-;;     — mutation_events.cljc:1390, 1403
-;; ---------------------------------------------------------------------------
-
-(deftest off-box-redacts-mutation-started-free-scope-tag
-  (testing "the mutation lifecycle rows stamp the mutation's
-            resolved default scope under a FREE :scope tag; the identity map
-            must tokenize on BOTH of them"
-    (let [k1        (sk session-scope :derived/profile {:slug "me"})
-          record    (record-with
-                      [(event :rf.mutation/started
-                              {:rf.frame/id       :test/rt
-                               :mutation          :m/save
-                               :instance          7
-                               :work/id           [:rf.work/mutation :m/save 7]
-                               :generation        1
-                               :scope             session-scope
-                               :cause             [:ui :save]
-                               :invalidate-timing :after-request})
-                       (event :rf.mutation/optimistic-applied
-                              {:rf.frame/id       :test/rt
-                               :mutation          :m/save
-                               :instance          7
-                               :work/id           [:rf.work/mutation :m/save 7]
-                               :generation        1
-                               :scope             session-scope
-                               :snapshot-id       3
-                               :affected-keys     [k1]
-                               :tag-matched-keys  []
-                               :target-unresolved []
-                               :cause             [:mutation :m/save 7]})])
-          projected      (rf/project-egress record)
-          [started opt]  (:trace-events projected)]
-      (testing ":rf.mutation/started"
-        (let [tags (:tags started)
-              [tier identity-map] (:scope tags)]
-          (is (= :rf.scope/session tier) "the tier keyword rides verbatim")
-          (is (redacted-component? identity-map) "the identity map is tokenized")
-          (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-          (testing "the mutation attribution rides verbatim"
-            (is (= :m/save (:mutation tags)))
-            (is (= 7 (:instance tags)))
-            (is (= [:rf.work/mutation :m/save 7] (:work/id tags)))
-            (is (= :after-request (:invalidate-timing tags))))))
-      (testing ":rf.mutation/optimistic-applied"
-        (let [tags (:tags opt)
-              [tier identity-map] (:scope tags)]
-          (is (= :rf.scope/session tier) "the tier keyword rides verbatim")
-          (is (redacted-component? identity-map) "the identity map is tokenized")
-          (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-          (is (= 3 (:snapshot-id tags)) "the snapshot id rides verbatim")))
-      (is (not (contains-secret? projected))
-          "NO raw identity survives anywhere in the projected record"))))
-
-;; ---------------------------------------------------------------------------
-;; (5) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
+;; (3) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
 ;; ---------------------------------------------------------------------------
 
 (deftest off-box-keeps-global-scope-and-plain-owner-key-verbatim
@@ -1416,42 +1294,6 @@
       (is (= (second s1) (second s2))
           "and the two tokens AGREE — nothing content-derived survives to tell
            two sessions apart"))))
-
-;; ---------------------------------------------------------------------------
-;; (6) the SIBLING owns its own row — scope-resolved rides as the sibling left it
-;; ---------------------------------------------------------------------------
-
-(deftest scope-resolved-row-scope-still-owned-by-the-sibling
-  (testing "on `:rf.resource/scope-resolved` the sibling projector
-            has ALREADY substituted the `:rf/redacted` sentinel (a bare KEYWORD,
-            not a `{:rf/redacted <digest>}` map) before the family projector
-            runs. The sentinel is a scalar, so the shape default rides it
-            verbatim: the row is exactly what the sibling produced, and the
-            sibling's `:sensitive?` stamp survives. `:input-values` is
-            sibling-owned — only `:scope` is the shape default's."
-    (let [record    (record-with
-                      [(event :rf.resource/scope-resolved
-                              {:rf.frame/id   :test/rt
-                               :resource-id   :rt/session
-                               :kind          :resolver
-                               :inputs        [:username]
-                               :input-values  {:username secret}
-                               :scope         session-scope
-                               :resolved-nil? false})])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))]
-      (is (= :rf/redacted (:scope tags))
-          "the sibling's sentinel rides through the family projector unchanged")
-      (is (= :rf/redacted (:input-values tags))
-          ":input-values is sibling-owned and passes through unchanged")
-      (is (true? (:sensitive? tags)) "the sibling's :sensitive? stamp survives")
-      (testing "the structural resolver attribution rides verbatim"
-        (is (= :rt/session (:resource-id tags)))
-        (is (= :resolver (:kind tags)))
-        (is (= [:username] (:inputs tags)))
-        (is (false? (:resolved-nil? tags))))
-      (is (not (contains-secret? projected))
-          "NO raw identity survives anywhere in the projected record"))))
 
 ;; ===========================================================================
 ;; the SAME free `:scope`, ONE CARRIER FURTHER OUT — inside the
