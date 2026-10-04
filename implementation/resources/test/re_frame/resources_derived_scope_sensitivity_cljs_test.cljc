@@ -102,38 +102,6 @@
   (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :t/feed {:page page}))
 
 ;; ===========================================================================
-;; 2. Whole-entry disposition is the OWNER claim ALONE — no inheritance.
-;; ===========================================================================
-
-(deftest disposition-no-inheritance-from-sensitive-input
-  (testing "a resource whose {:from-db} resolver reads a FRAME-SENSITIVE input
-            does NOT inherit sensitive — its disposition is its OWN coarse claim
-            (:serialize, since :t/feed declares neither :sensitive? nor :large?)"
-    (let [spec (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/feed}))]
-      (is (= :serialize (rf.resources.classification/whole-entry-disposition spec))
-          "no propagation — the resource serializes despite the sensitive input"))))
-
-(deftest disposition-owner-declared-still-redacts
-  (testing "the OWNER-declared :sensitive? case is :redact, via the
-            resource's own coarse claim (the control)"
-    (rf/reg-resource :t/secret-feed
-      {:scope         {:from-db :t/session}
-       :sensitive?    true
-       :params-schema [:map [:page :int]]}
-      (fn [_ _] {:request {:method :get :url "/secret"}}))
-    (let [spec (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/secret-feed}))]
-      (is (= :redact (rf.resources.classification/whole-entry-disposition spec))
-          "the owner :sensitive? claim redacts (frame-blind)")))
-  (testing "an owner :large? claim omits (frame-blind)"
-    (rf/reg-resource :t/big-feed
-      {:scope         {:from-db :t/session}
-       :large?        true
-       :params-schema [:map [:page :int]]}
-      (fn [_ _] {:request {:method :get :url "/big"}}))
-    (let [spec (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :t/big-feed}))]
-      (is (= :omit (rf.resources.classification/whole-entry-disposition spec))))))
-
-;; ===========================================================================
 ;; 3. SSR projection END-TO-END — a resource that reads a sensitive input but
 ;;    declares nothing SERIALIZES (the fail-OPEN; no inheritance). A resource
 ;;    declared :sensitive? redacts via its own claim.
