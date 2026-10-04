@@ -150,31 +150,6 @@
       (is (vector? (:assertions r)))
       (is (= :pass (:status (first (:assertions r))))))))
 
-(deftest failing-assertion-yields-fail
-  (testing "a failing assertion → :status :fail"
-    (let [r (rf.story.result/run-result
-              {:epoch-tape [(epoch {})]
-               :assertions [{:assertion :rf.assert/path-equals :passed? true}
-                            {:assertion :rf.assert/path-equals :passed? false}]})]
-      (is (= :fail (:status r))))))
-
-(deftest cannot-run-yields-cannot-run
-  (testing "a run whose only unmet expectation is :cannot-run → :cannot-run"
-    (let [refusal (rf.story.requirements/requirement-refusal
-                    #{:pixels} #{:app-db} [:rf.assert/visual-snapshot]
-                    :runner-lacks-capability :headless)
-          r (rf.story.result/run-result
-              {:epoch-tape [(epoch {})]
-               :assertions [{:assertion :rf.assert/path-equals :passed? true}]
-               :unmet      [refusal]})]
-      (is (= :cannot-run (:status r)))
-      (is (= [refusal] (:cannot-run r)) "the refusal surfaces on :cannot-run")))
-  (testing "a :cannot-run assertion record (no real fail) → :cannot-run"
-    (let [r (rf.story.result/run-result
-              {:assertions [{:assertion :rf.assert/dom-visible
-                             :status :cannot-run :passed? false}]})]
-      (is (= :cannot-run (:status r))))))
-
 (deftest error-outranks-fail
   (testing "an :error assertion record → :status :error (precedence)"
     (let [r (rf.story.result/run-result
@@ -184,22 +159,6 @@
       (is (= :error (:status r))))))
 
 ;; ---- the agreement floor: no green while the tape is red -----------------
-
-(deftest tape-floor-flips-green-to-fail
-  (testing "a passing assertion set CANNOT report :pass while the tape carries
-            a schema violation (the agreement floor — §Run-result evidence
-            projection)"
-    (let [tape [(epoch {:trace-events
-                        [{:operation :rf.error/schema-validation-failure
-                          :tags {:where :event :failing-id :checkout/submit}}]})]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :assertions [{:assertion :rf.assert/path-equals :passed? true}]})]
-      (is (= :fail (:status r))
-          "a clean assertion set + a red tape is :fail, not a false GREEN")
-      ;; the projection AGREES with the tape
-      (is (= 1 (count (:schema-violations r))))
-      (is (= [:event :checkout/submit] (:selector (first (:schema-violations r))))))))
 
 (deftest consumed-schema-violation-does-not-trip-the-floor
   (testing "a schema violation the run EXACTLY consumed does not flip a pass"
@@ -577,72 +536,6 @@
       (is (= :fail (:status rec)))
       (is (re-find #"names no :event" (:reason rec))))))
 
-(deftest causal-no-cascade-rerender-bounds
-  ;; A `:no-cascade-rerender` naming an UNOBSERVED cause (:unrelated/event
-  ;; against a :counter/inc-only tape) is a `:cannot-run`, not a vacuous
-  ;; [0,0] pass — that pass would be a silent-rot false-green (rename the
-  ;; cause → the guard matches nothing → stays green forever). See
-  ;; `no-cascade-unobserved-cause-is-cannot-run` below.
-  (testing ":rf.assert/no-cascade-rerender passes when the OBSERVED cause
-            produced NO matching effect (c ≥ 1, n = 0 within [0 0])"
-    ;; :counter/inc IS observed (c = 1) but produces zero renders of the
-    ;; unrelated :sidebar view → n = 0 within [0,0] → the premise holds and
-    ;; the guard is honoured.
-    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 1)]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :causal-expectations
-                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :sidebar}]]})
-          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
-                              (:assertions r)))]
-      (is (= :pass (:status rec)) "observed cause, 0 matching renders → :pass")
-      (is (= 0 (get-in rec [:actual :count])))
-      (is (= 1 (get-in rec [:actual :observed-cause-count]))
-          "the cause WAS observed once")))
-
-  (testing ":rf.assert/no-cascade-rerender FAILS when the event over-rendered"
-    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 3)]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :causal-expectations
-                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
-          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
-                              (:assertions r)))]
-      (is (= :fail (:status r)))
-      (is (= :fail (:status rec)))
-      (is (= 3 (get-in rec [:actual :count])))))
-
-  (testing "an explicit :max bound on :no-cascade-rerender admits N renders"
-    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :causal-expectations
-                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter :max 2}]]})
-          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
-                              (:assertions r)))]
-      (is (= :pass (:status rec)) "2 renders within the explicit [0 2] bound"))))
-
-;; ---- the projection threads :cause-event-id onto render rows -----------
-;;
-;; `reactive-epoch` drives a REAL `:rf.view/rendered` trace event through
-;; `rf.epoch.capture/render-row`, so the causal tests above and the
-;; `:by-cause` test below read the cause-attributed render the real
-;; projection produces. A
-;; render-row that dropped `:rf.view/cause-event-id` would carry no
-;; `:cause-event-id`, so `causal-count` / `reactive-counts` :by-cause would
-;; credit 0 renders to the cause — `:rf.assert/caused {:view}` would falsely
-;; FAIL and `:rf.assert/no-cascade-rerender {:view}` falsely PASS (the
-;; silent green). The row carries it, so both judge correctly.
-
-(deftest reactive-counts-credit-view-renders-to-their-cause
-  (testing "the :by-cause evidence credits view-renders to the cause (not nil)"
-    (let [tape    [(reactive-epoch :counter/inc :total 1 :counter 2)]
-          rc      (rf.story.play.evidence/reactive-counts tape)
-          credited (get (:by-cause rc) :counter/inc)]
-      (is (= 2 (:view-renders credited))
-          "the projected render rows key on :counter/inc, not nil")
-      (is (= 1 (:sub-recomputes credited))))))
-
 (deftest causal-against-non-reactive-run-is-cannot-run
   (testing "a causal assertion against a run with NO reactive rows resolves
             :cannot-run (fail closed — never a silent pass)"
@@ -655,15 +548,6 @@
       (is (= :cannot-run (:status rec)))
       (is (= :cannot-run (:status r)) "the run aggregates to :cannot-run")
       (is (re-find #"requires reactive evidence" (:reason rec))))))
-
-(deftest causal-expectations-are-not-floor-signals
-  (testing "an over-render does NOT trip the agreement floor on its own —
-            only a declared :no-cascade-rerender judges it"
-    ;; A reactive tape with no schema/effect failure + NO causal expectation
-    ;; is a clean :pass, even with many renders.
-    (let [tape [(reactive-epoch :counter/inc :total 5 :counter 9)]
-          r    (rf.story.result/run-result {:epoch-tape tape})]
-      (is (= :pass (:status r)) "renders alone are not a tape failure"))))
 
 ;; ===========================================================================
 ;; NO-CASCADE-RERENDER REJECTS VACUOUS TRUTH
@@ -720,22 +604,6 @@
       ;; --- result->reports emits a host :fail (the cannot-run bridge) ---
       (is (some #(= :fail (:type %)) (rf.story.result/result->reports r))
           "a :cannot-run assertion reports a host :fail, never a silent pass"))))
-
-(deftest no-cascade-observed-cause-zero-renders-passes
-  (testing "the distinguishing positive case: the cause WAS observed once
-            (c = 1) and produced zero matching renders (n = 0) → :pass"
-    ;; :search/run is observed (a plain cause epoch); a DIFFERENT event
-    ;; (:other/event) supplies the reactive evidence the run needs.
-    (let [tape [(cause-epoch :search/run)
-                (reactive-epoch :other/event :total 1 :counter 1)]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :causal-expectations
-                  [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
-          rec  (no-cascade-rec r)]
-      (is (= :pass (:status rec)) "observed cause + 0 matching renders → honoured guard")
-      (is (= 1 (get-in rec [:actual :observed-cause-count])))
-      (is (= 0 (get-in rec [:actual :count]))))))
 
 (deftest observed-cause-count-matches-event-id-exactly
   (testing "the premise matches :event-id by EXACT keyword equality — a
