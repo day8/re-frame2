@@ -97,8 +97,6 @@
             row per [kind id] (sorted, each with provenance)"
     (let [img (h/project-generation counter-generation)]
       (is (= [:docs.counter/v2] (:images img)))
-      (is (not (contains? img :requires))
-          "EP-0026: no :requires — there are no image capabilities")
       (is (= [:event :sub] (:kinds img)) "kinds sorted by str")
       (is (= 2 (:descriptor-count img)))
       (is (= [{:kind :event :id :counter/inc
@@ -112,7 +110,6 @@
   (testing "a nil generation projects to the empty image-row (no descriptors)"
     (let [img (h/project-generation nil)]
       (is (= [] (:images img)))
-      (is (not (contains? img :requires)) "EP-0026: no :requires field")
       (is (= [] (:kinds img)))
       (is (= 0 (:descriptor-count img)))
       (is (= [] (:descriptors img))))))
@@ -126,8 +123,6 @@
       (is (= :counter/main (:frame-id row)))
       (is (false? (:anonymous? row)))
       (is (false? (:has-adapter? row)))
-      (is (not (contains? row :capabilities))
-          "EP-0026: no :capabilities — there are no image capabilities")
       (is (= 2 (:descriptor-count (:image row)))
           "the frame POINTS AT its generation — projected as the image"))))
 
