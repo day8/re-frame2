@@ -21,13 +21,12 @@
   `:replace-container!` slot, so it is not routed through the adapter,
   but the integration shape must still hold under every adapter).
 
-  Two scenarios:
-
-    1. `replace-container! nil` directly — the smallest reproducer.
-    2. Live frame, destroyed, read its container (now nil per
-       `frame/app-db-container` on a destroyed frame), then attempt the
-       write — the exact shape router.cljc's per-event :db commit
-       traces when racing destroy.
+  The scenario: a live frame, destroyed, its container read (now nil per
+  `frame/app-db-container` on a destroyed frame), then the write attempted
+  — the exact shape router.cljc's per-event :db commit traces when racing
+  destroy. The bare `replace-container! nil` call is
+  `re-frame.write-after-destroy-always-on-cljs-test`'s, which runs on this
+  host too.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -47,20 +46,7 @@
     (and (= :error (:op-type ev))
          (= :rf.error/write-after-destroy (:operation ev)))))
 
-;; ---- 1. direct nil-container call -----------------------------------------
-
-(deftest reagent-replace-container-no-ops-on-nil-container
-  (testing "Under the Reagent adapter, replace-container! with a nil
-            container is a documented no-op + :rf.error/write-after-destroy"
-    (with-trace-recorder! [errs {:pred write-after-destroy-pred}]
-      (is (nil? (rf.substrate.adapter/replace-container! nil {:any :value}))
-          "nil container must NOT throw (a background-thread NPE is the failure mode)")
-      (is (= 1 (count @errs))
-          "exactly one :rf.error/write-after-destroy fires per nil-write")
-      (is (= :ignored (:recovery (first @errs)))
-          "error carries :recovery :ignored (write dropped, frame gone — mirrors frame-destroyed)"))))
-
-;; ---- 2. live-destroy → captured-container-write ---------------------------
+;; ---- live-destroy → captured-container-write -------------------------------
 
 (deftest reagent-replace-container-on-destroyed-frame-does-not-npe
   (testing "frame/app-db-container on a destroyed frame returns nil; feeding
