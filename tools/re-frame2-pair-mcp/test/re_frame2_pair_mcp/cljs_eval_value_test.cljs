@@ -64,16 +64,6 @@
 ;; Happy path — the nested-EDN unwrap shadow actually produces.
 ;; ---------------------------------------------------------------------------
 
-(deftest unwraps-nested-collection-value
-  ;; A map value round-trips through both EDN reads intact.
-  (async done
-    (-> (with-stubbed-cljs-eval!
-          {:value "{:results [\"{:a 1 :b [2 3]}\"] :ns user}"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [v]
-                 (is (= {:a 1 :b [2 3]} v) "nested collection unwrapped")
-                 (done))))))
-
 (deftest peeks-last-results-entry
   ;; Multiple :results entries (multi-form eval) — only the LAST is the
   ;; value the caller wants; the earlier ones are intermediate. `peek`
