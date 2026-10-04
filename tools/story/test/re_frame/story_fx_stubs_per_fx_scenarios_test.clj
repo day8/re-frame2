@@ -2,11 +2,11 @@
   "Explicit per-fx regression net for `:rf.story/force-fx-stub`.
   Pairs with `re-frame.story-fx-stubs-test`, which covers boot-time
   registration, the ref-args expansion, the multi-decorator
-  `:overrides` map and the per-frame stub-call log; this namespace
-  covers the four canonical fx-id scenarios called out by the
-  spec/015 §force-fx-stub matrix — `:http`, `:analytics`,
-  `:websocket`, `:navigation` — plus two scenarios the sibling suite
-  does not exercise directly:
+  `:overrides` map, the per-frame stub-call log and the `:http` row of
+  the spec/015 §force-fx-stub matrix; this namespace covers that
+  matrix's other canonical fx-ids — `:analytics`, `:websocket`,
+  `:navigation` — plus two scenarios the sibling suite does not
+  exercise directly:
 
   - **stub-overriding-real**: a real `reg-fx` handler is
     registered *and* the stub is installed via the decorator. The
@@ -59,7 +59,7 @@
 (use-fixtures :each reset-all)
 
 ;; ===========================================================================
-;; Per-fx scenarios (HTTP / analytics / websocket / navigation)
+;; Per-fx scenarios (analytics / websocket / navigation)
 ;;
 ;; Each scenario registers an event that emits the fx-id under test, runs
 ;; a variant with the matching `force-fx-stub`, then asserts:
@@ -73,8 +73,8 @@
 ;; ===========================================================================
 
 (defn- assert-stub-intercepted!
-  "Common assertion bundle shared by the four per-fx scenarios.
-  Centralised so the four scenarios stay byte-for-byte parallel —
+  "Common assertion bundle shared by the per-fx scenarios.
+  Centralised so the scenarios stay byte-for-byte parallel —
   the value of the per-fx net is exactly that we can't accidentally
   special-case one fx-id, so the assertions for each must be
   identical."
@@ -96,20 +96,6 @@
   (let [last-a (last (:assertions result))]
     (is (true? (:passed? last-a))
         (str fx-id " — :rf.assert/effect-emitted passes against the stub"))))
-
-(deftest http-fx-stub-scenario
-  (testing ":http fx is intercepted by force-fx-stub end-to-end"
-    (rf/reg-event :do/http-emit
-      (fn [_ _] {:fx [[:http {:url "/api" :method :get}]]}))
-    (rf.story/reg-variant :story.fxscen.http/v
-      {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/http-emit]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxscen.http/v) 5000)]
-      (assert-stub-intercepted! :story.fxscen.http/v :http
-                                {:url "/api" :method :get} r))
-    (rf.story/destroy-variant! :story.fxscen.http/v)))
 
 (deftest analytics-fx-stub-scenario
   (testing ":analytics fx is intercepted by force-fx-stub end-to-end"
