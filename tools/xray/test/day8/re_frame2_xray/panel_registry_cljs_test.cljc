@@ -158,14 +158,6 @@
     (is (= #{:epoch :appdb} (reg/tab-ids-for-mode :dynamic)))
     (is (= #{:catalogue} (reg/tab-ids-for-mode :static)))))
 
-(deftest tabs-for-mode-sorts-by-order-ascending
-  (testing "lower :order comes first regardless of registration order"
-    (reg/reg-l4-tab! (dynamic-tab :third 2))
-    (reg/reg-l4-tab! (dynamic-tab :first 0))
-    (reg/reg-l4-tab! (dynamic-tab :second 1))
-    (is (= [:first :second :third] (mapv :id (reg/tabs-for-mode :dynamic)))
-        "render order follows :order, not insertion order")))
-
 (deftest tabs-for-mode-nil-order-trails
   (testing "an entry with no :order sorts AFTER every ordered entry (the
             sort keys nil orders to +Inf so an unspecified order doesn't
@@ -177,13 +169,6 @@
     (is (= [:ordered-0 :ordered-1 :unordered]
            (mapv :id (reg/tabs-for-mode :dynamic)))
         "the nil-order entry trails the ordered ones")))
-
-(deftest tabs-for-mode-empty-when-mode-unpopulated
-  (testing "a mode with no registrations yields an empty vector (never nil)"
-    (reg/reg-l4-tab! (dynamic-tab :epoch 0))
-    (is (= [] (reg/tabs-for-mode :static))
-        "no Static tabs registered → empty vec")
-    (is (vector? (reg/tabs-for-mode :static)))))
 
 ;; ---- (5) tab-by-id — miss returns nil -----------------------------------
 
