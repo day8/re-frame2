@@ -20,7 +20,10 @@
   Strategy: a blocking in-process server holds the request mid-flight while the
   quiesce fires, so the suppression is observed against a genuinely-in-flight
   request, then the server is released
-  to prove the late completion delivers nothing to the app target."
+  to prove the late completion delivers nothing to the app target. The walk's
+  frame scoping and its `:epoch-restored` reason are pinned beside the
+  frame-destroy sweep's, by
+  `http-frame-scoped-cancellation-test/frame-lifecycle-sweeps-reap-siblings-that-reused-one-id`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
@@ -66,31 +69,6 @@
    (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-restore-quiesce condition"})
    true))
-
-;; ---- registry-level: frame-scoped abort + reason ---------------------------
-
-(deftest abort-in-flight-for-frame-aborts-only-the-frames-requests
-  (testing "abort-in-flight-for-frame! fires each matching handle's
-            abort-fn with :reason :epoch-restored and leaves other frames alone"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [seen (atom [])
-          mk   (fn [frame-id request-id]
-                 (rf.http.registry/seed-in-flight-for-test!
-                   request-id nil
-                   {:abort-fn (fn [reason] (swap! seen conj [frame-id reason]))
-                    :url      "http://x/y"
-                    :frame    frame-id}))]
-      (mk :frame/restored :req-a)
-      (mk :frame/restored :req-b)
-      (mk :frame/other    :req-c)
-      (rf.http.registry/abort-in-flight-for-frame! :frame/restored)
-      (is (= #{[:frame/restored :epoch-restored]}
-             (set (map (fn [[f r]] [f r]) @seen)))
-          "only the restored frame's handles fired, each with :reason :epoch-restored")
-      (is (= 2 (count @seen)) "both of the restored frame's requests were aborted")
-      (is (not-any? #(= :frame/other (first %)) @seen)
-          "the unrelated frame's request was NOT aborted")
-      (rf.http.managed/clear-all-in-flight!))))
 
 ;; ---- end-to-end: suppression of a genuinely in-flight request --------------
 

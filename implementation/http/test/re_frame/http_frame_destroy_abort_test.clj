@@ -17,8 +17,11 @@
   with the reply-suppressing `:reason :frame-destroyed` and stamps the stale-
   suppression trace with `:recovery :suppressed-on-frame-destroy`.
 
-  Strategy: the registry-level tests pin the walker's frame-scoping / reason /
-  idempotence against seeded handles; the end-to-end test issues a genuinely
+  Strategy: the registry-level test pins the walker's idempotence against a
+  seeded handle an earlier teardown already cleared (its frame scoping and
+  `:frame-destroyed` reason are pinned in
+  `http-frame-scoped-cancellation-test/frame-lifecycle-sweeps-reap-siblings-that-reused-one-id`);
+  the end-to-end test issues a genuinely
   in-flight blocking request from a named frame, calls the REAL `destroy-frame!`
   (without the wiring the registry slot would survive destroy), and proves the
   slot clears promptly and the late completion delivers nothing."
@@ -141,8 +144,6 @@
         ;; server is STILL BLOCKED, so the clear is the abort, not a natural
         ;; completion.
         (await-condition! #(empty? (rf.http.managed/in-flight-snapshot)))
-        (is (empty? (rf.http.managed/in-flight-snapshot))
-            "the in-flight slot cleared promptly on frame destroy")
         ;; Release the server so any late completion would arrive.
         (.countDown latch)
         ;; Timer-semantics window: prove the ABSENCE of any reply

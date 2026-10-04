@@ -23,10 +23,9 @@
   Coverage matrix (each its own deftest):
    1. :rf.http/managed-abort during backoff   → no retry, registry clear
    2. abort-on-actor-destroy during backoff   → no retry, registry clear
-   3. supersede (same request-id) during backoff → old retry suppressed
-   3b. supersede during backoff               → the stale-suppressed trace
-       carries the SLEEPING retry attempt's work-id (issuance/attempt
-       preserved), not a default `1 1`
+   3. supersede (same request-id) during backoff → old retry suppressed,
+      and the stale-suppressed trace carries the SLEEPING retry attempt's
+      work-id (issuance/attempt preserved), not a default `1 1`
    4. GUARD: an uncancelled backoff retries normally"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -211,7 +210,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- (3b) supersede during backoff carries the sleeping attempt's work-id --
+;; ---- (3) supersede during backoff carries the sleeping attempt's work-id ---
 
 (deftest supersede-during-backoff-stale-trace-carries-sleeping-attempt-work-id
   (testing "superseding a request that is SLEEPING in its retry backoff window records a :rf.http/stale-suppressed trace whose carried work-id is the sleeping retry attempt's work-id (issuance/attempt preserved), distinct from the superseding attempt's"

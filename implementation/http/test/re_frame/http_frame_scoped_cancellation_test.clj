@@ -141,8 +141,6 @@
         ;; frame A's handle out of the one slot, and this read would be nil.
         (is (live-in? :frame/a)
             "frame A's request is STILL live after frame B issued the same raw id")
-        (is (live-in? :frame/b)
-            "frame B's request is live")
         (is (contains? (rf.http.managed/in-flight-snapshot :frame/a) shared-id)
             "the frame-precise snapshot shows the id under frame A")
         (is (contains? (rf.http.managed/in-flight-snapshot :frame/b) shared-id)
@@ -236,8 +234,6 @@
         (await-condition! #(live-in? :frame/b))
         (rf/dispatch-sync [:articles/cancel] {:frame :frame/a})
         (await-condition! #(not (live-in? :frame/a)))
-        (is (not (live-in? :frame/a))
-            "frame A's request was aborted by its own frame's managed-abort")
         (is (live-in? :frame/b)
             "frame B's identically-named request is UNTOUCHED and still live")
         (await-condition! #(= 1 (count @replies)))
@@ -380,7 +376,8 @@
 ;; CLEANUP paths can still escape that scope while looking frame-aware:
 ;;
 ;;  1. a seeded-handle demo carrying a `:frame` stamp whose abort closure makes
-;;     the ANY-FRAME one-arg `clear-in-flight!` call;
+;;     the ANY-FRAME one-arg `clear-in-flight!` call where it should make the
+;;     frame-exact `clear-in-flight-in-frame!` one, which the cases below pin;
 ;;  2. `clear-in-flight!`'s nil-handle fallback, taken inside the publication
 ;;     window between `record-in-flight!` and the `reset!` of the cell the
 ;;     abort-fn reads. Both live-fetch hosts acknowledge that window; on the JVM
@@ -406,43 +403,6 @@
          :url      "http://x/articles"
          :abort-fn (fn [reason] (swap! seen conj [frame-id reason]))}))
     seen))
-
-(deftest seeded-demo-abort-closure-clears-only-its-own-frames-slot
-  (testing "cleanup path (1) — a seeded-handle demo's abort closure holds the
-            frame it carried in, but not the handle (the closure is built as
-            part of the map `record-in-flight!` is still consuming). It must
-            clean through `clear-in-flight-in-frame!`. The one-arg form it
-            reads as a shorthand for is an ANY-FRAME sweep: with the demo
-            mounted in two frames under one stable id, cancelling A deletes
-            BOTH slots and B's live request becomes unregistered/unabortable"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [seen (atom [])
-          ;; The example's exact shape: `frame` and `request-id` are lexical,
-          ;; the handle is not.
-          mk   (fn [frame-id]
-                 (rf.http.registry/record-in-flight!
-                   shared-id nil
-                   {:frame    frame-id
-                    :url      "api/long"
-                    :abort-fn (fn [reason]
-                                (rf.http.registry/clear-in-flight-in-frame! frame-id shared-id)
-                                (swap! seen conj [frame-id reason]))}))]
-      (mk :frame/a)
-      (mk :frame/b)
-      ;; Cancel in frame A through the production frame-scoped abort seam —
-      ;; what `[:rf.http/managed-abort id]` dispatched in A resolves to.
-      (is (true? (rf.http.registry/abort-in-flight-in-frame! :frame/a shared-id :user))
-          "frame A's own handle is found and fired")
-      (is (= [[:frame/a :user]] @seen)
-          "only frame A's closure ran")
-      (is (nil? (rf.http.registry/lookup-in-flight :frame/a shared-id))
-          "frame A's slot is cleaned up by its own closure")
-      (is (some? (rf.http.registry/lookup-in-flight :frame/b shared-id))
-          "frame B's identically-named LIVE request is still registered — a failure here is silent: no abort fires in B, its slot simply vanishes and nothing can cancel it afterwards")
-      (is (true? (rf.http.registry/abort-in-flight-in-frame! :frame/b shared-id :user))
-          "and B remains abortable, which is the consequence an ANY-FRAME clear would lose")
-      (is (= [[:frame/a :user] [:frame/b :user]] @seen)))
-    (rf.http.managed/clear-all-in-flight!)))
 
 (deftest pre-publication-clear-cannot-reach-a-sibling-frame
   (testing "cleanup path (2) — the transport's cleanup runs with a nil handle

@@ -10,7 +10,10 @@
 
   The contrast: an actor-destroy abort whose
   reply target is an ORDINARY event (still meaningful — a separate recorder
-  handler) receives the live `:status :cancelled` / `:failure` delivery.
+  handler) receives the live `:status :cancelled` / `:failure` delivery and
+  emits no stale-suppression row;
+  `http-actor-destroy-cancellation-test/spawned-child-request-aborts-on-parent-state-exit`
+  pins that on the same actor and request.
 
   Spec references:
    - Managed-Effects §Cancellation (`:status :cancelled` when meaningful,
@@ -151,57 +154,7 @@
           (rf.trace.tooling/unregister-listener! ::yrrpe2-1)
           (stop-server! srv))))))
 
-;; ---- (2) meaningful (ordinary-event) target stays a live :cancelled --------
-;; ----     failure delivery -------------------------------------------------
-
-(deftest meaningful-ordinary-target-still-delivers-failure-on-destroy
-  (testing "an actor whose request's :on-failure is an ORDINARY event (a separate recorder) receives the live :failure delivery on destroy; NO stale suppression"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")
-          replies (atom [])
-          traces  (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! ::yrrpe2-2 (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-machine :worker/proc
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire-request
-                     (fn [{data :data}]
-                       {:fx [[:rf.http/managed
-                              {:request    {:url    (str "http://127.0.0.1:" (:port data) "/slow")
-                                            :method :get}
-                               :decode     :json
-                               :request-id [:worker/proc :slow]
-                               ;; reply addressed to an ORDINARY event
-                               :on-failure [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire-request}}})
-        (rf/reg-machine :sup/flow
-          {:initial :idle
-           :states
-           {:idle    {:on {:start :working}}
-            :working {:spawn {:machine-id :worker/proc
-                               :start      [:start]}
-                      :on    {:cancel :idle}}}})
-        (rf/dispatch-sync [:sup/flow [:start]])
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        (rf/dispatch-sync [:sup/flow [:cancel]])
-        (await-condition! #(seq @replies))
-        (let [reply (first @replies)]
-          (is (= :cancelled (:status reply))
-              "the meaningful target receives a live :cancelled reply")
-          (is (= :rf.http/aborted (get-in reply [:error :kind])))
-          (is (= :actor-destroyed (get-in reply [:error :reason]))))
-        (is (empty? (stale-traces @traces))
-            "a meaningful target emits NO stale-suppression trace")
-        (.countDown latch)
-        (finally
-          (rf.trace.tooling/unregister-listener! ::yrrpe2-2)
-          (stop-server! srv))))))
-
-;; ---- (3) the abort-precedence RECLASSIFICATION path -----------------------
+;; ---- (2) the abort-precedence RECLASSIFICATION path -----------------------
 ;; ----     (JVM completion-wins-the-CAS race) must apply the SAME obsolete- --
 ;; ----     target stale suppression as the direct dispatch-aborted! path -----
 

@@ -228,8 +228,6 @@
                                     {:timeout-ms 5000 :interval-ms 10
                                      :label "first exchange stalled mid-body"})
         ;; ---- PRECONDITIONS ---------------------------------------------
-        (is (= 1 @entries)
-            "PRECONDITION: the first request reached the wire and stalled mid-body")
         (is (empty? @outcomes)
             "PRECONDITION: the first request was still downloading when it was superseded")
 
@@ -238,8 +236,6 @@
         (rf.test-support/poll-until #(= 2 @entries)
                                     {:timeout-ms 5000 :interval-ms 10
                                      :label "second exchange stalled mid-body"})
-        (is (= 2 @entries)
-            "PRECONDITION: the supersede happened while BOTH exchanges were live")
 
         ;; ---- VERDICT ----------------------------------------------------
         ;; The surviving second request is its own control here: exactly one of
