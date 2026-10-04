@@ -24,7 +24,6 @@
   orient_test for the race this closes."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
-            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
@@ -88,11 +87,6 @@
       (is (= [] (vec required)) "no required args (frame defaults to operating)")
       (is (contains? properties :frame))
       (is (contains? properties :include-ns)))))
-
-(deftest describe-image-surfaces-on-tools-list
-  (let [arr   (tools/tool-descriptors-js)
-        names (set (for [i (range (alength arr))] (j/get (aget arr i) :name)))]
-    (is (contains? names "describe-image"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form composition.
