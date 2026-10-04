@@ -4,47 +4,40 @@
   must stay byte-identical across re-frame2-pair-mcp and story-mcp
   — these tests pin the contract."
   (:require [clojure.string]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [are deftest is testing]]
             [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]))
 
 ;; ---------------------------------------------------------------------------
 ;; sensitive-event? — the boolean predicate.
 ;; ---------------------------------------------------------------------------
 
-(deftest sensitive-event?-true-stamp-detected
-  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
-
-(deftest sensitive-event?-absent-stamp-passes
-  ;; Per spec/009: "Consumers treat absent as `false`."
-  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
-
-(deftest sensitive-event?-non-true-truthy-drops-fail-closed
-  ;; Fail-closed: the literal `true` drops AND any
-  ;; non-boolean truthy value drops too. The `:rf/trace-event` schema
-  ;; types `:sensitive?` as a boolean; a string `"true"` or keyword
-  ;; `:yes` is a contract violation that means an upstream
-  ;; serialisation bug has coerced the boolean into the wrong shape.
-  ;; A fail-OPEN posture would silently leak sensitive events on such
-  ;; drift; fail-CLOSED drops AND logs.
-  ;; The expected contract-drift WARN is quieted by the central quiet
-  ;; runner's stderr buffer — no local `*err*` sink needed;
-  ;; it stays buffered on green and replays on red.
-  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
-  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
-  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
-  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]})))
-
-(deftest sensitive-event?-non-map-input-passes
-  (is (not (rf.mcp-base.sensitive/sensitive-event? nil)))
-  (is (not (rf.mcp-base.sensitive/sensitive-event? [:sensitive? true])))
-  (is (not (rf.mcp-base.sensitive/sensitive-event? "anything"))))
-
-(deftest sensitive-event?-explicit-false-passes
-  ;; Fail-closed posture does NOT change the explicit-false
-  ;; / nil path — those remain non-sensitive. Only truthy non-boolean
-  ;; values get the fail-closed drop.
-  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false})))
-  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? nil}))))
+(deftest sensitive-event?-classifies-the-stamp
+  ;; Fail-closed: the literal `true` drops AND any non-boolean truthy
+  ;; value drops too. The `:rf/trace-event` schema types `:sensitive?` as
+  ;; a boolean; a string `"true"` or keyword `:yes` is a contract
+  ;; violation that means an upstream serialisation bug has coerced the
+  ;; boolean into the wrong shape. A fail-OPEN posture would silently leak
+  ;; sensitive events on such drift; fail-CLOSED drops AND logs. Explicit
+  ;; `false`, nil and an absent stamp stay non-sensitive (spec/009:
+  ;; "Consumers treat absent as `false`."), as does any non-map input.
+  ;; The expected contract-drift WARNs are quieted by the central quiet
+  ;; runner's stderr buffer — no local `*err*` sink needed; they stay
+  ;; buffered on green and replay on red.
+  (testing "sensitive: the literal true stamp, and fail-closed any other truthy stamp"
+    (are [ev] (rf.mcp-base.sensitive/sensitive-event? ev)
+      {:operation :rf.event/dispatched :sensitive? true}
+      {:operation :rf.event/dispatched :sensitive? "true"}
+      {:operation :rf.event/dispatched :sensitive? :yes}
+      {:operation :rf.event/dispatched :sensitive? 1}
+      {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]}))
+  (testing "not sensitive: absent, false or nil stamp, and non-map input"
+    (are [ev] (not (rf.mcp-base.sensitive/sensitive-event? ev))
+      {:operation :rf.event/dispatched}
+      {:operation :rf.event/dispatched :sensitive? false}
+      {:operation :rf.event/dispatched :sensitive? nil}
+      nil
+      [:sensitive? true]
+      "anything")))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive — the default-suppress filter applied per batch.
@@ -243,43 +236,38 @@
 ;; prevents.
 ;; ---------------------------------------------------------------------------
 
-(deftest scrub-snapshot-nil-slice-passes-through-unchanged
-  ;; A nil `:traces` / `:epochs` slice is not a batch; it
-  ;; must survive as nil, not be coerced to `[]`.
-  (let [snap {:rf/default {:traces nil :epochs nil}}
-        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-    (is (zero? dropped))
-    (is (contains? (get out :rf/default) :traces))
-    (is (nil? (get-in out [:rf/default :traces]))
-        "nil :traces survives as nil (no `[]` mangle)")
-    (is (nil? (get-in out [:rf/default :epochs]))
-        "nil :epochs survives as nil")))
-
-(deftest scrub-snapshot-scalar-slice-passes-through-unchanged
-  ;; A scalar slice is not a batch.
-  (let [snap {:rf/default {:traces 7 :epochs :marker}}
-        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-    (is (zero? dropped))
-    (is (= 7 (get-in out [:rf/default :traces])))
-    (is (= :marker (get-in out [:rf/default :epochs])))))
-
-(deftest scrub-snapshot-string-slice-passes-through-unchanged
-  ;; A string is `seqable?` but NOT a trace-event batch.
-  ;; An unconditional `(vec "oops")` would produce `[\o \o \p \s]`.
-  (let [snap {:rf/default {:traces "oops"}}
-        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-    (is (zero? dropped))
-    (is (= "oops" (get-in out [:rf/default :traces]))
-        "string slice survives verbatim (no char-vector mangle)")))
-
-(deftest scrub-snapshot-non-sensitive-single-map-slice-passes-through
-  ;; A single (non-sensitive) event MAP is not a batch; it
-  ;; passes through byte-identical rather than becoming a vec of entries.
-  (let [snap {:rf/default {:traces {:id 1 :op :something}}}
-        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-    (is (zero? dropped))
-    (is (= {:id 1 :op :something} (get-in out [:rf/default :traces]))
-        "non-sensitive single map survives verbatim (no entry-vec mangle)")))
+(deftest scrub-snapshot-non-batch-slices-pass-through-unchanged
+  ;; Only a `sequential?` slice is a batch. Every other shape survives
+  ;; byte-identical with nothing dropped: an unconditional `(vec …)`
+  ;; would turn nil into `[]`, the string "oops" into `[\o \o \p \s]`
+  ;; and a single event map into a vector of its entries.
+  (testing "a nil slice survives as nil, not coerced to `[]`"
+    (let [snap {:rf/default {:traces nil :epochs nil}}
+          [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
+      (is (zero? dropped))
+      (is (contains? (get out :rf/default) :traces))
+      (is (nil? (get-in out [:rf/default :traces]))
+          "nil :traces survives as nil (no `[]` mangle)")
+      (is (nil? (get-in out [:rf/default :epochs]))
+          "nil :epochs survives as nil")))
+  (testing "a scalar slice"
+    (let [snap {:rf/default {:traces 7 :epochs :marker}}
+          [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
+      (is (zero? dropped))
+      (is (= 7 (get-in out [:rf/default :traces])))
+      (is (= :marker (get-in out [:rf/default :epochs])))))
+  (testing "a string slice, which is `seqable?` but not a batch"
+    (let [snap {:rf/default {:traces "oops"}}
+          [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
+      (is (zero? dropped))
+      (is (= "oops" (get-in out [:rf/default :traces]))
+          "string slice survives verbatim (no char-vector mangle)")))
+  (testing "a single non-sensitive event map"
+    (let [snap {:rf/default {:traces {:id 1 :op :something}}}
+          [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
+      (is (zero? dropped))
+      (is (= {:id 1 :op :something} (get-in out [:rf/default :traces]))
+          "non-sensitive single map survives verbatim (no entry-vec mangle)"))))
 
 (deftest scrub-snapshot-sensitive-single-map-slice-dropped-fail-closed
   ;; A single MAP slice that is itself a sensitive event must be
