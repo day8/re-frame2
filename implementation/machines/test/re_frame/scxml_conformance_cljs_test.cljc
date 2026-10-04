@@ -94,8 +94,10 @@
       `{:type :history :deep? <bool> :default-target <t>}` is
       a targetable pseudo-state under a compound's `:states`. History is
       COVERED, not excluded — the §History section below carries BOTH the
-      registration-time GRAMMAR-CONSTRAINT rejections (a `:type :history` node
-      MUST have an owning compound — `:rf.error/machine-history-misplaced`)
+      registration-time GRAMMAR-CONSTRAINT rejections (a `:type :history`
+      node MUST have an owning compound — `:rf.error/machine-history-misplaced`,
+      here for a parallel region body, the flat top-level case in
+      `machine_registration_grammar_validation_test`)
       AND the RECORD/RESTORE behavioural corpus (the W3C 387/388/579/580
       family adapted to the re-frame2 grammar shape). The Mode-B
       `:machine-transition` fixture counterparts live at
@@ -169,18 +171,6 @@
 ;; candidate wins. Spec 005 §Transition resolution.
 ;; ===========================================================================
 
-(deftest scxml-transition-selection-event-match
-  (testing "SCXML §3.13 / W3C test 144-family (basic event-name match):
-            an event with a matching transition fires it; the target
-            becomes the new configuration. Spec 005 §Transition table grammar."
-    ;; Harel/SCXML: state A on event T transitions to B.
-    (let [m {:initial :a :data {}
-             :states  {:a {:on {:t :b}}
-                       :b {}}}
-          r (step m {:state :a :data {}} [:t])]
-      (is (= :b (:state r)) "matching event selects the transition")
-      (is (= [] (:fx r)) "a pure target-only transition emits no fx"))))
-
 (deftest scxml-transition-selection-first-matching-candidate-wins
   (testing "SCXML §3.13: of several transitions out of a state, the FIRST in
             DOCUMENT ORDER whose condition holds is taken. Mirrors W3C
@@ -197,63 +187,6 @@
           r (step m {:state :a :data {}} [:ev])]
       (is (= :y (:state r))
           "the first candidate whose guard passes (in document order) is selected"))))
-
-(deftest scxml-transition-selection-unconditional-fallback
-  (testing "SCXML §3.13: when every guarded condition fails, the unguarded
-            (conditionless) transition is the fallback (SCXML's
-            condition-less `<transition>` after guarded ones). Spec 005
-            §Multiple-candidate transitions — unguarded candidate is the
-            unconditional fallback ending a guarded list."
-    (let [m {:initial :a :data {}
-             :guards  {:no (fn [_] false)}
-             :states  {:a {:on {:ev [{:guard :no :target :x}
-                                      {:target :fallback}]}}
-                       :x {} :fallback {}}}
-          r (step m {:state :a :data {}} [:ev])]
-      (is (= :fallback (:state r))
-          "all guards false ⇒ the unconditional fallback fires"))))
-
-(deftest scxml-transition-selection-internal-action-data-write
-  (testing "SCXML §3.13 + §5.4 (executable content on a transition): the
-            selected transition's action runs and updates the datamodel.
-            re-frame2: a transition `:action` returns a `:data` patch
-            merged into the snapshot. Spec 005 §Actions."
-    (let [m {:initial :a :data {:n 0}
-             :actions {:bump (fn [{d :data}] {:data (update d :n inc)})}
-             :states  {:a {:on {:ev {:target :b :action :bump}}}
-                       :b {}}}
-          r (step m {:state :a :data {:n 0}} [:ev])]
-      (is (= :b (:state r)))
-      (is (= 1 (get-in r [:data :n])) "the transition action's :data write is committed"))))
-
-;; ===========================================================================
-;; §2. Document-order conflict resolution
-;;
-;; SCXML §3.13 "optimal enabled transition set": when multiple transitions
-;; are enabled, conflicts are resolved in DOCUMENT ORDER, with descendant
-;; states given priority over ancestors (the next section). Within ONE
-;; state's transition list, document order is decisive. The §1 candidate
-;; tests already pin within-state document order; here we pin that a leaf's
-;; explicit match beats its OWN later wildcard (document order: explicit
-;; entries precede the `:*` catch-all at the same level).
-;; ===========================================================================
-
-(deftest scxml-conflict-explicit-precedes-wildcard-same-level
-  (testing "SCXML §3.12.1 event-descriptor matching + document order: at one
-            state, an explicit event match is preferred over the `*` catch-all
-            (the explicit descriptor is more specific and earlier in document
-            order). Spec 005 §Wildcard — `:*` fires only when no explicit
-            match at the same level (the W3C test 318/319 wildcard family)."
-    (let [m {:initial :a :data {}
-             :states  {:a {:on {:specific :explicit-target
-                                 :*        :wildcard-target}}
-                       :explicit-target {} :wildcard-target {}}}
-          explicit (step m {:state :a :data {}} [:specific])
-          wild     (step m {:state :a :data {}} [:anything-else])]
-      (is (= :explicit-target (:state explicit))
-          "explicit descriptor wins over `:*` at the same level")
-      (is (= :wildcard-target (:state wild))
-          "`:*` catches the event that has no explicit descriptor"))))
 
 ;; ===========================================================================
 ;; §3. Deepest-wins + parent-fallthrough
@@ -280,25 +213,6 @@
           r (step m {:state [:p :c] :data {}} [:ev])]
       (is (= [:p :child-handled] (:state r))
           "the descendant :c's :ev transition wins over the ancestor :p's"))))
-
-(deftest scxml-parent-fallthrough-when-child-declines
-  (testing "SCXML §3.13: when the descendant does NOT handle the event,
-            selection falls through to the nearest ancestor that does
-            (the auth-flow `:logout` factored-to-parent idiom). Spec 005
-            §Transition resolution / §Worked example — auth flow."
-    (let [m {:initial :authenticated :data {}
-             :states  {:authenticated
-                       {:on      {:logout [:unauthenticated]}  ;; factored to parent
-                        :initial :dashboard
-                        :states  {:dashboard {:on {:open-cart :cart}}
-                                  :cart      {}}}
-                       :unauthenticated {}}}
-          ;; :logout is not on :cart; falls through to :authenticated.
-          ;; The factored handler uses an absolute vector target, so the
-          ;; resulting configuration is the vector path [:unauthenticated].
-          r (step m {:state [:authenticated :cart] :data {}} [:logout])]
-      (is (= [:unauthenticated] (:state r))
-          "child :cart declines :logout; the ancestor :authenticated handles it (absolute vector target)"))))
 
 (deftest scxml-leaf-wildcard-shadows-parent-explicit
   (testing "SCXML §3.13 descendant-priority extends to the catch-all: a
@@ -404,29 +318,6 @@
 ;; final state. Harel: AND-decomposition. Spec 005 §Parallel regions.
 ;; ===========================================================================
 
-(deftest scxml-parallel-broadcast-to-every-region
-  (testing "SCXML §3.4 broadcast: one event is delivered to every active
-            region; each region independently resolves it (W3C test 403/404
-            parallel-broadcast family). Spec 005 §Parallel regions —
-            transition broadcast."
-    (let [m {:type :parallel :data {}
-             :regions {:left  {:initial :a :states {:a {:on {:flip :b}} :b {}}}
-                       :right {:initial :x :states {:x {:on {:flip :y}} :y {}}}}}
-          r (step m {:state {:left :a :right :x} :data {}} [:flip])]
-      (is (= {:left :b :right :y} (:state r))
-          "the single :flip event transitioned BOTH regions independently"))))
-
-(deftest scxml-parallel-region-declines-stays-put
-  (testing "SCXML §3.4: a region with no enabled transition for the event
-            stays in its current state while sibling regions transition.
-            Spec 005 §Parallel regions — undeclined regions stay put."
-    (let [m {:type :parallel :data {}
-             :regions {:left  {:initial :a :states {:a {:on {:left-only :b}} :b {}}}
-                       :right {:initial :x :states {:x {} :y {}}}}}
-          r (step m {:state {:left :a :right :x} :data {}} [:left-only])]
-      (is (= {:left :b :right :x} (:state r))
-          ":left handled :left-only; :right (no matching :on) stayed put"))))
-
 (deftest scxml-parallel-done-when-every-region-final
   (testing "SCXML §3.4 done.state.<id>: a `<parallel>` is done only when ALL
             regions reach a final state (W3C test 570/580 parallel-done
@@ -441,20 +332,6 @@
       (is (= {:left :done :right :done} (:state both)))
       (is (true? (rf.machines.lifecycle-fx.finalize/all-regions-final? m (:state both)))
           "every region's leaf is :final? ⇒ the parallel machine is done"))))
-
-(deftest scxml-parallel-NOT-done-when-one-region-pending
-  (testing "SCXML §3.4: a `<parallel>` is NOT done while ANY region is still
-            in a non-final state (the partial-final guard — premature
-            done.state is the classic parallel bug). Spec 005 §Final states
-            §Parallel regions and `:final?`."
-    (let [m {:type :parallel :data {}
-             :regions {:left  {:initial :run :states {:run {:on {:fin-left :done}} :done {:final? true}}}
-                       :right {:initial :run :states {:run {:on {:fin-right :done}} :done {:final? true}}}}}
-          ;; Only :left reaches :done; :right is still :run.
-          left-only (step m {:state {:left :run :right :run} :data {}} [:fin-left])]
-      (is (= {:left :done :right :run} (:state left-only)))
-      (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final? m (:state left-only)))
-          "one region still pending ⇒ the parallel machine is NOT done"))))
 
 (deftest scxml-parallel-region-ancestor-restart-is-region-local
   (testing "SCXML §3.4 + §3.13: the LCCA ancestor-restart applies
@@ -498,46 +375,6 @@
 ;; the FIFO `:raise` queue and the enclosing `:on-done` resolves in the SAME
 ;; macrostep — observable on the post-macrostep snapshot.
 ;; ===========================================================================
-
-(deftest scxml-compound-done-fires-enclosing-on-done
-  (testing "SCXML §3.7 done.state.<compoundId>: a compound reaching its
-            `<final>` child raises done.state into the machine; the compound's
-            `:on-done` advances the OUTER flow in the SAME macrostep, and the
-            machine keeps running (NOT torn down). Spec 005 §Final states §The
-            done-state signal — the canonical 'sub-flow completes → continue'."
-    (let [m {:initial :flow :data {}
-             :states
-             {:flow {:initial :step
-                     ;; onDone on the compound — keyword target is a SIBLING
-                     ;; of :flow (resolved at :flow's own level).
-                     :on-done :next
-                     :states  {:step {:on {:finish :inner-done}}
-                               :inner-done {:final? true}}}
-              :next {}}}
-          ;; :finish lands [:flow :inner-done] (final child of :flow) → the
-          ;; engine raises [:rf.machine/done [:flow]] → :flow's :on-done fires
-          ;; :flow → :next, all within the one macrostep.
-          r (step m {:state [:flow :step] :data {}} [:finish])]
-      (is (= [:next] (:state r))
-          "the compound :flow reached its :final? child, its :on-done fired,
-           and the machine advanced to the sibling :next — same macrostep"))))
-
-(deftest scxml-compound-done-on-done-runs-action-and-target
-  (testing "SCXML §3.7 + §5.4: the compound `:on-done` transition runs its
-            executable content (the `:action`'s :data write) as it advances.
-            Spec 005 §Final states §The done-state signal."
-    (let [m {:initial :flow :data {:done-count 0}
-             :actions {:mark (fn [{d :data}] {:data (update d :done-count inc)})}
-             :states
-             {:flow {:initial :step
-                     :on-done {:target :next :action :mark}
-                     :states  {:step {:on {:finish :inner-done}}
-                               :inner-done {:final? true}}}
-              :next {}}}
-          r (step m {:state [:flow :step] :data {:done-count 0}} [:finish])]
-      (is (= [:next] (:state r)) "advanced to :next via :on-done")
-      (is (= 1 (get-in r [:data :done-count]))
-          "the :on-done action's :data write committed in the same macrostep"))))
 
 (deftest scxml-compound-done-handled-by-ancestor-on-clause
   (testing "SCXML §3.7: an ANCESTOR may handle the raised done event explicitly
@@ -620,64 +457,6 @@
       (is (= [:outer :inner-next] (:state r))
           ":inner (immediate parent of :fin) is done; its :on-done advanced to
            the sibling :inner-next; :outer stays active throughout"))))
-
-(deftest scxml-parallel-done-fires-root-on-done
-  (testing "SCXML §3.4 done.state.<parallelId>: when EVERY region reaches its
-            final leaf, the parallel root's `:on-done` fires (action + fx)
-            WITHOUT auto-destroy — the 'do these axes in parallel, then
-            continue' pattern. Spec 005 §Final states §The done-state signal
-            (parallel)."
-    (let [fired (atom 0)
-          m {:type :parallel :data {:n 0}
-             :actions {:complete (fn [{d :data}] {:data (assoc d :n (inc (:n d)))})}
-             ;; onDone on the PARALLEL ROOT — action-only (no in-machine target).
-             :on-done {:action :complete}
-             :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
-                       :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}}
-          r (step m {:state {:left :run :right :run} :data {:n 0}} [:fin])]
-      (is (= {:left :done :right :done} (:state r))
-          "both regions reached :final? on the broadcast :fin")
-      (is (= 1 (get-in r [:data :n]))
-          "the parallel root's :on-done action ran exactly once when all
-           regions settled final — the machine stays in the all-final config"))))
-
-(deftest scxml-parallel-done-not-fired-while-one-region-pending
-  (testing "SCXML §3.4: the parallel root's `:on-done` does NOT fire while ANY
-            region is still non-final (premature done.state is the classic
-            parallel bug). Spec 005 §Final states §The done-state signal
-            (parallel, negative)."
-    (let [m {:type :parallel :data {:n 0}
-             :actions {:complete (fn [{d :data}] {:data (update d :n inc)})}
-             :on-done {:action :complete}
-             :regions {:left  {:initial :run :states {:run {:on {:fin-left :done}} :done {:final? true}}}
-                       :right {:initial :run :states {:run {:on {:fin-right :done}} :done {:final? true}}}}}
-          r (step m {:state {:left :run :right :run} :data {:n 0}} [:fin-left])]
-      (is (= {:left :done :right :run} (:state r)) "only :left reached final")
-      (is (= 0 (get-in r [:data :n]))
-          ":on-done did NOT fire — :right is still :run (not all-regions-final)"))))
-
-(deftest scxml-parallel-region-compound-done-fires-region-local-on-done
-  (testing "a COMPOUND region reaching its
-            `<final>` child raises a region-local done.state that the region's
-            own `:on-done` takes (re-broadcast through the parent internal-event
-            queue), advancing that region while siblings continue. Spec 005
-            §Final states §The done-state signal × §Parallel regions."
-    (let [m {:type :parallel :data {}
-             :regions
-             {:work {:initial :flow
-                     :states {:flow {:initial :step
-                                     :on-done :work-done
-                                     :states {:step {:on {:finish :inner-done}}
-                                              :inner-done {:final? true}}}
-                              :work-done {}}}
-              :status {:initial :idle :states {:idle {:on {:ping :idle}} }}}}
-          ;; :finish lands the :work region at [:flow :inner-done]; :flow is
-          ;; done → region-local [:rf.machine/done [:flow]] raise → re-broadcast
-          ;; → :work's :on-done fires :flow → :work-done. :status untouched.
-          r (step m {:state {:work [:flow :step] :status :idle} :data {}} [:finish])]
-      (is (= {:work [:work-done] :status :idle} (:state r))
-          ":work's compound :flow reached final, its :on-done advanced the
-           region to :work-done; :status stayed :idle"))))
 
 (deftest scxml-parallel-region-done-arm2-not-caught-by-sibling-shared-state-name
   (testing "arm 2 region scoping must be by region IDENTITY, not
@@ -908,32 +687,6 @@
       (is (= :small (:state small)) "guard read the event payload (3 ≤ 10) ⇒ fallback"))))
 
 ;; ===========================================================================
-;; §8. Wildcard `:*`
-;;
-;; SCXML §3.12.1 event descriptor "*": a transition with event="*" matches
-;; ANY event, evaluated AFTER more specific descriptors at the same state.
-;; re-frame2: `:*` in the `:on` table is the catch-all, consulted only when
-;; no explicit key matches at that level. Spec 005 §Wildcard.
-;; (§2 covers explicit-precedes-wildcard at one level, and with it the basic
-;; catch-all; §3 covers leaf-`:*` shadowing the parent. Here we pin the
-;; action.)
-;; ===========================================================================
-
-(deftest scxml-wildcard-action-fail-loudly-idiom
-  (testing "SCXML / xstate-v5 'fail loudly on unknown' idiom: a `:*` whose
-            ACTION throws turns an otherwise-benign unhandled event into a
-            real error — the documented way to opt OUT of no-op semantics.
-            re-frame2: the throwing `:*` action yields a failure Result (no
-            snapshot commit). Spec 005 §Transition resolution (the
-            `:*`-throws note)."
-    (let [m {:initial :a :data {}
-             :actions {:boom (fn [_] (throw (ex-info "unknown event" {})))}
-             :states  {:a {:on {:* {:target :a :action :boom}}}}}
-          r (rf.machines/machine-transition m {:state :a :data {}} [:surprise])]
-      (is (= :error (:status r))
-          "a throwing `:*` action produces a failure Result (no silent no-op)"))))
-
-;; ===========================================================================
 ;; §9. Unhandled event = benign no-op (xstate-v5 parity)
 ;;
 ;; SCXML v1 with no matching transition: the event is consumed and
@@ -1010,22 +763,6 @@
       (is (= [:action] @log)
           "ONLY the action fired — no onexit, no onentry (internal semantics, SCXML-conformant)"))))
 
-(deftest scxml-external-self-transition-same-state-sentinel
-  (testing "external self-transition (`:target :same-state` + `:reenter? true`)
-            fires onexit THEN the transition's action THEN onentry of the
-            source, leaving the configuration at the source state. Spec 005
-            §Self-transitions + Spec-Schemas (`:same-state` is the documented
-            literal sentinel; `:reenter? true` is the v5 external opt-in)."
-    (let [[log mk] (order-recorder)
-          m {:initial :a :data {}
-             :states {:a {:entry (mk :entry) :exit (mk :exit)
-                          :on {:self {:target :same-state :reenter? true :action (mk :action)}}}}}
-          r (step m {:state :a :data {}} [:self])]
-      (is (= :a (:state r))
-          "external self-transition stays at the source state")
-      (is (= [:exit :action :entry] @log)
-          "onexit → action → onentry (external self-transition re-enters the state)"))))
-
 (deftest scxml-external-self-transition-own-keyword-target
   (testing "Spec 005 §Entry/exit cascading: a `:target` naming the declaring
             state's OWN keyword with `:reenter? true` is an external
@@ -1092,59 +829,6 @@
 ;; rather than collapsing to a no-op. Spec 005 §Entry/exit cascading along
 ;; the LCCA.
 ;; ===========================================================================
-
-(deftest scxml-external-transition-to-proper-ancestor-restarts-subtree
-  (testing "a `:reenter? true` transition from a descendant leaf to a
-            PROPER ANCESTOR A restarts A — exit A's active subtree (deepest-
-            first, INCLUDING A), run the transition action at the LCCA
-            (A's parent), then re-enter A and re-descend A's :initial chain
-            (shallowest-first).
-            Spec 005 §Entry/exit cascading along the LCCA."
-    (let [[log mk] (order-recorder)
-          ;; Active config [:p :a :x]; :x targets its grandparent :a via an
-          ;; absolute vector + :reenter?. A's :initial is :x, so the restart
-          ;; re-descends back to [:p :a :x] — the case an LCP-as-LCA
-          ;; computation would miss.
-          m {:initial :p :data {}
-             :states
-             {:p {:entry (mk :entry-P) :exit (mk :exit-P)     ;; LCCA — neither fires
-                  :initial :a
-                  :states
-                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
-                       :initial :x
-                       :states
-                       {:x {:entry (mk :entry-X) :exit (mk :exit-X)
-                            :on {:restart {:target [:p :a] :reenter? true :action (mk :ACTION)}}}}}}}}}
-          r (step m {:state [:p :a :x] :data {}} [:restart])]
-      (is (= [:p :a :x] (:state r))
-          "after restarting A the configuration re-descends A's :initial back to [:p :a :x]")
-      (is (= [:exit-X :exit-A :ACTION :entry-A :entry-X] @log)
-          "exit deepest-first (X then A) → action at the LCCA (:p) → re-enter A → re-descend A's :initial (X); :p (the LCCA) neither exits nor enters"))))
-
-(deftest scxml-external-transition-to-ancestor-diverging-initial-re-inits
-  (testing "restarting ancestor A (`:reenter? true`) re-descends A's CURRENT
-            :initial child even when A's active child differed from :initial
-            at restart time. Source [:p :a :two]; A's :initial is :one, so
-            the restart re-enters A and re-descends to [:p :a :one] (the
-            re-initialisation the LCCA restart guarantees). Spec 005
-            §Entry/exit cascading along the LCCA."
-    (let [[log mk] (order-recorder)
-          m {:initial :p :data {}
-             :states
-             {:p {:initial :a
-                  :states
-                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
-                       :initial :one
-                       :states
-                       {:one {:entry (mk :entry-1) :exit (mk :exit-1)}
-                        :two {:entry (mk :entry-2) :exit (mk :exit-2)
-                              :on {:restart {:target [:p :a] :reenter? true}}}}}}}}}
-          ;; Seed the active config at the NON-initial child :two.
-          r (step m {:state [:p :a :two] :data {}} [:restart])]
-      (is (= [:p :a :one] (:state r))
-          "restarting A re-initialises it to its :initial child :one (not back to :two)")
-      (is (= [:exit-2 :exit-A :entry-A :entry-1] @log)
-          "exit :two then A → re-enter A → re-descend A's :initial (:one)"))))
 
 (deftest scxml-child-declared-ancestor-target-exits-and-re-enters-the-ancestor
   (testing "SCXML §3.13 LCCA rule: a transition DECLARED BELOW its target —
@@ -1321,90 +1005,6 @@
       (is (= [:exit-3 :ACTION :entry-1] @log)
           "exit the active child :step3 → action at the LCCA (:process) → enter :initial (:step1); :process NOT exited/entered"))))
 
-(deftest scxml-explicit-compound-target-re-resolves-child-even-when-on-initial
-  (testing "re-resolving descendants is keyed to the TARGET's depth,
-            not to whether the active child differs from :initial. Targeting
-            the compound :process exits the active CHILD and re-enters the
-            re-resolved :initial — EVEN when the active child IS already the
-            :initial (:step1). The :state is unchanged but :step1's onexit /
-            onentry DO fire (the descendant is re-resolved); :process itself is
-            NOT re-entered (no :reenter?). This matches XState v5 'an explicit
-            target re-resolves child states to their initial' — the child below
-            the target always crosses the cascade boundary. Spec 005."
-    (let [[log mk] (order-recorder)
-          m {:initial :process :data {}
-             :states
-             {:process
-              {:entry (mk :entry-process) :exit (mk :exit-process)  ;; NOT re-entered
-               :initial :step1
-               :on {:resolve {:target :process :action (mk :ACTION)}}
-               :states
-               {:step1 {:entry (mk :entry-1) :exit (mk :exit-1)}
-                :step2 {:entry (mk :entry-2) :exit (mk :exit-2)}}}}}
-          ;; already at :step1 (= :process's :initial)
-          r (step m {:state [:process :step1] :data {}} [:resolve])]
-      (is (= [:process :step1] (:state r))
-          "re-resolution lands back on :step1 (= :process's :initial)")
-      (is (= [:exit-1 :ACTION :entry-1] @log)
-          "the active child :step1 is exited + re-entered (descendant re-resolved); :process NOT exited/entered (no :reenter?)"))))
-
-(deftest scxml-parent-declared-descendant-target-re-enters-child-not-parent
-  (testing "xstate@5.32.0: at [:parent :child :a], a transition
-            DECLARED ON :parent targeting the DESCENDANT [:parent :child] (no
-            :reenter?) re-enters the TARGETED CHILD :child (XState v5: 'child
-            state nodes are always re-entered when targeted by transitions
-            defined on compound state nodes') and re-descends :child's :initial
-            (:a) — but does NOT exit/re-enter :parent. Spec 005 §Self-transitions
-            §The three explicit-target geometries."
-    (let [[log mk] (order-recorder)
-          m {:initial :parent :data {}
-             :states
-             {:parent
-              {:entry (mk :entry-parent) :exit (mk :exit-parent)  ;; NOT exited
-               :initial :child
-               ;; declared ON :parent; target is a DESCENDANT vector
-               :on {:reset-child {:target [:parent :child] :action (mk :ACTION)}}
-               :states
-               {:child {:entry (mk :entry-child) :exit (mk :exit-child)  ;; re-entered (targeted child)
-                        :initial :a
-                        :states {:a {:entry (mk :entry-a) :exit (mk :exit-a)}
-                                 :b {:entry (mk :entry-b) :exit (mk :exit-b)}}}}}}}
-          ;; seed at the NON-initial grandchild :b to prove the re-descent to :a
-          r (step m {:state [:parent :child :b] :data {}} [:reset-child])]
-      (is (= [:parent :child :a] (:state r))
-          "the targeted child :child re-enters and re-descends its :initial (:a); :parent unchanged")
-      (is (= [:exit-b :exit-child :ACTION :entry-child :entry-a] @log)
-          "exit deepest-first (:b, :child) → action at the LCCA (:parent) → re-enter :child → re-descend :child's :initial (:a); :parent NOT exited/entered"))))
-
-(deftest scxml-parent-declared-descendant-target-WITH-reenter-restarts-declaring-compound
-  (testing "xstate@5.32.0: :reenter? true on a transition
-            DECLARED ON a compound S whose target is a DESCENDANT of S exits +
-            re-enters S itself (run S's :exit then :entry — restart S's :after,
-            re-spawn), THEN descends to the NAMED descendant target (NOT S's
-            :initial). The SCXML mechanics: source = the declaring compound S,
-            so findLCCA([S]+[descendant]) rises to S's PARENT, putting S into
-            the exit set. Spec 005 §Self-transitions §The three explicit-target
-            geometries."
-    (let [[log mk] (order-recorder)
-          m {:initial :editor :data {}
-             :states
-             {:editor
-              {:entry (mk :entry-editor) :exit (mk :exit-editor)  ;; S — exits + re-enters
-               :initial :draft
-               ;; declared ON :editor; target a NAMED descendant + :reenter?
-               :on {:restart-into-preview {:target [:editor :preview]
-                                           :reenter? true :action (mk :ACTION)}}
-               :states
-               {:draft   {:entry (mk :entry-draft)   :exit (mk :exit-draft)}
-                :preview {:entry (mk :entry-preview) :exit (mk :exit-preview)}}}}}
-          ;; active at :draft; forced re-entry of :editor must land on the
-          ;; NAMED :preview, NOT :editor's :initial (:draft).
-          r (step m {:state [:editor :draft] :data {}} [:restart-into-preview])]
-      (is (= [:editor :preview] (:state r))
-          "forced re-entry of :editor lands on the NAMED descendant :preview (NOT :editor's :initial :draft)")
-      (is (= [:exit-draft :exit-editor :ACTION :entry-editor :entry-preview] @log)
-          "exit deepest-first (:draft, :editor) → action at the LCCA (:editor's parent = root) → re-enter :editor → descend to the NAMED :preview"))))
-
 (deftest scxml-child-declared-sibling-reenter-does-NOT-re-enter-parent
   (testing "anti-case (xstate@5.32.0): :reenter? true on a transition
             DECLARED ON the CHILD :draft targeting a SIBLING [:editor :preview]
@@ -1483,19 +1083,6 @@
                   [:rf.machine.timer/after-elapsed 1000 0 [:a]])]
       (is (= :b (:state r)) "a live :after timer fires its transition"))))
 
-(deftest scxml-after-stale-timer-is-noop
-  (testing "Spec 005 §Delayed `:after` transitions §Hierarchy interaction:
-            a timer carrying a STALE epoch (the state was re-entered since
-            scheduling, advancing the per-node epoch) is discarded — the
-            configuration is unchanged. This is the re-frame2 analogue of
-            SCXML cancelling a pending delayed `<send>` on state exit."
-    (let [m {:initial :a :data {} :states {:a {:after {1000 :b}} :b {}}}
-          ;; carried epoch 5, but the snapshot's current per-node epoch is 0.
-          r (step m {:state :a :data {:rf/after-epoch {[:a] 0}}}
-                  [:rf.machine.timer/after-elapsed 1000 5 [:a]])]
-      (is (= :a (:state r))
-          "a stale :after timer (epoch mismatch) is a no-op; configuration unchanged"))))
-
 ;; ===========================================================================
 ;; §12. HISTORY — first-class grammar + record/restore (SCXML §3.10)
 ;;
@@ -1535,16 +1122,6 @@
     (catch #?(:clj ExceptionInfo :cljs :default) e
       (:rf.error/id (ex-data e)))))
 
-(deftest scxml-history-root-type-rejected
-  (testing "SCXML §3.10: a machine ROOT declaring `:type :history` is
-            rejected — a history pseudo-state must be a child node under a
-            compound's `:states`, never the machine root (no owning
-            compound). Spec 005 §History states §Pseudo-state constraints;
-            error `:rf.error/machine-history-misplaced`."
-    (is (= :rf.error/machine-history-misplaced
-           (history-rejection-id {:type :history :states {:s {}}}))
-        "root `:type :history` is rejected with the misplaced-history error")))
-
 ;; A FLAT top-level `:type :history` (no owning compound) is
 ;; machine-registration-grammar-validation-test's
 ;; history-misplaced-rejected-at-registration row, on the same validator.
@@ -1574,22 +1151,6 @@
                             :states  {:a {}
                                       :h {:type :history :on {:go :a}}}}}}))
         "a history node declaring `:on` is rejected for extra keys")))
-
-(deftest scxml-history-well-placed-validates
-  (testing "Control + first-class smoke: a `:type :history` node correctly
-            placed inside a compound's `:states` validates cleanly — history
-            is a claimed (`:fsm/history`) capability. Spec 005 §History
-            states; W3C 387/388 shape."
-    (is (= ::no-throw
-           (history-rejection-id
-             {:initial :player
-              :states  {:player {:initial :stopped
-                                 :states  {:stopped {:on {:play [:player :hist]}}
-                                           :hist    {:type :history :deep? true
-                                                     :default-target :playing}
-                                           :playing {:initial :at-start
-                                                     :states {:at-start {}}}}}}}))
-        "a well-placed first-class history pseudo-state validates without error")))
 
 (deftest scxml-history-duplicate-per-compound-rejected
   (testing "SCXML §3.10 / re-frame2 divergence: SCXML allows sibling
