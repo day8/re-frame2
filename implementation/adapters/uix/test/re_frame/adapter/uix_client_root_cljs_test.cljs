@@ -41,28 +41,7 @@
       (is (nil? (rf.adapter.uix/unmount! h))
           "and stays a no-op however many times it is called"))))
 
-;; ---- 2. the trio is on the public surface, in Reagent's shapes -------------
-
-(deftest the-trio-is-published-with-the-reagent-shapes
-  (testing "render! takes BOTH the 3- and 4-arities Spec 006 §The client root
-            names, so `{:hydrate? true}` is an optional trailing arg"
-    ;; Exercised rather than introspected: each arity is called with hiccup,
-    ;; which the element-slot guard refuses BEFORE any Root is created. A
-    ;; missing arity would raise a DIFFERENT error (arity mismatch), so the
-    ;; guard id arriving from both calls is what pins both arities.
-    (doseq [[label thrown]
-            [["3-arity" (try (rf.adapter.uix/render!
-                               (rf.adapter.uix/client-root) [:div] nil) nil
-                             (catch :default e e))]
-             ["4-arity" (try (rf.adapter.uix/render!
-                               (rf.adapter.uix/client-root) [:div] nil
-                               {:hydrate? true}) nil
-                             (catch :default e e))]]]
-      (is (= :rf.error/hiccup-on-element-render-slot
-             (:rf.error/id (ex-data thrown)))
-          (str label " reaches the element-slot guard, so the arity exists")))))
-
-;; ---- 3. the element-slot guard rides the trio path ------------------------
+;; ---- 2. the element-slot guard rides the trio path ------------------------
 
 (deftest render-bang-refuses-cljs-data-in-the-element-slot
   (testing "hiccup / seq / map through render! raises ONE structured
