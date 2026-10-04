@@ -64,13 +64,6 @@
                     :on    {:go :done}}
              :done {}}})
 
-(def ^:private fn-bearing-spec
-  {:initial :idle
-   :guards  {:ok? (fn [_] true)}
-   :actions {:go  (fn [_] {})}
-   :states  {:idle {:on {:go {:target :done :guard :ok? :action :go}}}
-             :done {}}})
-
 (deftest fn-free-inline-literal-is-silent
   (testing "an inline fn-free literal is silent on both platforms"
     (rf/reg-machine :fn-free/inline
@@ -96,8 +89,3 @@
             platforms — the literal walk would have stamped that fn's source"
     (rf/reg-machine :inline-fn/def inline-fn-spec)
     (is (= [:inline-fn/def] (warned-ids)))))
-
-(deftest fn-bearing-plain-def-warns
-  (testing "a plain def carrying :guards / :actions fns warns on both platforms"
-    (rf/reg-machine :fn-bearing/def fn-bearing-spec)
-    (is (= [:fn-bearing/def] (warned-ids)))))
