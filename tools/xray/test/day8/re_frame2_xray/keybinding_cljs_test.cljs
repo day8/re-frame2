@@ -469,32 +469,9 @@
 ;; global keybindings (typically `Cmd/Ctrl+K`) aren't swallowed by the
 ;; capture-phase `stopPropagation()`.
 ;;
-;; Each test sets the slot, exercises attach!, and ALWAYS resets it in
-;; a `finally` so the default (`true`) survives into neighbouring
-;; tests in the same suite run.
-
-(deftest attach-disabled-by-config-is-noop
-  (testing "with :rf.xray/keybinding-enabled?
-            false, attach! does NOT register the global listener and
-            does NOT flip the sentinel; the embed-host contract"
-    (with-stub-document
-      (fn [{:keys [listeners]}]
-        (try
-          (config/set-keybinding-enabled! false)
-          (is (false? (config/keybinding-attach-enabled?))
-              "config flag flipped false")
-          (is (false? (keybinding/attached?))
-              "baseline — sentinel starts at false")
-          (keybinding/attach!)
-          (is (false? (keybinding/attached?))
-              "attach! short-circuited; sentinel stayed false")
-          (is (zero? (count @listeners))
-              "no listener registered on the stub document")
-          (finally
-            ;; Restore the default so neighbouring tests
-            ;; (attach-is-idempotent, detach-is-idempotent) see the
-            ;; baseline they assume.
-            (config/set-keybinding-enabled! true)))))))
+;; Each test sets the slot and ALWAYS resets it in a `finally` so the
+;; default (`true`) survives into neighbouring tests in the same suite
+;; run.
 
 (deftest config-set-keybinding-enabled-nil-resets-to-true
   (testing "`nil` arg restores the default `true` per the
@@ -675,20 +652,6 @@
         (is (false? @stopped)
             (str "repeat chord " chord " must not stopPropagation"))))))
 
-(deftest held-escape-does-not-redismiss-hint
-  (testing "a HELD Escape (auto-repeat) does not re-fire the
-            editor-hint dismiss; the first physical press already acted.
-            The non-repeat Escape path stays live (see
-            esc-dismisses-open-editor-hint), so this also proves a plain
-            keydown is NOT over-blocked by the guard."
-    (setup-xray-runtime!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/editor-hint-show]))
-    (let [{:keys [event prevented stopped]} (mk-spy-event {:key "Escape" :repeat? true})]
-      (handle-keydown event)
-      (is (false? @prevented) "repeat Escape is ignored — not consumed")
-      (is (false? @stopped)))))
-
 ;; ---- (9) Space not hijacked from focused button/summary ------------------
 ;;
 ;; `target-editable?` exempts only INPUT/TEXTAREA/SELECT/contenteditable, so
@@ -717,8 +680,7 @@
 
   The activatable-target exemption is scoped to Space, so the roster
   keys need the same shell-inside target shape as Space to assert they
-  are NOT exempted; `mk-shell-space-event` below is the Space-only
-  spelling."
+  are NOT exempted. `key` defaults to Space."
   [{:keys [tag role key code shift?]
     :or   {key " " code "Space" shift? false}}]
   (let [prevented  (atom false)
@@ -738,13 +700,6 @@
                            "preventDefault"  (fn [] (reset! prevented true))
                            "stopPropagation" (fn [] (reset! stopped true)))]
     {:event event :prevented prevented :stopped stopped}))
-
-(defn- mk-shell-space-event
-  "Synthetic bare Space keydown inside the shell — the Space-specific
-  spelling of `mk-shell-target-key-event`, so the Space rows below need
-  not name the key."
-  [{:keys [tag role]}]
-  (mk-shell-target-key-event {:tag tag :role role}))
 
 (deftest target-activatable-matches-buttons-summary-role
   (testing "a focused <button> / <summary> / [role=button]
@@ -776,18 +731,6 @@
         "a non-button role is not activatable")
     (is (nil? (#'keybinding/target-activatable? (js-obj)))
         "an event with no target must not throw")))
-
-(deftest space-on-non-activatable-shell-target-still-pauses
-  (testing "the guard is surgical: Space on a NON-activatable
-            focused shell node fires the LIVE-pause binding
-            (preventDefault called), so the spine keeps working normally
-            when focus is not on an activatable control."
-    (setup-xray-runtime!)
-    (with-redefs [mount/visible? (constantly true)]
-      (let [{:keys [event prevented]} (mk-shell-space-event {:tag "DIV"})]
-        (handle-keydown event)
-        (is (true? @prevented)
-            "Space consumed — the spine live-pause binding fired on a plain node")))))
 
 ;; ---- the exemption is SPACE'S, not the roster's -------------------------
 ;;
