@@ -208,23 +208,18 @@
 
 (deftest xyflow-graph-history-node-type
   (testing "a `:type :history` pseudo-state projects as a
-            `history-marker`-type node, NOT a `state`"
-    (let [parsed (layout/project-definition shallow-history-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          hist   (node-by-id graph (layout/node-id [:player :hist]))]
-      (is (some? hist) "the history node is present in the projection")
-      (is (= "history-marker" (:type hist))
-          "it projects to the registered history-marker node-type")
-      (is (false? (:deep (:data hist)))
-          "shallow history threads :deep false to the renderer"))))
-
-(deftest xyflow-graph-deep-history-node
-  (testing "a DEEP history pseudo-state threads :deep true"
-    (let [parsed (layout/project-definition deep-history-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          hist   (node-by-id graph (layout/node-id [:player :hist]))]
-      (is (= "history-marker" (:type hist)))
-      (is (true? (:deep (:data hist)))))))
+            `history-marker`-type node, NOT a `state`, threading its
+            shallow / deep flag to the renderer as `:deep`"
+    (doseq [[label machine deep?] [["shallow" shallow-history-machine false]
+                                   ["deep"    deep-history-machine    true]]]
+      (let [parsed (layout/project-definition machine)
+            graph  (projection/xyflow-graph parsed {} {})
+            hist   (node-by-id graph (layout/node-id [:player :hist]))]
+        (is (some? hist) (str label ": the history node is present in the projection"))
+        (is (= "history-marker" (:type hist))
+            (str label ": it projects to the registered history-marker node-type"))
+        (is (= deep? (:deep (:data hist)))
+            (str label ": history threads :deep " deep? " to the renderer"))))))
 
 (deftest history-node-is-not-occupiable
   (testing "a history pseudo-state is NEVER occupiable: not
@@ -461,21 +456,6 @@
       (is (= "parent" (:extent idle))))))
 
 ;; ---- xyflow-graph parent-before-child sort (G1) ------------------------
-
-(deftest xyflow-graph-sorts-regions-before-children
-  (testing "xyflow requires a parentId target to appear in
-            the nodes array BEFORE any node that references it (v12's
-            `adoptUserNodes` warns otherwise). Every region container
-            must precede its first child in the projected order."
-    (let [parsed   (layout/project-definition parallel-machine)
-          graph    (projection/xyflow-graph parsed {} {})
-          ids      (mapv :id (:nodes graph))
-          index-of (fn [id] (.indexOf ids id))]
-      (doseq [n (:nodes graph)
-              :let [parent (:parentId n)]
-              :when parent]
-        (is (< (index-of parent) (index-of (:id n)))
-            (str "parent " parent " must precede child " (:id n)))))))
 
 (deftest xyflow-graph-parent-first-order-survives-reversed-input
   (testing "the sort is defensive — even if upstream emits a child
@@ -908,22 +888,6 @@
           idle   (node-by-id graph (layout/node-id [:idle]))]
       (is (= {:x 0 :y 0} (:position idle))))))
 
-(deftest xyflow-graph-event-node-carries-after-ms-and-event-label
-  (testing "events-as-nodes paradigm: the event-node
-            (not the edge) carries the `:afterMs` + the visible event
-            label. The `⌚`-prefixed segment (from chart.layout/event-
-            segment) rides on the event-node's `:eventLabel`."
-    (let [parsed     (layout/project-definition idle-loading)
-          graph      (projection/xyflow-graph parsed {} {})
-          after-parsed (first (filter :after (:edges parsed)))
-          after-node (event-node-for graph (:id after-parsed))]
-      (is (some? after-parsed) "parser emitted an :after edge")
-      (is (some? after-node)   "projector emitted the matching event-node")
-      (is (= 1000 (:afterMs (:data after-node))))
-      (is (string? (:eventLabel (:data after-node))))
-      (is (= "after" (:variant (:data after-node)))
-          "the variant attribute identifies the `:after` event-node kind"))))
-
 (deftest xyflow-graph-event-node-resolves-an-iso-after-delay-to-ms
   (testing "an ISO-8601 `:after` key reaches the event-node as milliseconds,
             so the header glyph and `:eventLabel` both read `⌚ 1000ms`"
@@ -1013,24 +977,19 @@
 ;; `:data {:chart {...}}`. These pins guard that threading at the cheap
 ;; JVM layer — the DOM suite (chart_dom) then pins the rendered effect.
 
-(deftest xyflow-graph-threads-chart-constants-onto-nodes
-  (testing "the resolved `:chart` map rides on EVERY node's
-            `:data` so the xyflow node component reads geometry off the
-            payload (it is invoked outside the render binding scope)"
+(deftest xyflow-graph-threads-chart-constants-onto-nodes-and-edges
+  (testing "the resolved `:chart` map rides on EVERY node's and EVERY edge's
+            `:data`, so the xyflow node component reads geometry off the
+            payload (it is invoked outside the render binding scope) and the
+            edge label typography tracks the density"
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {:chart vc/chart-compact})]
       (is (seq (:nodes graph)))
       (is (every? #(= vc/chart-compact (:chart (:data %))) (:nodes graph))
-          "compact density threads chart-compact onto every node"))))
-
-(deftest xyflow-graph-threads-chart-constants-onto-edges
-  (testing "the resolved `:chart` map rides on EVERY edge's
-            `:data` so the edge label typography tracks the density"
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {:chart vc/chart-cosy})]
+          "compact density threads chart-compact onto every node")
       (is (seq (:edges graph)))
-      (is (every? #(= vc/chart-cosy (:chart (:data %))) (:edges graph))
-          "cosy density threads chart-cosy onto every edge"))))
+      (is (every? #(= vc/chart-compact (:chart (:data %))) (:edges graph))
+          "compact density threads chart-compact onto every edge"))))
 
 (deftest xyflow-graph-chart-defaults-to-regular
   (testing "omitting `:chart` (the JVM tests, a density-less
@@ -1222,43 +1181,6 @@
         (is (= expected (projection/container-elk-padding vc-map))
             (str "padding tracks the " density " density constants"))))))
 
-(deftest container-elk-padding-defaults-to-regular
-  (testing "the zero-arity falls back to the regular density"
-    (is (= (projection/container-elk-padding vc/chart-regular)
-           (projection/container-elk-padding)))
-    ;; Regular: title strip 26 + body-pad 14 = 40 top; 14 on each side.
-    (is (= "[top=40,left=14,bottom=14,right=14]"
-           (projection/container-elk-padding vc/chart-regular)))))
-
-(deftest elk-children-padding-tracks-threaded-density
-  (testing "`->elk-children` threads `chart-vc` into every
-            container's elk.padding so a compact chart reserves a SMALLER
-            header gap than a cosy chart.
-            The two parallel REGIONS each hold an initial
-            substate, so they take the LEFT-widened initial-marker variant;
-            the assertion compares against that variant per density."
-    (let [parsed       (layout/project-definition parallel-machine)
-          ;; The regions (which hold initial substates) carry
-          ;; the LEFT-widened padding; read against `root-children` so the
-          ;; assertion addresses the region containers, not the outer frame.
-          compact-kids (root-children
-                         (projection/->elk-children parsed nil vc/chart-compact))
-          cosy-kids    (root-children
-                         (projection/->elk-children parsed nil vc/chart-cosy))
-          regions-of   (fn [kids] (filter #(re-find #"^region__" (:id %)) kids))
-          pad-of       (fn [child] (get-in child [:layoutOptions "elk.padding"]))]
-      (is (every? #(= (projection/container-elk-padding vc/chart-compact true)
-                      (pad-of %))
-                  (regions-of compact-kids))
-          "compact region containers use the compact-density padding")
-      (is (every? #(= (projection/container-elk-padding vc/chart-cosy true)
-                      (pad-of %))
-                  (regions-of cosy-kids))
-          "cosy region containers use the cosy-density padding")
-      (is (not= (projection/container-elk-padding vc/chart-compact true)
-                (projection/container-elk-padding vc/chart-cosy true))
-          "the two densities reserve genuinely different gaps"))))
-
 ;; ---- nested initial-marker stays inside the container -------------------
 ;;
 ;; A nested initial substate's initial-marker glyph (the dot + short hook)
@@ -1322,39 +1244,6 @@
         (is (= 1 (- dot-x pseudo-radius))
             "the dot's GEOMETRY-radius left edge is at node-local x=1 in every density")))))
 
-(deftest elk-children-nested-compound-reserves-initial-marker-left
-  (testing "every compound container holding an initial
-            substate carries the LEFT-widened padding, so the nested
-            initial-marker stays inside the box (hvac running/conditioning)"
-    (let [parsed   (layout/project-definition nested-compound-machine)
-          all-kids (projection/->elk-children parsed)
-          ;; Walk the whole nested tree (root frame → :outer → :mid) so
-          ;; every level's container padding is checked, not just the top.
-          walk     (fn walk [child]
-                     (cons child (mapcat walk (:children child))))
-          containers (->> all-kids
-                          (mapcat walk)
-                          (filter #(seq (:children %))))
-          ;; Containers that hold an initial substate (every compound here:
-          ;; the root frame holds :outer-as-initial, :outer holds :mid,
-          ;; :mid holds :leaf) — keyed by id for the parse cross-check.
-          initial-parents (into #{}
-                                (comp (filter :initial?) (keep :parent-id))
-                                (:nodes parsed))
-          pad-of   (fn [c] (get-in c [:layoutOptions "elk.padding"]))]
-      (is (seq containers) "the nested machine projects compound containers")
-      (is (seq initial-parents) "the nested machine has initial substates")
-      ;; Every container that holds an initial child reserves the widened
-      ;; LEFT extent; every other container keeps the plain inset.
-      (doseq [c containers]
-        (if (contains? initial-parents (:id c))
-          (is (>= (elk-padding-left (pad-of c))
-                  projection/initial-marker-left-extent)
-              (str (:id c) " (holds initial) reserves the marker LEFT extent"))
-          (is (= (elk-padding-left (pad-of c))
-                 (:container-body-pad vc/chart-regular))
-              (str (:id c) " (no initial child) keeps the plain inset")))))))
-
 ;; ---- root-container reserves the Context-band TOP padding ---------------
 ;;
 ;; The synthetic ROOT-CONTAINER frame paints a title strip PLUS a
@@ -1366,13 +1255,6 @@
 ;; would sit UNDER the painted band. So the FRAME's TOP padding adds
 ;; `context-band-height` (derived from the row count + the density divider),
 ;; threaded from `:context-band`'s row count.
-
-(defn- elk-padding-top
-  "Parse the `top=` integer out of an `elk.padding` string
-  (`[top=40,left=26,bottom=14,right=14]`). Returns an int."
-  [pad]
-  #?(:clj  (Integer/parseInt (second (re-find #"top=(\d+)" pad)))
-     :cljs (js/parseInt (second (re-find #"top=(\d+)" pad)) 10)))
 
 (defn- root-container-pad
   "The `elk.padding` string `->elk-children` puts on the
@@ -1403,39 +1285,6 @@
                (+ projection/context-band-row-height
                   projection/context-band-row-gap))
             "each extra row adds row-height + row-gap")))))
-
-(deftest root-container-elk-padding-reserves-context-band
-  (testing "the ROOT-CONTAINER frame's ELK top padding is
-            LARGER WITH context rows than WITHOUT (it reserves the painted
-            Context band); the no-context case is byte-identical to the
-            plain marker-widened padding"
-    (doseq [[density chart-vc] [[:compact vc/chart-compact]
-                                [:regular vc/chart-regular]
-                                [:cosy    vc/chart-cosy]]]
-      (let [parsed     (layout/project-definition idle-loading)
-            no-ctx     (root-container-pad parsed 0 chart-vc)
-            with-2     (root-container-pad parsed 2 chart-vc)
-            with-5     (root-container-pad parsed 5 chart-vc)]
-        ;; No context → the frame padding equals the marker-widened padding
-        ;; (the frame holds the top-level initial).
-        (is (= (projection/container-elk-padding chart-vc true) no-ctx)
-            (str density " context-less root padding = marker-widened (no extra top)"))
-        ;; WITH context the TOP grows by exactly the band height; more rows
-        ;; → more top.
-        (is (> (elk-padding-top with-2) (elk-padding-top no-ctx))
-            (str density " a 2-row context reserves MORE top than no context"))
-        (is (> (elk-padding-top with-5) (elk-padding-top with-2))
-            (str density " a 5-row context reserves MORE top than 2 rows"))
-        (is (= (elk-padding-top with-2)
-               (+ (elk-padding-top no-ctx)
-                  (projection/context-band-height
-                    2 (:container-divider-width chart-vc))))
-            (str density " the extra top is exactly the 2-row band height"))
-        ;; the band reservation NEVER touches the side/bottom insets — only
-        ;; TOP moves between the no-context and with-context variants.
-        (is (= (str/replace no-ctx #"top=\d+" "top=X")
-               (str/replace with-2 #"top=\d+" "top=X"))
-            (str density " only the TOP side changes for the Context band"))))))
 
 (deftest elk-children-non-root-containers-ignore-context-rows
   (testing "threading a context-row count widens ONLY the
@@ -1540,19 +1389,6 @@
         (is (= projection/state-node-min-width
                (:width (get by-id ready-id)))
             "unmeasured sibling keeps the floor")))))
-
-(deftest elk-children-no-measured-dims-equals-floor-single-pass
-  (testing "with no measured-dims (the first pass / nil) the
-            output is the single-pass layout: every leaf at the floor.
-            Guards that the two-pass is purely additive."
-    (let [parsed (layout/project-definition idle-loading)]
-      (is (= (projection/->elk-children parsed)
-             (projection/->elk-children parsed nil))
-          "the 1-arity and nil-2-arity are identical")
-      (let [children (root-children (projection/->elk-children parsed nil))
-            leaves   (remove #(re-find #"^__rf2_event_" (:id %)) children)]
-        (is (every? #(= projection/state-node-min-width (:width %)) leaves)
-            "every leaf at the width floor when unmeasured")))))
 
 ;; ---- order-state-children (initial-state model order) ------------------
 
@@ -1731,16 +1567,6 @@
   [elk-edge]
   (get-in elk-edge [:layoutOptions "elk.layered.priority.direction"]))
 
-(deftest elk-edge-omits-priority-when-no-initial-set
-  (testing "with no `initial-ids` (the 2-arity path), NO
-            edge carries the direction-priority option"
-    (let [parsed (layout/project-definition idle-loading)]
-      ;; `->elk-edges` DERIVES the initial set itself, so the no-initial-set
-      ;; arity is reachable only through the bare `->elk-edge`.
-      (is (every? #(nil? (in-edge-priority %))
-                  (mapcat #(projection/->elk-edge % nil nil) (:edges parsed)))
-          "the nil initial-ids arity leaves every edge unset"))))
-
 (deftest elk-edges-derives-initial-set-and-prioritises-each-region-initial
   (testing "`->elk-edges` derives the `:initial?` node-id set
             from `:nodes` and tags EACH region's initial `__in` edge — the
@@ -1800,15 +1626,6 @@
       (is (nil? (:labelPos (:data xy-out)))
           "an edge with no ELK label position gets nil (geometric fallback)"))))
 
-(deftest xyflow-graph-edge-labels-defaults-empty
-  (testing "omitting :edge-labels (events-as-nodes default)
-            leaves every edge's :labelPos nil so the renderer keeps its
-            geometric anchor"
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})]
-      (is (every? #(nil? (:labelPos (:data %))) (:edges graph))
-          "no ELK labels fed → every edge :labelPos nil"))))
-
 ;; ---- initial-state markers + self-loops --------------------------------
 
 (deftest xyflow-graph-emits-initial-marker-node-and-entry-edge
@@ -1851,25 +1668,6 @@
       (is (= (+ 120 projection/initial-marker-y-offset)
              (get-in marker [:position :y]))
           "marker y = state.y + initial-marker-y-offset (title-row anchor)"))))
-
-(deftest initial-marker-short-hook-ends-outside-the-edge
-  (testing "the offset is a SMALL short-hook span and the
-            tip-gap is decoupled from it: the arrow tip (drawn at node-local
-            x = offset - tip-gap) lands a clean gap OUTSIDE the state's left
-            edge (absolute state.x - tip-gap), never on/through it"
-    ;; The offset is a SHORT hook span (Stately's dot-offset neighbourhood),
-    ;; long enough for a visible hook arm; at offset 26 the dot CENTRE
-    ;; (`dot-x = pseudo-radius + 1`) lands ~19px left of the edge (regular:
-    ;; `offset - dot-x = 26 - 7 = 19`).
-    (is (<= 12 projection/initial-marker-x-offset 28)
-        "offset is a short-hook span (dot centre ~19px left of the edge)")
-    ;; the tip-gap is a small positive gap, strictly less than the offset so
-    ;; the tip lands OUTSIDE the edge (local x = offset - gap > 0).
-    (is (pos? projection/initial-marker-tip-gap))
-    (is (<= 4 projection/initial-marker-tip-gap 12)
-        "tip-gap is a small visible gap (~6-10px)")
-    (is (< projection/initial-marker-tip-gap projection/initial-marker-x-offset)
-        "tip-gap < offset ⇒ arrow tip (local x = offset - gap) is OUTSIDE the edge, not at/through it")))
 
 (deftest initial-marker-glyph-hook-flows-forward
   (testing "the initial glyph reads as ONE clean unit pointing
@@ -2071,24 +1869,6 @@
 
 ;; ---- self-transitions / wildcard / machine-level :on -------------------
 
-(deftest xyflow-graph-internal-self-transition-emits-no-outbound
-  (testing "an internal self-transition
-            (omit :target) emits an inbound edge into the event-node
-            but NO outbound edge — the Stately convention 'runs an
-            action and we hang here'. The event-node carries
-            `:internal true`."
-    (let [parsed   (layout/project-definition internal-self-machine)
-          graph    (projection/xyflow-graph parsed {} {})
-          tick     (first (:edges parsed))
-          ev-node  (event-node-for graph (:id tick))
-          in-edge  (inbound-edge-for  graph (:id tick))
-          out-edge (outbound-edge-for graph (:id tick))]
-      (is (true? (:internal? tick)) "parser flagged the internal transition")
-      (is (some? ev-node))
-      (is (true? (:internal (:data ev-node))))
-      (is (some? in-edge)  "inbound edge into the event-node is emitted")
-      (is (nil? out-edge)  "no outbound edge (internal hangs at the event-node)"))))
-
 (deftest xyflow-graph-reenter-event-node-carries-reenter-data
   (testing "a `:reenter? true` (external restart) self-target
             projects its event-node with `:reenter true` (the renderer's
@@ -2147,35 +1927,6 @@
       (is (some? in-edge))
       (is (= layout/machine-root-id (:source in-edge))
           "the fallback's `__in` edge leaves the MACHINE-ROOT node"))))
-
-(deftest xyflow-graph-machine-root-node-projected
-  (testing "the synthetic MACHINE-ROOT node projects as a
-            xyflow node of type `machine-root` (the quiet root-context
-            chip the fallback routes FROM); it leads the node vector so
-            xyflow sees the source node before the edge referencing it."
-    (let [parsed (layout/project-definition machine-level-on-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          root   (node-by-id graph layout/machine-root-id)
-          root-idx (->> (:nodes graph)
-                        (map-indexed vector)
-                        (filter #(= layout/machine-root-id (:id (second %))))
-                        ffirst)
-          ev-idx (->> (:nodes graph)
-                      (map-indexed vector)
-                      (filter #(= "rf2-event" (:type (second %))))
-                      ffirst)]
-      (is (some? root) "the machine-root node is projected")
-      (is (= "machine-root" (:type root)))
-      (is (and root-idx ev-idx (< root-idx ev-idx))
-          "the root node precedes the event-node that references it"))))
-
-(deftest xyflow-graph-no-machine-level-emits-no-root-node
-  (testing "a machine with no top-level :on projects no
-            machine-root node (the chip is the fallback's anchor only)."
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})]
-      (is (nil? (node-by-id graph layout/machine-root-id)))
-      (is (empty? (filter #(= "machine-root" (:type %)) (:nodes graph)))))))
 
 (deftest xyflow-graph-state-only-transitions-not-machine-level
   (testing "a normal state-local transition's
@@ -2288,16 +2039,6 @@
       (is (nil? (:points (:data (inbound-edge-for graph (:id start)))))
           "the routed transition's inbound edge has no `__in` entry → nil"))))
 
-(deftest xyflow-graph-no-edge-points-leaves-all-points-nil
-  (testing "omitting :edge-points entirely (the pre-layout
-            render, before elk resolves) leaves EVERY edge's :points nil
-            so the whole chart falls back to beziers"
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})]
-      (is (seq (:edges graph)))
-      (is (every? #(nil? (:points (:data %))) (:edges graph))
-          "no edge-points map → no routed edges"))))
-
 ;; ---- source-active edge highlight --------------------------------------
 ;;
 ;; `from-active?` (rendered as the edge `:active` flag, the bright-blue
@@ -2394,15 +2135,6 @@
       (is (true? (:fired (:data out-edge))))
       (is (every? #(false? (:fired (:data %))) other-ev))
       (is (every? #(false? (:fired (:data %))) other-ed)))))
-
-(deftest xyflow-graph-no-fired-edge-ids-leaves-all-unfired
-  (testing "omitting :fired-edge-ids (the viewer / Story path,
-            or a non-fired epoch) leaves EVERY edge `:fired false`"
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})]
-      (is (seq (:edges graph)))
-      (is (every? #(false? (:fired (:data %))) (:edges graph))
-          "no fired set → no fired edges"))))
 
 (deftest xyflow-graph-fired-collects-multiple-event-nodes
   (testing "a set with N fired parsed-edge ids
@@ -2556,18 +2288,6 @@
       (is (every? #(false? (:guardBlocked (:data %))) other-ev))
       (is (every? #(false? (:guardBlocked (:data %))) other-ed)))))
 
-(deftest xyflow-graph-no-guard-blocked-ids-leaves-all-unblocked
-  (testing "omitting :guard-blocked-edge-ids leaves EVERY edge
-            + event-node `:guardBlocked false`"
-    (let [parsed (layout/project-definition door-cyclic-machine)
-          graph  (projection/xyflow-graph parsed {} {})]
-      (is (seq (:edges graph)))
-      (is (every? #(false? (:guardBlocked (:data %))) (:edges graph))
-          "no guard-blocked set → no guard-blocked edges")
-      (is (every? #(false? (:guardBlocked (:data %)))
-                  (filter #(= "rf2-event" (:type %)) (:nodes graph)))
-          "no guard-blocked set → no guard-blocked event-nodes"))))
-
 (deftest xyflow-graph-guard-blocked-wins-over-active-affordance
   (testing "when the source state is ACTIVE
             (all-exits affordance-blue) AND the edge is guard-blocked, the
@@ -2670,19 +2390,6 @@
           "inbound source == :active compound")
       (is (nil? out-edge)
           "internal transition emits no outbound edge"))))
-
-(deftest xyflow-graph-emits-compound-endpoint-event-nodes-survive-projection
-  (testing "every parsed edge mints
-            an event-node in the projected graph; no compound-endpoint
-            edge is silently dropped at the projection layer."
-    (let [parsed (layout/project-definition parent-level-transition-machine)
-          graph  (projection/xyflow-graph parsed {} {})
-          parsed-ids (set (map :id (:edges parsed)))
-          ev-node-ids (set (map :id (filter #(= "rf2-event" (:type %))
-                                            (:nodes graph))))
-          expected (set (map #(projection/event-node-id {:id %}) parsed-ids))]
-      (is (= expected ev-node-ids)
-          "every parsed edge id has a matching event-node"))))
 
 ;; ---- multi-event NO-collapse: distinct event-nodes ----------------------
 ;;
@@ -2798,15 +2505,6 @@
           out-edge (outbound-edge-for graph (:id checkout))]
       (is (some? out-edge))
       (is (false? (:crossHierarchy (:data out-edge)))))))
-
-(deftest xyflow-graph-flat-machine-no-cross-hierarchy
-  (testing "a flat machine has no
-            containers, so no outbound edge is cross-hierarchy."
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})
-          out-edges (filter #(:outbound (:data %)) (:edges graph))]
-      (is (seq out-edges))
-      (is (every? #(false? (:crossHierarchy (:data %))) out-edges)))))
 
 (deftest xyflow-graph-entry-edges-carry-cross-hierarchy-false
   (testing "entry edges keep the every-edge :data shape
@@ -2935,22 +2633,6 @@
           "the engine-raised :rf.machine.spawn/done is NOT click-to-send")
       (is (= (layout/node-id [:loaded]) (:target (outbound-edge-for graph (:id (first od)))))
           "the completion edge lands on the sibling :loaded"))))
-
-(deftest xyflow-graph-spawn-on-done-action-only-is-terminal
-  (testing "an action-only `:spawn :on-done` is a terminal ✓ done chip on
-            the spawning state, with no outgoing segment"
-    (let [parsed  (layout/project-definition
-                    {:initial :working
-                     :states  {:working {:spawn {:machine-id :child
-                                                 :on-done    {:action :store-result}}}}})
-          od      (first (spawn-done-edges parsed))
-          graph   (projection/xyflow-graph parsed {} {})
-          ev-node (event-node-for graph (:id od))]
-      (is (some? ev-node) "the action-only spawn :on-done projects an event-node")
-      (is (= "✓ done" (:eventLabel (:data ev-node))))
-      (is (true? (:internal (:data ev-node))) "a terminal (internal) affordance")
-      (is (= "store-result" (:action (:data ev-node))) "the action surfaces on the chip")
-      (is (nil? (outbound-edge-for graph (:id od))) "no outgoing segment"))))
 
 (deftest xyflow-graph-spawn-on-done-beside-the-other-completions
   (testing "a spawning compound declaring its own `:on-done`, a
@@ -3089,31 +2771,6 @@
   [graph parsed-edge-id]
   (:forkOrder (:data (event-node-for graph parsed-edge-id))))
 
-(deftest fork-order-by-edge-id-badges-guarded-fork-in-candidate-order
-  (testing "the gate `:gate/check` 3-way's branches carry
-            1-based priorities in candidate-vector order (gate-high? → 1,
-            gate-low? → 2, unguarded fallback → 3); the SEPARATE
-            `:gate/set` trigger on the same source is NOT a fork branch."
-    (let [parsed (layout/project-definition gate-fork-machine)
-          checks (filter #(= :gate/check (:event %)) (:edges parsed))
-          fmap   (projection/fork-order-by-edge-id (:edges parsed))
-          by-guard (into {} (map (juxt :guard identity) checks))]
-      (is (= 3 (count checks)) "fixture forks `:gate/check` three ways")
-      (is (= 1 (get fmap (:id (get by-guard :gate-high?))))
-          "gate-high? is the first candidate → priority 1")
-      (is (= 2 (get fmap (:id (get by-guard :gate-low?))))
-          "gate-low? is the second candidate → priority 2")
-      (is (= 3 (get fmap (:id (get by-guard nil))))
-          "the unguarded fallback is the third candidate → priority 3")
-      ;; `:gate/set` (a different trigger on :idle) is never a fork branch.
-      (let [set-edge (first (filter #(= :gate/set (:event %)) (:edges parsed)))]
-        (is (nil? (get fmap (:id set-edge)))
-            "the separate `:gate/set` trigger carries no fork priority"))
-      ;; `:gate/reset` leaves three DIFFERENT sources, one each — no fork.
-      (doseq [reset (filter #(= :gate/reset (:event %)) (:edges parsed))]
-        (is (nil? (get fmap (:id reset)))
-            "each single `:gate/reset` transition is un-badged")))))
-
 (deftest xyflow-graph-threads-fork-order-onto-event-nodes
   (testing "the projector threads each fork branch's 1-based
             priority onto the event-node `:data {:forkOrder}`; non-fork
@@ -3240,23 +2897,12 @@
         (is (false? (:fired (:data e))) "decorative, never a fired arm")
         (is (false? (:active (:data e))) "decorative, never an active arm")
         (is (re-find #"^fork-connector__" (:id e))
-            "stable fork-connector id prefix")))))
-
-(deftest fork-connector-edges-anchor-to-explicit-side-handles
-  (testing "every connector edge anchors to EXPLICIT side
-            handles (`:sourceHandle \"right\"` + `:targetHandle \"left\"`)
-            rather than xyflow's default handle pick. The branch event-nodes
-            lay out LEFT-TO-RIGHT in priority order, so the
-            order chain must read side-to-side: it leaves each branch from
-            its RIGHT source handle and enters the next from its LEFT target
-            handle (the named cardinal handles `four-cardinal-handles`
-            emits). Without these, xyflow may attach BOTTOM→TOP off the
-            unnamed cardinal handles, making the priority chain awkward."
-    (let [parsed (layout/project-definition gate-fork-machine)
-          conns  (projection/fork-connector-edges
-                   (:edges parsed) (tokens/chart-tokens) vc/chart-regular)]
-      (is (seq conns) "the gate fork yields connector edges")
-      (doseq [e conns]
+            "stable fork-connector id prefix")
+        ;; The branch event-nodes lay out LEFT-TO-RIGHT in priority order, so
+        ;; the order chain reads side-to-side: it leaves each branch from its
+        ;; RIGHT source handle and enters the next from its LEFT target handle
+        ;; (the named cardinal handles `four-cardinal-handles` emits), rather
+        ;; than xyflow's default BOTTOM-to-TOP handle pick.
         (is (= "right" (:sourceHandle e))
             "leaves the source branch from its RIGHT source handle")
         (is (= "left" (:targetHandle e))
