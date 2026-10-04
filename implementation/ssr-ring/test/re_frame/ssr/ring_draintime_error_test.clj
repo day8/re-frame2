@@ -36,9 +36,11 @@
   200; see `error-listener/candidate-frame-for-error`.)
 
   The ssr ARTEFACT proves the drain-time + per-frame-attribution
-  contract directly (`ssr_end_to_end_test/ssr-default-error-projector-
-  no-such-handler` → 404; `ssr_error_two_frame_attribution_test` → the
-  navigate-reject 400 on the emitting frame only). ssr-ring DEPENDS on
+  contract directly (its `ssr-error-known-mapping` conformance fixture
+  drives an unmatched URL to the default projector's 404,
+  `ssr_end_to_end_test/default-error-projector-fn-maps-all-enumerated-categories`
+  pins that projector arm, and `ssr_error_two_frame_attribution_test` →
+  the navigate-reject 400 on the emitting frame only). ssr-ring DEPENDS on
   that contract; this namespace proves the end-to-end WIRE status flows
   through ITS handler:
 
@@ -48,10 +50,11 @@
        (`:kind :route`), buffered by the always-on
        `error-emit-projection-listener`, projected to 404 by
        `ssr/flush-response-result!` (the single accumulator read in `ssr-handler`). Asserted on the
-       wire (Jetty + `java.net.http`) AND via a direct in-process
-       handler call — the 404 is the DISCRIMINATING status that proves
-       the routing projector arm rode the wire, not the generic 500
-       fallback.
+       wire (Jetty + `java.net.http`) — the 404 is the DISCRIMINATING status
+       that proves the routing projector arm rode the wire, not the generic
+       500 fallback. The same request in-process (root and payload kept,
+       `:error-view` never called) is
+       `ring_draintime_error_view_test/draintime-4xx-keeps-root-and-payload-never-error-view`.
 
     2. `draintime-navigate-reject-projects-400-on-the-wire` — an
        `:initial-events` that fires a `:rf.route/navigate` whose `:params`
@@ -166,7 +169,7 @@
             route in :initial-events) is projected to 404 by flush-response-result! and
             rides the wire status through the ring handler — the routing
             drain-time path, asserted at the ssr-ring
-            boundary (ssr_end_to_end_test proves it at the ssr layer; this
+            boundary (the ssr artefact proves it at the ssr layer; this
             proves the WIRE status through the ring layer)."
     ;; A registered route so a registry exists; the request URL below
     ;; matches NONE of them, so url-change-fx falls back to not-found and
@@ -191,34 +194,23 @@
                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
                                  :dev-error-detail? false}
                      :payload :rf.ssr.payload/whole-app-db})]
-      (testing "direct in-process handler call — the projected 404 rides
-                the Ring response :status (the flush-response-result! → 404 path)"
-        (let [response (handler {:uri "/no-such-page" :request-method :get})]
-          (is (= 404 (:status response))
-              "drain-time :no-such-handler → default projector's 404
-               stamped on :rf/response by flush-response-result! → ring :status.
-               A regression that dropped the :frame stamp would no-op the
-               projector and ship the default 200 here.")
-          ;; Explicit 4xx-app-arm choice (Spec 011 §Drain-time error
-          ;; classification): a projected 4xx is a CLIENT fault / renderable
-          ;; app — the 4xx owns the wire status but the app renders its OWN
-          ;; not-found root body (and hydration payload) and `:error-view` is
-          ;; NOT called. This is deliberate, not incidental: only a projected
-          ;; 5xx (server fault) diverts to the projected-error arm.
-          (is (str/includes? (:body response) "Not found page renders")
-              "the root-view still renders — a projected 404 keeps the app's
-               own not-found UI (the 4xx app arm), it does NOT route through
-               the projected-error arm the way a 5xx does")))
-
       (testing "bytes-on-the-wire through Jetty — a real HTTP server
                 preserves the projected 404 status"
         (rf.ssr.ring.test-support/with-jetty [port handler]
           (let [client (rf.ssr.ring.test-support/new-http-client)
                 {:keys [status body]} (http-get client port "/no-such-page")]
             (is (= 404 status)
-                "the projected 404 survives the full Jetty round-trip")
+                "drain-time :no-such-handler → default projector's 404
+                 stamped on :rf/response by flush-response-result! → the
+                 wire status. A regression that dropped the :frame stamp
+                 would no-op the projector and ship the default 200 here.")
+            ;; A projected 4xx is a CLIENT fault with a renderable app (Spec
+            ;; 011 §Drain-time error classification): the 4xx owns the wire
+            ;; status but the app renders its OWN not-found root body. Only a
+            ;; projected 5xx diverts to the projected-error arm.
             (is (str/includes? body "Not found page renders")
-                "the root-view body rides the wire alongside the 404")))))))
+                "the root-view body rides the wire alongside the 404 — the
+                 4xx app arm, not the projected-error arm")))))))
 
 ;; ===========================================================================
 ;; Test 2 — drain-time :rf.error/schema-validation-failure → projected 400

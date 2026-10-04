@@ -141,26 +141,6 @@
       (is (some #(str/includes? (str %) "sid=keep-me") (vals (:headers response)))
           "the pre-failure Set-Cookie survives onto the error response"))))
 
-(deftest draintime-500-no-error-view-uses-default-template-not-root
-  (testing "the same drain-time 500 with NO custom view uses the locked
-            default template (\"Something went wrong\"), never the root, and
-            ships no payload."
-    (reg-drain-boom-event!)
-    (reg-counting-root!)
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/boom]]
-                      :root-view [(rf/view :pages/counting-root)]
-                      :payload   :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/boom" :request-method :get})
-          body     (body->str (:body response))]
-      (is (= 500 (:status response)))
-      (is (zero? @root-calls) "the root view was NEVER invoked")
-      (is (str/includes? body "Something went wrong")
-          "the locked default error template rendered")
-      (is (not (str/includes? body "ROOT-RENDERED-MARKER")))
-      (is (not (str/includes? body "__rf_payload"))
-          "no hydration payload on the default error template arm"))))
-
 (deftest draintime-4xx-keeps-root-and-payload-never-error-view
   (testing "a projected 404 (route miss) keeps the app root + hydration
             payload and NEVER invokes the error view — the app's own

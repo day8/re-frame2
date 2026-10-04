@@ -167,7 +167,6 @@
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
       (let [items (get-in (rf/app-db-value client) [:catalog :items])]
         (is (vector? items) (str "the client holds a vector, not a marker; got " (pr-str items)))
-        (is (= 3 (count items)))
         (is (= [1 2 3] items)))
       (is (= rf.privacy/redacted-sentinel
              (get-in (rf/app-db-value client) [:catalog :owner-token]))
