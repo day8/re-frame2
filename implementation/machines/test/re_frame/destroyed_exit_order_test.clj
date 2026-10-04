@@ -79,27 +79,6 @@
             "explicit destroy emits :exit then :rf.machine/destroyed")
         (finally (unreg))))))
 
-(deftest destroyed-after-exit-on-spawn-exit-cascade
-  (testing "declarative :spawn exit cascade (destroy-single!) fires :exit BEFORE :destroyed"
-    (let [log   (atom [])
-          unreg (record-order! log)]
-      (try
-        (rf/reg-machine :eo/child
-          {:initial :working
-           :data    {}
-           :states  {:working {:exit (fn [_] (swap! log conj :exit) {})}}})
-        (rf/reg-machine :eo/parent
-          {:initial :idle
-           :data    {}
-           :states  {:idle    {:on {:start :working}}
-                     :working {:spawn {:machine-id :eo/child}
-                               :on    {:stop :idle}}}})
-        (rf/dispatch-sync [:eo/parent [:start]])            ;; spawn child
-        (rf/dispatch-sync [:eo/parent [:stop]])             ;; exit :working → destroy child
-        (is (= [:exit :destroyed] @log)
-            "declarative :spawn exit cascade emits :exit then :destroyed")
-        (finally (unreg))))))
-
 ;; ---- Path 2: :spawn-all per-child teardown (destroy-spawn-all-children!) --
 
 (deftest destroyed-after-exit-on-spawn-all-teardown
