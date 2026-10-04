@@ -495,24 +495,18 @@
   ;; single dispatch, so the auth-outcome guards can't be pinned by parking
   ;; the machine there (and an async park would strand a real `setTimeout` —
   ;; the documented flake this file avoids). Verify them deterministically:
-  ;;   (1) the guard fn — the SAME `:current-socket?` the close test exercises
-  ;;       end-to-end — rejects a stale-sourced auth event and admits a live
-  ;;       one, and
-  ;;   (2) the auth (and opened/closed) transitions actually CARRY that guard.
+  ;;   (1) the guard fn — the SAME `:current-socket?` every end-to-end connect
+  ;;       and stale close here already runs through — rejects any event once
+  ;;       the socket is torn down, and
+  ;;   (2) the auth and opened transitions actually CARRY that guard (the
+  ;;       :ws/closed one is `stale-lifecycle-events-dropped-test`'s).
   (let [entry (get-in ws.connection/connection-machine [:guards :current-socket?])
         ;; The example registers via `defmachine`, which co-locates each
         ;; `:guards` entry as `{:fn <fn> :source-coords … :source-code …}` for
         ;; Xray click-to-source; unwrap `:fn` to call the guard directly. (A
         ;; bare-fn entry — a plain-`def` shape — is used as-is.)
         guard (if (map? entry) (:fn entry) entry)
-        live  "socket-live"
-        data  {:rf/spawned {[:active] live}}]
-    (is (true?  (boolean (guard {:data  data
-                                 :event [:ws/auth-ok {:source-socket-id live}]})))
-        "live-sourced :ws/auth-ok is admitted")
-    (is (false? (boolean (guard {:data  data
-                                 :event [:ws/auth-failed {:source-socket-id "socket-old"}]})))
-        "stale-sourced :ws/auth-failed is rejected")
+        live  "socket-live"]
     (is (false? (boolean (guard {:data  {}    ;; socket torn down: no :rf/spawned
                                  :event [:ws/auth-ok {:source-socket-id live}]})))
         "with no live socket, even a matching id is rejected (nil epoch)"))
@@ -525,10 +519,7 @@
         ":ws/auth-ok is epoch-guarded")
     (is (= :current-socket?
            (get-in m [:states :active :states :authenticating :on :ws/auth-failed :guard]))
-        ":ws/auth-failed is epoch-guarded")
-    (is (= :current-socket?
-           (get-in m [:states :active :on :ws/closed :guard]))
-        ":ws/closed is epoch-guarded")))
+        ":ws/auth-failed is epoch-guarded")))
 
 (defn- drop-fails-in-flight-request-test []
   ;; A request already put on the wire, then orphaned by a socket
@@ -1660,8 +1651,10 @@
   ;; `websocket.messages`' `:ws.app/request-reply` body would leave every
   ;; test green, and `inbound-boundary-structural-test` would read back the
   ;; `:schema` and `:boundary?` flag this very file had just installed
-  ;; rather than the example's. Three assertions, one per way the coupling
-  ;; can be lost.
+  ;; rather than the example's. Two checks, one per way the coupling can be
+  ;; lost; once (1) proves the live registration is the example's,
+  ;; `inbound-boundary-structural-test`'s reads of its `:schema` and
+  ;; `:boundary?` are reads of the example's own metadata.
   (with-new-frame [f (new-frame)]
     (let [m (rf/handler-meta {:source :store :kind :event :id :ws.app/request-reply})]
       ;; (1) IDENTITY. The live registration is the EXAMPLE's, not a
@@ -1672,18 +1665,8 @@
       (is (some? (:doc m))
           ":ws.app/request-reply is registered with the example's own :doc")
       (is (str/includes? (str (:doc m)) "RequestOutcome")
-          "the live :ws.app/request-reply IS websocket.messages' registration")
-      ;; (2) BOUNDARY METADATA, read off the live registry. Reds if the
-      ;; example drops `:boundary? true` (the release-resident half)
-      ;; or its closed `:schema`. This is the same pair
-      ;; `inbound-boundary-structural-test` pins — asserted here too,
-      ;; because that test alone cannot tell the example's metadata from a
-      ;; fixture's own metadata read back to itself.
-      (is (some? (:schema m))
-          "the example declares the closed RequestOutcome wire contract")
-      (is (true? (:boundary? m))
-          "the example declares :boundary? true"))
-    ;; (3) BODY. Driven through a real dispatch, so it is the REGISTERED
+          "the live :ws.app/request-reply IS websocket.messages' registration"))
+    ;; (2) BODY. Driven through a real dispatch, so it is the REGISTERED
     ;; handler that runs. Reds if the example's handler body stops
     ;; recording the outcome — the exact fault a copy would hide.
     (let [outcome {:origin     :ws/local
