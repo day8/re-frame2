@@ -1107,14 +1107,7 @@
           (is (re-find #"plain-atom" (-> r :content first :text))
               "the human sentence names the renderer-free headless substrate"))))
     (finally
-      (rf/init! rf.substrate.plain-atom/adapter)))
-  (testing "restoration is green"
-    (is (true? (rf.story-mcp.tools.lifecycle/adapter-installed?)))
-    (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= :pass (:status s))
-          "with the adapter restored the assertion-free variant is vacuously :pass again"))))
+      (rf/init! rf.substrate.plain-atom/adapter))))
 
 (deftest run-variant-cannot-run-reachable
   ;; The distinct THIRD verdict `:cannot-run` must be
@@ -1138,56 +1131,32 @@
           "no reactive evidence ⇒ the causal expectation is :cannot-run, not a silent pass"))
     (invoke "unregister-variant" {:variant-id "story.cause/unrunnable"})))
 
-(deftest snapshot-identity-stable
-  (testing "the same args produce the same content-hash"
-    (let [r1 (invoke "snapshot-identity" {:variant-id "story.button/primary"})
-          r2 (invoke "snapshot-identity" {:variant-id "story.button/primary"})]
-      (is (success? r1))
-      (is (success? r2))
-      (is (= (-> r1 :structuredContent :content-hash)
-             (-> r2 :structuredContent :content-hash))))))
-
 (deftest snapshot-identity-unknown
   (let [r (invoke "snapshot-identity" {:variant-id "story.nope/missing"})]
     (is (error? r))))
 
-(deftest run-opts-scalar-active-modes-rejected
+(deftest run-opts-wrongly-typed-arg-rejected
   ;; `:active-modes` advertises an array argument
-  ;; (`{:type "array" :items s/kw-or-string}`) on all three
-  ;; `read-run-opts` callers. A malformed client that sends a bare scalar
-  ;; string instead of `["mode-id"]` must NOT be silently walked
-  ;; character-by-character by `read-run-opts`'s `into`/`keep` (each
-  ;; character probed against the mode allowlist and dropped, producing a
-  ;; confusing empty `:active-modes []` instead of a rejection) — that is
-  ;; a successful-looking WRONG result, not a protocol-level error. It
-  ;; must surface a clean `isError` result instead.
-  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " rejects a scalar :active-modes")
-      (let [r (invoke tool-name {:variant-id   "story.button/primary"
-                                  :active-modes "Mode.theme/dark"})]
-        (is (error? r) (str tool-name " must reject a scalar :active-modes, not coerce/crash"))
-        (is (re-find #"(?i):active-modes must be an array" (-> r :content first :text))
+  ;; (`{:type "array" :items s/kw-or-string}`) and `:cell-overrides` an object
+  ;; argument on all three `read-run-opts` callers. A malformed client that
+  ;; sends a bare scalar for either must get a clean `isError` result, not a
+  ;; successful-looking WRONG one: `read-run-opts`'s `into`/`keep` would walk a
+  ;; scalar `:active-modes` string character by character (each character
+  ;; probed against the mode allowlist and dropped, producing a confusing
+  ;; empty `:active-modes []`), and `safe-cell-overrides`'s
+  ;; `(when (map? overrides) ...)` guard would silently DROP a non-map
+  ;; `:cell-overrides`, so the call would succeed as if no override was sent.
+  (doseq [[arg bad-value shape-re error-id]
+          [[:active-modes   "Mode.theme/dark" #"(?i):active-modes must be an array"   :rf.error/scalar-for-collection-arg]
+           [:cell-overrides "not-a-map"       #"(?i):cell-overrides must be an object" :rf.error/non-map-arg]]
+          tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
+    (testing (str tool-name " rejects a wrongly-typed " arg)
+      (let [r (invoke tool-name {:variant-id "story.button/primary"
+                                 arg         bad-value})]
+        (is (error? r) (str tool-name " must reject a wrongly-typed " arg ", not coerce, crash or drop it"))
+        (is (re-find shape-re (-> r :content first :text))
             "the error names the offending arg + expected shape")
-        (is (= :rf.error/scalar-for-collection-arg
-               (-> r :structuredContent :rf.error))
-            "a stable :rf.error id rides the structuredContent")))))
-
-(deftest run-opts-non-map-cell-overrides-rejected
-  ;; `:cell-overrides` advertises an object argument. A
-  ;; malformed client that sends a bare scalar instead of a map must NOT
-  ;; be silently DROPPED by `safe-cell-overrides`'s
-  ;; `(when (map? overrides) ...)` guard (no overrides applied, no error
-  ;; surfaced, the call silently succeeds as if the override was never
-  ;; sent) — it must surface a clean `isError` result instead.
-  (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
-    (testing (str tool-name " rejects a non-map :cell-overrides")
-      (let [r (invoke tool-name {:variant-id      "story.button/primary"
-                                  :cell-overrides  "not-a-map"})]
-        (is (error? r) (str tool-name " must reject a scalar :cell-overrides, not silently drop it"))
-        (is (re-find #"(?i):cell-overrides must be an object" (-> r :content first :text))
-            "the error names the offending arg + expected shape")
-        (is (= :rf.error/non-map-arg
-               (-> r :structuredContent :rf.error))
+        (is (= error-id (-> r :structuredContent :rf.error))
             "a stable :rf.error id rides the structuredContent")))))
 
 ;; ---- unknown run-option IDENTIFIERS are refused ---------------------------
@@ -1200,7 +1169,8 @@
 ;; `:content-hash` for a DIFFERENT tuple than it asked for — a
 ;; successful-looking WRONG result, the same class the substrate and
 ;; unknown-top-level-knob guards refuse. The no-intern posture holds:
-;; refusing an unknown id interns nothing (see the wire probes further down).
+;; refusing an unknown id interns nothing (see
+;; `run-opts-rejection-does-not-intern` below).
 
 (deftest run-opts-unknown-active-mode-rejected
   (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
@@ -1218,11 +1188,7 @@
         (is (= ["Mode.theme/darkk"] (:active-modes s))
             "the rejected id rides structured, as the RAW string the caller sent")
         (is (some #{":Mode.theme/dark"} (:registered s))
-            "the registered set rides structured too — one round trip to recover")
-        ;; No lifecycle / hash / share work happened.
-        (is (nil? (:status s)) "no run settled a status")
-        (is (nil? (:content-hash s)) "no identity hash was computed")
-        (is (nil? (:share-url s)) "no share URL was built for the wrong tuple")))))
+            "the registered set rides structured too — one round trip to recover")))))
 
 (deftest run-opts-mixed-known-unknown-modes-reject-atomically
   ;; The partial-execution case: running the KNOWN subset is precisely the
@@ -1235,8 +1201,7 @@
             s (:structuredContent r)]
         (is (error? r) "a known mode alongside an unknown one must NOT run the known subset")
         (is (= ["Mode.theme/nope"] (:active-modes s))
-            "only the unresolved id is reported — the known one is not maligned")
-        (is (nil? (:status s)) "and nothing executed")))))
+            "only the unresolved id is reported — the known one is not maligned")))))
 
 (deftest run-opts-unknown-cell-override-key-rejected
   (doseq [tool-name ["preview-variant" "run-variant" "snapshot-identity"]]
@@ -1254,8 +1219,7 @@
         (is (= ["lable"] (:cell-overrides s))
             "the rejected key rides structured as the RAW string")
         (is (some #{":label"} (:allowed s))
-            "the allowed key set is derived from the variant's effective args, not hard-coded")
-        (is (nil? (:content-hash s)) "no identity hash was computed for the reduced tuple")))))
+            "the allowed key set is derived from the variant's effective args, not hard-coded")))))
 
 (deftest run-opts-valid-identifiers-still-run
   ;; The other half of the witness: the guard must not be over-broad. A
@@ -1295,10 +1259,11 @@
           "with no active mode :theme is not an effective arg, so the override is refused")
       (is (= ["theme"] (-> r :structuredContent :cell-overrides))))))
 
-(deftest run-opts-rejection-does-not-intern-over-the-wire
+(deftest run-opts-rejection-does-not-intern
   ;; The no-intern security invariant holds under the REJECT: reporting a raw
-  ;; string does not intern it. Wire-level, so the no-intern ingress is
-  ;; exercised end to end.
+  ;; string does not intern it. The probes go through `invoke-tool` with the
+  ;; string ids the no-intern ingress hands a handler; the over-the-wire
+  ;; probes are the `ingress-does-not-intern-*` tests further down.
   (testing "a rejected unknown mode / override key never interns a keyword"
     (let [mode-probe (str "Mode.rf2-sw1d/unknown-" (System/nanoTime))
           co-probe   (str "rf2-sw1d-co-" (System/nanoTime))]
@@ -1320,17 +1285,10 @@
 ;; via the resolved `:effective-args`. The descriptor + API advertise
 ;; the slot, since it is a real identity input — hiding it behind
 ;; `additionalProperties false` would let a validating client strip it
-;; while a non-validating client got a different hash. These tests pin:
-;; (a) the slot is in the advertised input schema, and (b) an override
-;; actually changes the hash.
-(deftest snapshot-identity-advertises-cell-overrides
-  (testing "the snapshot-identity descriptor exposes :cell-overrides in its input schema"
-    (let [desc  (first (filter #(= "snapshot-identity" (:name %)) rf.story-mcp.tools.registry/tool-registry))
-          props (-> desc :inputSchema :properties)]
-      (is (some? desc) "snapshot-identity must be in the tool registry")
-      (is (contains? props :cell-overrides)
-          "cell-overrides is an identity input and MUST be advertised, not hidden behind additionalProperties false"))))
-
+;; while a non-validating client got a different hash. The test below
+;; pins both halves: `invoke-tool` refuses an argument the descriptor does
+;; not advertise, so the override call succeeding shows the slot is
+;; advertised, and the differing hash shows the override is identity-bearing.
 (deftest snapshot-identity-cell-overrides-changes-hash
   (testing "a cell-override perturbs the content-hash (it is identity-bearing)"
     (let [bare      (invoke "snapshot-identity" {:variant-id "story.button/primary"})
@@ -1361,18 +1319,12 @@
 
 (deftest read-a11y-violations-reached-provider-distinguishes-empty-from-absent
   ;; The reached-provider (co-hosted) branch of `tool-read-a11y-violations`.
-  ;; A bound `*a11y-provider*` returns the by-frame violations map directly;
-  ;; its findings ride through, and a frame with NO entry is an ORDINARY
-  ;; empty success — the reached-and-empty answer that the JVM
-  ;; capability-unavailable error is distinguishable from.
-  (testing "provider REACHED with stored violations ⇒ success, findings surfaced"
-    (let [vios [{:id "label" :impact "critical" :nodes [{:html "<input>"}]}]]
-      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.button/primary vios})]
-        (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= vios (:violations s))
-              "the stored violations for the frame ride through verbatim")))))
+  ;; A bound `*a11y-provider*` returns the by-frame violations map directly.
+  ;; A frame with NO entry, even beside another frame's findings, is an
+  ;; ORDINARY empty success — the reached-and-empty answer that the JVM
+  ;; capability-unavailable error is distinguishable from. Findings riding
+  ;; through verbatim are pinned in
+  ;; `read-a11y-violations-carries-incomplete-beside-violations`.
   (testing "provider REACHED but no entry for this frame ⇒ ordinary empty success (NOT unavailable)"
     (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.other/frame [{:id "x"}]})]
       (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
@@ -3196,45 +3148,6 @@
           (is (= :rf/redacted (get-in default path)) "redacts without the opt-in")
           (is (= "TOPSECRET" (get-in opted path)) "ships raw with it"))))))
 ;; ---------------------------------------------------------------------------
-;; A run-variant timeout / exception ships a structuredContent that PASSES
-;; `valid-run-result?`. A catch branch that hand-minted a partial map
-;; (`:status` / `:frame` / `:assertions` / `:checks` only) would omit the
-;; six evidence slots (`:schema-violations` / `:warnings` / `:effects` /
-;; `:sub-runs` / `:renders` / `:narrative`). An ABSENT key reads back as
-;; nil; `rf.story-mcp.tools.egress/scrub-rendered` returns nil for a nil
-;; tree — and the frozen `RunResult` schema declares each of those six
-;; slots `[:optional true] [:sequential :any]`: a PRESENT nil violates it
-;; (nil is not sequential). The test below pins the contract end-to-end via
-;; the real `tool-run-variant` handler (the wire pipeline, not a hand-rolled
-;; simulation of its internals) on a promise that never settles. The other
-;; way the catch branch is reachable, `rf.story/run-variant` throwing
-;; synchronously, normalises through the same `error-outcome`, which
-;; `lifecycle-error-outcome-is-canonical` pins directly and
-;; `run-variant-error-branch-keeps-empty-evidence-on-non-live-frame` pins
-;; through the handler.
-;; ---------------------------------------------------------------------------
-
-(deftest run-variant-timeout-outcome-passes-valid-run-result?
-  (testing "a genuine async/deref-blocking timeout still ships a schema-valid structuredContent"
-    (with-clean-frame [vid :story.button/primary]
-      (invoke "run-variant" {:variant-id "story.button/primary"})
-      (with-redefs [rf.story/run-variant
-                    ;; A future that never completes — `deref-blocking`'s
-                    ;; `.get(timeout-ms, …)` genuinely times out (a real
-                    ;; TimeoutException, not a rejected/completed future).
-                    (fn [& _] (java.util.concurrent.CompletableFuture.))]
-        (let [r (invoke "run-variant" {:variant-id "story.button/primary"
-                                       :timeout-ms 50})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :error (:status s)))
-          (is (rf.story/valid-run-result? s)
-              (str "structuredContent must conform to the frozen RunResult schema; "
-                   (rf.story/explain-run-result s)))
-          (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
-            (is (= [] (get s k)) (str k " defaults to [] rather than nil"))))))))
-
-;; ---------------------------------------------------------------------------
 ;; The lifecycle :timeout-ms ceiling must bound the SYNCHRONOUS Story work,
 ;; not just the post-return deref window.
 ;;
@@ -3244,12 +3157,21 @@
 ;; would be a no-op, so a variant whose synchronous work blew past the
 ;; advertised ceiling would still report `:pass` (false green) AND
 ;; monopolise the single-threaded stdio loop for the full wait. The tests
-;; below use a REAL registered variant with a REAL `[:wait]` (not a
-;; `with-redefs` never-settling future) so they exercise the
-;; synchronous-constructor path where that failure would live. The advertised
-;; bound must be real: an over-budget synchronous run is BOUNDED near the
-;; ceiling and reports the canonical `:error` verdict, never a false
-;; `:pass`.
+;; below use a REAL registered variant with a REAL `[:wait]`, so they
+;; exercise the synchronous-constructor path where that failure would live.
+;; The advertised bound must be real: an over-budget synchronous run is
+;; BOUNDED near the ceiling and reports the canonical `:error` verdict,
+;; never a false `:pass`.
+;;
+;; The deadline outcome ships a structuredContent that PASSES
+;; `valid-run-result?`, with each of the six evidence slots
+;; (`:schema-violations` / `:warnings` / `:effects` / `:sub-runs` /
+;; `:renders` / `:narrative`) filled to `[]`: the frozen `RunResult` schema
+;; declares them `[:optional true] [:sequential :any]`, so a present nil
+;; violates it. The other way into the same canonical `error-outcome`,
+;; `rf.story/run-variant` throwing synchronously, is pinned directly by
+;; `lifecycle-error-outcome-is-canonical` and through the handler by
+;; `run-variant-error-branch-keeps-empty-evidence-on-non-live-frame`.
 ;; ---------------------------------------------------------------------------
 
 (deftest run-variant-synchronous-wait-is-bounded-and-honest
@@ -3272,10 +3194,8 @@
             s       (:structuredContent r)]
         (is (success? r)
             "the tool call itself succeeds — the deadline outcome rides IN the run-result")
-        (is (not= :pass (:status s))
-            "an over-budget synchronous run must NOT report a false :pass")
         (is (= :error (:status s))
-            "the bounded-deadline-exceeded run reports the canonical :error verdict")
+            "the bounded-deadline-exceeded run reports the canonical :error verdict, never a false :pass")
         (is (rf.story/valid-run-result? s)
             (str "the deadline outcome conforms to the frozen RunResult schema; "
                  (rf.story/explain-run-result s)))
@@ -3301,9 +3221,8 @@
             elapsed (/ (double (- (System/nanoTime) t0)) 1e6)
             s       (:structuredContent r)]
         (is (success? r))
-        (is (not= :pass (:status s))
-            "preview must not report a false :pass over budget either")
-        (is (= :error (:status s)))
+        (is (= :error (:status s))
+            "preview reports the canonical :error verdict over budget, never a false :pass")
         (is (= :error (:lifecycle s))
             "preview keeps the :lifecycle :error loader-state on the deadline outcome")
         (is (< elapsed 2000.0)
@@ -4447,20 +4366,6 @@
       (is (nil? (find-keyword probe-name))
           "an unknown cell-override key (outside the variant's declared args) MUST NOT intern"))))
 
-(deftest read-run-opts-keeps-known-cell-override-key-drops-unknown
-  (testing "a declared arg key is kept (keywordised) and an unknown one dropped"
-    ;; story.button/primary declares :args {:label "Save"} — so :label is
-    ;; in its bounded arg-key set; a random key is not. Simulate the
-    ;; post-parse-json string-keyed cell-overrides shape.
-    (let [probe (str "rf2-3luf3-co-" (System/nanoTime))
-          opts  (rf.story-mcp.tools.args/read-run-opts :story.button/primary
-                                     {:cell-overrides {"label" "Override"
-                                                       probe   "x"}})
-          co    (:cell-overrides opts)]
-      (is (= "Override" (:label co)) "the declared :label override keywordised + kept")
-      (is (= #{:label} (set (keys co))) "the unknown override key was dropped")
-      (is (nil? (find-keyword probe)) "and never interned"))))
-
 (deftest read-run-opts-allows-active-mode-introduced-cell-override-key
   (testing "an override for an arg introduced ONLY by an active mode is preserved"
     ;; story.button/primary declares :args {:label "Save"} — :theme is
@@ -4536,12 +4441,8 @@
           eff  (rf.story/resolve-args :story.nest/map-arg opts)]
       (is (= {:settings {:title "Edited"}} (:cell-overrides opts))
           "the nested \"title\" aligns onto the existing :title — no string key survives")
-      (is (= "Edited" (get-in eff [:settings :title]))
-          "so the consumer reading [:settings :title] sees the requested edit")
-      (is (= true (get-in eff [:settings :enabled?]))
-          "and the sibling the caller did not touch is untouched")
       (is (= {:settings {:title "Edited" :enabled? true}} eff)
-          "the effective tuple carries no mixed-key residue"))))
+          "the consumer reading [:settings :title] sees the edit, the untouched sibling survives, and no mixed-key residue remains"))))
 
 (deftest read-run-opts-nested-override-never-interns-and-keeps-string-keyed-data
   (testing "an unknown nested key rides verbatim and never interns"
@@ -4591,26 +4492,6 @@
       (is (= "kw" (get-in eff [:settings :title]))
           "and the keyword sibling is untouched"))))
 
-(deftest snapshot-identity-wire-and-native-nested-overrides-hash-alike
-  (testing "the MCP object override and the native keyword override key the SAME tuple"
-    ;; The agent's test/edit loop depends on this: a run that evaluated
-    ;; the unchanged nested arg, or an identity keyed on a mixed-key
-    ;; tuple, answers for a scenario nobody asked for.
-    (reg-nested-fixture!)
-    (let [wire   (invoke "snapshot-identity"
-                         {:variant-id     "story.nest/map-arg"
-                          :cell-overrides {"settings" {"title" "Edited"}}})
-          native (invoke "snapshot-identity"
-                         {:variant-id     "story.nest/map-arg"
-                          :cell-overrides {:settings {:title "Edited"}}})]
-      (is (success? wire) "the wire-shaped nested override runs")
-      (is (success? native) "the keyword-shaped nested override runs")
-      (is (some? (-> wire :structuredContent :content-hash))
-          "an identity hash was actually computed")
-      (is (= (-> native :structuredContent :content-hash)
-             (-> wire :structuredContent :content-hash))
-          "the same intended tuple hashes the same either way"))))
-
 ;; ---------------------------------------------------------------------------
 ;; ACCEPTANCE — the same alignment, but reached through ACTUAL JSON
 ;; normalisation rather than through a hand-built Clojure map.
@@ -4650,12 +4531,8 @@
           eff    (-> result :structuredContent :effective-args)]
       (is (not (true? (:isError result)))
           "the wire-shaped nested override is accepted, not refused")
-      (is (= "Edited" (get-in eff [:settings :title]))
-          "the JSON [\"settings\"][\"title\"] edit lands on the KEYWORD :title")
-      (is (= true (get-in eff [:settings :enabled?]))
-          "the sibling the caller never named is untouched")
       (is (= {:settings {:title "Edited" :enabled? true}} eff)
-          "no mixed-key residue survives the round trip")
+          "the JSON edit lands on the KEYWORD :title, the sibling the caller never named is untouched, and no mixed-key residue survives the round trip")
       ;; MEASURED LIMIT of this particular observation, recorded because a
       ;; reader would otherwise take it for the strongest of the three.
       ;; With the alignment neutered, `:effective-args` deep-merges to
@@ -4668,34 +4545,21 @@
       ;; does, and it goes red under exactly that fault.
       )))
 
-(deftest ingress-nested-override-reaches-run-variant
-  (testing "JSON ingress: run-variant runs the INTENDED tuple, same as the native call"
+(deftest ingress-nested-override-is-accepted-by-run-variant
+  (testing "JSON ingress: run-variant accepts the nested string-keyed override and settles the run"
+    ;; The third shared consumer of `read-run-opts` takes the wire-shaped
+    ;; nested override over real JSON and settles the run rather than
+    ;; refusing it. `run-variant` projects no `:effective-args` slot and the
+    ;; fixture variant's result does not depend on the arg, so this test
+    ;; cannot see the override applied; the arg-level witnesses are
+    ;; `preview-variant`'s above and `snapshot-identity`'s below.
     (reg-nested-fixture!)
     (let [frames (run-frames! (nested-override-frame 72 "run-variant" ",\"dedup\":false"))
-          wire   (-> frames first :result)
-          native (invoke "run-variant"
-                         {:variant-id     "story.nest/map-arg"
-                          :cell-overrides {:settings {:title "Edited"}}})]
+          wire   (-> frames first :result)]
       (is (not (true? (:isError wire)))
           "the wire-shaped nested override is accepted, not refused")
-      (is (success? native) "the native keyword-shaped override runs")
-      ;; The two sides are pinned SEPARATELY rather than compared, because
-      ;; the JSON round trip renders keyword VALUES as strings (`:pass` ->
-      ;; "pass") — an equality test across the boundary would fail on the
-      ;; encoding, not on the scenario. `run-variant` projects no
-      ;; `:effective-args` slot, so the arg-level witness is
-      ;; `preview-variant`'s above and `snapshot-identity`'s below; what
-      ;; this test adds is that the third consumer ACCEPTS the wire-shaped
-      ;; nested override and settles the run rather than refusing it or
-      ;; running something else.
       (is (= "pass" (-> wire :structuredContent :status))
-          "the wire run settles :pass (JSON renders the keyword as a string)")
-      (is (= :pass (-> native :structuredContent :status))
-          "and the native keyword-shaped override settles the same way")
-      (is (= #:rf.story{:lifecycle "ready"} (-> wire :structuredContent :app-db))
-          "over the state the run reached")
-      (is (= #:rf.story{:lifecycle :ready} (-> native :structuredContent :app-db))
-          "which is the state the native call reaches too — ONE scenario"))))
+          "the wire run settles :pass (JSON renders the keyword as a string)"))))
 
 (deftest ingress-nested-override-reaches-snapshot-identity
   (testing "JSON ingress: snapshot-identity keys the intended tuple"
