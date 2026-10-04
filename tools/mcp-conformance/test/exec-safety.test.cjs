@@ -5,7 +5,7 @@
 // `node:test` only prints a per-file summary line on green and
 // dumps the full failure diff on red.
 //
-// Two surfaces under test:
+// Three surfaces under test:
 //
 //   1. `resolveTrustedExe` — must return an absolute path that
 //      realpaths to OUTSIDE the workspace root, and must throw when
@@ -21,6 +21,11 @@
 //      and symlinked-parent cases both covered. Symlink support is
 //      gated on the platform — Windows requires elevated rights for
 //      symlinkSync, so we soft-skip there.
+//
+//   3. `safeReadFileInside` — refuses every candidate `safeUnlinkInside`
+//      refuses: its symlinked-parent case runs the unlink test's fixture,
+//      so the pair pins read/unlink parity and a stale external port is
+//      never trusted.
 
 'use strict';
 
@@ -460,20 +465,6 @@ test('safeUnlinkInside: rejects parent-symlink even when leaf does not exist', {
   }
 });
 
-test('safeUnlinkInside: rejects empty / missing inputs', () => {
-  const root = freshTmpDir('unlink-bad-inputs');
-  try {
-    assert.throws(() => safeUnlinkInside('', root), /candidatePath/);
-    assert.throws(() => safeUnlinkInside('/whatever', ''), /allowedRoot/);
-    assert.throws(
-      () => safeUnlinkInside('/whatever', '/this/path/does/not/exist/anywhere'),
-      /does not exist/,
-    );
-  } finally {
-    rmrf(root);
-  }
-});
-
 // ---------------------------------------------------------------------
 // safeReadFileInside
 //
@@ -507,7 +498,7 @@ test('safeReadFileInside: returns null when file does not exist', () => {
   }
 });
 
-test('safeReadFileInside: honors an encoding-string option', () => {
+test('safeReadFileInside: null options read as utf8; { encoding: null } returns a Buffer', () => {
   const root = freshTmpDir('read-encoding');
   try {
     const target = path.join(root, 'nrepl.port');
@@ -552,7 +543,8 @@ test('safeReadFileInside: rejects when parent dir is a symlink escaping root', {
   // symlink to an external dir carrying a stale `nrepl.port`. The
   // candidate path APPEARS to live under the allowed root, but realpath
   // resolves the parent symlink to outside it. The read must refuse —
-  // otherwise the runner trusts an external runtime's port.
+  // otherwise the runner trusts an external runtime's port. This is the
+  // unlink parent-symlink test's fixture, so the two pin read/unlink parity.
   const root = freshTmpDir('read-escape-parent');
   const outsideDir = freshTmpDir('read-escape-parent-outside');
   try {
@@ -576,43 +568,21 @@ test('safeReadFileInside: rejects when parent dir is a symlink escaping root', {
   }
 });
 
-test('safeReadFileInside: a candidate refused by safeUnlinkInside is also refused on read (rf2-khav7l parity)', { skip: process.platform === 'win32' }, () => {
-  // The read/unlink parity contract: prove the SAME escaped candidate that
-  // safeUnlinkInside refuses to delete is ALSO refused by
-  // safeReadFileInside. A future cleanup refactor cannot reintroduce the
-  // "refuse delete but trust read" split as long as this parity holds.
-  const root = freshTmpDir('read-unlink-parity');
-  const outsideDir = freshTmpDir('read-unlink-parity-outside');
+test('safeUnlinkInside and safeReadFileInside: reject empty / missing inputs', () => {
+  const root = freshTmpDir('bad-inputs');
   try {
-    const realSide = path.join(outsideDir, 'shadow-cljs');
-    fs.mkdirSync(realSide);
-    const externalPort = path.join(realSide, 'nrepl.port');
-    fs.writeFileSync(externalPort, '9999');
-
-    const symlinkedParent = path.join(root, '.shadow-cljs');
-    const linked = trySymlink(realSide, symlinkedParent);
-    if (!linked) return; // soft-skip
-
-    const candidate = path.join(symlinkedParent, 'nrepl.port');
-    assert.throws(() => safeUnlinkInside(candidate, root), /symlink-escape/);
-    assert.throws(() => safeReadFileInside(candidate, root), /symlink-escape/);
-    // The external port file MUST still exist (neither op touched it).
-    assert.equal(fs.existsSync(externalPort), true);
-  } finally {
-    rmrf(root);
-    rmrf(outsideDir);
-  }
-});
-
-test('safeReadFileInside: rejects empty / missing inputs', () => {
-  const root = freshTmpDir('read-bad-inputs');
-  try {
-    assert.throws(() => safeReadFileInside('', root), /candidatePath/);
-    assert.throws(() => safeReadFileInside('/whatever', ''), /allowedRoot/);
-    assert.throws(
-      () => safeReadFileInside('/whatever', '/this/path/does/not/exist/anywhere'),
-      /does not exist/,
-    );
+    for (const [name, fn] of [
+      ['safeUnlinkInside', safeUnlinkInside],
+      ['safeReadFileInside', safeReadFileInside],
+    ]) {
+      assert.throws(() => fn('', root), /candidatePath/, name + ': empty candidatePath');
+      assert.throws(() => fn('/whatever', ''), /allowedRoot/, name + ': empty allowedRoot');
+      assert.throws(
+        () => fn('/whatever', '/this/path/does/not/exist/anywhere'),
+        /does not exist/,
+        name + ': missing allowedRoot',
+      );
+    }
   } finally {
     rmrf(root);
   }
