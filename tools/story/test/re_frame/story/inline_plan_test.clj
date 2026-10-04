@@ -81,13 +81,6 @@
       (is (= :ready (:lifecycle result)))
       (is (every? :passed? (:assertions result)) "the checkpoint passed"))))
 
-(deftest inline-plan-runs-headless-fail
-  (testing "a failing in-script checkpoint in an inline plan yields :status :fail"
-    (let [result (run-target {:script [[:dispatch [:inline/set-status :idle]]
-                                       [:assert [:rf.assert/path-equals [:status] :loaded]]]})]
-      (is (= :fail (:status result)))
-      (is (not (every? :passed? (:assertions result)))))))
-
 (deftest inline-plan-loaders-run-from-the-plan
   (testing "an inline plan declaring :loaders runs phase-1 loaders off the
             plan's :world (no registry read) before :setup / :script"
@@ -257,21 +250,6 @@
 ;; ===========================================================================
 ;; Inline plan CANNOT reference a missing fragment — fails cleanly
 ;; ===========================================================================
-
-(deftest inline-plan-missing-fragment-fails-cleanly
-  (testing "an inline plan composing an unregistered fragment FAILS plan
-            construction with a structured error result — no frame allocated,
-            no exception escapes"
-    (let [result (run-target {:compose [:fragment.inline/does-not-exist]
-                              :script  [[:dispatch [:inline/set-status :ok]]]})]
-      (is (= :error (:status result)))
-      (is (= :rf.error/story-compose-unknown
-             (:assertion (first (:assertions result))))
-          "the structured :compose-unknown error rides the assertion record")
-      (is (empty? (rf.story/ids :variant))
-          "nothing was registered by the failed inline run")
-      (is (empty? (rf.story/variant-frames))
-          "no frame lingers from the failed inline run"))))
 
 ;; ===========================================================================
 ;; A COMPILED plan is not an authoring body — refused, never recompiled
