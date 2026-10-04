@@ -107,7 +107,10 @@
       (is (true? (-> r :assertions first :passed?)))
       (is (= :rf.assert/path-equals (-> r :assertions first :assertion)))
       (is (= :authenticated (-> r :assertions first :actual)))
-      (is (= :authenticated (-> r :assertions first :expected))))
+      (is (= :authenticated (-> r :assertions first :expected)))
+      (is (= [[:auth :status] :authenticated] (-> r :assertions first :payload)))
+      (is (number? (-> r :assertions first :elapsed-ms)))
+      (is (string? (-> r :assertions first :reason))))
     (rf.story/destroy-variant! :story.auth/happy)))
 
 (deftest path-equals-fail
@@ -289,25 +292,6 @@
     (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.any-fail/v) 5000)]
       (is (false? (rf.story/assertions-passing? r))))
     (rf.story/destroy-variant! :story.any-fail/v)))
-
-;; ===========================================================================
-;; The assertion record carries the canonical fields
-;; ===========================================================================
-
-(deftest record-shape
-  (testing "an assertion record carries :assertion :payload :passed? :elapsed-ms :reason"
-    (rf/reg-event :test/init3 (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
-    (rf.story/reg-variant :story.shape/v
-      {:setup [[:test/init3]]
-       :script [[:dispatch-sync [:rf.assert/path-equals [:x] 1]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.shape/v) 5000)
-          a (first (:assertions r))]
-      (is (= :rf.assert/path-equals  (:assertion a)))
-      (is (= [[:x] 1]                (:payload a)))
-      (is (true?                     (:passed? a)))
-      (is (number?                   (:elapsed-ms a)))
-      (is (string?                   (:reason a))))
-    (rf.story/destroy-variant! :story.shape/v)))
 
 ;; ===========================================================================
 ;; assertion-event? — play-runner discriminator
