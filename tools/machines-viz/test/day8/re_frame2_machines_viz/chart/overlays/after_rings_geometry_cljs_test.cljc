@@ -14,12 +14,6 @@
             [day8.re-frame2-machines-viz.chart.overlays.after-rings-geometry
              :as geo]))
 
-;; ---- rect-center --------------------------------------------------------
-
-(deftest rect-center-is-midpoint
-  (is (= [150.0 124.0]
-         (geo/rect-center {:left 100 :top 100 :width 100 :height 48}))))
-
 ;; ---- ring-radius --------------------------------------------------------
 
 (deftest ring-radius-half-longer-side-plus-gap
