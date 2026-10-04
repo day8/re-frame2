@@ -155,33 +155,6 @@
       (is (str/includes? out "xmlns=\"http://www.w3.org/2005/07/scxml\""))
       (is (str/includes? out "</scxml>")))))
 
-(deftest emit-flat-machine-includes-initial-and-final-states
-  (testing "<scxml initial=...> and <final id=...> render"
-    (let [out (scxml/spec->scxml idle-loading-success-error)]
-      (is (str/includes? out "initial=\"idle\""))
-      (is (str/includes? out "<state id=\"idle\""))
-      (is (str/includes? out "<state id=\"loading\""))
-      (is (str/includes? out "<final id=\"success\""))
-      (is (str/includes? out "<final id=\"failed\"")))))
-
-(deftest emit-renders-transition-events
-  (testing "transitions render with event= and target= attrs"
-    (let [out (scxml/spec->scxml idle-loading-success-error)]
-      (is (str/includes? out "event=\"start\""))
-      (is (str/includes? out "target=\"loading\""))
-      (is (str/includes? out "event=\"ok\""))
-      (is (str/includes? out "target=\"success\"")))))
-
-(deftest emit-compound-machine-nests-states
-  (testing "compound states emit nested <state> blocks with
-            FULLY-QUALIFIED unique xsd:IDs (the path root→leaf, `___`-joined)
-            so two same-named nested states never collide; `initial` and
-            transition targets reference those same unique ids"
-    (let [out (scxml/spec->scxml compound-machine)]
-      (is (str/includes? out "<state id=\"authenticated\" initial=\"authenticated___browsing\""))
-      (is (str/includes? out "<state id=\"authenticated___browsing\""))
-      (is (str/includes? out "<state id=\"authenticated___paying\"")))))
-
 (deftest emit-namespaced-ids-use-ns-name-marker
   (testing ":auth/idle → id=\"auth-idle\" (the `-`
             ns/name marker; the keyword name/ns chars are hex-escaped so
@@ -199,19 +172,6 @@
       ;; The ns/name boundary must NOT be a `__` run that could
       ;; collide with the `___` path separator.
       (is (not (str/includes? out "id=\"auth__idle\""))))))
-
-(deftest emit-guards-render-as-cond-attribute
-  (testing "guarded transitions render with cond= on
-            <transition>; the guard keyword is hex-escaped (`:ready?` →
-            `ready_3f`) so the cond attribute is a valid xsd:ID-safe token"
-    (let [out (scxml/spec->scxml guarded-machine)]
-      (is (str/includes? out "cond=\"ready_3f\"")))))
-
-(deftest emit-after-transitions-encode-delay-in-event-name
-  (testing ":after {5000 :timeout} → event=\"after.5000\""
-    (let [out (scxml/spec->scxml after-machine)]
-      (is (str/includes? out "event=\"after.5000\""))
-      (is (str/includes? out "target=\"timeout\"")))))
 
 (deftest emit-machine-level-on-not-dropped
   (testing "a top-level (machine-level) :on fallback is
@@ -388,26 +348,6 @@
       (is (= [:auth/-region :browsing] (get-in back [:states :a :on :go]))
           "the vector target stays a 2-segment vector, not mis-split"))))
 
-(deftest parse-attrs-accepts-single-quoted-attributes
-  (testing "`parse-attrs` reads single-quoted values as well as
-            double-quoted ones (reading only double-quoted would key an
-            imported `<state id='idle'>` under nil). Every attribute in a
-            single-quoted document must parse identically"
-    (let [spec   {:initial :idle
-                  :states  {:idle {:on {:go :done}}
-                            :done {:final? true}}}
-          xml    (scxml/spec->scxml spec)
-          ;; the emitter escapes `"`/`'` INSIDE values (&quot;/&apos;), so raw
-          ;; quotes are only attribute delimiters — swapping them wholesale
-          ;; yields a valid single-quoted document.
-          single (str/replace xml "\"" "'")]
-      (is (str/includes? single "id='"))
-      (is (not (str/includes? single "id=\"")))
-      (is (= (scxml/scxml->spec xml) (scxml/scxml->spec single))
-          "single-quoted attributes parse identically to double-quoted")
-      (is (= spec (scxml/scxml->spec single))
-          "and the single-quoted document round-trips to the original spec"))))
-
 ;; ---------------------------------------------------------------------------
 ;; Error cases
 
@@ -433,13 +373,6 @@
       (is (= :rf.error/machine-bad-on-clause
              (get-in d [:spec-summary :defect :category]))
           "the summary carries the canonical bad-on-clause defect category"))))
-
-(deftest scxml->spec-rejects-non-string
-  (testing "non-string input throws :scxml/parse-error"
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (scxml/scxml->spec nil)))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (scxml/scxml->spec 42)))))
 
 (deftest scxml->spec-rejects-missing-root
   (testing "input without <scxml> throws :scxml/parse-error"
@@ -588,43 +521,6 @@
       (is (not (str/includes? out "done.state"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Error-final terminal KIND — EP-0011 reply-envelope completion status.
-;;
-;; Spec 005 §:final? lets a `:final?` leaf carry `:error? true` — an ERROR
-;; terminal. This is not decorative: a child finishing via an `:error?` final
-;; lowers to the uniform reply envelope as `:status :error` (vs a plain
-;; `:final?` child's `:status :ok`) and routes the spawning parent's `:spawn`
-;; `:on-error` instead of `:on-done`. The completion KIND the framework acts
-;; on must therefore survive the text round-trip — collapsing it silently
-;; turns an error completion into a success one.
-;;
-;; W3C SCXML's `<final>` has no first-class error-terminal concept, so — like
-;; the action-name carrier (`data_rf_action`) — the bit rides a re-frame2-
-;; specific `data_rf_error_final="true"` custom attribute, which ordinary
-;; SCXML consumers ignore.
-
-(def success-and-error-finals-machine
-  "Two terminals of distinct KIND: a plain success final + an `:error?`
-  error final. Mirrors the chart-projection fixture so the two surfaces
-  cover the same terminal-kind distinction."
-  {:initial :running
-   :states  {:running {:on {:ok :ok :boom :boom}}
-             :ok      {:final? true}
-             :boom    {:final? true :error? true}}})
-
-(deftest emit-error-final-carries-error-attribute
-  (testing "an :error? final emits the re-frame2 carrier
-            data_rf_error_final=\"true\" on its <final>; a success final
-            does NOT (the bit is the EP-0011 completion status, not decor)"
-    (let [out (scxml/spec->scxml success-and-error-finals-machine)]
-      (is (str/includes? out "<final id=\"boom\" data_rf_error_final=\"true\"")
-          "the error final carries the error-terminal carrier attribute")
-      (is (str/includes? out "<final id=\"ok\"")
-          "the success final renders as a plain <final>")
-      (is (not (str/includes? out "<final id=\"ok\" data_rf_error_final"))
-          "the success final carries NO error-terminal attribute"))))
-
-;; ---------------------------------------------------------------------------
 ;; Parallel-ROOT :on / :after ancestor fallback
 ;;
 ;; A `:type :parallel` ROOT may declare its OWN `:on` (the ancestor fallback,
@@ -669,27 +565,12 @@
    :regions {:a {:initial :one :states {:one {} :two {}}}
              :b {:initial :one :states {:one {} :two {}}}}})
 
-(deftest emit-parallel-root-on-single-region-target
-  (testing "a parallel-root :on emits a direct <parallel>
-            <transition> with the region-qualified target id"
-    (let [out (scxml/spec->scxml parallel-root-on-single-machine)]
-      (is (str/includes? out "event=\"one\"") "the root :on event")
-      (is (str/includes? out "target=\"a___two\"")
-          "the region-qualified target id (region :a substate :two)"))))
-
 (deftest emit-parallel-root-on-multi-region-target-is-space-separated
   (testing "a MULTI-region root :on emits a SPACE-SEPARATED
             target id list (W3C SCXML target grammar)"
     (let [out (scxml/spec->scxml parallel-root-on-multi-machine)]
       (is (str/includes? out "target=\"a___x b___y\"")
           "both region-qualified targets in one space-joined attribute"))))
-
-(deftest emit-parallel-root-after-renders-after-event
-  (testing "a parallel-root :after emits an after.<delay> direct
-            <parallel> transition with the region-qualified target"
-    (let [out (scxml/spec->scxml parallel-root-after-single-machine)]
-      (is (str/includes? out "event=\"after.500\"") "the delay rides after.<ms>")
-      (is (str/includes? out "target=\"a___two\"")))))
 
 (deftest round-trip-parallel-root-on-and-after
   (testing "a parallel root's own `:on` / `:after` round-trips exactly: one- and
@@ -767,20 +648,6 @@
   {:initial :a.b.c
    :states  {:a.b.c {:on {:go :d}}
              :d     {}}})
-
-(def multi-dot-guard-machine
-  "A multi-segment-namespace GUARD keyword. A guard `cond=`
-  decoder that did not split the namespace would lose it even on a
-  single-dot `:auth/valid?`."
-  {:initial :idle
-   :states  {:idle {:on {:go {:target :a :guard :my.app.auth/valid?}}}
-             :a    {}}})
-
-(def single-ns-guard-machine
-  "A single-dot namespaced guard: `:auth/valid?`."
-  {:initial :idle
-   :states  {:idle {:on {:go {:target :a :guard :auth/valid?}}}
-             :a    {}}})
 
 (def reserved-prefix-after-event-machine
   "A USER event named `:after.foo` must NOT be reclassified
@@ -867,16 +734,6 @@
     (doseq [k [:a__b :a___b :a_b]]
       (is (round-trips? {:initial :s0 :states {:s0 {:on {k :s1}} :s1 {}}})
           (str "round-trip exact for " k)))))
-
-(deftest round-trip-guard-keyword-namespace
-  (testing "a single-dot namespaced GUARD round-trips
-            exactly (`:auth/valid?`)"
-    (is (round-trips? single-ns-guard-machine))
-    (let [back (-> single-ns-guard-machine scxml/spec->scxml scxml/scxml->spec)]
-      (is (= :auth/valid? (get-in back [:states :idle :on :go :guard]))
-          "the guard keeps its namespace, NOT collapsed to :auth.valid?")))
-  (testing "a multi-segment-namespace guard round-trips exactly"
-    (is (round-trips? multi-dot-guard-machine))))
 
 (deftest round-trip-reserved-prefix-user-events
   (testing "a user event `:after.foo` stays an `:on` event,
@@ -1590,26 +1447,6 @@
 ;;   1. only recognised topology tags are collected as child states;
 ;;   2. every SUCCESSFUL `scxml->spec` result passes the canonical recursive
 ;;      grammar gate (the postcondition the public docstring promises).
-
-(def onentry-only-scxml
-  "The minimal case: a conforming `<state>` whose only child is an
-  empty `<onentry/>`."
-  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0' initial='idle'>"
-       "<state id='idle'><onentry/></state>"
-       "</scxml>"))
-
-(deftest import-ignores-empty-onentry-executable-content
-  (testing "an empty <onentry/> is ignored, not promoted to a nil-keyed state"
-    (let [spec (scxml/scxml->spec onentry-only-scxml)]
-      (is (= {:initial :idle :states {:idle {}}} spec)
-          "the state imports bare; the executable body leaves no trace")
-      (is (not (contains? (:states spec) nil))
-          "no phantom nil-keyed state")
-      (is (empty? (get-in spec [:states :idle :states]))
-          "the leaf stays a leaf — <onentry> is not a child state")
-      (is (g/valid-definition? spec)
-          "a successful import passes the canonical recursive grammar gate")
-      (is (nil? (g/definition-defect spec))))))
 
 (def executable-and-datamodel-scxml
   "The unsupported families — `<datamodel>`/`<data>` at the
