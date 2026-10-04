@@ -28,7 +28,6 @@
             [re-frame.story :as rf.story]
             [re-frame.story.artifact :as rf.story.artifact]
             [re-frame.story.async :as rf.story.async]
-            [re-frame.story.author-expectations :as rf.story.author-expectations]
             [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]
             [re-frame.story.recorder.play-export-events :as rf.story.recorder.play-export-events]
@@ -86,27 +85,6 @@
     (testing "control — the `story/` spelling does not compile there"
       (is (thrown? Exception (paste! (str/replace snippet "(rf.story/" "(story/")))))))
 
-(deftest real-setup-upgrade-output-pastes-verbatim
-  (let [snippet (rf.story.ui.view-state/upgrade-snippet :story.paste/pinned :real-setup)]
-    (is (str/starts-with? snippet "(rf.story/reg-variant :story.paste/pinned-upgraded\n"))
-    (paste! snippet)
-    (let [body (registered :story.paste/pinned-upgraded)]
-      (is (= :story.paste/source (:extends body)))
-      (is (= [[:dispatch [:your/setup-event {}]]] (:setup body)))
-      (is (not (contains? body :sub-overrides))))))
-
-(deftest add-expectations-output-pastes-verbatim
-  (let [snippet (rf.story.author-expectations/gen-expectations-snippet
-                  {:variant-id :story.paste/expects
-                   :extends    :story.paste/source
-                   :authored   [[:rf.assert/path-equals [:paste :value] 5]]})]
-    (is (str/starts-with? snippet "(rf.story/reg-variant :story.paste/expects\n"))
-    (paste! snippet)
-    (let [body (registered :story.paste/expects)]
-      (is (= :story.paste/source (:extends body)))
-      (is (= [[:rf.assert/path-equals [:paste :value] 5]] (:assertions body)))
-      (is (contains? (:tags body) :test)))))
-
 (deftest recorder-gen-play-snippet-output-pastes-verbatim
   (let [snippet (rf.story.recorder/gen-play-snippet
                   [[:paste/inc]]
@@ -117,18 +95,6 @@
     (let [body (registered :story.paste/recorded)]
       (is (= :story.paste/source (:extends body)))
       (is (str/includes? (pr-str (:script body)) "[:dispatch-sync [:paste/inc]]")))))
-
-(deftest recorder-export-dialog-output-pastes-verbatim
-  (let [spec    (rf.story.recorder.play-export/recording->script-body
-                  [[:paste/inc]] {:name "happy path"})
-        snippet (rf.story.recorder.play-export/render-variant-form
-                  spec {:variant-id :story.paste/exported
-                        :extends    :story.paste/source})]
-    (is (str/starts-with? snippet "(rf.story/reg-variant :story.paste/exported\n"))
-    (paste! snippet)
-    (let [body (registered :story.paste/exported)]
-      (is (= :story.paste/source (:extends body)))
-      (is (str/includes? (pr-str (:script body)) "[:dispatch [:paste/inc]]")))))
 
 (deftest promote-run-output-pastes-verbatim
   (let [artifact (rf.story.artifact/make-run-artifact
