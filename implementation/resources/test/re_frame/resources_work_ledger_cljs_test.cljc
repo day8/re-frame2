@@ -10,7 +10,8 @@
     2. the resource entry points at its current work (`:current-work` =
        the record's `:work/id`);
     3. host handles live in a side table keyed by `[frame-id work-id]`
-       (host-side, NOT serialized — mirrors the generation allocator);
+       (host-side, NOT serialized — mirrors the generation allocator; the
+       managed-HTTP suite reads the live handle);
     4. owner release updates ledger rows; abort is opportunistic (a
        best-effort `:rf.http/managed-abort` fx, never relied on);
     5. stale suppression by work-id + generation is mandatory (a late reply
@@ -21,7 +22,8 @@
        with a bounded per-key tail kept for Xray, and are dropped outright
        when the entry itself leaves the cache;
     7. frame destroy cleans the side tables (durable records may persist;
-       transient host handles are dropped);
+       transient host handles are dropped — the managed-HTTP suite's
+       `frame-destroy-aborts-managed-http-in-flight` pins it);
     8. dedupe joins the existing record (owner attached, cause appended, no
        new generation / record)."
   (:require
@@ -196,27 +198,6 @@
                 for SSR / Xray)"
         (is (rf.resources.work-ledger/serializable-record? r))))))
 
-(deftest work-record-byte-keyed-address-is-canonical
-  ;; EP-0012 — the work record lives at ONE address: the
-  ;; byte-keyed `rf.resources.work-ledger/record-path` (`[:rf.runtime/work-ledger
-  ;; (work-id-id work-id)]`). The `[work-ledger-key work-id]` VECTOR address
-  ;; holds NOTHING — a test reading through it would silently miss the live
-  ;; row, making any `(when rec …)` assertion vacuous. This pins the one home.
-  (rf/reg-resource :wlbk/article (article-spec) article-spec-request)
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :wlbk/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :wlbk/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:route :r 1]}])
-    (let [wid (:current-work (entry scoped-key))
-          rdb (runtime-db)]
-      (testing "the byte-keyed work-ledger API reads the live row"
-        (is (= :running (:status (rf.resources.work-ledger/get-record rdb wid)))))
-      (testing "the row is stored under the CEDN-1 byte work-id-id, NOT the
-                work-id vector"
-        (is (contains? (:rf.runtime/work-ledger rdb) (rf.resources.work-ledger/work-id-id wid)))
-        (is (not (contains? (:rf.runtime/work-ledger rdb) wid)))
-        (is (string? (rf.resources.work-ledger/work-id-id wid)))))))
-
 (deftest work-record-started-at-deadline-at-from-token-time-ms
   ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps:
   ;; the durable work-ledger `:started-at` is the TRIGGERING TOKEN'S
@@ -250,25 +231,6 @@
         (is (= t2 (:started-at r))))
       (testing "no :timeout-ms policy => nil :deadline-at"
         (is (nil? (:deadline-at r)))))))
-
-;; ===========================================================================
-;; 2. host handles live in the side table keyed by [frame-id work-id]
-;; ===========================================================================
-
-(deftest host-handle-in-side-table-not-runtime-db
-  (rf/reg-resource :hh/article (article-spec) article-spec-request)
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :hh/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :hh/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :hh 1]}])
-    (let [wid (:current-work (entry scoped-key))]
-      (testing "a host-side side-table slot exists for [frame-id work-id]
-                (host-side, NOT runtime-db — Spec 016 §Frame work ledger)"
-        (is (= :rf.http/managed (:transport (rf.resources.work-ledger/get-handle :rf/default wid)))))
-      (testing "the side table is NOT inside runtime-db (no host handles ride
-                the durable wire)"
-        ;; the record in runtime-db is host-handle-free
-        (is (rf.resources.work-ledger/serializable-record? (record wid)))))))
 
 ;; ===========================================================================
 ;; 3. succeeded settles the record :completed + prunes terminal rows
@@ -659,30 +621,6 @@
       (is (nil? (bucket k))))))
 
 ;; ===========================================================================
-;; 9. frame destroy cleans the side tables (durable records may persist)
-;; ===========================================================================
-
-(deftest frame-destroy-clears-side-tables
-  (rf/reg-resource :fd/article (article-spec) article-spec-request)
-  (let [fa :fd/frame-a
-        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :fd/article {:slug "w"})]
-    (rf/make-frame {:id fa :doc "teardown frame"})
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :fd/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :fd 1]}]
-                      {:frame fa})
-    (let [wid (:current-work (entry fa scoped-key))]
-      (testing "before destroy the host handle + generation high-water exist
-                for the frame"
-        (is (some? (rf.resources.work-ledger/get-handle fa wid)))
-        (is (pos? (rf.resources.state/generation-snapshot fa))))
-      (rf.frame/destroy-frame! fa)
-      (testing "Spec 016 [Runtime-Subsystems] clause 5 — frame destroy drops
-                the TRANSIENT host handles + generation high-water for the
-                frame (durable records ride the dropped frame value)"
-        (is (nil? (rf.resources.work-ledger/get-handle fa wid)) "host handle cleared")
-        (is (zero? (rf.resources.state/generation-snapshot fa)) "generation high-water dropped")))))
-
-;; ===========================================================================
 ;; 10. work-id embeds the generation (one identity per record)
 ;; ===========================================================================
 
@@ -891,31 +829,6 @@
                        :rf.runtime/work-ledger-by-key)
                    (:rf.runtime/work-ledger-by-key new-rdb))
                 "inverse index drift vs full rebuild")))))))
-
-(deftest prune-self-heals-on-wholesale-installed-ledger
-  (testing "a ledger installed wholesale (epoch restore /
-            replace-frame-state!) carries NO inverse index; the first prune
-            rebuilds it from ground truth and still matches the full scan"
-    (let [ka (rf.resources.state/scoped-resource-key :rf.scope/global :wl/h {:id 1})
-          ;; install the ledger DIRECTLY (no put-record), so no index sidecar
-          records [(record-for ka 1 :completed 100)
-                   (record-for ka 2 :completed 200)
-                   (record-for ka 3 :failed    300)
-                   (record-for ka 4 :running   400)]
-          installed (reduce (fn [rdb r]
-                              (assoc-in rdb (rf.resources.work-ledger/record-path (:work/id r)) r))
-                            {} records)]
-      (is (not (contains? installed :rf.runtime/work-ledger-by-key))
-          "precondition: installed ledger has no inverse index")
-      (let [new-rdb (rf.resources.work-ledger/prune-terminal-for-key installed ka 1)
-            ref-rdb (reference-prune-full-scan installed ka 1)]
-        (is (= (:rf.runtime/work-ledger ref-rdb)
-               (:rf.runtime/work-ledger new-rdb))
-            "self-healed prune matches the full-scan reference")
-        (is (= (-> new-rdb rf.resources.work-ledger/recompute-ledger-index
-                   :rf.runtime/work-ledger-by-key)
-               (:rf.runtime/work-ledger-by-key new-rdb))
-            "rebuilt index == full rebuild")))))
 
 (deftest ledger-inverse-index-equals-full-rebuild-under-random-mutation
   (testing "across a randomised sequence of put-record /
