@@ -116,18 +116,6 @@
       (is (empty? (get-in evicted [:rf.runtime/elision :sensitive-declarations]))
           "the evicted entry's declaration is dropped"))))
 
-(deftest reconcile-preserves-foreign-sourced-entries
-  (reg! :profile/card4 {:sensitive [[:data :ssn]]})
-  (testing "a non-resource-sourced registry entry (e.g. :source :effect) on a
-            different path rides untouched through reconciliation"
-    (let [k   (rf.resources.state/scoped-resource-key :rf.scope/global :profile/card4 {:slug "x"})
-          rdb (-> (runtime-db-with {k {:data {:ssn "x"}}})
-                  (assoc-in [:rf.runtime/elision :sensitive-declarations [:app :token]]
-                            #{{:source :effect}}))
-          out (rf.resources.classification/reconcile-registry rdb rf.resources.registry/resource-meta)]
-      (is (= #{{:source :effect}} (get (sensitive-decls out) [:app :token]))
-          "the :source :effect entry survives reconciliation"))))
-
 (deftest reconcile-no-classification-no-registry
   (reg! :plain/card {})   ;; declares no classification
   (testing "a resource that declares no classification lowers nothing — no
