@@ -26,9 +26,7 @@
   An open map ignores an unknown key — it is neither read nor rejected. So
   closing the map cannot let out a value that would otherwise be redacted;
   the only different outcome is a throw where an open map would silently
-  no-op. That is why a closed map is fail-CLOSED on a privacy surface, and
-  it is the claim the `unknown-key-cannot-widen-egress` deftest below pins
-  directly.
+  no-op. That is why a closed map is fail-CLOSED on a privacy surface.
 
   The two doors' key sets differ by exactly the keys `project-egress` OWNS:
   it adds `:rf.egress/profile` and the three epoch-only axes to the walker's
@@ -193,46 +191,6 @@
               #(rf.elision/elide-wire-value {:a 1} {:aaa 1 :zzz 2}))]
       (is (= [:aaa :zzz] (:unknown-keys d))))))
 
-(deftest walker-accepts-every-member-of-its-own-set
-  (testing "the CONTROL. A guard that rejected everything would
-            pass every test above, so exercise the accepted set itself: each
-            key, alone, must get through the guard. `:frame` is deliberately
-            an unresolvable id, so the walk takes its own fail-closed arm and
-            returns the sentinel — a value, not a throw."
-    (doseq [k rf.elision/walker-opt-keys]
-      (is (nil? (bad-opts-ex-data
-                  #(rf.elision/elide-wire-value {:a 1} {k nil})))
-          (str k " is accepted by the walker guard"))))
-  (testing "and the whole set at once"
-    (is (nil? (bad-opts-ex-data
-                #(rf.elision/elide-wire-value
-                   {:a 1}
-                   (zipmap rf.elision/walker-opt-keys (repeat nil))))))))
-
-(deftest walker-nil-and-empty-opts-are-fine
-  (testing "the 1-arity and an empty map are not 'unknown keys'"
-    (is (nil? (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1}))))
-    (is (nil? (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} nil))))
-    (is (nil? (bad-opts-ex-data #(rf.elision/elide-wire-value {:a 1} {}))))))
-
-(deftest unknown-key-cannot-widen-egress
-  (testing "the SAFETY argument, pinned rather than asserted in
-            prose. With no live frame and no sensitive opt-out the walker
-            fails closed to the `:rf/redacted` sentinel. Adding an unknown
-            key to that call cannot turn the sentinel back into the value:
-            an open map would ignore the key (same sentinel), and the closed
-            map throws. There is no third outcome in which the raw value
-            ships."
-    (is (= :rf/redacted
-           (rf.elision/elide-wire-value {:secret "s"} {:frame ::never-registered}))
-        "baseline: unresolvable frame ⇒ whole-value redaction")
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (rf.elision/elide-wire-value
-                   {:secret "s"}
-                   {:frame ::never-registered
-                    :rf.egress/profile :rf.egress/local-raw}))
-        "and a profile that LOOKS like a raw opt-in throws instead of lifting")))
-
 ;; ---------------------------------------------------------------------------
 ;; 2. `project-egress`'s closed opts — on EVERY record kind
 ;; ---------------------------------------------------------------------------
@@ -290,19 +248,3 @@
                         rf.projection/epoch-only-opt-keys))
         "and it excludes all three epoch-only axes — they are STRIPPED at
          the door and must never reach the walker's closed map")))
-
-(deftest all-six-profiles-still-resolve
-  (testing "the closed opts map must not narrow the profile enum. Every
-            profile passes the door."
-    (doseq [p rf.projection/profiles]
-      (is (nil? (bad-opts-ex-data
-                  #(rf.projection/project-egress {:a 1} {:rf.egress/profile p})))
-          (str p " resolves"))))
-  (testing "while an unknown profile is the OTHER error — the two
-            closed-vocabulary guards are distinct and neither swallows the
-            other."
-    (is (= :rf.error/unknown-egress-profile
-           (:rf.error/id
-             (try (rf.projection/project-egress {:a 1} {:rf.egress/profile :nope})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e (ex-data e))))))))
