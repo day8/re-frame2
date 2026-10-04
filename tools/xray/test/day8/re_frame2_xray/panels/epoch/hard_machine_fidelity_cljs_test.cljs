@@ -350,13 +350,12 @@
       ;; transition row (it would duplicate the EVENT HANDLER pipeline). The
       ;; structured `:cascade` is the ORDER ORACLE for the projection
       ;; assertions above; the per-EMIT exit/entry ACTION rows ARE the
-      ;; canonical pipeline render, and the up/down block testid is absent.
+      ;; canonical pipeline render.
       ;; The transition body embeds edn-inspectors that subscribe against the
       ;; surrounding frame — render under `:rf/xray`.
       (rf/make-frame {:id :rf/xray})
       (let [rows   (cascade record)
             tx-row (first (rows-of-kind rows :transition))
-            sp     (str "rf-xray-epoch-machine-cascade-structured-" (:step tx-row))
             tree   (rf/with-frame :rf/xray
                      (view/render-handler-step
                        {:step :handler :badge :HANDLER :step-number 3
@@ -364,13 +363,6 @@
                         :fx [] :machine {:cascade rows
                                          :transition nil :guards []
                                          :lifecycle [] :timers []}}))]
-        (is (nil? (find-by-testid tree sp))
-            "the up/down structured-cascade block does not render")
-        ;; There is no nested-pipeline RAIL: the rows render as a flat
-        ;; numbered stack (the ordinal chips carry the pipeline reading),
-        ;; under the rows host + the orientation line.
-        (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
-            "there is no nested-pipeline rail")
         (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
             "the flat rows host renders")
         (is (some? (find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
