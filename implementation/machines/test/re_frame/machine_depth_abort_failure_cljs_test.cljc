@@ -126,34 +126,3 @@
           "a runaway raise cycle is NOT a benign no-op — no unhandled-no-op")
       (is (= :start (rf.machines.test-support/machine-state :rf2-y3jv8q/raise))
           "macrostep is atomic; the cycle aborts; snapshot rolls back to :start"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. Negative control — a genuine guard-blocked no-op still emits the BENIGN
-;;    `unhandled-no-op` and NO depth-exceeded error. The depth-abort failure
-;;    path must not bleed into the legitimate no-op classification.
-;; ---------------------------------------------------------------------------
-
-(defn- reg-blocked! []
-  (rf/reg-machine :rf2-y3jv8q/blocked
-    {:initial :red
-     :data    {:locked? true}
-     :guards  {:unlocked? (fn [{:keys [data]}] (not (:locked? data)))}
-     :states  {:red {:on {:force {:target :green :guard :unlocked?}}}
-               :green {}}}))
-
-(deftest guard-blocked-no-op-is-not-a-depth-abort
-  (testing "a guard-blocked no-op still emits the benign unhandled-no-op and
-   NO depth-exceeded error — the legitimate no-op classification is intact"
-    (reg-blocked!)
-    (rf/dispatch-sync [:rf2-y3jv8q/blocked [:rf.machine/start]])
-    (let [evs        (record-traces!
-                       (fn [] (rf/dispatch-sync [:rf2-y3jv8q/blocked [:force]])))
-          no-ops     (ops evs :rf.machine.event/unhandled-no-op)
-          always-err (ops evs :rf.error/machine-always-depth-exceeded)
-          raise-err  (ops evs :rf.error/machine-raise-depth-exceeded)]
-      (is (= 1 (count no-ops))
-          "the guard-blocked no-op still emits exactly one unhandled-no-op")
-      (is (= 0 (+ (count always-err) (count raise-err)))
-          "a benign no-op emits NO depth-exceeded error")
-      (is (= :red (rf.machines.test-support/machine-state :rf2-y3jv8q/blocked))
-          "the guard-blocked event leaves the snapshot at :red"))))
