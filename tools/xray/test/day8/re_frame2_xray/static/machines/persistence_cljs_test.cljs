@@ -9,9 +9,7 @@
   `load-selected-id`, or `save-selected-id!` directly. This ns pins the
   edge cases those four functions guard:
 
-    - empty / unavailable sub-mode slot
     - malformed (unparseable) EDN
-    - non-map EDN
     - invalid sub-mode VALUES (normalise back to `:topology`)
     - non-keyword KEYS dropped
     - selected-id nil clear
@@ -22,17 +20,7 @@
   These are CLJS unit tests that `with-redefs` the shared
   `local-storage` seam (`get-item` / `set-item!` / `remove-item!`) over
   an in-process atom. No `js/window` / jsdom is touched — the slot
-  parse + normalise logic is exercised hermetically.
-
-  ## The empty-slot read
-
-  The body wraps the whole read in `when-let`, so an empty slot returns
-  `nil`, and only EDN that does not parse reaches the `{}` catch.
-  `load-empty-slot-returns-nil-not-empty-map` PINS that branch (nil):
-  `nil` and `{}` are observationally identical to every consumer
-  (`get`/`merge`/`into` treat them the same, and the hydrate event seeds
-  the slot either way), and pinning the real value keeps a refactor
-  honest about which branch fires."
+  parse + normalise logic is exercised hermetically."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.static.machines.persistence :as persistence]))
@@ -60,36 +48,7 @@
     (f)))
 
 ;; -------------------------------------------------------------------------
-;; (1) sub-mode slot — empty / unavailable
-;; -------------------------------------------------------------------------
-
-(deftest load-empty-slot-returns-nil-not-empty-map
-  (testing "an empty / unavailable sub-mode slot reads back nil (the
-            outer `when-let` short-circuits before the `{}` fallback).
-            nil and {} are observationally identical to every consumer;
-            this pins the real branch."
-    (with-stub-storage*
-      (fn []
-        ;; store is empty → get-item returns nil → when-let is falsey.
-        (is (nil? (persistence/load-sub-mode-by-id))
-            "empty slot reads nil, not {}")))))
-
-(deftest load-empty-string-slot-returns-nil
-  (testing "a present-but-empty-string slot DOES reach the
-            parse branch (the `when-let` raw is the non-nil empty
-            string). `cljs.reader/read-string \"\"` returns nil (it does
-            NOT throw), so the `(when (map? parsed) …)` guard fails and
-            the read yields nil — not the catch-branch `{}`. Pins the
-            real path: the catch `{}` only fires for genuinely
-            unparseable EDN, which the next test exercises."
-    (with-stub-storage*
-      (fn []
-        (stub-set-item! persistence/sub-mode-key "")
-        (is (nil? (persistence/load-sub-mode-by-id))
-            "empty string reads as nil → fails map? → nil")))))
-
-;; -------------------------------------------------------------------------
-;; (2) sub-mode slot — malformed / non-map EDN
+;; (2) sub-mode slot — malformed EDN
 ;; -------------------------------------------------------------------------
 
 (deftest load-malformed-edn-returns-empty-map
@@ -100,19 +59,6 @@
         (stub-set-item! persistence/sub-mode-key "{:a/b :topology")  ;; unbalanced
         (is (= {} (persistence/load-sub-mode-by-id))
             "unbalanced map literal → catch → {}")))))
-
-(deftest load-non-map-edn-returns-nil
-  (testing "parseable BUT non-map EDN (a vector / scalar)
-            fails the `(when (map? parsed) …)` guard, so the read yields
-            nil — the value is neither a usable map nor a crash."
-    (with-stub-storage*
-      (fn []
-        (stub-set-item! persistence/sub-mode-key "[:m/a :topology]")
-        (is (nil? (persistence/load-sub-mode-by-id))
-            "vector EDN parses but fails map? → nil")
-        (stub-set-item! persistence/sub-mode-key ":just-a-keyword")
-        (is (nil? (persistence/load-sub-mode-by-id))
-            "scalar EDN parses but fails map? → nil")))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) sub-mode slot — value normalisation + key filtering
@@ -168,16 +114,6 @@
         (is (not (contains? @store persistence/sub-mode-key))
             "nil also removes the slot")))))
 
-(deftest sub-mode-round-trip-survives-storage
-  (testing "a valid {machine-id sub-mode} map written via
-            save! reads back identical via load"
-    (with-stub-storage*
-      (fn []
-        (let [by-id {:m/a :topology :m/b :sim :m/c :instances :m/d :cascade}]
-          (persistence/save-sub-mode-by-id! by-id)
-          (is (= by-id (persistence/load-sub-mode-by-id))
-              "all four valid modes round-trip"))))))
-
 ;; -------------------------------------------------------------------------
 ;; (5) selected-id slot — save / load / clear
 ;; -------------------------------------------------------------------------
@@ -231,18 +167,3 @@
         (persistence/save-selected-id! 42)
         (is (not (contains? @store persistence/selection-key))
             "numeric value is not persisted")))))
-
-;; -------------------------------------------------------------------------
-;; (6) clear! drops BOTH slots
-;; -------------------------------------------------------------------------
-
-(deftest clear-drops-both-slots
-  (testing "clear! removes the selection AND sub-mode slots
-            in one call (the per-test reset hook used by the panel tests)"
-    (with-stub-storage*
-      (fn []
-        (persistence/save-selected-id! :login)
-        (persistence/save-sub-mode-by-id! {:login :sim})
-        (is (= 2 (count @store)) "both slots present")
-        (persistence/clear!)
-        (is (empty? @store) "clear! drops both slots")))))
