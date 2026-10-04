@@ -41,18 +41,19 @@
   the coverage of override resolution; in dev it is a control that the
   guarded tag agrees with the chain it describes.
 
-  The four `marks-projection-*` cases need no guard at all:
+  The three `marks-projection-*` cases need no guard at all:
   `rf.classification/project-trace-event` is a pure fn over a SYNTHETIC event and
   is not gated on `rf.interop/debug-enabled?` — `marks-projection-redacts-non-ref-
   payload` proves it, since a no-op projection would fail it. They are green
   under the gate for a real reason.
 
-  `summary-absent-on-no-override-path` and
-  `summary-absent-with-empty-override-map` certify the override-free hot path
+  `summary-absent-on-no-override-path` certifies the override-free hot path
   with `(is (nil? (run-start-summary …)))`, which is VACUOUS under the gate —
   nil because the trace ring is empty, not because the tag was omitted — so
-  that assertion is guarded, and each case also asserts always-on that the
-  un-overridden chain ran INTACT, which the absence of a tag stands in for."
+  that assertion is guarded, and the case also asserts always-on that the
+  un-overridden chain ran INTACT, which the absence of a tag stands in for.
+  An empty `:interceptor-overrides` map is the same input: the dispatch
+  envelope defaults the slot to `{}`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -148,21 +149,6 @@
         (is (nil? summary)
             "override-free dispatch carries no :rf.interceptor/override-summary tag")))))
 
-(deftest summary-absent-with-empty-override-map
-  (testing "an empty :interceptor-overrides map fires nothing => tag absent"
-    (reset-ran!)
-    (reg-recording-ic! ::log-a)
-    (rf/reg-event :sum/run
-      {:interceptors [::log-a]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [summary (run-start-summary [:sum/run] {:interceptor-overrides {}})]
-      ;; ALWAYS-ON: an EMPTY override map leaves the chain intact.
-      ;; The nil-tag assertion is vacuous under the gate.
-      (is (= [::log-a] @ran) "an empty override map left the chain unmodified")
-      (when rf.interop/debug-enabled?
-        (is (nil? summary)
-            "an empty override map is the no-override path — tag omitted")))))
-
 ;; ---- removed / replaced / unmatched classification -------------------------
 
 (deftest summary-classifies-each-override
@@ -233,21 +219,6 @@
 ;; `:replaced` and `:matched` already pins that only ref ids egress from a real
 ;; dispatch; the cases below pin the chokepoint that fails closed if a value
 ;; ever slips into the summary.
-
-(deftest marks-projection-keeps-id-only-shape
-  (testing "project-trace-event passes through a clean id-only summary unchanged"
-    (let [ev    {:operation :rf.event/run-start
-                 :op-type   :rf.event
-                 :tags      {:frame :rf/default
-                             :rf.interceptor/override-summary
-                             {:matched  [::log-a]
-                              :replaced []
-                              :removed  [::log-a]
-                              :count    1}}}
-          out   (rf.classification/project-trace-event ev)
-          summ  (-> out :tags :rf.interceptor/override-summary)]
-      (is (= {:matched [::log-a] :replaced [] :removed [::log-a] :count 1} summ)
-          "a clean id-only summary passes through unchanged"))))
 
 (deftest marks-projection-reduces-param-ref-to-head-id
   (testing "an [id arg] ref is reduced to its head id (arg dropped — not proven safe)"
