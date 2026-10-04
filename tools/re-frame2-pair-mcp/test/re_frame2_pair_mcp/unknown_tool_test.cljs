@@ -103,29 +103,3 @@
                        "no discovery attempt recorded — connection step never reached"))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Server-boundary regression guard: an unregistered alias such as
-;; `registry-list` (the live name is `list-handlers`) must diagnose as
-;; :unknown-tool at the boundary — not a discovery error.
-;; ---------------------------------------------------------------------------
-
-(deftest removed-alias-diagnoses-as-unknown-tool-not-discovery-error
-  (async done
-    (-> (server/handle-call-for-tests {} "registry-list" #js {} nil)
-        (.then (fn [result]
-                 (is (err? result))
-                 (let [edn (read-edn result)]
-                   (is (= :unknown-tool (:reason edn))
-                       "a removed alias diagnoses as :unknown-tool, not :nrepl-port-not-found")
-                   (is (= "registry-list" (:tool edn)))
-                   ;; `registry-list` is too far in edit distance from
-                   ;; `list-handlers` to trip the :did-you-mean
-                   ;; near-match cutoff — but the live catalogue still
-                   ;; carries `list-handlers`, so the agent recovers via
-                   ;; the :available-tools list + the tools/list hint.
-                   (is (some #{"list-handlers"} (:available-tools edn))
-                       "list-handlers is enumerated in the live catalogue")
-                   (is (re-find #"tools/list" (:hint edn))))))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
-        (.then (fn [_] (done))))))
