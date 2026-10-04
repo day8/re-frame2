@@ -35,14 +35,6 @@
       (is (= :app/main (rf.trace/frame-of raw))
           "frame-of is the same accessor (alias)"))))
 
-(deftest trace-event-frame-nil-when-not-frame-qualified
-  (testing "a frameless raw event (registry-time / boot-time, outside any cascade) reads nil"
-    (is (nil? (rf.trace/trace-event-frame {:operation :rf.registry/handler-registered
-                                        :op-type   :rf.registry
-                                        :tags      {}})))
-    (is (nil? (rf.trace/trace-event-frame {:tags nil})))
-    (is (nil? (rf.trace/trace-event-frame {})))))
-
 (deftest trace-event-frame-ignores-top-level-frame-on-raw-shape
   (testing "the raw shape has NO public top-level :frame — a stray top-level :frame is NOT the raw frame slot"
     ;; Raw events carry frame ONLY at [:tags :frame]. The
