@@ -792,18 +792,6 @@
    :spawn-keyword :rf.error/machine-spawn-bad-shape
    :spawn-bare-id :rf.error/machine-unknown-spawn-key})
 
-(deftest spawn-refusal-category-parity
-  (testing "the viz refuses a non-map :spawn and a single-spawn :id with the
-            engine's own category"
-    (doseq [[label category] spawn-refusal-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
-
 (def ^:private on-done-refusal-rows
   "Corpus labels → the category the engine refuses each `:on-done` with."
   {:leaf-on-done                  :rf.error/machine-unknown-node-key
@@ -816,35 +804,10 @@
    :spawn-on-done-bad-target      :rf.error/machine-bad-target
    :spawn-on-done-unknown-key     :rf.error/machine-unknown-node-key})
 
-(deftest on-done-refusal-category-parity
-  (testing "the viz refuses a leaf's :on-done, and a transition-shaped
-            :spawn :on-done that does not resolve, with the engine's own
-            category"
-    (doseq [[label category] on-done-refusal-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
-
 (def ^:private choice-refusal-rows
   "Corpus labels → the category the engine refuses each choice-state key with."
   {:choice-on-done     :rf.error/machine-unknown-node-key
    :choice-unknown-key :rf.error/machine-unknown-node-key})
-
-(deftest choice-refusal-category-parity
-  (testing "the viz refuses a choice state's :on-done and an unknown bare key
-            on a choice state with the engine's own category"
-    (doseq [[label category] choice-refusal-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
 
 (def ^:private spawn-completion-refusal-rows
   "Corpus labels → the category the engine refuses each `:spawn :on-error` /
@@ -859,18 +822,6 @@
    :spawn-on-done-string        :rf.error/machine-bad-on-done-clause
    :spawn-on-done-empty-vector  :rf.error/machine-bad-on-done-clause})
 
-(deftest spawn-completion-refusal-category-parity
-  (testing "the viz refuses a :spawn :on-error / :on-done value that is not a
-            transition (or, for :on-done, a fn) with the engine's own category"
-    (doseq [[label category] spawn-completion-refusal-rows
-            :let [m (get validation-parity-corpus label)]]
-      (is (= category (engine-category m))
-          (str label ": the engine's category"))
-      (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
-      (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
-
 (def ^:private root-refusal-rows
   "Corpus labels → the category the engine refuses each machine root with."
   {:root-final             :rf.error/machine-root-slot-not-supported
@@ -878,16 +829,27 @@
    :root-two-slots         :rf.error/machine-root-slot-not-supported
    :parallel-root-bad-tags :rf.error/machine-bad-tags})
 
-(deftest root-refusal-category-parity
-  (testing "the viz refuses a machine root with the engine's own category"
-    (doseq [[label category] root-refusal-rows
+(deftest refusal-category-parity
+  (testing "the viz refuses each shape with the engine's own category, on the raw
+            definition and after the boundary desugar: a non-map :spawn and a
+            single-spawn :id; a leaf's :on-done and a transition-shaped :spawn
+            :on-done that does not resolve; a choice state's :on-done and an
+            unknown bare key on a choice state; a :spawn :on-error / :on-done
+            value that is not a transition (or, for :on-done, a fn); and a
+            malformed machine root"
+    (doseq [[group rows] [["spawn"            spawn-refusal-rows]
+                          ["on-done"          on-done-refusal-rows]
+                          ["choice"           choice-refusal-rows]
+                          ["spawn-completion" spawn-completion-refusal-rows]
+                          ["root"             root-refusal-rows]]
+            [label category] rows
             :let [m (get validation-parity-corpus label)]]
       (is (= category (engine-category m))
-          (str label ": the engine's category"))
+          (str group " " label ": the engine's category"))
       (is (= category (:category (g/definition-defect m)))
-          (str label ": the viz category"))
+          (str group " " label ": the viz category"))
       (is (= category (:category (g/definition-defect (g/desugar-grammar m))))
-          (str label ": the viz category after the boundary desugar")))))
+          (str group " " label ": the viz category after the boundary desugar")))))
 
 ;; A machine root's `:spawn` registers, and a malformed one is refused with the
 ;; category a state's `:spawn` would be.
