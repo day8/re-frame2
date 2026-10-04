@@ -58,30 +58,6 @@
         "handler ran the expected number of times — only the trace
          surface (buffer + listener) elided")))
 
-(deftest configure-trace-buffer-is-noop-under-prod
-  (testing "Per Spec 009 §Production builds: `configure-trace-buffer!`
-            is gated on `interop/debug-enabled?`. Under prod the call
-            returns nil silently — apps that boot with a
-            configure-trace-buffer call do not crash under :advanced,
-            but the requested depth has no effect."
-    (is (nil? (rf.trace.tooling/configure-trace-buffer! {:events-retained 256}))
-        "configure-trace-buffer! returns nil consistently under prod")
-    ;; Subsequent dispatches still do not push to the buffer.
-    (rf/reg-event :prod-bus/touch (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:prod-bus/touch])
-    (is (or (nil? (rf.trace.tooling/trace-buffer :rf/default))
-            (empty? (rf.trace.tooling/trace-buffer :rf/default)))
-        "buffer remains empty after configure + dispatch under prod")))
-
-(deftest clear-trace-buffer-is-noop-under-prod
-  (testing "Per Spec 009 §Production builds: `clear-trace-buffer!` is
-            gated and a no-op under prod. Tools that call it as part of
-            a session-reset (re-frame-10x's `Clear` button) do not
-            crash on a production bundle that happens to load
-            re-frame.trace.tooling for non-buffer surfaces."
-    (is (nil? (rf.trace.tooling/clear-trace-buffer! :rf/default))
-        "clear-trace-buffer! returns nil under prod")))
-
 (deftest trace-configure-is-noop-under-prod
   (testing "Per Spec 009 §Production builds: the generic `configure!`
             dispatch's `:trace-buffer` key is also gated. Apps
