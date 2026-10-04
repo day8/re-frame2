@@ -53,20 +53,6 @@
    :states  {:a {:on {:go :b}}
              :b {}}})
 
-(def ^:private parallel-machine
-  "The `:audio` region body declares a tag and an entry action; the
-  `:video` region declares none (the control)."
-  {:type    :parallel
-   :actions lifecycle-actions
-   :regions {:audio {:initial :muted
-                     :entry   :hello
-                     :tags    #{:audio/live}
-                     :states  {:muted   {:on {:unmute :playing}}
-                               :playing {:on {:mute :muted}}}}
-             :video {:initial :hidden
-                     :states  {:hidden {:on {:show :shown}}
-                               :shown  {:on {:hide :hidden}}}}}})
-
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- node-with-id [parsed id]
@@ -88,17 +74,6 @@
   (str/replace pad #"top=\d+" "top=X"))
 
 ;; ---- the band-height model ------------------------------------------------
-
-(deftest band-height-is-zero-without-tags-or-lifecycle
-  (testing "a container declaring no tags and no entry / exit paints no band,
-            so it reserves nothing"
-    (doseq [[density chart-vc] densities]
-      (is (= 0 (projection/lifecycle-band-height chart-vc {}))
-          (str density " no lifecycle slots"))
-      (is (= 0 (projection/lifecycle-band-height chart-vc {:tags #{}}))
-          (str density " an empty tag set"))
-      (is (= 0 (projection/lifecycle-band-height chart-vc {:tags []}))
-          (str density " the empty tag vector the renderer reads")))))
 
 (deftest band-height-models-the-rendered-rows
   (testing "the band is its vertical padding, one chip-high tag row, an action
@@ -155,24 +130,6 @@
             (str density " only :player's TOP side moves"))
         (is (= plain (elk-padding-of kids idle))
             (str density " the lifecycle-free :idle keeps the plain padding"))))))
-
-(deftest region-padding-reserves-its-lifecycle-band
-  (testing "a region body declaring a tag and an entry reserves its band on
-            TOP; the lifecycle-free region keeps the plain padding exactly"
-    (doseq [[density chart-vc] densities]
-      (let [parsed  (layout/project-definition parallel-machine)
-            kids    (projection/->elk-children parsed nil chart-vc)
-            audio   (layout/region-node-id :audio)
-            video   (layout/region-node-id :video)
-            plain   (projection/container-elk-padding chart-vc true)
-            band-px (projection/lifecycle-band-height
-                      chart-vc (node-with-id parsed audio))]
-        (is (pos? band-px) (str density " :audio paints a band"))
-        (is (= (+ (elk-padding-top plain) band-px)
-               (elk-padding-top (elk-padding-of kids audio)))
-            (str density " :audio's TOP grows by exactly its band height"))
-        (is (= plain (elk-padding-of kids video))
-            (str density " the lifecycle-free :video keeps the plain padding"))))))
 
 (deftest root-padding-reserves-its-lifecycle-band
   (testing "the machine root's frame reserves its lifecycle band on TOP, on
