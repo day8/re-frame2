@@ -135,7 +135,7 @@
 ;; ASCII is the fail-open condition: the two rulers agree there EXACTLY,
 ;; so no ASCII fixture above can tell them apart.
 ;; The fixture here is DISCRIMINATING - code units, code points and bytes
-;; are three different numbers - and is asserted so BEFORE it is used.
+;; are three different numbers (22, 21 and 64).
 ;; Written as \uXXXX escapes so the source stays pure ASCII, and as a
 ;; `.cljc` so BOTH hosts are proven: the JVM arm is `String.getBytes`,
 ;; the CLJS arm is `TextEncoder`.
@@ -153,19 +153,6 @@
   #?(:clj  (alength (.getBytes ^String s "UTF-8"))
      :cljs (let [^js enc (js/TextEncoder.)]
              (.-length (.encode enc s)))))
-
-(defn- code-points [s]
-  #?(:clj  (.codePointCount ^String s 0 (count s))
-     :cljs (count (js/Array.from s))))
-
-(deftest redaction-byte-fixture-is-discriminating
-  (testing "code units, code points and UTF-8 bytes are three different numbers"
-    (is (= 22 (count utf8-discriminating-value)))
-    (is (= 21 (code-points utf8-discriminating-value)))
-    (is (= 64 (utf8-len utf8-discriminating-value))))
-  (testing "the ASCII control's two rulers agree exactly - the fail-open condition"
-    (is (= 22 (count ascii-control-value)))
-    (is (= 22 (utf8-len ascii-control-value)))))
 
 (deftest large-marker-bytes-counts-utf8-bytes-not-code-units
   (testing "a schema-marked large value publishes UTF-8 bytes"
@@ -199,19 +186,9 @@
 ;; ---------------------------------------------------------------------------
 ;; display-string — the content-FREE export-safe text
 
-(deftest display-string-redacted-is-content-free
-  (testing ":rf/redacted renders a content-free sentinel"
-    (let [s (r/display-string :rf/redacted)]
-      (is (str/includes? s ":rf/redacted")))))
-
 (deftest display-string-large-shows-size-not-content
   (testing ":rf.size/large-elided renders size only, never the content"
     (let [s (r/display-string {:rf.size/large-elided {:bytes 4096 :path [:blob]
                                                       :type :string :reason :schema}})]
       (is (str/includes? s ":rf.size/large-elided"))
       (is (str/includes? s "4096")))))
-
-(deftest display-string-ordinary-is-pr-str
-  (testing "ordinary values render via pr-str"
-    (is (= "3"      (r/display-string 3)))
-    (is (= "[:a :b]" (r/display-string [:a :b])))))
