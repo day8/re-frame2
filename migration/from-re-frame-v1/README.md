@@ -379,7 +379,7 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
     - Single value (`:dispatch [:foo]`, `:http {:url ...}`, or a custom `:datadog/log {...}`): wrap as `[[:key value]]` inside `:fx`.
     - Vector of values (`:dispatch-n [[:a] [:b]]`, `:dispatch-later [{...} {...}]`): expand to `:fx [[:key v1] [:key v2] ...]`.
     - **`:dispatch-later` map key rename** — v1's `:dispatch-later` map used `:dispatch` for the event-to-dispatch (`{:ms n :dispatch [:ev]}`); the v2 fx reads **`:event`** (`{:ms n :event [:ev]}`). Rename the key as you expand each map — `:dispatch-later [{:ms 100 :dispatch [:tick]}]` → `:fx [[:dispatch-later {:ms 100 :event [:tick]}]]`. A left-behind `:dispatch` key compiles and runs but the fx silently ignores it and the deferred event never fires.
-4. If the effect map already has a `:fx`, concat: `:fx (into existing-fx new-fx)`.
+4. If the effect map already has a `:fx`, fold around it in v1's run order. v1 guarantees only that a truthy `:db` runs first; the other keys ran in the map's iteration order, which is observed behaviour rather than contract: source order for a literal of at most 8 entries (an array map), hash order from 9 entries up (a hash map). In a literal of 8 or fewer, each folded entry goes before the existing rows when its key precedes `:fx` and after them when it follows, keeping source order on each side, and the existing rows keep their order and payloads — `{:db db :demo/log log :fx [[:demo/send a]] :demo/ping p}` becomes `{:db db :fx [[:demo/log log] [:demo/send a] [:demo/ping p]]}`, as v1 ran log, send, ping. Where the source cannot show the order — a map built at run time (`assoc`, `merge`, `cond->`, a helper's return value) or a literal of more than 8 entries — flag that site alone for human review, naming the missing fact: which side of the existing rows each folded effect must run on.
 5. Remove the rewritten top-level keys.
 
 **Entries a v1 app already wrote inside `:fx` need a pass too.** v1 supported the `:fx` vector, so an app can carry v1-shaped entries there that the top-level fold never touches:
@@ -390,7 +390,7 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
 
 An unregistered fx id inside `:fx` is not silent — it emits `:rf.error/no-such-fx` when the entry runs — but it is compile-clean, so sweep for it rather than waiting for the error.
 
-The agent runs the discovery sweep first, then the per-handler rewrite. No human review needed unless step 2 hits an unknown key (rare in real code).
+The agent runs the discovery sweep first, then the per-handler rewrite. No human review needed unless step 2 hits an unknown key (rare in real code) or step 4 holds a site: a map built at run time, or a literal of more than 8 entries.
 
 **This rule is not optional and must be applied exhaustively.** **A missed site is loud, not silent** — the runtime refuses the whole event (see the backstop callout above), so a partial migration ships an app that compiles and boots and then fails hard the first time a missed handler runs, taking that event's `:db` write down with it. The backstop surfaces a skipped site by breaking it, on whatever code path your users reach first; it is not a substitute for the sweep. Migrate every site in one pass; do not defer "the custom-fx ones" to a later cleanup.
 
