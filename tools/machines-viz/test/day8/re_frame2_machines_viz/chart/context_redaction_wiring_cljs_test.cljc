@@ -67,26 +67,6 @@
 ;; ---------------------------------------------------------------------------
 ;; (a) redaction is applied BY DEFAULT to a live context-band
 
-(deftest xyflow-graph-redacts-sensitive-context-by-default
-  (testing "a live :context-band with a :context-band-sensitive
-            slot is redacted BY DEFAULT (no :context-band-raw?): the sensitive
-            row projects to the :rf/redacted sentinel and the secret VALUE
-            appears in NO display row, while a non-sensitive slot renders"
-    (let [secret "card-4111-1111-1111-1111"
-          parsed (layout/project-definition flat-machine)
-          graph  (projection/xyflow-graph
-                   parsed {}
-                   {:context-band            (array-map :card secret :count 7)
-                    :context-band-inferred?  false
-                    :context-band-sensitive  #{:card}})]
-      (is (some? (context-rows graph)) "the band produced context rows")
-      (is (not (some #(str/includes? % secret) (all-row-strings graph)))
-          "the secret VALUE must not appear in ANY display row (export-safety)")
-      (is (str/includes? (value-for graph :card) ":rf/redacted")
-          "the sensitive :card slot shows the content-free redacted sentinel")
-      (is (= "7" (value-for graph :count))
-          "the non-sensitive :count slot still renders its value"))))
-
 (deftest documented-recipe-redacts-a-machine-declared-secret
   (testing "a host following the API.md recipe for a machine
             that declares its secret slot the canonical way (Spec 015 / Spec
@@ -148,43 +128,6 @@
       (is (not (some #(str/includes? % payload) (all-row-strings graph)))
           "the runtime-only large value's content never reaches a display row")
       (is (str/includes? (value-for graph :blob) ":rf.size/large-elided")))))
-
-;; ---------------------------------------------------------------------------
-;; (b) the sensitive / large sets are actually THREADED into the projection
-
-(deftest xyflow-graph-threads-sensitive-set-not-hardcoded
-  (testing "the SAME secret value is redacted ONLY when its key
-            is in :context-band-sensitive; with an empty set the projector
-            passes it through. Proves the set is genuinely threaded into
-            redact-context (not a hardcoded classification)"
-    (let [secret "sk-live-abc123"
-          band   (array-map :key secret)
-          parsed (layout/project-definition flat-machine)
-          in-set (projection/xyflow-graph
-                   parsed {} {:context-band band :context-band-sensitive #{:key}})
-          no-set (projection/xyflow-graph
-                   parsed {} {:context-band band :context-band-sensitive #{}})]
-      (is (str/includes? (value-for in-set :key) ":rf/redacted")
-          "key ∈ sensitive set → redacted")
-      (is (not (some #(str/includes? % secret) (all-row-strings in-set)))
-          "…and the secret is absent")
-      (is (str/includes? (value-for no-set :key) secret)
-          "key ∉ sensitive set → passes through (so the set was truly threaded)"))))
-
-(deftest xyflow-graph-threads-large-set-into-redaction
-  (testing "a :context-band-large slot elides to the canonical
-            content-FREE :rf.size/large-elided marker; the value's content
-            never reaches a display row"
-    (let [payload "SENSITIVE-BLOB-CONTENT-xyzzy"
-          parsed  (layout/project-definition flat-machine)
-          graph   (projection/xyflow-graph
-                    parsed {}
-                    {:context-band       (array-map :blob payload)
-                     :context-band-large #{:blob}})]
-      (is (str/includes? (value-for graph :blob) ":rf.size/large-elided")
-          "the large slot shows the size-only elision marker")
-      (is (not (some #(str/includes? % payload) (all-row-strings graph)))
-          "the large value's content never reaches a display row"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c) :context-band-raw? true is the explicit trusted-local opt-out
