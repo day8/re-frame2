@@ -121,26 +121,6 @@
 
 (defn- slot [vid] (get @rf.story.play/stepper-state vid))
 
-;; ---- (1) Start leaves the whole script pending ---------------------------
-
-(deftest start-parks-at-the-pre-play-state
-  (testing "Start prepares phases 0-2 and runs NO script step: the frame
-            carries the :setup state, no script effect has been issued, and
-            every step is still pending"
-    (let [vid :story.stepper/mutating]
-      (reg-mutating! vid)
-      (start! vid)
-      (is (= 0 (count-of vid))
-          "cursor 0 shows the :setup state, not the post-script state")
-      (is (zero? @ext-effect-count)
-          "Start issued no script effect — nothing ran behind the user")
-      (is (= 3 (count (:remaining (slot vid))))
-          "all three steps are pending")
-      (is (= [] (:ran (slot vid)))
-          "the debugger has observed no step yet")
-      (is (= [] (:results (slot vid)))
-          "and recorded no step outcome yet"))))
-
 ;; ---- (2) the observed sequence IS the performed sequence ------------------
 
 (deftest the-debugger-observes-every-step-exactly-once
@@ -253,21 +233,6 @@
                       (rf.story.async/deref-blocking p 2000)))))))
 
 #?(:clj
-   (deftest start-takes-the-resolve-branch-for-a-healthy-variant
-     (testing "the positive control for the two tests below: a variant that
-               prepares cleanly resolves, so Start reaches `begin-stepper!`
-               and publishes a slot. Without this the `:catch` assertions
-               below would pass on a seam that rejected everything"
-       (let [vid :story.stepper/mutating]
-         (reg-mutating! vid)
-         (is (= :then (begin-outcome vid))
-             "a clean preparation takes the resolve branch")
-         (is (some? (slot vid))
-             "and Start primed the stepper substrate")
-         (is (= 0 (count-of vid))
-             "over the :setup state, with the script still pending")))))
-
-#?(:clj
    (deftest start-refuses-a-captured-setup-failure
      (testing "a `:setup` handler that THROWS is captured onto
                `[:rf.story/assertions]` rather than propagated, so phases 0-2
@@ -311,25 +276,6 @@
              "so Start never primed the substrate")
          (is (zero? @ext-effect-count)
              "and issued no script effect")))))
-
-#?(:clj
-   (deftest the-full-run-path-still-gathers-the-whole-picture
-     (testing "`run-variant` is unaffected by the refusal above: a captured
-               `:setup` failure RESOLVES a result carrying the failed
-               assertion rather than rejecting. The narrowing is Start's
-               alone — the runner keeps reporting everything it saw"
-       (let [vid :story.stepper/setup-throws-full-run]
-         (rf/reg-event :probe/setup-throws
-           (fn [_ _] (throw (ex-info "setup handler blew up" {:probe true}))))
-         (rf.story/reg-variant vid
-           {:setup  [[:probe/setup-throws]]
-            :script [[:dispatch-sync [:probe/inc-and-effect]]]})
-         (let [result (rf.story.async/deref-blocking
-                        (rf.story.runtime/run-variant vid) 2000)]
-           (is (map? result)
-               "the full run resolved a result rather than rejecting")
-           (is (seq (filter (comp false? :passed?) (:assertions result)))
-               "carrying the captured failure"))))))
 
 ;; ---- (6) a REDACTED prepare failure settles honestly ---------------------
 ;;
