@@ -162,15 +162,19 @@ v1 return shapes each rewrite differently:
 
 ### 1. Vector-returning (the common case) — drop the `subscribe`, return query vectors
 
+**Type A** once the site meets the four conditions under
+[*Classify each site*](#classify-each-site--the-case-decides-the-type) below.
 Strip the `(rf/subscribe …)` wrappers; return the bare query vectors. The
 computation fn already destructures a vector of inputs in the same order — it is
-**unchanged**.
+**unchanged**. The order is the source vector's own, so there is nothing to
+choose.
 
 Before/after: [`MIGRATION.md` §M-71 case 1](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
 
 ### 2. Map-returning — pick an EXPLICIT input order, switch to vector destructuring
 
-v2 does **not** accept a map return. Choose an explicit input order, return a
+**Type B** — the order is the author's choice. v2 does **not** accept a map
+return. Choose an explicit input order, return a
 **vector of query vectors** in that order, and change the computation fn from
 **map destructuring to vector destructuring** to match.
 
@@ -184,7 +188,9 @@ Before/after: [`MIGRATION.md` §M-71 case 2](https://github.com/day8/re-frame2/b
 
 ### 3. Single-signal-returning — wrap in a vector of ONE query vector
 
-v2 has **no scalar single-input form**. A v1 signal fn that returned one bare
+**Type A** under the same four conditions as case 1. This is a bare single
+signal, not a vector return, and the bracket it gains is forced rather than
+chosen. v2 has **no scalar single-input form**. A v1 signal fn that returned one bare
 reaction becomes an `:inputs` producer returning `[[:item/by-id id]]` — a
 **vector of one query vector**, not the bare query vector. The computation fn
 destructures a one-element vector: `(fn [[item] _] …)`.
@@ -222,7 +228,7 @@ one. These are the shapes to flag, not silently "fix":
 | Returns a **map** of inputs | **Rejected** — pick an explicit order + vector destructure (case 2). |
 | Returns a **bare keyword** (`:viewer/current`) | **Rejected** — no shorthand; spell it `[[:viewer/current]]`. |
 | Returns a **scalar query vector** (`[:item id]`) | **Rejected** — wrap it: `[[:item id]]` (case 3). |
-| Receives **extra args** beyond the outer query vector | **Rejected** — the `input-fn` receives only `query-v`. |
+| Receives **extra args** beyond the outer query vector | **Rejected** — the `input-fn` receives only `query-v`. Drop a parameter the body never reads; one it reads must travel in the outer query vector (Type B). |
 | Reads `app-db` to choose inputs | **Rejected** — thread the parameter through the outer query vector (below). |
 
 A bad return signals `:rf.error/sub-input-fn-bad-return`; an `input-fn` that
@@ -258,12 +264,42 @@ that is the **M-18** `reg-sub-raw` decision tree above — route to the matching
 path (fx-driven state, state machine, or move the side effect into a handler),
 not an `input-fn`.
 
-**Do not auto-apply M-71 rewrites blindly.** It is **Type B**: the
-vector-returning case is mechanical, but a **map-returning** signal fn forces
-the explicit-order choice (case 2) and an **`app-db`-reading** signal fn must
-thread the parameter through the outer query vector — both are intent the agent
-cannot recover statically. Classify the return shape, present the proposed
-rewrite, and let the author confirm.
+### Classify each site — the case decides the type
+
+M-71 is split by case, the way M-42 is. A vector-returning (case 1) or
+single-signal (case 3) site is **Type A** once it shows all four of the
+corpus's conditions
+([`MIGRATION.md` §M-71](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors)):
+
+- the membership and order of its inputs are fixed by the signal fn's own code;
+- each query vector is built from the outer query vector and constants alone;
+- the fn reads no state, owns no reaction lifecycle and has no side effects;
+- the computation fn receives the same values in the same positions as in v1 —
+  case 3 adds only the bracket.
+
+Sweep those with the other Type A rewrites: announce, apply, and record them in
+the report. They need no author decision. A typical site is a fixed pair of
+inputs:
+
+```clojure
+;; v1
+(rf/reg-sub :example/sum
+  (fn [_] [(rf/subscribe [:example/left]) (rf/subscribe [:example/right])])
+  (fn [[left right] _] (+ left right)))
+
+;; v2 — the same inputs, the same order, the same computation
+(rf/reg-sub :example/sum
+  {:inputs [[:example/left] [:example/right]]}
+  (fn [[left right] _] (+ left right)))
+```
+
+These cases are **Type B**, presented in the end-of-sweep batch and applied only
+on the author's decision: a **map return** (case 2 — the author picks the
+order), an **`app-db`-reading** signal fn (the author threads the parameter
+through call sites), an extra argument the body reads, a lifecycle, effect or
+custom-reaction body, and any signal fn you cannot read. Every site, either
+type, still needs M-75's move into `:inputs` and a materialized check, because a
+compile proves neither.
 
 ---
 
