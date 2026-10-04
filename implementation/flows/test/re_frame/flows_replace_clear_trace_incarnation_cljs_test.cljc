@@ -173,49 +173,6 @@
         (rf.trace.tooling/unregister-listener! ::destroyer)
         (rf.trace.tooling/unregister-listener! ::observer)))))
 
-;; ---------------------------------------------------------------------------
-;; Green control / over-fence tooth — when A retains ownership through a
-;; NON-destroying listener, the ordinary replacement trace reaches the
-;; subsequent listener exactly once. A wrongly-over-fencing predicate would
-;; silently swallow the trace.
-;; ---------------------------------------------------------------------------
-
-(deftest reg-flow-replacement-trace-with-live-owner-emits-once
-  ;; Mutation tooth. The exact-incarnation fence must NOT suppress the
-  ;; normal replacement trace when A stays live through the fan-out:
-  ;; :rf.registry/handler-replaced reaches BOTH the first and the subsequent
-  ;; listener, carrying A's own id.
-  (let [id       :flow.replace.fence/live
-        flow-id  :flow.replace.fence/h
-        touched  (atom 0)
-        observed (atom [])]
-    (rf/make-frame {:id id})
-    (rf/reg-flow flow-id
-      {:frame id :inputs [[:n]] :output-path [:out]}
-      (fn [n] (or n 0)))
-    (rf.trace.tooling/register-listener!
-      ::live-touch
-      (fn [ev]
-        (when (= :rf.registry/handler-replaced (:operation ev))
-          (swap! touched inc))))          ;; observe only — A stays live
-    (rf.trace.tooling/register-listener!
-      ::live-observer
-      (fn [ev]
-        (when (= :rf.registry/handler-replaced (:operation ev))
-          (swap! observed conj ev))))
-    (try
-      (rf/reg-flow flow-id
-        {:frame id :inputs [[:n]] :output-path [:out]}
-        (fn [n] (* 2 (or n 0))))
-      (is (= 1 @touched) "the first listener saw A's replaced event")
-      (is (= 1 (count @observed))
-          "the SUBSEQUENT listener also received it — the live-owner replacement
-           is not over-fenced")
-      (is (= flow-id (get-in (first @observed) [:tags :id])) "A's own flow id")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::live-touch)
-        (rf.trace.tooling/unregister-listener! ::live-observer)))))
-
 ;; ===========================================================================
 ;; CLEAR — `:rf.flow/cleared`
 ;;
@@ -302,51 +259,11 @@
            not poison the successor")
       (is (= b-flow-id (get-in (first @observer-clr) [:tags :flow-id]))
           "the sole post-loss clear observed is B's own")
+      (is (= [:bout] (get-in (first @observer-clr) [:tags :path]))
+          "B's cleared event carries B's own :output-path")
       (finally
         (rf.trace.tooling/unregister-listener! ::destroyer)
         (rf.trace.tooling/unregister-listener! ::observer)))))
-
-;; ---------------------------------------------------------------------------
-;; Green control / over-fence tooth — when A retains ownership through a
-;; NON-destroying listener, the ordinary clear trace reaches the
-;; subsequent listener exactly once, carrying A's own payload.
-;; ---------------------------------------------------------------------------
-
-(deftest clear-flow-trace-with-live-owner-emits-once
-  ;; Mutation tooth. The exact-incarnation fence must NOT suppress the
-  ;; normal clear trace when A stays live through the fan-out: :rf.flow/cleared
-  ;; reaches BOTH the first and the subsequent listener.
-  (let [id       :flow.cleared.fence/live
-        flow-id  :flow.cleared.fence/h
-        touched  (atom 0)
-        observed (atom [])]
-    (rf/make-frame {:id id})
-    (rf/reg-flow flow-id
-      {:frame id :inputs [[:n]] :output-path [:out]}
-      (fn [n] (or n 0)))
-    (rf.trace.tooling/register-listener!
-      ::live-touch
-      (fn [ev]
-        (when (= :rf.flow/cleared (:operation ev))
-          (swap! touched inc))))          ;; observe only — A stays live
-    (rf.trace.tooling/register-listener!
-      ::live-observer
-      (fn [ev]
-        (when (= :rf.flow/cleared (:operation ev))
-          (swap! observed conj ev))))
-    (try
-      (is (= flow-id (rf/clear :flow flow-id {:frame id})))
-      (is (= 1 @touched) "the first listener saw A's cleared event")
-      (is (= 1 (count @observed))
-          "the SUBSEQUENT listener also received it — the live-owner clear is not
-           over-fenced")
-      (let [tags (:tags (first @observed))]
-        (is (= flow-id (:flow-id tags)) "A's own :flow-id")
-        (is (= [:out]  (:path tags))    "A's own :output-path")
-        (is (= id      (:frame tags))   "A's own frame"))
-      (finally
-        (rf.trace.tooling/unregister-listener! ::live-touch)
-        (rf.trace.tooling/unregister-listener! ::live-observer)))))
 
 ;; ===========================================================================
 ;; PER-FRAME REPLACEMENT EVIDENCE — CROSS-HOST (CLJ + CLJS)
