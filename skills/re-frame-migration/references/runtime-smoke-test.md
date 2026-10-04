@@ -60,7 +60,7 @@ Neither gate covers the test layer. It surfaces only when the **suite RUNS**: th
 
 ### CI green on a clean checkout is the real done-signal
 
-Every gate above is **local** — they run on the author's machine. The actual done-signal is off-machine: **CI green on a clean checkout**, and the gap that hides is the consumption coordinates. A tree consuming re-frame2 through `:local/root` absolute paths compiles, boots and smokes clean locally while every CI run is red from the first step, because those paths exist only on the author's disk. Repinning every re-frame2 and forked-upstream dep to a clean-runner-resolvable coordinate is the done-gate, and it has one owner: [`setup.md` §The consumability done-gate](setup.md#the-consumability-done-gate).
+Every gate above is **local** — they run on the author's machine. The actual done-signal is off-machine: **CI green on a clean checkout**, and the gap that hides is the consumption coordinates. A tree consuming re-frame2 through `:local/root` paths the runner does not provision compiles, boots and smokes clean locally while every CI run is red from the first step, because those paths exist only on the author's disk. Every re-frame2 and forked-upstream dep must resolve on a clean runner — through a pinned `:git/sha` or `:mvn/version` coordinate, or through relative `:local/root` coordinates over a sibling checkout the runner provisions at a pinned SHA — and that done-gate has one owner: [`setup.md` §The consumability done-gate](setup.md#the-consumability-done-gate).
 
 
 ## The dev compile is NOT the optimized compile — the fourth done-bar gate
