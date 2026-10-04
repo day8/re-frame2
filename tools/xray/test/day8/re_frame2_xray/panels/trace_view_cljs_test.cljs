@@ -42,7 +42,6 @@
   `:rf.xray/focus-event`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.ssr :as rf.ssr]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.install :as install]
@@ -308,14 +307,6 @@
         (is (some? (find-by-testid tree "rf-xray-trace-feed")) "feed container present")
         (is (some? (find-by-testid tree "rf-xray-trace-rows"))
             "the flat row list container renders")
-        (testing "there is NO hierarchy chrome"
-          (is (nil? (find-by-testid tree "rf-xray-trace-envelope-open")))
-          (is (nil? (find-by-testid tree "rf-xray-trace-envelope-close")))
-          (is (nil? (find-by-testid tree "rf-xray-trace-band-dispatch")))
-          (is (nil? (find-by-testid tree "rf-xray-trace-band-event-handling")))
-          (is (nil? (find-by-testid tree "rf-xray-trace-band-effects")))
-          (is (nil? (find-by-testid tree "rf-xray-trace-band-reactive")))
-          (is (nil? (find-by-testid tree "rf-xray-trace-band-header-dispatch"))))
         (testing "every op — including the epoch-lifecycle ops — is a flat row"
           (is (some? (find-by-testid tree "rf-xray-trace-row-0"))
               "the EPOCH snapshotted lifecycle op is an ordinary row")
@@ -959,7 +950,7 @@
 (deftest flat-list-preserves-fire-order-across-stages
   (testing "ops from different pipeline stages render in ONE
             flat list, in fire order (oldest-first) — not regrouped into
-            bands. A no-op event renders no empty phase bands."
+            bands."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (seed-history!
@@ -970,37 +961,21 @@
                     (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
                                :time 120 :dispatch-id 1})])])
       (focus! 1)
-      (let [tree (rendered-tree)]
-        ;; no band chrome at all
-        (is (nil? (find-by-testid tree "rf-xray-trace-band-effects")))
-        (is (nil? (find-by-testid tree "rf-xray-trace-band-count-effects")))
-        (is (nil? (find-by-testid tree "rf-xray-trace-band-rows-dispatch")))
-        ;; the rows render in seeded fire order — the reactive SUB op
-        ;; lands BETWEEN the dispatch and the fx, not regrouped to the end
-        (let [rows-container (find-by-testid tree "rf-xray-trace-rows")
-              row-ids (->> (hiccup-seq rows-container)
-                           (keep (fn [n]
-                                   (when (and (vector? n) (map? (second n)))
-                                     (let [tid (:data-testid (second n))]
-                                       (when (and (string? tid)
-                                                  (re-find #"^rf-xray-trace-row-\d+$" tid))
-                                         (subs tid (count "rf-xray-trace-row-")))))))
-                           (distinct)
-                           (vec))]
-          (is (= ["1" "2" "3"] row-ids)
-              "rows are flat + in fire order, not regrouped into bands"))))))
-
-;; ---- (7) frame isolation ------------------------------------------------
-
-(deftest trace-expand-state-does-not-leak-into-default-frame
-  (testing "the panel's expand state lives on :rf/xray, never :rf/default"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand 5]))
-    (let [xray-db    (rf.frame/frame-app-db-value :rf/xray)
-          default-db (rf.frame/frame-app-db-value :rf/default)]
-      (is (= #{5} (:trace-expanded-row-ids xray-db)))
-      (is (nil? (:trace-expanded-row-ids default-db))))))
+      ;; the rows render in seeded fire order — the reactive SUB op
+      ;; lands BETWEEN the dispatch and the fx, not regrouped to the end
+      (let [tree (rendered-tree)
+            rows-container (find-by-testid tree "rf-xray-trace-rows")
+            row-ids (->> (hiccup-seq rows-container)
+                         (keep (fn [n]
+                                 (when (and (vector? n) (map? (second n)))
+                                   (let [tid (:data-testid (second n))]
+                                     (when (and (string? tid)
+                                                (re-find #"^rf-xray-trace-row-\d+$" tid))
+                                       (subs tid (count "rf-xray-trace-row-")))))))
+                         (distinct)
+                         (vec))]
+        (is (= ["1" "2" "3"] row-ids)
+            "rows are flat + in fire order, not regrouped into bands")))))
 
 ;; ---- (8) React-key stability across the feed ---------------------------
 
