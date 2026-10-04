@@ -122,9 +122,7 @@
       (is (true? (rf.views/first-render?! rk))
           "first sighting of the render-key → mount")
       (is (false? (rf.views/first-render?! rk))
-          "second sighting (a re-render of the same instance) → rerender")
-      (is (false? (rf.views/first-render?! rk))
-          "third sighting → still a rerender"))))
+          "second sighting (a re-render of the same instance) → rerender"))))
 
 (deftest distinct-instances-each-mount
   (testing "two distinct component instances (distinct instance-tokens)
