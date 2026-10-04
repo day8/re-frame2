@@ -2,12 +2,12 @@
   "CLJS-side tests for the save-current-canvas-state-as-variant flow.
 
   Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
-  The snippet generator and id derivation are pure `.cljc` with no
-  reader conditional on their path; the JVM
+  The snippet generator, id derivation and dialog state machine are
+  pure `.cljc` with no reader conditional on their path; the JVM
   `re-frame.story-save-variant-test` covers them, and
   `re-frame.story.ui.save-variant-cljs-test` runs the generator on this
-  lane. This ns keeps the args snapshot, the dialog state machine and
-  the save trigger running under CLJS.
+  lane. This ns keeps the args snapshot and the save trigger running
+  under CLJS.
 
   Browser-only behaviour (Reagent ratom, modal dialog rendering) lives
   in the CLJS-only `re-frame.story.ui.save-variant` ns, which
@@ -47,21 +47,6 @@
                {:cell-overrides {:label "after"}})]
     (is (= "after" (:label snap)))
     (is (= "yes"   (:keep snap)))))
-
-;; ---- dialog state machine -------------------------------------------------
-
-(deftest open-builds-dialog-state
-  (let [s (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
-                             :story.x/y {:n 1} 1000)]
-    (is (:open? s))
-    (is (= :story.x/y (:source-id s)))
-    (is (= {:n 1} (:args s)))))
-
-(deftest close-returns-idle
-  (let [opened (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
-                                  :story.x/y {} 0)]
-    (is (= rf.story.save-variant/initial-dialog-state
-           (rf.story.save-variant/close opened)))))
 
 ;; ---- save-current-as-variant! --------------------------------------------
 
