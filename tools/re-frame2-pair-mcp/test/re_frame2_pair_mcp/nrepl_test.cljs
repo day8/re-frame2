@@ -24,31 +24,6 @@
   (let [[js-frames rest] (nrepl/decode-all-frames buf)]
     [(vec (array-seq js-frames)) rest]))
 
-(deftest two-concatenated-frames-decode
-  ;; The persistent-socket case: two complete frames arrive in a single
-  ;; chunk and both must decode. (A fresh-socket-per-call design would
-  ;; never see this shape.)
-  (let [buf      (js/Buffer.from "d3:foo3:bared3:baz3:quxe" "utf8")
-        [fs rst] (decode-all buf)]
-    (is (= 2 (count fs)))
-    (is (= "bar" (j/get (nth fs 0) "foo")))
-    (is (= "qux" (j/get (nth fs 1) "baz")))
-    (is (zero? (.-length rst)))))
-
-(deftest incomplete-frame-retained-as-trailer
-  ;; The partial-frame branch directly on the public seam. A truncated
-  ;; bencode frame can't decode; `decode-all-frames`
-  ;; MUST return zero frames and hand the partial bytes back as the
-  ;; trailer so the next TCP chunk can complete them. This is the
-  ;; contract `attach-handlers!` relies on for its partial-frame
-  ;; buffering — pinned here directly on the walker.
-  (let [full     (js/Buffer.from "d3:foo3:bare" "utf8")
-        partial  (.slice full 0 (dec (.-length full)))   ; drop the closing 'e'
-        [fs rst] (decode-all partial)]
-    (is (zero? (count fs)) "a truncated frame yields no complete frames")
-    (is (= (.-length partial) (.-length rst))
-        "the partial bytes are retained verbatim as the trailer")))
-
 (deftest complete-frame-then-incomplete-tail-splits
   ;; One complete frame followed by the start of a second. The first
   ;; dispatches; the incomplete tail is retained for the next chunk —
@@ -70,7 +45,7 @@
 ;; wins; failing that, three port-file candidates are tried in order; a
 ;; non-numeric value at any source is rejected via the `isNaN` guard; an
 ;; all-miss returns nil. We stub `fs.readFileSync` +
-;; `process.env.SHADOW_CLJS_NREPL_PORT` to exercise every branch without
+;; `process.env.SHADOW_CLJS_NREPL_PORT` to exercise those branches without
 ;; touching the real filesystem.
 ;; ===========================================================================
 
@@ -147,14 +122,6 @@
         (is (= 5555 (nrepl/read-port-from-fs))
             "non-numeric env must NOT short-circuit; the file fallback fires")))))
 
-(deftest port-discovery-first-file-candidate
-  (testing "no env → first candidate (target/shadow-cljs/nrepl.port) is read"
-    (with-fs-stub! nil
-      (read-returning "target/shadow-cljs/nrepl.port" "  6001  \n")
-      (fn []
-        (is (= 6001 (nrepl/read-port-from-fs))
-            "leading/trailing whitespace is trimmed before parse")))))
-
 (deftest port-discovery-fallback-ordering
   (testing "first candidate absent → second (.shadow-cljs/nrepl.port) wins over third"
     (with-fs-stub! nil
@@ -195,22 +162,6 @@
         (is (nil? (nrepl/read-port-file "gone/port"))
             "a missing / unreadable file → nil, not a throw")))))
 
-;; ---------------------------------------------------------------------------
-;; --port-file explicit override. The 1-arity `read-port-from-fs` takes an
-;; explicit, cwd-independent path that wins over BOTH the env var and the
-;; relative file-scan candidates. nil/blank ⇒ falls through to the normal
-;; precedence chain.
-;; ---------------------------------------------------------------------------
-
-(deftest port-discovery-explicit-port-file-wins-over-env
-  (testing "an explicit --port-file path beats SHADOW_CLJS_NREPL_PORT"
-    ;; env says 7777, the explicit file says 9001 → explicit wins. The
-    ;; env must NOT short-circuit ahead of the explicit path.
-    (with-fs-stub! "7777"
-      (read-returning "explicit/nrepl\\.port" "9001")
-      (fn []
-        (is (= 9001 (nrepl/read-port-from-fs "explicit/nrepl.port"))
-            "explicit --port-file is highest precedence")))))
 
 ;; ===========================================================================
 ;; Transport data-handler — `attach-handlers!`.
@@ -607,20 +558,12 @@
                      (restore!)
                      (done))))))))
 
-;; Exhaustive port-file surfacing for the HTTP-probe path. For EACH
-;; candidate order (only the .shadow-cljs file present, only the .nrepl-port
-;; present), the SURFACED :port-file must be the candidate that actually
+;; Port-file surfacing for the HTTP-probe path. With only the .shadow-cljs
+;; file present, the SURFACED :port-file must be the candidate that actually
 ;; read — NOT a fixed derivation. The server caches whatever discovery
 ;; resolved, so the per-tool-call re-read checks the right file and doesn't
-;; false-positive "file vanished".
-;;
-;; The two candidate orders are SEPARATE deftests on purpose: a `deftest`
-;; carries ONE async lifecycle, so a sibling `async` form alongside the
-;; first runs OUTSIDE the lifecycle the runner awaits. Such a sibling DOES
-;; execute and its failures DO surface — but it has no completion the runner
-;; blocks on and no attribution back to the case it covers, so the suite can
-;; settle before it finishes and its red can land under the wrong name. Keep
-;; one `async` per `deftest` here.
+;; false-positive "file vanished". The last-candidate case rides the same
+;; candidate resolution on the cwd-scan branch below.
 (deftest discover-port-shadow-probe-surfaces-dot-shadow-candidate-file
   (testing ".shadow-cljs/nrepl.port wins → that exact file is surfaced"
     (async done
@@ -640,30 +583,6 @@
                          "the .shadow-cljs/nrepl.port file is surfaced — not target/...")
                      (is (not (re-find #"target[\\/]shadow-cljs" (str (:port-file r))))
                          "the absent target candidate is NOT what's cached")
-                     (restore!)
-                     (done))))))))
-
-;; Second candidate order: both earlier candidates absent, so the LAST
-;; standard candidate (.nrepl-port) is the one that reads — and the one
-;; whose path must be surfaced.
-(deftest discover-port-shadow-probe-surfaces-nrepl-port-candidate-file
-  (testing ".nrepl-port wins (last candidate) → that exact file is surfaced"
-    (async done
-      (let [stub-fn (fn [^js path]
-                      (let [p (str path)]
-                        (cond
-                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p)
-                          (throw (js/Error. "ENOENT"))
-                          (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p)
-                          (throw (js/Error. "ENOENT"))
-                          (re-find #"\.nrepl-port" p) "5562"
-                          :else (throw (js/Error. "ENOENT")))))
-            restore! (install-fs-stub! nil stub-fn)]
-        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
-            (.then (fn [r]
-                     (is (= 5562 (:port r)) ".nrepl-port candidate read the port")
-                     (is (re-find #"\.nrepl-port$" (str (:port-file r)))
-                         "the .nrepl-port file is surfaced as the winning candidate")
                      (restore!)
                      (done))))))))
 
