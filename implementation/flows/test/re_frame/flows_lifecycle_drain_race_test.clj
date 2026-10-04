@@ -43,6 +43,11 @@
   fully completes; the post-condition (clean app-db / fresh recompute) then
   holds.
 
+  An IN-DRAIN `clear-flow` queues its vacation for the pending pass on both
+  hosts: `re-frame.flows-user-fx-lifecycle-settle-cljs-test` pins the clear
+  from a handler body, and `re-frame.flows-settle-on-dispatch-test` the clear
+  of a frame's last flow, whose vacation the empty-flow-map pass still applies.
+
   CLJS is single-threaded; this race is JVM-only by construction."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -430,94 +435,3 @@
     (rf/dispatch-sync [:touch] {:frame :rf/default})
     (is (= 500 (:out-b (rf/app-db-value :rf/default)))
         ":out-b materialised on the next drain after the move")))
-
-;; ---------------------------------------------------------------------------
-;; An IN-DRAIN `clear-flow` must NOT resurrect the cleared output through the
-;; deferred `:db` commit — the exact same-shaped hazard as
-;; `reg-flow`'s in-drain `:output-path` move above, but on the deregistration
-;; path. Two companion halves, two tests:
-;;
-;;   1. `clear-flow-in-drain-does-not-resurrect-cleared-output` — clears ONE
-;;      of TWO flows registered on the frame, so `flow-map` is still
-;;      NON-EMPTY afterwards. Isolates `clear-flow`'s half: it must record
-;;      the abandoned path (`record-abandoned-output-path!`) instead of
-;;      vacating app-db directly when `frame/in-drain?` is true, mirroring
-;;      `reg-flow`'s in-drain branch.
-;;
-;;   2. `clear-flow-in-drain-last-flow-on-frame-does-not-resurrect-cleared-
-;;      output` — clears the frame's ONLY flow, so `flow-map` is EMPTY
-;;      afterwards. Exercises the companion half: `run-flows-on-db` must drain
-;;      the pending abandoned path and vacate it from the pending `:db`
-;;      BEFORE its empty-`flow-map` early return, or the path recorded by
-;;      (1) is never applied and the deferred commit resurrects it anyway.
-;; ---------------------------------------------------------------------------
-
-(deftest clear-flow-in-drain-does-not-resurrect-cleared-output
-  ;; An in-drain `clear-flow` (reentrant, from an event handler body) clears
-  ;; :scaled while a SIBLING flow (:kept) remains registered on the frame —
-  ;; `flow-map` is non-empty after the clear. The handler returns its db
-  ;; UNCHANGED (no manual `(dissoc db :out-a)`), so the framework's
-  ;; abandoned-path bookkeeping is the only thing keeping :out-a gone once
-  ;; the deferred commit publishes the handler's pending `:db`.
-  (testing "in-drain clear-flow vacates the cleared output through the deferred commit (sibling flow keeps flow-map non-empty)"
-    (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
-    (rf/reg-flow :scaled {:inputs [[:n]] :output-path [:out-a]} (fn [n] (* 2 (or n 0))))
-    (rf/reg-flow :kept   {:inputs [[:n]] :output-path [:out-kept]} (fn [n] (* 7 (or n 0))))
-    (rf/dispatch-sync [:seed])
-    (is (= 10 (:out-a (rf/app-db-value :rf/default)))
-        "precondition: :scaled materialised :out-a = 2 × :n = 10")
-    (is (= 35 (:out-kept (rf/app-db-value :rf/default)))
-        "precondition: :kept materialised :out-kept = 7 × :n = 35")
-
-    ;; A handler that, mid-drain, clears :scaled and returns its db UNCHANGED.
-    (rf/reg-event :clear-scaled
-                  (fn [{:keys [db]} _]
-                    (rf/clear :flow :scaled {:frame :rf/default})
-                    {:db db}))
-    (rf/dispatch-sync [:clear-scaled] {:frame :rf/default})
-
-    (let [db (rf/app-db-value :rf/default)]
-      (is (not (contains? db :out-a))
-          (str ":out-a ABSENT — the in-drain clear-flow vacated the cleared "
-               "output through the deferred commit. A direct "
-               "vacate write would be clobbered by the handler's returned :db; "
-               ":out-a is present as " (:out-a db) "."))
-      (is (= 35 (:out-kept db))
-          ":out-kept (the sibling flow, never cleared) is untouched")
-      (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :scaled))
-          "registry row gone: clear-flow removed :scaled")
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :kept)
-          "the sibling flow's registry row survives"))))
-
-(deftest clear-flow-in-drain-last-flow-on-frame-does-not-resurrect-cleared-output
-  ;; An in-drain `clear-flow` clears the frame's ONLY flow — `flow-map` is
-  ;; EMPTY on the SAME drain's `run-flows-on-db` call. An empty-`flow-map`
-  ;; early return that skipped draining the abandoned path `clear-flow` had
-  ;; just recorded would never vacate it from the pending `:db`, and the
-  ;; deferred commit would resurrect it — even with the recording half
-  ;; (above) in place.
-  (testing "in-drain clear-flow of the frame's LAST flow still vacates through the deferred commit"
-    (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
-    (rf/reg-flow :solo {:inputs [[:n]] :output-path [:out-solo]} (fn [n] (* 2 (or n 0))))
-    (rf/dispatch-sync [:seed])
-    (is (= 10 (:out-solo (rf/app-db-value :rf/default)))
-        "precondition: :solo materialised :out-solo = 2 × :n = 10")
-
-    ;; A handler that, mid-drain, clears the ONLY flow on the frame and
-    ;; returns its db UNCHANGED.
-    (rf/reg-event :clear-solo
-                  (fn [{:keys [db]} _]
-                    (rf/clear :flow :solo {:frame :rf/default})
-                    {:db db}))
-    (rf/dispatch-sync [:clear-solo] {:frame :rf/default})
-
-    (let [db (rf/app-db-value :rf/default)]
-      (is (not (contains? db :out-solo))
-          (str ":out-solo ABSENT — the in-drain clear-flow of the frame's "
-               "LAST flow still vacated through the deferred commit (the "
-               "empty-flow-map drain BEFORE the early return); it is "
-               "present as " (:out-solo db) "."))
-      (is (not (contains? (rf.flows/flows-snapshot) :rf/default))
-          "the per-frame flows entry is pruned entirely — clearing the last flow drops the frame key")
-      (is (empty? (rf.flows.registry/abandoned-output-paths-snapshot :rf/default))
-          "the abandoned-path bookkeeping was drained, not left pending forever"))))
