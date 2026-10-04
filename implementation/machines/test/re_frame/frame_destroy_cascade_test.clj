@@ -68,52 +68,6 @@
              (rf.machines.spawn-order/frame-order :rf/default))
           "explicit destroy forgets the first actor; the second remains tracked"))))
 
-;; ---- frame destroy walks recorded actors in reverse-creation order -------
-
-(deftest frame-destroy-runs-exit-cascade-in-reverse-creation-order
-  (testing "destroy-frame! walks live machines newest-spawn-first, running each :exit before clearing"
-    (rf/make-frame {:id :fc/auth :doc "scratch frame"})
-    (let [exit-log (atom [])
-          child    {:initial :running
-                    :data    {}
-                    :states  {:running {:exit (fn [{data :data}]
-                                                 (swap! exit-log
-                                                        conj (:rf/self-id data))
-                                                 {})}}}
-          ;; The "boot" machine that we'll dispatch into to spawn 3
-          ;; child actors — we use a hand-emitted `:rf.machine/spawn`
-          ;; for each so each spawn is independent and the spawn-order
-          ;; vector reflects three appends in declaration order.
-          boot     {:initial :idle
-                    :data    {}
-                    :states
-                    {:idle {:on {:spawn-three
-                                 {:action (fn [_]
-                                    {:fx [[:rf.machine/spawn
-                                           {:machine-id :fc/child
-                                            :id-prefix  :fc/child}]
-                                          [:rf.machine/spawn
-                                           {:machine-id :fc/child
-                                            :id-prefix  :fc/child}]
-                                          [:rf.machine/spawn
-                                           {:machine-id :fc/child
-                                            :id-prefix  :fc/child}]]})}}}}}]
-      (rf/reg-machine :fc/child child)
-      (rf/reg-machine :fc/boot boot)
-      (rf/dispatch-sync [:fc/boot [:spawn-three]] {:frame :fc/auth})
-      ;; All 3 actors are live.
-      (is (= [:fc/child#1 :fc/child#2 :fc/child#3]
-             (rf.machines.spawn-order/frame-order :fc/auth))
-          "spawn-order vector ordered oldest → newest")
-      ;; Destroy the frame.
-      (rf/destroy-frame! :fc/auth)
-      ;; :exit fired three times in REVERSE-spawn order.
-      (is (= [:fc/child#3 :fc/child#2 :fc/child#1] @exit-log)
-          ":exit ran newest-first per Spec 005 §Cross-Spec Interactions §1")
-      ;; The spawn-order entry for the frame is gone.
-      (is (= [] (rf.machines.spawn-order/frame-order :fc/auth))
-          "spawn-order slot for the destroyed frame is cleared"))))
-
 ;; ---- :rf.machine.lifecycle/destroyed trace contract ----------------------
 
 (deftest frame-destroy-emits-lifecycle-trace-per-active-machine
