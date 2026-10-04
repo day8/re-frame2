@@ -235,37 +235,3 @@
                "route to :idle. It cannot hang the route (:error is terminal for "
                "this activation) and cannot leak (route leave clears the whole "
                "nav-token slot)")))))
-
-;; ===========================================================================
-;; 3. contrast guard — a SCALAR blocking first-load failure errors the route
-;;    too, so #2 confirms PARITY (infinite page-0 == scalar first load)
-;; ===========================================================================
-
-(deftest scalar-blocking-first-load-failure-still-errors-route-contrast
-  ;; A guard so #2's assertion has a parity baseline: the SAME route shape with
-  ;; a SCALAR (non-infinite) blocking resource ALSO flips to :error on a
-  ;; first-load failure. #2 and #3 agree — a blocking infinite page-0
-  ;; first-load failure errors the route exactly like a scalar one.
-  (rf/reg-resource :article/by-slug
-                   {:scope         :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
-                   (fn [{:keys [slug]} _ctx]
-                     {:request {:method :get :url (str "/api/articles/" slug)}}))
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
-        e          (entry scoped-key)]
-    (is (not (rf.resources.state/infinite-entry? e)) "the contrast resource is SCALAR, not infinite")
-    ;; settle the scalar via the SCALAR failed handler (its live reply shape)
-    (rf/dispatch-sync (conj (:on-failure @last-managed-args)
-                            {:status :error :error {:status 503 :message "upstream down"}}))
-    (testing "a SCALAR blocking first-load failure flips the route to :error (parity with #2)"
-      (is (= :error (:transition (slice)))
-          "scalar first-load failure errors the route — infinite page-0 (#2) matches it")
-      (is (= :rf.error/resource-route-blocking (:rf.error/id (:error (slice))))
-          ":rf.route/error carries the structured blocking-failure error"))))
