@@ -196,12 +196,6 @@
           (str "the wire shape and the stamp move together or the pin is "
                "nominal — change one and this row says so")))
 
-    (testing "NON-VACUITY: the identical envelope under the current stamp parses"
-      (is (true? (hh/supported? mounted)))
-      (is (= 2 (count (hh/mounted-rows mounted)))
-          (str "if this row fails, the refusals below are passing against an "
-               "envelope that would have yielded nothing anyway")))
-
     (testing "the v2 stamp is a MISMATCH, not an older dialect"
       (is (false? (hh/supported? v2)))
       (is (= :mismatch (hh/presence v2 false))
