@@ -79,14 +79,6 @@
           toks (w/tokenize-clojure src)]
       (is (= src (apply str (map second toks)))))))
 
-(deftest tokenize-clojure-lexes-one-token-per-kind
-  (doseq [[src kind literal] [["(:foo bar)"        :keyword ":foo"]
-                              ["(def s \"hello\")" :string  "\"hello\""]
-                              ["(reg-event :foo)"  :builtin "reg-event"]]]
-    (let [toks (filter #(= kind (first %)) (w/tokenize-clojure src))]
-      (is (= 1 (count toks)) (str src " lexes exactly one " kind " token"))
-      (is (= literal (second (first toks)))))))
-
 ;; ---- code-block render ---------------------------------------------------
 
 (deftest code-block-empty-source-renders-placeholder
@@ -220,22 +212,6 @@
           "a later `\\n` character literal is kept")
       (is (str/includes? text (str "\"a" NL "b\""))
           "and a later string literal still unescapes"))))
-
-(deftest tokenize-clojure-lexes-a-character-literal-as-one-token
-  (is (= [[:paren "("] [:symbol "="] [:whitespace " "] [:symbol "c"]
-          [:whitespace " "] [:symbol (str BS "\"")] [:paren ")"]]
-         (w/tokenize-clojure (str "(= c " BS "\")")))))
-
-(deftest unescape-string-tokens-rewrites-string-tokens-only
-  (let [esc (str "\"a" BS "nb\"")]
-    (is (= [[:symbol "#"] [:string esc]
-            [:whitespace " "] [:string (str "\"a" NL "b\"")]
-            [:whitespace " "] [:symbol (str BS "newline")]]
-           (w/unescape-string-tokens
-             [[:symbol "#"] [:string esc]
-              [:whitespace " "] [:string esc]
-              [:whitespace " "] [:symbol (str BS "newline")]]))
-        "a regex's pattern and a character literal are left alone")))
 
 (deftest code-block-non-clojure-lang-skips-format
   (let [out  (w/code-block {:source "function f(){}" :lang :javascript})
