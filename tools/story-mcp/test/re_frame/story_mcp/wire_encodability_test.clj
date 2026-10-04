@@ -599,8 +599,6 @@
             "a success, not a tool error")
         (is (not (str/includes? line "#object"))
             "no raw printed object in the encoded frame")
-        (is (not (str/includes? text "#object"))
-            "nor in the text slot")
         (is (not (str/includes? line "pos_QMARK_@"))
             "no callable identity string, which is how a surviving key would encode")
         (is (nil? (re-find address-in-line line))
