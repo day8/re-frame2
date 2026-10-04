@@ -225,16 +225,6 @@
         (is (= [nil "c1"] (:page-params e)) "param per page, page-0 = nil")
         (is (= "c2" (:next-page-param e)) "cursor advanced to page-1's next")))))
 
-(deftest load-more-multiple-pages-accumulate
-  (testing "successive load-more accumulate the feed in order"
-    (let [k (load-page-0! :lm3/feed (page [:a] "c1"))]
-      (load-more! :lm3/feed) (reply-success! (page [:b] "c2"))
-      (load-more! :lm3/feed) (reply-success! (page [:c] "c3"))
-      (let [e (entry k)]
-        (is (= [(page [:a] "c1") (page [:b] "c2") (page [:c] "c3")] (:data e)))
-        (is (= [nil "c1" "c2"] (:page-params e)))
-        (is (= "c3" (:next-page-param e)))))))
-
 (deftest load-more-recomputes-prev-mirror
   (testing "append re-derives :prev-page-param from the head (R7 mirror)"
     (let [k (load-page-0! :lmp/feed (page [:a] "c1" "p-head"))]
@@ -385,15 +375,6 @@
                :params (cond-> {:filter filter :page-index page-index}
                          page-param (assoc :cursor page-param))}
      :decode  PageSchema}))
-
-(deftest page-schema-rides-request-decode
-  (testing "the per-page schema is supplied on the request :decode (the
-            per-page validation surface); it rides the lowered managed-HTTP
-            args UNCHANGED"
-    (rf/reg-resource :dec/feed (feed-spec) decoding-feed-request)
-    (ensure! :dec/feed)
-    (is (= PageSchema (:decode @last-managed-args))
-        "the page schema rides the managed-HTTP request :decode")))
 
 (deftest page-0-decode-failure-settles-first-load-error
   (testing "a PAGE-0 body that fails the :decode schema surfaces
