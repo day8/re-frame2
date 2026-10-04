@@ -104,7 +104,9 @@
       (is (true? (get-in row [:tags :sensitive?])) "stamped sensitive")
       (testing "the structural attribution slots ride verbatim"
         (is (= :rs/session (get-in row [:tags :resource-id])))
-        (is (= [:username]  (get-in row [:tags :inputs]))))
+        (is (= [:username]  (get-in row [:tags :inputs])))
+        (is (= :resource-scope (get-in row [:tags :kind])))
+        (is (false? (get-in row [:tags :resolved-nil?]))))
       (testing "no raw secret survives anywhere in the projected record"
         (is (not (contains-secret? projected)))))))
 
