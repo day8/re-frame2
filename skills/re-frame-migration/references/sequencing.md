@@ -180,7 +180,7 @@ Order of presentation within the batch (most-blocking first):
 9. **M-13** — `reg-event-error-handler` policy.
 10. **M-12** — render-count test re-baselines.
 11. **M-19** (only if requested) — opt-in map-payload migration per event-id.
-12. **The remaining Type-B rules that tripped** — M-15 / M-15b seeding, M-16b top-level `^:flush-dom`, M-30 flow-vs-sub triage, M-34, M-40 adapter choice, M-42 `dom-node` / `force-update-all`, the M-72 durable-read judgment, the M-73 judgment half. Each rule's leaf states its question.
+12. **The remaining Type-B rules that tripped** — M-15 / M-15b seeding, M-16b top-level `^:flush-dom`, M-30 flow-vs-sub triage, M-34, M-40 adapter choice, M-42 `dom-node` / `force-update-all`, the M-72 durable-read judgment, the M-73 judgment half — and the strategy for any v1-built library whose loaded source does not run on v2 (the library's fate, not M-0's exclusion of its v1 edge, which has already landed; [`setup.md` §Edge cases](setup.md#edge-cases)). Each rule's leaf states its question.
 
 Apply all the Type A rewrites first, present the Type B batch second. The author shouldn't have to context-switch every five minutes.
 

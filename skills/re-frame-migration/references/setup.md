@@ -214,12 +214,20 @@ In practice most v1 codebases add **none** of these: state machines, flows, mana
 
 **Lein with `:profiles` overlays.** If the project pins `re-frame` in `:dependencies` and overrides it in `:profiles {:dev {:dependencies ...}}`, update both — the profile override would otherwise shadow the swap silently.
 
-**`re-frame` as a transitive of another lib (`re-frame-fx`, `day8/re-frame-async-flow-fx`, etc.).** v1-built libs depend on `re-frame/re-frame`; their classpath will trip a coord conflict with `day8/re-frame2`. Two options:
+**`re-frame` as a transitive of another lib (`re-frame-fx`, `day8/re-frame-async-flow-fx`, etc.).** v1-built libs depend on `re-frame/re-frame`; their classpath will trip a coord conflict with `day8/re-frame2`. Two questions meet here, and they have different owners:
 
-1. Upgrade the lib to a re-frame2-compatible version if one exists.
-2. Exclude `re-frame/re-frame` from the transitive (`:exclusions` in Lein, `:exclusions` in deps.edn) and let `day8/re-frame2` provide `re-frame.core`. This works because v2 keeps the `re-frame.core` namespace; the lib's `:require [re-frame.core :as rf]` lines resolve against v2 instead.
+1. **Removing the conflicting v1 provider is part of M-0, and proceeds under the migration request.** Exclude `re-frame/re-frame` from the edge that carries it (`:exclusions` in Lein, `:exclusions` in deps.edn), keeping the library at its existing pin, so `day8/re-frame2` is the only provider of `re-frame.core`. The exclusion is reversible and rules out no strategy for the library, so it does not wait for one.
+2. **Whether the library works on v2 is the library's own question.** The exclusion makes its `:require [re-frame.core :as rf]` lines resolve against v2, which keeps the `re-frame.core` namespace; it does not make them compile or run there. The Phase-0a source scan answers that ([`inventory-and-plan.md` §Step 2](inventory-and-plan.md#step-2--scan-each-add-ons-source-for-v2-broken-surfaces)). If the loaded source uses only preserved surfaces, keeping the pin needs no decision — the compile, tests and smoke still have to pass with it loaded. If it does not, what becomes of the library is the author's choice: upgrade it to a re-frame2-compatible release if one exists, keep and port it, vendor it, replace it, or drop it. That choice goes in the end-of-sweep Type-B batch.
 
-Flag this case in the report — the author owns the decision about whether to upgrade the transitive lib or to exclude.
+```clojure
+;; deps.edn after M-0, before any decision about the library
+{:deps {day8/re-frame2         {:mvn/version "<VERSION>"}
+        day8/re-frame2-reagent {:mvn/version "<VERSION>"}
+        some.org/rf-addon      {:mvn/version "0.4.2"         ; its existing pin, unchanged
+                                :exclusions [re-frame/re-frame]}}}
+```
+
+An undecided library holds its own row and nothing else: M-0 lands, the first compile runs once the classpath check below shows a single provider, and the Type-A sweep proceeds. A compile failure inside the held library's namespaces is evidence for that row, not a reason to hold M-0 or the sweep. An exclusion never shows the library is compatible, and the migration is not complete while the row is open. Flag the case in the report either way.
 
 **The leak is not limited to Maven add-ons — *any* classpath entry can root a v1 `re-frame/re-frame`.** The named add-ons (`re-frame-fx`, `async-flow-fx`) are the obvious culprits, but a v1 `re-frame` can also arrive transitively through:
 
