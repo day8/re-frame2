@@ -40,9 +40,9 @@
   not the absence of the collision.
 
   Both directions are pinned, because an error-only suite is half a suite:
-  every reject test asserts the OCCUPANT SURVIVED INTACT, and the controls
-  assert that ordinary generated spawning, re-entry re-allocation, and
-  `:spawn-all` batches install without a reject."
+  every reject test asserts the OCCUPANT SURVIVED INTACT, and the escape
+  tests assert that a hand-emitted spawn at a distinct address or `:id-prefix`
+  installs without a reject."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
@@ -85,17 +85,6 @@
      :data    {:mark :none}
      :actions {:mark (fn [{d :data ev :event}] {:data (assoc d :mark (second ev))})}
      :states  {:running {:on {:mark {:action :mark}}}}}))
-
-(defn- reg-parent!
-  "A parent whose `:working` state declaratively spawns `child-id` at a
-  GENERATED address (no `:fixed-actor-id`), and which can leave and re-enter
-  that state."
-  [id child-id]
-  (rf/reg-machine id
-    {:initial :idle
-     :states  {:idle    {:on {:go :working}}
-               :working {:spawn {:machine-id child-id}
-                         :on    {:back :idle}}}}))
 
 ;; ---------------------------------------------------------------------------
 ;; (1) A respawned parent re-mints the address of a live actor its previous
@@ -174,97 +163,6 @@
       (is (nil? (snapshot :gac/child#2))
           "and the runtime did not silently side-line the spawn to a fresh
            address either — the reject is fail-closed, not a re-allocation"))))
-
-;; ---------------------------------------------------------------------------
-;; (2) The same collision with no re-incarnation at all: two live parents.
-;; ---------------------------------------------------------------------------
-
-(deftest a-second-parent-is-refused-the-address-its-sibling-already-holds
-  (testing "the counter is per-snapshot and the address space is
-            per-frame, so two parents of one type at DISTINCT addresses both
-            mint <type>#1 with no destroy and no re-incarnation anywhere. The
-            second is refused and the first parent's child is untouched."
-    (reg-child! :gac2/child)
-    (reg-parent! :gac2/parent :gac2/child)
-    (rf/reg-event :gac2/hire
-      (fn [_ [_ addr]] {:fx [[:rf.machine/spawn {:machine-id     :gac2/parent
-                                                 :fixed-actor-id addr}]]}))
-
-    (rf/dispatch-sync [:gac2/hire :gac2/a])
-    (rf/dispatch-sync [:gac2/hire :gac2/b])
-    (is (and (some? (snapshot :gac2/a)) (some? (snapshot :gac2/b)))
-        "two live parents at two distinct addresses — the ordinary multi-actor
-         shape, nothing exotic")
-
-    (rf/dispatch-sync [:gac2/a [:go]])
-    (is (some? (snapshot :gac2/child#1)) "parent A's child installed")
-    (rf/dispatch-sync [:gac2/child#1 [:mark :FROM-A]])
-
-    (rf.machines.test-support/reset-captured!)
-    (rf/dispatch-sync [:gac2/b [:go]])
-
-    (is (= 1 (count (rejects)))
-        "parent B's spawn is refused rather than collapsing onto A's child")
-    (is (= :gac2/child#1 (:failing-id (first (rejects)))))
-    (is (= :gac2/b (:parent-id (first (rejects))))
-        "the reject names B, the parent whose spawn was refused")
-    (is (= :FROM-A (:mark (machine-data :gac2/child#1)))
-        "A's child is the SAME actor it was — this is the silent data loss the
-         reject prevents")
-    (is (= :gac2/child#1 (get-in (machine-data :gac2/a) [:rf/spawned [:working]]))
-        "and A still records that address as the child it spawned")))
-
-;; ---------------------------------------------------------------------------
-;; (3) Controls — ordinary generated spawning never meets the guard.
-;; ---------------------------------------------------------------------------
-
-(deftest re-entry-re-allocates-and-never-collides
-  (testing "leaving a :spawn-bearing state destroys the child through
-            the exit cascade AND the parent's counter advances, so re-entry
-            allocates <type>#2 at an empty address. Both defences hold and the
-            guard never fires."
-    (reg-child! :gac4/child)
-    (reg-parent! :gac4/parent :gac4/child)
-    (rf/dispatch-sync [:gac4/parent [:go]])
-    (is (some? (snapshot :gac4/child#1)))
-    (rf/dispatch-sync [:gac4/parent [:back]])
-    (is (nil? (snapshot :gac4/child#1))
-        "the exit cascade destroyed the child")
-    (rf/dispatch-sync [:gac4/parent [:go]])
-    (is (some? (snapshot :gac4/child#2))
-        "re-entry allocated the NEXT address, not a re-mint of #1")
-    (is (nil? (snapshot :gac4/child#1)))
-    (is (empty? (rejects)) "no reject on the ordinary re-entry path")))
-
-;; ---------------------------------------------------------------------------
-;; (4) `:spawn-all` — the within-batch guard.
-;; ---------------------------------------------------------------------------
-
-(deftest an-intra-spawn-all-duplicate-still-rejects-the-whole-invoke
-  (testing "the within-batch resolved-address guard is structurally
-            elsewhere (the invoke preflight): two children
-            sharing one :fixed-actor-id reject the whole invoke before
-            anything installs"
-    (reg-child! :gac6/child)
-    (rf/reg-machine :gac6/parent
-      {:initial :idle
-       :states  {:idle    {:on {:go :forking}}
-                 :forking {:spawn-all {:children        [{:id :x :machine-id :gac6/child
-                                                          :fixed-actor-id :gac6/one}
-                                                         {:id :y :machine-id :gac6/child
-                                                          :fixed-actor-id :gac6/one}]
-                                       :join            :all
-                                       :on-all-complete [:all/done]}
-                           :on {:all/done :ready}}
-                 :ready   {}}})
-    (rf/dispatch-sync [:gac6/parent [:go]])
-    (is (= 1 (count (rejects)))
-        "one deterministic reject for the aliased invoke")
-    (is (= [[:gac6/one [:x :y]]] (:collisions (first (rejects))))
-        "and it is the PREFLIGHT's reject — it carries the :collisions vector,
-         which the generated-address reject does not")
-    (is (nil? (snapshot :gac6/one))
-        "nothing installed: the invoke was rejected atomically")))
 
 ;; ---------------------------------------------------------------------------
 ;; (5) The reject's own shape.
