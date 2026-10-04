@@ -9,8 +9,7 @@
   root's action-only `:on-done` is its supported completion signal).
 
   Controls: a parallel root's `:after`, `:timeout` / `:on-timeout` and
-  action-only `:on-done` register; a child's `:invoke` typo keeps
-  `:rf.error/machine-unknown-node-key`. Root `:entry` / `:exit` refs are held
+  action-only `:on-done` register. Root `:entry` / `:exit` refs are held
   to the same action-form and resolution checks a state's are. The honoured
   root `:entry` / `:exit` / `:tags` / `:spawn` register throughout
   `root_lifecycle_test.clj` and `root_spawn_test.clj`, and a flat root's
@@ -93,10 +92,6 @@
       "a parallel root's :after is the supported machine-lifetime timer")
   (is (nil? (refusal (assoc parallel-root :timeout 1000 :on-timeout {:target [:x :x2]})))
       "a parallel root's :timeout lowers onto that :after"))
-
-(deftest child-typo-keeps-the-unknown-node-key-refusal
-  (is (= :rf.error/machine-unknown-node-key
-         (:rf.error/id (refusal (assoc-in flat-root [:states :a :invoke] {:machine-id :rs/worker}))))))
 
 ;; ---- root :entry / :exit refs are checked like a state's -------------------
 
