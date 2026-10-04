@@ -25,8 +25,7 @@
 
   JVM-portable (`.cljc`): the tools/xray JVM corpus and the consolidated
   `:node-test` build both run it."
-  (:require [clojure.set :as set]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.late-bind :as rf.late-bind]
@@ -195,13 +194,7 @@
       (is (= #{article-key list-key feed-key} (set (:optimistic-keys recon))))
       (is (= [article-key] (:committed recon)))
       (is (= [list-key] (:reconciliation-refetches recon)))
-      (is (= #{article-key list-key} affected))
-      (is (= #{feed-key}
-             (set/difference (set (:optimistic-keys recon))
-                             (set (:committed recon))
-                             (set (:reconciliation-refetches recon))
-                             affected))
-          "the set difference names the feed key and nothing else"))
+      (is (= #{article-key list-key} affected)))
     (testing "the lint: exactly one row, naming the instance, the mutation and the feed key"
       (let [rows (h/optimistic-reach-lint trace)
             row  (first rows)]
