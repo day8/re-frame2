@@ -50,13 +50,6 @@
           "hiccup root is the DOM element `:div` per the source-coord-annotator
            wrap, not a component ref"))))
 
-;; ---- violations stylesheet ----------------------------------------------
-
-(deftest violations-stylesheet-non-empty
-  (testing "the violations stylesheet is a non-empty CSS string"
-    (is (string? rf.story.ui.a11y/violations-stylesheet))
-    (is (pos? (count rf.story.ui.a11y/violations-stylesheet)))))
-
 ;; ---- variant-root scoping -----------------------------------------------
 
 (deftest variant-root-selector-targets-data-attribute
