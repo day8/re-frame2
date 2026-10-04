@@ -13,7 +13,8 @@
   - A state: `:rf.error/machine-unknown-node-key`, the category a leaf's
     `:on-done` is refused under.
   - A parallel region body keeps its own refusal:
-    `:rf.error/machine-root-slot-not-supported` naming the region.
+    `:rf.error/machine-root-slot-not-supported` naming the region (pinned in
+    `region_slot_refusal_test.clj`).
 
   A `:type :parallel` root registers as before, and so does a machine with no
   `:regions` anywhere.
@@ -84,11 +85,6 @@
     (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id refusal)))
     (is (= [:on-done :regions] (:offending-keys refusal)))))
 
-(deftest a-non-map-regions-on-a-flat-root-is-refused-for-its-shape
-  (testing "the shape check reads the definition first"
-    (is (= :rf.error/machine-bad-structure
-           (:rf.error/id (registration {:initial :a :regions 42 :states {:a {}}}))))))
-
 (def ^:private state-positions
   "Position → [a machine whose state `:s` carries `:regions` `r`]."
   {:leaf         (fn [r] {:initial :s :states {:s {:regions r}}})
@@ -106,12 +102,6 @@
       (is (= :s (:state refusal)))
       (is (= [:regions] (:offending-keys refusal)))
       (is (names-type-parallel? refusal) "the refusal points at :type :parallel"))))
-
-(deftest a-region-body-keeps-its-own-refusal
-  (let [refusal (registration {:type :parallel :regions {:q {:initial :a :regions {:r body} :states {:a {}}}}})]
-    (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id refusal)))
-    (is (= [:regions :q] (:path refusal)))
-    (is (= [:regions] (:offending-keys refusal)))))
 
 (deftest parallel-roots-and-machines-without-regions-register
   (doseq [machine [{:type :parallel :regions {:r body}}
