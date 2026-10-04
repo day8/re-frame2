@@ -116,10 +116,10 @@
                     :on-failure [:reply/recorder]
                     :on-success [:reply/recorder]}]]}))
         (rf/dispatch-sync [:issue])
-        ;; The synthetic-4xx retried once → server hit exactly twice.
+        ;; The synthetic http-4xx routes through maybe-retry! and retries once
+        ;; (the :else arm is NOT a direct finalise-failure!), so the server is
+        ;; hit exactly twice; this await throws if the retry never reaches it.
         (await-condition! #(= 2 (.get hits)))
-        (is (= 2 (.get hits))
-            "the synthetic http-4xx routed through maybe-retry! and retried once (the :else arm is NOT a direct finalise-failure!)")
         (await-condition! #(seq @replies))
         (is (= 1 (count @replies))
             "exactly one final reply after the retry exhausts")

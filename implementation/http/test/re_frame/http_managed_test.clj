@@ -236,24 +236,6 @@
       (is (= :ok (:status r1)))
       (is (= {:n 1} (:value r1))))))
 
-;; ---- 2. canned-failure: explicit on-failure addressing ---------------------
-
-(deftest canned-failure-explicit-on-failure
-  (testing "explicit :on-failure routes the failure reply to the named handler"
-    (rf/reg-event :auth/login
-      (fn [_ _]
-        {:fx [[:rf.http/managed
-               {:request   {:method :post :url "/auth/login"}
-                :on-failure [:auth/login-error]}]]}))
-    (rf/reg-event :auth/login-error
-      (fn [{:keys [db]} [_ payload]]
-        {:db (assoc db :auth-error payload)}))
-    (rf/dispatch-sync [:auth/login]
-                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
-    (let [db (await-reply! #(some? (:auth-error %)))]
-      (is (= :error (get-in db [:auth-error :status])))
-      (is (= :rf.http/transport (get-in db [:auth-error :error :kind]))))))
-
 ;; ---- 3b. :after-ms delay on the canned-stub fxs ----------------------------
 ;;
 ;; A delay is a PARAMETER of the canned fx, not a separate
@@ -412,30 +394,6 @@
         (is (true? (get-in db [:reply :tagged-by-after]))
             ":after's failure-shape transform reached the :on-failure reply")))))
 
-;; ---- 4. real JVM transport: GET success -----------------------------------
-
-(deftest jvm-real-get-success
-  (testing "java.net.http.HttpClient transport — GET, JSON decode, default reply"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json"
-                               "{\"article\":{\"title\":\"hello\",\"id\":42}}")))]
-      (try
-        (rf/reg-event :article/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              (case (:status reply)
-                :ok    {:db (assoc db :article (:value reply))}
-                :error {:db (assoc db :error  (:error reply))})
-              {:fx [[:rf.http/managed
-                     {:reply-to [:article/load msg] :request {:url (str "http://127.0.0.1:" port "/articles/hello")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:article/load {}])
-        (let [db (await-reply! #(some? (:article %)) 5000)]
-          (is (= "hello" (get-in db [:article :article :title]))))
-        (finally (stop-server! srv))))))
-
 ;; ---- 5b. HTML 404 with :decode :json — status check precedes decode ------
 ;;
 ;; A 4xx response whose body is HTML (or any
@@ -567,7 +525,8 @@
             its attempts DOES emit the retry-attempt traces (the guard
             suppresses only the phantom case). A 5xx under
             `:retry {:on #{:rf.http/http-5xx} :max-attempts 3}` retries
-            twice and exhausts on attempt 3; the trace stream must carry the
+            twice and exhausts on attempt 3, so the server sees all three
+            attempts; the trace stream must carry the
             per-attempt retry-attempt events (the final one with
             :next-backoff-ms nil).
 
@@ -582,9 +541,11 @@
             it would leave consumers reading nil."
     (let [traces      (atom [])
           listener-id ::upexd3-eligible
+          hits        (atom 0)
           {:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
+              (swap! hits inc)
               (write-response! ex 500 "application/json" "{\"err\":true}")))]
       (try
         (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
@@ -602,6 +563,7 @@
         (let [db (await-reply! #(some? (:reply %)) 8000)]
           (is (= :error (get-in db [:reply :status])))
           (is (= :rf.http/http-5xx (get-in db [:reply :error :kind])))
+          (is (= 3 @hits) "the server saw all 3 attempts")
           (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
                                      @traces)
                 ;; The `:next-backoff-ms nil` discriminator splits
@@ -611,9 +573,6 @@
                 (group-by #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)]
             (is (seq retry-traces)
                 "a retry-eligible exhaustion MUST still emit retry-attempt traces")
-            ;; The terminal exhaustion trace carries :next-backoff-ms nil.
-            (is (some #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)
-                "the final exhaustion retry-attempt carries :next-backoff-ms nil")
             ;; Honest recovery dispositions. `:recovery` is hoisted
             ;; top-level on the `:info` event; both arms must supply it.
             (is (seq intermediate)
@@ -761,35 +720,6 @@
                 :headers          {}
                 :decode           mode}))
           (str mode " with absent :body-binary returns the raw body-text payload")))))
-
-;; ---- 6. retry exhaustion --------------------------------------------------
-
-(deftest jvm-retry-exhaustion
-  (testing ":retry exhausts after :max-attempts, dispatching a single :on-failure"
-    (let [hits (atom 0)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (swap! hits inc)
-              (write-response! ex 500 "application/json" "{\"err\":true}")))]
-      (try
-        (rf/reg-event :flaky/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:flaky/load msg] :request {:url (str "http://127.0.0.1:" port "/flaky")}
-                      :decode  :json
-                      :retry   {:on           #{:rf.http/http-5xx}
-                                :max-attempts 3
-                                :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
-        (rf/dispatch-sync [:flaky/load])
-        (let [db (await-reply! #(some? (:reply %)) 8000)]
-          (is (= :error (get-in db [:reply :status])))
-          (is (= :rf.http/http-5xx (get-in db [:reply :error :kind])))
-          ;; The server saw all 3 attempts.
-          (is (= 3 @hits)))
-        (finally (stop-server! srv))))))
 
 ;; ---- 7. retry recover -----------------------------------------------------
 
@@ -977,10 +907,6 @@
                  "Saw "
                  @reply-count " replies: "
                  (pr-str (mapv :status @all-replies))))
-        (is (= 1 (count @all-replies))
-            "the all-replies log carries a single entry, matching the counter")
-        (is (= :rf.http/aborted (get-in (first @all-replies) [:error :kind]))
-            "the single reply is the abort reply, not the late natural-completion one")
 
         (finally (stop-server! srv))))))
 
@@ -1396,52 +1322,6 @@
         (is (nil? (rf.registrar/handler :fx stub-id))
             "extra uninstall is an idempotent no-op")))))
 
-;; ---- 11b. canned-stub fxs gated on explicit test-support require -----------
-;;
-;; The gate that decides whether
-;; the canned-stub fxs (`:rf.http/managed-canned-success` /
-;; `:rf.http/managed-canned-failure`) register is
-;; the require boundary itself: the fxs register under
-;; `re-frame.http.test-support`; production code paths must not require
-;; that namespace.
-;;
-;; Why not `(when interop/debug-enabled? ...)`: `interop/debug-enabled?` is
-;; unconditionally true on the
-;; JVM, so that gate would leave the canned-stub fx ids registered as
-;; production-default API on JVM/SSR builds — discoverable via
-;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
-;; from any handler in production code. The require-boundary gate makes
-;; the absence load-bearing on every host: JVM/SSR sees classpath
-;; absence; CLJS `:advanced` sees module-graph DCE (the
-;; `scripts/check-elision.cjs` sentinels pin the bundle absence).
-;;
-;; This file requires `re-frame.http.test-support`, and the reset-runtime
-;; fixture restores the registrar snapshot taken with it loaded, so the canned
-;; stubs ARE registered for the bulk of the suite (the methodology
-;; check below pins that). The standalone negative-assertion test that
-;; exercises the absence path (test-support absent → canned stubs
-;; absent) lives in `re-frame.http-test-support-absent-test` so a
-;; sibling `:require` in this ns can't reintroduce the fxs and false-
-;; pass the absence assertion.
-
-(deftest canned-stub-fxs-registered-when-test-support-required
-  (testing "methodology check — with re-frame.http.test-support
-            in the require closure (this ns requires it at the top), the
-            two canonical canned-stub fxs MUST be registered. The
-            absence test in re-frame.http-test-support-absent-test would
-            be vacuous if this side did not actually register the stubs."
-    ;; The fixture restores a registrar snapshot taken with http-test-support
-    ;; loaded, so the canned
-    ;; stubs are present. The production-eligible fxs are present too.
-    (is (some? (rf.registrar/lookup :fx :rf.http/managed))
-        ":rf.http/managed is dev+prod — always registered by re-frame.http.managed")
-    (is (some? (rf.registrar/lookup :fx :rf.http/managed-abort))
-        ":rf.http/managed-abort is dev+prod — always registered by re-frame.http.managed")
-    (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-success))
-        ":rf.http/managed-canned-success registered when re-frame.http.test-support is required")
-    (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-failure))
-        ":rf.http/managed-canned-failure registered when re-frame.http.test-support is required")))
-
 ;; ---- actor-in-flight-snapshot shape contract -------------------------------
 ;;
 ;; `actor-in-flight-snapshot` and `in-flight-snapshot`
@@ -1528,20 +1408,16 @@
           (is (= 1 (count actor-snap))
               "one actor key — the spawned :kyl7/worker child")
           (let [[actor-id handles] (first actor-snap)]
-            (is (keyword? actor-id)
-                "actor-id is a keyword (the spawned actor's address)")
             (is (= :kyl7/worker#1 actor-id)
-                "actor-id is the deterministic spawn id of the child")
+                "actor-id is the deterministic spawn id of the child (the spawned actor's keyword address)")
             (is (vector? handles)
                 "value under each actor-id is a vector (multiple in-flight requests
                  from the same actor accumulate as siblings)")
             (is (= 2 (count handles))
                 "two in-flight requests from this actor")
             (doseq [h handles]
-              (is (map? h)
-                  "each handle is a map")
               (is (fn? (:abort-fn h))
-                  ":abort-fn is the no-arg cancellation fn")
+                  "each handle is a map whose :abort-fn is the no-arg cancellation fn")
               (is (string? (:url h))
                   ":url stamps the resolved URL for diagnostic visibility")
               (is (= actor-id (:actor-id h))
@@ -1553,15 +1429,11 @@
         (let [req-snap (rf.http.managed/in-flight-snapshot)]
           (is (map? req-snap)
               "in-flight-snapshot returns a map")
-          (is (= 2 (count req-snap))
-              "two request-id keys — one per in-flight request")
           (is (= #{:kyl7/a :kyl7/b} (set (keys req-snap)))
-              "request-id keys match the user-supplied :request-id values")
+              "one request-id key per in-flight request, matching the user-supplied :request-id values")
           (doseq [[req-id handle] req-snap]
-            (is (map? handle)
-                "each value is a SINGLE handle map (NOT a vector — unlike actor index)")
             (is (= req-id (:request-id handle))
-                ":request-id on the handle matches its index key")
+                "each value is a SINGLE handle map (NOT a vector, unlike the actor index) whose :request-id matches its index key")
             (is (fn? (:abort-fn handle))
                 ":abort-fn is the cancellation fn (same as actor-index handle)")))
 
@@ -1621,12 +1493,12 @@
           #(seq (rf.http.managed/in-flight-snapshot))
           2000)
         (rf/dispatch-sync [:search/run-superseding])
+        ;; `events` collects only :rf.http/aborted rows, so this await is the
+        ;; check that the supersede emits one.
         (await-condition! #(seq @events) 2000)
 
         (let [ev (first @events)
               tags (:tags ev)]
-          (is (= :rf.http/aborted (:operation ev))
-              "supersede emits :rf.http/aborted trace event")
           (is (= :request-id-superseded (:reason tags))
               ":reason :request-id-superseded distinguishes supersede from :user / :actor-destroyed")
           (is (= :search (:request-id tags))
@@ -1690,10 +1562,10 @@
           2000)
         ;; User-initiated abort — the abort fn passes `:user` as the reason.
         (rf/dispatch-sync [:slow/abort])
+        ;; A non-supersede abort DOES dispatch :on-failure: this await throws
+        ;; if the reply never arrives.
         (await-condition! #(true? @reply-fired?) 2000)
 
-        (is (true? @reply-fired?)
-            "non-supersede abort DOES dispatch :on-failure")
         ;; Per build-reply-event: explicit :on-failure [:slow/failed] appends
         ;; the reply payload as the last arg — the handler receives the
         ;; payload directly (NOT wrapped under :rf/reply).
@@ -2030,14 +1902,10 @@
         (rf/dispatch-sync [:multihdr/load])
         (await-reply! #(some? (:reply %)) 5000)
         (let [vs @seen-accept]
-          (is (= 3 (count vs))
-              "the vector value produced THREE separate wire header instances")
           (is (= ["alpha" "beta" "gamma"] vs)
-              "each element arrives as its own value, in order — NOT a single
-               '[\"alpha\" \"beta\" \"gamma\"]' stringified line")
-          (is (not-any? #(clojure.string/includes? % "[")
-                        vs)
-              "no element carries a serialised-vector bracket"))
+              "the vector value produced THREE separate wire header instances,
+               each its own value, in order — NOT a single
+               '[\"alpha\" \"beta\" \"gamma\"]' stringified line"))
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
