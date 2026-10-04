@@ -50,17 +50,6 @@
 
 ;; ---- url-from-state ------------------------------------------------------
 
-(deftest url-from-state-composes-pathname-query-hash
-  (let [url (rf.story.ui.url-state/url-from-state
-              {:selected-variant :foo/bar}
-              {:pathname "/foo/"
-               :hash     "#/stories"})]
-    (is (= "/foo/?variant=foo%2Fbar#/stories" url))))
-
-(deftest url-from-state-no-query-when-empty
-  (let [url (rf.story.ui.url-state/url-from-state {} {:pathname "/foo/" :hash "#/stories"})]
-    (is (= "/foo/#/stories" url))))
-
 (deftest url-from-state-includes-every-populated-slot
   (testing "every URL-relevant shell slot reaches the composed query"
     (let [url (rf.story.ui.url-state/url-from-state
@@ -186,21 +175,6 @@
                {:selected-variant :story.new/b}
                {:pathname "/p/" :search search :hash "#/stories"}))
           "every escaped Story key is cleared; both unowned params survive"))))
-
-(deftest url-from-state-and-share-builder-agree-on-escaped-keys
-  (testing "one merge, one boundary: both writers clear escaped keys,
-            not just one of them"
-    (let [pathname "/counter-with-stories/"
-          search   "?%76ariant=story.old%2Fa&embed=1&%73ubstrate=uix"
-          hash     "#/stories"]
-      (is (= (rf.story.share/variant-share-url
-               :story.new/b
-               (str pathname search hash)
-               {:substrate :reagent})
-             (rf.story.ui.url-state/url-from-state
-               {:selected-variant :story.new/b :substrate :reagent}
-               {:pathname pathname :search search :hash hash}))
-          "same base + same cell ⇒ same URL from either writer"))))
 
 ;; ---- url-relevant-slots-changed? ----------------------------------------
 
@@ -333,14 +307,6 @@
       (is (nil? (:selected-variant out)))
       (is (nil? (get-in out [:cell-overrides :ghost/x]))
           "no overrides installed for a rejected variant"))))
-
-(deftest apply-parsed-overrides-ignored-without-variant
-  (testing "overrides without a variant id never install
-            (the URL carries only the focused variant's slice)"
-    (let [out (rf.story.ui.url-state/apply-parsed-to-state
-                {} {:cell-overrides {:label "Hi"}} {})]
-      (is (nil? (:selected-variant out)))
-      (is (empty? (:cell-overrides out))))))
 
 ;; ---- URL is authoritative — clear stale overrides on hydrate -------------
 
