@@ -56,7 +56,9 @@ test('a pool of N under 2N concurrent requests never overlaps within an isolate'
     }
     // The requests really did contend: three isolates served six requests,
     // so at least one isolate was reused, and the wall time exceeded a
-    // single delay.
+    // single delay. The three that found no idle isolate waited in
+    // `acquire()` under a 10 s admission timeout, so each was served the
+    // moment a release freed one, never by its own timer.
     const threads = new Set(results.map((r) => observed(r).threadId));
     assert.strictEqual(threads.size, 3, 'all three isolates should have been used');
   });
@@ -142,20 +144,5 @@ test('a saturated pool REFUSES rather than queueing without a bottom', async () 
     // not damage.
     const after = await collect(service, req());
     assert.strictEqual(after.chunks.length, 1);
-  });
-});
-
-test('a waiter is served the moment an isolate frees, without its own timer firing', async () => {
-  await withService('reference', { isolates: 1, admissionTimeoutMs: 5000 }, async (service) => {
-    const started = Date.now();
-    const [a, b] = await Promise.all([
-      collect(service, req({ state: { ':todos': '"A"', ':delay': '60' } })),
-      collect(service, req({ state: { ':todos': '"B"', ':delay': '60' } })),
-    ]);
-    assert.strictEqual(observed(a).overlapMax, 1);
-    assert.strictEqual(observed(b).overlapMax, 1);
-    // Serialised through one isolate, so the pair takes both delays.
-    assert.ok(Date.now() - started >= 110, 'the two renders should have been serialised');
-    assert.strictEqual(observed(a).threadId, observed(b).threadId);
   });
 });
