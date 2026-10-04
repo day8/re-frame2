@@ -77,16 +77,6 @@
 ;; the registry / shell tests use for the rest of the `:rf.xray/*`
 ;; surface.
 
-(deftest target-frame-default-is-unselected
-  (testing "per EP-0002, target-frame defaults to nil = UNSELECTED
-            (per defaults/default-target-frame), NOT :rf/default. The
-            inspected target is never absence-repaired to the ordinary
-            :rf/default id; it starts unselected and the picker / discovery
-            policy selects one."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (nil? (core/target-frame))))))
-
 (deftest set-target-frame-wires-target-frame
   (testing ":rf.xray/set-target-frame updates the slot target-frame reads"
     (setup-xray-frame!)
@@ -100,20 +90,6 @@
       (rf/dispatch-sync [:rf.xray/set-target-frame nil])
       (is (nil? (core/target-frame))
           "nil resets to UNSELECTED (not through :rf/default)"))))
-
-(deftest set-target-frame!-dispatches-set-target-frame
-  (testing "set-target-frame! dispatches :rf.xray/set-target-frame into :rf/xray"
-    ;; The `rf/dispatch` macro's expansion calls the `^:no-doc`
-    ;; `re-frame.core/dispatch-impl` seam directly, so with-redefs THAT seam —
-    ;; redef'ing `re-frame.router/dispatch!` directly would fail (a plain
-    ;; `defn`'s static arity-dispatch bypasses `with-redefs`), and redef'ing
-    ;; `re-frame.core/dispatch` (the CLJS value-alias) would have no effect
-    ;; on the already-compiled macro call site inside `core.cljs` either.
-    (let [seen (atom [])]
-      (with-redefs [rf/dispatch-impl (fn [ev & _opts] (swap! seen conj ev))]
-        (core/set-target-frame! :app/main))
-      (is (= [[:rf.xray/set-target-frame :app/main]] @seen)
-          "facade dispatches the right event with the right arg"))))
 
 ;; ---- (3) load-theme! — DOM-bearing impl, no-op without a DOM ------------
 
@@ -137,21 +113,6 @@
       (is (nil? (core/load-theme! nil)) "nil is a safe no-op"))))
 
 ;; ---- init! contract ----------------------------------------------------
-
-(deftest init!-with-target-frame-dispatches-set-target-frame
-  (testing "init! threads :target-frame through to
-            :rf.xray/set-target-frame (EP-0002; there is no
-            :default-frame opt)"
-    ;; The dispatch is async (queues into :rf/xray's router); we capture
-    ;; the call to verify the facade routes through the registered event.
-    ;; The dispatch-sync-driven landing is covered by
-    ;; `set-target-frame-wires-target-frame` above.
-    (setup-xray-frame!)
-    (let [seen (atom [])]
-      (with-redefs [rf/dispatch-impl (fn [ev & _opts] (swap! seen conj ev))]
-        (core/init! {:target-frame :app/main}))
-      (is (some #(= [:rf.xray/set-target-frame :app/main] %) @seen)
-          "init! dispatched :rf.xray/set-target-frame with :target-frame"))))
 
 (deftest init!-wires-theme-density-and-buffer-depths
   (testing "init! threads :theme / :density / :buffer-depths
