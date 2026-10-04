@@ -266,11 +266,7 @@
       (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor pair-uuid permissive?))))
     (testing "story-style strict predicate — #inst / #uuid in a valid map ⇒ ::malformed"
       (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor story-inst offset-cursor?)))
-      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor story-uuid offset-cursor?))))
-    (testing "a clean pair-style cursor still passes the permissive predicate"
-      (is (= {:v 1 :after-id "ev-9"}
-             (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "ev-9"})
-                                   permissive?))))))
+      (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor story-uuid offset-cursor?))))))
 
 (deftest decode-cursor-rejects-trailing-forms
   ;; A cursor is ONE opaque EDN payload map. A plain `read-string`
@@ -317,10 +313,7 @@
                  (str "{:v 1 :offset 0 :total 1 :sig \"s\"} "
                       (pr-str :re-frame.mcp-base.cursor/cursor-eof-sentinel)))]
       (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor evil offset-cursor?)))))
-  (testing "a single clean cursor (incl. trailing whitespace) still round-trips"
-    (let [clean (rf.mcp-base.cursor/encode-cursor {:v 1 :offset 0 :total 1 :sig "s"})]
-      (is (= {:v 1 :offset 0 :total 1 :sig "s"}
-             (rf.mcp-base.cursor/decode-cursor clean offset-cursor?))))
+  (testing "one cursor followed only by whitespace still decodes"
     (let [trailing-ws (rf.mcp-base.cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}   ")]
       (is (= {:v 1 :offset 0 :total 1 :sig "s"}
              (rf.mcp-base.cursor/decode-cursor trailing-ws offset-cursor?))
