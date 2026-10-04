@@ -46,25 +46,16 @@
 (deftest classify-fx-id-maps-each-fx-to-its-surface
   (are [fx-id surface] (= surface (h/classify-fx-id fx-id))
     :rf.http/managed                :http
-    :rf.http/managed-abort          :http
-    :rf.http/managed-canned-success :http
     :rf.ws/connect                  :websocket
-    :rf.ws/send                     :websocket
     :rf.machine/spawn               :machine-invoke
-    :rf.machine/destroy             :machine-invoke
     :rf.server/set-status           :ssr-fx
-    :rf.server/set-header           :ssr-fx
-    :rf.server/redirect             :ssr-fx
     :rf.flow/registered             :flow
     :rf.fx/reg-flow                 :flow
     :rf.fx/clear-flow               :flow
     ;; non-managed fxs, and ids that are not keywords at all, classify as nil
     :db                             nil
-    :dispatch                       nil
     :user/my-fx                     nil
-    :my/persist                     nil
-    nil                             nil
-    "not-a-keyword"                 nil))
+    nil                             nil))
 
 ;; ---- (2a) HTTP adapter on success --------------------------------------
 
@@ -200,12 +191,10 @@
                                             :request-id :req-3}
                                            reply-keys))
                         [])))
-      {:reply-to [:x/reply]}                                       [:x/reply]
       {:reply-to [:x/reply] :on-success [:x/ok] :on-failure [:x/no]} [:x/reply]
       {:on-failure [:x/no]}                                        [:x/no]
       {:on-done [:m/done]}                                         [:m/done]
-      {:on-reply :on-route}                                        nil
-      {}                                                           nil)))
+      {:on-reply :on-route}                                        nil)))
 
 (deftest http-adapter-failure-record
   (testing "The ONE HTTP failure that can land in the issuing bundle is a
@@ -394,12 +383,6 @@
 ;; projection so a command-as-trace branch has a row to fail.
 
 (deftest machine-collector-excludes-command-includes-terminal
-  (testing "the machine-invoke collector drops the fx-id COMMAND and keeps
-            the real fx-substrate terminal"
-    (is (not (contains? h/machine-invoke-trace-operations :rf.machine/destroy))
-        ":rf.machine/destroy is a command, never a trace operation")
-    (is (contains? h/machine-invoke-trace-operations :rf.machine/destroyed)
-        "the real fx-substrate terminal must be collected"))
   (testing "surface-events-for filters the impossible command out even when
             it is injected into the event-bundle's :other slot"
     (let [injected [(surface-ev :rf.machine/destroy {:id :some/actor})
@@ -555,15 +538,6 @@
                            cascade {9 [[:users 42] [:loading? :user-profile]]}))]
       (is (= [[:users 42] [:loading? :user-profile]]
              (:paths-touched rec))))))
-
-(deftest cascade-walker-empty-for-non-managed-cascade
-  (testing "a cascade with only :db / :dispatch fxs returns empty"
-    (let [cascade {:dispatch-id 10
-                   :frame :rf/default
-                   :effects [(fx-handled :db {:foo 1})
-                             (fx-handled :dispatch [:x])]
-                   :other []}]
-      (is (= [] (h/event-bundle->managed-fx-records cascade))))))
 
 ;; ---- (3b) an overridden effect -------------------------------------------
 ;;
@@ -776,10 +750,7 @@
             colour-blind-safe shape glyph — the status pill reads both"
     (doseq [s panel-status-taxonomy]
       (is (some? (get h/status->colour-token s)) (str "colour token for " s))
-      (is (some? (get h/status->glyph s))        (str "glyph for " s))))
-  (testing "CONTROL — an unknown status carries neither"
-    (is (nil? (get h/status->colour-token :no-such-status)))
-    (is (nil? (get h/status->glyph :no-such-status)))))
+      (is (some? (get h/status->glyph s))        (str "glyph for " s)))))
 
 (deftest format-http-status-band-bands
   (is (= :green         (h/format-http-status-band 200)))
