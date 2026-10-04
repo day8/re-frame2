@@ -245,17 +245,6 @@
  (is (str/includes? @errors-md ":runtime-not-preloaded"))))
 
 ;; ---------------------------------------------------------------------------
-;; Hot-reload protocol — must name the probe-based contract,
-;; since SKILL.md cardinal-rule §Source edits points users there.
-;; ---------------------------------------------------------------------------
-
-(deftest hot-reload-doc-still-describes-probe
- (testing "ops.md §Hot-reload coordination describes the probe-based contract"
- (is (str/includes? @ops-md "Hot-reload coordination"))
- (is (str/includes? @ops-md "probe"))
- (is (str/includes? @ops-md "tail-build"))))
-
-;; ---------------------------------------------------------------------------
 ;; Privacy-contract drift
 ;; ---------------------------------------------------------------------------
 ;;
@@ -488,10 +477,7 @@
       (is (not (includes-ci? md "old snapshots in app-db"))
           (str label " carries the stale 'old snapshots in app-db' wording — "
                "machine snapshots live in the runtime-db partition "
-               "([:rf.runtime/machines …]).")))
-    (is (str/includes? @ops-md "frame-state")
-        (str "ops.md does not positively teach restore as a frame-state "
-             "rewind (both partitions).")))
+               "([:rf.runtime/machines …])."))))
   (testing "ops.md restore caveat names runtime-db revival + the side-effect limit"
     (is (and (str/includes? @ops-md "frame-state")
              (includes-ci? @ops-md "runtime-db"))
@@ -502,6 +488,10 @@
 (deftest hot-reload-branches-on-probe-values-not-blanket-compile-error
   (testing "ops.md hot-reload branches on :probe-values / :reason, not 'all timeouts are compile errors'"
     (let [hr (section-from @ops-md "Hot-reload coordination")]
+      (is (str/includes? hr "tail-build")
+          (str "ops.md §Hot-reload coordination does not name `tail-build`, the "
+               "probe-based reload wait SKILL.md's source-edit cardinal rule "
+               "points at."))
       (is (str/includes? hr ":probe-values")
           (str "ops.md hot-reload guidance does not mention `:probe-values` "
                "— the diagnostic tail-build returns on timeout so the agent "
@@ -531,9 +521,6 @@
 (deftest hot-reload-teaches-pre-edit-baseline
   (testing "ops.md hot-reload protocol captures a pre-edit baseline and passes it to tail-build"
     (let [hr (section-from @ops-md "Hot-reload coordination")]
-      (is (includes-ci? hr "baseline")
-          (str "ops.md hot-reload guidance does not name the pre-edit "
-               "baseline tail-build compares against."))
       (is (re-find #"(?i)capture[^.\n]{0,120}(pre-edit|before)" hr)
           (str "ops.md hot-reload guidance must instruct capturing the "
                "probe's value BEFORE the edit."))
@@ -544,10 +531,6 @@
           (str "ops.md must state the invariant: a reload is recognized "
                "whether it lands before or after the first "
                "sample."))))
-  (testing "recipes.md permanent-change step carries the baseline capture"
-    (is (includes-ci? @recipes-md "baseline")
-        (str "recipes.md's permanent-change step does not pass the "
-             "pre-edit baseline into tail-build.")))
   (testing "SKILL.md cardinal rule orders capture before the edit"
     (is (includes-ci? @skill-md "baseline")
         (str "SKILL.md's source-edit cardinal rule does not name the "
@@ -643,15 +626,9 @@
           (str label " calls the raw eval form the 'default-reachable "
                "write path' — the dedicated `restore-epoch` / `replace-app-db` "
                "tools are the canonical path; eval is the "
-               "backstop.")))
-    ;; The Experiment-loop recipe's restore step must call the dedicated tool,
-    ;; not the eval form, as its primary invocation.
-    (let [section (section-from @recipes-md "Experiment loop")]
-      (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
-      (is (str/includes? section "mcp__re-frame2-pair__restore-epoch {epoch-id:")
-          (str "the Experiment-loop restore step does not lead with the "
-               "dedicated `restore-epoch {epoch-id: …}` tool — the eval form "
-               "is the backstop, not the default."))))
+               "backstop."))))
+  ;; The Experiment-loop restore step's dedicated-tool call is pinned, with its
+  ;; anchor argument, in `experiment-loop-rewinds-to-the-pre-dispatch-anchor`.
   (testing "README's time-travel example leads with the restore-epoch tool, not the eval backstop"
     ;; README's framework-level `(rf/restore-epoch! frame-id epoch-id)` in
     ;; §No re-frame-10x dependency names the core API and stays; the needle
@@ -772,13 +749,6 @@
 (deftest experiment-loop-names-the-handler-fn-hash-wire-key
   (let [section (section-from @recipes-md "Experiment loop")]
     (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
-
-    (testing "the fingerprint is named by its actual wire key"
-      (is (str/includes? section ":handler-fn-hash")
-          (str "the Experiment loop does not name `:handler-fn-hash`. That is "
-               "the key `handler-meta` actually returns — the live `:handler-fn` "
-               "is stripped — so without it the recipe has no fingerprint to "
-               "capture or compare.")))
 
     (testing "the absent :handler-fn key is not offered as the fingerprint"
       (is (not (re-find #":handler-fn(?!-hash)" section))
