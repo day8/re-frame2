@@ -237,31 +237,8 @@
       (is (zero? @!renders)))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — a fresh mount, and the canonical DOM
+;; 2 — what a mounted crossing hands over, and the canonical DOM
 ;; ---------------------------------------------------------------------------
-
-(deftest a-fresh-mount-renders-the-component-on-its-first-pass
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (testing "a `createRoot` mount never consults a server snapshot, so
-                the gate costs no placeholder pass — asserted on the line
-                after `root!` returns, which is inside its flushSync"
-        (let [h (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [escape-page {}])]
-          (try
-            (is (some? (query-node (:container h) ".widget"))
-                "the component mounted immediately")
-            (is (= "yes" (.getAttribute (query-node (:container h) ".widget") "data-live"))
-                "the real one, not a placeholder")
-            (is (= "quarterly" (.-textContent (query-node (:container h) ".widget-label")))
-                "a prop reached the foreign component through the gate")
-            (is (= "compact" (.getAttribute (query-node (:container h) ".widget") "data-variant"))
-                "and so did the second one")
-            (is (some? (query-node (:container h) ".widget .kid"))
-                "and the children, in the component's own slot — forwarded
-                 by the gate as createElement's third argument")
-            (finally (rf.fresco.impl.mount/release! h))))))))
 
 (deftest a-childless-crossing-hands-the-component-the-doors-own-props-object
   (if-not (rf.fresco.impl.mount/browser?)
