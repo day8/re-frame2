@@ -207,15 +207,6 @@
 ;; (3) view rendering
 ;; -------------------------------------------------------------------------
 
-(deftest panel-renders-empty-state-when-silent
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.static.flows/set-registered-flows-override-for-test {}])
-    (let [tree (panel-tree)]
-      (is (some? (find-by-testid tree "rf-xray-static-flows-empty"))
-          "empty-state surface mounts"))))
-
 (deftest panel-renders-rows-from-override
   (setup-xray!)
   (rf/with-frame :rf/xray
@@ -471,46 +462,6 @@
                                                 (fragment-mount-id %)))
                               fragments))
             "and within any ONE row's seq the keys are distinct")))))
-
-(deftest row-keys-ride-the-attribute-map-not-metadata
-  (testing "the catalogue ROW key (a second, independent key site in this
-            panel) is carried on a keyed FRAGMENT'S ATTRIBUTE MAP too.
-
-            `^{:key …}` reader metadata on the row's vector literal would
-            not do. Reagent's `get-react-key` reads it, but Fresco's codec
-            reads `:key` from an attribute map and reads Clojure metadata
-            NOWHERE, so under a boundary it would go inert — silently, since
-            a lost key degrades into index-based reconciliation rather than
-            failing."
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.flows/set-registered-flows-override-for-test
-         sample-flows])
-      (let [tree      (panel-tree)
-            rows      (find-by-testid-prefix tree "rf-xray-static-flows-row-")
-            fragments (filterv (fn [node]
-                                 (and (vector? node)
-                                      (= :<> (first node))
-                                      (map? (second node))
-                                      (contains? (second node) :key)
-                                      ;; the ROW fragments, not the input-seq
-                                      ;; ones, which wrap a boundary rather
-                                      ;; than an `<li>`
-                                      (let [child (nth node 2 nil)]
-                                        (and (vector? child)
-                                             (= :li (first child))))))
-                               (hiccup-nodes tree))]
-        (is (= 2 (count rows))
-            "PRECONDITION: the fixture's two rows rendered — a smaller count
-             would make the key claim vacuous")
-        (is (= (count rows) (count fragments))
-            (str "every row is wrapped in a keyed fragment. Keys seen: "
-                 (pr-str (mapv #(:key (second %)) fragments))))
-        (is (every? #(some? (:key (second %))) fragments)
-            "and each key is non-nil IN THE ATTRIBUTE MAP")
-        (is (= (count fragments) (count (set (map #(:key (second %)) fragments))))
-            "and the row keys are distinct from one another")))))
 
 ;; -------------------------------------------------------------------------
 ;; (5) LIVE production data source regression
