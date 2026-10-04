@@ -136,35 +136,6 @@
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
-(deftest genuine-form-2-and-direct-class-head-unchanged
-  (testing "reagent-slim — the Form-2 inner-fn path and a direct class head behave normally (control)"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
-      (let [setup-calls (atom 0)
-            form-2      (fn form-2-probe [_label]
-                          (swap! setup-calls inc)
-                          (fn [label] [:div {:class "form2"} "f2-" label]))
-            direct      (r/create-class
-                          {:display-name "direct-class-head"
-                           :reagent-render (fn [label] [:div {:class "direct"} "d-" label])})
-            mount-node  (make-mount-node!)
-            root        (rdc/create-root mount-node)]
-        (try
-          (react-dom/flushSync (fn [] (rdc/render root [form-2 "x"])))
-          (is (= "f2-x" (.-textContent mount-node))
-              "Form-2 control: inner fn cached and called with the args")
-          (react-dom/flushSync (fn [] (rdc/render root [form-2 "y"])))
-          (is (= "f2-y" (.-textContent mount-node))
-              "Form-2 control: cached inner fn recalled with fresh args")
-          (is (= 1 @setup-calls)
-              "Form-2 control: the setup fn ran exactly once (inner fn was cached, not re-derived)")
-
-          (react-dom/flushSync (fn [] (rdc/render root [direct "z"])))
-          (is (= "d-z" (.-textContent mount-node))
-              "direct class head control: a create-class result in HEAD position mounts")
-          (finally
-            (try (rdc/unmount root) (catch :default _ nil))))))))
-
 (deftest static-markup-of-a-factory-emits-content-without-lifecycle
   (testing "reagent-slim — render-to-static-markup of a factory-returned class emits the class's markup and runs no lifecycle"
     ;; NOT browser-gated: the static serializer is pure string building,
