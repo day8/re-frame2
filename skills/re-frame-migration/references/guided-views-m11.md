@@ -80,6 +80,42 @@ Form-1 + an explicit setup event is the preferred shape over Form-2, but a migra
 **Form-3 (`reagent.core/create-class` — lifecycle).** The `reg-view` macro **rejects** a `create-class` body at macroexpand (Form-3 is not defn-shape; the error points the author at `reg-view*`), so you cannot wrap the class in `reg-view` and have it pick up `:contextType` the way a function component does. Two routes, both spec-supported:
 
 1. **Extract the subscribing content into a `reg-view` child (preferred).** Keep the class for its lifecycle, but move the part that derefs subs / dispatches into a small `reg-view`-registered child the class renders. The child carries its own `:contextType` and reads the frame; the class manages its DOM/lifecycle and subscribes nothing.
+
+   **Audit the class's update hooks before you extract — route 1 moves the update out of the class.** React calls `componentDidUpdate` "immediately after your component has been re-rendered with updated props or state" ([React — `componentDidUpdate`](https://react.dev/reference/react/Component#componentdidupdate)), and a child that re-renders on its own does not re-render its parent. Once the reactive read lives in the child, a new value commits the child alone: the class's `:component-did-update` no longer runs, and the DOM work keyed to it (scrolling to the newest line, measuring a textarea's height, re-feeding a widget) silently stops, with no error. So read each update hook first. If none depends on what the child would take, route 1 stands. If one does, keep update ownership in the class by putting the read **above** it instead of below: the registered Form-1 outer reads the sub and passes the plain value into the class as a prop (the outer / inner pattern in [`implementation/adapters/reagent/README.md`](https://github.com/day8/re-frame2/blob/main/implementation/adapters/reagent/README.md#outer--inner-pattern)), so a new value re-renders the class with new props and its hook runs.
+
+   ```clojure
+   ;; BEFORE (v1) — the class derefs the sub in render, so a new line re-renders
+   ;; the class and its did-update scrolls the node the class owns.
+   (defn transcript []
+     (let [!el (atom nil)]
+       (reagent.core/create-class
+         {:component-did-update
+          (fn [_ _ _ _] (when-let [el @!el] (set! (.-scrollTop el) (.-scrollHeight el))))
+          :reagent-render
+          (fn []
+            [:div.transcript {:ref (fn [el] (reset! !el el))}
+             (for [{:keys [id text]} @(rf/subscribe [:chat/lines])] ^{:key id} [:p text])])})))
+
+   ;; AFTER — the read moves ABOVE the class. Extracting the lines into a
+   ;; subscribing child (route 1) would leave this did-update with nothing to
+   ;; fire it, and the scroll would stop.
+   (defn transcript-pane [_lines]     ; subscribes and dispatches nothing: needs no frame
+     (let [!el (atom nil)]            ; per-MOUNT node handle, as in v1
+       (reagent.core/create-class
+         {:component-did-update
+          (fn [this old-argv _ _]
+            (when (not= old-argv (reagent.core/argv this))   ; act on a real props change only
+              (when-let [el @!el] (set! (.-scrollTop el) (.-scrollHeight el)))))
+          :reagent-render
+          (fn [lines]
+            [:div.transcript {:ref (fn [el] (reset! !el el))}  ; React passes nil on unmount
+             (for [{:keys [id text]} lines] ^{:key id} [:p text])])})))
+
+   (rf/reg-view transcript []
+     [transcript-pane @(subscribe [:chat/lines])])
+   ```
+
+   Keep explicit what the v1 class made explicit: the handle stays per-mount (never module scope; see the hoisting warning below), the hook acts only on a real change, as React's own caveat asks of a `componentDidUpdate`, and cleanup stays in the class. Do not replace the hook with a DOM write in a render body, the child's or the class's: React may render without committing, and StrictMode renders twice in development. The other way to keep the work is a child with its own `:component-did-update` that calls back into the class, guarded the same way; that child is a Form-3 itself and takes route 2. The long-lived imperative subscription below stays a separate choice, for a class that must follow a value outside render.
 2. **Register the outer fn through `reg-view*` and capture the frame's *non-reactive* ops *once, in that outer callable*, before you build the class.** Per `spec/API.md`'s `reg-view*` row — which names Reagent Form-3 (`create-class`) as one of its uses — the class ships through `re-frame.core/reg-view*` (the plain-fn surface — no auto-def, no auto-inject, no compile check). The `reg-view*` outer callable runs under the live resolver scope — the one compiler-visible site in a Form-3 where a reactive read still resolves a frame — so bind the frame ops the **lifecycle hooks** need from `(rf/capture-frame)` **there**, before constructing `create-class`, and close that locked handle over the render fn and every lifecycle hook. Destructure `{:keys [dispatch frame]}` (add `dispatch-sync` if you fire synchronously) — the **non-reactive** ops plus the captured `:frame` handle — for the hooks; for **ordinary** lifecycle work do **not** destructure `subscribe` (the next paragraph explains why a reactive read belongs in render, not a hook, and why a hook that does a one-shot read or an imperative teardown still needs the captured `:frame`). The **one** documented exception is the genuinely imperative long-lived subscription below — the rare case that truly needs a live reactive read *outside* render — which **does** destructure both `:frame` **and** `:subscribe`; it is the sole lifecycle use of the captured `subscribe` op, and it balances every acquire with a matching release (the worked example follows the two bullets). Do **not** move the capture into a lifecycle callback (`:component-did-mount` / `:component-will-unmount` / `:component-did-update`): those fire after the resolver scope has unwound, so a `(rf/capture-frame)` inside one re-raises `:rf.error/no-frame-context`. The handle taken in the outer callable, by contrast, is a locked value that survives into the lifecycle callbacks' async boundary — which is exactly why the render fn and the callbacks share it rather than each re-capturing.
 
    **Reactive reads stay in the reactive context — never `@(subscribe …)` in a lifecycle hook.** The captured bundle *does* carry `:subscribe`, but its lane is different from `:dispatch`'s. `dispatch` is a fire-and-forget frame-targeted send — safe to close over any callback. `subscribe` returns a **reactive handle**, and a lifecycle body has **no reactive owner**: dereferencing the captured `:subscribe` inside `:component-did-mount` / `:component-did-update` neither establishes render ownership nor tears itself down. Prefer the registered Form-1 outer: it reads the sub reactively and passes the plain value inward as a prop. If a Form-3 renderer exceptionally retains the captured reaction itself, bind it with `r/with-let` inside `:reagent-render`, deref it there, and release it from `with-let`'s `finally`. Do **not** release a render-owned reaction from the class's `:component-will-unmount`: stock Reagent preserves its render owner across React StrictMode's transient will-unmount/did-mount replay, and the user hook would otherwise dispose the reaction the preserved owner still watches.
