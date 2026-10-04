@@ -17,8 +17,9 @@
   `implementation/ssr/test/re_frame/source_coord_parity_test.clj` and pins
   the same canonical literals.
 
-  Strategy: this CLJS test exercises `re-frame.views/format-source-coord`
-  and `re-frame.views.source-coord-annotation/format-view-id` against
+  Strategy: this CLJS test runs the one CLJS formatter implementation —
+  which `re-frame.views/format-source-coord` and
+  `re-frame.views.source-coord-annotation/format-view-id` alias — against
   fixture inputs and asserts single canonical literals. The companion JVM
   test exercises the JVM formatters against the SAME fixtures and asserts
   the SAME literals. If either host's formatter drifts, its test fails.
@@ -26,8 +27,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.source-coords :as rf.source-coords]
-            [re-frame.views]
-            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]))
+            [re-frame.views]))
 
 ;; ---- the canonical attribute-value shape (shared spec) -------------------
 ;;
@@ -58,32 +58,6 @@
 
 (def expected-attr-no-line-no-col
   "rf.parity-test:sample-view:?:?")
-
-;; ---- CLJS side: format-source-coord pins the canonical literal -----------
-
-(deftest cljs-format-source-coord-byte-identical-to-canonical
-  (testing "CLJS `format-source-coord` consumes the fixture
-            (id + line + column + file) and produces the canonical
-            <ns>:<sym>:<line>:<col> string — bytes match the literal
-            the JVM-side companion test pins. The literal IS the
-            cross-host byte-comparison point."
-    (let [cljs-format #'re-frame.views/format-source-coord
-          cljs-output (cljs-format fixture-id fixture-meta)]
-      (is (= expected-attr cljs-output)
-          (str "CLJS `format-source-coord` MUST produce the canonical "
-               "<ns>:<sym>:<line>:<col> shape. Expected: "
-               (pr-str expected-attr) " — got: " (pr-str cljs-output))))))
-
-;; ---- CLJS side: format-view-id pins the canonical data-rf-view value -----
-
-(deftest cljs-format-view-id-byte-identical-to-canonical
-  (testing "CLJS `format-view-id` produces `(str id)`, the same
-            `data-rf-view` value the JVM host stamps. Both hosts emit
-            this attribute."
-    (is (= expected-view-id (rf.views.source-coord-annotation/format-view-id fixture-id))
-        (str "CLJS `format-view-id` MUST produce `(str id)`. Expected: "
-             (pr-str expected-view-id) " — got: "
-             (pr-str (rf.views.source-coord-annotation/format-view-id fixture-id))))))
 
 ;; ---- CLJS side: degraded shape (no line / col) pins the canonical -------
 
