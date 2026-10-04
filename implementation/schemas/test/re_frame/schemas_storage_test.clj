@@ -125,13 +125,16 @@
 ;; ---- coerce-opts ---------------------------------------------------------
 
 (deftest coerce-opts-normalises-each-accepted-shape
-  (testing "keyword sugar lifts to {:frame kw}; an opts map passes through
+  (testing "keyword sugar lifts to {:frame kw}; a bare frame value lifts to
+            {:frame value} — checked BEFORE the generic map branch, since a
+            frame value is itself a map; an opts map passes through
             verbatim; nil coerces to {} — identical to the no-arg arity: no
             override, resolve the frame from scope. A nil OPTS has no
             analogue to the nil-PATH hazard, so accepting it removes a
             footgun for a trusted in-process caller."
     (are [arg expected] (= expected (rf.schemas.storage/coerce-opts arg))
       :tenant/a                         {:frame :tenant/a}
+      (frame-value :tenant/fv-e)        {:frame (frame-value :tenant/fv-e)}
       {:frame :tenant/a :other :thing}  {:frame :tenant/a :other :thing}
       {}                                {}
       nil                               {})))
@@ -277,18 +280,6 @@
       (is (= [:string] (:schema (rf.schemas/app-schema-meta {:frame :tenant/fv-d :path [:auth]}))))
       (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
           "DEFAULT frame untouched for the bulk-by-value form too"))))
-
-(deftest coerce-opts-discriminates-frame-value-before-opts-map
-  (testing "coerce-opts checks frame/frame-value? BEFORE the
-            generic map? branch, so a bare frame value lifts to {:frame value}
-            while an ordinary opts map still passes through verbatim"
-    (let [fv (frame-value :tenant/fv-e)]
-      (is (= {:frame fv} (rf.schemas.storage/coerce-opts fv))
-          "a frame value is lifted, not passed through as an opts map")
-      ;; A genuine opts map (NOT a frame value) still passes through.
-      (is (= {:frame :tenant/x :other :thing}
-             (rf.schemas.storage/coerce-opts {:frame :tenant/x :other :thing}))
-          "an ordinary opts map is untouched"))))
 
 (deftest resolve-frame-rejects-non-keyword-frame-target-loud
   (testing "an explicit `:frame` that resolves to a
@@ -545,44 +536,35 @@
                 (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
         "app-schema-meta with a float segment fails closed")))
 
-(deftest reg-app-schemas-bulk-rejects-bad-segment-atomically
-  (testing "bulk registration fails ATOMICALLY on an invalid-segment path —
-            no entry in the batch lands when ANY key carries a non-concrete
-            segment (the up-front sweep validates every segment before any
-            store mutation)"
-    (let [before (rf.schemas/snapshot-schemas-by-frame)
-          thrown (try (rf/reg-app-schemas {[:good]            :int
-                                           [:also :good]      :string
-                                           [:bad [:composite]] :int}   ;; bad segment
-                                          {:frame :bulk-frame})
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (instance? clojure.lang.ExceptionInfo thrown)
-          "the batch with one bad-segment key throws")
-      (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown))))
-      (is (= before (rf.schemas/snapshot-schemas-by-frame))
-          "NOTHING in the batch landed — atomic all-or-nothing")
-      (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :bulk-frame :path [:good]})))
-          "the earlier-iterated good key did NOT register before the bad one threw"))))
-
-(deftest reg-app-schemas-rejects-batch-with-bad-path-atomically
-  (testing "a bulk batch containing a non-sequential path key
-            is rejected ATOMICALLY: the whole call throws and NO entry
-            lands (not even the well-formed siblings iterated first)"
-    (let [before (rf.schemas/snapshot-schemas-by-frame)
-          thrown (try (rf/reg-app-schemas {[:good] :int
-                                           :bad-key :string
-                                           [:also-good] :boolean})
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (instance? clojure.lang.ExceptionInfo thrown)
-          "a batch with a bad path key throws")
-      (when (instance? clojure.lang.ExceptionInfo thrown)
+(deftest reg-app-schemas-rejects-a-bad-batch-atomically
+  (testing "a bulk batch carrying ONE bad path key — a non-sequential shape,
+            a non-concrete segment, or a runtime-db root — throws that key's
+            error id from the up-front sweep, and NO entry lands, not even
+            the well-formed siblings iterated first"
+    (doseq [[label batch opts read-frame expected-id]
+            [["non-sequential key"
+              {[:good] :int :bad-key :string [:also-good] :boolean}
+              nil :rf/default :rf.error/app-schema-bad-path]
+             ["non-concrete segment"
+              {[:good] :int [:also :good] :string [:bad [:composite]] :int}
+              {:frame :bulk-frame} :bulk-frame :rf.error/app-schema-bad-path]
+             ["runtime-db root"
+              {[:good] :int [:rf.runtime/machines] [:map] [:also-good] :boolean}
+              {:frame :tenant/rt} :tenant/rt :rf.error/app-schema-runtime-path]]]
+      (let [before (rf.schemas/snapshot-schemas-by-frame)
+            thrown (try (if opts
+                          (rf/reg-app-schemas batch opts)
+                          (rf/reg-app-schemas batch))
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown)
+            (str label ": the batch throws"))
         ;; Branch on the canonical :rf.error/id, not the message.
-        (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown)))
-            "names the path-shape error category"))
-      (is (= before (rf.schemas/snapshot-schemas-by-frame))
-          "NO entry from the batch landed — all-or-nothing")
-      (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:good]})))
-          "the well-formed sibling did not half-register"))))
+        (is (= expected-id (:rf.error/id (ex-data thrown)))
+            (str label ": names its error category"))
+        (is (= before (rf.schemas/snapshot-schemas-by-frame))
+            (str label ": NO entry from the batch landed — all-or-nothing"))
+        (is (nil? (:schema (rf.schemas/app-schema-meta {:frame read-frame :path [:good]})))
+            (str label ": the well-formed sibling did not half-register"))))))
 
 (deftest reg-app-schemas-accepts-all-valid-paths
   (testing "a batch of valid sequential paths (including the
@@ -664,19 +646,6 @@
         (is (= before (rf.schemas/snapshot-schemas-by-frame))
             (str "store unchanged after rejecting " (pr-str bad-path)))))))
 
-(deftest reg-app-schema-runtime-path-distinct-from-shape-error
-  (testing "the runtime-path id is NOT the shape-error id; a
-            runtime path is well-SHAPED (sequential) so it passes the shape
-            gate and is rejected by the SEPARATE namespace gate"
-    (is (rf.schemas.storage/valid-app-schema-path? [:rf.runtime/machines])
-        "a runtime path is a valid SHAPE — sequential")
-    (is (rf.schemas.storage/runtime-app-schema-path? [:rf.runtime/machines])
-        "but the first-segment runtime check catches it")
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/app-schema-runtime-path"
-                          (rf/reg-app-schema [:rf.runtime/machines]
-                                             {:frame :tenant/rt} [:map])))))
-
 (deftest reg-app-schema-accepts-non-runtime-rf-paths
   (testing "the gate keys on the runtime-db FIRST segment only;
             an ordinary app-db path with an `:rf*`-ish key that is NOT a
@@ -691,28 +660,6 @@
     ;; The empty root [] is the whole-app-db schema — never runtime.
     (is (not (rf.schemas.storage/runtime-app-schema-path? [])))
     (is (not (rf.schemas.storage/runtime-app-schema-path? [:rf/something-else])))))
-
-(deftest reg-app-schemas-rejects-batch-with-runtime-path-atomically
-  (testing "a bulk batch containing one runtime-db path key is
-            rejected ATOMICALLY with :rf.error/app-schema-runtime-path before
-            any mutation: NO entry lands, not even well-formed app-db siblings"
-    (let [before (rf.schemas/snapshot-schemas-by-frame)
-          thrown (try (rf/reg-app-schemas {[:good]                 :int
-                                           [:rf.runtime/machines]  [:map]
-                                           [:also-good]            :boolean}
-                                          {:frame :tenant/rt})
-                      (catch clojure.lang.ExceptionInfo e e))]
-      (is (instance? clojure.lang.ExceptionInfo thrown)
-          "a batch with a runtime path key throws")
-      (when (instance? clojure.lang.ExceptionInfo thrown)
-        ;; Branch on the canonical :rf.error/id, not the message.
-        (is (= :rf.error/app-schema-runtime-path
-               (:rf.error/id (ex-data thrown)))
-            "names the distinct runtime-path error category"))
-      (is (= before (rf.schemas/snapshot-schemas-by-frame))
-          "NO entry from the batch landed — all-or-nothing")
-      (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :tenant/rt :path [:good]})))
-          "the well-formed app-db sibling did not half-register"))))
 
 ;; ---- malformed-schema fail-closed invariant ------------------------------
 ;;

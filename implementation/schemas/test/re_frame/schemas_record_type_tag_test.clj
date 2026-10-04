@@ -93,11 +93,8 @@
             unbounded, and both are closed by the same constant."
     (doseq [v [#{:a} '(1) (Object.) (java.util.Date.) (java.net.URI. "x:y")]]
       (is (= "object" (tag v))
-          (str "expected the constant fallback for " (pr-str (class v))))
-      (is (not (str/includes? (tag v) "class"))
-          "no `class ` prefix — that is `(str (type v))` leaking through")
-      (is (not (str/includes? (tag v) (.getName (class v))))
-          "the host class name never appears in the tag"))))
+          (str "expected the constant fallback — never `(str (type v))` or "
+               "the host class name — for " (pr-str (class v)))))))
 
 ;; ---- end-to-end: the emitted record carries no host class name ------------
 
