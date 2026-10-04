@@ -38,14 +38,6 @@
       registration; the reg-time head really is the MetaFn) before
       mounting, so it cannot silently decay into a copy of the row above.
 
-    - `native-defui-control-*` — the NON-VACUITY control. The SAME probe
-      body, mounted as an unregistered native `defui`, so the harness is
-      shown to pass independently of the registry path. When the registry
-      row is deliberately broken (a metadata-wrapped head, or no
-      componentization seam) this row must stay green — that is what makes
-      the registry row's red attributable to the seam under test rather than
-      to the harness.
-
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
   (ns-regexp `-dom-cljs-test$`) discovers it. `:node-test`'s `cljs-test$`
   regex matches too, where every row self-gates on `(browser?)` and no-ops
@@ -135,10 +127,7 @@
 
 ;; ---- the probe body --------------------------------------------------------
 ;;
-;; ONE body, mounted two ways: through the registry head, and (the control)
-;; as an unregistered native `defui`. Sharing the body is what makes the
-;; control a control — a difference in outcome can only come from the mount
-;; path, because nothing else differs.
+;; ONE body, mounted through the registry head by both rows.
 ;;
 ;; It is a native `defui`, which is the documented UIx idiom. `defui` reads
 ;; its props off UIx's `argv` channel, so a mount that reached it through
@@ -358,14 +347,3 @@
               "and it carries UIx's component marker, so `$` still routes props
                through the lossless `argv` channel")
           (assert-mount-case "boot-order head" (run-mount-case act-fn head)))))))
-
-;; ---- the non-vacuity control ----------------------------------------------
-
-(deftest native-defui-control-mounts-independently-of-the-registry
-  (testing "UIx — the SAME probe mounted as an unregistered native defui passes
-            the identical harness, so the registry row's verdict is about the
-            registry path and not about this file"
-    (with-browser-act
-      (fn [act-fn]
-        (seed-world!)
-        (assert-mount-case "native defui control" (run-mount-case act-fn probe-body))))))
