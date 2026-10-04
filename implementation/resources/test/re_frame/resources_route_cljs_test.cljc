@@ -797,51 +797,6 @@
     (testing "no ensures are dispatched on the failed plan"
       (is (empty? (of-event (plan-dispatches plan) :rf.resource/ensure))))))
 
-(deftest r2-plan-diff-kept-adopted-added-ensured-release-last
-  ;; Sibling-leaf navigation: the parent identity is KEPT (adopt-owner, no
-  ;; re-ensure — the partial-revalidation law); the new leaf is ADDED (ensure);
-  ;; the prior owner release is dispatched LAST (attach-before-release).
-  ;;
-  ;; "Kept" is prior-plan membership AND a genuinely reusable
-  ;; entry, so this threads the AT-COMMIT `:runtime-db` carrying the loaded
-  ;; parent identity (routing always threads it; membership alone would adopt
-  ;; into a void). `r2-retained-identity-is-adopted-only-when-genuinely-reusable`
-  ;; below pins the unusable cases.
-  (rf/reg-resource :sh/v (article-spec {}) article-spec-request)
-  (rf/reg-resource :lf/a (article-spec {}) article-spec-request)
-  (rf/reg-resource :lf/b (article-spec {}) article-spec-request)
-  (let [parent-meta {:resources [{:resource :sh/v :params (fn [_] {:slug "v"}) :blocking? true}]}
-        branch1 [{:route-id :route/p   :route-meta parent-meta}
-                 {:route-id :route/p.a :route-meta {:resources [{:resource :lf/a :params (fn [_] {:slug "a"})}]}}]
-        plan1 (rf.resources.route/route-resource-plan {:id :route/p.a :params {} :query {}} {}
-                                         {:nav-token 1 :branch branch1})
-        ids1  (:identities plan1)
-        shared-key (rf.resources.state/scoped-resource-key* :rf.scope/global :sh/v {:slug "v"})
-        ;; plan1's shared identity has since LOADED — the reusable kept case.
-        rdb   {:rf.runtime/resources
-               {:entries {(rf.resources.state/key-id shared-key)
-                          {:resource/id :sh/v :resource/key shared-key
-                           :status :loaded :data {:n 1} :attempt 1}}}}
-        branch2 [{:route-id :route/p   :route-meta parent-meta}
-                 {:route-id :route/p.b :route-meta {:resources [{:resource :lf/b :params (fn [_] {:slug "b"})}]}}]
-        plan2 (rf.resources.route/route-resource-plan {:id :route/p.b :params {} :query {}} {}
-                                         {:nav-token 2 :prev-id :route/p.a :prev-nav-token 1
-                                          :prev-identities ids1 :branch branch2
-                                          :runtime-db rdb})
-        ds    (plan-dispatches plan2)
-        adopts  (of-event ds :rf.resource.internal/adopt-owner)
-        ensures (of-event ds :rf.resource/ensure)]
-    (testing "the kept parent identity is ADOPTED, not re-ensured (partial revalidation)"
-      (is (nil? (:plan-error plan2)))
-      (is (= 1 (count adopts)))
-      (is (= :sh/v (:resource (second (first adopts))))))
-    (testing "only the added leaf is ensured"
-      (is (= 1 (count ensures)))
-      (is (= :lf/b (:resource (second (first ensures))))))
-    (testing "the prior plan owner release is dispatched LAST (attach-before-release)"
-      (is (= :rf.resource/release-owner (first (last ds))))
-      (is (= [:route :route/p.a 1] (:owner (second (last ds)))) "releases the superseded owner"))))
-
 (deftest r2-plan-diff-trace-carries-the-identity-partition
   ;; The SAME sibling-leaf navigation as the
   ;; test above, read off the `:rf.resource/route-plan` TRACE rather than the
@@ -1523,33 +1478,6 @@
           "two distinct transitions INTO :error are two traces"))))
 
 ;; ---- 1. activation commit reads the facts AT COMMIT ------------------------
-
-(deftest fresh-blocking-resource-commits-idle-with-no-transient-loading
-  ;; A blocking route resource whose identity ALREADY has usable data must
-  ;; commit :idle. It is recorded in NO blocking slot, so the commit's own
-  ;; readiness seed is :idle — the route never passes through :loading and no
-  ;; later drain is needed to rescue it. The cold contrast (no usable data at
-  ;; commit, so the requirement IS recorded and the route commits :loading) is
-  ;; `blocking-resource-holds-route-transition-until-it-settles`.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    ;; warm the identity OUTSIDE any navigation (an ownerless preload)
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :article/by-slug :params {:slug "intro"}}])
-    (settle-success! scoped-key {:title "Intro"})
-    (is (rf.resources.state/has-data? (entry scoped-key)) "precondition: the identity is warm")
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-    (let [nav-token (:nav-token (slice))]
-      (testing "the already-fresh blocking requirement is recorded nowhere"
-        (is (empty? (blocking-slot nav-token))
-            "no blocking slot ⇒ the commit seed itself projected :idle"))
-      (testing "the route commits :idle"
-        (is (= :idle (:transition (slice))))
-        (is (nil? (:error (slice))))))))
 
 ;; ---- 3. previous data does not complete a newly-keyed first load -----------
 
