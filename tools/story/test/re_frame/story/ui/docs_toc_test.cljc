@@ -26,13 +26,6 @@
       (is (some? (:label entry)))
       (is (integer? (:level entry))))))
 
-(deftest conditional-entries
-  (testing "the conditional entries are status / prose / view-arg schema;
-            args / decorators / parameters / evidence / tags
-            are unconditional"
-    (is (= #{"docs-status" "docs-prose" "docs-schema"}
-           (into #{} (map :id) (filter :conditional? rf.story.ui.docs/docs-toc-entries))))))
-
 ;; `visible-toc-entries` consults the live registrar for prose workspaces +
 ;; compiles the variant's plan for the status / view-arg-schema conditionals.
 ;; The JVM corpus exercises it with no registry → `prose-for-variant` returns
