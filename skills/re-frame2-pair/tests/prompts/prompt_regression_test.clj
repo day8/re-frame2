@@ -599,20 +599,9 @@
 ;; allow-listed (the server's `--allow-writes` gate, not the allow-list, is
 ;; the write boundary). The raw eval forms (`(rf/restore-epoch! …)` /
 ;; `app-db-reset!`) are the BACKSTOP only. These guards fail if the skill
-;; teaches the eval form as the default-reachable write path, or drops the two
-;; tools from the allow-list.
-
-(deftest write-tools-are-allow-listed
-  (testing "SKILL.md allow-lists both dedicated write tools"
-    (is (str/includes? @skill-md "mcp__re-frame2-pair__restore-epoch")
-        (str "SKILL.md allowed-tools does not list "
-             "mcp__re-frame2-pair__restore-epoch — the dedicated time-travel "
-             "tool is the canonical named-write path."))
-    (is (str/includes? @skill-md "mcp__re-frame2-pair__replace-app-db")
-        (str "SKILL.md allowed-tools does not list "
-             "mcp__re-frame2-pair__replace-app-db — the dedicated "
-             "state-injection tool is the canonical named-write "
-             "path."))))
+;; teaches the eval form as the default-reachable write path. That both tools
+;; stay allow-listed is `scripts/check_skill_mcp_drift.py`'s to pin: it requires
+;; every server tool in SKILL.md's `allowed-tools`.
 
 (deftest named-writes-prefer-dedicated-tool-not-default-eval
   (testing "the skill does not frame the raw eval write forms as the DEFAULT-reachable path"
