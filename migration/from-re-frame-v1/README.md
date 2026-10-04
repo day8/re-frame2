@@ -2831,6 +2831,7 @@ All three become (the `mw/with-progress-completion` value is first registered wi
 
 ```clojure
 ;; register the interceptor once (EP-0022)
+;; mw/with-progress-completion's own :id must already be :progress/with-completion, or this throws :rf.error/invalid-interceptor
 (rf/reg-interceptor :progress/with-completion
   {:doc "Mark the save-progress flow complete."}
   mw/with-progress-completion)                ;; wrap the existing v1 value at the registration boundary
@@ -2841,6 +2842,8 @@ All three become (the `mw/with-progress-completion` value is first registered wi
    :interceptors [:progress/with-completion]}
   (fn [{:keys [db]} _] {:db ...}))
 ```
+
+For a value whose own `:id` is missing, different, or shared with other values, follow the skill's [M-70 case split](../../skills/re-frame-migration/references/auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile) before registering it.
 
 If the source site has no metadata map, create one. If it already has metadata, merge `:interceptors` into that map. Multiple interceptors keep their order: a v1 `[i1 i2]` chain becomes `{:interceptors [:ref-1 :ref-2]}` (each value registered + referenced). The runtime still runs `:before` in declaration order and `:after` in reverse declaration order.
 
