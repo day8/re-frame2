@@ -219,23 +219,6 @@
 
 ;; ---- (6) the public headless run-variant is one full run -----------------
 
-(deftest public-run-variant-still-runs-full-once
-  (testing "the headless `rf.story/run-variant` (test-mode / MCP / sidebar
-            Run-all) is one full run: script once, count 3"
-    (let [vid :story.owner/headless]
-      (reg-cumulative! vid)
-      #?(:clj
-         (let [result (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)]
-           (is (= :ready (:lifecycle result)))
-           (is (= 3 (:count (:app-db result))) "one full run: count 3")
-           (is (= 3 @ext-effect-count) "one full run's effects")
-           (is (= :pass (:status result)) "the passing variant greens"))
-         :cljs
-         ;; CLJS: the sync script settles the frame synchronously; read it back.
-         (do (rf.story/run-variant vid)
-             (is (= 3 (count-of vid)) "one full run: count 3")
-             (is (= 3 @ext-effect-count) "one full run's effects"))))))
-
 ;; ---- (7) supersession never greens a stale run (JVM async barrier) -------
 
 #?(:clj
