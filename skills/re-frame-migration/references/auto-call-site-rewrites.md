@@ -248,6 +248,24 @@ A migrated suite can compile, and pass on the JVM, while its doubles intercept n
 
 The recorder observes and the real handler still runs. When the test must not run it, register a mock handler in a final image as well.
 
+A frame built from explicit images resolves only what its images select, so the recorder has to be selected too. Without it, `make-frame` fails with `:rf.error/unregistered-interceptor`. The recorder cannot go in a mock image's inline `:registrations`: those sections accept only `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx`, and an inline `:reg-interceptor` section fails `rf/image` with `:rf.error/invalid-image`. Keep the `reg-interceptor` at the top level of the test namespace instead, and select that namespace in a final image:
+
+```clojure
+(def seen (atom []))
+
+(rf/reg-interceptor :test/recorder          ; top level of the test namespace, here shop.cart-test
+  {:before (fn [ctx] (swap! seen conj (-> ctx :coeffects :event)) ctx)})
+
+(def recorder-image (rf/image {:id :test/recorder :select-ns {:include ["shop.cart-test"]}}))
+
+(deftest save-dispatches-under-explicit-images
+  (reset! seen [])
+  (rf/with-new-frame [_f (rf/make-frame {:images [product-image recorder-image]
+                                         :interceptors [:test/recorder]})]
+    (save!)
+    (is (= [[:cart/save]] @seen))))
+```
+
 A v1 double whose job was to fail the test if a subscription is touched at all is an absence guard, not a value mock, and a throwing replacement registration does not port it. The framework recovers the throw: a throwing computation reports `:rf.error/sub-exception` and the subscription reads `nil` ([errors.md §A subscription throws](https://github.com/day8/re-frame2/blob/main/docs/core/errors.md#a-subscription-throws-or-reads-one-that-isnt-there)), and a throw moved into a parametric `:inputs` fn is recovered too, as `:rf.error/sub-input-fn-exception`, so the forbidden access passes either way. Keep the check as an observation instead. Give the guard a receipt in the final mock image of [§Body-local mocks under explicit images](#body-local-mocks-under-explicit-images), prove the receipt is reached with a forced positive control, then reset it before the product operation and assert it stayed empty. The receipt counts computation-body calls, not `subscribe` requests, and a cached slot answers without running its body ([subscriptions.md §Lifecycle](https://github.com/day8/re-frame2/blob/main/docs/core/subscriptions.md#lifecycle-a-sub-exists-only-while-something-watches)), so a cached `nil` reads as zero calls. Start the product operation from a fresh frame or after [`rf/clear-sub-cache!`](https://github.com/day8/re-frame2/blob/main/docs/api/re-frame.core.md#clear-sub-cache), because the positive control itself caches the slot.
 
 ```clojure
