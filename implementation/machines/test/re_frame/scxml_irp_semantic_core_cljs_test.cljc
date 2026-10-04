@@ -126,9 +126,8 @@
                                   (xstate v5; scxml-default-self-transition-is-internal).
 
   Eventless / internal queue / microstep / macrostep / raise:
-    144  raised events FIFO on the internal queue          COVERED (machine_raise_fifo_test;
-                                  re-anchored here to the IRP id:
-                                  scxml-irp-test144-internal-raise-fifo).
+    144  raised events FIFO on the internal queue          COVERED
+                                  (scxml-irp-test144-internal-raise-fifo).
     158  executable-content block runs in document order   COVERED — the cascade
                                   exit→action→entry is the cross-boundary order
                                   (scxml-lca-flat-collapses-to-exit-action-entry).
@@ -348,9 +347,8 @@
 ;;
 ;; SCXML §3.13 macrostep: raised internal events drain FIFO (144), and the
 ;; WHOLE internal queue (raised + eventless) drains within one macrostep
-;; before the next external event (421). machine_raise_fifo_test proves 144;
-;; these re-anchor 144 and 421 to their IRP ids and add the
-;; within-one-macrostep assertion. The sibling file covers 158 (document
+;; before the next external event (421). These pin 144 and 421 under their IRP
+;; ids, 421 adding the within-one-macrostep assertion. The sibling file covers 158 (document
 ;; order) and 419 (eventless at a stable config) — see the matrix. Spec 005
 ;; §Eventless `:always` transitions §Macrostep semantics; §`:raise` FIFO.
 ;; ===========================================================================
