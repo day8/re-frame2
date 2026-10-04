@@ -239,31 +239,27 @@
 ;;     gate is only as strong as its ability to reject the regression shapes.
 ;; ===========================================================================
 
-(deftest schema-rejects-a-scalar-work-id
-  (testing "a scalar (non-tuple) :rf.reply/work-id is rejected — EP-0011
-            one-attempt-one-work-id requires the family-headed tuple"
-    (is (not (m/validate ReplyEnvelopeTraceRow
-                         (assoc http-stale-suppressed-fixture
-                                :rf.reply/work-id 3)))
-        "a scalar work-id MUST fail the schema")))
-
-(deftest schema-rejects-an-out-of-vocabulary-status
-  (testing "an off-vocabulary :rf.reply/status / :rf.reply/work-status is
-            rejected (the enum is closed)"
-    (is (not (m/validate ReplyEnvelopeTraceRow
-                         (assoc http-stale-suppressed-fixture :rf.reply/status :done)))
-        "a :rf.reply/status outside the closed set MUST fail")
-    (is (not (m/validate ReplyEnvelopeTraceRow
-                         (assoc http-stale-suppressed-fixture :rf.reply/work-status :running)))
-        "a :rf.reply/work-status outside the closed set MUST fail")))
-
-(deftest schema-rejects-a-dropped-required-reply-key
-  (testing "a row missing a required additive reply key (a near-miss rename
-            that drops the canonical spelling) fails — an MCP consumer would
-            lose the status / work-id / grouping"
-    (doseq [k [:rf.reply/status :rf.reply/work-id :rf.reply/work-status]]
-      (is (not (m/validate ReplyEnvelopeTraceRow (dissoc http-stale-suppressed-fixture k)))
-          (str "a row missing " k " MUST fail the schema")))))
+(deftest schema-rejects-each-regression-shape
+  ;; Each row is the http fixture with one regression applied. EP-0011
+  ;; one-attempt-one-work-id requires the family-headed tuple; both status
+  ;; enums are closed; and a dropped required key (a near-miss rename that
+  ;; drops the canonical spelling) loses an MCP consumer the status,
+  ;; work-id or grouping.
+  (doseq [[label row]
+          [["a scalar (non-tuple) :rf.reply/work-id"
+            (assoc http-stale-suppressed-fixture :rf.reply/work-id 3)]
+           ["a :rf.reply/status outside the closed set"
+            (assoc http-stale-suppressed-fixture :rf.reply/status :done)]
+           ["a :rf.reply/work-status outside the closed set"
+            (assoc http-stale-suppressed-fixture :rf.reply/work-status :running)]
+           ["a row missing :rf.reply/status"
+            (dissoc http-stale-suppressed-fixture :rf.reply/status)]
+           ["a row missing :rf.reply/work-id"
+            (dissoc http-stale-suppressed-fixture :rf.reply/work-id)]
+           ["a row missing :rf.reply/work-status"
+            (dissoc http-stale-suppressed-fixture :rf.reply/work-status)]]]
+    (is (not (m/validate ReplyEnvelopeTraceRow row))
+        (str label " MUST fail the schema"))))
 
 ;; ===========================================================================
 ;; (3) SOURCE-text pin — every fixture key appears as DATA at its own family's
