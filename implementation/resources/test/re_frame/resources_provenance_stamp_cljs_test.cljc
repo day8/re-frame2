@@ -115,10 +115,6 @@
       (is (= [nil] (provenance-keys kind :probe/unstamped))
           (str kind ": no stamp, no provenance — the instrument reads absence")))))
 
-;; ---- (a) bare `:ns` --------------------------------------------------------
-
-;; ---- (b) qualified `:rf.provenance/ns` ------------------------------------
-
 ;; ---- (d) precedence: the qualified key wins -------------------------------
 
 (deftest qualified-stamp-wins-over-the-bare-one
