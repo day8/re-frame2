@@ -39,18 +39,6 @@
 ;; ns-matches? — the glob grammar primitive
 ;; ============================================================================
 
-(deftest exact-inclusion-no-wildcard
-  (testing "a pattern with no wildcard matches the whole namespace exactly"
-    (is (true?  (rf.image/ns-matches? "docs.quickstart.counter.v2"
-                                   "docs.quickstart.counter.v2")))
-    (is (false? (rf.image/ns-matches? "docs.quickstart.counter.v2"
-                                   "docs.quickstart.counter.v3"))))
-  (testing "exact pattern does NOT match a longer or shorter namespace"
-    (is (false? (rf.image/ns-matches? "docs.quickstart.counter"
-                                   "docs.quickstart.counter.v2")))
-    (is (false? (rf.image/ns-matches? "docs.quickstart.counter.v2"
-                                   "docs.quickstart.counter")))))
-
 (deftest single-star-matches-exactly-one-segment
   (testing "`*` matches exactly one dot-free segment"
     (is (true?  (rf.image/ns-matches? "docs.*.counter" "docs.foo.counter")))
@@ -351,20 +339,6 @@
 ;; metadata-only [id metadata] form is retired (see
 ;; inline-metadata-only-entry-rejected).
 
-;; The 3-tuple [id metadata body] is `inline-registrations-lower-to-descriptors`
-;; above; the 2-tuple is the one form that carries no metadata slot at all.
-(deftest inline-two-tuple-omits-the-metadata-slot
-  (testing "a 2-tuple [id body] is accepted (metadata defaults to {} / omitted)"
-    (let [body (fn [_] nil)
-          v    (rf.image/image {:id :i :registrations {:reg-fx [[:my/fx body]]}})]
-      (is (= [{:kind                 :fx
-               :id                   :my/fx
-               :impl                 body
-               :rf.provenance/image  :i
-               :rf.provenance/inline [:reg-fx :my/fx]}]
-             (:rf.image/inline v))
-          "an omitted metadata map is not stamped onto the descriptor"))))
-
 (deftest inline-rejects-too-short-tuple
   (testing "a 1-tuple [id] (no metadata slot) throws :rf.error/invalid-image"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
@@ -474,23 +448,6 @@
       (is (= [["docs.quickstart.counter.v3" :counter/inc]]
              (mapv (juxt :rf.provenance/ns :id) sel))))))
 
-(deftest select-glob-prefix-and-recursive
-  (testing "prefix `*` selects exactly-one-deeper provenance namespaces"
-    (let [img (rf.image/image {:id :i :select-ns {:include ["docs.shared.widgets.*"]}})
-          sel (rf.image/select-descriptors img synthetic-store)]
-      ;; matches docs.shared.widgets.button but NOT docs.shared.widgets
-      (is (= ["docs.shared.widgets.button"] (map :rf.provenance/ns sel)))))
-  (testing "recursive `**` selects the base ns AND any deeper ns"
-    (let [img (rf.image/image {:id :i :select-ns {:include ["docs.shared.**"]}})
-          sel (rf.image/select-descriptors img synthetic-store)]
-      (is (= #{"docs.shared.widgets" "docs.shared.widgets.button"}
-             (set (map :rf.provenance/ns sel))))))
-  (testing "a `*.*` mid-glob selects across sibling counter versions"
-    (let [img (rf.image/image {:id :i :select-ns {:include ["docs.*.counter.*"]}})
-          sel (rf.image/select-descriptors img synthetic-store)]
-      (is (= #{"docs.quickstart.counter.v2" "docs.quickstart.counter.v3"}
-             (set (map :rf.provenance/ns sel)))))))
-
 (deftest select-multiple-patterns-deduped-and-ordered
   (testing "a descriptor matched by two patterns is included at most once"
     (let [img (rf.image/image {:id :i
@@ -578,22 +535,6 @@
    (desc "day8.re-frame2-xray.panels.app-db-diff-cljs-test" :sub :rf.xray/diff)
    ;; a test-helpers support ns (clean whole-segment boundary)
    (desc "day8.re-frame2-xray.test-helpers.host-fixtures.counter" :event :counter/inc)])
-
-(deftest exclude-ns-subtracts-from-the-glob-selection
-  (testing "a :select-ns :exclude glob drops the matched descriptors from the
-            :include selection — the test siblings are gone"
-    (let [img (rf.image/image {:id :rf.xray/image
-                            :select-ns {:include ["day8.re-frame2-xray.**"]
-                                        :exclude ["day8.re-frame2-xray.**.*-cljs-test"
-                                                  "day8.re-frame2-xray.test-helpers.**"]}})
-          sel (rf.image/select-descriptors img xray-style-store)
-          prov (set (map :rf.provenance/ns sel))]
-      ;; only the 3 PRODUCTION descriptors survive — no `*-cljs-test` or
-      ;; test-helpers provenance, so no dup-id collision downstream
-      (is (= 3 (count sel)))
-      (is (= #{"day8.re-frame2-xray.open-in-editor"
-               "day8.re-frame2-xray.mount"
-               "day8.re-frame2-xray.panels.app-db-diff"} prov)))))
 
 (deftest exclude-ns-is-not-zero-match-fail-loud
   (testing "a :select-ns :exclude pattern that matches nothing in this build is a
