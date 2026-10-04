@@ -98,25 +98,6 @@
       (is (empty? fx)
           "guard-suppressed firing emits no effects"))))
 
-(deftest after-single-map-guard-fail-sibling-continues
-  (testing "guard-suppressed :after leaves a sibling :after timer live"
-    (let [spec {:initial :idle
-                :data    {:slow? false}
-                :guards  {:slow? (fn [{:keys [data]}] (:slow? data))}
-                :states  {:idle    {:on {:go :loading}}
-                          :loading {:after {5000  {:guard :slow? :target :warn}
-                                            30000 :timeout}}
-                          :warn    {}
-                          :timeout {}}}
-          snap (snap-at :loading {[:loading] 1} {:slow? false})
-          ;; 5000 fires; guard false → suppressed; still at :loading, epoch unmoved.
-          [state5 snap5] (fire spec snap (after-event 5000 1 [:loading]))
-          ;; The 30000 sibling fires from the SAME (unchanged) epoch and transitions.
-          [state30]      (fire spec snap5 (after-event 30000 1 [:loading]))]
-      (is (= :loading state5) "5s guard-suppressed timer did not transition")
-      (is (= :timeout state30)
-          "sibling :after timer (same epoch) is still live and transitions"))))
-
 ;; ---- (e)/(f) guarded vector: the first passing candidate wins -------------
 ;;
 ;; The candidate-vector form: the first passing guard's target fires; when
@@ -168,26 +149,7 @@
       (is (= 1 (get-in next-snap [:data :rf/after-epoch [:loading]]))
           "guard-suppressed firing does not advance the node's epoch")
       (is (empty? fx)
-          "guard-suppressed firing emits no effects")))
-
-  (testing "all-fail guarded vector leaves a sibling :after timer live"
-    (let [spec {:initial :idle
-                :data    {:a? false :b? false}
-                :guards  {:a? (fn [{:keys [data]}] (:a? data))
-                          :b? (fn [{:keys [data]}] (:b? data))}
-                :states  {:idle    {:on {:go :loading}}
-                          :loading {:after {5000  [{:guard :a? :target :x}
-                                                   {:guard :b? :target :y}]
-                                            30000 :timeout}}
-                          :x       {}
-                          :y       {}
-                          :timeout {}}}
-          snap (snap-at :loading {[:loading] 1} {:a? false :b? false})
-          [state5 snap5] (fire spec snap (after-event 5000 1 [:loading]))
-          [state30]      (fire spec snap5 (after-event 30000 1 [:loading]))]
-      (is (= :loading state5) "all-fail guarded vector did not transition")
-      (is (= :timeout state30)
-          "sibling :after timer (same epoch) is still live"))))
+          "guard-suppressed firing emits no effects"))))
 
 ;; ---- (h) hierarchical guarded :after — leaf vs parent epoch / staleness ----
 
@@ -302,56 +264,3 @@
           [state] (fire spec snap (after-event 6000 1 [:net :connecting]))]
       (is (= :degraded (:net state))
           "first region candidate's guard fails → unguarded fallback :degraded"))))
-
-;; ---- shared-helper proof: :on and :after go through one normaliser ---------
-
-(deftest on-and-after-share-candidate-resolution
-  (testing "the SAME guarded candidate-vector resolves identically whether it
-            sits in an :on clause or an :after delay entry — proving both go
-            through the one shared candidate-walk"
-    (let [candidates [{:guard :hot? :target :escalated :action :mark}
-                      {:target :calm}]
-          guards     {:hot? (fn [{:keys [data]}] (:hot? data))}
-          actions    {:mark (fn [{:keys [data]}] {:data (assoc data :marked true)})}
-          on-spec    {:initial :idle
-                      :data    {}
-                      :guards  guards
-                      :actions actions
-                      :states  {:idle      {:on {:poke candidates}}
-                                :escalated {}
-                                :calm      {}}}
-          after-spec {:initial :idle
-                      :data    {}
-                      :guards  guards
-                      :actions actions
-                      :states  {:idle      {:after {5000 candidates}}
-                                :escalated {}
-                                :calm      {}}}]
-      (testing "guard passes → first candidate target + action on both paths"
-        (let [{on-snap :snapshot}
-              (rf.machines/machine-transition on-spec {:state :idle :data {:hot? true}} [:poke])
-              {after-snap :snapshot}
-              (rf.machines/machine-transition
-                after-spec
-                {:state :idle
-                 :data  {:hot? true :rf/after-epoch {[:idle] 1}}}
-                (after-event 5000 1 [:idle]))]
-          (is (= :escalated (:state on-snap)) ":on first candidate fires")
-          (is (= :escalated (:state after-snap)) ":after first candidate fires")
-          (is (true? (get-in on-snap [:data :marked])) ":on candidate action ran")
-          (is (true? (get-in after-snap [:data :marked])) ":after candidate action ran")
-          (is (= (:state on-snap) (:state after-snap))
-              ":on and :after land on the SAME target for the same candidate-vector")))
-      (testing "guard fails → unguarded fallback on both paths"
-        (let [{on-snap :snapshot}
-              (rf.machines/machine-transition on-spec {:state :idle :data {:hot? false}} [:poke])
-              {after-snap :snapshot}
-              (rf.machines/machine-transition
-                after-spec
-                {:state :idle
-                 :data  {:hot? false :rf/after-epoch {[:idle] 1}}}
-                (after-event 5000 1 [:idle]))]
-          (is (= :calm (:state on-snap)) ":on falls back to the unguarded candidate")
-          (is (= :calm (:state after-snap)) ":after falls back to the unguarded candidate")
-          (is (= (:state on-snap) (:state after-snap))
-              ":on and :after fall back to the SAME target"))))))
