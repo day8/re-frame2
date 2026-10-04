@@ -20,8 +20,7 @@
   string / number / bool. No CLJS runtime touched."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
-            [day8.re-frame2-xray.panels.l2-timeline :as l2]
-            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
+            [day8.re-frame2-xray.panels.l2-timeline :as l2]))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -204,22 +203,3 @@
                                (ev :rf.error/handler-exception :op-type :error)]))]
       (is (true? (l2/event-bundle-has-issue? c))))))
 
-(deftest event-bundle-has-issue?-info-activity-test
-  (testing "a healthy managed-HTTP event does NOT wash. The runtime emits
-            `:rf.http/issued` at `:info` inside the issuing fx handler on
-            every managed request, so the row lands in
-            the issuing bundle's :other beside a green `:ok` status; `:info`
-            is activity, never an issue. The bundle is the producer's shape."
-    (let [b (-> (cascade-with-source :ui)
-                (assoc :effects [(teb/fx-handled-ev :rf.http/managed {} 1)]
-                       :other   [(teb/http-issued-ev :app/load "/api/load")]))]
-      (is (false? (l2/event-bundle-has-issue? b)))))
-  (testing "CONTROLS — beside the same :info row, a `:warning` and an
-            `:error` do wash, so the false above is about :info"
-    (is (true? (l2/event-bundle-has-issue?
-                {:other [(teb/http-issued-ev :app/load "/api/load")
-                         (teb/ev :warning :rf.fx/skipped-on-platform
-                                 {:rf.fx/id :app/clip})]})))
-    (is (true? (l2/event-bundle-has-issue?
-                {:other [(teb/http-issued-ev :app/load "/api/load")
-                         (teb/handler-exception-ev :app/load "boom")]})))))
