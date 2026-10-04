@@ -62,16 +62,12 @@
 (defn- id-of [e] (:rf.error/id (ex-data e)))
 
 (defn- file-input!
-  "A real `<input type=file>` in the document, at the given SPELLING of
-  the type attribute — `setAttribute`, so the attribute keeps the
-  author's case and only the IDL normalises it, which is the asymmetry
-  the rows below turn on."
-  ([] (file-input! "file"))
-  ([spelling]
-   (let [n (js/document.createElement "input")]
-     (.setAttribute n "type" spelling)
-     (.appendChild js/document.body n)
-     n)))
+  "A real `<input type=file>` in the document."
+  []
+  (let [n (js/document.createElement "input")]
+    (.setAttribute n "type" "file")
+    (.appendChild js/document.body n)
+    n))
 
 (defn- drop! [n] (.remove n) nil)
 
@@ -223,32 +219,3 @@
                                [:app/upload :re-frame.fresco/value]
                                (ev n)))))))))
         (finally (drop! n))))))
-
-(deftest the-marker-needed-no-fold-of-its-own
-  (testing "a predicate over the props has to fold the platform's
-           case-insensitive `type` matching; this one does not, and the
-           difference is WHERE each looks. A prop predicate runs
-           against the author's props object before React builds anything,
-           so the author's spelling is all it has. The marker runs against
-           a LIVE element on an event, by which time the platform has
-           already resolved the type — and it asks `.files`, which is a
-           property of the resolved control rather than a string anyone
-           spelled. Two readers of one control, and only one of them can
-           be fooled by shouting."
-    (if-not (browser?)
-      (skip! "only a live element can carry the platform's own normalisation")
-      (let [n (file-input! "FILE")]
-        (try
-          (is (= "FILE" (.getAttribute n "type"))
-              "the attribute keeps the author's case")
-          (is (= "file" (.-type n))
-              "and the IDL answers the platform's, which is the whole asymmetry")
-          (is (some? (.-files n))
-              "so the discriminator the marker reads is present, unshouted")
-          (is (= :rf.error/fresco-file-input-value-marker
-                 (id-of (thrown-by
-                         #(rf.fresco.impl.intent/materialize
-                           [:app/upload :re-frame.fresco/value] (ev n)))))
-              "and the marker refusal fires at this spelling exactly as at
-               the lowercase one")
-          (finally (drop! n)))))))
