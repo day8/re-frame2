@@ -126,34 +126,23 @@
 ;; ---- declared-over-inferred: empty + wrapped map schemas ---------------
 
 (deftest empty-map-schema-is-declared-not-inferred
-  (testing "a declared-but-EMPTY `[:map]` is AUTHORITATIVE: an
+  (testing "a declared-but-EMPTY `[:map]` — bare, or with an opening props map
+            and no entries (`[:map {:closed true}]`) — is AUTHORITATIVE: an
             empty shape with `:inferred? false`. Declared-but-empty ≠
             undeclared — the misleading one-sample `:data` keys MUST NOT be
             inferred (EP-0005 declared-over-inferred contract)."
-    (let [result (cs/static-context-shape
-                   {:initial :s
-                    ;; A partial/misleading sample that must not surface
-                    ;; as inferred context.
-                    :data    {:secret 1 :nonce "x"}
-                    :schemas {:data [:map]}
-                    :states  {:s {}}})]
-      (is (= {} (:shape result))
-          "empty `[:map]` → empty authoritative shape, not the :data sample")
-      (is (false? (:inferred? result))
-          "declared (even empty) → inferred? false"))))
-
-(deftest empty-closed-map-schema-is-declared-not-inferred
-  (testing "a declared-but-empty `[:map {:closed true}]` (an
-            opening props map, no entries) is likewise AUTHORITATIVE-empty,
-            not inferred."
-    (let [result (cs/static-context-shape
-                   {:initial :s
-                    :data    {:secret 1}
-                    :schemas {:data [:map {:closed true}]}
-                    :states  {:s {}}})]
-      (is (= {} (:shape result))
-          "empty closed `[:map …]` → empty authoritative shape")
-      (is (false? (:inferred? result))))))
+    (doseq [schema [[:map] [:map {:closed true}]]]
+      (let [result (cs/static-context-shape
+                     {:initial :s
+                      ;; A partial/misleading sample that must not surface
+                      ;; as inferred context.
+                      :data    {:secret 1 :nonce "x"}
+                      :schemas {:data schema}
+                      :states  {:s {}}})]
+        (is (= {} (:shape result))
+            (str "empty " (pr-str schema) " → empty authoritative shape, not the :data sample"))
+        (is (false? (:inferred? result))
+            (str "declared (even empty) " (pr-str schema) " → inferred? false"))))))
 
 (deftest wrapped-map-schema-is-declared-not-inferred
   (testing "a `:map` WRAPPED in a Malli refinement (`[:and [:map
