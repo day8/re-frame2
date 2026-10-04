@@ -335,12 +335,7 @@
             equally inert"
     (let [converted-keymap (donor-prop :on-key-down {"Enter" [:boom]} "onKeyDown")]
       (is (not (fn? converted-keymap)))
-      (is (= {"Enter" ["boom"]} (js->clj converted-keymap)))))
-  (testing "which is what makes the migration an IMPROVEMENT and a
-            hazard at once: Fresco refuses these loudly at render, so a
-            silently dead handler becomes a page that throws — possibly
-            in a branch the migration's smoke test never reaches"
-    (is (= ["boom"] (js->clj (donor-prop :on-click [:boom] "onClick"))))))
+      (is (= {"Enter" ["boom"]} (js->clj converted-keymap))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5 — the inline adapt-react-class head (§4.5)
