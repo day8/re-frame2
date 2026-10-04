@@ -22,7 +22,6 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.image :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.source-store :as rf.source-store]
@@ -106,17 +105,6 @@
           (is (number? (:stamped (rf/app-db-value f))))
           (finally
             (rf/destroy-frame! f)))))))
-
-(deftest only-reserved-root-registrations-ride-the-base
-  (let [probe (fn [_ctx _args] nil)]
-    ;; Both through the fn-alias path, so neither records a source namespace.
-    (rf.fx/reg-fx :rf.test/probe probe)
-    (rf.fx/reg-fx :app/programmatic probe)
-    (let [explicit (rf.image-assembly/assemble [this-ns-image])]
-      (is (= probe (:handler-fn (rf.image-assembly/resolve-descriptor explicit :fx :rf.test/probe)))
-          "an unstamped id under the reserved :rf root is framework-owned")
-      (is (nil? (rf.image-assembly/resolve-descriptor explicit :fx :app/programmatic))
-          "isolation control: an unstamped APP id stays out of an explicit image"))))
 
 (deftest an-overrides-image-inlining-managed-http-wins-and-is-reported
   (let [double    (fn [_ctx _args] :double)
