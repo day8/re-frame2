@@ -20,8 +20,9 @@
     4. a single `:spawn` whose child fails its spawn-time `[:schemas :data]`
        validation.
 
-  Each rejection is paired with its accepted control, whose mirror still names
-  the installed child. The schema rejection also pins the cleanup's
+  The accepted side, where the mirror names the installed child, is pinned by
+  `spawn_registry_test` for a single `:spawn` and a `:spawn-all`, and here by
+  the schema-conforming control. The schema rejection also pins the cleanup's
   exact-incarnation fence: a validator that destroys the owning frame and
   publishes a same-id successor leaves the successor's mirror alone."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -87,15 +88,6 @@
     (is (not (contains? (machine-data :srm/p1) :rf/spawned))
         "the emptied :rf/spawned map is pruned, as a teardown prunes it")))
 
-(deftest registered-type-control-keeps-the-mirror
-  (testing "control: a registered type installs, and the mirror names it"
-    (reg-child! :srm/kid)
-    (reg-parent! :srm/p2 {:machine-id :srm/kid})
-    (rf/dispatch-sync [:srm/p2 [:start]])
-    (is (= :srm/kid#1 (registry-slot :srm/p2 [:busy])))
-    (is (= :srm/kid#1 (get-in (machine-data :srm/p2) [:rf/spawned [:busy]]))
-        "the mirror names the installed child, beside the registry slot")))
-
 ;; ---------------------------------------------------------------------------
 ;; (2) Generated-address collision.
 ;; ---------------------------------------------------------------------------
@@ -145,18 +137,6 @@
         "no sibling installed")
     (is (not (contains? (:rf/spawned (machine-data :srm/fan)) [:busy]))
         "the mirror carries no children map for the rejected invoke")))
-
-(deftest spawn-all-accept-control-keeps-the-mirror
-  (testing "control: an all-registered :spawn-all writes the children map"
-    (reg-child! :srm/one)
-    (rf/reg-machine :srm/fan-ok
-      {:initial :idle
-       :states  {:idle {:on {:start :busy}}
-                 :busy {:spawn-all {:children        [{:id :a :machine-id :srm/one}]
-                                    :on-all-complete [:done]}
-                        :on        {:done :idle}}}})
-    (rf/dispatch-sync [:srm/fan-ok [:start]])
-    (is (= {:a :srm/one#1} (get-in (machine-data :srm/fan-ok) [:rf/spawned [:busy]])))))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) Spawn-time [:schemas :data] rejection.
