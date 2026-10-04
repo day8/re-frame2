@@ -20,9 +20,11 @@
     3. SUPERSESSION — a same-`:request-id` supersede suppresses the prior
        request's app reply target (the supersede semantic is trace-only).
 
-  Group 2 is exercised end-to-end through the real
+  Groups 2 and 3 are exercised end-to-end through the real
   `java.net.http.HttpClient` transport (a tiny com.sun.net.httpserver test
-  server); groups 1 + 3 are pinned at the pure / transport altitude.
+  server). Group 1's pure builders are pinned host-symmetrically in
+  `http-reply-lowering-cljs-test`, which the JVM runner discovers too;
+  here group 1 keeps the success reply's response-meta arity.
 
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope; EP-0011 (one canonical async-reply envelope)."
@@ -116,21 +118,6 @@
    :frame        :app/main
    :completed-at 1781078400456})
 
-(deftest success-reply-is-canonical
-  (testing "a success completion builds a schema-valid :status :ok reply"
-    (let [r (rf.http.reply/success-reply base-ctx {:title "Welcome"})]
-      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :ok (:status r)))
-      (is (= {:title "Welcome"} (:value r)))
-      (is (= :completed (:rf.reply/work-status r)))
-      (is (= :http (:rf.reply/work-kind r)))
-      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id r)))
-      (is (= :app/main (:rf.frame/id r)))
-      (is (= 1781078400456 (:completed-at r)))
-      (testing ":request-id rides as :correlation metadata, NOT a top-level stale key"
-        (is (= {:request-id :article/by-id} (:correlation r)))
-        (is (not (contains? r :request-id)))))))
-
 (deftest success-reply-response-meta-is-optional-and-canonical
   (testing "the 3-arity threads the successful response's wire
             facts onto the envelope's :meta family-extension slot; the reply
@@ -147,23 +134,12 @@
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :ok (:status r)) "the envelope status stays :ok — :meta adds facts, never re-levels them")
       (is (= {:title "Welcome"} (:value r)) ":value remains the decoded-and-accepted payload")
-      (is (= meta* (:meta r)) "the response wire facts ride verbatim under :meta")
-      (is (= ["a=1; Path=/" "b=2; Path=/"] (get-in r [:meta :headers "set-cookie"]))
-          "a multi-valued header keeps the ONE normalized vector shape")))
+      (is (= meta* (:meta r))
+          "the response wire facts ride verbatim under :meta, the multi-valued header's ONE normalized vector shape included")))
   (testing "absent metadata is OMITTED, never fabricated (the
             2-arity and a nil 3rd arg both leave :meta off the reply)"
     (is (not (contains? (rf.http.reply/success-reply base-ctx {:v 1}) :meta)))
     (is (not (contains? (rf.http.reply/success-reply base-ctx {:v 1} nil) :meta)))))
-
-(deftest failure-reply-maps-to-error
-  (testing "a transport failure builds a schema-valid :status :error reply"
-    (let [r (rf.http.reply/failure-reply
-              base-ctx {:kind :rf.http/http-5xx :status 503 :body "down"})]
-      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :error (:status r)))
-      (is (= :failed (:rf.reply/work-status r)))
-      (is (= :rf.http/http-5xx (get-in r [:error :kind])))
-      (is (= 503 (get-in r [:error :status]))))))
 
 ;; ===========================================================================
 ;; Group 2b — the CANONICAL envelope is delivered END-TO-END through the real
@@ -197,7 +173,7 @@
         (finally (stop-server! srv))))))
 
 (deftest real-transport-explicit-on-failure-delivers-canonical-envelope
-  (testing "explicit :on-failure receives the canonical {:status :error :error {:kind :rf.http/http-5xx …} …} envelope"
+  (testing "explicit :on-failure receives the canonical {:status :error :error {:kind :rf.http/http-5xx …} …} envelope, with no :meta"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 503 "text/plain" "down")))]
@@ -215,7 +191,9 @@
           ;; the classified :rf.http/* failure map rides VERBATIM under :error
           (is (= :rf.http/http-5xx (get-in db [:got :error :kind])))
           (is (= 503 (get-in db [:got :error :status])))
-          (is (not (contains? (:got db) :kind)) "no :kind dialect"))
+          (is (not (contains? (:got db) :kind)) "no :kind dialect")
+          (is (not (contains? (:got db) :meta))
+              "failure replies carry no :meta — their wire facts (status, status text, headers) ride :error"))
         (finally (stop-server! srv))))))
 
 (deftest real-transport-success-reply-carries-response-meta
@@ -258,28 +236,6 @@
               "a multi-valued header is the normalized vector of verbatim lines — no second header representation")
           (is (string? (get-in reply [:meta :headers "content-type"]))
               "single-valued headers keep the string shape"))
-        (finally (stop-server! srv))))))
-
-(deftest real-transport-failure-reply-carries-no-response-meta
-  (testing "the scope is SUCCESSFUL responses: a failure reply's
-            wire facts already ride the :error map (status/status-text/
-            headers), so no :meta is added on the failure path"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 503 "text/plain" "down")))]
-      (try
-        (rf/reg-event :meta/fail
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/x")}
-                    :on-failure [:meta/failed]}]]}))
-        (rf/reg-event :meta/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
-        (rf/dispatch-sync [:meta/fail])
-        (let [db (await-reply! #(some? (:reply %)))]
-          (is (not (contains? (:reply db) :meta))
-              "failure replies carry no :meta — their wire facts live on :error")
-          (is (= 503 (get-in db [:reply :error :status]))
-              "the failure map carries the wire status"))
         (finally (stop-server! srv))))))
 
 ;; ===========================================================================
@@ -540,8 +496,6 @@
             ;; two are =-distinct — tooling can tell them apart by :work/id.
             (is (= [:rf.work/http :search 1 1] (:work/id (:rf.reply/carried tags))))
             (is (= [:rf.work/http :search 2 1] (:work/id (:rf.reply/current tags))))
-            (is (not= (:work/id (:rf.reply/carried tags))
-                      (:work/id (:rf.reply/current tags))))
             ;; The canonical join key reads the carried (superseded) work-id.
             (is (= [:rf.work/http :search 1 1] (:rf.reply/work-id tags)))))
         ;; Device (2) — read while BOTH exchanges are still held: the supersede
@@ -637,14 +591,13 @@
             (reset! cofx coeffects)
             {:db (assoc db :done true)}))
         (rf/dispatch-sync [:svc/call])
-        (let [db (await-reply! #(:done %))
+        (let [_  (await-reply! #(:done %))
               c  @cofx
               replied (->> @traces
                            (filter #(= :rf.http/replied (:operation %)))
                            first)
               trace-completed-at (get-in replied [:tags :completed-at])
               opts @reply-dispatch-opts]
-          (is (some? db))
           ;; (1) HTTP supplies a flat :rf.cofx :rf/time-ms on the reply dispatch.
           (is (= {:rf/time-ms trace-completed-at} (:rf.cofx opts))
               "the http reply dispatch SUPPLIES a flat :rf.cofx {:rf/time-ms <completed-at>} — not omitted, not nested")

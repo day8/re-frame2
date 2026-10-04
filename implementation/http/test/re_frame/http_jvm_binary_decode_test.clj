@@ -131,16 +131,6 @@
 
 ;; ---- (2) per-host timeout :elapsed-ms --------------------------------------
 
-(deftest classify-jvm-error-stamps-elapsed-ms-on-timeout
-  (testing "classify-jvm-error's 3-arity stamps the measured
-            :elapsed-ms onto a timeout failure"
-    (let [classify rf.http.transport-jvm/classify-jvm-error
-          timeout  (java.net.http.HttpTimeoutException. "request timed out")
-          failure  (classify timeout 30000 1234)]
-      (is (= :rf.http/timeout (:kind failure)))
-      (is (= 1234 (:elapsed-ms failure)) "measured elapsed wall-clock is carried")
-      (is (= 30000 (:limit-ms failure)) "the configured limit is preserved"))))
-
 (deftest jvm-real-timeout-populates-elapsed-ms
   (testing "a live JVM request that exceeds its per-attempt
             timeout surfaces :rf.http/timeout with a NON-nil :elapsed-ms

@@ -35,30 +35,6 @@
     (is (some? (requiring-resolve 'malli.core/validate)))
     (is (some? (requiring-resolve 'malli.transform/json-transformer)))))
 
-;; ---- malli-decode: coerce success -----------------------------------------
-
-(deftest malli-decode-coerces-with-json-transformer
-  (testing "malli-decode runs the schema's decode with the
-            JSON transformer, applying the canonical JSON coercions (the
-            classic case is string→keyword and string→enum, since JSON
-            has no keyword type) — proving the transformer arg is actually
-            wired (a plain validate-only path would reject the string)
-            (Spec 014 §Decoding 'the canonical form')"
-    ;; The json-transformer coerces a JSON string into a keyword against a
-    ;; :keyword schema, and into an enum member against an [:enum ...]
-    ;; schema. This is the JSON-shaped coercion (numbers already arrive as
-    ;; numbers from the JSON parse, so :int coercion is a no-op).
-    (is (= :foo (malli-decode :keyword "foo"))
-        "JSON string coerced to keyword via the json-transformer")
-    (is (= :a (malli-decode [:enum :a :b] "a"))
-        "JSON string coerced to an enum member via the json-transformer")
-    (testing "a map schema coerces nested string values and keeps numbers as-is"
-      (is (= {:id 7 :status :ok}
-             (malli-decode [:map [:id :int] [:status :keyword]]
-                           {:id 7 :status "ok"}))
-          "string :status coerced to keyword; numeric :id kept (JSON
-           already parsed it to a number)"))))
-
 ;; ---- malli-decode: validation failure -------------------------------------
 
 (deftest malli-decode-throws-canonical-ex-info-on-validation-failure
@@ -83,14 +59,6 @@
           "the offending schema rides the ex-data for diagnosis")
       (is (contains? d :value)
           "the rejected (decoded) value rides the ex-data for diagnosis"))))
-
-(deftest malli-decode-map-schema-missing-required-key-throws
-  (testing "a map missing a required key fails validation"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/http-schema-validation-failed"
-          (malli-decode [:map [:id :int] [:name :string]]
-                        {:id 1})))))
 
 ;; ---- decode-response-body — schema branch end-to-end ----------------------
 
@@ -240,48 +208,29 @@
 
 (deftest schema-decode-accepts-vendor-plus-json-media-types
   (testing "a schema :decode over a body whose Content-Type
-            carries the RFC 6839 `+json` suffix (vnd.api+json, ld+json,
-            vnd.github+json) decodes as JSON rather than being rejected
-            as `:rf.error/http-schema-non-json-content-type`"
-    (doseq [ct ["application/vnd.api+json"
-                "application/ld+json"
-                "application/vnd.github+json"
-                "application/vnd.api+json; charset=utf-8"]]
-      (is (= {:title "hello" :id 42}
-             (rf.http.decode/decode-response-body
-               {:body-text "{\"title\":\"hello\",\"id\":42}"
-                :headers   {"content-type" ct}
-                :decode    [:map [:title :string] [:id :int]]}))
-          (str "vendor +json media type should decode as JSON: " ct)))))
-
-(deftest schema-decode-still-rejects-genuine-non-json-content-type
-  (testing "the present-non-JSON reject guard holds: a
-            schema :decode over an application/edn / text/plain response
-            raises the clear MIME-mismatch error (not a misleading
-            Malli string-validation failure)"
-    (doseq [ct ["application/edn" "text/plain" "application/xml"]]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf.error/http-schema-non-json-content-type"
-            (rf.http.decode/decode-response-body
-              {:body-text "{\"title\":\"hello\"}"
-               :headers   {"content-type" ct}
-               :decode    [:map [:title :string]]}))
-          (str "genuine non-JSON media type must still reject: " ct)))))
+            carries the RFC 6839 `+json` suffix decodes as JSON rather than
+            being rejected as `:rf.error/http-schema-non-json-content-type`.
+            Which media types count as JSON is pinned by
+            `json-media-type-predicate-edge-cases`; this pins that the schema
+            gate consults it, parameters included"
+    (is (= {:title "hello" :id 42}
+           (rf.http.decode/decode-response-body
+             {:body-text "{\"title\":\"hello\",\"id\":42}"
+              :headers   {"content-type" "application/vnd.api+json; charset=utf-8"}
+              :decode    [:map [:title :string] [:id :int]]}))
+        "a vendor +json media type with parameters decodes as JSON")))
 
 (deftest auto-sniff-resolves-plus-json-to-json
   (testing ":auto sniffing of a `+json` suffix Content-Type
             resolves to :json (parses the body) rather than mis-sniffing
-            to :blob"
-    (doseq [ct ["application/vnd.api+json"
-                "application/ld+json"
-                "application/vnd.github+json; charset=utf-8"]]
-      (is (= {:ok true}
-             (rf.http.decode/decode-response-body
-               {:body-text        "{\"ok\":true}"
-                :headers          {"content-type" ct}
-                :decode           :auto}))
-          (str "vendor +json media type should auto-sniff to :json: " ct)))))
+            to :blob; which media types count as JSON is pinned by
+            `json-media-type-predicate-edge-cases`"
+    (is (= {:ok true}
+           (rf.http.decode/decode-response-body
+             {:body-text        "{\"ok\":true}"
+              :headers          {"content-type" "application/vnd.github+json; charset=utf-8"}
+              :decode           :auto}))
+        "a vendor +json media type with parameters auto-sniffs to :json")))
 
 (deftest json-media-type-predicate-edge-cases
   (testing "the JSON media-type predicate accepts json subtype

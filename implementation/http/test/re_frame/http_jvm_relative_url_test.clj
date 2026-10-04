@@ -18,10 +18,10 @@
   dedicated `:rf.error/*` id or failure kind.
 
   Two layers of coverage:
-   - a unit test calling `jvm-build-request` directly (mirrors the
-     `http-transport-security-test` direct-call idiom) pins the throw
-     message contract precisely, plus the absolute-url non-regression
-     complement; and
+   - unit tests calling `jvm-build-request` directly (mirrors the
+     `http-transport-security-test` direct-call idiom) pin the throw
+     message contract precisely, for a path-only and a scheme-relative
+     url; and
    - an end-to-end dispatch test (mirrors `http-managed-test`'s
      `jvm-transport-failure`) proves a REAL (non-stub, non-canned)
      `:rf.http/managed` request with a relative url resolves to a

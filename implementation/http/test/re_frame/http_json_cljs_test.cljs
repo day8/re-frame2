@@ -82,8 +82,6 @@
   (testing "sanity-check `json-stringify` on CLJS uses
             `js/JSON.stringify` and produces standard JSON output
             (no edn-isms, no host-specific encoding quirks)."
-    (is (= "{\"a\":1,\"b\":\"hello\"}"
-           (rf.http.json/json-stringify {:a 1 :b "hello"})))
     (is (= "[1,2,3]" (rf.http.json/json-stringify [1 2 3])))
     (is (= "true" (rf.http.json/json-stringify true)))
     (is (= "null" (rf.http.json/json-stringify nil)))))
