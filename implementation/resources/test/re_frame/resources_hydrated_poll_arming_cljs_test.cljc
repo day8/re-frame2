@@ -294,6 +294,3 @@
     (is (= [:rf/default] @rearms) "the rearm was requested")
     (is (some? (gc-slot)) "…and armed the GC timer, so the timer table is live")
     (is (nil? (poll-slot)) "no poll timer without a poll policy")))
-
-;; ---- nothing arms on a server-side hydrate ---------------------------------
-
