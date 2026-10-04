@@ -100,7 +100,7 @@ rg -n '\[\s*(re-frame\.[A-Za-z0-9_.-]+)' . --only-matching --multiline --replace
 
 That shape does not fail loudly after the swap, because **a CLJS map is itself callable**: invoked as a fn it is a keyword-lookup-with-default, so the two-arg call above returns its **second argument** (`[:foo 1]`) and a one-arg call returns `nil`. No compile error, no arity error, no throw — the wrong value simply flows on, and only the project's own suite surfaces it ([`runtime-smoke-test.md`](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build) — fixtures and `*_test` namespaces never load at app boot).
 
-So classify each `get-handler` hit by **what happens to its result**: introspected (a key read off it, handed to a tool) → the mechanical swap above; **invoked** → **flag for the author (Type B, cite M-1)**, since no raw handler fn is exposed publicly in v2. The v2 route for the test that wanted the fn is to drive the handler through `dispatch-sync` under `make-reset-runtime-fixture` ([`MIGRATION.md` §M-52](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)), or to hold a direct reference to the handler fn in the test namespace.
+So classify each `get-handler` hit by **what happens to its result**: introspected (a key read off it, handed to a tool) → the mechanical swap above; **invoked** → **flag for the author (Type B, cite M-1)**, since no raw handler fn is exposed publicly in v2. The v2 route for the test that wanted the fn is to drive the handler through `dispatch-sync` under `make-reset-runtime-fixture` ([`MIGRATION.md` §M-52](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)), or to hold a direct reference to the handler fn in the test namespace. If that test also changes a mock inside its body on a test frame with explicit images, follow [§Body-local mocks under explicit images](#body-local-mocks-under-explicit-images).
 
 **Caveat (M-1 `@app-db` → `app-db-value` is NOT semantically identical — reactivity loss):** `(rf/app-db-value :rf/default)` returns a **non-reactive snapshot** — a plain `app-db` map value, no deref, no reactive subscription (per `re-frame.core/app-db-value`'s docstring: *"current `app-db` VALUE (a plain map)… no deref, no container"*). v1's `@re-frame.db/app-db` is a **reactive** deref — `app-db` is a Reagent `ratom`, so a deref **inside a reactive context** (a `reaction`, a component render body, a `track`) subscribes that render to db changes and re-renders when `app-db` changes.
 
@@ -183,6 +183,36 @@ body...
 ```
 
 v2's `dispatch-sync` is already settle-by-default, so the macro added nothing on the synchronicity axis; the registrar snapshot/restore half is covered by the per-test fixture every v2 suite installs.
+
+#### Body-local mocks under explicit images
+
+Hoisting alone is enough while the body only adds ids no other loaded namespace registers, on a frame that resolves the default image. It is not enough when the test frame runs explicit images (SKILL.md §Boot and init) and the body changes a mock that must beat a product registration. Re-registering the mock in the body is the v1 habit that fails here: a frame over explicit images resolves only what its images select, so the re-registration never reaches it, and on the default image a fresh frame fails with `:rf.error/image-duplicate-id`. Put the mock in a final image that selects no product namespace, give the test frame an `:id`, and when the body changes the mock, re-call `make-frame` on that `:id` with the new image. Same-id re-construction is the public image hot-reload: it keeps app-db, does not re-fire `:initial-events`, and evicts the cached subscriptions whose definition changed.
+
+```clojure
+(def product-image (rf/image {:id :shop/image :select-ns {:include ["shop.**"]}}))
+
+(defn mock-image [price]                    ; final and disjoint: inline, selects no namespace
+  (rf/image {:id :test/mocks :registrations {:reg-sub [[:shop/price (fn [_db _q] price)]]}}))
+
+(defn shop-frame [price]                    ; the whole config, re-supplied on every call
+  {:id :test/shop :preset :test
+   :images [product-image (mock-image price)]
+   :initial-events [[:rf/set-db {:shop/items []}]]})
+
+(deftest price-follows-the-mock
+  (rf/make-frame (shop-frame :a))
+  (rf/dispatch-sync [:shop/add "SKU-1"] {:frame :test/shop})
+  (is (= :a @(rf/subscribe [:shop/price] {:frame :test/shop})))    ; now cached
+  (rf/make-frame (shop-frame :b))           ; same :id, new :images
+  (is (= :b @(rf/subscribe [:shop/price] {:frame :test/shop})))    ; subscribe again after the swap
+  (is (= ["SKU-1"] (:shop/items (rf/app-db-value :test/shop)))))   ; app-db kept
+```
+
+- **Order the mock last.** Selected before the product image it loses silently: the product definition resolves, and `(:rf.gen/shadows (rf/frame-generation :test/shop))` names the mock as the shadowed side. Assert that report when the override matters.
+- **Keep the double out of the product image.** A namespace-authored double selected into the same image as the product registration fails frame creation with `:rf.error/image-duplicate-id`.
+- **Cleanup has two halves.** The reset fixture, or the snapshot/restore bracket above, rolls back `reg-*` writes and leaves live frames alone — restoring the registrar after a re-image leaves the frame mocked. The frame is the other half: `make-reset-runtime-fixture` clears every frame after each test (an `:async? true` suite does it in `:after`, once `done` has run); a test outside that fixture destroys its frame with `rf/destroy-frame!`.
+
+The image surface is the `re-frame2` skill's [`frames.md` §Images](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/frames.md#images--the-registration-set-half-ep-0023) and [`images.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/images.md); its contracts are [`spec/API.md` §Registration](https://github.com/day8/re-frame2/blob/main/spec/API.md#registration) (`image`, `make-frame`) and [`spec/002-Frames.md` §Image resolution and composition](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#image-resolution-and-composition).
 
 ### M-25 (async tests) — `run-test-async` + `wait-for` / `wait-for-event`
 
