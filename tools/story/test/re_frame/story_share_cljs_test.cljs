@@ -11,7 +11,6 @@
   (per `tools/story/spec/Tutorial-Embed.md`)."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.story :as rf.story]
             [re-frame.story.share :as rf.story.share]))
 
 (deftest variant-share-url-clears-stale-omitted-keys-cljs
