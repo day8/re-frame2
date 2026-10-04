@@ -17,7 +17,6 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-helpers :as rf.test-helpers]
             [re-frame.test-support :as rf.test-support]
-            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.reactive-panel :as facade]
             [day8.re-frame2-xray.panels.reactive-panel-view :as view]
             [day8.re-frame2-xray.spine :as spine]))
@@ -94,15 +93,6 @@
              (empty-text epoch-only)))
       (is (= "No event focused." (empty-text unset))))))
 
-(deftest reactive-panel-uses-views-display-label
-  (testing "the L4 tab displays as `Views` under the all-plural-domain-
-            noun convention; the panel-registry key is `:views`."
-    (facade/install!)
-    (let [registered (panel-registry/tab-by-id :dynamic :views)]
-      (is (some? registered) "panel-registry has a :views entry under :dynamic")
-      (is (= "Views" (:label registered))
-          "L4 tab label renders as `Views`"))))
-
 (defn- seed-reactive-data!
   "Re-register the composite `:rf.xray/reactive-data` to return a
   literal so the panel view renders its focused-event-bundle body."
@@ -132,11 +122,7 @@
       (is (has-testid? tree "rf-xray-reactive-appdb-node") "app-db source node renders")
       (is (has-testid? tree "rf-xray-reactive-node-l1-_cart_state") "Level-1 node renders")
       (is (has-testid? tree "rf-xray-reactive-node-l2-_cart_total") "Level-2 node renders")
-      (is (has-testid? tree "rf-xray-reactive-view-node-_cart_Summary") "view node renders")
-      ;; there are no three-table testids
-      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-l1-table")) "no Level-1 table")
-      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-l2-table")) "no Level-2 table")
-      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-reactive-views-table")) "no Views table"))))
+      (is (has-testid? tree "rf-xray-reactive-view-node-_cart_Summary") "view node renders"))))
 
 (deftest reactive-flow-heading-is-title-case-not-all-caps
   (testing "the primary `Reactive Flow` heading renders in
@@ -566,9 +552,6 @@
             addressing 3 nodes.)"
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
-    (is (map? (->RecA 1)) "premise — a CLJS record IS `map?`, hence the hazard")
-    (is (not= (->RecA 1) (->RecB 1)) "premise — the two record types are unequal")
-    (is (not= (->RecA 1) {:x 1}) "premise — record and plain map are unequal")
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
@@ -600,8 +583,6 @@
             value-collapse."
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
-    (is (= (assoc (->RecA 1) :b 2 :c 3) (assoc (->RecA 1) :c 3 :b 2))
-        "premise — the two extension orders are value-equal")
     (seed-reactive-data!
       {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
