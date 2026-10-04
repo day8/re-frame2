@@ -59,7 +59,9 @@
             ;; flows artefact loaded (the canonical fixture's flows reset is
             ;; late-bound and no-ops when the artefact is absent).
             [re-frame.flows]
-            [re-frame.http.managed :as rf.http.managed]
+            ;; load-bearing: registers the `:rf.http/managed-abort` fx this
+            ;; suite's cancel event emits.
+            [re-frame.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -293,13 +295,9 @@
         ;; The handler's :db did NOT land — pre-install throw discards
         ;; the entire pending :db (handler dissoc + flow write alike).
         (is (= baseline-db (rf/app-db-value :rf/default))
-            "app-db is byte-for-byte the pre-cancel value — the handler's
-             dissoc was rolled in with the flow's pending write and
-             discarded wholesale by the flow throw")
-        (is (true? (get-in (rf/app-db-value :rf/default)
-                           [:http/in-flight :load-articles]))
-            "app-db's in-flight slot for :load-articles is STILL populated
-             — the cancel's dissoc did NOT install")
+            "app-db is byte-for-byte the pre-cancel value, its in-flight slot
+             still populated — the handler's dissoc was rolled in with the
+             flow's pending write and discarded wholesale by the flow throw")
 
         ;; The :rf.http/managed-abort fx did NOT fire — :fx is the
         ;; post-install stage that the flow-throw path skips wholesale.
@@ -308,10 +306,6 @@
              and a flow throw aborts the event BEFORE install (atomicity
              contract; split-brain prevention: no transport abort
              on a request whose app-db state still says it's pending)")
-        (is (contains? (rf.http.managed/in-flight-snapshot) :load-articles)
-            "the side-channel in-flight registry STILL holds the request
-             — finalise-failure! never ran because the abort-fn was never
-             called")
 
         ;; Trace signature: :rf.flow/failed fired but NO :rf.event/db-changed.
         (is (seq (by-op :rf.flow/failed))

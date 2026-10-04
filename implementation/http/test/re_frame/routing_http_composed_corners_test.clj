@@ -10,9 +10,8 @@
     - a pending-navigation cancel leaves the active route's in-flight
       managed request registered;
     - a pending-navigation continue re-issues the navigation and advances
-      the nav-token;
-    - a managed HTTP reply belonging to a navigation superseded through a
-      pending-navigation cycle is suppressed by the nav-token guard.
+      the nav-token, so a managed HTTP reply belonging to the navigation it
+      superseded is suppressed by the nav-token guard.
 
   Abort-vs-decode-failure precedence is pinned in
   `re-frame.http-abort-precedence-test`."
@@ -123,67 +122,7 @@
           "post-cancel: current route slice still on the active editor route"))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. Pending-navigation continue advances the nav-token
-;;
-;; The continue branch re-issues the original navigation with
-;; :bypass-leave? true. The nav-token advances on the new
-;; :rf.route/handle-url-change, which is what test 3's stale-reply
-;; suppression keys on.
-;; ---------------------------------------------------------------------------
-
-(deftest pending-navigation-continue-bumps-nav-token
-  (testing ":rf.route/continue: re-issues navigation and bumps the nav-token"
-    (rf/reg-sub :editor/blocked? (fn [_ _] false)) ;; false = "cannot leave"
-    (rf/reg-route :route/editor
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/blocked?} "/editor/:id")
-    ;; Use a sibling route that's an actual valid URL (not /home which
-    ;; would be :route/root). /sibling has its own route entry.
-    (rf/reg-route :route/sibling {} "/sibling")
-
-    ;; Land on /editor/draft.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/draft" {:rf.route/cause :link}])
-    (is (= :route/editor (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/routing :current :route-id]))
-        "precondition: landed on :route/editor")
-    (let [token-before (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/routing :current :nav-token])]
-      (is (some? token-before) "precondition: nav-token allocated for editor")
-
-      ;; Capture the :rf.nav/push-url so the continued nav doesn't
-      ;; require a real browser-history. The route slice still updates
-      ;; via :rf.route/handle-url-change dispatched from :rf.route/url-requested.
-      (let [pushed (atom [])]
-        (rf.fx/reg-fx :rf.nav/push-url
-                   {:platforms #{:server :client}}
-                   (fn [_ url] (swap! pushed conj url)))
-
-        ;; Issue navigation to /sibling — leave-guard blocks.
-        (rf/dispatch-sync [:rf.route/url-requested {:url "/sibling"}])
-        (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation])]
-          (is (some? pending) "precondition: pending-nav slot populated")
-
-          ;; Continue.
-          (rf/dispatch-sync [:rf.route/continue (:id pending)])
-
-          ;; Pending-nav slot cleared.
-          (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-              "post-continue: pending-nav slot cleared")
-
-          ;; The continued nav completed — slice is now on /sibling and
-          ;; nav-token bumped.
-          (is (= :route/sibling (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                        [:rf.runtime/routing :current :route-id]))
-              "post-continue: current route slice is on the continued target")
-          (let [token-after (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                    [:rf.runtime/routing :current :nav-token])]
-            (is (not= token-before token-after)
-                "post-continue: nav-token advanced past the pending cycle"))
-          (is (some #{"/sibling"} @pushed)
-              "post-continue: :rf.nav/push-url received /sibling"))))))
-
-;; ---------------------------------------------------------------------------
-;; 3. Composed stale HTTP reply DURING a pending-navigation cycle is
+;; 2. Composed stale HTTP reply DURING a pending-navigation cycle is
 ;;    suppressed when it arrives post-resume
 ;;
 ;; User on /articles/A; an on-match handler issues a managed HTTP with
@@ -241,6 +180,8 @@
                                     [:rf.runtime/routing :current :nav-token])]
             (is (not= token-A token-after)
                 "nav-token advanced past the pending cycle")
+            (is (some #{"/articles/B"} @pushed)
+                "the continue re-issued the navigation: :rf.nav/push-url received /articles/B")
 
             ;; A's stale reply finally arrives, carrying token-A.
             (rf/dispatch-sync [:article/loaded-bridge
