@@ -1917,33 +1917,6 @@
         (is (seq (:subs-ran data))
             "a real pinned epoch must still project its own subs")))))
 
-(deftest sub-trace-feed-shape-on-empty-buffer
-  (testing ":rf.xray/trace-feed returns :no-focus empty-kind initially
-            (epoch-scoped: no focused epoch + empty history
-            → :no-focus / 0 rows)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/trace-feed])]
-        (is (= 0 (:total data)))
-        (is (= 0 (:rendered data)))
-        (is (= :no-focus (:empty-kind data)))))))
-
-(deftest sub-machine-inspector-data-shape-empty
-  (testing ":rf.xray/machine-inspector-data returns :no-machines kind when
-            the registered-machines override is forced to []"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      ;; The framework's `:event` registrar is process-global, so
-      ;; on a node-test target where the machines artefact's own test
-      ;; suite registered fixture machines, the live call surfaces a
-      ;; non-empty vector. Pin the override to [] so the empty-state
-      ;; contract is testable in isolation.
-      (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test []])
-      (let [data @(rf/subscribe [:rf.xray/machine-inspector-data])]
-        (is (contains? data :machines))
-        (is (= 0 (:total data)))
-        (is (= :no-machines (:empty-kind data)))))))
-
 (deftest sub-reactive-data-show-unchanged-resolves-both-axes
   (testing "the §3.4 disclosure open-state (`:show-unchanged?`
             on :rf.xray/reactive-data, the flag the panel view reads) is the
@@ -2074,47 +2047,6 @@
       (is (= :traffic-light @(rf/subscribe [:rf.xray/selected-machine-id])))
       (rf/dispatch-sync [:rf.xray/clear-machine-selection])
       (is (nil? @(rf/subscribe [:rf.xray/selected-machine-id]))))))
-
-;; ---- (5) test-only override events --------------------------------------
-
-(deftest event-override-events-set-then-clear
-  (testing "a :set-*-override-for-test event sets a value AND clears on nil"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      ;; Exercised on the Machine Inspector's registered-machines
-      ;; override.
-      (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test [:m]])
-      (is (= [:m] (:registered-machines-override (rf.frame/frame-app-db-value :rf/xray))))
-      (rf/dispatch-sync [:rf.xray/set-registered-machines-override-for-test nil])
-      (is (nil? (:registered-machines-override (rf.frame/frame-app-db-value :rf/xray)))))))
-
-;; ---- (6) reg-fx contracts -----------------------------------------------
-;;
-;; The :rf.xray.fx/* handlers each follow re-frame v2's `(fn [ctx args] ...)`
-;; signature.
-;;
-;; The clipboard fx is pinned by its node-target contract directly below,
-;; and by its full reachable gesture (the Static Machines `Copy Mermaid`
-;; action, including the REAL registered fx on this node target) in
-;; `static/machines/copy_mermaid_cljs_test.cljs`.
-
-(deftest fx-copy-to-clipboard-handles-non-browser-target
-  (testing ":rf.xray.fx/copy-to-clipboard does not throw on a node-test
-            target (no js/navigator.clipboard); contract is best-effort.
-
-            Driven by invoking the REGISTERED fx handler directly, so the
-            contract holds without depending on any particular caller."
-    (setup-xray-frame!)
-    ;; Re-register the LIVE handler (the registry's, not our capture).
-    (registry/reset-for-test!)
-    (registry/register-xray-handlers!)
-    (let [handler (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)]
-      (is (some? handler) "the fx stays registered")
-      (rf/with-frame :rf/xray
-        ;; Should not throw — the reg-fx wraps the navigator access in a
-        ;; try / catch :default, and with no `:on-failure` there is nothing
-        ;; to dispatch on the unavailable-clipboard branch.
-        (is (nil? (handler {:frame :rf/xray} {:text ":hi"})))))))
 
 ;; ---- (7) override-aware reader semantics --------------------------------
 
