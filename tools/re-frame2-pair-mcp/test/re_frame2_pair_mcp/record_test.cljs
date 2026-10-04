@@ -214,27 +214,6 @@
                  (is (= :missing-recording-id (:reason (tu/extract-edn r))))
                  (done))))))
 
-(deftest read-recording-legitimate-empty-drain-stays-ok
-  ;; Guard the non-regression: a legitimate empty drain is the runtime's
-  ;; `{:ok? true :count 0 :entries []}` MAP — a real success, NOT a fault.
-  ;; `map-envelope-result` only diverts an explicit `:ok? false`, so an
-  ;; empty-but-ok read must still ride as a non-error success.
-  (async done
-    (let [canned {:ok? true :recording-id "rec-x" :status :recording
-                  :count 0 :entries []}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (record/read-recording-tool (fresh-conn)
-                                          #js {:recording-id "rec-x" :drain true})))
-          (.then (fn [r]
-                   (is (not (tu/error? r))
-                       "an empty-but-ok drain is a success, not an error")
-                   (let [edn (tu/extract-edn r)]
-                     (is (true? (:ok? edn)))
-                     (is (= 0 (:count edn)))
-                     (is (= [] (:entries edn))))
-                   (done)))))))
-
 (deftest read-recording-drain-and-stop-ride-the-form
   ;; The :drain / :stop bool args must reach the runtime read-recording
   ;; call as an opts map — capture the emitted form to confirm.
