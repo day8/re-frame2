@@ -212,6 +212,10 @@
                "projected :resource/key — got " (pr-str pk)))
       (is (= :rf/redacted (get-in pk [2 :account-id]))
           "the declared slot carries the redaction sentinel, in place")
+      (is (= [:rf.scope/global :account/summary {:account-id :rf/redacted :page 3}] pk)
+          "only the declared slot changes: the scope, the resource-id and the
+           undeclared sibling survive, which keeps a tool's per-key joins and
+           attribution working")
       (is (true? (:sensitive? tags))
           "a row whose key redacted is stamped :sensitive?"))))
 
@@ -253,17 +257,6 @@
 ;; 2. THE TWO-SIDED CONTROL. Over-redaction is as wrong as under-redaction.
 ;; ===========================================================================
 
-(deftest plain-owners-key-rides-byte-identical
-  (testing "a resource declaring NOTHING has its key ride verbatim — same value
-            AND same CEDN-1 bytes (no walk, so no list↔vector collapse)"
-    (let [k  (key-for :plain/summary)
-          pk (projected-key k)]
-      (is (= k pk) "a plain owner's key is unchanged")
-      (is (= (rf.resources.state/key-id k) (rf.resources.state/key-id pk))
-          "…byte-identical, so the cache-key-identity round-trip is intact")
-      (is (leaks? account-secret pk)
-          "an undeclared param is app data and stays readable to a tool"))))
-
 (deftest kind-preserving-when-nothing-is-declared
   (testing "the walker reconstructs collections, so an UNNECESSARY
             walk would collapse a list-valued param to a vector and change the
@@ -275,21 +268,6 @@
           "an undeclared owner's key is byte-for-byte the same, list kind included")
       (is (list? (get-in pk [2 :ids]))
           "the list stays a list"))))
-
-(deftest undeclared-siblings-and-structure-survive-the-substitution
-  (testing "the substitution is IN PLACE: only the declared slot changes. The
-            undeclared sibling, the scope, and the resource-id all survive —
-            which is what keeps a tool's per-key joins and attribution working"
-    (let [k  (key-for :account/summary)
-          pk (projected-key k)]
-      (is (= :rf.scope/global (nth pk 0))
-          ":rf.scope/global is untouched")
-      (is (= :account/summary (nth pk 1))
-          "the resource-id survives at position 1 (attribution)")
-      (is (= 3 (get-in pk [2 :page]))
-          "the UNDECLARED sibling param stays readable")
-      (is (= #{:account-id :page} (set (keys (nth pk 2))))
-          "no param slot is added or dropped — the params key set is closed"))))
 
 (deftest an-undeclared-row-is-not-stamped-sensitive
   (testing "stamp-precision: a plain owner's row carries no :sensitive? stamp,
