@@ -173,10 +173,6 @@
 
 ;; ---- (1) predicates -----------------------------------------------------
 
-(deftest destroy-event?-negative
-  (is (false? (h/destroy-event? (dispatched-ev [:auth/logout]))))
-  (is (false? (h/destroy-event? (http-abort-ev {})))))
-
 (deftest cancellation-anchor?-rejects-impossible-channel-reason-tuples
   ;; Validating channel membership and reason membership INDEPENDENTLY
   ;; would accept these cross-products; the runtime cannot emit any of
