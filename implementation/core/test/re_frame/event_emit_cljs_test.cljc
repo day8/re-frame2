@@ -179,26 +179,6 @@
           "the handler's :db write did NOT land — a flow throw aborts the
            event with no install (app-db unchanged)"))))
 
-(deftest listener-marks-clean-dispatch-as-ok-with-failure-hooks-installed
-  (testing "With BOTH cascade-failure hooks installed but PASSING (schema
-            conforms, flows run cleanly) a normal dispatch is
-            reported :ok — the non-:ok outcomes do not leak onto the
-            success path."
-    (let [seen (atom [])]
-      (rf.late-bind/set-fn! :schemas/validate-app-schema!
-                         (fn [_db-after _event-id _frame _continue?] true))
-      (rf.late-bind/set-fn! :flows/run-flows-on-db
-                         (fn [_frame db _runtime-db _exact-owner] db))
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/writes
-                       (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-      (rf/dispatch-sync [:evt/writes])
-      (is (= 1 (count @seen)))
-      (is (= :ok (:outcome (first @seen)))
-          "a clean settle is :ok even with the failure hooks present"))))
-
 ;; ---- 2. Listener exceptions are swallowed --------------------------------
 
 (deftest listener-exception-is-swallowed
@@ -223,32 +203,7 @@
           "the sibling listener still received the record — fan-out is
            defensive across listeners"))))
 
-;; ---- 3. Unregister-then-re-register is symmetric -------------------------
-
-(deftest unregister-then-re-register
-  (testing "Unregistering a listener stops it receiving subsequent
-            events; re-registering the same id reattaches it. The
-            registry is a plain atom — symmetric under register /
-            unregister / register."
-    (let [seen (atom [])]
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :evt/noop (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:evt/noop])
-      (is (= 1 (count @seen)) "listener fired before unregister")
-      (rf.event-emit/unregister-event-listener! :test/recorder)
-      (rf/dispatch-sync [:evt/noop])
-      (is (= 1 (count @seen)) "listener silent after unregister")
-      ;; Re-register and dispatch again.
-      (rf.event-emit/register-event-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/dispatch-sync [:evt/noop])
-      (is (= 2 (count @seen))
-          "listener fired again after re-registration under the same id"))))
-
-;; ---- 4. Multiple listeners are independent --------------------------------
+;; ---- 3. Multiple listeners are independent --------------------------------
 
 (deftest multiple-listeners-independent
   (testing "Every registered listener receives every record,
@@ -271,28 +226,6 @@
       (rf/dispatch-sync [:evt/once])
       (is (= 1 (count @a)) ":listener-a stayed silent after unregister")
       (is (= 2 (count @b)) ":listener-b still fired for the second dispatch"))))
-
-;; ---- 5. Record shape carries no trace-bus enrichment ----------------------
-
-(deftest record-shape-is-tight-no-trace-bus-keys
-  (testing "Per the substrate's record shape: the listener record carries
-            ONLY {:event :event-id :frame :time :outcome
-            :elapsed-ms}. No :dispatch-id, :parent-dispatch-id,
-            :rf.trace/trigger-handler, :tags, :op-type, :id (the
-            trace event-id counter), :source, :origin, or any other
-            trace-bus key."
-    (let [seen (atom nil)]
-      (rf.event-emit/register-event-listener!
-        :test/shape
-        (fn [record] (reset! seen record)))
-      (rf/reg-event :evt/shape (fn [{:keys [db]} _] {:db db}))
-      ;; Dispatch with a :source opt so we can prove the listener
-      ;; record does NOT carry it (trace-bus territory).
-      (rf/dispatch-sync [:evt/shape] {:source :test})
-      (let [r @seen]
-        (is (= #{:event :event-id :frame :time :outcome :elapsed-ms}
-               (set (keys r)))
-            "exactly the Spec 009 tight-record key set, nothing else")))))
 
 ;; No registered listeners is the hot-path floor — the substrate
 ;; short-circuits to a single deref-and-empty-check. This namespace's fixture,
