@@ -1,7 +1,7 @@
 (ns re-frame.story-layout-debug-cljs-test
-  "CLJS tests for the layout-debug overlays: the public id Vars and the
-  per-variant overlay toggle panel. The decorators' registration, wrap
-  shape and resolution are pure `.cljc` and are covered on the JVM in
+  "CLJS tests for the layout-debug overlays' per-variant toggle panel.
+  The decorators' public ids, registration, wrap shape and resolution
+  are pure `.cljc` and are covered on the JVM in
   `re-frame.story-layout-debug-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -24,14 +24,6 @@
   (rf.frame/ensure-default-frame!))
 
 (use-fixtures :each {:before reset-all!})
-
-;; ---- public ids ----------------------------------------------------------
-
-(deftest public-ids-exposed
-  (testing "the three public id Vars match the canonical ids"
-    (is (= :rf.story/layout-debug.measure rf.story/layout-debug-measure-id))
-    (is (= :rf.story/layout-debug.outline rf.story/layout-debug-outline-id))
-    (is (= :rf.story/layout-debug.pseudo  rf.story/layout-debug-pseudo-id))))
 
 ;; ---- per-overlay toggle state + DOM + variant-state ---------------------
 ;;
