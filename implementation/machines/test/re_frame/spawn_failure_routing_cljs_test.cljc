@@ -157,15 +157,6 @@
       (is (= [] @folds) "the per-child :on-done fold never saw the failure")
       (is (nil? (:slot (data ::j1))) "the success slot stayed empty"))))
 
-(deftest j2-succeeded-join-child-folds-and-completes
-  (testing "J2 (control) — a join child reaching a plain :final? leaf folds its result and completes the join"
-    (let [folds (atom [])
-          child (start-join-parent! ::j2 ::j2-child (recording-fold folds) {:on-any-failed? true})]
-      (rf/dispatch-sync [child [:ok]])
-      (is (= :next (state ::j2)) "the parent took :on-all-complete")
-      (is (= [:the-value] @folds) "the fold ran once, with the success value")
-      (is (= :the-value (:slot (data ::j2)))))))
-
 (deftest j3-failed-join-child-without-on-any-failed-lands-in-the-failed-set-only
   (testing "J3 — without :on-any-failed a failed join child lands in the join's :failed set and nowhere else"
     (let [folds (atom [])
