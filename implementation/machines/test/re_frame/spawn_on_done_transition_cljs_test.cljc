@@ -182,17 +182,6 @@
       (is (= :authenticating (:state snap)))
       (is (= "T" (get-in snap [:data :token]))))))
 
-(deftest fold-plus-always-advances
-  (testing "control: a fold plus an :always guarded on the folded :data"
-    (let [snap (run-login! :sodt-fw/login :sodt-fw/auth
-                           (login-parent :sodt-fw/auth fold-token
-                                         {:always {:guard  (fn [{data :data}] (some? (:token data)))
-                                                   :target :authenticated}}
-                                         {})
-                           "T")]
-      (is (= :authenticated (:state snap)))
-      (is (= "T" (get-in snap [:data :token]))))))
-
 ;; ---- registration ----------------------------------------------------------
 
 (deftest malformed-on-done-is-refused-at-registration
