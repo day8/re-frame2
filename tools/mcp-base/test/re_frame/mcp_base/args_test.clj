@@ -1,41 +1,38 @@
 (ns re-frame.mcp-base.args-test
   "Tests for the shared MCP argument-coercion helpers."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.mcp-base.args :as rf.mcp-base.args]))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-boolean
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-boolean-passthrough
-  (is (true? (rf.mcp-base.args/parse-boolean true false)))
-  (is (false? (rf.mcp-base.args/parse-boolean false true))))
-
-(deftest parse-boolean-nil-returns-default
-  (is (true? (rf.mcp-base.args/parse-boolean nil true)))
-  (is (false? (rf.mcp-base.args/parse-boolean nil false))))
-
-(deftest parse-boolean-recognises-truthy-strings
-  (is (true? (rf.mcp-base.args/parse-boolean "true" false)))
-  (is (true? (rf.mcp-base.args/parse-boolean "TRUE" false)))
-  (is (true? (rf.mcp-base.args/parse-boolean "1" false)))
-  (is (true? (rf.mcp-base.args/parse-boolean "yes" false)))
-  (is (true? (rf.mcp-base.args/parse-boolean "on" false))))
-
-(deftest parse-boolean-recognises-falsy-strings
-  (is (false? (rf.mcp-base.args/parse-boolean "false" true)))
-  (is (false? (rf.mcp-base.args/parse-boolean "0" true)))
-  (is (false? (rf.mcp-base.args/parse-boolean "no" true)))
-  (is (false? (rf.mcp-base.args/parse-boolean "off" true))))
-
-(deftest parse-boolean-recognises-keywords
-  (is (true? (rf.mcp-base.args/parse-boolean :true false)))
-  (is (false? (rf.mcp-base.args/parse-boolean :false true))))
-
-(deftest parse-boolean-unrecognised-falls-back
-  (is (true? (rf.mcp-base.args/parse-boolean "maybe" true)))
-  (is (false? (rf.mcp-base.args/parse-boolean "maybe" false)))
-  (is (true? (rf.mcp-base.args/parse-boolean 42 true))))
+(deftest parse-boolean-coerces-wire-values
+  ;; Booleans pass through; the recognised string spellings (any case)
+  ;; and the keywords `:true` / `:false` coerce; nil and anything
+  ;; unrecognised take the default.
+  (testing "resolves true"
+    (are [raw default] (true? (rf.mcp-base.args/parse-boolean raw default))
+      true    false
+      nil     true
+      "true"  false
+      "TRUE"  false
+      "1"     false
+      "yes"   false
+      "on"    false
+      :true   false
+      "maybe" true
+      42      true))
+  (testing "resolves false"
+    (are [raw default] (false? (rf.mcp-base.args/parse-boolean raw default))
+      false   true
+      nil     false
+      "false" true
+      "0"     true
+      "no"    true
+      "off"   true
+      :false  true
+      "maybe" false)))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-positive-int
@@ -122,30 +119,23 @@
 ;; fresh-keyword — positive-named intern for operator-gated write paths.
 ;; ---------------------------------------------------------------------------
 
-(deftest fresh-keyword-passes-through-keywords
-  (is (= :foo (rf.mcp-base.args/fresh-keyword :foo)))
-  (is (= :ns/foo (rf.mcp-base.args/fresh-keyword :ns/foo))))
-
-(deftest fresh-keyword-nil-returns-nil
-  (is (nil? (rf.mcp-base.args/fresh-keyword nil))))
-
-(deftest fresh-keyword-strips-leading-colon
-  (is (= :foo (rf.mcp-base.args/fresh-keyword ":foo"))))
-
-(deftest fresh-keyword-parses-namespaced
-  (is (= :rf.assert/path-equals (rf.mcp-base.args/fresh-keyword "rf.assert/path-equals")))
-  (is (= :rf.assert/path-equals (rf.mcp-base.args/fresh-keyword ":rf.assert/path-equals"))))
-
-(deftest fresh-keyword-blank-returns-nil
-  (is (nil? (rf.mcp-base.args/fresh-keyword "")))
-  (is (nil? (rf.mcp-base.args/fresh-keyword ":"))))
-
-(deftest fresh-keyword-rejects-non-string-non-keyword-input
-  ;; The contract is "agent-supplied id" — anything other than the two
-  ;; admitted shapes (string, keyword) returns nil rather than coercing.
-  (is (nil? (rf.mcp-base.args/fresh-keyword 42)))
-  (is (nil? (rf.mcp-base.args/fresh-keyword [:foo])))
-  (is (nil? (rf.mcp-base.args/fresh-keyword {:k :v}))))
+(deftest fresh-keyword-coerces-agent-ids
+  ;; The contract is "agent-supplied id": a keyword passes through, a
+  ;; string (bare or namespaced, with or without a leading colon) becomes
+  ;; a keyword, and nil, a blank string or any other shape returns nil
+  ;; rather than coercing.
+  (are [raw expected] (= expected (rf.mcp-base.args/fresh-keyword raw))
+    :foo                     :foo
+    :ns/foo                  :ns/foo
+    ":foo"                   :foo
+    "rf.assert/path-equals"  :rf.assert/path-equals
+    ":rf.assert/path-equals" :rf.assert/path-equals
+    nil                      nil
+    ""                       nil
+    ":"                      nil
+    42                       nil
+    [:foo]                   nil
+    {:k :v}                  nil))
 
 (deftest fresh-keyword-interns-on-fresh-input
   ;; The defining contract: `fresh-keyword` INTERNS by design (the call
@@ -215,13 +205,17 @@
 ;; parse-mode
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-mode-recognised-keyword
-  (is (= :diff (rf.mcp-base.args/parse-mode :diff :diff #{:diff :full})))
-  (is (= :full (rf.mcp-base.args/parse-mode :full :diff #{:diff :full}))))
-
-(deftest parse-mode-recognised-string
-  (is (= :diff (rf.mcp-base.args/parse-mode "diff" :diff #{:diff :full})))
-  (is (= :full (rf.mcp-base.args/parse-mode "full" :diff #{:diff :full}))))
+(deftest parse-mode-resolves-against-the-allowlist
+  ;; A keyword or string naming an allowed mode resolves to it; nil and
+  ;; anything outside the allowlist take the default.
+  (are [raw expected] (= expected (rf.mcp-base.args/parse-mode raw :diff #{:diff :full}))
+    :diff    :diff
+    :full    :full
+    "diff"   :diff
+    "full"   :full
+    nil      :diff
+    "maybe"  :diff
+    :unknown :diff))
 
 (deftest parse-mode-strips-leading-colon
   ;; Regression pin: `parse-mode` must accept
@@ -234,32 +228,30 @@
   (is (= :rf/foo (rf.mcp-base.args/parse-mode ":rf/foo" :default #{:rf/foo :rf/bar}))
       "namespaced keywords also strip the leading colon"))
 
-(deftest parse-mode-nil-returns-default
-  (is (= :diff (rf.mcp-base.args/parse-mode nil :diff #{:diff :full}))))
-
-(deftest parse-mode-unrecognised-returns-default
-  (is (= :diff (rf.mcp-base.args/parse-mode "maybe" :diff #{:diff :full})))
-  (is (= :diff (rf.mcp-base.args/parse-mode :unknown :diff #{:diff :full}))))
-
 ;; ---------------------------------------------------------------------------
 ;; safe-keyword — bounded-allowlist gate.
 ;; ---------------------------------------------------------------------------
 
-(deftest safe-keyword-allowed-keyword-passes
-  (is (= :diff (rf.mcp-base.args/safe-keyword :diff #{:diff :full})))
-  (is (= :rf/foo (rf.mcp-base.args/safe-keyword :rf/foo #{:rf/foo :rf/bar}))))
-
-(deftest safe-keyword-disallowed-keyword-returns-nil
-  ;; The keyword exists (literal in source), but the membership check
-  ;; rejects it.
-  (is (nil? (rf.mcp-base.args/safe-keyword :other #{:diff :full})))
-  (is (nil? (rf.mcp-base.args/safe-keyword :rf/baz #{:rf/foo :rf/bar}))))
-
-(deftest safe-keyword-allowed-string-resolves
-  (is (= :diff (rf.mcp-base.args/safe-keyword "diff" #{:diff :full})))
-  (is (= :diff (rf.mcp-base.args/safe-keyword ":diff" #{:diff :full})))
-  (is (= :rf/foo (rf.mcp-base.args/safe-keyword "rf/foo" #{:rf/foo :rf/bar})))
-  (is (= :rf/foo (rf.mcp-base.args/safe-keyword ":rf/foo" #{:rf/foo :rf/bar}))))
+(deftest safe-keyword-admits-only-allowlisted-ids
+  ;; A keyword or string (bare or namespaced, with or without a leading
+  ;; colon) naming an allowlisted id resolves to it. A disallowed id —
+  ;; even one whose keyword already exists — nil, a blank string and any
+  ;; non-string non-keyword return nil.
+  (are [raw allowed expected] (= expected (rf.mcp-base.args/safe-keyword raw allowed))
+    :diff      #{:diff :full}     :diff
+    :rf/foo    #{:rf/foo :rf/bar} :rf/foo
+    "diff"     #{:diff :full}     :diff
+    ":diff"    #{:diff :full}     :diff
+    "rf/foo"   #{:rf/foo :rf/bar} :rf/foo
+    ":rf/foo"  #{:rf/foo :rf/bar} :rf/foo
+    :other     #{:diff :full}     nil
+    :rf/baz    #{:rf/foo :rf/bar} nil
+    nil        #{:diff :full}     nil
+    ""         #{:diff :full}     nil
+    ":"        #{:diff :full}     nil
+    42         #{:diff :full}     nil
+    [:diff]    #{:diff :full}     nil
+    {:k :diff} #{:diff :full}     nil))
 
 (deftest safe-keyword-disallowed-string-returns-nil-and-does-not-intern
   ;; The load-bearing contract: a string outside the allowlist MUST
@@ -272,11 +264,6 @@
     (is (nil? (rf.mcp-base.args/safe-keyword novel-name #{:diff :full})))
     (is (nil? (find-keyword novel-name))
         "safe-keyword MUST NOT intern a fresh keyword on rejection — DoS gate")))
-
-(deftest safe-keyword-blank-and-nil-input-returns-nil
-  (is (nil? (rf.mcp-base.args/safe-keyword nil #{:diff :full})))
-  (is (nil? (rf.mcp-base.args/safe-keyword "" #{:diff :full})))
-  (is (nil? (rf.mcp-base.args/safe-keyword ":" #{:diff :full}))))
 
 (deftest safe-keyword-disallowed-NAMESPACED-string-returns-nil-and-does-not-intern
   ;; The companion no-intern pin
@@ -300,11 +287,6 @@
         "leading-colon form also rejected")
     (is (nil? (find-keyword novel-ns novel-name))
         "safe-keyword MUST NOT intern a fresh NAMESPACED keyword on rejection — DoS gate")))
-
-(deftest safe-keyword-non-keyword-non-string-input-returns-nil
-  (is (nil? (rf.mcp-base.args/safe-keyword 42 #{:diff :full})))
-  (is (nil? (rf.mcp-base.args/safe-keyword [:diff] #{:diff :full})))
-  (is (nil? (rf.mcp-base.args/safe-keyword {:k :diff} #{:diff :full}))))
 
 ;; ---------------------------------------------------------------------------
 ;; parse-mode no-intern on rejection.
