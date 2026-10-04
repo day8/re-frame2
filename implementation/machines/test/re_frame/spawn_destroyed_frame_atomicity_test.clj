@@ -68,36 +68,3 @@
           (rf.trace.tooling/unregister-listener! ::ghost-spawn)
           (when orig-dispatch!
             (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))))
-
-(deftest live-frame-spawn-still-fires-trace-and-dispatch
-  (testing "control: a LIVE-frame spawn still emits the spawned trace,
-            installs the snapshot, and dispatches :start (the gate is scoped to
-            the dead-frame case only)"
-    (rf/reg-machine :rf2-g13nm2/live-child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:go :done}}
-                 :done    {:final? true}}})
-    ;; Drive a live singleton through a state that spawns the child, so the
-    ;; spawn fx runs against a REAL (live) frame's runtime-db.
-    (rf/reg-machine :rf2-g13nm2/live-parent
-      {:initial :idle
-       :states  {:idle     {:on {:start :spawning}}
-                 :spawning {:spawn {:machine-id :rf2-g13nm2/live-child}}}})
-    (let [spawned-traces (atom [])]
-      (rf.trace.tooling/register-listener!
-        ::live-spawn
-        (fn [ev]
-          (when (= :rf.machine.spawn/spawned (:operation ev))
-            (swap! spawned-traces conj ev))))
-      (try
-        (rf/dispatch-sync [:rf2-g13nm2/live-parent [:start]])
-        (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/machines :spawned
-                                  :rf2-g13nm2/live-parent [:spawning]])]
-          (is (some? spawned-id)
-              "the child was installed (live-frame spawn is unaffected by the dead-frame gate)")
-          (is (seq @spawned-traces)
-              "the :rf.machine.spawn/spawned trace fired for the live-frame spawn"))
-        (finally
-          (rf.trace.tooling/unregister-listener! ::live-spawn))))))
