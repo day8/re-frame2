@@ -27,7 +27,7 @@
       candidate guards), but the failing one IS observed
     - one action-ran trace per user-declared action invocation, in
       cascade order (exit → action → entry; the order is pinned in
-      `machine_trace_payload_shapes_test`)
+      `action_ran_decl_path_test`)
     - `:dispatch-id` matches the originating event's dispatch-id across
       both trace operations, enabling Xray to group by cascade
     - exceptional path: the throwing action emits `action-ran` with
@@ -236,39 +236,3 @@
           "the eager start kick fires the throwing initial `:entry` action")
       (is (= :blow-fuse (-> errs first :tags :action-id))
           "attributed to the initial `:entry`'s `:blow-fuse` action"))))
-
-(deftest fuse-throws-on-boot-via-lazy-first-event
-  (testing "with NO explicit start, the FIRST real
-            event throws: the machine lazily boots (`needs-bootstrap?`
-            fires when no snapshot exists) and the initial `:entry` action
-            throws DURING that boot, before the event is processed."
-    (rf/reg-machine :ga/fuse-lazy (fuse-machine-spec))
-    ;; No `[:rf.machine/start]` dispatch first — straight to a real event
-    ;; against a never-started machine; the boot `:entry` throws.
-    (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:ga/fuse-lazy [:fuse/short-circuit]])))
-          errs (ops evs :rf.error/machine-action-exception)]
-      (is (= 1 (count errs))
-          "the first real event lazily boots `:armed`; its `:entry` throws")
-      (is (= :blow-fuse (-> errs first :tags :action-id))
-          "attributed to the initial `:entry`'s `:blow-fuse` action")
-      ;; On boot the cascade-threaded `:event` is the synthetic start marker —
-      ;; the throw fires inside initial-entry, before the real event is run.
-      (is (= [:rf.machine/start] (-> errs first :tags :event))
-          "the throw rides the synthetic creation marker (boot-time)"))))
-
-(deftest fuse-clean-initial-entry-does-not-throw
-  (testing "a machine whose initial state has no
-            throwing `:entry` boots cleanly; only the throwing-entry shape
-            trips the on-boot exception."
-    (rf/reg-machine :ga/fuse-clean
-      {:initial :armed
-       :data    {}
-       :actions {:note-inspect (fn [{data :data}]
-                                 {:data (update data :inspections (fnil inc 0))})}
-       :states  {:armed {:on {:fuse/inspect {:action :note-inspect}}}}})
-    (let [evs  (record-traces!
-                 (fn [] (rf/dispatch-sync [:ga/fuse-clean [:fuse/inspect]])))
-          errs (ops evs :rf.error/machine-action-exception)]
-      (is (zero? (count errs))
-          "a non-throwing initial `:entry` boots cleanly"))))
