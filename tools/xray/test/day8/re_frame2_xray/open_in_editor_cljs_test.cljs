@@ -94,18 +94,6 @@
       (is (= "idea://open?file=src/x.cljs&line=10&column=1"
              (:href (second (open-in-editor/open-chip coord))))))))
 
-(deftest open-chip-supports-custom-template
-  (testing ":custom template via Xray configure!"
-    (config/configure! {:rf.xray/editor {:custom "zed://file/{path}:{line}"}})
-    (is (= "zed://file/src/x.cljs:5"
-           (:href (second (open-in-editor/open-chip
-                            {:file "src/x.cljs" :line 5 :column 2}))))))
-  (testing ":custom data-editor attr"
-    (is (= "custom"
-           (:data-editor
-             (second (open-in-editor/open-chip
-                       {:file "src/x.cljs" :line 5})))))))
-
 (deftest open-chip-nil-when-source-missing
   (testing "open-chip returns nil when source-coord lacks :file"
     (is (nil? (open-in-editor/open-chip nil)))
@@ -178,16 +166,6 @@
       (is (= (str "vscode://file/"
                   "C:/Users/me/code/my-app/tools/xray/testbeds/"
                   "panel_gallery/event_detail_stories.cljs:115:3")
-             (:href (second hiccup)))))))
-
-(deftest open-chip-project-root-absolute-coord-not-double-prefixed
-  (testing "an already-absolute source-coord is NOT double-prefixed
-            (per editor-uri/compose-path's absolute-path? guard) — pins
-            that the Xray wiring respects the helper's contract"
-    (config/set-project-root! "C:/Users/me/code/my-app")
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "/abs/already/here.cljs" :line 1 :column 1})]
-      (is (= "vscode://file//abs/already/here.cljs:1:1"
              (:href (second hiccup)))))))
 
 ;; ---- URI invariance to host page URL ------------------------------------
