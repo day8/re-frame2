@@ -184,20 +184,7 @@
             (is (= 0.1 (.-padding opts))
                 "called with the canonical 0.1 padding ratio")))))))
 
-;; ---- 2. error settle does NOT fit -------------------------------------
-
-(deftest auto-fit-does-not-fire-on-layout-error-settle
-  (testing "a layout-error settle (empty :positions + :layout-error) paints
-            the in-panel banner and MUST NOT call .fitView — a fit on
-            empty positions would frame the degenerate origin cluster."
-    (with-chart-seams {machine-a parsed-a}
-      (fn [{:keys [passes fits]}]
-        (let [rfn (chart/MachineChart {:definition machine-a})]
-          (init! rfn {:definition machine-a} (measuring-instance (atom {})))
-          (settle! passes 0 error-result)
-          (is (empty? @fits) "no .fitView call on a layout-error settle"))))))
-
-;; ---- 3. key-gating semantics ------------------------------------------
+;; ---- 2. key-gating semantics ------------------------------------------
 
 (deftest auto-fit-gate-keys-on-layout-key
   (testing "a settle re-fits only when its layout key differs from the key
@@ -227,7 +214,7 @@
             (is (= (+ 2 base) (count @fits))
                 "returning to an earlier key counts as a change and re-fits")))))))
 
-;; ---- 4. no instance yet → the fit waits for :onInit --------------------
+;; ---- 3. no instance yet → the fit waits for :onInit --------------------
 
 (deftest auto-fit-defers-when-instance-not-yet-captured
   (testing "a settle that lands BEFORE xyflow's `:onInit` (a fast layout)
@@ -245,7 +232,7 @@
           (is (every? #(identical? inst (first %)) @fits)
               "against the instance it captured"))))))
 
-;; ---- 5. focused-machine change ---------------------------------------
+;; ---- 4. focused-machine change ---------------------------------------
 
 (deftest auto-fit-fires-on-focused-machine-change
   (testing "a new `:definition` (Xray's Machine panel swapping the focused
@@ -272,7 +259,7 @@
             (is (= (+ 2 base) (count @fits))
                 "switching back to machine-a re-fits")))))))
 
-;; ---- 6. schedule-fit! defers via two animation frames ----------------
+;; ---- 5. schedule-fit! defers via two animation frames ----------------
 
 (deftest schedule-fit-deferral-uses-double-raf
   (testing "`.fitView` runs through TWO nested `requestAnimationFrame`
@@ -310,7 +297,7 @@
             (set! (.-requestAnimationFrame g) orig-raf)
             (js-delete g "requestAnimationFrame")))))))
 
-;; ---- 7. measure-then-relayout -----------------------------------------
+;; ---- 6. measure-then-relayout -----------------------------------------
 ;;
 ;; Fed CONSTANT floor dims, ELK would lay a node whose content exceeds the
 ;; floor over its neighbours. So the chart runs the canonical React Flow +
@@ -383,7 +370,7 @@
                    (:measured-dims (nth @passes 3)))
                 "that pass is the measured relayout")))))))
 
-;; ---- 8. fit-on-entry signal -------------------------------------------
+;; ---- 7. fit-on-entry signal -------------------------------------------
 ;;
 ;; The layout-key auto-fit deliberately PRESERVES the operator's manual
 ;; zoom/pan across non-layout re-renders, which on its own would leave a
@@ -451,7 +438,7 @@
           (rfn {:definition machine-a :fit-signal 2})
           (is (empty? @fits) "no entry fit on a layout-error settle"))))))
 
-;; ---- 9. layout-key folds in the adaptive post-ELK mode ----------------
+;; ---- 8. layout-key folds in the adaptive post-ELK mode ----------------
 ;;
 ;; The chart keys its ELK layout pass by the RESOLVED `elk-direction`, but the
 ;; post-ELK transform (parallel transpose + back-edge reroute) is gated by the
