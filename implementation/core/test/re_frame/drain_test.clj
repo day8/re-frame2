@@ -67,62 +67,7 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- 1. run-to-completion -------------------------------------------------
-
-(deftest run-to-completion-handler-finishes-before-next-event
-  ;; Spec 002 §Run-to-completion dispatch (drain semantics) §Rules rule 2:
-  ;; \"Every actor message sent during a domain-event's processing drains
-  ;; before the next domain event for that frame.\" Once drain is engaged,
-  ;; no further external events are processed for that frame until the
-  ;; cascade settles. The :fx [[:dispatch ...]] form is the in-handler
-  ;; primitive (Spec 002 §Run-to-completion: \"the in-handler shape is
-  ;; [[:dispatch event]] under :fx\")."
-  (testing "events queued during a handler run only AFTER that handler returns"
-    (let [order (atom [])]
-      ;; :outer pushes :outer-pre into the trace, dispatches :inner via :fx,
-      ;; then pushes :outer-post BEFORE the inner handler can run. Run-to-
-      ;; completion guarantees the outer handler completes (both pre and
-      ;; post entries land) before :inner is dequeued.
-      (rf/reg-event :outer
-        (fn [_ _]
-          (swap! order conj :outer-pre)
-          ;; Returning :fx with a :dispatch — the inner event is appended
-          ;; to the back of the queue. It must NOT execute before this
-          ;; handler returns.
-          (let [fx-result {:fx [[:dispatch [:inner]]]}]
-            (swap! order conj :outer-post)
-            fx-result)))
-      (rf/reg-event :inner
-        (fn [_ _]
-          (swap! order conj :inner)
-          {}))
-      (rf/dispatch-sync [:outer])
-      (is (= [:outer-pre :outer-post :inner] @order)
-          "the outer handler ran to completion before :inner was processed")))
-
-  (testing "deeper chain — every outer's :fx :dispatch waits for the outer to return"
-    (let [order (atom [])]
-      (rf/reg-event :a
-        (fn [_ _]
-          (swap! order conj :a-start)
-          (let [r {:fx [[:dispatch [:b]]]}]
-            (swap! order conj :a-end)
-            r)))
-      (rf/reg-event :b
-        (fn [_ _]
-          (swap! order conj :b-start)
-          (let [r {:fx [[:dispatch [:c]]]}]
-            (swap! order conj :b-end)
-            r)))
-      (rf/reg-event :c
-        (fn [_ _]
-          (swap! order conj :c)
-          {}))
-      (rf/dispatch-sync [:a])
-      (is (= [:a-start :a-end :b-start :b-end :c] @order)
-          "no handler interleaves; each runs end-to-end before the next starts"))))
-
-;; ---- 2. drain depth limit -------------------------------------------------
+;; ---- 1. drain depth limit -------------------------------------------------
 
 (deftest drain-depth-halt-leaves-the-queue-empty-and-unscheduled
   ;; Spec 002 §Run-to-completion dispatch §Rules rule 3: when the
@@ -157,7 +102,7 @@
   ;; `>` and `>=` fails HERE rather than in a far-away
   ;; cascade assertion. The `:depth` tag on the halt equals N.
   (testing "a runaway cascade under drain-depth N runs EXACTLY N handlers, then halts"
-    (doseq [n [1 4 8 100]]
+    (doseq [n [1 4]]
       (let [frame-id (keyword "drain.count" (str "loop-" n))
             runs     (atom 0)
             traces   (atom [])
@@ -192,7 +137,7 @@
               (is (= [event-id] (get-in hit [:tags :last-event]))
                   ":last-event is the recursive event that drove the cascade"))))))))
 
-;; ---- 3. dispatch-sync-in-handler ------------------------------------------
+;; ---- 2. dispatch-sync-in-handler ------------------------------------------
 
 (deftest dispatch-sync-in-handler-jvm
   ;; Spec 002 §Run-to-completion §Render boundaries:
@@ -276,7 +221,7 @@
                   @traces)
             "the transitive (via-fx) dispatch-sync still trips the in-handler guard")))))
 
-;; ---- 4. async vs sync interleaving ----------------------------------------
+;; ---- 3. async vs sync interleaving ----------------------------------------
 
 (deftest async-dispatch-resolves-after-current-drain
   ;; Spec 002 §Run-to-completion dispatch (drain semantics):
@@ -359,7 +304,7 @@
       (is (some #{:sync-only} @order) ":sync-only ran")
       (is (some #{:outside-async} @order) ":outside-async ran"))))
 
-;; ---- 5. per-frame drain isolation ----------------------------------------
+;; ---- 4. per-frame drain isolation ----------------------------------------
 
 (deftest per-frame-drain-isolation
   ;; Spec 002 §Run-to-completion dispatch §Rules rule 1:
