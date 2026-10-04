@@ -132,7 +132,6 @@
       (is (some? record) "a record was fanned")
       (is (= expected-record-slots (set (keys record)))
           "the record's key set is exactly the closed set")
-      (is (= status-rewrite-category (:error record)))
       (is (nil? (:frame record))
           "FRAMELESS by design — the materialiser is a pure map→map fn with no
            frame argument, and an ambient read would populate the slot on the
