@@ -14,17 +14,6 @@
   are written against the two ways it goes wrong rather than against the
   way it goes right:
 
-    R1  the `:ref` callback is MEMOISED per mount — the adversarial case,
-        because a fresh closure per render would be invisible to any
-        rendering assertion and would make React tear the observer down
-        and stand it up again on every pass.
-    R2  a different mount gets a DIFFERENT ref, so the memo is keyed and
-        not a singleton.
-    R3  release drops the WHOLE entry, and the count returns to where it
-        started — the aggregate leak claim.
-    R4  release is per-mount: a sibling mount is untouched by it. The
-        negative half of R3, and the one a `(reset! store {})` teardown
-        would fail.
     R5  the projection cache is held under the same key and goes with the
         rest, so a diff mount releases its Editscript result too. A cache
         that survives its mount is the leak that costs REAL memory.
@@ -35,7 +24,10 @@
         — React StrictMode's setup → cleanup → setup cycle, which every
         other row here misses by construction.
     R8  and the store answers that retained callback again afterwards,
-        so the re-attachment does not cost R1's memo.
+        so the re-attachment does not cost the memo — the `:ref`
+        callback memoised per mount, without which a fresh closure per
+        render would make React tear the observer down and stand it up
+        again on every pass while every rendering assertion stayed green.
     R9  two live mounts of ONE logical surface — the case a stable
         `:mount-id` makes routine and which every row above misses by
         giving each mount an id of its own. Positive half and
@@ -58,78 +50,6 @@
   "What React does at unmount: call the container ref with nil."
   [ref-fn]
   (ref-fn nil))
-
-(deftest r1-the-ref-callback-is-memoised-per-mount
-  (testing "two asks for the same mount's ref answer the
-            IDENTICAL function.
-
-            This is the row that matters most and the one nothing else
-            can catch. A Fresco body runs whole on every render, so a ref
-            callback built in it would be a new closure each pass; React
-            re-runs a callback ref whose identity moved, detaching the old
-            one with nil and attaching the new one — which, for this
-            widget, means disconnecting the ResizeObserver and building
-            another one on every single render. Nothing about the
-            rendered output would look wrong."
-    (let [mid  "r1-mount"
-          ref1 (ei/container-ref-for mid identity)
-          ref2 (ei/container-ref-for mid identity)]
-      (is (identical? ref1 ref2)
-          "same mount-id ⇒ identical ref fn, so React sees one identity for the mount")
-      ;; The control: the memo is real rather than an accident of two
-      ;; calls in one tick. Ask again after the store has been written to.
-      (is (identical? ref1 (ei/container-ref-for mid identity))
-          "still identical on a third ask")
-      (unmount! ref1))))
-
-(deftest r2-a-different-mount-gets-a-different-ref
-  (testing "the memo is KEYED. Two mounts must not share a
-            ref, or they would share an observer and a width slot."
-    (let [ref-a (ei/container-ref-for "r2-a" identity)
-          ref-b (ei/container-ref-for "r2-b" identity)]
-      (is (not (identical? ref-a ref-b))
-          "distinct mount-ids ⇒ distinct ref fns")
-      (unmount! ref-a)
-      (unmount! ref-b))))
-
-(deftest r3-release-drops-the-whole-entry
-  (testing "calling the ref with nil, which is what React
-            does at unmount, releases everything the mount held and the
-            store returns to the size it was."
-    (let [before (ei/mount-state-count)
-          mid    "r3-mount"
-          ref-fn (ei/container-ref-for mid identity)]
-      (is (= (inc before) (ei/mount-state-count))
-          "the mount is in the store while it is mounted")
-      (is (contains? (ei/mount-state-held mid) :ref)
-          "and it holds its ref")
-      (unmount! ref-fn)
-      (is (nil? (ei/mount-state-held mid))
-          "after unmount the entry is GONE, not merely emptied")
-      (is (= before (ei/mount-state-count))
-          "and the store is back to the size it was")
-      ;; The discriminating half: a store that had merely been emptied of
-      ;; observers would still answer the SAME ref here.
-      (let [ref-again (ei/container-ref-for mid identity)]
-        (is (not (identical? ref-fn ref-again))
-            "a remount mints a fresh ref, proving the entry really went")
-        (unmount! ref-again)))))
-
-(deftest r4-release-is-per-mount
-  (testing "releasing one mount leaves its siblings standing.
-            The negative half of R3: a teardown that reset the whole store
-            would pass R3 and fail here, and this widget is mounted dozens
-            of times on one page (the epoch panel alone)."
-    (let [keeper (ei/container-ref-for "r4-keeper" identity)
-          goer   (ei/container-ref-for "r4-goer" identity)]
-      (unmount! goer)
-      (is (nil? (ei/mount-state-held "r4-goer"))
-          "the released mount is gone")
-      (is (contains? (ei/mount-state-held "r4-keeper") :ref)
-          "the sibling is untouched")
-      (is (identical? keeper (ei/container-ref-for "r4-keeper" identity))
-          "and still answers its own ref")
-      (unmount! keeper))))
 
 (deftest r5-the-projection-cache-lives-and-dies-with-the-mount
   (testing "a diff render stores its Editscript projection
@@ -188,8 +108,8 @@
 ;; ---------------------------------------------------------------------------
 ;; RETAINED-CALLBACK RE-ATTACHMENT.
 ;;
-;; Every row above either asks for a NEW callback after the release (R3) or
-;; never re-attaches at all (R6). React does neither: StrictMode runs a
+;; Every row above either never re-attaches at all (R5) or detaches an
+;; already-released callback (R6). React does neither: StrictMode runs a
 ;; callback ref setup → cleanup → setup with the SAME function, and the
 ;; cleanup half calls `release-mount!`, which drops the WHOLE entry —
 ;; dispatcher included. A second setup that rebuilt measurement and
@@ -246,8 +166,8 @@
       (ref-fn el)
       (is (= [[:rf.xray.edn-inspector/set-width mid 300]] @dispatched)
           "and subsequent width changes still dispatch")
-      ;; final detach returns to baseline, exactly as R3 requires of a
-      ;; mount that was never re-attached
+      ;; final detach returns to baseline, exactly as for a mount that
+      ;; was never re-attached
       (reset! dispatched [])
       (unmount! ref-fn)
       (is (= [[:rf.xray.edn-inspector/clear-width mid]] @dispatched)
@@ -261,11 +181,10 @@
   (testing "after a retained callback re-attaches, the store
             answers THAT callback again.
 
-            R1's memo is what stops React tearing the ResizeObserver down
+            The memo is what stops React tearing the ResizeObserver down
             on every render. A release drops `:ref` with the rest of the
             entry, so a re-attachment that rebuilt everything except the
-            memo would leave the next render minting a fresh closure —
-            R1's defect, arriving by a route R1 cannot see."
+            memo would leave the next render minting a fresh closure."
     (let [mid    "r8-mount"
           el     (fake-el 120)
           ref-fn (ei/container-ref-for mid identity)]
@@ -287,8 +206,7 @@
 ;; testids, and a panel that leaves and returns wants the same one back — so
 ;; several live mounts routinely present the SAME id at once: the gallery
 ;; renders twelve variants of a panel side by side, and each embedded panel is
-;; another. R2 looks like the row that covers this and does not: it asks
-;; whether the memo is KEYED, not whether the key names a live mount.
+;; another.
 ;;
 ;; R9 is that case, in both directions. The positive half is two mounts under
 ;; two frames; the negative half is the same two keyed on the logical name
