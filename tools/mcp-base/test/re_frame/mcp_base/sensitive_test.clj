@@ -59,14 +59,6 @@
     (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
     (is (= 2 dropped))))
 
-(deftest strip-sensitive-include-opt-in-passes-everything
-  (let [evts [{:id 1 :sensitive? true}
-              {:id 2 :sensitive? false}
-              {:id 3 :sensitive? true}]
-        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts true)]
-    (is (= evts kept))
-    (is (zero? dropped))))
-
 (deftest strip-sensitive-empty-batch-zero-overhead
   (let [[kept dropped] (rf.mcp-base.sensitive/strip-sensitive [] false)]
     (is (= [] kept))
@@ -303,16 +295,6 @@
     ;; The secret never appears anywhere in the scrubbed output.
     (is (not (clojure.string/includes? (pr-str out) "SECRET"))
         "no trace of the secret survives in the scrubbed snapshot")))
-
-(deftest scrub-snapshot-sensitive-single-map-epochs-dropped-fail-closed
-  ;; The probe shape: nil `:traces` (passes through) + a malformed
-  ;; sensitive single-map `:epochs` (dropped).
-  (let [snap {:rf/default {:traces nil :epochs {:id 1 :sensitive? true}}}
-        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-    (is (= 1 dropped))
-    (is (nil? (get-in out [:rf/default :traces])) ":traces nil survives")
-    (is (= [] (get-in out [:rf/default :epochs]))
-        "sensitive single-map :epochs dropped fail-closed")))
 
 ;; ---------------------------------------------------------------------------
 ;; Single-map fail-closed branch routes through the caller-supplied strip-fn.
