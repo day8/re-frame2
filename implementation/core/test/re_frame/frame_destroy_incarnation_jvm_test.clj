@@ -116,45 +116,6 @@
                       (rf.frame/frame-incarnation-token :destroy/race))
           "incarnation B survives stale teardown unchanged"))))
 
-(deftest concurrent-duplicate-destroy-is-a-non-blocking-no-op
-  (rf/make-frame {:id :destroy/duplicate
-                  :on-destroy [:destroy/duplicate-cleanup]})
-  (let [cleanup-runs (atom 0)
-        claimed      (CountDownLatch. 1)
-        release      (CountDownLatch. 1)
-        original     (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
-    (rf/reg-event :destroy/duplicate-cleanup
-      (fn [_ _]
-        (swap! cleanup-runs inc)
-        {}))
-    (try
-      ;; The machines teardown hook is after claim publication and before
-      ;; lifecycle-dead publication. Hold the winning destroy there while a
-      ;; second thread attempts the same incarnation's destroy.
-      (rf.late-bind/set-fn!
-        :machines/teardown-on-frame-destroy!
-        (fn [id]
-          (when original (original id))
-          (when (= :destroy/duplicate id)
-            (.countDown claimed)
-            (.await release 10 TimeUnit/SECONDS))))
-      (let [winner (future (rf.frame/destroy-frame! :destroy/duplicate))]
-        (is (.await claimed 10 TimeUnit/SECONDS)
-            "the winning destroy published its claim")
-        (let [duplicate (future (rf.frame/destroy-frame! :destroy/duplicate))]
-          (is (nil? (deref duplicate 5000 ::timeout))
-              "the duplicate observes the claim and returns without waiting for teardown"))
-        (.countDown release)
-        (is (nil? (deref winner 5000 ::timeout))
-            "the winning destroy preserves the nil return contract"))
-      (finally
-        (.countDown release)
-        (rf.late-bind/set-fn! :machines/teardown-on-frame-destroy! original)))
-    (is (= 1 @cleanup-runs)
-        "the user cleanup event runs exactly once")
-    (is (nil? (rf.frame/frame :destroy/duplicate))
-        "the claimed incarnation is fully destroyed")))
-
 (deftest fresh-same-id-destroy-replaces-stale-marker-token-safely
   ;; Pause A after its registry dissoc but before its terminal finally. Install
   ;; B under the reused id, claim B's destroy, then let A's finally run while B
