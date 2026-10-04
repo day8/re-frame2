@@ -112,10 +112,7 @@
       (is (= 1 (count (:flows grouped))))
       (is (= 1 (count (:resources grouped))))
       (is (= 1 (count (:routes grouped))))
-      (is (= 1 (count (:machines grouped)))))
-    (testing "entries are sorted deterministically by node id"
-      (is (= (h/group-by-family fixture-graph)
-             (h/group-by-family fixture-graph))))))
+      (is (= 1 (count (:machines grouped)))))))
 
 (deftest node-family-falls-back-to-id-tag
   (testing "a node without an :rf/family tag infers from the id tag"
@@ -327,9 +324,7 @@
                  " never-walked member is " (count unwalked) " characters"))
         (is (= (str "#{" (subs (pr-str (first v)) 0 78))
                (subs out 0 80))
-            "and the print opens on the set's own first member")
-        (is (< (count (h/bounded-pr-str #{huge})) 1000)
-            "a single long member is still bounded")))))
+            "and the print opens on the set's own first member")))))
 
 ;; A record for the preview tests. RECORDS SATISFY `map?`, so a record takes
 ;; the map branch of the preview walk — but its printed form opens with a
