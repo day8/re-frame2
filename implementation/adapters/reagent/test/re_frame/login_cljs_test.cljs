@@ -100,11 +100,8 @@
       (is (some? meta) "the :rf/machine projection resolves the registered login machine")
       (is (= login.model/AuthLoginData (get-in meta [:schemas :data]))
           "the [:schemas :data] schema round-trips as login.model/AuthLoginData")))
-  (testing "AuthLoginData validates the :data slot only (rejects a non-string :error)"
-    (is (true?  (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error nil})))
-    (is (true?  (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 1 :error "Login failed."})))
-    (is (false? (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts 0 :error {:not "a string"}}))
-        "a non-string :error fails the data-slot schema")
+  (testing "AuthLoginData rejects a non-int :attempts (the live rows below reach
+            only the :error key)"
     (is (false? (rf.schemas/validate-with-registered-fn login.model/AuthLoginData {:attempts "x" :error nil}))
         "a non-int :attempts fails the data-slot schema")))
 
