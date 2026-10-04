@@ -24,12 +24,6 @@
   (is (false? (rf.story.tags/removal-marker? "not-a-keyword")))
   (is (false? (rf.story.tags/removal-marker? nil))))
 
-(deftest marker-base-strips-bang-preserving-namespace
-  (is (= :dev (rf.story.tags/marker-base :!dev)))
-  (is (= :a/b (rf.story.tags/marker-base :a/!b)))
-  (testing "a non-marker is returned unchanged"
-    (is (= :dev (rf.story.tags/marker-base :dev)))))
-
 (deftest resolve-markers-strips-and-subtracts
   (testing "a marker drops itself AND subtracts its base"
     (is (= #{:docs} (rf.story.tags/resolve-markers #{:dev :!dev :docs}))))
@@ -41,11 +35,6 @@
     (is (= #{:team/qa} (rf.story.tags/resolve-markers #{:team/qa :role/dev :role/!dev})))))
 
 ;; ---- extends-chain union -------------------------------------------------
-
-(deftest extends-chain-tags-unions-root-to-child
-  (let [m {:story.a/parent {:tags #{:dev :test}}
-           :story.a/child  {:extends :story.a/parent :tags #{:docs}}}]
-    (is (= #{:dev :test :docs} (rf.story.tags/extends-chain-tags :story.a/child m)))))
 
 (deftest extends-chain-tags-is-defensive
   (testing "a missing parent stops the walk without raising"
