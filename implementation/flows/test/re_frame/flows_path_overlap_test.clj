@@ -21,14 +21,14 @@
     - the integrated `rf/reg-flow` path — the rejection actually fires at
       registration and the prior registration survives.
 
-  The identical and parent/child overlap cases run on both hosts in
-  `re-frame.flows-path-cljs-test`.
+  The identical, parent/child, sibling and unrelated cases run on both
+  hosts in `re-frame.flows-path-cljs-test`.
 
   TERMINATION NOTE: `detect-output-path-overlap!` scans the upper triangle of
   the frame's flow pairs via `(some ... (for ...))` — terminating by
   construction. The disjoint-map test below is the explicit guard that the
   scan terminates on any frame with ≥2 disjoint flows."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.flows.topo :as rf.flows.topo]
@@ -49,23 +49,17 @@
 ;; 1. topo/output-paths-overlap? — the prefix-relation predicate
 ;; ---------------------------------------------------------------------------
 
-(deftest output-paths-overlap?-disjoint-siblings
-  (testing "sibling leaves under a shared parent do NOT overlap — neither is a prefix of the other"
-    (is (false? (rf.flows.topo/output-paths-overlap? [:x :y] [:x :z]))
-        "[:x :y] and [:x :z] are disjoint (each owns its own leaf)")
-    (is (false? (rf.flows.topo/output-paths-overlap? [:a] [:b]))
-        "wholly unrelated single-key paths are disjoint")
-    (is (false? (rf.flows.topo/output-paths-overlap? [:a :b :c] [:a :b :d]))
-        "deeper sibling leaves [:a :b :c] / [:a :b :d] are disjoint too")
-    (is (true? (rf.flows.topo/output-paths-overlap? [:a :b] [:a :b :c :d]))
-        "but a deep child [:a :b :c :d] DOES overlap its ancestor [:a :b]")))
-
-(deftest output-paths-overlap?-shared-non-prefix-element
-  (testing "shared NON-prefix element is not an overlap (prefix-based, not membership-based)"
-    ;; [:x :y] vs [:y :x] share both elements but neither is a prefix of
-    ;; the other → disjoint. Mirrors depends-on?'s prefix-not-membership
-    ;; rule (flows_topo_test.clj depends-on?-is-a-prefix-overlap-in-either-direction).
-    (is (false? (rf.flows.topo/output-paths-overlap? [:x :y] [:y :x])))))
+(deftest output-paths-overlap?-is-a-prefix-relation-at-any-depth
+  (testing "two output paths overlap iff one is a prefix of the other, at any
+            depth, never by shared elements; the identical, parent/child,
+            sibling and unrelated rows run on both hosts in
+            re-frame.flows-path-cljs-test"
+    (are [a b expected] (= expected (rf.flows.topo/output-paths-overlap? a b))
+      [:a :b :c] [:a :b :d]    false   ; deeper sibling leaves are disjoint
+      [:a :b]    [:a :b :c :d] true    ; a deep descendant overlaps its ancestor
+      ;; shared elements, neither a prefix: the same prefix-not-membership rule
+      ;; as depends-on? (flows_topo_test.clj)
+      [:x :y]    [:y :x]       false)))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. topo/detect-output-path-overlap! — the prospective-map scanner
