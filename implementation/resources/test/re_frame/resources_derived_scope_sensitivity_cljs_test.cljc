@@ -30,7 +30,6 @@
    [re-frame.elision :as rf.elision]
    [re-frame.frame :as rf.frame]
    [re-frame.registrar :as rf.registrar]
-   [re-frame.resources.classification :as rf.resources.classification]
    [re-frame.resources.scope-registry :as rf.resources.scope-registry]
    [re-frame.resources.ssr :as rf.resources.ssr]
    [re-frame.resources.state :as rf.resources.state]
