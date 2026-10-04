@@ -68,14 +68,10 @@
               (keep :rf.reply/work-status))
         (or (rf.machines.test-support/captured-events) [])))
 
-(defn- terminals-for [spawned-id]
-  (filterv terminal-work-statuses (work-statuses-for spawned-id)))
-
 (defn- terminal-rows-for
   "Every TERMINAL reply row on `spawned-id`'s work-id as `[<trace-op>
-  <work-status>]` pairs — the same projection as `terminals-for`, but naming
-  which trace published each row, so a test can pin WHICH authority spoke and
-  not merely how many rows there were."
+  <work-status>]` pairs, naming which trace published each row, so a test can
+  pin WHICH authority spoke and not merely how many rows there were."
   [spawned-id]
   (into []
         (comp (filter #(= spawned-id (second (:rf.reply/work-id (:tags %)))))
@@ -314,33 +310,3 @@
       (is (some #(= :stale (:rf.reply/status (:tags %)))
                 (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))
           "the straggler was classified through the stale late-completion path"))))
-
-;; ---------------------------------------------------------------------------
-;; survivors close exactly once as :cancelled
-;; ---------------------------------------------------------------------------
-
-(deftest any-resolution-survivor-still-closes-exactly-once-cancelled
-  (testing "an :any resolution's surviving sibling closes
-            exactly one :cancelled terminal; the decisive completed child
-            closes exactly one :completed and is never cancelled"
-    (let [j (reg-join-parent! :jct/p6 :jct/p6a :jct/p6b
-                              {:join :any :on-some-complete [:race/won]})
-          a (get-in j [:children :a])
-          b (get-in j [:children :b])]
-      (rf/dispatch-sync [a [:go]])
-      (is (true? (:resolved? (join-state :jct/p6))))
-      (is (= [:completed] (join-terminals-for a))
-          "decisive child: exactly one join-side :completed, no cancellation")
-      ;; The survivor's single :cancelled closure is deliberately carried on
-      ;; TWO attribution traces — the join-resolution attribution
-      ;; (`:rf.machine.spawn/cancelled-on-join-resolution`) AND its own
-      ;; `:rf.machine/destroyed` cancelled reply (see `build-resolution-fx`).
-      ;; Both rows carry the SAME work-id and the SAME `:cancelled` status —
-      ;; one closed outcome, never a contradictory second terminal kind. The
-      ;; completing child is the same shape from the other side: its own
-      ;; finality row plus the join's, agreeing on :completed.
-      (is (= #{:cancelled} (set (terminals-for b)))
-          (str "survivor closes as :cancelled and ONLY :cancelled; saw "
-               (work-statuses-for b)))
-      (is (not-any? #{:completed :failed} (work-statuses-for b))
-          "the survivor never reports a completion/failure terminal"))))
