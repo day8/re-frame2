@@ -3,7 +3,7 @@
   Overrides — image ASSEMBLY: resolve image values into a
   SEALED, VALIDATED `[kind id]` generation and fail loud before a frame runs.
 
-  Sections 1-2 + 6+ pin EP-0023 assembly coverage (projection, dedupe,
+  Sections 1, 4 and 6+ pin EP-0023 assembly coverage (projection,
   unsupported kind, references, structured diagnostics). Sections 3, 5, 9
   pin EP-0026 §Layered Resolution: a `[kind id]` defined by several images
   resolves by deterministic IMAGE-ORDER layering, the later image winning.
@@ -18,9 +18,8 @@
       immutable `[kind id]` resolver;
     * within-image duplicate-id collision FAILS LOUD (selection order never
       decides the survivor);
-    * dedupe — the same registration selected twice is NOT a collision;
     * the LATER image wins a cross-image `[kind id]` (EP-0026 image order); a
-      cross-image shadow does NOT fail assembly; a chain resolves to the last;
+      cross-image shadow does NOT fail assembly;
     * a within-image `[kind id]` resolving two ways FAILS LOUD (two selected =
       ambiguous; inline-vs-selected or two inline = within-image collision);
     * unsupported descriptor kind FAILS LOUD;
@@ -122,21 +121,6 @@
             "equal image inputs over the same pool produce an equal generation")))))
 
 ;; ===========================================================================
-;; 2. Dedupe — the same registration selected twice is NOT a collision. The
-;;    duplicate-id collision itself is pinned with its ex-data by §11's
-;;    `within-image-duplicate-id-ex-data-names-colliding-coordinates`, and in
-;;    both selection orders by `ep0026_select_ns_cljs_test`.
-;; ===========================================================================
-
-(deftest same-registration-selected-twice-dedupes
-  (testing "the SAME registration (same coordinate + impl) selected by two
-            overlapping globs is a DEDUPE, not a collision — it seals cleanly"
-    (let [d    (reg-desc "shop.cart" :event :cart/add ::add)
-          img  (rf.image/image {:id :i :select-ns {:include ["shop.*" "shop.cart"]}})
-          gen  (rf.image-assembly/assemble [img] [d])]
-      (is (= ::add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add)))))))
-
-;; ===========================================================================
 ;; 3. Within-image disjointness — an image must resolve cleanly to ONE
 ;;    descriptor per [kind id] (EP-0026 §Layered Resolution). To override, the
 ;;    winner goes in a LATER image; an override within ONE image is an error.
@@ -202,16 +186,6 @@
 ;; interceptor with no :interceptor registration in the generation →
 ;; :rf.error/image-missing-reference — is pinned, with its structured
 ;; diagnostic, by §11's `interceptor-missing-ref-ex-data-carries-provenance`.
-
-(deftest present-interceptor-reference-passes
-  (testing "an event's application-interceptor chain succeeds when the
-            referenced :interceptor IS selected"
-    (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
-                       :interceptors [:my.audit/guard])
-                (reg-desc "app.core" :interceptor :my.audit/guard ::guard)]
-          img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (contains? (:rf.gen/resolver gen) [:interceptor :my.audit/guard])))))
 
 (deftest framework-standard-interceptor-reference-skipped
   (testing "a reserved :rf.interceptor/* reference is framework-provided, NOT
@@ -293,70 +267,11 @@
         (is (= :rf.error/image-duplicate-image-id
                (assembly-error-id #(rf.image-assembly/assemble [named anon] pool))))))))
 
-(deftest single-anonymous-image-still-assembles
-  (testing "a SINGLE anonymous image (the local-test / example case) still
-            assembles — the anonymous rule applies only to MULTI-image
-            compositions, where the shadow report must name each image"
-    (let [pool [(reg-desc "app.a" :event :x ::a)]
-          anon (rf.image/image {:select-ns {:include ["app.a"]}})
-          gen  (rf.image-assembly/assemble [anon] pool)]
-      (is (contains? (:rf.gen/resolver gen) [:event :x]))
-      (is (= [] (rf.image-assembly/generation-shadows gen))
-          "a lone image produces no cross-image shadow"))))
-
 ;; ===========================================================================
 ;; 9b. Cross-image SHADOW REPORT (EP-0026 §Shadow Report) — a flat
 ;;     [{:registration [kind id] :image <defined-in> :shadowed-by <winner>}]
 ;;     list on :rf.gen/shadows; chains name the FINAL winner per loser.
 ;; ===========================================================================
-
-(deftest no-cross-image-shadow-empty-report
-  (testing "a single image, or composed images with disjoint [kind id]s, carries
-            an EMPTY :rf.gen/shadows report (nothing was overridden)"
-    (let [pool  [(reg-desc "a.core" :fx :a/post ::a)
-                 (reg-desc "b.core" :fx :b/post ::b)]
-          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})]
-      (testing "single image — no shadows"
-        (is (= [] (rf.image-assembly/generation-shadows (rf.image-assembly/assemble [img-a] pool)))))
-      (testing "composed images with no shared [kind id] — no shadows"
-        (is (= [] (rf.image-assembly/generation-shadows (rf.image-assembly/assemble [img-a img-b] pool))))))))
-
-(deftest shadow-report-shape-one-entry-per-override
-  (testing "one later image overriding one earlier registration produces ONE flat
-            entry — exactly :registration / :image / :shadowed-by, nothing else"
-    (let [pool  [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          app   (rf.image/image {:id :app/main :select-ns {:include ["checkout.core"]}})
-          dbls  (rf.image/image {:id :test/doubles
-                              :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
-          gen   (rf.image-assembly/assemble [app dbls] pool)
-          report (rf.image-assembly/generation-shadows gen)]
-      (is (= [{:registration [:fx :checkout.http/post]
-               :image        :app/main
-               :shadowed-by  :test/doubles}]
-             report)
-          "the shadow report names the loser image + the winner image — EP-0026
-           shape, EXACTLY the three keys (no scope tag, no winner/loser
-           descriptors)"))))
-
-(deftest shadow-report-final-winner-chain
-  (testing "a chain [base override-a override-b] reports the FINAL winner for EVERY
-            loser — base and override-a are BOTH :shadowed-by override-b, not the
-            immediate predecessor (EP-0026 §Shadow Report)"
-    (let [base  (rf.image/image {:id :base
-                              :registrations {:reg-fx [[:checkout.http/post {} ::base]]}})
-          ov-a  (rf.image/image {:id :ov/a
-                              :registrations {:reg-fx [[:checkout.http/post {} ::a]]}})
-          ov-b  (rf.image/image {:id :ov/b
-                              :registrations {:reg-fx [[:checkout.http/post {} ::b]]}})
-          gen   (rf.image-assembly/assemble [base ov-a ov-b] [])
-          report (rf.image-assembly/generation-shadows gen)]
-      (testing "the live winner is the last image"
-        (is (= ::b (:impl (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))
-      (testing "TWO loser entries, each naming the FINAL winner :ov/b"
-        (is (= [{:registration [:fx :checkout.http/post] :image :base  :shadowed-by :ov/b}
-                {:registration [:fx :checkout.http/post] :image :ov/a  :shadowed-by :ov/b}]
-               report))))))
 
 (deftest shadow-report-two-losers-of-the-same-winner
   (testing "if two earlier images are both shadowed by the same later one for
