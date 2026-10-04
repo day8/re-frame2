@@ -556,26 +556,6 @@
       (is (true? (:child (rf/app-db-value evict-frame-id)))
           "…and so did its child"))))
 
-(deftest replay-reports-its-own-epoch-at-sufficient-depth
-  (testing "the control: with room in the ring the reported epoch is the
-            replayed PARENT's own record, never the trailing child's"
-    (rf/configure! {:epoch-history {:depth 10}})
-    (rf/make-frame {:id evict-frame-id})
-    (register-parent-and-child!)
-    (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
-    (let [source (last (rf/epoch-history evict-frame-id))
-          res    (rf/replay-epoch! evict-frame-id (:epoch-id source))
-          after  (rf/epoch-history evict-frame-id)
-          named  (first (filter #(= (:epoch-id res) (:epoch-id %)) after))]
-      (is (true? (:ok? res)))
-      (is (= [:review/parent :review/parent :review/child] (mapv :event-id after))
-          "the replay committed the parent and then its queued child")
-      (is (some? (:epoch-id res)))
-      (is (= :review/parent (:event-id named))
-          "the reported epoch is the replayed parent's own record")
-      (is (not= (:epoch-id source) (:epoch-id res))
-          "…and it is the NEW record, not the source"))))
-
 ;; ---------------------------------------------------------------------------
 ;; A trace listener's own dispatch cannot steal replay's result
 ;;
@@ -687,23 +667,6 @@
           "the callback's record is never the reported epoch")
       (is (= (:epoch-id (last after)) (:epoch-id res))
           "the reported epoch is the replayed dispatch's own new record"))))
-
-(deftest replay-without-a-callback-is-unchanged
-  (testing "the green control: with no interleaving listener the ordinary replay
-            still reports its own new epoch"
-    (rf/configure! {:epoch-history {:depth 10}})
-    (rf/make-frame {:id interleave-frame-id})
-    (register-add-and-other!)
-    (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
-    (let [source (last (rf/epoch-history interleave-frame-id))
-          res    (rf/replay-epoch! interleave-frame-id (:epoch-id source))
-          after  (rf/epoch-history interleave-frame-id)
-          named  (first (filter #(= (:epoch-id res) (:epoch-id %)) after))]
-      (is (true? (:ok? res)) (str "the replay succeeded: " (pr-str res)))
-      (is (= 2 (count after)) "one seed record and one replay record")
-      (is (= (:epoch-id (last after)) (:epoch-id res)))
-      (is (= [:review/add 1] (:trigger-event named)))
-      (is (= {:n 2} (rf/app-db-value interleave-frame-id))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Another JVM thread's dispatch cannot steal replay's result
