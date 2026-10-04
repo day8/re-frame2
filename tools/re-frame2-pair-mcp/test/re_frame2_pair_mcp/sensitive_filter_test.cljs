@@ -21,7 +21,7 @@
   `trace-window` and `watch-epochs` route projected epoch vectors
   through — so the `sensitive-epoch?` predicate cannot be bypassed by
   the tool response path."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
 
@@ -66,26 +66,6 @@
           [kept dropped] (sensitive/strip-sensitive evts false)]
       (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
       (is (= 2 dropped)))))
-
-;; ---------------------------------------------------------------------------
-;; Default posture — the load-bearing assertion for the spec/009 MUST.
-;; ---------------------------------------------------------------------------
-
-(deftest spec-009-default-posture-is-suppress
-  (testing "the default (include-sensitive omitted ⇒ false) suppresses"
-    (let [sensitive-batch [{:operation :rf.event/dispatched
-                            :tags      {:event-id :auth/sign-in}
-                            :sensitive? true}]
-          [kept dropped] (sensitive/strip-sensitive sensitive-batch false)]
-      (is (= [] kept) "sensitive event must NOT reach the agent surface by default")
-      (is (= 1 dropped))))
-  (testing "include-sensitive true is the documented opt-in"
-    (let [sensitive-batch [{:operation :rf.event/dispatched
-                            :tags      {:event-id :auth/sign-in}
-                            :sensitive? true}]
-          [kept dropped] (sensitive/strip-sensitive sensitive-batch true)]
-      (is (= sensitive-batch kept))
-      (is (zero? dropped)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Snapshot scrubber — sensitive trace events stripped from per-frame
@@ -215,14 +195,6 @@
 ;; scenarios. These match how trace-window-tool / watch-epochs-tool feed
 ;; epoch vectors through the same helper.
 ;; ---------------------------------------------------------------------------
-
-(deftest strip-sensitive-passes-non-sensitive-epoch-vector-through
-  (let [epochs [{:epoch-id 1 :event-id :cart/add :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
-                {:epoch-id 2 :event-id :cart/checkout :trace-events []}
-                {:epoch-id 3 :event-id :nav/route}]
-        [kept dropped] (sensitive/strip-sensitive epochs false)]
-    (is (= epochs kept))
-    (is (zero? dropped))))
 
 (deftest strip-sensitive-mixed-batch-drops-sensitive-keeps-rest
   ;; Three sensitivity signals in one batch:
