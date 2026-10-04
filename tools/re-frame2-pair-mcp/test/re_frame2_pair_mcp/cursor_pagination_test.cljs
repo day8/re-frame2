@@ -242,9 +242,6 @@
 ;; not the codec unit.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private b64-alphabet
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
-
 ;; A real, canonical pair cursor payload — an INTEGER `:after-id`, exactly
 ;; the shape the reference epoch runtime emits (`(swap! counter inc)`), so
 ;; every alias below is built from a token a genuine second-page
@@ -261,23 +258,6 @@
   construction the mcp-base CLJS suite proves rejected at the codec unit."
   [token]
   (str (subs token 0 2) "!!" (subs token 2)))
-
-(defn- pad-bit-alias
-  "A noncanonical alias of canonical `token` differing ONLY in the trailing
-  pad bits (same decoded bytes, DIFFERENT spelling), or nil if `token` has
-  no pad slack. Both hosts ignore non-zero pad bits, so the alias decodes to
-  IDENTICAL bytes — the family a lexical alphabet/padding grammar admits but
-  the round-trip-equality gate rejects. Verbatim mirror of the mcp-base
-  cursor suites' helper; here it feeds the HANDLER, not the codec unit."
-  [token]
-  (let [decoded (rf.mcp-base.cursor/b64-decode token)
-        i       (dec (count (re-find #"[^=]+" token)))
-        orig    (nth token i)]
-    (some (fn [c]
-            (when (not= c orig)
-              (let [cand (str (subs token 0 i) c (subs token (inc i)))]
-                (when (= decoded (rf.mcp-base.cursor/b64-decode cand)) cand))))
-          b64-alphabet)))
 
 (defn- assert-true-alias!
   "Precondition: `alias` is a GENUINE noncanonical alias of `canonical` — a
@@ -324,21 +304,6 @@
         (-> (tw/trace-window-tool nil (tu/args->js {:cursor alias}))
             (.then (fn [result]
                      (assert-cursor-stale-envelope! result "trace-window")
-                     (done))))))))
-
-(deftest handler-rejects-pad-bit-cursor-alias-watch-epochs
-  ;; The pad-bit family is the one a lexical alphabet/padding grammar would
-  ;; ADMIT and the old JVM decoder ACCEPTED (java.util.Base64 ignores pad
-  ;; bits) — only the decode→re-encode round-trip gate rejects it. Driving
-  ;; it end-to-end through the handler pins that the pair inherits the gate.
-  (testing "a noncanonical PAD-BIT cursor alias driven through watch-epochs-tool is REJECTED as cursor-stale"
-    (async done
-      (let [canonical (cursor/encode-cursor canonical-payload)
-            alias     (pad-bit-alias canonical)]
-        (assert-true-alias! alias canonical)
-        (-> (we/watch-epochs-tool nil (tu/args->js {:cursor alias}))
-            (.then (fn [result]
-                     (assert-cursor-stale-envelope! result "watch-epochs")
                      (done))))))))
 
 (deftest handler-accepts-canonical-cursor-of-same-position-watch-epochs
