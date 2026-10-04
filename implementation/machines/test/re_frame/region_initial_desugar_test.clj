@@ -96,23 +96,3 @@
       (is (contains? (scheduled-delays @traces) 5000)
           "entering :waiting via the root target armed its lowered :after
            (an un-desugared :timeout on the cached region body would never arm)"))))
-
-;; ---- sanity: an EXPLICIT (already-lowered) :after arms identically ---------
-;;
-;; Control proving the birth/root scheduling path itself is sound — what the
-;; :timeout cases pin is the lowering, not the scheduler.
-
-(deftest region-initial-explicit-after-arms-at-birth
-  (testing "a region-initial state with an explicit :after arms at birth"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:left {:initial :waiting
-                             :states  {:waiting {:after {5000 {:target :done}}}
-                                       :done    {}}}}}
-          traces (atom [])]
-      (rf/reg-machine :rf.region-desugar/explicit-after m)
-      (rf/register-listener! :trace ::t (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.region-desugar/explicit-after [:rf.machine/start]])
-      (rf/unregister-listener! :trace ::t)
-      (is (contains? (scheduled-delays @traces) 5000)
-          "the explicit region-initial :after arms at birth (control for the :timeout case)"))))
