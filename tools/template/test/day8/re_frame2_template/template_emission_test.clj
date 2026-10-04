@@ -219,8 +219,6 @@
 (defn- assert-events-test-shape!
   [substrate ^java.io.File root]
   (let [test-file (io/file root "test/acme/my_app/events_test.cljs")
-        _         (is (.isFile test-file)
-                      (str "events_test.cljs emitted for " substrate))
         forms     (read-cljs-forms test-file)
         ns-form   (first forms)
         _         (is (and (sequential? ns-form) (= 'ns (first ns-form)))
@@ -405,10 +403,8 @@
                 body (hook-body core "mount!")]
             (is (= 1 (count (re-seq #"\(defn\s+\^:dev/after-load" core)))
                 (str substrate ": core.cljs defines exactly one ^:dev/after-load hook"))
-            (is (some? body)
-                (str substrate ": the hook is `mount!`"))
             (is (and body (string/includes? body renders))
-                (str substrate ": the hook body calls " renders
+                (str substrate ": the hook is `mount!`, and its body calls " renders
                      " — it is what repaints an edited view"))
             (is (re-find #"(?s)\^:export\s+init[\s\S]*?\(mount!\)" core)
                 (str substrate ": init calls (mount!) so boot and reload share one render path"))
