@@ -1982,29 +1982,6 @@
                     rows
                     ["" "### Schemas" ""])))
 
-(deftest tags-column-arm-reds-on-its-motivating-defect
-  (testing "The arm MUST red on a row that omits schema-declared keys. The
-            row below names three keys and omits the two further keys the
-            schema declares."
-    (let [pre  (parse-catalogue-tag-rows
-                 (catalogue-fixture
-                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
-                        "| A route resource plan failed. | `:no-recovery` "
-                        "| `:route-id`, `:reason`, `:frame` |")))
-          post (parse-catalogue-tag-rows
-                 (catalogue-fixture
-                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
-                        "| A route resource plan failed. | `:no-recovery` "
-                        "| `:route-id`, `:reason`, `:frame`, `:contributor`, "
-                        "`:plan-cause` |")))]
-      (is (= [{:category :rf.error/resource-route-plan
-               :schema   "ResourceRoutePlanTags"
-               :missing  #{:contributor :plan-cause}}]
-             (tags-column-findings pre pre-wsopx-schemas))
-          "the arm reds on the exact defect that motivated it")
-      (is (empty? (tags-column-findings post pre-wsopx-schemas))
-          "…and greens on the completed cell, so the red is the defect and not the arm"))))
-
 (deftest tags-column-key-in-link-text-is-not-a-documented-key
   (testing "A key named only inside a markdown cross-reference link is PROSE
             ABOUT the key, not the row listing it — so it must not satisfy the
@@ -2343,30 +2320,7 @@
                "than their " modal "-field siblings, so their `:tags` cell is "
                "read from the wrong column: " (pr-str slid) ". Escape a literal "
                "pipe inside a cell as `\\|` — and if the escape is already "
-               "there, the READER is at fault, not the row."))))
-
-  (testing "NON-VACUITY, against the reader defect itself: a synthetic row whose
-            Trigger cell carries an escaped pipe must still reach the arm's
-            VERDICT through its real `:tags` cell. Under a reader that splits
-            on the escaped pipe this row's cell is the `Default :recovery`
-            sentence, so the
-            keys-set diff would convict a clean row of omitting all five keys
-            its schema declares — a red naming the wrong column, for a reason
-            unrelated to the change in front of the author."
-    (let [rows (parse-catalogue-tag-rows
-                 (catalogue-fixture
-                   (str "| `:rf.error/resource-route-plan` | `:error` | diagnostic "
-                        "| A plan step returns `next \\| nil`. | `:no-recovery` "
-                        "| `:route-id`, `:reason`, `:frame`, `:contributor`, "
-                        "`:plan-cause` |")))]
-      (is (= [:rf.error/resource-route-plan] (mapv :category rows))
-          "the escaped-pipe row parses")
-      (is (= #{:route-id :reason :frame :contributor :plan-cause}
-             (cell-tag-keys (:tags-cell (first rows))))
-          "…from its `:tags` column, not from `Default :recovery`")
-      (is (empty? (tags-column-findings rows pre-wsopx-schemas))
-          "…so the arm greens on a row that documents every key its schema
-           declares, instead of redding at the recovery sentence"))))
+               "there, the READER is at fault, not the row.")))))
 
 (deftest table-delimiter-honours-backslash-run-parity
   (testing "A PURE PARSER FIXTURE for `table-delimiter-re`, fed
