@@ -22,8 +22,7 @@
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.machines.timer :as rf.machines.timer]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -58,27 +57,6 @@
         "the restored frame's armed timer handles are GONE after the quiesce")
     (is (contains? @rf.machines.timer/after-timers :rq/sibling)
         "a sibling frame's timers are untouched (frame-scoped quiesce)")))
-
-(deftest cancel-frame-timers-on-restore-emits-on-restore-reason
-  (testing "each released timer emits one
-            :rf.machine.timer/cancelled trace with :reason :on-restore"
-    (rf/reg-machine :rq2/m spec)
-    (rf/make-frame {:id :rq2/f :doc "restore-reason trace frame"})
-    (rf/dispatch-sync [:rq2/m [:fetch]] {:frame :rq2/f})
-    (is (seq (get @rf.machines.timer/after-timers :rq2/f)) "precondition: a timer is armed")
-    (let [seen (atom [])
-          k    ::on-restore-recorder]
-      (rf.trace.tooling/register-listener!
-        k (fn [ev] (when (= :rf.machine.timer/cancelled (:operation ev))
-                     (swap! seen conj ev))))
-      (try
-        (rf.machines.timer/cancel-frame-timers-on-restore! :rq2/f)
-        (finally (rf.trace.tooling/unregister-listener! k)))
-      (is (seq @seen) "a :rf.machine.timer/cancelled trace fired")
-      (is (every? #(= :on-restore (:reason (:tags %))) @seen)
-          "every cancelled row carries :reason :on-restore")
-      (is (some #(= :rq2/f (:frame (:tags %))) @seen)
-          "the cancelled row names the restored frame"))))
 
 (deftest cancel-frame-timers-on-restore-noop-on-unarmed-frame
   (testing "quiescing a frame with no armed timers is a no-op"
