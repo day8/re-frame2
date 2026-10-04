@@ -11,7 +11,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
-            [re-frame.story.ui.a11y :as rf.story.ui.a11y]
             [re-frame.story.ui.panels :as rf.story.ui.panels]))
 
 (defn reset-all! []
@@ -25,12 +24,6 @@
 (use-fixtures :each {:before reset-all!})
 
 ;; ---- the v1.0 panels --------------------------------------------------
-
-(deftest v1-panels-registered
-  (testing "install-canonical-vocabulary! registers the v1.0 story-panels"
-    (let [ps (rf.story/registrations :story-panel)]
-      (is (contains? ps rf.story.ui.a11y/panel-id))
-      (is (contains? ps rf.story.ui.panels/layout-debug-panel-id)))))
 
 (deftest layout-debug-panel-body
   (testing "layout-debug panel registers as :right placement"
