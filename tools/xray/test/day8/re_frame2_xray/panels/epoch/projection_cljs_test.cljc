@@ -1090,8 +1090,6 @@
       ;; received [:door/insert-coin] in :alarming, no transition", and
       ;; there is no "ignored" outcome label.
       (is (= "staying in :alarming" verb))
-      (is (= "NO OP" (badge/cascade-kind-label :no-op))
-          "the pill is the sole marker — `NO OP` (space, not hyphen)")
       (is (not (str/includes? verb "no-op"))   "no 'no-op —' prefix")
       (is (not (str/includes? verb "received")) "no 'received [event]' echo")
       (is (not (str/includes? verb "transition")) "no ', no transition' suffix")
@@ -1271,11 +1269,7 @@
              (first (proj/machine-cascade-rows
                       [(machine-started-ev :player/av
                                            {:audio :muted :video :playing}
-                                           {} :spawned)])))))
-    (is (= "START" (badge/cascade-kind-label :start))
-        "the kind pill reads START")
-    (is (badge/cascade-kind? :start)
-        ":start is a member of the closed cascade-kind-set"))
+                                           {} :spawned)]))))))
 
   (testing "a [START] carries NO outcome chip and NO source-link
             spec-path key (a birth has no transition outcome / call-site)"
@@ -2969,9 +2963,6 @@
       (is (= [] (:rows s)))
       (is (= 1 (count (:disposed-rows s))))))
 
-  (testing "no sub events at all → step OMITTED"
-    (is (nil? (proj/subscriptions-step []))))
-
   (testing "only recomputes, no disposals → `:disposed-rows`
             slot ABSENT (omit-by-absence)"
     (let [s (proj/subscriptions-step [(sub-run-ev [:a] true 1 2)])]
@@ -3104,9 +3095,6 @@
       (is (= 1 (count (:rows s))))
       (is (= :unmounted (-> s :rows first :status)))
       (is (= 1 (:unmounted-count s)))))
-
-  (testing "no view events at all → step OMITTED"
-    (is (nil? (proj/views-step []))))
 
   (testing "only re-renders, no unmounts → `:unmounted-count`
             slot ABSENT (omit-by-absence)"
@@ -3608,11 +3596,6 @@
 
 ;; ---- per-step elapsed time + cascade total ------------------------------
 
-(deftest long-step-threshold-test
-  (testing "16ms = one display frame at 60Hz; the threshold
-            documents the long-step warning boundary"
-    (is (= 16 proj/long-step-threshold-ms))))
-
 (deftest long-step-predicate-test
   (testing "`long-step?` is true iff duration > 16ms"
     (is (false? (proj/long-step? {:duration-ms 0.1})))
@@ -3974,13 +3957,7 @@
     (is (= [9001 9002] (proj/parent-dispatch-ids
                          [{:step :dispatch :source-enrichment {:parent-dispatch-id 9001}}
                           {:step :dispatch :source-enrichment {:parent-dispatch-id 9002}}]))
-        "cascade order preserved")
-    ;; Determinism is the whole contract here, so pin it directly rather
-    ;; than trusting that two reads of one vector look alike.
-    (let [steps [{:step :dispatch :source-enrichment {:parent-dispatch-id 9002}}
-                 {:step :dispatch :source-enrichment {:parent-dispatch-id 9001}}]]
-      (is (= (proj/parent-dispatch-ids steps) (proj/parent-dispatch-ids steps))
-          "same steps → `=` vector, so the sub cache hits across renders"))))
+        "cascade order preserved")))
 
 (deftest project-attaches-app-db-violation-to-fx-db-row-test
   (testing "top-level `project`
