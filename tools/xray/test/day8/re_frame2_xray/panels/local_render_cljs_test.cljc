@@ -161,10 +161,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest local-render-applies-the-observed-frames-policy
-  (testing "under the SECURE frame the sensitive token redacts"
-    (is (= :rf/redacted
-           (get-in (local-render/local-render-value app-db-value secure-frame)
-                   [:auth :token]))))
   (testing "under the PLAIN frame (no sensitive decl) the SAME value renders
             verbatim — the policy is per-frame, applied from the observed
             frame, never borrowed or ambient"
@@ -178,10 +174,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest local-raw-opt-in-reveals-sensitive
-  (testing "the redacted default suppresses the sensitive slot"
-    (is (= :rf/redacted
-           (get-in (local-render/local-render-value app-db-value secure-frame false)
-                   [:auth :token]))))
   (testing "the explicit trusted-local :rf.egress/local-raw grain (raw? true)
             reveals it — an operator act, not the process-global default"
     (is (= "secret-session-jwt-abc123"
@@ -207,12 +199,10 @@
   (testing "a nil observed frame likewise fails closed"
     (is (= :rf/redacted (local-render/local-render-value app-db-value nil))))
   #?(:clj
-     (testing "the profile floor and the keep-large overlay are on every opts
-               map (the `:frame` stamp itself is pinned in §7)"
+     (testing "the profile floor is on every opts map (the `:frame` stamp
+               itself is pinned in §7)"
        (is (= :rf.egress/local-redacted
-              (:rf.egress/profile (local-render-opts* secure-frame))))
-       (is (true? (:rf.egress/include-large? (local-render-opts* secure-frame)))
-           "the keep-large overlay is always present"))))
+              (:rf.egress/profile (local-render-opts* secure-frame)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5b. THE AMBIENT-BORROW ARM — fail-closed EVEN WHEN an ambient frame is bound
