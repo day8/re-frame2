@@ -87,10 +87,7 @@
     (rf/make-frame {:id :test/cc})
     (let [result (rf.epoch.capture/run-cause :test/cc)]
       (is (= {:rendered-so-far 0} result)
-          "empty buffer → only :rendered-so-far 0, other slots omitted")
-      (is (not (contains? result :cause-event-id)))
-      (is (not (contains? result :cause-subs)))
-      (is (not (contains? result :value-changed-subs)))))
+          "empty buffer → only :rendered-so-far 0, other slots omitted")))
 
   (testing "a buffer with traces but NO :event/run-start (no run
             trigger) still omits :cause-event-id"
@@ -146,8 +143,6 @@
                         (range 10)))
     (testing "explicit sub-cap of 3 truncates to the first 3 distinct subs"
       (let [result (rf.epoch.capture/run-cause :test/cc 3)]
-        (is (= 3 (count (:cause-subs result)))
-            "capped at 3 distinct sub-ids")
         (is (= [:s0 :s1 :s2] (:cause-subs result))
             "the FIRST 3 (first-seen) are kept; the rest dropped")))
     (testing "the default cap (100) admits all 10 subs"
@@ -172,9 +167,7 @@
       (is (= [:changed :unchanged :also-changed] (:cause-subs result))
           "all three subs ran (cause-subs carries every distinct one)")
       (is (= #{:changed :also-changed} (:value-changed-subs result))
-          ":value-changed-subs carries ONLY the value-changed subset")
-      (is (not (contains? (:value-changed-subs result) :unchanged))
-          "the unchanged sub is excluded from :value-changed-subs"))))
+          ":value-changed-subs carries ONLY the value-changed subset"))))
 
 (deftest value-changed-subs-omitted-when-no-sub-changed
   (testing "when no sub reports value-changed? true (a structural
@@ -204,9 +197,6 @@
                         (range 10)))
     (testing "explicit sub-cap of 3 truncates the value-changed set to 3"
       (let [result (rf.epoch.capture/run-cause :test/cc 3)]
-        (is (= 3 (count (:value-changed-subs result)))
-            "value-changed-subs capped at the sub-cap (3), not the 10
-             distinct value-changed sub-ids present in the buffer")
         (is (= #{:v0 :v1 :v2} (:value-changed-subs result))
             "the FIRST 3 (first-seen) value-changed subs are kept; the
              rest dropped — independent of the first-seen :subs scan")))
@@ -216,21 +206,6 @@
             "well under the default 100 cap — all value-changed subs surface")))))
 
 ;; ---- rendered-so-far: counts both rendered + cap-reached ------------------
-
-(deftest rendered-so-far-counts-rendered-emits
-  (testing ":rendered-so-far counts the :rf.view/rendered emits already in
-            the run — the views.cljs emit site reads it to enforce the
-            per-run view-render cap"
-    (rf/make-frame {:id :test/cc})
-    (seed-buffer! :test/cc
-                  [(run-start :ev)
-                   (rendered)
-                   (sub-run :a)
-                   (rendered)
-                   (rendered)])
-    (let [result (rf.epoch.capture/run-cause :test/cc)]
-      (is (= 3 (:rendered-so-far result))
-          "three :rf.view/rendered emits ⇒ :rendered-so-far 3"))))
 
 (deftest rendered-so-far-counts-cap-reached-marker-too
   (testing ":rendered-so-far counts BOTH :rf.view/rendered AND the one-shot
