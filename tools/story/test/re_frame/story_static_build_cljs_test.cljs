@@ -4,11 +4,11 @@
   Spec coverage: `tools/story/spec/013-Static-Build.md` §
   Static-mode runtime semantics + § What gets bundled / stripped.
 
-  `re-frame.story-cljs-test/
-  static-mode-flag-defaults-false-in-cljs-test-build` pins the default
-  value of the `static-mode?` `goog-define` flag and of the public
-  `(rf.story/static-mode?)` probe. This namespace covers the flag's
-  *consequences*.
+  `help-auto-open-active-under-dev-mode-first-visit` reads the default
+  value of the `static-mode?` `goog-define` flag in this build, and the
+  JVM `re-frame.story-test/static-mode-defaults-false-on-jvm` pins the
+  public `(rf.story/static-mode?)` probe. This namespace covers the
+  flag's *consequences*.
 
   This namespace covers the behavioural surfaces that are reachable from
   the node-test runner — i.e. anything that does not require a live
