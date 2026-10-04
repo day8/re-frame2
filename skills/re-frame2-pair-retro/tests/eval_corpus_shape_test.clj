@@ -79,16 +79,14 @@
                "conversion in evals/README.md together — do not leave both standing."))
       (is (contains? parsed :evals)
           "the repository wrapper does not carry an `evals` key."))
+    ;; That every entry carries a string `prompt` and a boolean `should_trigger`
+    ;; (a field upstream's TASK schema does not define) is read through the
+    ;; documented conversion in `documented-conversion-yields-the-trigger-input`.
     (testing "entries carry `prompt`, not the `query` the trigger runner indexes"
       (is (seq (:evals parsed)) "the corpus is empty.")
-      (is (every? #(contains? % :prompt) (:evals parsed))
-          "some fixture has no `prompt` field.")
       (is (not-any? #(contains? % :query) (:evals parsed))
           (str "a fixture carries `query`. The corpus is half-converted — pick one "
-               "shape; a mixed corpus silently drops entries in whichever runner reads it.")))
-    (testing "entries carry `should_trigger`, which upstream's TASK schema does not define"
-      (is (every? #(contains? % :should_trigger) (:evals parsed))
-          "a fixture has no `should_trigger` label."))))
+               "shape; a mixed corpus silently drops entries in whichever runner reads it.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The documentation tells the truth about the wrapper
