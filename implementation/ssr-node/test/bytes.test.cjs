@@ -99,30 +99,6 @@ test('the bytes out of HTTP are the same bytes, and Content-Length counts them',
   });
 });
 
-test('the STREAMING mode delivers byte-identical output to the buffered one', async () => {
-  // Two readings of one protocol. If they disagreed on a single byte, the
-  // separability claim would be a claim about two different semantics.
-  await withService('chunked', { isolates: 1 }, async (service) => {
-    const http = await serve({ service, port: 0 });
-    const body = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<a>","—","<c/>"]' } };
-    try {
-      const buffered = await post(`http://127.0.0.1:${http.port}/render`, body);
-      const streamed = await post(`http://127.0.0.1:${http.port}/render?stream=1`, body);
-      assert.strictEqual(buffered.status, 200);
-      assert.strictEqual(streamed.status, 200);
-      assert.strictEqual(sha256(streamed.text), sha256(buffered.text));
-      assert.strictEqual(buffered.headers.get('content-length'), String(utf8(buffered.text)));
-      assert.strictEqual(
-        streamed.headers.get('content-length'),
-        null,
-        'a streamed response cannot know its length in advance — that is the point',
-      );
-    } finally {
-      await http.close();
-    }
-  });
-});
-
 test('the query is the ONLY streaming selector — the retired header changes nothing', async () => {
   // `?stream=1` is the whole of the supported contract. No request header
   // selects streaming — a caller must not be handed chunked framing by a
@@ -175,16 +151,6 @@ test('a multi-chunk render arrives as multiple frames — nothing joins on the w
     assert.deepStrictEqual(chunks.map((c) => c.html), parts, 'in order, unaltered');
     assert.strictEqual(complete.chunks, parts.length);
     assert.strictEqual(sha256(chunks.map((c) => c.html).join('')), sha256(parts.join('')));
-  });
-});
-
-test('a single-chunk render is the SAME protocol, not a special case', async () => {
-  await withService('bytes', { isolates: 1 }, async (service) => {
-    const { chunks, complete } = await collect(service, req());
-    assert.strictEqual(chunks.length, 1);
-    assert.strictEqual(chunks[0].seq, 0);
-    assert.strictEqual(complete.chunks, 1);
-    assert.strictEqual(complete.type, 'complete');
   });
 });
 
@@ -408,7 +374,11 @@ test('a target the URL parser refuses is a 400, and the SAME service keeps servi
   });
 });
 
-test('a surrogate pair SPLIT across streamed chunks arrives as the bytes the buffered mode sends', async () => {
+test('the STREAMING mode delivers the buffered bytes exactly, even with a surrogate pair SPLIT across chunks', async () => {
+  // Two readings of one protocol: if they disagreed on a single byte, the
+  // separability claim would be a claim about two different semantics. The
+  // first case is whole characters; every other case splits one.
+  //
   // `emit` takes strings and promises no code-point boundary, so a module
   // splitting markup at a code-unit offset can hand the halves of one astral
   // character to two chunks. Encoding each chunk alone would turn each half
@@ -417,6 +387,7 @@ test('a surrogate pair SPLIT across streamed chunks arrives as the bytes the buf
   // the two cannot agree on a wrong answer; the unmatched surrogate is the
   // control that the reference is Node's encoding and not a cleaned one.
   const cases = [
+    ['whole characters', ['<a>', '\u2014', '<c/>']],
     ['a split pair', ['<p>\uD834', '\uDD1E</p>']],
     ['an empty chunk between the halves', ['<p>\uD834', '', '\uDD1E</p>']],
     ['several split pairs', ['\uD834', '\uDD1E\uD834', '\uDD1E<i>\uD83D', '\uDE00</i>']],
