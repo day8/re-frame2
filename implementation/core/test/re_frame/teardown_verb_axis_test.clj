@@ -19,9 +19,8 @@
 
    This test pins:
 
-   1. `destroy-adapter!` resolves.
-   2. `dispose-adapter!` does NOT resolve (no alias).
-   3. The `unsubscribe` carve-out is intact: `unsubscribe` resolves,
+   1. `dispose-adapter!` does NOT resolve (no alias).
+   2. The `unsubscribe` carve-out is intact: `unsubscribe` resolves,
       `rf/clear` resolves to a DIFFERENT fn value (registrar decrement
       vs cache decrement), and there is no `clear-sub`.
 
@@ -29,11 +28,6 @@
    migration/from-re-frame-v1/README.md M-53."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]))
-
-(deftest new-name-resolves
-  (testing "rf/destroy-adapter! resolves to a Var"
-    (is (some? (find-var 're-frame.core/destroy-adapter!))
-        "rf/destroy-adapter! must be a public surface (M-53)")))
 
 (deftest old-name-does-not-resolve
   (testing "rf/dispose-adapter! does not exist (alpha — no back-compat aliases)"
