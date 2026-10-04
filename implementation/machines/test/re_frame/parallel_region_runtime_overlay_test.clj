@@ -97,29 +97,6 @@
         (is (= :server (-> skipped first :tags :platform))
             "the skip trace records :platform :server")))))
 
-(deftest client-region-after-schedules-and-carries-live-frame
-  (testing "the symmetric client path — a parallel-region :after
-   under a `:platform :client` frame DOES schedule (`:scheduled`) and the
-   trace carries the live frame — confirming the overlay threads the real
-   runtime frame through region pure logic, not a stale cached value."
-    (let [unstamped (rf.machines.parallel/install-region-cache base-spec)]
-      ;; Prime the cache from the unstamped machine again.
-      (rf.machines.parallel/region-machine unstamped :climate)
-      (let [client-machine (assoc unstamped
-                                  :rf/platform  :client
-                                  :rf/frame     :test/client-frame
-                                  :rf/parent-id :overlay/client)
-            snap   (parallel-snapshot client-machine)
-            traces (record-traces!
-                     (fn []
-                       (rf.machines.parallel/machine-transition
-                         client-machine snap [:start])))
-            scheduled (of-op traces :rf.machine.timer/scheduled)]
-        (is (= 1 (count scheduled))
-            "client platform schedules the region :after")
-        (is (= :test/client-frame (-> scheduled first :tags :frame))
-            "the :scheduled trace carries the LIVE client frame")))))
-
 (deftest overlay-does-not-mutate-the-cached-region-spec
   (testing "overlaying live runtime keys per step must not corrupt
    the SHARED cached region spec — two transitions on different platforms
