@@ -13,7 +13,7 @@
 
   A reason belongs to EXACTLY ONE channel — the (channel, reason) pair is
   the contract, not two independent sets. This test pins that matrix as
-  exact TUPLES against three kinds of evidence, so a channel move, a
+  exact TUPLES against two kinds of evidence, so a channel move, a
   changed pair, or a new/dynamic reason on any surface goes RED:
 
     A. Doc ↔ doc — the four normative surfaces are parsed and compared as
@@ -35,29 +35,22 @@
        EXPLICIT failure with a source location — dynamic/unparsed reasons
        fail closed instead of being silently skipped.
 
-    C. Executable fixtures — the runtime is DRIVEN and the emitted
-       (channel, reason) tuple is asserted for `:explicit` and
-       `:rf.machine/finished` (fx channel) and `:parent-frame-destroyed`
-       (lifecycle channel). Mutating either
-       argument of any emit reds the matching fixture.
+  The DRIVEN runtime's tuples are pinned beside each emit path:
+  `destroyed_trace_shape_test` (fx channel), `frame_destroy_cascade_test`
+  (lifecycle channel) and `machine_view_unmount_teardown_cljs_test` (one fx
+  `:explicit`, zero lifecycle, on an explicit destroy).
 
   Authoritative surfaces: the 009 matrix table is the CANONICAL enum;
   Spec-Schemas and 005 D6 RESTATE it; Cross-Spec documents the one
-  route-change pair. The emit sites are the RUNTIME truth; the executable
-  fixtures are the behavioural ground truth. Every layer must agree.
+  route-change pair. The emit sites are the RUNTIME truth. Every layer must
+  agree.
 
-  JVM-only (`.clj`): the doc/source layers `slurp` + reader-parse repo
-  markdown and source, which only the JVM `clojure -M:test` runner can do;
-  the executable layer drives the machine runtime on the plain-atom
-  substrate (the machines `.cljc` runtime runs on the JVM)."
+  JVM-only (`.clj`): both layers `slurp` + reader-parse repo markdown and
+  source, which only the JVM `clojure -M:test` runner can do."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.machines]
-            [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
+            [clojure.test :refer [deftest is testing]])
   (:import [java.io PushbackReader]))
 
 ;; ---------------------------------------------------------------------------
@@ -708,122 +701,3 @@
     (testing "an appended `or `:bogus`` on the sole-reason sentence fails closed
               (a substring check would admit it)"
       (is (some? (lifecycle-row-violation mutated))))))
-
-;; ---------------------------------------------------------------------------
-;; C. Executable fixtures — drive the runtime, assert the exact emitted tuple
-;; ---------------------------------------------------------------------------
-
-(use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-(deftest executable-explicit-destroy-emits-fx-explicit
-  (testing "an explicit teardown (declarative :spawn exit cascade) emits EXACTLY
-            (:rf.machine/destroyed, :explicit)"
-    (rf/reg-machine :dre/child {:initial :running :data {} :states {:running {}}})
-    (rf/reg-machine :dre/parent
-                    {:initial :idle
-                     :states  {:idle    {:on {:start :working}}
-                               :working {:spawn {:machine-id :dre/child}
-                                         :on    {:stop :idle}}}})
-    (rf.machines.test-support/with-trace-capture captured
-      (rf/dispatch-sync [:dre/parent [:start]])
-      (rf/dispatch-sync [:dre/parent [:stop]])          ; exit :working → destroy-single!
-      (let [fx (filter #(= fx-channel (:operation %)) @captured)]
-        (is (seq fx) "an fx-channel :rf.machine/destroyed fired")
-        (doseq [t fx]
-          (is (= [fx-channel :explicit] [(:operation t) (-> t :tags :reason)])
-              (str "explicit destroy must be the exact tuple [" fx-channel " :explicit]; saw "
-                   (pr-str [(:operation t) (-> t :tags :reason)]))))))))
-
-(deftest executable-finalize-emits-fx-finished
-  (testing "a machine reaching a :final? state auto-destroys as EXACTLY
-            (:rf.machine/destroyed, :rf.machine/finished)"
-    (rf/reg-machine :drf/child
-                    {:initial :running :data {}
-                     :states  {:running {:on {:end :done}} :done {:final? true}}})
-    (rf/reg-machine :drf/parent
-                    {:initial :working :states {:working {:spawn {:machine-id :drf/child}}}})
-    (rf.machines.test-support/with-trace-capture captured
-      (rf/dispatch-sync [:drf/parent [:rf.machine.spawn/spawned]])
-      (let [spawned (get-in (rf.machines.test-support/runtime-db)
-                            [:rf.runtime/machines :spawned :drf/parent [:working]])]
-        (rf/dispatch-sync [spawned [:end]]))          ; child → :final? → finalize
-      (let [fin (filter #(= :rf.machine/finished (-> % :tags :reason)) @captured)]
-        (is (seq fin) "a :rf.machine/finished destroy fired")
-        (doseq [t fin]
-          (is (= [fx-channel :rf.machine/finished] [(:operation t) (-> t :tags :reason)])
-              (str "finalize must be the exact tuple [" fx-channel " :rf.machine/finished]; saw "
-                   (pr-str [(:operation t) (-> t :tags :reason)]))))))))
-
-(deftest executable-join-child-completion-emits-fx-finished
-  (testing "a completed :spawn-all child emits EXACTLY
-            (:rf.machine/destroyed, :rf.machine/finished) — at its OWN finality,
-            not at join resolution. Completion is finality, so a folded child
-            closes its own attempt; there is no separate reap and no
-            cancellation-suppressing reason (no :rf.machine/join-reaped)."
-    (let [mk-child (fn []
-                     {:initial :running
-                      :data    {:id nil}
-                      :actions {:record-id (fn [{d :data ev :event}] {:data (assoc d :id (second ev))})}
-                      :states  {:running {:on {:set-id {:action :record-id}
-                                               :go     {:target :done}
-                                               :fail   {:target :failed}}}
-                                :done   {:final? true :output-key :id}
-                                :failed {:final? true :error? true :output-key :id}}})]
-      (rf/reg-machine :drj/a (mk-child))
-      (rf/reg-machine :drj/b (mk-child))
-      (rf/reg-machine :drj/sup
-                      {:initial :idle
-                       :states  {:idle   {:on {:start :racing}}
-                                 :racing {:spawn-all
-                                          {:children [{:id :a :machine-id :drj/a :start [:set-id :a]}
-                                                      {:id :b :machine-id :drj/b :start [:set-id :b]}]
-                                           :join             :any
-                                           :on-some-complete [:race/won]}}}})
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:drj/sup [:start]])
-        (let [ids  (get-in (rf.machines.test-support/runtime-db)
-                           [:rf.runtime/machines :spawned :drj/sup [:racing] :children])
-              a-id (:a ids)
-              b-id (:b ids)]
-          (rf/dispatch-sync [a-id [:go]])   ; :a completes (finality) -> :any resolves -> :b cancelled
-          (let [a-destroys (filter #(and (= fx-channel (:operation %))
-                                         (= a-id (:actor-id (:tags %))))
-                                   @captured)
-                b-destroys (filter #(and (= fx-channel (:operation %))
-                                         (= b-id (:actor-id (:tags %))))
-                                   @captured)]
-            (is (seq a-destroys) "the completed child fired an fx destroy")
-            (doseq [t a-destroys]
-              (is (= [fx-channel :rf.machine/finished] [(:operation t) (-> t :tags :reason)])
-                  (str "a completed join child must be the exact tuple [" fx-channel
-                       " :rf.machine/finished]; saw "
-                       (pr-str [(:operation t) (-> t :tags :reason)]))))
-            (is (seq b-destroys) "the SURVIVOR fired an fx destroy at resolution")
-            (doseq [t b-destroys]
-              (is (= [fx-channel :explicit] [(:operation t) (-> t :tags :reason)])
-                  (str "a cancelled survivor must be the exact tuple [" fx-channel
-                       " :explicit]; saw "
-                       (pr-str [(:operation t) (-> t :tags :reason)]))))))))))
-
-(deftest executable-frame-destroy-emits-lifecycle-parent-frame-destroyed
-  (testing "destroy-frame! with live machines emits EXACTLY
-            (:rf.machine.lifecycle/destroyed, :parent-frame-destroyed) per actor"
-    (rf/make-frame {:id :drl/auth :doc "destroyed-reason conformance frame"})
-    (rf/reg-machine :drl/child {:initial :running :data {} :states {:running {}}})
-    (rf/reg-machine :drl/boot
-                    {:initial :idle :data {}
-                     :states  {:idle {:on {:start {:action (fn [_]
-                                                             {:fx [[:rf.machine/spawn
-                                                                    {:machine-id :drl/child
-                                                                     :id-prefix  :drl/child}]]})}}}}})
-    (rf/dispatch-sync [:drl/boot [:start]] {:frame :drl/auth})
-    (rf.machines.test-support/with-trace-capture captured
-      (rf/destroy-frame! :drl/auth)
-      (let [lc (filter #(= lifecycle-channel (:operation %)) @captured)]
-        (is (seq lc) "a lifecycle-channel destroyed fired on frame destroy")
-        (doseq [t lc]
-          (is (= [lifecycle-channel :parent-frame-destroyed] [(:operation t) (-> t :tags :reason)])
-              (str "frame destroy must be the exact tuple [" lifecycle-channel
-                   " :parent-frame-destroyed]; saw "
-                   (pr-str [(:operation t) (-> t :tags :reason)]))))))))
