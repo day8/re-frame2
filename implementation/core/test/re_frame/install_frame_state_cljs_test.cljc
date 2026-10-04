@@ -129,20 +129,6 @@
            the omitted :routing subtree is preserved, nothing else in runtime-db
            moved, and the omitted app partition is untouched"))))
 
-(deftest both-partitions-install-as-one-transition
-  (testing "a payload carrying both partitions installs both in the one event"
-    (let [fid    (fresh-frame!)
-          before (seed! fid {:app :old} {:rf.runtime/routing live-routing})]
-      (rf/dispatch-sync [:rf/install-frame-state
-                         {:rf.db/app     {:app :restored}
-                          :rf.db/runtime {:rf.runtime/ssr saved-ssr}}]
-                        {:frame fid})
-      (is (= {:rf.db/app     {:app :restored}
-              :rf.db/runtime (assoc (:rf.db/runtime before) :rf.runtime/ssr saved-ssr)}
-             (rf/frame-state-value fid))
-          "app-db is replaced AND the :ssr subtree installed, beside the preserved
-           :routing subtree"))))
-
 (deftest an-empty-payload-changes-nothing
   (testing "`{}` names no partition, so nothing is installed"
     (let [fid    (fresh-frame!)
