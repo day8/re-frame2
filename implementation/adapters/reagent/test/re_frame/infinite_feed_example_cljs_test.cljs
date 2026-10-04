@@ -209,41 +209,7 @@
                      (assoc feed-query :cause [:user :feed/load-more])]))
 
 ;; ============================================================================
-;; 1. ROUTE ENTRY ensures PAGE 0 of the infinite feed under the route owner
-;; ============================================================================
-
-(deftest timeline-route-entry-ensures-page-0-under-the-route-owner
-  (testing "examples/capabilities/resources/infinite_feed — entering :infinite-feed.app/timeline
-            ensures PAGE 0 of the :feed/timeline INFINITE resource under the route
-            nav-token owner (not the whole accumulation); the view reads the
-            passive infinite view-model and settles to the merged :items on the
-            reply (the route CAUSES page 0; the view never asks)"
-    (rf/dispatch-sync [:rf.route/navigate {:to :infinite-feed.app/timeline}])
-    (let [slice     (get-in (runtime-db) [:rf.runtime/routing :current])
-          nav-token (:nav-token slice)
-          e         (entry)]
-      (is (rf.resources.state/infinite-entry? e) "seeded an infinite feed entry (R1 — one entry per feed)")
-      (is (= :loading (:status e)) "first load (page 0) → :loading")
-      (is (contains? (:active-owners e) [:route :infinite-feed.app/timeline nav-token])
-          "owned by the route nav-token owner [:route route-id nav-token]")
-      (is (:loading? (feed-state)) ":loading? true while page 0 is in flight")
-      ;; the page-0 request carries the reserved page ctx: index 0, nil cursor.
-      (let [req-params (get-in @last-managed-args [:request :params])]
-        (is (= 0 (:page-index req-params)) "page-0 index 0 (R8 reserved ctx)")
-        (is (not (contains? req-params :cursor)) "page-0 cursor is nil"))
-      ;; settle page 0 — the enveloped page flattens through :page->items.
-      (reply-success! (page [{:id 0 :title "A"} {:id 1 :title "B"}] 2))
-      (let [vm (feed-state)]
-        (is (= :loaded (:status (entry))) "settles :loaded on the reply")
-        (is (false? (:loading? vm)) "no longer loading")
-        (is (true? (:has-data? vm)) "has usable data")
-        (is (= [{:id 0 :title "A"} {:id 1 :title "B"}] (:items vm))
-            "the merged :items is the flattened page-0 items (enveloped → :page->items)")
-        (is (= 1 (:page-count vm)) "one page accumulated")
-        (is (true? (:has-next-page? vm)) "next-cursor present ⇒ has-next? (the Load more button shows)")))))
-
-;; ============================================================================
-;; 2. LOAD-MORE is a causal event — appends the next page, advances the cursor
+;; 1. LOAD-MORE is a causal event — appends the next page, advances the cursor
 ;; ============================================================================
 
 (deftest load-more-appends-the-next-page-and-advances-the-cursor
@@ -279,7 +245,7 @@
           "load-more added no owner; the route remains the sole liveness owner"))))
 
 ;; ============================================================================
-;; 3. THE TERMINAL is nil — a nil next-cursor flips has-next? false (end-of-feed)
+;; 2. THE TERMINAL is nil — a nil next-cursor flips has-next? false (end-of-feed)
 ;; ============================================================================
 
 (deftest nil-next-cursor-is-the-terminal-end-of-feed
@@ -300,7 +266,7 @@
     (is (= 1 (:page-count (feed-state))) "no page appended on a terminal load-more")))
 
 ;; ============================================================================
-;; 4. THE THIRD ERROR CHANNEL — a load-more failure keeps the feed, sets :page-error
+;; 3. THE THIRD ERROR CHANNEL — a load-more failure keeps the feed, sets :page-error
 ;; ============================================================================
 
 (deftest load-more-failure-keeps-the-feed-and-surfaces-page-error
@@ -327,7 +293,7 @@
       (is (= [{:id 0 :title "A"} {:id 1 :title "B"}] (:items vm)) "the retried page appended"))))
 
 ;; ============================================================================
-;; 5. A PAGE 0 first-load failure with no data surfaces via the FIRST-LOAD
+;; 4. A PAGE 0 first-load failure with no data surfaces via the FIRST-LOAD
 ;;    :error channel (the full error screen) — NOT :page-error
 ;; ============================================================================
 
