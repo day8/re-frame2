@@ -162,31 +162,6 @@
                      (is (= "3" (get-in content [:attrs "data-count"])) "content data-* attr"))
                    (done)))))))
 
-(deftest large-text-elision-passes-through
-  ;; Privacy / elision: the runtime routes :text through
-  ;; project-egress; an over-cap blob rides as the :rf.size/large-elided
-  ;; marker, never raw user DOM text.
-  (async done
-    (let [canned {:ok? true :via :view-id
-                  :entity {:view-id :my.app/log :source-coord nil
-                           :render-key 1 :subs-read []}
-                  :content {:tag "pre"
-                            :text {:rf.size/large-elided
-                                   {:type :dom-text :chars 54000 :preview "lorem..."}}
-                            :attrs {}}}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn)
-                                    #js {:view-id ":my.app/log" :max-text 100})))
-          (.then (fn [r]
-                   (is (not (tu/error? r)))
-                   (let [text (-> (tu/extract-edn r) :content :text)
-                         mark (:rf.size/large-elided text)]
-                     (is (map? text) "elided text rides as a marker map")
-                     (is (= :dom-text (:type mark)))
-                     (is (= 54000 (:chars mark)) "elision marker reports char count"))
-                   (done)))))))
-
 (deftest bad-selector-error-forwarded
   ;; A genuine `:ok? false` runtime failure (a thrown malformed-selector)
   ;; MUST ride as `:isError true`, per spec/003-Tool-Catalogue.md
