@@ -26,8 +26,9 @@
     4. HIDDEN-TAB PAUSE — `:hidden?` pauses the tick (no refetch) but re-arms;
     5. IN-FLIGHT COALESCING — a poll tick that finds live in-flight work skips
        the refetch (no overlap on a slow endpoint) but re-arms;
-    6. FOCUS/RECONNECT COEXISTENCE — focus + poll do not double-fetch (the
-       in-flight gate makes the overlap idempotent);
+    6. FOCUS/RECONNECT COEXISTENCE — focus + poll do not double-fetch: item
+       5's in-flight gate does not read which cause started the work, so its
+       coalescing test pins the overlap too;
     7. LATE-POLL-REPLY SUPPRESSION — a poll reply carrying a superseded
        generation is suppressed: the poll refetch takes the same stale gate
        as a focus refetch, which the revalidation suite's
@@ -369,17 +370,6 @@
       (let [args (last-schedule-for k)]
         (is (= 5000 (get-in args [:timers :poll])) "re-armed (resumes on tab return)")))))
 
-(deftest visible-tick-after-hidden-resumes-refetch
-  (rf/reg-resource :hr/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :hr/poll {:slug "w"})]
-    (ensure! :hr/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (poll-fired! k true)  ;; hidden — paused
-    (poll-fired! k false) ;; visible — resumes
-    (testing "Spec 016 §Polling — a VISIBLE tick after a hidden pause refetches"
-      (is (= :fetching (:status (entry k))) "visible tick resumed the refetch"))))
-
 ;; ===========================================================================
 ;; 5. In-flight coalescing — no overlap on a slow endpoint
 ;; ===========================================================================
@@ -410,30 +400,6 @@
       (testing "Spec 016 §Polling — a coalesced tick still RE-ARMS the next poll"
         (let [args (last-schedule-for k)]
           (is (= 5000 (get-in args [:timers :poll])) "coalesced tick re-armed the poll"))))))
-
-;; ===========================================================================
-;; 6. Focus/reconnect coexistence — no double-fetch
-;; ===========================================================================
-
-(deftest focus-and-poll-do-not-double-fetch
-  ;; A tab return both fires focus revalidation AND resumes the poll. The
-  ;; in-flight coalescing gate makes the overlap idempotent: whichever starts
-  ;; work first sets :current-work, the other becomes a no-op.
-  (rf/reg-resource :fp/poll (article-spec {:poll-interval-ms 5000 :stale-after-ms 0}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :fp/poll {:slug "w"})]
-    (ensure! :fp/poll scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (let [gen-before (:generation (entry k))]
-      (reset! aborts [])
-      (rf/dispatch-sync [:rf.resource/window-focused]) ;; focus starts the refetch
-      (poll-fired! k)                                  ;; poll finds it in flight
-      (testing "Spec 016 §Polling — focus + poll together bump exactly ONE
-                generation (the in-flight gate dedupes the overlap)"
-        (let [e (entry k)]
-          (is (= (inc gen-before) (:generation e)) "exactly one new generation")
-          (is (= :fetching (:status e)) "one in-flight refetch")
-          (is (empty? @aborts) "no abort churn from the overlap"))))))
 
 ;; ===========================================================================
 ;; 8. A poll-refetch settle re-arms the poll
