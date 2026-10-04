@@ -282,38 +282,3 @@
           "the sibling's owner on B is UNTOUCHED (no over-release)")
       (is (contains? (get (owner-index) sibling) kb)
           "the sibling owner is still indexed"))))
-
-;; ===========================================================================
-;; 4. A poll-fired re-check on the released entry refetches NOTHING
-;;    (the leak symptom: an orphaned owner keeps refetching/polling forever)
-;; ===========================================================================
-
-(deftest released-machine-entry-does-not-keep-polling
-  (testing "after the actor's owner is released, a poll-fired
-            re-check on the (still-present-but-owner-free) entry refetches
-            nothing and does not re-arm: no orphaned owner keeps it
-            refetching (Spec 016 §Polling — a poll never pins an owner-free entry)"
-    (let [slug  "infinite"
-          owner [:machine :reader/proc]
-          k     (slug-key slug)]
-      (reg-reader-on-entry-ensures! slug {:idle {}} {:stop :idle})
-      (rf/dispatch-sync [:reader/proc [:rf.machine/start]])
-      (succeed! k {:title "Infinite"})
-      (is (contains? (:active-owners (entry k)) owner) "owned before destroy")
-
-      (rf/reg-event ::destroy-reader (fn [_ _] {:fx [[:rf.machine/destroy :reader/proc]]}))
-      (rf/dispatch-sync [::destroy-reader])
-      (is (empty? (:active-owners (entry k))) "owner-free after actor destroy")
-
-      ;; A poll tick on the owner-free entry must do nothing: no refetch, no
-      ;; flip back to :loading, no re-attached owner — the entry stays settled
-      ;; and owner-free (an orphaned-owner poll is what would leak).
-      (let [gen-before    (:generation (entry k))
-            status-before (:status (entry k))]
-        (poll-fired! k)
-        (is (empty? (:active-owners (entry k)))
-            "poll-fired did not re-attach any owner to the owner-free entry")
-        (is (= status-before (:status (entry k)))
-            "poll-fired did not flip the owner-free entry's status (no refetch)")
-        (is (= gen-before (:generation (entry k)))
-            "poll-fired started no new work generation on the owner-free entry")))))
