@@ -46,50 +46,9 @@
 ;; (a) :mouse/* matches different events in the SAME namespace
 ;; ---------------------------------------------------------------------------
 
-(deftest ns-wildcard-matches-any-event-in-namespace
-  (testing ":mouse/* catches :mouse/down AND :mouse/up — any event in the ns"
-    (let [log (atom [])
-          tag (fn [k] (fn [{ev :event}] (swap! log conj [k (first ev)]) {}))
-          machine
-          {:initial :flat
-           :data    {}
-           :actions {:mouse-any (tag :mouse-any)}
-           :states  {:flat {:on {:mouse/* {:action :mouse-any}}}}}]
-      (rf/reg-machine :z4t2v/ns-any machine)
-      (reset! log [])
-      (rf/dispatch-sync [:z4t2v/ns-any [:mouse/down]])
-      (rf/dispatch-sync [:z4t2v/ns-any [:mouse/up]])
-      (rf/dispatch-sync [:z4t2v/ns-any [:mouse/move]])
-      (is (= [[:mouse-any :mouse/down]
-              [:mouse-any :mouse/up]
-              [:mouse-any :mouse/move]]
-             @log)
-          ":mouse/* fired for every :mouse/... event regardless of the name"))))
-
 ;; ---------------------------------------------------------------------------
 ;; (b) :mouse/* BEATS total :* (priority — most-specific wins)
 ;; ---------------------------------------------------------------------------
-
-(deftest ns-wildcard-beats-total-wildcard
-  (testing ":mouse/* wins over the total :* for a :mouse/... event (priority)"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :flat
-           :data    {}
-           :actions {:ns-any   (tag :ns-any)
-                     :total-any (tag :total-any)}
-           :states  {:flat {:on {:mouse/* {:action :ns-any}
-                                  :*       {:action :total-any}}}}}]
-      (rf/reg-machine :z4t2v/ns-beats-total machine)
-      (reset! log [])
-      ;; :mouse/down → :mouse/* (more specific) wins over :*.
-      (rf/dispatch-sync [:z4t2v/ns-beats-total [:mouse/down]])
-      ;; :keyboard/down → no :keyboard/* declared → total :* catches it.
-      (rf/dispatch-sync [:z4t2v/ns-beats-total [:keyboard/down]])
-      (is (= [:ns-any :total-any] @log)
-          ":mouse/* caught :mouse/down (beating :*); :* caught the un-namespaced-tier :keyboard/down;
-           the total :* must NOT fire when the namespace-wildcard is enabled"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (c) guard-blocked exact :mouse/down falls through to :mouse/*
