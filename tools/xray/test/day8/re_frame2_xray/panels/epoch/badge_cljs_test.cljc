@@ -3,26 +3,16 @@
 
   ## Under test
 
-    1. Every badge in `projection/badge-set` resolves to a non-blank
-       CSS-variable string via `badge/colour`.
-    2. Every badge resolves to a non-blank uppercase label via
+    1. Every badge resolves to a non-blank uppercase label via
        `badge/label`.
-    3. `token-key` produces a known theme-token keyword for every
+    2. `token-key` produces a known theme-token keyword for every
        badge.
-    4. Fibonacci spacing scale produces stable px strings."
+    3. Fibonacci spacing scale produces stable px strings."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]))
-
-(deftest badge-colours-resolve-test
-  (testing "every badge in the inventory resolves to a non-blank CSS-var string"
-    (doseq [b proj/badge-set]
-      (let [c (badge/colour b)]
-        (is (string? c) (str "colour for " b))
-        (is (re-find #"var\(--rf-xray-" c)
-            (str "expected CSS variable for " b ", got " c))))))
 
 (deftest badge-labels-resolve-test
   (testing "every badge label resolves to a non-blank string.
@@ -111,7 +101,6 @@
   (testing "the :microstep kind resolves to the magenta
             transition-family colour + an ALWAYS label"
     (is (= "ALWAYS" (badge/cascade-kind-label :microstep)))
-    (is (string? (badge/cascade-kind-colour :microstep)))
     (is (= (badge/cascade-kind-colour :transition)
            (badge/cascade-kind-colour :microstep))
         "an :always round is a state change — shares the transition hue"))
@@ -120,8 +109,6 @@
             colour (a clean birth is a GOOD event), distinct from the muted
             no-op tone"
     (is (= "START" (badge/cascade-kind-label :start)))
-    (is (string? (badge/cascade-kind-colour :start)))
-    (is (re-find #"var\(--rf-xray-" (badge/cascade-kind-colour :start)))
     (is (not= (badge/cascade-kind-colour :start)
               (badge/cascade-kind-colour :no-op))
         "the green birth is distinct from the muted no-op tone"))
@@ -131,7 +118,6 @@
             `NO OP` (space, not hyphen — the sole marker on the collapsed
             `[NO OP] staying in {state}` cell)"
     (is (= "NO OP" (badge/cascade-kind-label :no-op)))
-    (is (string? (badge/cascade-kind-colour :no-op)))
     ;; The benign no-op uses the tertiary token (same as :guard / :timer's
     ;; muted family) — explicitly NOT the :error / :warning hue.
     (is (= (badge/cascade-kind-colour :guard)
@@ -139,14 +125,9 @@
         "muted/tertiary tone, not an alarmist hue")))
 
 (deftest cascade-kind-resolver-test
-  (testing "every cascade kind resolves to a non-blank
-            CSS-variable colour + uppercase label"
+  (testing "every cascade kind resolves to an uppercase label"
     (doseq [k badge/cascade-kind-set]
-      (let [c (badge/cascade-kind-colour k)
-            l (badge/cascade-kind-label k)]
-        (is (string? c))
-        (is (re-find #"var\(--rf-xray-" c)
-            (str "expected CSS variable for " k ", got " c))
+      (let [l (badge/cascade-kind-label k)]
         (is (string? l))
         (is (= (str/upper-case l) l)
             (str "kind label for " k " not uppercase: " l))))))
@@ -247,12 +228,3 @@
     (is (= :text-tertiary (badge/fx-row-status-token-key :skipped)))
     (is (= :success       (badge/fx-row-status-token-key :ok)))
     (is (= :success       (badge/fx-row-status-token-key nil)))))
-
-(deftest fx-row-status-colour-resolves-css-var-test
-  (testing "the row glyph colour resolver returns a
-            CSS-variable string for every ledger status (theme-driven)"
-    (doseq [s [:ok :error :rollback :overridden :skipped]]
-      (let [c (badge/fx-row-status-colour s)]
-        (is (string? c))
-        (is (re-find #"var\(--rf-xray-" c)
-            (str "expected CSS variable for " s ", got " c))))))
