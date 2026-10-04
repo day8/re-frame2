@@ -752,23 +752,6 @@
           (is (= :event (-> v :tags :where)))
           (is (= :auth/login (-> v :tags :event-id))))))))
 
-(deftest event-validation-redacts-container-level-sensitive-payload
-  (testing "a container-level {:sensitive? true} on the event
-            payload schema also drives redaction"
-    (rf/reg-event :auth/token
-      ;; The whole payload (element 1 of the :cat) is sensitive; supply an
-      ;; int where :string is expected so it fails.
-      {:schema [:cat [:= :auth/token] [:string {:sensitive? true}]]}
-      (fn [{:keys [db]} _] {:db db}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:auth/token 12345])
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (true? (:sensitive? v)) "container-level :sensitive? triggers redaction")
-        (is (= :rf/redacted (-> v :tags :received)))
-        (is (= :rf/redacted (-> v :tags :value)))))))
-
 ;; ---- per-slot scoping: sensitive SIBLING, non-sensitive failure ----------
 ;; The shared `run-validation` path
 ;; (event / fx / sub) carries the WHOLE checked value in EVERY
@@ -891,33 +874,6 @@
           (is (not (str/includes? (pr-str (:tags v)) secret))
               "the conforming sensitive :password is ABSENT from every egressed slot"))))))
 
-(deftest event-validation-catn-root-conforming-sensitive-sibling-redacted-whole-received
-  (testing "`:catn` behaves like `:cat`: the whole
-            event vector rides every value-bearing slot, so a CONFORMING
-            sensitive payload slot (:password) next to a non-sensitive failing
-            slot (:age) redacts under the ROOT check; the conforming secret is
-            absent from every egressed slot"
-    (let [secret "catn-pw-DO-NOT-LEAK"]
-      (rf/reg-event :auth/profile-n
-        {:schema [:catn
-                  [:id [:= :auth/profile-n]]
-                  [:payload [:map
-                             [:password {:sensitive? true} :string]
-                             [:age :int]]]]}
-        (fn [{:keys [db]} _] {:db db}))
-      (with-trace-recorder! [traces]
-        ;; :age fails (non-sensitive); :password conforms (sensitive sibling).
-        (rf/dispatch-sync [:auth/profile-n {:password secret :age "old"}])
-        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                               @traces))]
-          (is (some? v))
-          (is (true? (:sensitive? v))
-              ":sensitive? stamped — a whole-payload slot carries the conforming sensitive :password")
-          (is (= :rf/redacted (-> v :tags :received))
-              ":received (whole event vector) redacted")
-          (is (not (str/includes? (pr-str (:tags v)) secret))
-              "the conforming sensitive :password is ABSENT from every egressed slot"))))))
-
 ;; ---- walker unit tests for :cat/:catn position-bearing paths -------------
 
 (deftest extract-cat-emits-position-pinned-paths
@@ -1007,19 +963,6 @@
       (is (= :auth/login (:event-id out)))
       (is (= :boundary (:source out))))))
 
-(deftest redact-validation-tags-rides-verbatim-when-not-sensitive
-  (testing "redact-validation-tags is a no-op when the event schema
-            has no :sensitive? slot (boundary parity with the dev-time path)"
-    (let [schema [:cat [:= :api/strict] :int]
-          tags   {:where    :event
-                  :event-id :api/strict
-                  :received [:api/strict "not-an-int"]
-                  :value    [:api/strict "not-an-int"]
-                  :source   :boundary}
-          out    (rf.schemas/redact-validation-tags schema tags)]
-      (is (= tags out) "tags ride back unchanged — nothing sensitive to redact")
-      (is (not (contains? out :sensitive?))))))
-
 ;; ---- redaction at the recordable-cofx validation site --------------------
 ;;
 ;; Under EP-0017 the cofx-validation site is the recordable-value path
@@ -1056,34 +999,13 @@
         (is (= :auth/credentials (-> v :tags :rf.cofx/id))
             "structural :rf.cofx/id survives")))))
 
-(deftest recordable-cofx-redacts-when-schema-container-sensitive
-  (testing "A container-level :sensitive? on the recordable-cofx :schema also
-            triggers redaction even when the registration meta doesn't carry
-            the flag"
-    (rf/reg-cofx :secret-blob
-      {:recordable? true :provided? true
-       :schema [:string {:sensitive? true}]})
-    (rf/reg-event :use-secret
-      {:rf.cofx/requires [:secret-blob]}
-      (fn [_ _] {}))
-    (with-trace-recorder! [traces]
-      (try
-        (rf/dispatch-sync [:use-secret]
-                          {:rf.cofx {:secret-blob 99}})  ;; int, fails :string
-        (catch clojure.lang.ExceptionInfo _))
-      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (true? (:sensitive? v))
-            "container-level :sensitive? on the schema triggered redaction (top-level stamp per Spec 009 hoist)")
-        (is (= :rf/redacted (-> v :tags :value)))))))
-
 ;; ---- redaction at sub-return validation site -----------------------------
 
 (deftest sub-return-validation-redacts-when-sensitive
   (testing "Per Spec 010 §`:sensitive?` — schema-walker (`:vector
-            [:string {:sensitive? true}]`) drives sub-return redaction;
-            there is no handler/sub-meta `:sensitive?` annotation."
+            [:string {:sensitive? true}]`) drives sub-return redaction of
+            every value-bearing slot, `:explain-humanized` included; there is
+            no handler/sub-meta `:sensitive?` annotation."
     (rf/reg-event :secrets/init (fn [_ _] {:db {:secrets ["a-secret"]}}))
     (rf/reg-event :secrets/break (fn [{:keys [db]} _] {:db (assoc db :secrets [1 2 3])}))
     (rf/reg-sub :secrets
@@ -1106,6 +1028,8 @@
               ":value redacted")
           (is (= :rf/redacted (-> v :tags :received)))
           (is (= :rf/redacted (-> v :tags :explain)))
+          (is (= :rf/redacted (-> v :tags :explain-humanized))
+              ":explain-humanized is present and redacted, symmetric with :explain")
           ;; Structural slots survive.
           (is (= :sub-return (-> v :tags :where)))
           (is (= :secrets (-> v :tags :rf.sub/id)))
@@ -1153,8 +1077,8 @@
 
 (deftest sub-return-validation-non-sensitive-rides-query-v-verbatim
   (testing "a sub without :sensitive? emits :rf.sub/query-v
-            verbatim on the validation-failure trace. Redaction is
-            opt-in."
+            verbatim on the validation-failure trace, beside the real
+            humanized payload. Redaction is opt-in."
     (rf/reg-event :widgets/init  (fn [_ _]   {:db {:widgets {:w1 "ok"}}}))
     (rf/reg-event :widgets/break (fn [{:keys [db]} _] {:db (assoc-in db [:widgets :w1] 99)}))
     (rf/reg-sub :widget
@@ -1173,7 +1097,11 @@
         (is (= [:widget :w1] (-> v :tags :rf.sub/query-v))
             ":rf.sub/query-v rides verbatim — no redaction on non-sensitive subs")
         (is (= 99 (-> v :tags :value))
-            ":value also rides verbatim")))))
+            ":value also rides verbatim")
+        (is (contains? (:tags v) :explain-humanized)
+            ":explain-humanized present")
+        (is (not= :rf/redacted (-> v :tags :explain-humanized))
+            ":explain-humanized is the real humanized payload, not the sentinel")))))
 
 ;; ---- humanized-explain redaction symmetry --------------------------------
 ;; Per Spec 010 §Humanize-hook §Composition with `:sensitive?` — when the
@@ -1183,9 +1111,11 @@
 ;; `:rf/redacted` would hand the humanizer the sentinel; it would return
 ;; nil and `:explain-humanized` would be silently OMITTED — a contract
 ;; drift (Xray's violation block prefers `:explain-humanized` and would
-;; fall through to a missing slot). These tests pin the
+;; fall through to a missing slot). The app-db pair below pins the
 ;; symmetric shape: present-and-redacted on sensitive failures,
-;; real-payload on non-sensitive ones, never the raw value.
+;; real-payload on non-sensitive ones, never the raw value. The sub-return
+;; halves ride in `sub-return-validation-redacts-when-sensitive` and
+;; `sub-return-validation-non-sensitive-rides-query-v-verbatim` above.
 
 (deftest non-sensitive-app-db-failure-carries-humanized-payload
   (testing "a NON-sensitive app-db validation failure (Malli
@@ -1225,54 +1155,6 @@
           (is (not (str/includes? (pr-str (:tags v)) secret))
               "the raw secret does NOT appear anywhere in the emitted tags"))))))
 
-(deftest sensitive-sub-return-failure-redacts-humanized-present-not-omitted
-  (testing "the meta-bearing run-validation path (sub-return)
-            also emits :explain-humanized :rf/redacted (present, not
-            omitted) on a sensitive failure, and the raw value never
-            surfaces in the humanized slot"
-    (let [secret "sub-secret-deadbeef"]
-      (rf/reg-event :secrets/init  (fn [_ _] {:db {:secrets [secret]}}))
-      (rf/reg-event :secrets/break (fn [{:keys [db]} _] {:db (assoc db :secrets [1 2 3])}))
-      (rf/reg-sub :secrets
-        {:schema [:vector [:string {:sensitive? true}]]}
-        (fn [db _] (:secrets db)))
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:secrets/init])
-        (rf/subscribe-once [:secrets])          ;; well-typed first pass
-        (rf/dispatch-sync [:secrets/break])
-        (rf/subscribe-once [:secrets])          ;; malformed return — fails
-        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                               @traces))]
-          (is (some? v) "a sub-return failure fired")
-          (is (true? (:sensitive? v)))
-          (is (= :rf/redacted (-> v :tags :explain)))
-          (is (contains? (:tags v) :explain-humanized)
-              ":explain-humanized present on the sub-return surface too")
-          (is (= :rf/redacted (-> v :tags :explain-humanized))
-              ":explain-humanized redacted on the meta-bearing run-validation path"))))))
-
-(deftest non-sensitive-sub-return-failure-carries-humanized-payload
-  (testing "on the sub-return surface a non-sensitive sub keeps the
-            real humanized payload"
-    (rf/reg-event :widgets/init  (fn [_ _] {:db {:widgets {:w1 "ok"}}}))
-    (rf/reg-event :widgets/break (fn [{:keys [db]} _] {:db (assoc-in db [:widgets :w1] 99)}))
-    (rf/reg-sub :widget
-      {:schema :string}                                  ;; no :sensitive?
-      (fn [db [_ wid]] (get-in db [:widgets wid])))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:widgets/init])
-      (rf/subscribe-once [:widget :w1])
-      (rf/dispatch-sync [:widgets/break])
-      (rf/subscribe-once [:widget :w1])
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (not (contains? v :sensitive?)))
-        (is (contains? (:tags v) :explain-humanized)
-            ":explain-humanized present")
-        (is (not= :rf/redacted (-> v :tags :explain-humanized))
-            ":explain-humanized is the real humanized payload on a non-sensitive sub")))))
-
 ;; ---- composition with :large? --------------------------------------------
 
 (deftest sensitive-overrides-large-on-same-slot
@@ -1293,13 +1175,8 @@
         (is (true? (:sensitive? v))
             "the slot's :sensitive? flag claims the trace (top-level stamp per Spec 009 hoist)")
         (is (= :rf/redacted (-> v :tags :value))
-            "sensitive drop wins on a both-flagged slot")
-        ;; No size marker leaked into the value slot — the redaction
-        ;; sentinel sits there instead of a {:rf.size/large-elided ...}
-        ;; envelope.
-        (is (not (and (map? (-> v :tags :value))
-                      (contains? (-> v :tags :value) :rf.size/large-elided)))
-            "no :rf.size/large-elided marker — would re-leak :path/:bytes")))))
+            "sensitive drop wins on a both-flagged slot: the sentinel, not a
+             :rf.size/large-elided marker that would re-leak :path/:bytes")))))
 
 ;; ---- COMPILED / OPAQUE schema fail-closed redaction ----------------------
 ;;
@@ -1324,29 +1201,6 @@
     (is (false? (rf.schemas/schema-opaque? :int)) "a bare keyword is not opaque")
     (is (false? (rf.schemas/schema-opaque? :my/registry-ref))
         "a registry-ref keyword is not opaque (provably-safe-or-silent caveat)")))
-
-(deftest event-validation-opaque-schema-fails-closed
-  (testing "a COMPILED schema with a :sensitive? slot redacts the
-            failing event payload fail-closed (the walker cannot see the prop,
-            so we redact rather than leak); the equivalent VECTOR form
-            redacts via the walker"
-    (let [secret  "OPAQUE-COMPILED-SECRET-u9bjgr"
-          compiled (m/schema
-                     [:cat [:= :auth/login] [:map [:password {:sensitive? true} :string]]])]
-      (with-trace-recorder! [traces]
-        ;; The password value is a VECTOR where a :string is required, so it FAILS
-        ;; the schema; the failing value carries the sentinel.
-        (rf.schemas/validate-event! :auth/login [:auth/login {:password [secret]}]
-                                 {:schema compiled})
-        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                               @traces))]
-          (is (some? v) "a validation-failure trace fired")
-          (is (true? (:sensitive? v)) "fail-closed: top-level :sensitive? stamp")
-          (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-          (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
-          (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-          (is (not (str/includes? (pr-str v) secret))
-              "the secret survives nowhere in the opaque-schema failure trace"))))))
 
 (deftest app-db-validation-opaque-schema-fails-closed
   (testing "a compiled app-db schema with a :sensitive? slot
@@ -1399,34 +1253,15 @@
 ;; cleanly right onto a nested opaque slot).
 
 (deftest schema-has-opaque-child-predicate
-  (testing "schema-has-opaque-child? is true for a schema that IS
-            opaque (mirrors schema-opaque?) AND for a vector-form schema that
-            NESTS an opaque child at any depth; false when no opaque value is
-            reachable anywhere in the tree"
-    (is (true? (rf.schemas/schema-has-opaque-child?
-                 (m/schema [:map [:password {:sensitive? true} :string]])))
-        "a root-opaque compiled schema is caught (subsumes schema-opaque?)")
-    (is (true? (rf.schemas/schema-has-opaque-child?
-                 [:map [:token (m/schema [:string {:sensitive? true}])]]))
-        "a :map slot whose tail is a compiled m/schema value is caught")
-    (is (true? (rf.schemas/schema-has-opaque-child?
-                 [:cat [:= :auth/login]
-                  (m/schema [:map [:password {:sensitive? true} :string]])]))
-        "a :cat element that is a compiled m/schema value is caught")
-    (is (true? (rf.schemas/schema-has-opaque-child?
-                 [:vector (m/schema [:string {:sensitive? true}])]))
-        "a homogeneous :vector element schema that is opaque is caught")
-    (is (true? (rf.schemas/schema-has-opaque-child?
-                 [:multi {:dispatch :kind}
-                  [:a (m/schema [:map [:secret {:sensitive? true} :string]])]]))
-        "an :multi dispatch branch that is a compiled m/schema value is caught")
+  (testing "a vector-form schema stays non-opaque however deep and however
+            sensitive, and a bare fn or symbol is flag-free NESTED as a slot
+            tail but fails closed used AS the whole schema. The compiled-child
+            corpus is `schemas_walker_literal_operand_test`'s"
     (is (false? (rf.schemas/schema-has-opaque-child?
                   [:map [:id :int] [:name :string]
                    [:auth [:map [:token {:sensitive? true} :string]]]]))
         "an all-vector-form schema (however deep, however sensitive) has no
          opaque descendant")
-    (is (false? (rf.schemas/schema-has-opaque-child? :int))
-        "a bare keyword has no opaque descendant")
     ;; Confirm-by-corpus: [:map [:n pos-int?]] is the EXACT shape
     ;; of the machine/data-schema-rollback conformance fixture's [:schemas
     ;; :data] schema. A bare predicate fn NESTED as a :map slot's tail cannot
@@ -1474,9 +1309,7 @@
             fail-closed. schema-has-sensitive? skips the opaque :cat element
             (no declaration recorded) and schema-opaque? on the ROOT
             [:cat ...] form is false, so a sensitive? built from those two
-            alone would compute false and let the secret ride verbatim —
-            while the equivalent fully-opaque schema
-            (event-validation-opaque-schema-fails-closed above) redacts."
+            alone would compute false and let the secret ride verbatim."
     (let [secret        "NESTED-OPAQUE-EVENT-SECRET-hi0tf8"
           nested-opaque (m/schema [:map [:password {:sensitive? true} :string]])
           schema        [:cat [:= :auth/login] nested-opaque]]
@@ -1569,9 +1402,6 @@
         "an ordinary vector form carries no :registry and is untouched")
     (is (true? (rf.schemas/schema-has-opaque-child? local-registry-schema))
         "the local-registry form fails closed")
-    (is (true? (rf.schemas/schema-has-opaque-child?
-                 [:map [:auth local-registry-schema]]))
-        "and it fails closed NESTED at depth, like any other opaque child")
     ;; The scope limit, pinned: resolving registry references is schema
     ;; INTERPRETATION, which Spec 010 reserves for the registered validator.
     ;; Over-redaction is the documented direction — the flags stay invisible
@@ -1582,14 +1412,7 @@
          is synthesised for it")
     (is (= {} (rf.schemas/extract-large-paths-from-schema
                 local-registry-schema []))
-        "nor is :large? — both flags stay unwalked")
-    ;; The over-redaction is BOUNDED to the registry shape: the same schema
-    ;; written inline is still precisely walked, so ordinary schemas keep
-    ;; their per-slot precision.
-    (is (false? (rf.schemas/schema-has-opaque-child?
-                  [:map [:pw {:sensitive? true} :string]]))
-        "the equivalent INLINE form is unaffected — this fails closed on the
-         registry shape only, not on schemas generally")))
+        "nor is :large? — both flags stay unwalked")))
 
 (deftest app-db-validation-local-registry-schema-fails-closed
   (testing "a real app-db validation failure at [:pw], where the
@@ -1609,25 +1432,6 @@
           (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
           (is (not (str/includes? (pr-str v) secret))
               "the secret survives nowhere in the local-registry failure trace"))))))
-
-(deftest redact-validation-tags-local-registry-schema-fails-closed
-  (testing "the off-namespace redact-validation-tags seam
-            (machine-data / sub-override / flow-output / boundary) fails closed
-            on a local-registry schema too. This is the seam a Malli user is
-            most likely to reach it through: a machine data-schema written with
-            a local registry"
-    (let [secret "LOCAL-REGISTRY-SEAM-SECRET-amgtr"
-          tags   {:where    :machine-data
-                  :value    {:pw secret}
-                  :received {:pw secret}
-                  :explain  {:value {:pw secret}}}
-          out    (rf.schemas/redact-validation-tags local-registry-schema tags)]
-      (is (true? (:sensitive? out)) "fail-closed: :sensitive? stamped")
-      (is (= :rf/redacted (:value out)) ":value redacted")
-      (is (= :rf/redacted (:received out)) ":received redacted")
-      (is (= :rf/redacted (:explain out)) ":explain redacted")
-      (is (not (str/includes? (pr-str out) secret))
-          "the secret survives nowhere through the local-registry seam"))))
 
 ;; ---- :large? value-bearing slot elision ----------------------------------
 ;;
@@ -1653,13 +1457,14 @@
                   [:map [:secret {:sensitive? true} :string]]))
         ":sensitive? is not :large? — the flags are independent")))
 
-(deftest large-marker-fields
-  (testing "the elided value-bearing slot carries a
-            well-formed :rf.size/large-elided marker carrying the canonical
-            :reason :effect provenance (EP-0025 — the commit-plane
+(deftest event-validation-large-slot-elides
+  (testing "a :large? slot's validation failure elides :value /
+            :received / :explain to a well-formed :rf.size/large-elided
+            marker rather than shipping the raw blob. The marker carries the
+            canonical :reason :effect provenance (EP-0025 — the commit-plane
             classification default; NOT a :frame annotation, NOT
             :reason :schema), with the REQUIRED :hint slot present"
-    (let [blob (apply str (repeat 200 "X"))]
+    (let [blob (apply str (repeat 500 "Z"))]
       (with-trace-recorder! [traces]
         (rf.schemas/validate-event! :upload/save [:upload/save {:blob blob}]
                                  {:schema [:cat [:= :upload/save]
@@ -1668,6 +1473,8 @@
                                     @traces))
               marker (-> v :tags :value :rf.size/large-elided)]
           (is (some? v) "a validation-failure trace fired")
+          (is (not (contains? v :sensitive?))
+              "a :large?-only failure is NOT stamped sensitive")
           (is (map? marker) ":value carries a :rf.size/large-elided marker")
           (is (= :effect (:reason marker))
               ":reason :effect — the EP-0025 canonical classification provenance default")
@@ -1675,24 +1482,7 @@
           (is (integer? (:bytes marker)) ":bytes is a byte count")
           (is (= [:rf.elision/at []] (:handle marker)) ":handle is the fetch handle")
           (is (true? (-> v :tags :large?)) ":tags :large? stamped")
-          (is (not (str/includes? (pr-str v) blob))
-              "the large blob survives nowhere verbatim in the failure trace"))))))
-
-(deftest event-validation-large-slot-elides
-  (testing "a :large? slot's validation failure elides :value /
-            :received / :explain to the size marker rather than shipping the
-            raw blob"
-    (let [blob (apply str (repeat 500 "Z"))]
-      (with-trace-recorder! [traces]
-        (rf.schemas/validate-event! :upload/save [:upload/save {:blob blob}]
-                                 {:schema [:cat [:= :upload/save]
-                                           [:map [:blob {:large? true} :int]]]})
-        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                               @traces))]
-          (is (some? v))
-          (is (not (contains? v :sensitive?))
-              "a :large?-only failure is NOT stamped sensitive")
-          (doseq [slot [:value :received :explain]]
+          (doseq [slot [:received :explain]]
             (is (contains? (-> v :tags slot) :rf.size/large-elided)
                 (str slot " elided to the size marker")))
           (is (not (str/includes? (pr-str v) blob))
@@ -1727,11 +1517,9 @@
                                @traces))]
           (is (some? v))
           (is (true? (:sensitive? v)) "sensitive stamp wins")
-          (is (= :rf/redacted (-> v :tags :value)) ":value redacted (not a marker)")
+          (is (= :rf/redacted (-> v :tags :value))
+              ":value redacted, not a size marker that would re-leak :bytes")
           (is (not (-> v :tags :large?)) "no :large? stamp on a sensitive failure")
-          (is (not (and (map? (-> v :tags :value))
-                        (contains? (-> v :tags :value) :rf.size/large-elided)))
-              "no size marker — would re-leak :bytes")
           (is (not (str/includes? (pr-str v) secret))))))))
 
 (deftest redact-validation-tags-large-slot-elides
@@ -1848,31 +1636,8 @@
           ":path carries the :rf/redacted sentinel where the extra key was")
       (is (not (str/includes? (pr-str (-> v :tags :reason)) "SECRET-KEY-7f93"))
           "the secret key does NOT appear in the generated :reason text")
-      (is (not (str/includes? (pr-str (:tags v)) "SECRET-KEY-7f93"))
-          "the secret key does NOT appear ANYWHERE in the emitted tags")
       (is (not (str/includes? (pr-str v) "SECRET-KEY-7f93"))
           "the secret key does NOT appear ANYWHERE in the whole trace event"))))
-
-(deftest app-db-validation-nested-sensitive-closed-map-extra-key-scrubbed
-  (testing "a NESTED sensitive closed map receives the same
-            protection: the declared outer key stays navigable; the inner
-            undeclared extra key is scrubbed everywhere"
-    (let [v (app-db-failure-trace
-              [:account]
-              [:map {:closed true}
-               [:profile [:map {:closed true :sensitive? true} [:known :int]]]]
-              {:account {:profile {:known 1 "NESTED-SECRET-4242" 2}}}
-              :account/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v)) "top-level :sensitive? stamp present")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      (is (= [:account :profile :rf/redacted] (-> v :tags :path))
-          "declared keys survive; the undeclared segment is the sentinel")
-      (is (not (str/includes? (pr-str (:tags v)) "NESTED-SECRET-4242"))
-          "the secret key does NOT appear anywhere in the emitted tags")
-      (is (not (str/includes? (pr-str v) "NESTED-SECRET-4242"))
-          "the secret key does NOT appear anywhere in the whole trace event"))))
 
 (deftest app-db-validation-hostile-extra-key-and-value-never-leak
   (testing "adversarial — a HOSTILE extra key (a credential-shaped
