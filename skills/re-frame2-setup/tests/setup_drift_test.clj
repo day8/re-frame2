@@ -224,24 +224,9 @@
 ;; Lock 1 — lockstep is build-time discipline, NOT a boot-time runtime check
 ;; ---------------------------------------------------------------------------
 
-(deftest deps-versions-does-not-promise-boot-time-enforcement
-  (testing "deps-versions.md does not claim the version contract is checked at boot"
-    (let [body @deps-versions-md]
-      (is (not (contains-any? body ["checked at boot time"
-                                    "enforced at boot"
-                                    "validated at boot"]))
-          (str "deps-versions.md promises boot-time version enforcement. "
-               "The runtime carries NO per-artefact VERSION metadata — "
-               "`rf/init!` only nil/non-map-checks the adapter spec and "
-               "`install-adapter!` stores `:kind`, never a version (see "
-               "implementation/core/src/re_frame/core.cljc + "
-               "substrate/adapter.cljc). Lockstep is a build/dependency "
-               "discipline; do not promise a runtime guard that doesn't "
-               "exist.")))))
-
 (deftest deps-versions-frames-lockstep-as-build-discipline
-  (testing "deps-versions.md frames lockstep as a build/dependency discipline"
-    (let [body @deps-versions-md]
+  (let [body @deps-versions-md]
+    (testing "deps-versions.md frames lockstep as a build/dependency discipline"
       (is (contains-any? body ["build/dependency discipline"
                                "not a boot-time runtime check"])
           (str "deps-versions.md does not frame lockstep as a "
@@ -256,11 +241,20 @@
       (is (str/includes? body "version_lockstep_test.clj")
           (str "The pointer to the actual (build-time) lockstep guard "
                "`tools/template/.../version_lockstep_test.clj` is missing. "
-               "It names where enforcement really lives.")))))
-
-(deftest deps-versions-gives-a-self-check
-  (testing "deps-versions.md gives a concrete validate-it-yourself command"
-    (let [body @deps-versions-md]
+               "It names where enforcement really lives.")))
+    (testing "deps-versions.md does not claim the version contract is checked at boot"
+      (is (not (contains-any? body ["checked at boot time"
+                                    "enforced at boot"
+                                    "validated at boot"]))
+          (str "deps-versions.md promises boot-time version enforcement. "
+               "The runtime carries NO per-artefact VERSION metadata — "
+               "`rf/init!` only nil/non-map-checks the adapter spec and "
+               "`install-adapter!` stores `:kind`, never a version (see "
+               "implementation/core/src/re_frame/core.cljc + "
+               "substrate/adapter.cljc). Lockstep is a build/dependency "
+               "discipline; do not promise a runtime guard that doesn't "
+               "exist.")))
+    (testing "deps-versions.md gives a concrete validate-it-yourself command"
       (is (contains-any? body ["Validate lockstep yourself"
                                "every printed version must be the same"
                                "grep"])
