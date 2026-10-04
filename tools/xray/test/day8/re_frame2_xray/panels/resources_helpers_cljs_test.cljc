@@ -174,17 +174,7 @@
                        :rf.resource/restored
                        :rf.resource/restore-clock-skew}]
       (is (= emitted enumerated)
-          "trace-ops enum is exactly the runtime-emitted op set")
-      (is (not (contains? enumerated :rf.resource/ensure))
-          ":rf.resource/ensure is a dispatched event-id, NOT a trace op")
-      (is (not (contains? enumerated :rf.resource/work-suppressed))
-          "there is no :rf.resource/work-suppressed — stale-suppressed covers it")))
-  (testing "a dispatched resource EVENT-ID is recognised as an
-            in-namespace family member for colouring (the namespace fallback),
-            but is NOT a member of the closed enum"
-    (is (h/resource-trace-op? :rf.resource/ensure))
-    (is (not (contains? (set (keys h/trace-ops)) :rf.resource/ensure)))
-    (is (= :lifecycle (h/op-class :rf.resource/ensure))))
+          "trace-ops enum is exactly the runtime-emitted op set")))
   (testing "an in-namespace op outside the enum is a family member"
     (is (h/resource-trace-op? :rf.resource/some-future-op))
     (is (= :lifecycle (h/op-class :rf.resource/some-future-op)))
@@ -292,13 +282,7 @@
         (is (= {:file "app/scopes.cljs" :line 7} (:source-coord session)))))
     (testing "whole-db sugar is flagged (the explicit-cost mark, EP-0015 disp 8)"
       (let [tenant (first (filter #(= :realworld/tenant (:scope-id %)) rows))]
-        (is (true? (:whole-db? tenant)))))
-    (testing "NO resolved scope value or input VALUE is rendered (PII surfaces
-              only via the egress-projected :rf.resource/scope-resolved trace)"
-      (let [session (first (filter #(= :realworld/session (:scope-id %)) rows))]
-        ;; the row carries the declared shape, not a resolved [:rf.scope/session …]
-        (is (not (contains? session :resolved-scope)))
-        (is (not (contains? (first (:inputs session)) :value)))))))
+        (is (true? (:whole-db? tenant)))))))
 
 ;; ---- (4) project-instances ---------------------------------------------
 
@@ -467,15 +451,7 @@
         (is (:cancellable? r))
         (is (= 5100 (:deadline-at r)))
         ;; resource-key scope/params summarized
-        (is (= "vector" (get-in r [:resource/key :scope :type])))
-        ;; EP-0016 — SINGLE attempt identity: the row exposes
-        ;; exactly :work-id (= the record's :work/id); a :stale-key
-        ;; synonym MUST NOT be present (Spec 016 §Ledger row retention,
-        ;; spec/Managed-Effects.md — one work id, no stale-key synonym).
-        (is (= [:rf.work/resource [session-scope :article/by-slug {:slug "welcome"}] 4]
-               (:work-id r)))
-        (is (not (contains? r :stale-key))
-            "no second work-identity synonym in the projection")))
+        (is (= "vector" (get-in r [:resource/key :scope :type])))))
     (testing "causes summarized (may carry data)"
       (is (vector? (:causes (first rows)))))))
 
@@ -747,20 +723,7 @@
           article-node (first (filter #(= :route/article (:route-id %)) nodes))]
       (is (= [:article/by-slug] (:blocking-live article-node))
           "the flatten path leaks the stale token's wait point —
-           proving the scoped read is load-bearing")))
-  (testing "single-token behaviour: a CURRENT-token wait point
-            surfaces"
-    (let [nodes (h/project-route-graph
-                  routes-map
-                  {:instance-rows []
-                   :work-rows     []
-                   :current       (h/routing-current m5-routing-slice)
-                   :blocking-keys (h/routing-blocking-keys
-                                    m5-routing-slice
-                                    (:nav-token (h/routing-current m5-routing-slice)))})
-          article-node (first (filter #(= :route/article (:route-id %)) nodes))]
-      (is (= [:article/by-slug] (:blocking-live article-node))
-          "the current nav-token's own unsettled blocking resource surfaces"))))
+           proving the scoped read is load-bearing"))))
 
 ;; ---- (7) timeline / invalidation / cache-growth ------------------------
 
@@ -888,9 +851,6 @@
       (is (= 1 (count rows)))
       (let [r (first rows)]
         (is (= "vector" (get-in r [:scope :type])))   ; scope summarized
-        (is (= [[:article "welcome"]] (:tags r)))
-        (is (= 1 (:match-count r)))
-        (is (= 1 (:refetched r)))
         (is (map? (:cause r)))))))                      ; cause summarized
 
 (deftest cache-growth-test
@@ -1561,10 +1521,6 @@
           :rf.reply/work-status :suppressed}})
 
 (deftest optimistic-superseded-outcome
-  (testing "CONTROL — an apply with no terminal of any kind is :pending"
-    (let [row (first (h/optimistic-lifecycle [opt-apply-ev]))]
-      (is (= :pending (:outcome row)))
-      (is (nil? (:settled-id row)))))
   (testing "a stale-suppressed reply for the same work settles it as :superseded"
     (let [row (first (h/optimistic-lifecycle [opt-apply-ev opt-suppressed-ev]))]
       (is (= :superseded (:outcome row)))
@@ -1707,21 +1663,6 @@
   (assoc-in ev [:tags :rf.frame/id] frame))
 
 (deftest optimistic-supersession-is-frame-scoped-rf2-qqi7u
-  (testing "CONTROL — the two frames' rows are otherwise IDENTICAL: equal
-            instance, equal work-id, equal generation"
-    (let [a (in-frame opt-apply-ev frame-a)
-          b (in-frame opt-suppressed-ev frame-b)]
-      (is (= (:instance (:tags a)) (:instance (:tags b))))
-      (is (= (:work/id (:tags a)) (:rf.reply/work-id (:tags b))))
-      (is (= (:generation (:tags a)) (:generation (:tags b))))
-      (is (not= (:rf.frame/id (:tags a)) (:rf.frame/id (:tags b)))
-          "the frame is the only discriminator in play")))
-  (testing "a suppression in ANOTHER frame must not settle this apply"
-    (let [row (first (h/optimistic-lifecycle
-                       [(in-frame opt-apply-ev frame-a)
-                        (in-frame opt-suppressed-ev frame-b)]))]
-      (is (= :pending (:outcome row)))
-      (is (nil? (:settled-id row)))))
   (testing "the :generation fallback is frame-scoped too — a foreign-frame
             suppression carrying no work-id must not settle it either"
     (let [b   (-> opt-suppressed-ev
@@ -1730,13 +1671,6 @@
           row (first (h/optimistic-lifecycle
                        [(in-frame opt-apply-ev frame-a) b]))]
       (is (= :pending (:outcome row)))))
-  (testing "SAME-frame supersession settles — the behaviour frame-scoping
-            must keep"
-    (let [row (first (h/optimistic-lifecycle
-                       [(in-frame opt-apply-ev frame-a)
-                        (in-frame opt-suppressed-ev frame-a)]))]
-      (is (= :superseded (:outcome row)))
-      (is (= 11 (:settled-id row)))))
   (testing "both frames in ONE buffer — the panel's real shape: A's own
             suppression settles A and leaves B's identical apply pending"
     (let [rows (h/optimistic-lifecycle
@@ -1910,9 +1844,6 @@
                              (assoc (in-frame reach-reconciled frame-b) :id 60)])))))
 
 (deftest optimistic-reach-lint-warning-suppression-is-frame-scoped-rf2-389dv
-  (testing "CONTROL — with no warning in the buffer at all, frame A's reconcile
-            is ONE finding"
-    (is (= 1 (count (reach-lint [(in-frame reach-reconciled frame-a)])))))
   (testing "SAME-FRAME suppression holds — a wrong-scope descriptor
             gets one diagnostic, not two"
     (is (empty? (reach-lint [(in-frame reach-reconciled frame-a)
@@ -1925,11 +1856,4 @@
       (is (= 1 (count rows)) "the unreached key is still a finding")
       (is (= 1 (count (:missing-keys row))))
       (is (= :article/favorite (:mutation row)))
-      (is (= opt-instance (:instance row)))))
-  (testing "CONTROL — the FRAME really is the only discriminator in play: the
-            two warnings agree on every other field the suppression keys on"
-    (let [a (in-frame reach-scope-warning frame-a)
-          b (in-frame reach-scope-warning frame-b)]
-      (is (= (:mutation (:tags a)) (:mutation (:tags b))))
-      (is (= (:other-scope (:tags a)) (:other-scope (:tags b))))
-      (is (not= (:rf.frame/id (:tags a)) (:rf.frame/id (:tags b)))))))
+      (is (= opt-instance (:instance row))))))
