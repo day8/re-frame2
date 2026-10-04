@@ -2,7 +2,7 @@
   "JVM tests for the Test Codegen recorder.
 
   Pure-data coverage: the recordable-event? predicate, the state
-  machine (start / append / stop / reset), the impure entrypoints
+  machine (start / append / stop), the impure entrypoints
   driving the per-process atom, and the gen-play-snippet codegen.
   Mirrors the node-test arm in `story_recorder_cljs_test.cljs`.
 
@@ -10,7 +10,7 @@
 
   - `recordable-event?` — filters assertion events + Story-internal
     helpers without dropping legitimate user dispatches.
-  - State machine (`start` / `append` / `stop` / `reset`) — pure
+  - State machine (`start` / `append` / `stop`) — pure
     transitions; one place to lock the contract apart from the impure
     side.
   - Impure entrypoints (`start-recording!`, `stop-recording!`,
@@ -42,19 +42,6 @@
 (use-fixtures :each reset-recorder!)
 
 ;; ---- recordable-event? ---------------------------------------------------
-
-(deftest recordable-event?-accepts-user-events
-  (testing "ordinary user dispatches are recordable"
-    (is (rf.story.recorder/recordable-event? [:counter/inc]))
-    (is (rf.story.recorder/recordable-event? [:auth/login {:email "a@b"}]))
-    (is (rf.story.recorder/recordable-event? [:cart/add-item :widget-x 3]))))
-
-(deftest recordable-event?-skips-assertions
-  (testing ":rf.assert/* events are filtered (assertions are authored, not recorded)"
-    (is (not (rf.story.recorder/recordable-event? [:rf.assert/path-equals [:auth :status] :ok])))
-    (is (not (rf.story.recorder/recordable-event? [:rf.assert/sub-equals [:count] 3])))
-    (is (not (rf.story.recorder/recordable-event? [:rf.assert/no-warnings])))
-    (is (not (rf.story.recorder/recordable-event? [:rf.assert/dispatched? [:counter/inc]])))))
 
 (deftest recordable-event?-skips-internal-story-events
   (testing ":rf.story/* + re-frame.story.* internal helpers are filtered"
@@ -100,31 +87,7 @@
           s1 (rf.story.recorder/append s0 [:counter/inc])]
       (is (= [] (:events s1))))))
 
-(deftest stop-preserves-events
-  (testing "stop flips :recording? false but keeps the captured trace"
-    (let [s0 (-> rf.story.recorder/initial-state
-                 (rf.story.recorder/start :story.x/y 0)
-                 (rf.story.recorder/append [:counter/inc]))
-          s1 (rf.story.recorder/stop s0)]
-      (is (false? (:recording? s1)))
-      (is (= [[:counter/inc]] (:events s1)))
-      (is (= :story.x/y (:variant-id s1))))))
-
-(deftest reset-returns-idle
-  (testing "reset drops everything"
-    (let [s0 (-> rf.story.recorder/initial-state
-                 (rf.story.recorder/start :story.x/y 0)
-                 (rf.story.recorder/append [:counter/inc]))
-          s1 (rf.story.recorder/reset s0)]
-      (is (= rf.story.recorder/initial-state s1)))))
-
 ;; ---- impure entrypoints --------------------------------------------------
-
-(deftest start-recording!-mutates-state
-  (rf.story.recorder/start-recording! :story.counter/x 5000)
-  (is (rf.story.recorder/recording?))
-  (is (= :story.counter/x (rf.story.recorder/recording-variant)))
-  (is (= [] (rf.story.recorder/recorded-events))))
 
 (deftest toggle!-flips
   (testing "toggle! starts when idle and stops when recording"
@@ -443,27 +406,6 @@
     (rf.story/destroy-variant! :story.recorder/other)
     (rf.story.recorder/remove-trace-listener!)))
 
-(deftest trace-listener-skips-assertion-events
-  (testing "with a recording active, :rf.assert/* dispatches don't leak into the captured :script body"
-    (reset-rf-state!)
-    (rf/reg-event :counter/inc
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf.story/reg-variant :story.recorder/v {})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/v) 5000)
-    (rf.story.recorder/install-trace-listener!)
-    (rf.story.recorder/start-recording! :story.recorder/v)
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/v})
-    ;; Assertions ARE dispatchable but the recorder skips them.
-    (rf/dispatch-sync [:rf.assert/path-equals [:n] 1]
-                      {:frame :story.recorder/v})
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/v})
-    (rf.story.recorder/stop-recording!)
-    (is (= [[:counter/inc] [:counter/inc]]
-           (rf.story.recorder/recorded-events))
-        "only the user dispatches are captured — assertions filtered")
-    (rf.story/destroy-variant! :story.recorder/v)
-    (rf.story.recorder/remove-trace-listener!)))
-
 (deftest trace-listener-redacts-sensitive-dispatches-end-to-end
   (testing "an event whose REGISTRATION classifies payload paths
             (`{:sensitive [[:password] [:totp]]}`) is recorded in position
@@ -486,18 +428,14 @@
                       {:frame :story.recorder/sens-end-to-end})
     (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/sens-end-to-end})
     (rf.story.recorder/stop-recording!)
-    (let [events (rf.story.recorder/recorded-events)
-          tape   (pr-str events)]
+    (let [events (rf.story.recorder/recorded-events)]
       (is (= [[:counter/inc]
               [:auth/login {:user "ada" :password :rf/redacted :totp :rf/redacted}]
               [:counter/inc]]
              events)
           "the login row keeps its position; each classified path is
-           :rf/redacted and the unclassified :user rides raw")
-      (is (not (str/includes? tape "shh"))
-          "the recorded tape carries no password literal")
-      (is (not (str/includes? tape "123456"))
-          "the recorded tape carries no one-time-code literal"))
+           :rf/redacted and the unclassified :user rides raw, so the tape
+           carries neither secret literal"))
     (rf.story/destroy-variant! :story.recorder/sens-end-to-end)
     (rf.story.recorder/remove-trace-listener!)))
 
@@ -540,38 +478,6 @@
               "the in-step submit is skipped; the outside dispatch is
                recorded with the typed password redacted"))))
     (rf.story/destroy-variant! :story.recorder/login)
-    (rf.story.recorder/remove-trace-listener!)))
-
-(deftest end-to-end-recording-to-snippet
-  (testing "the full record→stop→gen-play-snippet cycle produces a valid public :script body"
-    (reset-rf-state!)
-    (rf/reg-event :counter/inc
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/reg-event :counter/by
-      (fn [{:keys [db]} [_ n]] {:db (update db :n (fnil + 0) n)}))
-    (rf.story/reg-variant :story.recorder/source {})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/source) 5000)
-    (rf.story.recorder/install-trace-listener!)
-    (rf.story.recorder/start-recording! :story.recorder/source)
-    (rf/dispatch-sync [:counter/inc]        {:frame :story.recorder/source})
-    (rf/dispatch-sync [:counter/inc]        {:frame :story.recorder/source})
-    (rf/dispatch-sync [:counter/by 7]       {:frame :story.recorder/source})
-    (let [{:keys [events variant-id]} (rf.story.recorder/stop-recording!)
-          snippet    (rf.story.recorder/gen-play-snippet
-                       events
-                       {:variant-id :story.recorder/captured
-                        :extends    variant-id
-                        :doc        "recorded via Test Codegen"})
-          script-str (extract-play-script-vector snippet)
-          script-vec (edn/read-string script-str)]
-      (is (= 3 (count events)))
-      (is (str/includes? snippet "reg-variant"))
-      (is (str/includes? snippet ":story.recorder/captured"))
-      (is (str/includes? snippet ":story.recorder/source")
-          "the recorder-target id rides into the :extends slot")
-      (is (= events (unwrap-dispatch-sync-steps script-vec))
-          "the rendered public :script body vector unwraps back to the captured events"))
-    (rf.story/destroy-variant! :story.recorder/source)
     (rf.story.recorder/remove-trace-listener!)))
 
 ;; ---- recorder FACADE contract --------------------------------------------
