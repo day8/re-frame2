@@ -284,15 +284,19 @@
                              (if pass? gen-pass gen-fail))
                            (recur (not pass?)))))]
         (try
-          (dotimes [i 100]
-            (with-trace-recorder! [traces]
-              (rf/dispatch-sync [:race/write (inc i)])
-              (let [failures (count (filter #(= :rf.error/schema-validation-failure
-                                                (:operation %))
-                                            @traces))]
-                (is (contains? #{0 2} failures)
-                    (str "dispatch " i " validated against ONE registry "
-                         "generation (0 or 2 failures), got " failures)))))
+          (let [torn (into []
+                           (keep (fn [i]
+                                   (with-trace-recorder! [traces]
+                                     (rf/dispatch-sync [:race/write (inc i)])
+                                     (let [failures (count (filter #(= :rf.error/schema-validation-failure
+                                                                       (:operation %))
+                                                                   @traces))]
+                                       (when-not (contains? #{0 2} failures)
+                                         {:dispatch i :failures failures})))))
+                           (range 100))]
+            (is (empty? torn)
+                (str "every dispatch validated against ONE registry generation "
+                     "(0 or 2 failures); these tore: " (pr-str torn))))
           (finally
             (reset! stop? true)
             @flipper

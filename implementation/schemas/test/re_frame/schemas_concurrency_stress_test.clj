@@ -325,26 +325,32 @@
                     temp-frame (keyword "utdxg.digest"
                                         (str "temp-r" r))]]
         (try
-          (doseq [snap snapshots]
-            (let [meta-snap (reduce-kv
-                              (fn [acc path schema]
-                                (assoc acc path
-                                       {:schema schema
-                                        :path   path
-                                        :frame  temp-frame}))
-                              {}
-                              snap)]
-              (swap! rf.schemas.storage/schemas-by-frame
-                     assoc temp-frame meta-snap)
-              (let [d1 (rf.schemas/app-schemas-digest {:frame temp-frame})
-                    d2 (rf.schemas/app-schemas-digest {:frame temp-frame})]
-                (is (= d1 d2)
-                    (str "Reader " r ": digest of frozen captured "
-                         "snapshot is non-deterministic — first call "
-                         "= " d1 ", second call = " d2 ". Snapshot "
-                         "has " (count snap) " entries. Indicates "
-                         "cross-thread state pollution in the digest "
-                         "pipeline.")))))
+          (let [divergent
+                (into []
+                      (keep (fn [snap]
+                              (let [meta-snap (reduce-kv
+                                                (fn [acc path schema]
+                                                  (assoc acc path
+                                                         {:schema schema
+                                                          :path   path
+                                                          :frame  temp-frame}))
+                                                {}
+                                                snap)]
+                                (swap! rf.schemas.storage/schemas-by-frame
+                                       assoc temp-frame meta-snap)
+                                (let [d1 (rf.schemas/app-schemas-digest {:frame temp-frame})
+                                      d2 (rf.schemas/app-schemas-digest {:frame temp-frame})]
+                                  (when (not= d1 d2)
+                                    {:entries     (count snap)
+                                     :first-call  d1
+                                     :second-call d2})))))
+                      snapshots)]
+            (is (empty? divergent)
+                (str "Reader " r ": " (count divergent) " of " (count snapshots)
+                     " frozen captured snapshots digested non-deterministically"
+                     " (first three shown): " (pr-str (take 3 divergent))
+                     ". Indicates cross-thread state pollution in the digest"
+                     " pipeline.")))
           (finally
             (swap! rf.schemas.storage/schemas-by-frame dissoc temp-frame))))
 
