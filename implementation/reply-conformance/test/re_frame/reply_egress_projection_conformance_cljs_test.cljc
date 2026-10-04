@@ -255,6 +255,8 @@
       (is (redacted? (get-in known [:value :token]))
           "a KNOWN :frame opt applies its sensitive policy"))
     ;; A never-registered frame cannot supply policy, so the whole slot redacts.
+    ;; The reply's own stamp names the live frame and the ambient frame is live
+    ;; too, so this also pins that the explicit frame wins over both.
     (let [unresolved (rf.reply/trace-summary (ok-reply) {:frame :reply-egress/ghost})]
       (is (redacted? (:value unresolved))
           "an UNRESOLVED :frame opt fails closed — the whole :value slot redacts")
@@ -293,12 +295,7 @@
         (is (redacted? (:value summary))
             "an unresolved carried stamp still fails closed under nil opts")
         (is (= :reply-egress/ghost (:rf.frame/id summary))
-            "the carried (unresolved) :rf.frame/id rides verbatim as identity")))
-    (testing "an explicit frame takes precedence over the carried stamp"
-      (let [reply   (ok-reply)
-            summary (rf.reply/trace-summary reply {:frame :reply-egress/ghost})]
-        (is (redacted? (:value summary))
-            "the explicit unresolved frame wins and fails closed")))))
+            "the carried (unresolved) :rf.frame/id rides verbatim as identity")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Explicit `{:frame nil}` — "no frame governs this summary" — is SAYABLE.
