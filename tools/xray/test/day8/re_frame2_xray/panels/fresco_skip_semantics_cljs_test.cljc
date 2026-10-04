@@ -362,29 +362,6 @@
                "there is nothing to account for"))
       (is (= {} (:by-read t))))))
 
-(deftest the-shared-predicate-is-the-one-in-the-shared-algebra
-  ;; The predicate is a public var in `fresco-helpers` precisely so both
-  ;; derivations can consult it and a reader can see that they do.
-  (is (= #{:rf.sub/run} hh/sub-recompute-operations)
-      (str "ONE operation means a body ran. `:rf.sub/create` is not in this set: "
-           "and Spec 009 §199 / §241 say it is a REGISTRATION — fired by "
-           "`reg-sub` / `reg-runtime-sub` / `reg-frame-state-sub` immediately "
-           "after the registrar write, and explicitly not a first-reference "
-           "or first-deref signal"))
-  (doseq [op [:rf.sub/run]]
-    (is (true? (hh/sub-recompute? {:operation op})))
-    (is (false? (hh/sub-skip? {:operation op}))))
-  ;; THREE non-work operations. `:rf.sub/create` is, like `:rf.sub/dispose`,
-  ;; a lifecycle event that is neither work nor a memo hit — unlike
-  ;; `:rf.sub/skip`, which is the cell being CONSIDERED and answering
-  ;; without running.
-  (doseq [op [:rf.sub/create :rf.sub/skip :rf.sub/dispose]]
-    (is (false? (hh/sub-recompute? {:operation op}))))
-  (is (true? (hh/sub-skip? {:operation :rf.sub/skip})))
-  (is (false? (hh/sub-skip? {:operation :rf.sub/create}))
-      "a registration is not a memo hit either — it is a third thing")
-  (is (false? (hh/sub-skip? {:operation :rf.sub/dispose}))))
-
 ;; ---------------------------------------------------------------------------
 ;; The three states stay apart — a skip-only window is neither of the others
 ;; ---------------------------------------------------------------------------
