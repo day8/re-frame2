@@ -138,9 +138,34 @@ Skip this and the converted boot / login / wizard compiles, starts, and then **h
 The producers are **scattered, not co-located**: the `:async-flow` declaration lives in one `boot` / `init` namespace while its awaited events are produced across many namespaces, each with its own HTTP completion — and one event (`[:session-expired]`, `[:fetch-failed]`) is often awaited by several flows at once. So the retarget is a **wiring pass over the whole producer graph**, not a local edit. Before converting, enumerate it: for each awaited event, grep every site that dispatches it (`rg "\[:config-loaded"`) and record the file / handler it lives in. Then decide per site —
 
 - **Re-address** it to `[<machine-id> …]` when the machine is the event's sole consumer.
-- **Bridge** it when the event must stay public for other listeners: keep the global producer and add a one-line re-dispatch handler — `(rf/reg-event :config-loaded (fn [_ ev] {:fx [[:dispatch (into [:app/boot] [ev])]]}))` — or model the await as a spawned child actor whose completion the runtime routes back to the parent.
+- **Append the addressed dispatch to the event's existing handler** when the event must stay public for other listeners and already has a `reg-event` — usually the success handler that stores the payload. Keep its body, `:interceptors` and existing effect order, and append one `[:dispatch [<machine-id> ev]]` per awaiting machine. Never register a second handler under the same id beside it: registration holds one handler per `(kind, id)`, so the second **replaces** the first (from another file it also draws a dev-only `:rf.warning/registration-collision`) and the original `:db` update and effects stop running.
+- **Forward** it only when the event has **no** handler anywhere in the tree (it existed only for the flow to observe): then a one-line forwarding handler is its one registration — `(rf/reg-event :config-loaded (fn [_ ev] {:fx [[:dispatch [:app/boot ev]]]}))` — registered once, by whichever file the migration assigns it to.
+- **Or route the await through a child actor**: model the async work as a spawned child whose completion the runtime routes back to the parent, so no global event needs retargeting.
 
-Treat any awaited event you cannot trace to its producers as a **blocker** — an unretargeted producer is the silent stuck-boot, shipped. On a partitioned / incremental migration a producer's file is frequently converted **before** the consuming machine's await exists, so it ships in the plain global form — correct for its own file, un-addressed for a machine that is not there yet. Closing that ordering gap needs a deliberate **reconcile pass**: once the consuming machine lands, revisit every producer converted before its await existed and re-address or bridge it.
+**Worked example — two machines await an event that already has a handler.** v1's `:config-loaded` handler stores the config and applies the theme; after conversion both `:app/boot` and `:wizard/setup` await it. The handler keeps its one registration and appends one addressed dispatch per machine:
+
+```clojure
+;; Before (after M-73): the existing completion handler.
+(rf/reg-event :config-loaded
+  {:interceptors [:app/log-timing]}
+  (fn [{:keys [db]} [_ config]]
+    {:db (assoc db :config config)
+     :fx [[:dispatch [:theme/apply (:theme config)]]]}))
+
+;; After: the same registration — body, chain and effect order kept — with one
+;; addressed dispatch appended per awaiting machine.
+(rf/reg-event :config-loaded
+  {:interceptors [:app/log-timing]}
+  (fn [{:keys [db]} [_ config :as ev]]
+    {:db (assoc db :config config)
+     :fx [[:dispatch [:theme/apply (:theme config)]]
+          [:dispatch [:app/boot ev]]
+          [:dispatch [:wizard/setup ev]]]}))
+```
+
+Each `[:config-loaded cfg]` still runs one handler, so the `:config` write and the `:theme/apply` dispatch happen exactly once, and each machine receives `[:config-loaded cfg]` at its own address. A forwarding `:config-loaded` registered beside it would instead replace this handler, and the config would never be stored. On a partitioned migration the handler's owning unit makes this edit, at the request of the units that own the machines.
+
+Treat any awaited event you cannot trace to its producers as a **blocker** — an unretargeted producer is the silent stuck-boot, shipped. On a partitioned / incremental migration a producer's file is frequently converted **before** the consuming machine's await exists, so it ships in the plain global form — correct for its own file, un-addressed for a machine that is not there yet. Closing that ordering gap needs a deliberate **reconcile pass**: once the consuming machine lands, revisit every producer converted before its await existed and re-address it or append the addressed dispatch to its handler.
 
 ## Mapping notes for each async-flow concept
 
@@ -218,6 +243,6 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 When the agent applies this rule:
 
 - The migration report lists every `:async-flow` call site it found, whether the operator approved the rewrite, and the new machine id.
-- **Every producer retargeted (or bridged)** is listed: for each awaited event, the handler / fx whose dispatch was re-addressed to `[<machine-id> …]`, or the bridge handler added when the global event had to stay public. An unretargeted producer is a silent stuck-boot — call out any you could not locate so the operator can find them.
+- **Every producer retargeted** is listed: for each awaited event, the handler / fx whose dispatch was re-addressed to `[<machine-id> …]`, the existing handler that gained an addressed dispatch when the global event had to stay public, or the forwarding handler registered for an event that had none. An unretargeted producer is a silent stuck-boot — call out any you could not locate so the operator can find them.
 - If the `day8.re-frame/async-flow-fx` dep is no longer referenced (all flows migrated), the agent flags the dep for removal in the same report; the operator confirms before the dep is dropped.
 - Each escalation case from above is listed with file/line, the specific reason it escalated, and the agent's recommended path forward.
