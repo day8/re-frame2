@@ -908,16 +908,11 @@
         (is (zero? (count @calls))
             "launch! was never called on any missing-file path")))))
 
-;; The query vocabulary maps to launch-editor binary names.
+;; The query vocabulary maps to launch-editor binary names. Every pair reaches
+;; `launch!` through `handle` in endpoint-still-serves-every-position-carrying-editor
+;; (windsurf in endpoint-declines-coordinate-bearing-windsurf-request).
 
 (deftest editor-hint-maps-keyword-to-launch-command
-  (testing "a known editor keyword resolves to its launch command"
-    (is (= "code"          (rf.testbed.open-in-editor-server/editor-hint "vscode")))
-    (is (= "code-insiders" (rf.testbed.open-in-editor-server/editor-hint "vscode-insiders")))
-    (is (= "cursor"        (rf.testbed.open-in-editor-server/editor-hint "cursor")))
-    (is (= "windsurf"      (rf.testbed.open-in-editor-server/editor-hint "windsurf")))
-    (is (= "zed"           (rf.testbed.open-in-editor-server/editor-hint "zed")))
-    (is (= "idea"          (rf.testbed.open-in-editor-server/editor-hint "idea"))))
   (testing "the value is lower-cased and trimmed before lookup"
     (is (= "code"   (rf.testbed.open-in-editor-server/editor-hint "VSCode")))
     (is (= "cursor" (rf.testbed.open-in-editor-server/editor-hint "  Cursor  ")))
@@ -986,11 +981,8 @@
     (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" nil nil))
         "no coordinate → nothing to lose; the endpoint's classpath resolution
          is still worth having")
-    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "code" 27 9)))
-    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "cursor" 27 9)))
-    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "zed" 27 9)))
-    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "idea" 27 9)))
-    (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? "code-insiders" 27 9)))
+    ;; Every position-capable vocabulary command is served with 27:9 through
+    ;; `handle` in endpoint-still-serves-every-position-carrying-editor.
     (is (false? (rf.testbed.open-in-editor-server/position-would-be-dropped? nil 27 9))
         "this predicate answers for NAMED commands only. nil is auto-detect,
          whose binary launch-editor chooses from the running process list —
