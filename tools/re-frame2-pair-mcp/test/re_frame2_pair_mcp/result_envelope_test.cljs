@@ -18,7 +18,6 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [cljs.reader]
             [clojure.string :as str]
-            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.result-envelope :as renv]))
 
 ;; ---------------------------------------------------------------------------
@@ -193,18 +192,9 @@
     (is (renv/error? (assoc defect :kind :event))
         "the mark survives assoc — metadata propagates through persistent map ops, matching how handler-meta's stamp-frame further shapes the map")))
 
-(deftest truncate-preview-caps-long-text
-  (let [long-text (apply str (repeat 500 "x"))
-        out       (tu/truncate-preview long-text)]
-    (is (str/includes? out "chars)") "a long preview carries the char-count suffix")
-    (is (< (count out) 500) "the preview is truncated under the source length"))
-  (is (= "short" (tu/truncate-preview "short"))
-      "a short preview is returned verbatim"))
-
 (deftest wrap-form-truncates-preview-at-preview-cap
   ;; The runtime truncation itself: the wrap source cuts at the
-  ;; single-sourced cap and appends the char-count suffix — the shape
-  ;; `tu/truncate-preview` reproduces for the tests above.
+  ;; single-sourced cap and appends the char-count suffix.
   (let [src (renv/wrap-form "(form)")]
     (is (str/includes? src (str "(if (> n# " renv/preview-cap ")"))
         "a preview longer than the cap is cut")
