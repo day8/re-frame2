@@ -158,7 +158,7 @@
 ;; ---- public API surface -------------------------------------------------
 
 (deftest public-decorator-ids-exposed
-  (testing "the three decorator ids are re-exported on re-frame.story"
-    (is (= rf.story.layout-debug/id-measure  rf.story/layout-debug-measure-id))
-    (is (= rf.story.layout-debug/id-outline  rf.story/layout-debug-outline-id))
-    (is (= rf.story.layout-debug/id-pseudo   rf.story/layout-debug-pseudo-id))))
+  (testing "the three public decorator-id Vars on re-frame.story carry the canonical ids"
+    (is (= :rf.story/layout-debug.measure rf.story/layout-debug-measure-id))
+    (is (= :rf.story/layout-debug.outline rf.story/layout-debug-outline-id))
+    (is (= :rf.story/layout-debug.pseudo  rf.story/layout-debug-pseudo-id))))
