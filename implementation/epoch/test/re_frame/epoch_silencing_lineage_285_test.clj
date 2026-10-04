@@ -300,15 +300,19 @@
         (when (= :rf.epoch.cb/silenced-on-frame-destroy (:operation ev))
           (swap! silencings inc))))
     (try
-      (dotimes [i n]
-        (let [id    (keyword "vxgfnd285-bounded" (str i))
-              token (Object.)]
-          (rf.epoch.state/claim-frame-owner! id token)
-          (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-          (rf.epoch.listeners/on-frame-destroyed! id token
-            (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
-          (is (<= (total-marks) 1)
-              "at most one frame's marks are ever retained at once")))
+      (let [over-cap (atom [])]
+        (dotimes [i n]
+          (let [id    (keyword "vxgfnd285-bounded" (str i))
+                token (Object.)]
+            (rf.epoch.state/claim-frame-owner! id token)
+            (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+            (rf.epoch.listeners/on-frame-destroyed! id token
+              (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
+            (let [marks (total-marks)]
+              (when (> marks 1) (swap! over-cap conj [i marks])))))
+        (is (empty? @over-cap)
+            "at most one frame's marks are ever retained at once (lists each
+             offending [destroy-index marks])"))
       (is (= n @silencings) "each unique destroy silenced the persistent cb once")
       (is (zero? (total-marks))
           "after all destroys settle, lineage storage returns to a constant baseline")
@@ -422,15 +426,19 @@
                       (rf/register-listener! :epoch cb (fn [_] nil))
                       (rf.epoch.state/record-observation! cb (cb-generation cb) id)))]
       (try
-        (dotimes [_ rounds]
-          (reset! silencings [])
-          (let [token (Object.)]
-            (rf.epoch.state/claim-frame-owner! id token)
-            (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-            (rf.epoch.listeners/on-frame-destroyed! id token
-              (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)))
-          (is (<= (silences-for silencings cb) 1)
-              "no destroy double-signals the cb under concurrent generation churn"))
+        (let [doubled (atom [])]
+          (dotimes [round rounds]
+            (reset! silencings [])
+            (let [token (Object.)]
+              (rf.epoch.state/claim-frame-owner! id token)
+              (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+              (rf.epoch.listeners/on-frame-destroyed! id token
+                (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil)))
+            (let [c (silences-for silencings cb)]
+              (when (> c 1) (swap! doubled conj [round c]))))
+          (is (empty? @doubled)
+              "no destroy double-signals the cb under concurrent generation
+               churn (lists each offending [round silences])"))
         (finally
           (reset! stop? true)
           (deref churner 5000 ::timeout)

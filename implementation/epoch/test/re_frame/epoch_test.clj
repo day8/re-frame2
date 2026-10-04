@@ -2252,17 +2252,9 @@
       (is (every? #(contains? % :renders) history)
           "every record keeps its :renders projection")
 
-      (let [[r0 r1 r2 r3 r4] history]
-        (is (not (contains? r0 :trace-events))
-            "record 0 (oldest) — :trace-events dropped")
-        (is (not (contains? r1 :trace-events))
-            "record 1 — :trace-events dropped")
-        (is (not (contains? r2 :trace-events))
-            "record 2 — :trace-events dropped")
-        (is (contains? r3 :trace-events)
-            "record 3 — :trace-events kept (penultimate)")
-        (is (contains? r4 :trace-events)
-            "record 4 — :trace-events kept (most-recent)")))))
+      (is (= [false false false true true]
+             (mapv #(contains? % :trace-events) history))
+          "only the newest 2 of the 5 records (oldest-first) keep :trace-events"))))
 
 (deftest trace-events-keep-explicit-large-value-keeps-all
   (testing "explicit :trace-events-keep >= depth — every record carries
