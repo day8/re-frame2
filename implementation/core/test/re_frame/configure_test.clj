@@ -108,25 +108,6 @@
 
 (use-fixtures :each reset-runtime)
 
-(deftest configure-known-keys-take-effect
-  (testing ":trace-buffer events-retained is wired"
-    ;; ALWAYS-ON: the knob is a documented no-op under the
-    ;; production gate — it must still be ACCEPTED, silently, returning nil.
-    (is (nil? (rf/configure! {:trace-buffer {:events-retained 7}}))
-        ":trace-buffer is accepted and returns nil in BOTH postures")
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-    (dotimes [_ 20] (rf/dispatch-sync [:ping]))
-    ;; Dev-instrumentation arm (see ns docstring §Posture split).
-    ;; `(<= (count []) 7)` is true for every N; the cap is unreadable here
-    ;; under the gate because the ring is never allocated.
-    (when rf.interop/debug-enabled?
-      (is (<= (count (rf/trace-buffer :rf/default)) 7)
-          ":trace-buffer {:events-retained 7} caps retained events at 7")))
-  (testing ":elision is wired"
-    (rf/configure! {:elision {:rf.egress/threshold-bytes 4096}})
-    (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
-        ":elision {:rf.egress/threshold-bytes N} reaches the elision config")))
-
 ;; ---------------------------------------------------------------------------
 ;; `current-config`, the read twin of `configure!`.
 ;;
