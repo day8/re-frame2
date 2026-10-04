@@ -157,6 +157,7 @@ Same for the `uix` variant.
 
 `assert-state` maps to `assert-path-equals` per **M-62** (the fn-side mirrors the `:rf.assert/path-equals` Story event); a full-db assertion has no dedicated fn — compare directly with `(is (= expected-db (rf/app-db-value f)))`. A chained event-sequence is a `doseq` over `dispatch-sync`. `run-test-sync` is dropped in v2 — see **M-52** below to rewrite call sites.
 Also: drop `day8/re-frame-test` from the Maven coords.
+Before accepting the migrated suite, run the [test-double audit](#test-double-audit-macro-call-sites-and-compiled-arities) under M-52: a v1 `with-redefs` on `rf/dispatch` or `rf/subscribe` still compiles in v2 and intercepts nothing.
 
 ### M-52 — `run-test-sync` removed
 
@@ -213,6 +214,37 @@ Hoisting alone is enough while the body only adds ids no other loaded namespace 
 - **Cleanup has two halves.** The reset fixture, or the snapshot/restore bracket above, rolls back `reg-*` writes and leaves live frames alone — restoring the registrar after a re-image leaves the frame mocked. The frame is the other half: `make-reset-runtime-fixture` clears every frame after each test (an `:async? true` suite does it in `:after`, once `done` has run); a test outside that fixture destroys its frame with `rf/destroy-frame!`.
 
 The image surface is the `re-frame2` skill's [`frames.md` §Images](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/frames.md#images--the-registration-set-half-ep-0023) and [`images.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/fundamentals/images.md); its contracts are [`spec/API.md` §Registration](https://github.com/day8/re-frame2/blob/main/spec/API.md#registration) (`image`, `make-frame`) and [`spec/002-Frames.md` §Image resolution and composition](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md#image-resolution-and-composition).
+
+#### Test-double audit: macro call sites and compiled arities
+
+A migrated suite can compile, and pass on the JVM, while its doubles intercept nothing. Before accepting it, classify each `with-redefs` (and any other double) by how the code under test reaches the name it replaces:
+
+- **Macro call site: use a documented seam, never a redef of the public name.** `(rf/dispatch …)`, `(rf/dispatch-sync …)` and `(rf/subscribe …)` in call position are macros. Their expansion calls an internal `^:no-doc` alias rather than the var you named, so `(with-redefs [rf/dispatch …] …)` records nothing while the real event runs. The alias is not a seam to redef either; the comment above `dispatch-impl` in [`re_frame/core.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/core/src/re_frame/core.cljc) keeps it internal. Route each double to the public seam for what it checks:
+  - *which events a frame ran*: a recorder interceptor on the frame's `:interceptors` ([Spec 008 §Recording dispatched events](https://github.com/day8/re-frame2/blob/main/spec/008-Testing.md#recording-dispatched-events-without-firing-handlers));
+  - *what a handler would dispatch, without running it*: a per-call `:fx-overrides {:dispatch …}` ([Spec 008 §Asserting on effects](https://github.com/day8/re-frame2/blob/main/spec/008-Testing.md#asserting-on-effects-without-firing-them));
+  - *what an event or subscription does*: a replacement registration in a final mock image, per [§Body-local mocks under explicit images](#body-local-mocks-under-explicit-images) above.
+- **Function value: give the replacement the original's arity set.** A redef does reach code that reads the function as a value while the redef is live, such as a ClojureScript `rf/dispatch` passed as a callback, or the app's own `defn`. Compiled ClojureScript calls a multi-arity or variadic `defn` through its `cljs$core$IFn$_invoke$arity$N` or `$arity$variadic` entry, and a replacement of a different shape lacks that entry: the build compiles, then the call throws `…arity$N is not a function` or the double records nothing. Mirror the original's arglists: `(fn ([ev] …) ([ev opts] …))` for `([ev] [ev opts])`, and the same `&` rest for a variadic fn.
+- **Keep a positive assertion.** Each double asserts that it was reached, as in `(is (= [[:cart/save]] @seen))`, never only an absence, so a double that intercepts nothing fails the test instead of passing it.
+- **Run the compiled suite before acceptance.** A JVM or Babashka green is not evidence for compiled callable shapes: arity entries exist only in the ClojureScript build, so the arity trap shows nowhere else. The macro trap shows on both hosts.
+
+```clojure
+(defn save! [] (rf/dispatch-sync [:cart/save]))   ; code under test: a macro call site
+
+;; v1 habit: compiles, records nothing, and :cart/save runs for real
+(with-redefs [rf/dispatch-sync (fn ([ev] (swap! seen conj ev)) ([ev _] (swap! seen conj ev)))]
+  (save!))
+
+;; v2: record through the frame's :interceptors
+(deftest save-dispatches
+  (let [seen (atom [])]
+    (rf/reg-interceptor :test/recorder
+      {:before (fn [ctx] (swap! seen conj (-> ctx :coeffects :event)) ctx)})
+    (rf/with-new-frame [_f (rf/make-frame {:interceptors [:test/recorder]})]
+      (save!)
+      (is (= [[:cart/save]] @seen)))))
+```
+
+The recorder observes and the real handler still runs. When the test must not run it, register a mock handler in a final image as well.
 
 ### M-25 (async tests) — `run-test-async` + `wait-for` / `wait-for-event`
 
