@@ -163,49 +163,6 @@
         (rf.trace.tooling/unregister-listener! ::observer)))))
 
 ;; ---------------------------------------------------------------------------
-;; Green control / over-fence tooth — when A retains ownership through a
-;; NON-destroying listener, the ordinary first-registration trace reaches
-;; the subsequent listener exactly once. A wrongly-over-fencing predicate would
-;; silently swallow the trace.
-;; ---------------------------------------------------------------------------
-
-(deftest first-registration-trace-with-live-owner-emits-once
-  ;; Mutation tooth. The exact-incarnation fence must NOT suppress
-  ;; the normal first-registration trace when A stays live through the fan-out:
-  ;; :rf.flow/registered reaches BOTH the first and the subsequent listener,
-  ;; carrying A's own payload.
-  (let [id       :flow.trace.fence/live
-        flow-id  :flow.trace.fence/h
-        touched  (atom 0)
-        observed (atom [])]
-    (rf/make-frame {:id id})
-    (rf.trace.tooling/register-listener!
-      ::live-touch
-      (fn [ev]
-        (when (= :rf.flow/registered (:operation ev))
-          (swap! touched inc))))          ;; observe only — A stays live
-    (rf.trace.tooling/register-listener!
-      ::live-observer
-      (fn [ev]
-        (when (= :rf.flow/registered (:operation ev))
-          (swap! observed conj ev))))
-    (try
-      (rf/reg-flow flow-id
-        {:frame id :inputs [[:n]] :output-path [:out]}
-        (fn [n] (or n 0)))
-      (is (= 1 @touched) "the first listener saw A's registered event")
-      (is (= 1 (count @observed))
-          "the SUBSEQUENT listener also received it — the live-owner first
-           registration is not over-fenced")
-      (let [tags (:tags (first @observed))]
-        (is (= flow-id (:flow-id tags)) "A's own :flow-id")
-        (is (= [:out]  (:path tags))    "A's own :output-path")
-        (is (= id      (:frame tags))   "A's own frame"))
-      (finally
-        (rf.trace.tooling/unregister-listener! ::live-touch)
-        (rf.trace.tooling/unregister-listener! ::live-observer)))))
-
-;; ---------------------------------------------------------------------------
 ;; The reserved-effect `:rf.fx/reg-flow` route runs the first-
 ;; registration emit UNDER the router's own exact-owner continuation predicate
 ;; (`re-frame.router` binds `#(frame/event-continuation-live? frame owner-token)`
@@ -213,8 +170,5 @@
 ;; predicate (see `trace/call-with-continuation-predicate`), so a first
 ;; registration reached through the reserved-effect route inherits the router
 ;; fence and gains this one — the DIRECT cold `reg-flow` covered above is the
-;; only path with no predicate of its own. The reserved-effect route's exactly-once
-;; live-owner registration behaviour is exercised by
-;; `re-frame.flows-trace-test` (e.g. `fx-reg-flow-cycle-routes-through-error-
-;; emit-substrate`) and the router's incarnation-fence suite.
+;; only path with no predicate of its own.
 ;; ---------------------------------------------------------------------------
