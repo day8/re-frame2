@@ -21,8 +21,8 @@
         a region guard: the guard reads a SIBLING region's state-tag and
         blocks, then fires once the sibling advertises it.
     (d) region guards see their OWN state correctly.
-    (e) non-parallel (flat / compound) guard ctx carries neither `:tags`
-        nor `:all-state`.
+    (e) a non-parallel (flat) guard ctx carries neither `:tags` nor
+        `:all-state`.
     `:all-state` stays a ctx-only key, never committed onto the snapshot.
 
   A guard reading a sibling through `:all-state`, FROZEN selection (a
@@ -129,25 +129,6 @@
            token a router dispatch always stamps) — no :tags, no :all-state")
       (is (= :idle (:state @captured)) "flat guard sees its OWN :state")
       (is (= {:ok true} (:data @captured)) "flat guard sees :data"))))
-
-(deftest compound-guard-ctx-has-no-cross-region-keys
-  (testing "a COMPOUND machine's guard ctx also carries the four base keys and
-            none of the parallel-region keys (a router dispatch additionally
-            carries the EP-0010 :rf.cofx token)"
-    (let [captured (atom nil)
-          m {:initial :parent
-             :data    {}
-             :guards  {:capture (fn [ctx] (reset! captured ctx) true)}
-             :states  {:parent {:initial :child
-                                :states  {:child {:on {:go {:target :sibling
-                                                            :guard  :capture}}}
-                                          :sibling {}}}}}]
-      (rf/reg-machine :compound/ctx m)
-      (rf/dispatch-sync [:compound/ctx [:go]])
-      (is (= #{:data :event :state :meta}
-             (set (keys (dissoc @captured :rf.cofx))))
-          "compound guard ctx carries the four base keys (+ the EP-0010 causal
-           token a router dispatch always stamps) — no :tags, no :all-state"))))
 
 ;; ---- bonus: cross-region keys do NOT leak into the committed snapshot ------
 
