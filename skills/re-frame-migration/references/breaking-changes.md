@@ -159,12 +159,14 @@ The throw is **`:no-recovery`** — the call is rejected, the handler is **not**
 **Find them WITHOUT a runtime — the static pre-boot grep:**
 
 ```bash
-# Every retired-registrar call site. A hit that is still reg-event-(db|fx|ctx),
-# not yet reg-event, is a boot-time :rf.error/reg-event-*-removed throw.
-rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
+# Candidate retired-registrar call sites, from the project root (a source root
+# outside it goes beside `.`). An accepted hit that is still
+# reg-event-(db|fx|ctx), not yet reg-event, is a boot-time
+# :rf.error/reg-event-*-removed throw.
+rg -n -U -t clojure '\(\s*(\S+/)?reg-event-(db|fx|ctx)\s+\S+' .
 ```
 
-The grep is the cheap up-front detector (the same shape M-70 uses for interceptor-chain shapes); the [boot smoke-test](runtime-smoke-test.md) is the runtime backstop that surfaces any survivor's throw on the console. Both are needed because the compile gate, by construction, sees neither. This is the **loud-at-runtime / not-loud-at-compile** shape — the same family as **M-70** and **M-15b** in the failure-visibility axis below; it is *not* a silent-fail row (it throws), but the compile is silent about it just the same.
+The grep is the cheap up-front detector (the same shape M-70 uses for interceptor-chain shapes), and it finds candidates, not the set: accept each hit as [M-8 step 1](auto-call-site-rewrites.md#effect-map-consolidation-m-8) does — a head that resolves to `re-frame.core` through the file's `ns` form, in live code. The [M-73 codemod](auto-call-site-rewrites.md#m-73--one-event-registration-form-reg-event)'s default scan, pointed at every source root, is the parsed census of the same sites: it sees any alias and bare or fully qualified heads, and skips `;` comments, strings and `#_` forms. The [boot smoke-test](runtime-smoke-test.md) is the runtime backstop that surfaces any survivor's throw on the console. Both are needed because the compile gate, by construction, sees neither. This is the **loud-at-runtime / not-loud-at-compile** shape — the same family as **M-70** and **M-15b** in the failure-visibility axis below; it is *not* a silent-fail row (it throws), but the compile is silent about it just the same.
 
 ## Opt-in modernisations (O-rules) by trigger surface
 
