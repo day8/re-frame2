@@ -7,17 +7,16 @@
   the same node surviving a re-render, server markup adopted — is
   `re-frame.adapter-client-root-dom-cljs-test`.
 
-  The five behaviours pinned here:
+  The behaviours pinned here:
 
-    1. an allocated handle does no DOM work;
-    2. a cold first render calls create-root once; later renders reuse the
+    1. a cold first render calls create-root once; later renders reuse the
        IDENTICAL Root through the plain render op and call neither
-       constructor again;
-    3. a hydrating first render calls hydrate-root once; a hydrated root is
+       constructor again — and allocating the handle calls nothing;
+    2. a hydrating first render calls hydrate-root once; a hydrated root is
        updated with the plain render op, never hydrated again;
-    4. explicit unmount is idempotent — the underlying unmount is reached
+    3. explicit unmount is idempotent — the underlying unmount is reached
        once — and a render after it mounts afresh;
-    5. `dispose-adapter!` releases every still-live handle exactly once,
+    4. `dispose-adapter!` releases every still-live handle exactly once,
        an already-unmounted handle is not released again, and neither is
        released a second time by a later `unmount!`.
 
@@ -77,14 +76,7 @@
 
 (defn- of-kind [calls k] (filter #(= k (first %)) calls))
 
-;; ---- 1. inert allocation ---------------------------------------------------
-
-(deftest client-root-does-no-dom-work
-  (testing "allocating a handle touches none of the Root API"
-    (let [calls (spy-rdc! [] (fn [] (rf.adapter.reagent/client-root)))]
-      (is (empty? calls) "client-root is inert: no create/hydrate/render/unmount"))))
-
-;; ---- 2. cold first render, later renders update the same Root -------------
+;; ---- 1. cold first render, later renders update the same Root -------------
 
 (deftest cold-first-render-creates-once-later-renders-update-the-same-root
   (testing "first render! creates the Root once; the next two renders reuse
@@ -107,7 +99,7 @@
              (of-kind calls :render))
           "every render goes through rdc/render against the SAME Root, in order"))))
 
-;; ---- 3. hydrating first render, later renders update (never re-hydrate) --
+;; ---- 2. hydrating first render, later renders update (never re-hydrate) --
 
 (deftest hydrating-first-render-hydrates-once-later-renders-update
   (testing "render! with {:hydrate? true} hydrates once; later renders update
@@ -129,7 +121,7 @@
           "the two later renders update the hydrated Root with the plain render op —
            even when the caller keeps passing {:hydrate? true}"))))
 
-;; ---- 4. explicit unmount is idempotent; a later render mounts afresh -------
+;; ---- 3. explicit unmount is idempotent; a later render mounts afresh -------
 
 (deftest unmount-is-idempotent-and-a-later-render-mounts-afresh
   (testing "unmount! twice reaches rdc/unmount once; render! afterwards
@@ -152,7 +144,7 @@
              (of-kind calls :render))
           "the post-unmount render goes into the NEW Root, not the released one"))))
 
-;; ---- 5. dispose-adapter! releases every still-live handle once -----------
+;; ---- 4. dispose-adapter! releases every still-live handle once -----------
 
 (deftest dispose-adapter-releases-live-handles-once
   (testing "the drain releases each still-live handle's Root exactly once;
