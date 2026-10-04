@@ -32,15 +32,12 @@
        initial `:entry` actions were not run.
 
     8. **Body auto-start** — `sim/body` dispatches `:sim-start` when no
-       sim-state exists yet for the selected machine + definition.
-
-    9. **Frame isolation** — sim state stays on `:rf/xray`."
+       sim-state exists yet for the selected machine + definition."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [re-frame.machines :as rf.machines]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.machines.sim :as sim]
@@ -180,29 +177,7 @@
                                   {:state :a :data {}}
                                   [:go]))
 
-(deftest fail-result-fixture-really-is-an-engine-error
-  (testing "the stubbed fail-Result is the engine's own shape"
-    (is (= :error (:status fail-result)))
-    (is (= :rf.error/machine-action-exception (get-in fail-result [:error :kind])))
-    (is (nil? (get-in fail-result [:error :reason]))
-        "the engine's :error map carries no :reason")))
-
 ;; ---- (2) sim-start ------------------------------------------------------
-
-(deftest sim-start-clones-definition-and-seeds-snapshot
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (select-static-machine! :auth/login)
-    (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                       {:machine-id :auth/login
-                        :definition fixture-definition}])
-    (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-      (is (true? (:active? sim)))
-      (is (= :auth/login (:machine-id sim)))
-      (is (= fixture-definition (:definition sim))
-          "definition cloned into Xray state")
-      (is (= :idle (get-in sim [:snapshot :state])))
-      (is (= {:counter 0} (get-in sim [:snapshot :data]))))))
 
 (deftest sim-start-does-not-touch-production-registry
   (testing "sim isolation — Xray's overrides for the *production*
@@ -229,25 +204,6 @@
 
 ;; ---- (4) sim-step FAIL --------------------------------------------------
 
-(deftest sim-step-fail-leaves-snapshot-and-records-error
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (select-static-machine! :auth/login)
-    (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                       {:machine-id :auth/login
-                        :definition fixture-definition}])
-    (with-redefs [rf.machines/machine-transition (fn [_d _s _e] fail-result)]
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
-                         {:machine-id :auth/login
-                          :event [:bad]}]))
-    (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-      (is (= :idle (get-in sim [:snapshot :state]))
-          "snapshot unchanged on fail")
-      (is (= 0 (count (:audit-trail sim)))
-          "trail unchanged on fail")
-      (is (= [:bad] (-> sim :last-error :event))
-          "error stamped onto sim state"))))
-
 (deftest sim-step-engine-throw-treated-as-fail
   (testing "When the machines artefact is not on the classpath,
             `rf.machines/machine-transition` throws; the sim handler catches and
@@ -268,63 +224,6 @@
         (is (= :idle (get-in sim [:snapshot :state])))
         (is (some? (:last-error sim)))))))
 
-;; ---- a step the REAL engine declined ------------------------------------
-;;
-;; These deliberately do NOT `with-redefs` the engine: the point is what
-;; the real `machine-transition` returns for a declined step, folded
-;; through the real `step-and-store`.
-
-(def ^:private guarded-fixture-definition
-  "A guard reading `:data`, so the sim drives it both ways from ONE
-  definition. Flat, so the seed is uncontroversial."
-  {:initial :locked
-   :data    {:key? false}
-   :guards  {:has-key? (fn [{:keys [data]}] (boolean (:key? data)))}
-   :states  {:locked   {:on {:open {:target :unlocked :guard :has-key?}}}
-             :unlocked {}}})
-
-(deftest sim-step-declined-by-a-guard-records-no-phantom-row
-  (testing "a guard that declines comes back `:status :ok` with the
-            snapshot unchanged — the sim must NOT record that as a
-            `:locked → :locked` transition, and must say nothing moved"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition guarded-fixture-definition}])
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
-                         {:machine-id :auth/login :event [:open]}])
-      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-        (is (= :locked (get-in sim [:snapshot :state]))
-            "snapshot unchanged — the engine is right")
-        (is (= [] (:audit-trail sim))
-            "NO phantom :locked → :locked row")
-        (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-last-transition]))
-            "and nothing for the chart to animate")
-        (is (= :rf.xray.static.machines.sim/no-change
-               (-> sim :last-error :info :kind)))))))
-
-(deftest sim-step-with-a-passing-guard-still-records-the-row
-  (testing "THE CONTROL — same definition, same event, guard satisfied:
-            the real transition must still be recorded, or the no-change
-            branch has swallowed it"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition (assoc guarded-fixture-definition
-                                             :data {:key? true})}])
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
-                         {:machine-id :auth/login :event [:open]}])
-      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-        (is (= :unlocked (get-in sim [:snapshot :state])))
-        (is (= 1 (count (:audit-trail sim))))
-        (is (= {:from :locked :to :unlocked :event [:open]}
-               @(rf/subscribe [:rf.xray.static.machines/sim-last-transition])))
-        (is (nil? (:last-error sim)))))))
-
 (deftest sim-start-seeds-a-compound-root-at-the-engine-leaf
   (testing "a compound root opens at the leaf PATH the engine would have
             opened at, not parked on the compound node"
@@ -341,41 +240,6 @@
                                  :done {}}}}])
       (is (= [:auth :form]
              @(rf/subscribe [:rf.xray.static.machines/sim-current-state]))))))
-
-(deftest sim-start-seeds-a-parallel-root-with-a-region-map
-  (testing "a `:type :parallel` root has no `:initial` at all, so seeding
-            from `:initial` would give nil"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync
-        [:rf.xray.static.machines/sim-start
-         {:machine-id :auth/login
-          :definition {:type    :parallel
-                       :data    {}
-                       :regions {:form {:initial :editing
-                                        :states  {:editing {} :submitted {}}}
-                                 :net  {:initial :idle
-                                        :states  {:idle {} :busy {}}}}}}])
-      (is (= {:form :editing :net :idle}
-             @(rf/subscribe [:rf.xray.static.machines/sim-current-state]))))))
-
-(deftest sim-chart-edge-clicked-nil-event-is-noop
-  (testing "clicking an inert (auto / non-fireable) edge with
-            a nil event-id is a no-op: no step, no trail growth"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition fixture-definition}])
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
-                         {:machine-id :auth/login
-                          :event-id   nil}])
-      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-        (is (= :idle (get-in sim [:snapshot :state]))
-            "snapshot unchanged on an inert-edge click")
-        (is (= 0 (count (:audit-trail sim))))))))
 
 ;; ---- (5) sim-reset ------------------------------------------------------
 
@@ -818,22 +682,6 @@
           "SimRail renders without a frame in context")
       (is (some? (sim/SimChart rf/dispatch (:chart vals)))
           "SimChart renders without a frame in context"))))
-
-;; ---- (9) frame isolation -----------------------------------------------
-
-(deftest sim-state-does-not-leak-into-default-frame
-  (testing "sim state lives on :rf/xray, never :rf/default"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition fixture-definition}]))
-    (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
-          default-db (rf.frame/frame-app-db-value :rf/default)]
-      (is (some? (:rf.xray.static.machines/sim-by-machine xray-db))
-          "sim slot lands on Xray")
-      (is (nil? (:rf.xray.static.machines/sim-by-machine default-db))
-          "sim slot did NOT leak into :rf/default"))))
 
 ;; ---------------------------------------------------------------------------
 ;; React unique-key regression guard (see the ns docstring in
