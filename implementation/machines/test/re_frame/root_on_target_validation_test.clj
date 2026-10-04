@@ -16,8 +16,8 @@
    3. a malformed-shape root :on target (neither keyword nor vector) fails
       with :rf.error/machine-bad-target.
 
-  A valid root :on target registering and firing as the ancestor fallback is
-  pinned in `machine_root_on_fallback_test.clj`; a :type :parallel root's
+  A valid root :on target firing as the ancestor fallback is pinned by the
+  `machine-root-on-fallback` conformance fixture; a :type :parallel root's
   region-qualified :on is `validate-parallel!`'s job, pinned in
   `parallel_root_on_test.clj`."
   (:require [clojure.test :refer [deftest is use-fixtures]]
