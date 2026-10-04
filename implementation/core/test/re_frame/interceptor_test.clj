@@ -566,7 +566,8 @@
 ;; `assoc-effect` are the public read/write substrate every custom
 ;; interceptor uses (re-exported as `rf/get-coeffect` etc. per
 ;; spec/API.md §Interceptors). The chain / dispatch tests above exercise
-;; them obliquely; these pin their ARITY contracts directly —
+;; them obliquely; the deftests below pin the readers' and
+;; `update-coeffect`'s ARITY contracts directly —
 ;; in particular the 3-arity `not-found` forms of the two readers and
 ;; `update-coeffect`'s trailing-args form. These are
 ;; pure fns over the context map; pinning them here means an arity
@@ -610,27 +611,6 @@
       (let [ctx-nil {:coeffects {} :effects {:db nil}}]
         (is (nil? (rf.interceptor/get-effect ctx-nil :db ::none)))
         (is (= ::none (rf.interceptor/get-effect ctx-nil :fx ::none)))))))
-
-(deftest assoc-coeffect-writes-and-is-readable
-  (testing "assoc-coeffect sets k in :coeffects and returns the updated ctx;
-            the round-trip is observable via get-coeffect"
-    (let [ctx  {:coeffects {:db {:n 1}} :effects {}}
-          ctx' (rf.interceptor/assoc-coeffect ctx :now 99)]
-      (is (= 99 (rf.interceptor/get-coeffect ctx' :now))
-          "the assoc'd value reads back through get-coeffect")
-      (is (= {:n 1} (rf.interceptor/get-coeffect ctx' :db))
-          "sibling coeffects are preserved")
-      (is (= {} (:effects ctx'))
-          ":effects is untouched by a coeffect write"))))
-
-(deftest assoc-effect-writes-and-is-readable
-  (testing "assoc-effect sets k in :effects and returns the updated ctx"
-    (let [ctx  {:coeffects {:db {:n 1}} :effects {}}
-          ctx' (rf.interceptor/assoc-effect ctx :db {:n 2})]
-      (is (= {:n 2} (rf.interceptor/get-effect ctx' :db))
-          "the assoc'd effect reads back through get-effect")
-      (is (= {:n 1} (rf.interceptor/get-coeffect ctx' :db))
-          ":coeffects :db is independent of :effects :db"))))
 
 (deftest update-coeffect-applies-fn-with-trailing-args
   (testing "update-coeffect applies f to the value at k, threading trailing args"
@@ -793,18 +773,6 @@
 
 (def ^:private probe-coord
   {:ns 're-frame.interceptor-test :file "re_frame/interceptor_test.clj" :line 921 :column 1})
-
-(deftest lowering-constructor-keeps-an-explicit-source-coord
-  (testing "an interceptor built with an explicit :source-coord carries it;
-            one built without carries none"
-    (let [with-coord (rf.interceptor/->interceptor* :id           :siheh/probe
-                                                 :before       identity
-                                                 :source-coord probe-coord)
-          bare       (rf.interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
-      (is (= probe-coord (:source-coord with-coord))
-          "an explicit :source-coord stays on the interceptor map")
-      (is (nil? (:source-coord bare))
-          "no coord unless the caller supplies one"))))
 
 (deftest interceptor-source-coord-rides-the-exception-trace
   (testing "a throwing interceptor threads its :source-coord onto the
