@@ -151,17 +151,16 @@
                  "the trace family."))))
     (testing "the closed trace-ops family enum carries each op with its class"
       (doseq [{:keys [op class]} infinite-trace-ops]
-        (is (literal-as-token? op enum)
-            (str op " MUST be a member of the closed `trace-ops` enum in "
-                 xray-enum))
-        ;; the per-op class keyword appears alongside the op in the enum map
-        ;; row (e.g. `:rf.resource/page-appended {:class :success ...}`) — a
-        ;; class drift is a behaviour change the Trace/Resources tabs colour on.
+        ;; the op's enum map row carries its class keyword
+        ;; (e.g. `:rf.resource/page-appended {:class :success ...}`), so one
+        ;; match pins both membership and class — a class drift is a
+        ;; behaviour change the Trace/Resources tabs colour on.
         (is (re-find (re-pattern (str (java.util.regex.Pattern/quote (pr-str op))
                                       "\\s+\\{:class\\s+"
                                       (java.util.regex.Pattern/quote (pr-str class))))
                      enum)
-            (str op " MUST be classed " class " in the " xray-enum
+            (str op " MUST be a member of the closed `trace-ops` enum, classed "
+                 class ", in " xray-enum
                  " trace-ops enum (Spec 009 / Xray 024 semantic class)."))))))
 
 ;; ---------------------------------------------------------------------------

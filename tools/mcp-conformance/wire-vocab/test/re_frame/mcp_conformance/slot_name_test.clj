@@ -327,10 +327,6 @@
       (let [literal (slot-literal slot)
             pat     (rf.mcp-conformance.fixtures/variant-regex literal)
             files   (get sources server)]
-        (is (seq files)
-            (str "No source files registered for server " server
-                 " under slot " slot
-                 " — extend `canonical-slots` :sources map."))
         (is (some (fn [rel]
                     (re-find pat (rf.mcp-conformance.fixtures/read-source rel)))
                   files)
