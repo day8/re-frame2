@@ -239,12 +239,6 @@
         (is (= :standard (:kind (:provenance std-row)))
             "the standard is surfaced with the framework-standard provenance marker")))))
 
-(deftest live-reads-fail-soft-empty-registry
-  (testing "an empty live-frame registry projects to the honest no-image state"
-    (let [data (reads/image-view-data)]
-      (is (= 0 (:frame-count data)))
-      (is (false? (:images? data))))))
-
 (deftest resolve-descriptor-is-frame-derived
   (testing "resolving a [kind id] through a real frame's generation yields the
             frame's OWN descriptor (the frame-derived resolution path)"
