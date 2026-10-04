@@ -725,15 +725,19 @@
           n  1500]
       (rf/register-listener! :epoch cb (fn [_] nil))
       (try
-        (dotimes [i n]
-          (let [id    (keyword "rf2-285-bounded" (str i))
-                token #js {}]
-            (rf.epoch.state/claim-frame-owner! id token)
-            (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
-            (rf.epoch.listeners/on-frame-destroyed! id token
-              (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
-            (is (<= (vxgfnd285-total-marks) 1)
-                "at most one frame's marks are ever retained at once")))
+        (let [over-cap (atom [])]
+          (dotimes [i n]
+            (let [id    (keyword "rf2-285-bounded" (str i))
+                  token #js {}]
+              (rf.epoch.state/claim-frame-owner! id token)
+              (rf.epoch.listeners/notify-listeners! {:frame id :epoch-id 1})
+              (rf.epoch.listeners/on-frame-destroyed! id token
+                (rf.epoch.listeners/snapshot-terminal-destroy-evidence! id nil nil nil))
+              (let [marks (vxgfnd285-total-marks)]
+                (when (> marks 1) (swap! over-cap conj [i marks])))))
+          (is (empty? @over-cap)
+              "at most one frame's marks are ever retained at once (lists each
+               offending [destroy-index marks])"))
         (is (zero? (vxgfnd285-total-marks))
             "after all destroys settle, lineage storage returns to a constant baseline")
         (finally

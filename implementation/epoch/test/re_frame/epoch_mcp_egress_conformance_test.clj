@@ -989,11 +989,13 @@
           "fixture: the ring carries a record with a `:halt-reason`, so the
            byte-for-byte check below compares a real descriptor rather than
            nil against nil")
-      (doseq [k bookkeeping-keys
-              [r p] (map vector raw projected)]
-        (is (= (get r k) (get p k))
-            (str "bookkeeping slot " k
-                 " is preserved byte-identically by project-egress"))))))
+      (is (= [] (for [[r p] (map vector raw projected)
+                      k     bookkeeping-keys
+                      :when (not= (get r k) (get p k))]
+                  [(:epoch-id r) k (get r k) (get p k)]))
+          "every bookkeeping slot of every record is preserved
+           byte-identically by project-egress (lists each offending
+           [epoch-id slot raw projected])"))))
 
 (deftest forwarder-project-egress-is-pure-no-side-effects
   (testing "MCP forwarder pattern: project-egress is a pure data
