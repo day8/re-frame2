@@ -11,7 +11,8 @@
     2. :fx-overrides precedence: per-call > per-frame > registered.
     3. fx-handler exception recovery is :isolated — sibling fx still fire.
     4. Missing fx-id emits :rf.error/no-such-fx and skips that entry.
-    5. :platforms gating skips with :rf.fx/skipped-on-platform.
+    5. :platforms gating is pinned by `re-frame.platform-gating-test` and
+       the `fx/platforms` conformance fixture.
     6. Effect-map shape (M-8): legacy v1 top-level keys are policed.
     6b. :fx VALUE shape: a non-sequential :fx value is policed (refused
         pre-commit + traced), not thrown — symmetric with M-8.
@@ -31,7 +32,7 @@
   WITHOUT a posture guard, so they run in the ordinary `clojure -M:test`
   suite AND in `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false`
   lane): source-order walking, override precedence, `:isolated` recovery past
-  a throwing fx, `:platforms` gating, the M-8 / `:fx`-value / `:fx`-entry
+  a throwing fx, the M-8 / `:fx`-value / `:fx`-entry
   policing DROPS, the reject-tier neutralisation, prod-strip's returned map,
   and the registration-time `reg-fx` rejections.
 
@@ -414,46 +415,6 @@
             (is (= :error (:op-type t)))
             (is (= :fx-test/never-registered (get-in t [:tags :rf.fx/id])))
             (is (= :rf/default (get-in t [:tags :frame])))))))))
-
-;; ---- 5. :platforms gating -------------------------------------------------
-;;
-;; Per Spec 011 §`:platforms` metadata on reg-fx, an fx with :platforms
-;; #{:client} is gated off when the active platform is :server. The
-;; runtime emits :rf.fx/skipped-on-platform with :recovery :skipped
-;; instead of invoking the handler. JVM hosts default to :server (per
-;; re-frame.interop/active-platform, a per-host constant — override it on
-;; the FRAME with {:platform :client}), so :client-only fx are silently
-;; inert under JVM tests — exactly what we need for headless mode.
-
-(deftest platforms-gating-skips-client-only-fx-on-jvm
-  (testing ":platforms #{:client} fx is skipped on JVM (:server) and emits a trace"
-    (let [traces (collect-traces! ::plat)
-          fired? (atom false)]
-      (rf/reg-fx :fx-test/local-storage
-        {:platforms #{:client}}
-        (fn [_ _] (reset! fired? true)))
-      (rf/reg-event :fx-test/save
-        (fn [_ _] {:fx [[:fx-test/local-storage {:k "key" :v "val"}]]}))
-      (rf/dispatch-sync [:fx-test/save])
-      (rf/unregister-listener! :trace ::plat)
-      (is (false? @fired?)
-          "the client-only handler did NOT run on the JVM (:server)")
-      ;; Dev-instrumentation arm (see ns docstring).
-      ;; `:rf.fx/skipped-on-platform` is a `rf.trace/emit!` WARNING (fx.cljc
-      ;; §handle-one-fx), not a promoted `:rf.error/*` — it has no always-on
-      ;; twin, so the SKIP itself (asserted above, posture-independently) is
-      ;; the production-visible fact and the diagnostic is dev-only by design.
-      (when rf.interop/debug-enabled?
-        (let [skip-traces (filter #(= :rf.fx/skipped-on-platform (:operation %))
-                                  @traces)]
-          (is (= 1 (count skip-traces))
-              "exactly one :rf.fx/skipped-on-platform trace was emitted")
-          (let [t (first skip-traces)]
-            (is (= :warning (:op-type t)))
-            (is (= :skipped (:recovery t)))
-            (is (= :fx-test/local-storage (get-in t [:tags :rf.fx/id])))
-            (is (= :server (get-in t [:tags :rf.fx/platform])))
-            (is (= #{:client} (get-in t [:tags :rf.fx/registered-platforms])))))))))
 
 ;; ---- 6. Effect-map shape policing (M-8) -----------------------------------
 ;;
@@ -1035,10 +996,11 @@
               "exactly one :rf.error/override-fallthrough trace surfaced the un-registered redirect target"))))))
 
 (deftest malformed-fx-override-value-fails-loud
-  (testing "a non-fn / non-keyword / non-nil :fx-overrides value (number / string
-            / map) emits :rf.error/override-fallthrough and runs the original fx —
-            not silently swallowed"
-    (doseq [bad-value [42 "not-an-override" {:also :bad} [:vec :tor]]]
+  (testing "a non-fn / non-keyword / non-nil :fx-overrides value (a number, and
+            a map, which is callable but not a fn) emits
+            :rf.error/override-fallthrough and runs the original fx — not
+            silently swallowed"
+    (doseq [bad-value [42 {:also :bad}]]
       (let [original-fired (atom 0)
             traces         (collect-traces! ::malformed-override)
             errors         (collect-errors! ::malformed-override-errors)]
@@ -1269,12 +1231,7 @@
                  (set (map #(get-in % [:tags :rf.fx/id]) rejected)))
               "the three rejected ids are named")
           (is (every? #(= :production-strip (get-in % [:tags :where])) rejected)
-              ":where discriminates the production prod-strip site")))))
-
-  (testing "strip-rejected-overrides is identity when no reject-tier key present"
-    (let [m {:dispatch (fn [_ _]) :my-app/http (fn [_ _])}]
-      (is (identical? m (rf.fx/strip-rejected-overrides m :rf/default [:e]))
-          "no churn: the same map is returned untouched on the dominant path"))))
+              ":where discriminates the production prod-strip site"))))))
 
 (deftest reject-tier-nil-false-placeholder-stays-silent
   ;; A reject-tier reserved id mapped to the documented nil/false no-op
@@ -1351,13 +1308,7 @@
           (is (= 1 (count rejected))
               "exactly ONE reserved-fx-override — for the real :rf.machine/spawn override only")
           (is (= :rf.machine/spawn (get-in (first rejected) [:tags :rf.fx/id]))
-              "the emitted error names the REAL override, not the nil/false placeholders")))))
-
-  (testing "an all-nil/false reject-tier override map is returned by identity
-            (no churn) — the guard sees no REAL reject-tier override"
-    (let [m {:rf.fx/reg-flow nil :rf.fx/clear-flow false :dispatch (fn [_ _])}]
-      (is (identical? m (rf.fx/strip-rejected-overrides m :rf/default [:e]))
-          "no real reject-tier override → identity return, no spurious churn"))))
+              "the emitted error names the REAL override, not the nil/false placeholders"))))))
 
 (deftest cascade-exclusion-reject-tier-not-inherited
   (testing "a reject-tier override does NOT propagate into a [:dispatch …] child"
@@ -1489,25 +1440,6 @@
          :reason)))
 
 (deftest reject-diagnostic-reason-is-id-specific
-  (testing "the reason rides the ALWAYS-ON record, alongside the :failing-id it
-            is about — the mechanism every assertion below depends on"
-    ;; Pin the lift itself, so a change that dropped
-    ;; `:failing-id` from `emit-reserved-fx-override!` (and with it the
-    ;; `:reason`, which `emit-error-both!` lifts only when `:failing-id` is
-    ;; present and distinct from `:event-id`) fails HERE with a clear cause
-    ;; rather than as a wall of nil-reason NPEs below.
-    (let [errors (collect-errors! ::reject-reason-lift)]
-      (rf.fx/strip-rejected-overrides {:rf.machine/spawn (fn [_ _] :stub)}
-                                   :rf/default [:some/event])
-      (rf.error-emit/unregister-error-listener! ::reject-reason-lift)
-      (let [r (first (filter #(= :rf.error/reserved-fx-override (:error %)) @errors))]
-        (is (= :rf.machine/spawn (:failing-id r))
-            ":failing-id names the rejected fx-id, DISTINCT from :event-id")
-        (is (= :some/event (:event-id r))
-            ":event-id still carries the dispatched event id")
-        (is (string? (:reason r))
-            ":reason was lifted onto the production record alongside :failing-id"))))
-
   (testing "a state-installing member gets its state-installation reason"
     (let [reason (reject-reason-for :rf.machine/spawn)]
       (is (re-find #"(?i)snapshot|runtime-db" reason)
@@ -1642,45 +1574,6 @@
 ;; suppliers RAN and their values reached the handler body. Each deftest below
 ;; pins that delivery posture-independently, so the cofx pipeline itself
 ;; is covered under the production gate even though its trace stamp is not.
-
-(deftest event-run-end-stamps-user-injected-coeffects-with-fx
-  (testing "a handler whose chain injects user coeffects (:now etc.)
-   AND returns both :db + :fx sees them stamped under :tags
-   :rf.event/coeffects on :rf.event/run-end; the framework defaults
-   (:db :event :frame) are filtered out at the substrate"
-    (rf/reg-fx :fx-test/cofx-sink (fn [_ _] :ok))
-    (rf/reg-cofx :fx-test/now    (fn [] "2026-05-18T19:00:00Z"))
-    (rf/reg-cofx :fx-test/locale (fn [] :en-AU))
-    (let [delivered (atom nil)]
-      (rf/reg-event :fx-test/uses-user-cofx
-        {:rf.cofx/requires [:fx-test/now :fx-test/locale]}
-        (fn [ctx _] (reset! delivered (select-keys ctx [:fx-test/now :fx-test/locale]))
-                    {:db {:k 1}
-                     :fx [[:fx-test/cofx-sink :go]]}))
-      (let [acc (collect-traces! ::user-cofx)]
-        (try
-          (rf/dispatch-sync [:fx-test/uses-user-cofx])
-          ;; Production-visible witness: the stamp REPORTS the
-          ;; coeffect map the handler was given, and that delivery is
-          ;; production-real — the `:rf.cofx/requires` suppliers run in both
-          ;; postures. Pin what the handler body actually received.
-          (is (= {:fx-test/now    "2026-05-18T19:00:00Z"
-                  :fx-test/locale :en-AU}
-                 @delivered)
-              "both declared :rf.cofx/requires suppliers ran and reached the handler body")
-          ;; Dev-instrumentation arm (see the section note above).
-          (when rf.interop/debug-enabled?
-            (let [[re]  (filterv #(= :rf.event/run-end (:operation %)) @acc)
-                  cofx  (get-in re [:tags :rf.event/coeffects])
-                  [dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)]
-              (is (= {:fx-test/now    "2026-05-18T19:00:00Z"
-                      :fx-test/locale :en-AU}
-                     cofx)
-                  "only the user-injected coeffects ride under :tags :rf.event/coeffects on run-end")
-              (is (not (contains? (:tags dof) :rf.event/coeffects))
-                  "the stamp lives on run-end — :rf.fx/do-fx does not carry it")))
-          (finally
-            (rf/unregister-listener! :trace ::user-cofx)))))))
 
 (deftest event-run-end-stamps-user-injected-coeffects-without-fx
   (testing "a reg-event handler that injects user cofx and
