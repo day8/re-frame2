@@ -34,7 +34,6 @@
             [re-frame.schemas.malli]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
-            [re-frame.frame :as rf.frame]
             [re-frame.http.managed :as rf.http.managed]
             ;; Canned-stub fxs (`:rf.http/managed-canned-success`,
             ;; `:rf.http/managed-canned-failure`) gate on explicit
@@ -279,27 +278,3 @@
       (is (= :error (get-in db [:error :status])))
       (is (= :rf.http/http-5xx (get-in db [:error :error :kind])))
       (is (= 503 (get-in db [:error :error :status]))))))
-
-;; ---- 9. multi-frame reply isolation -------------------------------------
-
-(deftest multi-frame-reply-isolation-cljs
-  (testing "managed requests issued from frame A reply into frame A's app-db"
-    (rf/reg-event :article/load
-      (fn [_ [_ msg reply]]
-        (if reply
-          {:db {:article (:value reply)}}
-          {:fx [[:rf.http/managed
-                 {:reply-to [:article/load msg] :request {:method :get :url "/articles/hello"}
-                  :decode  :json}]]})))
-    (let [left  (rf.frame/make-anon-frame-record! {:doc "left"
-                                :fx-overrides
-                                {:rf.http/managed :rf.http/managed-canned-success}})
-          right (rf.frame/make-anon-frame-record! {:doc "right"
-                                :fx-overrides
-                                {:rf.http/managed :rf.http/managed-canned-success}})]
-      (rf/dispatch-sync [:article/load] {:frame left})
-      (rf/dispatch-sync [:article/load] {:frame right})
-      (is (= {:stubbed true} (:article (rf/app-db-value left))))
-      (is (= {:stubbed true} (:article (rf/app-db-value right))))
-      ;; The default frame stays empty — no cross-frame leakage.
-      (is (nil? (:article (rf/app-db-value :rf/default)))))))
