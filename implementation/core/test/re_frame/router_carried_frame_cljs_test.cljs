@@ -19,6 +19,11 @@
   frame, and (b) once the provider context is gone, the same bare
   dispatch raises :rf.error/no-frame-context (no :rf/default floor).
 
+  An explicit `{:frame …}` opt is read before the scope tiers are consulted,
+  so its precedence over a provider frame is the shared `(or (:frame opts) …)`
+  that `re-frame.router-carried-frame-test`'s `explicit-frame-overrides-scope`
+  pins.
+
   Naming: `-cljs-test$` opts this file into the node-test build."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -90,18 +95,3 @@
       (rf/unregister-listener! :trace ::no-provider)
       (is (empty? (filter #(= :rf.event/dispatched (:operation %)) @recorded))
           "no enqueue — the absence is caught before the registry lookup"))))
-
-(deftest provider-frame-overridden-by-explicit-opt
-  (testing "an explicit `{:frame …}` opt still wins over the enclosing
-            provider frame (override beats scope)"
-    (rf/make-frame {:id :app/provided :doc "provider frame"})
-    (rf/make-frame {:id :app/explicit :doc "explicit override target"})
-    (rf/reg-event :app/inc {:frame :app/explicit}
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (reset! provider-frame :app/provided)
-    (binding [rf.frame/*current-frame* nil]
-      (rf/dispatch-sync [:app/inc] {:frame :app/explicit}))
-    (is (= 1 (:n (rf/app-db-value :app/explicit)))
-        "the explicit override landed, not the provider frame")
-    (is (nil? (:n (rf/app-db-value :app/provided)))
-        "the provider frame was untouched")))
