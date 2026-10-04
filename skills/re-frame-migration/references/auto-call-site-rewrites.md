@@ -248,6 +248,27 @@ A migrated suite can compile, and pass on the JVM, while its doubles intercept n
 
 The recorder observes and the real handler still runs. When the test must not run it, register a mock handler in a final image as well.
 
+A v1 double whose job was to fail the test if a subscription is touched at all is an absence guard, not a value mock, and a throwing replacement registration does not port it. The framework recovers the throw: a throwing computation reports `:rf.error/sub-exception` and the subscription reads `nil` ([errors.md §A subscription throws](https://github.com/day8/re-frame2/blob/main/docs/core/errors.md#a-subscription-throws-or-reads-one-that-isnt-there)), and a throw moved into a parametric `:inputs` fn is recovered too, as `:rf.error/sub-input-fn-exception`, so the forbidden access passes either way. Keep the check as an observation instead. Give the guard a receipt in the final mock image of [§Body-local mocks under explicit images](#body-local-mocks-under-explicit-images), prove the receipt is reached with a forced positive control, then reset it before the product operation and assert it stayed empty. The receipt counts computation-body calls, not `subscribe` requests, and a cached slot answers without running its body ([subscriptions.md §Lifecycle](https://github.com/day8/re-frame2/blob/main/docs/core/subscriptions.md#lifecycle-a-sub-exists-only-while-something-watches)), so a cached `nil` reads as zero calls. Start the product operation from a fresh frame or after [`rf/clear-sub-cache!`](https://github.com/day8/re-frame2/blob/main/docs/api/re-frame.core.md#clear-sub-cache), because the positive control itself caches the slot.
+
+```clojure
+(defn line-total [frame qty price]          ; code under test: subscribes only when no price is supplied
+  (* qty (or price @(rf/subscribe [:shop/price] {:frame frame}))))
+
+(deftest supplied-price-skips-the-sub
+  (let [calls (atom [])
+        guard (rf/image {:id :test/guard    ; final and disjoint: records, returns nil, never throws
+                         :registrations {:reg-sub [[:shop/price (fn [_db q] (swap! calls conj q) nil)]]}})]
+    (rf/make-frame {:id :test/shop :preset :test :images [product-image guard]})
+    @(rf/subscribe [:shop/price] {:frame :test/shop})   ; forced positive control
+    (is (= [[:shop/price]] @calls))
+    (rf/clear-sub-cache! :test/shop)                    ; the control cached the slot
+    (reset! calls [])
+    (is (= 30 (line-total :test/shop 3 10)))            ; the product operation: price supplied
+    (is (= [] @calls))))                                ; no body call
+```
+
+A guard that keeps its throw can count its `:rf.error/sub-exception` records on a `:trace` listener instead ([errors.md §Test the structure](https://github.com/day8/re-frame2/blob/main/docs/core/errors.md#test-the-structure-not-the-string)); those are dev-only and count the same body calls. Either way an empty receipt is evidence only for the path the test exercised, never for a branch or a render that did not run. Keep direct tests of the application's own pure guard functions where their arguments or messages are part of the contract, and never expose registrar metadata or an internal alias to reach a registered function.
+
 ### M-25 (async tests) — `run-test-async` + `wait-for` / `wait-for-event`
 
 M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatch-sync` under `make-reset-runtime-fixture`). It does **not** cover the v1 **async** test pattern — `re-frame.test/run-test-async` wrapping `wait-for` / `wait-for-event` — used wherever a test awaits an event that fires *asynchronously*: a `:http-xhrio` GET resolving, a debounce / throttle window elapsing, a `core.async` step, an `async-flow-fx` cascade settling. There is no v2 `run-test-async` and no v2 `wait-for-event`, so a v1 suite with async tests dead-ends at this rule. The three v1 surfaces map as follows (all part of M-25's `re-frame.test` → `re-frame.test-support` rename):
