@@ -155,9 +155,7 @@
                    (let [call (find-call (read-form (form-matching forms "read-sub!"))
                                          're-frame2-pair.runtime/read-sub!)]
                      (is (= [:review/sub inert-list] (quoted-datum (second call)))
-                         "the query reaches read-sub! as the datum the caller sent")
-                     (is (not= [:review/sub 42] (second call))
-                         "and NOT as a printed expression that evaluates to 42"))
+                         "the query reaches read-sub! as the datum the caller sent"))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -173,9 +171,7 @@
           (.then (fn [_]
                    (let [form (read-form (form-matching forms "get-in db path"))]
                      (is (= [inert-list] (quoted-datum (let-binding form 'path)))
-                         "get-in reads the path the caller asked for")
-                     (is (not= [42] (let-binding form 'path))
-                         "and not a path whose segment was evaluated first"))
+                         "get-in reads the path the caller asked for"))
                    (done)))))))
 
 (deftest get-path-batch-paths-are-not-evaluated
@@ -219,9 +215,7 @@
                                        "{}"))
         call (find-call form 're-frame2-pair.runtime/sample-signals)]
     (is (= [{:sub [:review/sub inert-list]}] (quoted-datum (second call)))
-        "the sampler watches the signal the caller described")
-    (is (not= [{:sub [:review/sub 42]}] (second call))
-        "and not one whose query element was evaluated first")))
+        "the sampler watches the signal the caller described")))
 
 (deftest watch-form-keeps-the-synthesised-predicate-as-source
   ;; CONTROL — `pred-source` output is source this server synthesised,
