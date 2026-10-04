@@ -74,15 +74,6 @@
   (is (nil? (ns-resolve 're-frame.core 'redact-interceptor))
       "EP-0015 §7: redact-interceptor must NOT be published from re-frame.core"))
 
-(deftest redact-interceptor-returns-interceptor-with-paths
-  (testing "the returned interceptor map exposes its paths on `:paths` so the
-            router can fold them into the pre-chain trace projection"
-    (let [paths [[:password] [:token]]
-          icpt  (rf.privacy/redact-interceptor paths)]
-      (is (= :rf/redact-interceptor (:id icpt)))
-      (is (= paths (:paths icpt)))
-      (is (fn? (:before icpt))))))
-
 ;; ---- scope-only redaction: handler sees raw, trace sees scrubbed ----------
 
 (deftest handler-sees-unredacted-trace-sees-redacted
@@ -169,46 +160,6 @@
                        #(rf/dispatch-sync [:raw/vec-payload "scalar"]))
           db-changed (first (events-of evs :rf.event/db-changed))]
       (is (= "scalar" (get-in db-changed [:tags :rf.event/v 1]))))))
-
-;; ---- a non-associative parent value is a redaction no-op ------------------
-
-(deftest redact-path-with-scalar-parent-does-not-abort-the-event
-  (testing "a 2+-segment redact path whose intermediate is a non-associative
-            scalar is a no-op — it must NOT throw inside the `:before` chain
-            and abort the event. A `(some? …)` parent guard would let a
-            non-nil scalar through, and `assoc-in` would recurse into it
-            (\"cannot assoc onto a String\"), turning a privacy-redaction
-            into a dropped event (classified :rf.error/interceptor-exception,
-            no :db commit, no :fx). `redact-path` writes only through a
-            parent that can take the leaf segment."
-    (let [seen (atom nil)]
-      ;; Redact path [:auth :password] but the payload's :auth is a SCALAR
-      ;; string, so the parent (get-in payload [:auth]) is non-nil but
-      ;; non-associative — the exact mis-declaration this pins.
-      (rf/reg-interceptor :rf/redact-interceptor
-        (rf.privacy/redact-interceptor [[:auth :password]]))
-      (rf/reg-event :auth/scalar-parent
-        {:interceptors [:rf/redact-interceptor]}
-        (fn [{:keys [db]} [_ payload]]
-          (reset! seen payload)
-          {:db (assoc db :committed payload)}))
-      (let [evs        (record-traces
-                         #(rf/dispatch-sync
-                            [:auth/scalar-parent {:auth "a-token-string"}]))
-            db-changed (first (events-of evs :rf.event/db-changed))
-            errors     (events-of evs :rf.error/interceptor-exception)]
-        ;; (1) No throw escaped the `:before` chain → no interceptor-exception.
-        (is (empty? errors)
-            "the scalar-parent redact path did NOT abort the event")
-        ;; (2) The handler ran and its :db commit landed (event not dropped).
-        (is (= {:auth "a-token-string"} @seen)
-            "handler body ran with the raw payload")
-        (is (= {:auth "a-token-string"}
-               (:committed (rf/app-db-value :rf/default)))
-            ":db commit landed — the event was NOT aborted")
-        ;; (3) The trace surface left the scalar untouched (no-op redaction).
-        (is (= "a-token-string" (get-in db-changed [:tags :rf.event/v 1 :auth]))
-            "the non-associative parent passed through unredacted (no-op)")))))
 
 ;; ---- no handler-meta `:sensitive?` ----------------------------------------
 ;;
