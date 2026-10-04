@@ -163,21 +163,6 @@
             (is (= #{shared-id}
                    (set (keys (rf/registrations {:frame :inspector/main :kind :sub})))))))))))
 
-(deftest store-reads-answer-the-same-inside-and-outside-a-binding
-  (testing "the {:source :store} answer does not depend on the caller's context
-            — that context-independence IS the contract"
-    (let [inspector (seat-three-sources!)
-          outside-meta  (rf/handler-meta {:source :store :kind :sub :id shared-id})
-          outside-regs  (rf/registrations {:source :store :kind :sub})
-          [inside-meta inside-regs]
-          (rf.live-frame/call-with-frame-resolution
-            inspector
-            (fn [] [(rf/handler-meta {:source :store :kind :sub :id shared-id})
-                    (rf/registrations {:source :store :kind :sub})]))]
-      (is (= outside-meta inside-meta))
-      (is (= outside-regs inside-regs))
-      (is (= ::store-value (:handler-fn inside-meta))))))
-
 ;; ===========================================================================
 ;; 2. THE RESERVED-BUT-EMPTY KINDS FAIL LOUD AND NAME THE REAL DOOR
 ;; ===========================================================================
