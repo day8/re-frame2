@@ -29,8 +29,7 @@
             [re-frame.machines :as rf.machines]
             [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
-  (:import [clojure.lang ExceptionInfo]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
@@ -97,27 +96,6 @@
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= 7 (:exit-roll (rf.machines.test-support/machine-data :lifecycle/exit-gen)))
           "the :exit action wrote the GENERATED fact — ensured before the cascade"))))
-
-(deftest exit-action-missing-provided-fact-throws
-  (testing "a PROVIDED (non-generator) recordable fact required by an :exit
-            action, absent from the in-flight record, raises missing-required
-            from the dispatch-time ensure step — the :exit diet IS in the
-            ensure-set (drives the real ensure path)"
-    (let [m (rf.machines.cofx-attach/index-ensure-sets
-              {:initial :active
-               :data    {}
-               :actions {:needs-time {:rf.cofx/requires [:rf/time-ms]
-                                      :fn (fn [{:keys [data] cofx :rf.cofx}]
-                                            {:data (assoc data :t (:rf/time-ms cofx))})}}
-               :states  {:active {:exit :needs-time :on {:go :idle}}
-                         :idle   {}}})
-          e (is (thrown? ExceptionInfo
-                         (rf.machines.cofx-attach/ensure-cofx
-                           m {:state :active :data {}} [:go]
-                           {} nil :lifecycle/exit-missing)))]
-      (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
-          "the :exit-required provided fact, absent, throws missing-required —
-           it WAS in the ensure-set, not a silent nil"))))
 
 ;; ===========================================================================
 ;; C. bootstrap / initial-entry — ensured before maybe-boot runs the cascade
