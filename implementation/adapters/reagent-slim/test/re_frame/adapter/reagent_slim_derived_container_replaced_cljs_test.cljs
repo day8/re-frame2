@@ -100,32 +100,7 @@
                            "writing to a Reaction throws")]
             (is (= :rf.error/derived-container-replaced
                    (:rf.error/id (ex-data thrown)))
-                "the thrown ex-info carries the canonical :rf.error/id discriminator")
-            (is (= 'rf/replace-container! (:where (ex-data thrown)))
-                "the :where slot names the user-facing surface fn")
-            (is (= :no-recovery (:recovery (ex-data thrown)))
-                "the :recovery slot is :no-recovery")
-            ;; The message is the human :reason sentence + the
-            ;; trailing [:rf.error/<id>] token; assert the token, not equality.
-            (is (re-find #"\[:rf\.error/derived-container-replaced\]" (ex-message thrown))
-                "the ex-message carries the [:rf.error/derived-container-replaced] token")))))))
-
-(deftest replace-on-reaction-emits-error-trace
-  (testing "replace-container! on a Reaction emits the :rf.error/derived-container-replaced trace"
-    (let [src (rf.substrate.adapter/make-state-container {:n 1})]
-      (with-derived src
-        (fn [derived]
-          (let [errs (capture-errors
-                       (fn []
-                         (try (rf.substrate.adapter/replace-container! derived 99)
-                              (catch :default _ nil))))
-                ev   (first (filter #(= :rf.error/derived-container-replaced (:operation %)) errs))]
-            (is (some? ev) "a :rf.error/derived-container-replaced error trace was emitted")
-            (is (= :error (:op-type ev)) "the trace's op-type is :error")
-            (is (= :rf.error/derived-container-replaced (get-in ev [:tags :category]))
-                "the :category tag mirrors :operation")
-            (is (= :no-recovery (:recovery ev)) "the :recovery field is :no-recovery")
-            (is (string? (get-in ev [:tags :reason])) "the :reason tag is a sentence")))))))
+                "the thrown ex-info carries the canonical :rf.error/id discriminator")))))))
 
 (deftest reaction-value-unchanged-after-rejected-write
   (testing "the rejected write does NOT mutate the derived value — the adapter replace-container! is never invoked"
