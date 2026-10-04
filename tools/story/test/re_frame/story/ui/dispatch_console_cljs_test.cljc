@@ -6,8 +6,7 @@
 
   - **Pure data** (JVM + CLJS): `parse-payload`, `build-event-vector`,
     `clamp-history`, `prepend-history-entry`, `format-history-entry`,
-    `format-timestamp`, `autocomplete-event-ids`,
-    `registered-event-ids` (1-arity).
+    `format-timestamp`, `autocomplete-event-ids`.
   - **CLJS-only side-effects**: `dispatch-event!` against a live
     re-frame frame, input state mutations, replay-from-history. The
     localStorage round-trip via `save-history!` / `load-history!` lives
@@ -187,17 +186,6 @@
     (let [ids (set (map #(keyword "e" (str "i" %)) (range 100)))
           out (rf.story.ui.dispatch-console/autocomplete-event-ids ids "" 5)]
       (is (= 5 (count out))))))
-
-;; ---- pure: registered-event-ids 1-arity ----------------------------------
-
-(deftest registered-event-ids-from-snapshot
-  (testing "the 1-arity returns the snapshot key-set"
-    (is (= #{:a :b :c}
-           (rf.story.ui.dispatch-console-events/registered-event-ids {:a {} :b {} :c {}})))
-    (is (= #{}
-           (rf.story.ui.dispatch-console-events/registered-event-ids nil)))
-    (is (= #{}
-           (rf.story.ui.dispatch-console-events/registered-event-ids {})))))
 
 ;; ---- pure: cofx-requires-for (EP-0017) -----------------------------------
 
