@@ -128,9 +128,6 @@
                         :generation (:generation e) :data data}])))
 (defn- gc-recheck! [scoped-key]
   (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key scoped-key}]))
-(defn- poll-fired! [scoped-key]
-  (rf/dispatch-sync [:rf.resource.internal/poll-fired
-                     {:resource/key scoped-key :hidden? false}]))
 (defn- poll-cancelled-for? [k]
   (some (fn [{ks :resource/keys}] (some #{k} ks)) @cancelled-poll))
 
