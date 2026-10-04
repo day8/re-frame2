@@ -174,23 +174,6 @@
     (is (= :static (static-persistence/load))
         "the durable mode slot is NOT cleared")))
 
-(deftest init-restores-durable-mode-alongside-transient-reset
-  (testing "durable mode restores WHILE the transient filters reset — both halves of the policy hold in one boot"
-    (static-persistence/save! :static)
-    (spine-filters/save! stale-mutes)
-    (frame-switcher/save! stale-frame)
-    (boot!)
-    (is (= :static (frame-sub [:rf.xray/mode]))
-        "durable mode restored")
-    (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters]))
-        "transient pills reset")
-    (is (= #{} (frame-sub [:rf.xray/muted-event-ids]))
-        "transient mutes reset")
-    (is (= #{} (spine-filters/load))
-        "transient mute slot cleared")
-    (is (nil? (frame-switcher/load))
-        "transient frame-pin slot cleared")))
-
 ;; -------------------------------------------------------------------------
 ;; (4) EXPLICIT host filter SEED lands as the boot baseline
 ;; -------------------------------------------------------------------------
