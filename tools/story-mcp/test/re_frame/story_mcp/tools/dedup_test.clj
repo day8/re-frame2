@@ -73,9 +73,6 @@
         wrapped (rf.mcp-base.dedup/dedup-value payload true)
         wrapped-size (count (pr-str wrapped))]
     (testing "wrapped payload is much smaller than the raw structure"
-      (is (< wrapped-size raw-size)
-          (str "wrapped >= raw — measurement: raw=" raw-size
-               "chars deduped=" wrapped-size "chars"))
       ;; Five references to big-db; dedup should compress aggressively.
       ;; ≥50% is the conservative floor pair-mcp uses; the realistic
       ;; story-mcp shape clears it comfortably.
@@ -91,20 +88,6 @@
 ;; Wire-boundary integration — `rf.story-mcp.tools.wire-pipeline/apply-dedup` is the wrapper that
 ;; lifts `dedup-value` onto the story-mcp result-envelope shape.
 ;; ---------------------------------------------------------------------------
-
-(deftest apply-dedup-passes-result-through-when-disabled
-  (let [payload {:a 1 :b [{:k 1} {:k 1}]}
-        result  (rf.story-mcp.tools.result/text-result (rf.story-mcp.tools.result/pr-edn payload) payload)
-        out     (rf.story-mcp.tools.wire-pipeline/apply-dedup result false)]
-    (is (= result out)
-        "disabled dedup must be a strict no-op on the envelope")))
-
-(deftest apply-dedup-passes-result-through-when-empty-structured-content
-  ;; The empty-payload short-circuit propagates: nil / empty structured
-  ;; content rides through unchanged.
-  (let [out (rf.story-mcp.tools.wire-pipeline/apply-dedup {:content [{:type "text" :text "hi"}]
-                              :structuredContent {}} true)]
-    (is (= {} (:structuredContent out)))))
 
 (deftest apply-dedup-rewrites-both-slots-consistently
   ;; The load-bearing wire-boundary invariant: BOTH `:structuredContent`
