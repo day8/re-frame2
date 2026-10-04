@@ -7,23 +7,12 @@
   (`:rf.xray/mute-event-id` → the `:rf.xray/muted-event-ids` set)
   is owned by `control-axes-e2e/event-id-mute-e2e-cljs-test`. Here we
   cover the pattern-based pill filter: `:rf.xray/add-filter :out
-  <pill>` adds an `:out`-bucket pill to `:rf.xray/active-filters`;
-  `:rf.xray/filtered-event-bundles` recomposes and the L2 event list
-  re-renders without the filtered event. This is the unit-level
-  mirror of the right-click filter flow."
+  <pill>` adds an `:out`-bucket pill to `:rf.xray/active-filters`.
+  The recomposed event list is `filters/right-click-integration-cljs-test`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.test-helpers.sub-reactivity :as h]))
 
 (use-fixtures :each h/fixture)
-
-(def cascades
-  ;; NOTE: `seed-cascades!` derives each cascade's `:event` slot from
-  ;; its `:dispatch-id` as `[(keyword "evt" <name>)]`, so the matcher
-  ;; sees event-id `:evt/inc` / `:evt/cart` rather than the raw
-  ;; dispatch-id keyword. We filter on the derived event-id to mirror
-  ;; the production matcher's input.
-  [(h/cascade :counter/inc :rf/default)
-   (h/cascade :nav/cart :rf/default)])
 
 (deftest active-filters-sub-tracks-add-filter
   (testing "`:rf.xray/add-filter` adds a pill to the
@@ -44,18 +33,3 @@
         (is (not= filters-0 filters-1)
             "active-filters sub re-fired on add-filter")))))
 
-(deftest remove-filter-restores-cascade
-  (testing "`:rf.xray/remove-filter` deletes a pill; the
-            previously-filtered cascade returns to `:rf.xray/filtered-
-            cascades`. Closes the round-trip filter → unfilter
-            reactivity contract."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/dispatch-xray!
-      [:rf.xray/add-filter :out
-       {:pattern :evt/inc}])
-    (is (= 1 (count (h/read-sub :rf.xray/filtered-event-bundles)))
-        "filter is active")
-    (h/dispatch-xray! [:rf.xray/remove-filter :out 0])
-    (is (= 2 (count (h/read-sub :rf.xray/filtered-event-bundles)))
-        "unfilter → cascade returns to the filtered list")))
