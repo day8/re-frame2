@@ -1,15 +1,13 @@
 (ns re-frame.resources-optimistic-validation-cljs-test
-  "EP-0019 — the 13-case optimistic-mutation VALIDATION SUITE.
+  "EP-0019 — the optimistic-mutation VALIDATION SUITE.
 
-  This is the consolidated conformance gate for the optimistic-mutation surface:
-  it names and exercises EVERY one of the 13 general laws in the EP-0019
-  §Validation plan as a single suite, so a regression in any optimistic layer
-  (revision substrate, apply, settle, tag-addressed, subs) trips here. Each
-  `deftest` below is one numbered law; the docstring of each names the EP case.
+  It exercises the EP-0019 §Validation plan laws that the APPLY and SETTLE
+  suites do not already pin. Each `deftest` below is one numbered law; the
+  docstring of each names the EP case.
 
-  Cases 1-4, 10, 13 pin laws also covered by the APPLY and SETTLE suites;
-  they are restated here so the GATE is self-contained (one file proves the
-  whole contract). Cases 5 and 9 are pinned by this suite alone. Cases 6, 7,
+  Cases 1-4, 10 and 13 are pinned by `resources-optimistic-apply-cljs-test`
+  and `resources-optimistic-settle-cljs-test`, so they are not restated
+  here. Cases 5 and 9 are pinned by this suite alone. Cases 6, 7,
   8 (settle), 11, and the Rider-1 `:optimistic?` sub flag are the laws this
   suite ADDS:
 
@@ -160,111 +158,6 @@
                                              :instance :competing}])
     (reply-success! @last-managed-args value)
     (reset! last-managed-args saved)))
-
-;; ===========================================================================
-;; CASE 1 — optimistic apply patches the entry at phase 1.5, before the request.
-;; ===========================================================================
-
-(deftest case-01-apply-patches-before-the-request-is-sent
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (let [rev-before (:revision (entry article-key))]
-    (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-    (testing "the optimistic forward patch is in the cache BEFORE any reply"
-      (is (= true (get-in (entry article-key) [:data :article :favorited])))
-      (is (= 10 (get-in (entry article-key) [:data :article :favoritesCount])))
-      (is (= :loaded (:status (entry article-key)))))
-    (testing "the apply bumped :revision and recorded the snapshot inverse"
-      (is (= (inc rev-before) (:revision (entry article-key))))
-      (is (some? (:snapshot-id (patch-summary :f1)))))
-    (testing "the request was lowered AFTER the apply (apply is not a reply)"
-      (is (some? @last-managed-args))
-      (is (= :pending (:status (instance :f1)))))))
-
-;; ===========================================================================
-;; CASE 2 — an accepted :ok reply COMMITS; :populates overwrite the optimistic
-;;          value; the optimistic apply clears from the entry.
-;; ===========================================================================
-
-(deftest case-02-ok-commits-and-overwrites-the-optimistic-value
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite
-    (assoc favorite-plan
-           :populates (fn [{:keys [slug]} result]
-                        {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                         result}))
-    favorite-plan-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  (let [recon (trace-of :rf.mutation/optimistic-reconciled
-                #(reply-success! @last-managed-args
-                                 {:article {:favorited true :favoritesCount 42}}))]
-    (testing "the authoritative populate OVERWROTE the optimistic 10 with the server 42"
-      (is (= 42 (get-in (entry article-key) [:data :article :favoritesCount])))
-      (is (= :loaded (:status (entry article-key)))))
-    (testing "the instance committed :success and filled the reserved patch-summary slots"
-      (is (= :success (:status (instance :f1))))
-      (is (some? (:snapshot-id (patch-summary :f1))))
-      (is (= [article-key] (:committed (patch-summary :f1)))))
-    (testing "the optimistic-reconciled trace names the committed key"
-      (is (= [article-key] (:committed recon))))))
-
-;; ===========================================================================
-;; CASE 3 — an accepted :error reply with NO conflict restores the recorded
-;;          :before entry verbatim (including freshness).
-;; ===========================================================================
-
-(deftest case-03-error-no-conflict-restores-before-verbatim
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (let [before (entry article-key)]
-    (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-    (let [rb (trace-of :rf.mutation/optimistic-rolled-back
-               #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))]
-      (testing "the :error reply restored the EXACT :before entry verbatim"
-        (is (= false (get-in (entry article-key) [:data :article :favorited])))
-        (is (= 9 (get-in (entry article-key) [:data :article :favoritesCount])))
-        (is (= before (entry article-key))
-            "the WHOLE entry (incl. freshness + :revision) is restored verbatim"))
-      (testing "the instance settled :error; the trace reports RESTORED, no conflict"
-        (is (= :error (:status (instance :f1))))
-        (is (= [article-key] (:restored rb)))
-        (is (= [] (:conflicted rb)))))))
-
-;; ===========================================================================
-;; CASE 4 — an accepted :error reply WITH a conflict (revision moved) does NOT
-;;          restore; it invalidates + refetches (:on-conflict :invalidate default).
-;; ===========================================================================
-
-(deftest case-04-error-conflict-invalidates-instead-of-restoring
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)        ;; :on-conflict defaults to :invalidate
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  ;; a CONCURRENT authoritative write moves the entry's :revision past the apply.
-  (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
-  (let [muta @last-managed-args
-        _    (reset! last-managed-args nil)
-        rb   (trace-of :rf.mutation/optimistic-rolled-back
-               #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))]
-    (testing "the stale inverse (9) was NOT restored over the concurrent write"
-      (is (not= 9 (get-in (entry article-key) [:data :article :favoritesCount]))))
-    (testing "the conflicted entry started an EXACT recovery refetch (read path
-              recovers truth, keyed by the carried :resource/key)"
-      (is (= {:method :get :url "/a/w"} (:request @last-managed-args))))
-    (testing "the trace reports the conflict + :invalidate + refetch"
-      (is (= [article-key] (:conflicted rb)))
-      (is (= [article-key] (:refetched rb)))
-      (is (= [] (:restored rb)))
-      (is (= :invalidate (:on-conflict rb))))
-    (testing "the instance row's :reconciliation-refetches records the refetched key"
-      (is (= [article-key] (:reconciliation-refetches (patch-summary :f1)))))))
 
 ;; ===========================================================================
 ;; CASE 5 — :on-conflict :force restores the inverse even on conflict (warning).
@@ -500,35 +393,6 @@
     (is (empty? (:rollback (patch-summary :tf1))))))
 
 ;; ===========================================================================
-;; CASE 10 — :optimistic + :before-request timing is a loud registration error.
-;; ===========================================================================
-
-(deftest case-10-optimistic-with-before-request-is-a-registration-error
-  (testing ":optimistic + :before-request throws :rf.error/mutation-optimistic-before-request"
-    (let [ex (try
-               (rf/reg-mutation :m/bad
-                 {:scope :rf.scope/global
-                  :params-schema [:map [:slug :string]]
-                  :invalidate-timing :before-request
-                  :optimistic (fn [_p] {})}
-                 (fn [_p _] {:request {:method :post :url "/x"}}))
-               nil
-               (catch #?(:clj Exception :cljs :default) e e))]
-      (is (some? ex))
-      (is (= :rf.error/mutation-optimistic-before-request (:rf.error/id (ex-data ex))))
-      (is (nil? (rf.resources.mutation-registry/mutation-meta :m/bad)) "the bad mutation was NOT registered")))
-  (testing ":optimistic-tags + :before-request also throws"
-    (let [ex (try
-               (rf/reg-mutation :m/bad2
-                 {:scope :rf.scope/global :params-schema [:map]
-                  :invalidate-timing :before-request
-                  :optimistic-tags (fn [_p] [])}
-                 (fn [_p _] {:request {:method :post :url "/x"}}))
-               nil
-               (catch #?(:clj Exception :cljs :default) e e))]
-      (is (= :rf.error/mutation-optimistic-before-request (:rf.error/id (ex-data ex)))))))
-
-;; ===========================================================================
 ;; CASE 11 — :reply-to fires ONCE, after settle, for the accepted reply only —
 ;;           the optimistic apply dispatches NO continuation.
 ;; ===========================================================================
@@ -592,34 +456,6 @@
                (:dispositions rb)))))))
 
 ;; ===========================================================================
-;; CASE 13 — epoch restore: a :pending optimistic write dangles; its apply rolls
-;;           back inside the restore reconciler's single pure pass. (Covered in
-;;           depth by the settle suite's restore-dangle test; restated here as
-;;           the GATE's law 13.)
-;; ===========================================================================
-
-(deftest case-13-a-pending-optimistic-write-records-the-inverse-a-restore-dangle-replays
-  ;; The restore-reconciler-internal rollback is exercised end-to-end in
-  ;; re-frame.resources-optimistic-settle-cljs-test/
-  ;; restore-dangle-rolls-back-the-optimistic-apply-inside-the-reconciler — a
-  ;; PENDING optimistic instance dangles to :error and its apply rolls back
-  ;; INSIDE the single reconcile pass (no racing post-restore dispatch), both
-  ;; the no-conflict (restore) and conflict (durable-stale-in-place) branches.
-  ;; This GATE case asserts the LAW holds via that companion: a :pending
-  ;; optimistic write has a recorded inverse the dangle path consumes.
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  (testing "a :pending optimistic write carries the recorded inverse the dangle replays"
-    (is (= :pending (:status (instance :f1))))
-    (let [ps (patch-summary :f1)]
-      (is (some? (:snapshot-id ps)) "the dangle reconciler reads :snapshot-id")
-      (is (= [article-key] (mapv :resource/key (:rollback ps)))
-          "the recorded :before the restore-dangle path restores on a no-conflict dangle"))))
-
-;; ===========================================================================
 ;; RIDER 1 — the :optimistic? derived sub flag on :rf/mutation.
 ;; ===========================================================================
 
@@ -645,25 +481,6 @@
     (let [s (mutation-state :f1)]
       (is (= false (:optimistic? s)))
       (is (= true (:success? s))))))
-
-(deftest rider1-optimistic-flag-false-for-a-pessimistic-write
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false}})
-  (rf/reg-mutation :m/save
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :populates (fn [{:keys [slug]} result]
-                  {{:resource :r/article :params {:slug slug} :scope :rf.scope/global} result})}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :s1}])
-  (testing "a pessimistic write (no :optimistic plan) is :optimistic? false while pending"
-    (let [s (mutation-state :s1)]
-      (is (= true (:pending? s)))
-      (is (= false (:optimistic? s)) "no optimistic apply → no live optimistic value")))
-  (reply-success! @last-managed-args {:article {:favorited true}})
-  (testing "still :optimistic? false after settle"
-    (is (= false (:optimistic? (mutation-state :s1))))))
 
 (deftest rider1-optimistic-flag-false-after-opt-out
   (reg-article-resource!)
