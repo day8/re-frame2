@@ -186,10 +186,6 @@
           (is (str/includes? body "internal-error")
               "wire body carries the projector's `:code` —
                stable category for response-page templating")
-          (is (not (= "Internal error" body))
-              "the Ring :on-error fallback's fixed `\"Internal error\"`
-               string is not the body — render-time throws go through the
-               projector")
           (is (not (str/includes? body "invalid-tag-name"))
               "the validator's :rf.error/invalid-tag-name keyword must
                not appear on the wire (topology disclosure surface)")
