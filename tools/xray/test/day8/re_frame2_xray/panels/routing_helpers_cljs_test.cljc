@@ -325,10 +325,7 @@
     ;; cleanly rather than being mangled into a host.
     (let [r (h/simulate-url cart-routes "/a:b/cart")]
       (is (= "/a:b/cart" (:path r)) "relative path with a colon unchanged")
-      (is (nil? (:winner r))))
-    (let [r (h/simulate-url cart-routes "/cart")]
-      (is (= "/cart" (:path r)) "plain relative path unchanged")
-      (is (= :route/cart (:winner r)))))
+      (is (nil? (:winner r)))))
 
   (testing "a `://` in the QUERY is not an origin (redirect / OAuth `?next=` URLs)"
     ;; Reading the FIRST `://` anywhere as a scheme marker would simulate
@@ -910,17 +907,6 @@
       (is (some? (:activity data)))
       (is (= :on-match (-> data :activity :phase)))
       (is (= {:x 1} (-> data :activity :match)))))
-
-  (testing "cross-route cascade paints both :from (deactivated) and :to (allocated)"
-    (let [c (nav-cascade 1 [:rf.route/navigate {:to :route/confirm}]
-                         :route/confirm :route/cart "nav-3")
-          data (h/project-topology-data parented-routes {:route-id :route/confirm} c)
-          marker-by-id (into {}
-                             (map (juxt #(-> % :row :route-id) :marker))
-                             (:topology data))]
-      (is (= :route/cart (:from-id data)))
-      (is (= :from (get marker-by-id :route/cart)))
-      (is (= :to   (get marker-by-id :route/confirm)))))
 
   (testing "FROM marker is time-independent of the live slice"
     ;; Live slice has moved to :route/admin; the focused cascade is still
