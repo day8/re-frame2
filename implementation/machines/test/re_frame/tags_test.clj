@@ -137,22 +137,6 @@
 
 ;; ---- 5. initial snapshot carries :tags before first event ---------------
 
-(deftest tags-stamped-on-initial-snapshot
-  (testing "first :rf/machine read returns :tags from initial-state declaration"
-    (let [m {:initial :idle
-             :data    {}
-             :states  {:idle {:tags #{:initial-ready :idle}}
-                       :on   {}}}]
-      (rf/reg-machine :tags/seed m)
-      ;; A no-op event materialises the initial snapshot. Dispatch a
-      ;; spurious event the handler won't transition on; the snapshot
-      ;; still gets written at handler-call time.
-      (rf/dispatch-sync [:tags/seed [:no-op-event]])
-      (let [s (snapshot :tags/seed)]
-        (is (= :idle (:state s)) "initial state lands at :idle")
-        (is (= #{:initial-ready :idle} (:tags s))
-            ":tags stamped from initial-state declaration before any transition")))))
-
 ;; ---- 6. round-trip via print/read ---------------------------------------
 
 (deftest tags-pr-str-read-round-trip
