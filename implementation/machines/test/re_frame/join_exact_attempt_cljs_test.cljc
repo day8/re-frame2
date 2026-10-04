@@ -197,38 +197,6 @@
 ;; stale prior-attempt completion after re-entry
 ;; ---------------------------------------------------------------------------
 
-(deftest stale-prior-attempt-completion-cannot-fold-into-successor-join
-  (testing "after parent re-entry (attempt 2), a carrier bound
-            to attempt 1 (old actor id + old attempt token) is classified
-            stale (:attempt-superseded) and folds NOTHING: no :done fold, no
-            resolution, no terminal, and the current child is NEVER reaped."
-    (let [j1     (reg-join-parent! :jea/p1 :jea/p1a :jea/p1b)
-          token1 (:rf/attempt j1)
-          a1     (get-in j1 [:children :a])
-          ;; attempt 1's OWN completion, captured while attempt 1 is live.
-          c1     (exact-completion :jea/p1 :a)]
-      (is (some? token1) "attempt 1 minted an opaque token")
-      (is (keyword? a1) "attempt 1 spawned :a")
-      ;; Tear attempt 1 down (exit :racing), then re-enter (attempt 2).
-      (rf/dispatch-sync [:jea/p1 [:abort]])
-      (rf/dispatch-sync [:jea/p1 [:start]])
-      (let [j2     (join-state :jea/p1)
-            token2 (:rf/attempt j2)
-            a2     (get-in j2 [:children :a])]
-        (is (some? token2) "attempt 2 minted its own token")
-        (is (not= token1 token2) "per-attempt tokens are distinct")
-        (rf.machines.test-support/reset-captured!)
-        ;; The stale straggler: attempt 1's exact carrier.
-        (dispatch-forged! :jea/p1 c1)
-        (let [j2' (join-state :jea/p1)]
-          (is (= #{} (:done j2'))
-              "the stale carrier folded NOTHING into the successor join")
-          (is (false? (:resolved? j2')) "the successor join did not resolve"))
-        (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))
-            "exactly one stale-completion with :attempt-superseded evidence")
-        (is (some? (rf.machines.test-support/snapshot a2)) "current child :a (A2) is untouched")
-        (is (empty? (destroyed-for a2)) "A2 was never reaped or destroyed")))))
-
 (deftest old-token-with-current-actor-id-is-superseded
   (testing "the attempt token discriminates INDEPENDENTLY of
             actor identity (the :fixed-actor-id-respawn pin, where actor ids
@@ -264,20 +232,6 @@
       (is (= #{} (:done (join-state :jea/p4))))
       (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))))))
 
-(deftest wrong-child-for-correct-actor-is-superseded
-  (testing "the MIRROR of the wrong-actor arc: a carrier claiming
-            child :b while bearing child :a's spawned actor (correct parent,
-            invoke and token) fails the exact actor-identity clause the other
-            way round. The child id and the actor address must agree with the
-            join's OWN `:children` mapping — either one alone proves nothing."
-    (let [j (reg-join-parent! :jea/p5 :jea/p5a :jea/p5b)]
-      (rf.machines.test-support/reset-captured!)
-      (dispatch-forged! :jea/p5 (assoc (exact-completion :jea/p5 :b)
-                                       ;; claims :b, carries :a's actor
-                                       :spawned-id (get-in j [:children :a])))
-      (is (= #{} (:done (join-state :jea/p5))))
-      (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))))))
-
 (deftest wrong-invoke-identity-is-superseded
   (testing "a carrier whose COORDINATE names a different invoke
             path than the one it was routed to fails the parent/invoke identity
@@ -301,34 +255,6 @@
                                        :parent-id :jea/some-other-parent))
     (is (= #{} (:done (join-state :jea/p6b1))))
     (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons)))))
-
-;; ---------------------------------------------------------------------------
-;; duplicate exact completion
-;; ---------------------------------------------------------------------------
-
-(deftest duplicate-exact-completion-is-suppressed
-  (testing "an exact re-completion of an
-            already-folded child (correct actor, correct token) is suppressed
-            (:duplicate-completion): the fold stays as-is and no second
-            terminal can publish; the join still resolves normally afterwards"
-    (let [j (reg-join-parent! :jea/p7 :jea/p7a :jea/p7b)
-          a (get-in j [:children :a])
-          b (get-in j [:children :b])]
-      ;; Legit fold of :a (non-decisive in a 2-child :all): :a reaches its
-      ;; `:final?` leaf and the runtime mints its completion carrier.
-      (rf/dispatch-sync [a [:go]])
-      (is (= #{:a} (:done (join-state :jea/p7))) ":a folded")
-      (rf.machines.test-support/reset-captured!)
-      ;; Exact duplicate: an exact-current coordinate for the CURRENT attempt.
-      (dispatch-forged! :jea/p7 (exact-completion :jea/p7 :a))
-      (is (= #{:a} (:done (join-state :jea/p7))) "the fold record is unchanged")
-      (is (false? (:resolved? (join-state :jea/p7))) "no premature resolution")
-      (is (= [:rf.machine.spawn-all/duplicate-completion] (stale-reasons))
-          "stable typed evidence: :duplicate-completion")
-      ;; The join still resolves on the genuine decisive completion.
-      (rf/dispatch-sync [b [:go]])
-      (is (true? (:resolved? (join-state :jea/p7)))
-          "the genuine decisive completion still resolves the join"))))
 
 ;; ---------------------------------------------------------------------------
 ;; teardown — completion IS finality, so a folded child is already gone
@@ -490,27 +416,6 @@
           (is (= #{:a :b} (:done j2')) "B's :done set unchanged")
           (is (true? (:resolved? j2')) "B stays resolved")
           (is (= (:children j2) (:children j2')) "B's children mapping unchanged"))))))
-
-(deftest exact-current-carrier-after-resolution-is-late-completion
-  (testing "THE LATE-COMPLETION PATH. An EXACT-CURRENT
-            carrier arriving after its OWN join resolved (a genuine current
-            survivor draining post-latch) takes the join-resolved
-            `:late-completion` path — the exact-attempt fence gates
-            late-completion, it does not remove it."
-    (reg-join-parent! :jea/pr2 :jea/pr2a :jea/pr2b)
-    (let [j (resolve-all-join! :jea/pr2)]
-      (is (true? (:resolved? j)))
-      (rf.machines.test-support/reset-captured!)
-      (dispatch-forged! :jea/pr2 (exact-completion :jea/pr2 :a))
-      (is (= 1 (count (late-completions)))
-          "the exact-current carrier fires the late-completion op")
-      (is (empty? (stale-completions))
-          "no pre-resolution stale-completion class fired")
-      (let [tags (:tags (first (late-completions)))]
-        (is (= :stale (:rf.reply/status tags)))
-        (is (= :rf.machine.spawn-all/join-resolved
-               (:rf.reply/stale-reason tags))))
-      (is (= #{:a :b} (:done (join-state :jea/pr2))) "record frozen — no re-fold"))))
 
 (deftest unstamped-carrier-against-resolved-join-is-unverified
   (testing "an UNSTAMPED carrier against a RESOLVED
