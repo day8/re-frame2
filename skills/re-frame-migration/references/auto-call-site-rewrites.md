@@ -489,7 +489,15 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 4. For each top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` stay where they are — folding one of those into `:fx` is itself a break):
    - In the discovered set → rewrite per the rules above. Compare resolved ids: a `::` key in the returned map resolves against the returning namespace, the same way step 1 resolves the registration.
    - Not in the set → **flag** (might be a destructure key, not an effect).
-5. If `:fx` already exists, concatenate: existing `:fx` first, new entries after.
+5. **If `:fx` already exists, fold around it in v1's run order.** v1 guarantees only that a truthy `:db` runs first; every other key ran in the map's iteration order — observed behaviour, not contract — which is source order for a literal of at most 8 entries (an array map) and hash order from 9 up (a hash map). So in a literal of 8 or fewer, put each folded entry before the existing rows when its key comes before `:fx` and after them when it comes after, keeping source order on each side; the existing rows keep their order and payloads:
+
+   ```clojure
+   {:db db :demo/log log :fx [[:demo/send a] [:demo/send b]] :demo/ping p}   ; v1: log, send, send, ping
+   ;; →
+   {:db db :fx [[:demo/log log] [:demo/send a] [:demo/send b] [:demo/ping p]]}
+   ```
+
+   Where the source can't prove the order — the map is built at run time (`assoc`, `merge`, `cond->`, a helper's return value) or the literal has more than 8 entries — hold that site alone ([`SKILL.md`](../SKILL.md) cardinal rule 2): name the missing fact, which side of the existing rows each folded effect must run on, and ask instead of appending.
 
 **Edge case → flag**: an unknown top-level key. Could be a destructure or a typo'd fx-id.
 
