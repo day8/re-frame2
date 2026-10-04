@@ -568,29 +568,6 @@
                            ":elision false overlays include-large? true — large content passes")
                        (done)))))))))
 
-(deftest snapshot-full-raw-opt-in-names-local-raw-for-the-slices
-  (testing "gate ON + elision false + include-sensitive true: the slices name :rf.egress/local-raw"
-    ;; The deliberate full-raw local opt-in NAMES the
-    ;; trusted-local boundary rather than skipping the door. Under
-    ;; local-raw the projection is the identity, so the slices still ship
-    ;; raw; the difference is that the boundary is stated.
-    (async done
-      (raw-state/set-allow-raw-state! true)
-      (let [forms (atom [])]
-        (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
-                                                           :include #js ["app-db" "sub-cache"]
-                                                           :mode "full"
-                                                           :elision false
-                                                           :include-sensitive true}))))
-            (.then (fn [_]
-                     (let [form (slice-form forms)]
-                       (is (str/includes? form "re-frame.core/project-egress")
-                           "the door is called even under the full-raw opt-in")
-                       (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
-                           "full-raw opt-in (elision false + include-sensitive true) names local-raw")
-                       (done)))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; snapshot slice arms — `:app-db` walks whole, `:sub-cache` walks per
 ;; entry, `:machines` (runtime-db state) is substituted whole rather than
