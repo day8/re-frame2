@@ -252,11 +252,14 @@ v2's `reg-event` puts per-event interceptor chains in the registration metadata 
 The rewrite is mechanical (`mw/x` / `[mw/x]` / `{:doc ...} [mw/x]` → `reg-interceptor :app/x mw/x` + metadata `:interceptors [:app/x]`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates at boot — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). The compiler can't find them: **grep every `reg-event-*` site up front and inspect the post-id SHAPES** (do NOT march-the-wall), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
 
 ```bash
-# Surface every reg-event-* registration; a hit = bare interceptor, positional
-# vector, or metadata map followed by a vector. STRUCTURAL — flag ANY chain
-# shape, not only rf/unwrap.
-rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
+# Candidate reg-event-* registrations, from the project root (a source root
+# outside it goes beside `.`); a hit = bare interceptor, positional vector, or
+# metadata map followed by a vector. STRUCTURAL — flag ANY chain shape, not
+# only rf/unwrap.
+rg -n -U -t clojure '\(\s*(\S+/)?reg-event-(db|fx|ctx)\s+\S+' .
 ```
+
+The search finds candidates, not the set: accept each hit as [M-8 step 1](auto-call-site-rewrites.md#effect-map-consolidation-m-8) does — a head that resolves to `re-frame.core` through the file's `ns` form, in live code — then read its slots.
 
 Detect **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any bare, vector, or metadata-plus-vector chain shape. (An existing metadata map with `:interceptors [...]` is already canonical; a metadata map without `:interceptors` and no following vector is fine.)
 
