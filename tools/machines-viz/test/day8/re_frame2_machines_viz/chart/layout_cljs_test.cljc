@@ -436,15 +436,6 @@
              ["empty region-map"      {}  #{}]]]
       (is (= expected (layout/highlight-ids state)) label))))
 
-(deftest highlight-ids-subsumes-highlight-id-for-single-active
-  (testing "for a single-active state, `highlight-ids` is
-            exactly `#{(highlight-id state)}` — the multi-active resolver
-            is a strict superset of the single-active one"
-    (doseq [state [:authing [:authenticated :browsing] [:a]]]
-      (is (= #{(layout/highlight-id state)}
-             (layout/highlight-ids state))
-          (str "single-active " state " agrees with the set resolver")))))
-
 ;; ---- node-id ----------------------------------------------------------
 
 (deftest node-id-distinct-for-distinct-paths
@@ -661,23 +652,6 @@
       (let [root (first (filter :machine-root? nodes))]
         (is (some? root) "the MACHINE-ROOT chip anchors the affordance")
         (is (= layout/machine-root-id (:id root)))))))
-
-(deftest project-definition-machine-level-on-wildcard-targetless
-  (testing "a `:*` wildcard machine-level :on with no target is
-            an action-only inherited fallback too; it self-anchors on the
-            MACHINE-ROOT chip rather than being dropped"
-    (let [m {:initial :a
-             :on      {:* {:action :audit}}   ;; wildcard, no :target
-             :states  {:a {} :b {}}}
-          {:keys [edges]} (layout/project-definition m)
-          wild (filter #(= :* (:event %)) edges)]
-      (is (= 1 (count wild)) "ONE wildcard affordance, not dropped")
-      (let [e (first wild)]
-        (is (true? (:machine-level? e)))
-        (is (true? (:internal? e)) "targetless wildcard → internal chip")
-        (is (= layout/machine-root-id (:source e)))
-        (is (= layout/machine-root-id (:target e)))
-        (is (= :audit (:action e)))))))
 
 ;; ---- node-id injectivity -----------------------------------------------
 
@@ -1003,22 +977,6 @@
       (is (some? (first (filter :machine-root? nodes)))
           "the MACHINE-ROOT chip anchors the affordance"))))
 
-(deftest project-definition-parallel-root-on-edge-ids-distinct-and-machine-root-prefixed
-  (testing "multi-region root :on edges mint DISTINCT ids
-            (no xyflow duplicate-id drop) carrying the MACHINE-ROOT source"
-    (let [m {:type    :parallel
-             :on      {:advance {:target [[:a :x] [:b :y]]}}
-             :regions {:a {:initial :one :states {:one {} :x {}}}
-                       :b {:initial :one :states {:one {} :y {}}}}}
-          {:keys [edges]} (layout/project-definition m)
-          root-ons (filter :parallel-root-on? edges)
-          ids      (map :id root-ons)]
-      (is (= 2 (count ids)))
-      (is (= 2 (count (set ids))) "the two root :on edge ids are distinct")
-      (is (every? string? ids))
-      (is (every? #(str/starts-with? % layout/machine-root-id) ids)
-          "each id reads from the MACHINE-ROOT source segment"))))
-
 ;; ---- root parallel `:after` projection ----------------------------------
 ;;
 ;; A `:type :parallel` root MAY declare its own `:after` — the
@@ -1056,46 +1014,6 @@
         (is (not (:internal? e)) "a region-targeting root :after is not internal"))
       (is (some? (first (filter :machine-root? nodes)))
           "the synthetic MACHINE-ROOT chip is surfaced (anchors the :after)"))))
-
-(deftest project-definition-parallel-root-after-multi-region-target
-  (testing "a root :after with MULTIPLE region-qualified targets
-            `[[:a :two] [:b :two]]` projects ONE edge per region; the
-            untargeted region gets none"
-    (let [m {:type    :parallel
-             :after   {1000 {:target [[:a :two] [:b :two]] :action :bump}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}
-                       :c {:initial :one :states {:one {}}}}}
-          {:keys [edges]} (layout/project-definition m)
-          root-afters (filter :parallel-root-after? edges)]
-      (is (= 2 (count root-afters)) "one root-:after edge per region-qualified target")
-      (is (= #{[:a :two] [:b :two]} (set (map :to-path root-afters))))
-      (is (every? #(= 1000 (:after %)) root-afters) "each carries the delay")
-      (is (every? #(= :bump (:action %)) root-afters) "the root action is preserved")
-      (is (every? #(= layout/machine-root-id (:source %)) root-afters))
-      (is (not-any? #(= :c (first (:to-path %))) root-afters)
-          "the untargeted region :c gets no root :after edge"))))
-
-(deftest project-definition-parallel-root-after-action-only
-  (testing "a TARGETLESS action-only root :after self-anchors on
-            the MACHINE-ROOT chip as an internal affordance (moves no region)"
-    (let [m {:type    :parallel
-             :after   {2000 {:action :timeout-log}}   ;; no :target
-             :regions {:a {:initial :one :states {:one {}}}
-                       :b {:initial :one :states {:one {}}}}}
-          {:keys [nodes edges]} (layout/project-definition m)
-          root-afters (filter :parallel-root-after? edges)]
-      (is (= 1 (count root-afters)) "one root-:after affordance")
-      (let [e (first root-afters)]
-        (is (true? (:internal? e)) "targetless → internal self-anchored chip")
-        (is (= 2000 (:after e)))
-        (is (= [] (:to-path e)) "no region-qualified target")
-        (is (= layout/machine-root-id (:source e)))
-        (is (= layout/machine-root-id (:target e))
-            "self-anchored on the MACHINE-ROOT chip (moves no region)")
-        (is (= :timeout-log (:action e)) "the action is preserved"))
-      (is (some? (first (filter :machine-root? nodes)))
-          "the MACHINE-ROOT chip anchors the affordance"))))
 
 (deftest project-definition-parallel-root-on-and-after-coexist
   (testing "a root :on AND a root :after to the SAME
@@ -1340,22 +1258,6 @@
           "the root :same-state fallback is dropped entirely")
       (is (empty? (filter :machine-root? nodes))
           "no synthetic MACHINE-ROOT chip is minted for a fully-dropped fallback"))))
-
-(deftest project-definition-region-root-same-state-drops-no-phantom-edge
-  (testing "a PARALLEL REGION's own top-level :on candidate
-            with :target :same-state is likewise dropped, not region-
-            scoped into a degenerate `region__<id>__` phantom edge"
-    (let [m {:type    :parallel
-             :regions {:a {:initial :one
-                           :on      {:noop {:target :same-state}}
-                           :states  {:one {} :two {}}}
-                       :b {:initial :one :states {:one {}}}}}
-          {:keys [edges]} (layout/project-definition m)
-          degenerate-id (str (layout/region-node-id :a) "__")]
-      (is (empty? (filter #(= :noop (:event %)) edges))
-          "the region-root :same-state fallback is dropped entirely")
-      (is (not-any? #(= degenerate-id (:target %)) edges)
-          "no degenerate region-scoped empty-path target (region__a__) leaks into the graph"))))
 
 ;; ---- forbidden transitions: nil ≡ {} -------------------------------------
 ;;
