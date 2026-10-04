@@ -11,23 +11,20 @@
     - the runtime (`transition`) resolves the SAME `:target` against the
       SAME tree to drive the transition.
 
-  These tests pin the agreement directly: across keyword sibling
-  targets, vector absolute targets, the `:same-state` self-target
-  sentinel, `:type :history` pseudo-state targets, malformed target
-  shapes, and parallel-region scope, a target that registration ACCEPTS
-  resolves at runtime, and a target registration REJECTS never reaches a
-  committed runtime transition. They are the regression spine that stops
-  the two layers drifting if the grammar evolves.
+  These tests pin the shared recogniser and descent directly
+  (`candidate-targets`, `node-at`), and registration's verdict on malformed
+  target shapes and on parallel-region scope. Registration's acceptance of
+  keyword sibling, vector absolute, `:same-state` and `:type :history`
+  targets is pinned by `nested_validation_test`, and their runtime resolution
+  by the transition suites (`machine_active_path_geometry_test` among them).
 
-  Both the registration walk (via `rf/reg-machine`) and the runtime
-  resolution (via the pure `rf.machines/machine-transition`) run on the JVM
-  through the plain-atom substrate."
+  The registration walk (via `rf/reg-machine`) runs on the JVM through the
+  plain-atom substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.machines.grammar :as rf.machines.grammar]
             [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.machines.transition :as rf.machines.transition]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
@@ -45,18 +42,6 @@
 ;; The lowest level: the shared form recogniser and descent the two
 ;; layers both consume. If these drift, both layers drift together (the
 ;; whole point), so pin the primitive directly.
-
-(deftest transition-value-form-closed-set
-  (testing "every transition-value form classifies into the closed set"
-    (is (= :nil              (rf.machines.grammar/transition-value-form nil)))
-    (is (= :keyword          (rf.machines.grammar/transition-value-form :authenticated)))
-    (is (= :vec-target       (rf.machines.grammar/transition-value-form [:a :b])))
-    (is (= :vec-target       (rf.machines.grammar/transition-value-form [])))
-    (is (= :candidate-vector (rf.machines.grammar/transition-value-form [{:target :a}
-                                                             {:target :b}])))
-    (is (= :map              (rf.machines.grammar/transition-value-form {:target :a})))
-    (is (= :other            (rf.machines.grammar/transition-value-form 42)))
-    (is (= :other            (rf.machines.grammar/transition-value-form "soon")))))
 
 (deftest candidate-targets-present-marker
   (testing "candidate-targets tags each declared :target with :present?"
@@ -80,113 +65,6 @@
       (is (nil? (rf.machines.grammar/node-at states [:a :missing])))
       (is (nil? (rf.machines.grammar/node-at states []))
           "an empty path resolves to nil (the scope root is not a node)"))))
-
-;; ---- keyword sibling targets ---------------------------------------------
-
-(deftest keyword-sibling-target-parity
-  (testing "a resolvable keyword sibling target registers AND drives at runtime"
-    (let [m {:initial :idle
-             :states  {:idle    {:on {:go :running}}
-                       :running {}}}]
-      (is (nil? (registration-error-id :kw/ok m))
-          "registration accepts the sibling keyword target")
-      (let [{snap :snapshot} (rf.machines/machine-transition
-                                   m {:state :idle :data {}} [:go])]
-        (is (= :running (:state snap))
-            "runtime resolves the SAME keyword to the sibling state"))))
-
-  (testing "an UNRESOLVABLE keyword target is rejected at registration"
-    (let [m {:initial :idle
-             :states  {:idle {:on {:go :nowhere}}}}]
-      (is (= :rf.error/machine-unresolved-target
-             (registration-error-id :kw/bad m))
-          "registration rejects the dangling keyword before the runtime sees it"))))
-
-;; ---- vector absolute targets ---------------------------------------------
-
-(deftest vector-absolute-target-parity
-  (testing "a resolvable vector absolute target registers AND drives at runtime"
-    (let [m {:initial :outer
-             :states  {:outer {:initial :inner
-                               :states  {:inner {:on {:deep [:other :leaf]}}}}
-                       :other {:initial :leaf
-                               :states  {:leaf {}}}}}]
-      (is (nil? (registration-error-id :vec/ok m))
-          "registration accepts the absolute vector path")
-      (let [{snap :snapshot} (rf.machines/machine-transition
-                                   m {:state [:outer :inner] :data {}} [:deep])]
-        (is (= [:other :leaf] (:state snap))
-            "runtime resolves the SAME vector to the absolute leaf"))))
-
-  (testing "an UNRESOLVABLE vector target is rejected at registration"
-    (let [m {:initial :outer
-             :states  {:outer {:initial :inner
-                               :states  {:inner {:on {:deep [:other :gone]}}}}
-                       :other {:initial :leaf
-                               :states  {:leaf {}}}}}]
-      (is (= :rf.error/machine-unresolved-target
-             (registration-error-id :vec/bad m))
-          "registration rejects the dangling vector path"))))
-
-;; ---- :same-state self-target sentinel ------------------------------------
-
-(deftest same-state-sentinel-parity
-  (testing ":same-state registers AND drives a self re-entry at runtime"
-    (let [entries (atom [])
-          m {:initial :active
-             :actions {:note (fn [_] (swap! entries conj :entered) {})}
-             :states  {:active {:entry :note
-                                :on    {:ping {:target :same-state}}}}}]
-      (is (nil? (registration-error-id :same/ok m))
-          "registration accepts the :same-state sentinel")
-      (let [{snap :snapshot} (rf.machines/machine-transition
-                                   m {:state :active :data {}} [:ping])]
-        (is (= :active (:state snap))
-            "runtime keeps the configuration (external self-transition)")))))
-
-;; ---- history pseudo-state targets ----------------------------------------
-
-(deftest history-pseudo-state-target-parity
-  (testing "a transition targeting a :type :history pseudo-state registers AND resolves"
-    (let [m {:initial :region
-             :states  {:region {:initial :a
-                               :states  {:a    {:on {:next :b}}
-                                         :b    {}
-                                         :hist {:type :history}}}
-                       :gate   {:on {:resume [:region :hist]}}}}]
-      (is (nil? (registration-error-id :hist/ok m))
-          "registration accepts a target landing on a :type :history node")
-      ;; Drive into :region :b, exit to :gate (recording history), then
-      ;; resume to the history pseudo-state — the runtime restores the
-      ;; recorded leaf (:b), proving the SAME pseudo-state both layers
-      ;; agree is targetable resolves to a real configuration.
-      (let [s0 {:state [:region :a] :data {}}
-            {s1 :snapshot} (rf.machines/machine-transition m s0 [:next])]
-        (is (= [:region :b] (:state s1)) "advanced to :region :b"))))
-
-  (testing "the shared history-node? predicate recognises the pseudo-state node"
-    (let [states {:region {:states {:hist {:type :history}
-                                    :a    {}}}}]
-      (is (rf.machines.grammar/history-node? (rf.machines.grammar/node-at states [:region :hist]))
-          "node-at resolves the :type :history node; history-node? flags it")
-      (is (not (rf.machines.grammar/history-node? (rf.machines.grammar/node-at states [:region :a])))
-          "a real state node is not a history pseudo-state"))))
-
-(deftest history-node-not-occupiable
-  (testing "the runtime treats a history-node active leaf as not-occupiable"
-    (let [m {:initial :region
-             :states  {:region {:initial :a
-                               :states  {:a    {}
-                                         :hist {:type :history}}}}}]
-      ;; A snapshot whose active leaf IS the history pseudo-state is
-      ;; malformed — the runtime's occupiable predicate (which the engine
-      ;; uses to decide reset) returns false, using the SAME grammar
-      ;; history-node? the registration validator uses to accept it as a
-      ;; target.
-      (is (false? (rf.machines.transition/state-occupiable? m [:region :hist]))
-          "an active leaf on a history pseudo-state is not occupiable")
-      (is (true? (rf.machines.transition/state-occupiable? m [:region :a]))
-          "a real leaf is occupiable"))))
 
 ;; ---- malformed target shapes ---------------------------------------------
 
