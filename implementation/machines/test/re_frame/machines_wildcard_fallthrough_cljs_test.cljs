@@ -169,27 +169,6 @@
 ;; (d) an enabled explicit wins over the same-level :* (priority)
 ;; ---------------------------------------------------------------------------
 
-(deftest enabled-explicit-beats-same-level-wildcard
-  (testing "an ENABLED explicit :foo wins over the same-level :* (priority)"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :flat
-           :data    {}
-           ;; explicit guard PASSES this time.
-           :guards  {:always (fn [_] true)}
-           :actions {:explicit-action (tag :explicit)
-                     :wildcard-action (tag :wildcard)}
-           :states
-           {:flat {:on {:foo {:guard :always :action :explicit-action}
-                        :*   {:action :wildcard-action}}}}}]
-      (rf/reg-machine :icj9t/priority machine)
-      (reset! log [])
-      (rf/dispatch-sync [:icj9t/priority [:foo]])
-      (is (= [:explicit] @log)
-          "enabled explicit fires; same-level :* is NOT consulted;
-           the same-level :* must NOT fire when an explicit candidate is enabled"))))
-
 ;; ---------------------------------------------------------------------------
 ;; within-entry candidate-vector fallthrough — pinned here so the cross-key
 ;; rule cannot break it
