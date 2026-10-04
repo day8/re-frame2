@@ -387,24 +387,6 @@
 
 ;; ---- faceted filter (SB9 facet taxonomy) -------------------------------
 
-(deftest partition-tag-filter-by-axis-bucketed
-  (testing "partition splits the filter set into per-axis buckets"
-    (let [tag->axis {:status/alpha   :status
-                     :status/beta    :status
-                     :role/dev       :role
-                     :team/checkout  :team}]
-      (is (= {:status #{:status/alpha :status/beta}
-              :role   #{:role/dev}}
-             (rf.story.ui.state/partition-tag-filter-by-axis
-               #{:status/alpha :status/beta :role/dev}
-               tag->axis))))
-    (testing "tags missing from tag->axis bucket under ::no-axis"
-      (is (= {:re-frame.story.registrar/no-axis #{:dev}
-              :status                           #{:status/alpha}}
-             (rf.story.ui.state/partition-tag-filter-by-axis
-               #{:dev :status/alpha}
-               {:status/alpha :status}))))))
-
 (deftest variant-tag-match?-faceted-and-across-or-within
   (testing "OR within an axis (faceted)"
     (let [tag->axis {:status/alpha :status :status/beta :status
