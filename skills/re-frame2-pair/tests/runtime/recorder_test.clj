@@ -3,33 +3,21 @@
 ;;;; Babashka-runnable structural verification of the signal recorder in
 ;;;; `preload/re_frame2_pair/runtime.cljs`.
 ;;;;
-;;;; Why a structural test rather than a runtime test:
-;;;;
-;;;; `preload/re_frame2_pair/runtime.cljs` is CLJS-only (loaded into the
-;;;; consumer app via shadow-cljs `:devtools :preloads`) and the recorder
-;;;; leans on `requestAnimationFrame` / `document.activeElement` /
-;;;; reactive subscriptions — none of which exist under bb. The MCP
+;;;; The recorder's behaviour against a real frame — change-dedup (a steady
+;;;; signal yields one baseline entry, not one per frame), the driver ending
+;;;; itself at a stop condition, and the ring cap — is pinned by
+;;;; `tests/fixture/test/re_frame2_pair/runtime_recording_test.cljs`. The MCP
 ;;;; wire-shape contract is unit-tested at
-;;;; `tools/re-frame2-pair-mcp/test/.../record_test.cljs`; the LIVE rAF /
-;;;; dedup / teardown semantics are exercised by the form running in a
-;;;; real tab. What we pin HERE is the source-level contract that solves
-;;;; three footguns, so a refactor can't silently drop one:
+;;;; `tools/re-frame2-pair-mcp/test/.../record_test.cljs`. What we pin HERE is
+;;;; the source-level contract neither of those reaches:
 ;;;;
-;;;;   1. change-dedup — the sampler tick appends only on a structural
-;;;;      change against the per-signal last value (`not=` against
-;;;;      `last-values`), so a steady signal yields one baseline entry,
-;;;;      not one-per-frame.
-;;;;   2. teardown — the rAF driver self-cancels (reads the tick's boolean
-;;;;      to decide whether to reschedule) AND `stop-recording!` /
-;;;;      `read-recording {:stop true}` call `cancelAnimationFrame`.
-;;;;   3. rAF timing — the sampler runs inside `requestAnimationFrame`
-;;;;      (with a `next-tick` fallback when rAF is absent), never a busy
-;;;;      loop.
-;;;;
-;;;; Plus the load-bearing invariants:
+;;;;   - teardown: `stop-recording!` / `read-recording {:stop true}` call
+;;;;     `cancelAnimationFrame`.
+;;;;   - rAF timing: the sampler runs inside `requestAnimationFrame` (with a
+;;;;     `next-tick` fallback when rAF is absent), never a busy loop.
 ;;;;   - READ-ONLY: the recorder never dispatches / resets / writes the DOM.
-;;;;   - ring cap: a forgotten recording can't grow unboundedly.
-;;;;   - stop conditions: :ms / :changes / a predicate are all handled.
+;;;;   - stop conditions: :ms / :changes / a predicate are all handled, and a
+;;;;     recording given no stop defaults to a wall-clock window.
 ;;;;
 ;;;; Run: bb tests/runtime/recorder_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -60,34 +48,8 @@
         (str "recorder fn " sym " must be defined in runtime.cljs"))))
 
 ;; ---------------------------------------------------------------------------
-;; Footgun #1 — change-dedup. The sampler tick appends only on a change
-;; against the per-signal last value.
+;; Teardown — the stop paths cancel rAF.
 ;; ---------------------------------------------------------------------------
-
-(deftest sampler-tick-dedups-against-last-values
-  (let [form (defn-form 'recording-sampler-tick!)]
-    (is (some? form))
-    (is (mentions-sym? form 'last-values)
-        "tick must compare against the per-signal last-values map (dedup)")
-    (is (mentions-sym? form 'not=)
-        "tick must use structural not= to detect a change")
-    (is (mentions-sym? form 'keep-indexed)
-        "tick must only emit entries for signals that actually changed")))
-
-;; ---------------------------------------------------------------------------
-;; Footgun #2 — teardown. The driver self-cancels; stop paths cancel rAF.
-;; ---------------------------------------------------------------------------
-
-(deftest driver-self-cancels-on-stop
-  (let [drive (defn-form 'drive-recording!)
-        tick  (defn-form 'recording-sampler-tick!)]
-    (is (some? drive))
-    ;; The driver reschedules only when the tick says keep-running — the
-    ;; tick returns false at the stop condition, so the loop ends itself.
-    (is (mentions-sym? drive 'recording-sampler-tick!)
-        "driver must read the tick's keep-running boolean")
-    (is (form-contains? #(= % :stopped) tick)
-        "tick must flip status to :stopped at the stop condition")))
 
 (deftest stop-paths-cancel-raf
   (let [stop-fn (defn-form 'stop-recording!)
@@ -100,7 +62,7 @@
         "stop-recording! must drop the recording from the registry")))
 
 ;; ---------------------------------------------------------------------------
-;; Footgun #3 — rAF timing. The driver schedules via requestAnimationFrame
+;; rAF timing — the driver schedules via requestAnimationFrame
 ;; with a next-tick fallback; it does not busy-loop.
 ;; ---------------------------------------------------------------------------
 
@@ -112,17 +74,6 @@
                               (str/includes? (str %) "next-tick"))
                         drive)
         "driver must fall back to next-tick when rAF is absent")))
-
-;; ---------------------------------------------------------------------------
-;; Ring cap — a forgotten recording can't grow unboundedly.
-;; ---------------------------------------------------------------------------
-
-(deftest sampler-tick-applies-ring-cap
-  (let [tick (defn-form 'recording-sampler-tick!)]
-    (is (mentions-sym? tick 'max-entries)
-        "tick must honour the max-entries cap")
-    (is (mentions-sym? tick 'subvec)
-        "tick must trim from the front (drop-oldest) when over the cap")))
 
 ;; ---------------------------------------------------------------------------
 ;; Stop conditions — :ms, :changes, and a predicate are all evaluated.
@@ -140,14 +91,10 @@
     ;; runtime must default to a wall-clock window.
     (is (mentions-sym? start 'default-recording-stop-ms)
         "start-recording! must default a wall-clock stop when none given")
+    ;; Its refusal of an unresolvable frame, through `ambiguous-frame-error`,
+    ;; is pinned beside the fail-closed pins in dom_readback_redaction_test.clj.
     (is (form-contains? #(= % :no-signals) start)
-        "start-recording! must refuse an empty signal-set")
-    ;; The refusal for app-db/sub signals routes through the shared enriched
-    ;; builder `ambiguous-frame-error`; the contract (refuse an unresolvable
-    ;; frame) is carried by that call rather than a bare `:ambiguous-frame`
-    ;; keyword.
-    (is (mentions-sym? start 'ambiguous-frame-error)
-        "start-recording! must refuse an unresolvable frame via ambiguous-frame-error")))
+        "start-recording! must refuse an empty signal-set")))
 
 ;; ---------------------------------------------------------------------------
 ;; READ-ONLY invariant — the recorder must never mutate the app.
