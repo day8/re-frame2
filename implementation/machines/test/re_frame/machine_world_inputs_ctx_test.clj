@@ -19,15 +19,14 @@
   Coverage:
     (a) a flat-machine GUARD reads exactly the scripted `:time-ms` from
         `(:rf.cofx ctx)` — no ambient clock — and decides on it.
-    (b) a flat-machine ACTION reads exactly the scripted `:time-ms` and
-        folds it into a `:data` write (a durable snapshot write).
-    (c) an :entry action (on the initial-entry boot cascade) reads the
+    (b) an :entry action (on the initial-entry boot cascade) reads the
         scripted token.
-    (d) a PARALLEL-REGION guard reads the scripted token (proving the
+    (c) a PARALLEL-REGION guard reads the scripted token (proving the
         token propagates through the synthetic region-spec).
-    (e) a non-time fact (random / UUID-style) supplied in the SAME token
-        map is readable verbatim — the token carries arbitrary host facts.
-    (f) the absent-token path: a pure `machine-transition` call (no router
+    (d) a non-time fact (random / UUID-style) supplied in the SAME token
+        map is read verbatim by an action and folded into a `:data` write —
+        the token carries arbitrary host facts.
+    (e) the absent-token path: a pure `machine-transition` call (no router
         coeffect) surfaces NO `:rf.cofx` ctx key — the key keys
         off presence, so pure-fn callers (conformance corpus) see only the
         base ctx keys."
@@ -71,26 +70,7 @@
       (is (= :done (:state (snapshot :world/guard)))
           "the guard fired the transition on the causal :time-ms"))))
 
-;; ---- (b) a flat-machine ACTION folds the scripted :time-ms into :data ------
-
-(deftest action-folds-causal-time-ms-into-data
-  (testing "an action reads the causal :time-ms and folds it into a durable
-            :data write (a snapshot write that must replay deterministically)"
-    (let [m {:initial :idle
-             :data    {}
-             :actions {:stamp-time
-                       (fn [{cofx :rf.cofx}]
-                         {:data {:stamped-at (:rf/time-ms cofx)}})}
-             :states  {:idle {:on {:go {:target :done :action :stamp-time}}}
-                       :done {}}}]
-      (rf/reg-machine :world/action m)
-      (rf/dispatch-sync [:world/action [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= SCRIPTED-TIME-MS (:stamped-at (:data (snapshot :world/action))))
-          "the action wrote the causal :time-ms into :data — folded from the
-           token, not from an ambient clock"))))
-
-;; ---- (c) an :entry action (boot cascade) reads the causal token -----------
+;; ---- (b) an :entry action (boot cascade) reads the causal token -----------
 
 (deftest entry-action-reads-causal-time-ms
   (testing "the initial-state :entry action — running on the boot cascade of
@@ -109,7 +89,7 @@
       (is (= SCRIPTED-TIME-MS (:born-at (:data (snapshot :world/entry))))
           "the :entry action read the causal :time-ms on the boot cascade"))))
 
-;; ---- (d) a PARALLEL-REGION guard reads the causal token --------------------
+;; ---- (c) a PARALLEL-REGION guard reads the causal token --------------------
 
 (deftest region-guard-reads-causal-time-ms
   (testing "a guard running inside a parallel REGION reads the causal :time-ms
@@ -149,7 +129,7 @@
       (is (= :idle (get-in (snapshot :world/region-block) [:state :a]))
           "the region guard blocked — wrong causal :time-ms"))))
 
-;; ---- (e) arbitrary host facts (random / uuid-style) ride the token --------
+;; ---- (d) arbitrary host facts (random / uuid-style) ride the token --------
 
 (deftest action-reads-arbitrary-host-facts-from-token
   (testing "the token carries arbitrary host facts (a random seed / uuid-style
@@ -175,7 +155,7 @@
         (is (= gen-uuid (:id d))
             "the action read the causal uuid-style fact off the token")))))
 
-;; ---- (f) absent token — pure-fn caller surfaces no :rf.cofx key ----
+;; ---- (e) absent token — pure-fn caller surfaces no :rf.cofx key ----
 
 (deftest pure-fn-callback-ctx-has-no-world-inputs-key
   (testing "a pure machine-transition (no router coeffect, the conformance /
