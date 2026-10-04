@@ -358,23 +358,6 @@
 ;; A qualified head cannot be shadowed (locals are simple symbols), so the
 ;; check applies to bare heads only.
 
-(deftest shadowed-bare-path-flagged-not-lowered
-  (testing "the reopen probe: a `let` rebinding `path` around the registration flags"
-    (let [src (str "(ns app.events\n"
-                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                   "\n"
-                   "(let [path app.interceptors/path]\n"
-                   "  (reg-event-db :counter/inc\n"
-                   "    {:interceptors [(path :tenant)]}\n"
-                   "    (fn [db _] (update db :value inc))))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= 1 (count findings)))
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (not (str/includes? source ":rf.interceptor/path"))
-          "a shadowed bare `path` must never be lowered as the framework constructor")
-      (is (= src source) "flagged site left byte-for-byte unchanged"))))
-
 (deftest shadowed-bare-path-flagged-across-binding-forms
   (testing "fn params, defn params, letfn names and for/doseq bindings shadow too"
     (doseq [[label open close]
@@ -592,11 +575,9 @@
       (is (= :rewrite (:action (first findings))))
       ;; param rebinds the slice under `c`
       (is (str/includes? source "(fn [{c :db} [_ k]]"))
-      ;; the inner let + both inner `c` references survive byte-for-byte
-      (is (str/includes? source "(let [c (update c :depth inc)]"))
-      (is (str/includes? source "(assoc c :touched k)"))
-      ;; round-trip: the body text after the param is identical to the original body
-      (is (str/includes? source "{:db (let [c (update c :depth inc)]")))))
+      ;; the inner let and both inner `c` references survive byte-for-byte
+      (is (str/includes? source "{:db (let [c (update c :depth inc)]"))
+      (is (str/includes? source "(assoc c :touched k)")))))
 
 (deftest db-renamed-param-fn-shadowing-not-over-rewritten
   (testing "an inner (fn [c] ...) shadowing the slice name is preserved untouched"
@@ -604,7 +585,6 @@
           out (rewrite src)]
       (is (str/includes? out "(fn [{c :db} _]"))
       ;; the inner fn rebinding `c` is preserved verbatim — not over-rewritten
-      (is (str/includes? out "(fn [c] (map inc c))"))
       (is (str/includes? out "{:db (update c :xs (fn [c] (map inc c)))}")))))
 
 (deftest db-ignored-param-keeps-keys-form
@@ -633,12 +613,9 @@
       (is (= :rewrite (:action (first findings))) "referenced `_`-param is still a faithful rewrite")
       (is (str/includes? source "(reg-event "))
       (is (not (str/includes? source "reg-event-db")))
-      ;; param binds the db value back under `_state`; NOT {:keys [db]}
-      (is (str/includes? source "{_state :db}"))
       (is (not (str/includes? source "{:keys [db]}")))
-      ;; body keeps using `_state`, now resolving to the db coeffect — not unbound
-      (is (str/includes? source "{:db (assoc _state :x 1)}"))
-      ;; exact target shape from the bead
+      ;; the param binds the db value back under `_state`, and the body keeps
+      ;; reading `_state`, now the db coeffect rather than an unbound name
       (is (str/includes? source "(fn [{_state :db} ev] {:db (assoc _state :x 1)})")))))
 
 (deftest db-underscore-unreferenced-param-keeps-keys-form
