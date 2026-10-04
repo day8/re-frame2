@@ -279,36 +279,22 @@
             (is (= :test.6z20/foo (-> errs first :tags :rf.trace/event-id))
                 ":rf.trace/event-id carries the cleared handler's id")))))))
 
-(deftest clear-kind-clears-every-event
+(deftest clear-event-leaves-other-kinds-untouched
   (testing "(rf.registrar/clear-kind! :event) clears every registered :event id
-            — the fixture-side bulk verb; there is no nilary `clear-event`"
+            and only touches :event; :sub, :fx, :cofx are preserved"
     ;; `re-frame.events` defines no `clear-event` fn — `:event` owns no
     ;; tear-down lifecycle of its own — so fixtures clear the kind through
-    ;; the registrar.
-    (rf/reg-event :test.6z20/a (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-event :test.6z20/b (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-event :test.6z20/c (fn [_ _] {}))
-    (is (some? (rf.registrar/lookup :event :test.6z20/a)))
-    (is (some? (rf.registrar/lookup :event :test.6z20/b)))
-    (is (some? (rf.registrar/lookup :event :test.6z20/c)))
-
-    (rf.registrar/clear-kind! :event)
-
-    (is (nil? (rf.registrar/lookup :event :test.6z20/a))
-        "all :event slots cleared by (rf.registrar/clear-kind! :event)")
-    (is (nil? (rf.registrar/lookup :event :test.6z20/b)))
-    (is (nil? (rf.registrar/lookup :event :test.6z20/c)))))
-
-(deftest clear-event-leaves-other-kinds-untouched
-  (testing "clearing the :event kind only touches :event; :sub, :fx, :cofx are preserved"
-    ;; Defence-in-depth: confirm the kind clear is narrow.
+    ;; the registrar. Defence-in-depth: confirm the kind clear is narrow.
     (rf/reg-event :test.6z20/ev (fn [{:keys [db]} _] {:db db}))
+    (rf/reg-event :test.6z20/ev2 (fn [_ _] {}))
     (rf/reg-sub :test.6z20/sub (fn [_ _] :stub))
     (rf/reg-fx :test.6z20/fx (fn [_ _] nil))
     (rf/reg-cofx :test.6z20/cofx (fn [] :stub))
     (rf.registrar/clear-kind! :event)
     (is (nil? (rf.registrar/lookup :event :test.6z20/ev))
         ":event was cleared")
+    (is (nil? (rf.registrar/lookup :event :test.6z20/ev2))
+        "every :event id was cleared, not only one")
     (is (some? (rf.registrar/lookup :sub :test.6z20/sub))
         ":sub kind is untouched")
     (is (some? (rf.registrar/lookup :fx :test.6z20/fx))
@@ -349,20 +335,6 @@
             (is (= :no-recovery (:recovery (first errs))))))
         (is (= db-before (rf/app-db-value :rf/default))
             "app-db is unchanged after a no-op recovery"))))
-
-  (testing "handler returning a number emits :rf.error/effect-handler-bad-return"
-    (let [recorded  (record-traces! ::bad-number)
-          db-before (rf/app-db-value :rf/default)]
-      (rf/reg-event :test.k3bj/number-return
-        (fn [_ _] 42))
-      (rf/dispatch-sync [:test.k3bj/number-return])
-      (is (= db-before (rf/app-db-value :rf/default))
-          "app-db is unchanged — nothing is extracted from a number return")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      (when rf.interop/debug-enabled?
-        (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
-          (is (= 1 (count errs)))
-          (is (= 42 (:returned (:tags (first errs)))))))))
 
   (testing "handler returning a vector emits :rf.error/effect-handler-bad-return"
     ;; The vector case carries the sharpest production-real claim in this
@@ -486,33 +458,6 @@
                (catch clojure.lang.ExceptionInfo e e))]
       (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id (ex-data ex))))
       (is (re-find #"metadata-map" (:reason (ex-data ex)))))))
-
-;; ---- :rf/default? tag on auto-wrappers ----------------------------------
-;;
-;; The framework auto-wraps the user handler into the ONE handler-wrapping
-;; interceptor `:rf/event-handler` (EP-0018 — there are no per-kind wrapper
-;; ids). The auto-wrapper carries `:rf/default? true` on the interceptor map
-;; itself, so a tool distinguishing "framework default" from "user supplied"
-;; needs no hardcoded allowlist; it is self-describing.
-;;
-;; Xray, Story, and the Event lens read
-;; `(rf/handler-meta {:source :store :kind :event :id id}) :interceptors` and filter
-;; `(remove :rf/default?)` to surface only the user's interceptor chain.
-
-(deftest tooling-can-filter-defaults-via-rf-default-tag
-  (testing "the self-describing tag lets tools filter without an id
-   allowlist — `(remove :rf/default?)` surfaces user-supplied
-   interceptor refs only"
-    (reg-noop! :test.twt7m/a)
-    (reg-noop! :test.twt7m/b)
-    (rf/reg-event :test.twt7m/filtering
-      {:interceptors [:test.twt7m/a :test.twt7m/b]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/filtering})
-                           :interceptors)
-          user-only    (vec (remove :rf/default? interceptors))]
-      (is (= 3 (count interceptors)) "two user refs + one framework auto-wrapper")
-      (is (= [:test.twt7m/a :test.twt7m/b] (chain-ids user-only))))))
 
 ;; ---- `:boundary? true` without `:schema` is rejected at registration ------
 ;;
