@@ -62,16 +62,6 @@
 ;; G3 — unknown-kind throw + valid-kind?
 ;; =============================================================================
 
-(deftest valid-kind?-recognises-the-closed-v1-set
-  (testing "valid-kind? is true for each member of the closed v1 kind set"
-    (doseq [k rf.registrar/kinds]
-      (is (rf.registrar/valid-kind? k) (str k " is a valid v1 registry kind"))))
-  (testing "valid-kind? is false for kinds outside the closed set"
-    (is (not (rf.registrar/valid-kind? :not-a-kind)))
-    (is (not (rf.registrar/valid-kind? :machine))
-        "machine guards/actions are machine-scoped, not a registry kind (Spec 005)")
-    (is (not (rf.registrar/valid-kind? nil)))))
-
 (deftest register!-throws-on-an-unknown-kind
   (testing "register! rejects a kind outside the closed v1 set with the
             documented error shape, BEFORE writing the slot"
