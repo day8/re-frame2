@@ -30,7 +30,7 @@ Stage 1 unblocks the compile gate; stage 2 is the point of the whole swap.
 
 ### Prerequisites — apply BEFORE this swap
 
-**M-40 (`(rf/init!)` call) must already be applied.** Xray's preload auto-opens the panel into `[data-rf-xray-host]` *after* `rf/init!` runs (per `preload.cljs`); without an explicit init call the panel silently fails to mount — the host element is in the DOM, the preload loaded, no console error fires, and the panel never appears. This is the most confusing failure mode in the migration. A **second** mount failure presents the same way but has a different cause — the Xray dep sitting in a `:dev` alias the dev build was **not** started with, so the dep is off the classpath; see [§2. Add Xray](#2-add-xray-dev-deps-only) for the `-A :dev` fix (and the top-level-`:deps` alternative that removes the coupling). When the panel is absent, rule out all three together: M-40 applied? host element present? dev build started with `-A :dev` (or Xray in top-level `:deps`)? If the codebase is mid-M-rule sweep and M-40 hasn't been applied yet, do M-40 first and verify a clean reload, then come back here.
+**M-40 (`(rf/init!)` call) must already be applied.** Xray's preload auto-opens the panel into `[data-rf-xray-host]` *after* `rf/init!` runs (per `preload.cljs`); without an explicit init call the panel silently fails to mount — the host element is in the DOM, the preload loaded, no console error fires, and the panel never appears. This is the most confusing failure mode in the migration. A **second** mount failure presents the same way but has a different cause — the Xray dep sitting in a `:dev` alias the dev build was **not** started with, so the dep is off the classpath; see [§2. Add Xray](#2-add-xray-dev-build-only) for the `-A :dev` fix (and the top-level-`:deps` alternative that removes the coupling). When the panel is absent, rule out all three together: M-40 applied? host element present? dev build started with `-A :dev` (or Xray in top-level `:deps`)? If the codebase is mid-M-rule sweep and M-40 hasn't been applied yet, do M-40 first and verify a clean reload, then come back here.
 
 ### 1. Remove the v1-era dep + preload
 
@@ -44,10 +44,12 @@ Stage 1 unblocks the compile gate; stage 2 is the point of the whole swap.
 
 Drop both. The `day8.re-frame/re-frame-10x` Maven coord and the `day8.re-frame-10x.preload` `:preloads` entry are v1-only and have no replacement at the same coord. If the project also pinned a `closure-defines` flag for 10x (e.g. `day8.re-frame-10x.preload.show-fps?`), drop those too.
 
-### 2. Add Xray (dev-deps only)
+### 2. Add Xray (dev build only)
 
 ```clojure
-;; deps.edn — dev alias only. Xray MUST NEVER appear in production deps.
+;; deps.edn — dev alias (recommended). Xray MUST NEVER reach the production
+;; BUILD: its preload goes only in the dev build's :preloads (§3), and no app
+;; namespace requires any Xray namespace.
 ;; <path-to-re-frame2> is the local pinned re-frame2 checkout the kickoff
 ;; prompt names — an ABSOLUTE path (or one relative to THIS project's deps.edn).
 {:aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "<path-to-re-frame2>/tools/xray"}}}}}
@@ -57,7 +59,18 @@ While re-frame2 is in alpha, use the `:local/root` route into the same local pin
 
 > **Start the dev build WITH the `:dev` alias.** shadow-cljs only puts a `:dev`-alias `:extra-deps` coord on the classpath when the build is **invoked with that alias** — `npx shadow-cljs watch app -A :dev`. A bare `npx shadow-cljs watch app` (no alias) leaves the Xray dep off the classpath, so the `day8.re-frame2-xray.preload` `:preloads` entry can't resolve and the panel never mounts. This presents **identically** to the M-40-not-applied and missing-host failures (the preload "loaded", no panel, no console error pointing at the alias as the cause). If the panel is absent yet M-40 *is* applied and the host element *is* present, suspect the alias next — restart with `-A :dev`.
 >
-> **Simpler alternative — put Xray in top-level `:deps`.** Moving the Xray coord out of the `:dev` alias and into the project's top-level `:deps` (always on the classpath) sidesteps the alias-invocation coupling entirely, so a bare `npx shadow-cljs watch app` mounts Xray with no `-A :dev` to remember. This stays production-safe because Xray is dev-only **by construction**: its preload lives only in the dev build's `:devtools/preloads` (release builds never run it), and the framework instrumentation Xray hooks elides every byte under `goog.DEBUG false` via the universal `re-frame.interop/debug-enabled?` gate (an alias of `goog.DEBUG` — see §2a), with the CI bundle-isolation gate as the backstop. A coord merely on the classpath never reaches the production bundle on its own.
+> **Simpler alternative — put Xray in top-level `:deps`.** Moving the Xray coord out of the `:dev` alias and into the project's top-level `:deps` sidesteps the alias-invocation coupling entirely, so a bare `npx shadow-cljs watch app` mounts Xray with no `-A :dev` to remember. The coord is then on **every** build's classpath, release included — and that is safe, because classpath *availability* is not *reachability*: a release bundle holds only what its own build graph requires. The route rests on one invariant: **Xray's preload sits only in the dev build's `:devtools {:preloads […]}` (§3), and no app namespace requires any `day8.re-frame2-xray.*` namespace.** A `goog.DEBUG=false` release build then never reaches Xray. The preload's boot block is additionally wrapped in `(when re-frame.interop/debug-enabled? …)` — an alias of `goog.DEBUG` — as a second line of defence for that one path. Neither placement proves isolation on its own; check the release output, below.
+
+**Verify the release build, not the dep file — on either route.** No CI gate in this repo greps *your* bundle for Xray (`check-bundle-isolation.cjs` builds a framework example that never installs Xray), so this check is yours. Xray's `:rf.xray/*` keywords survive `:advanced` as string literals, so grep the optimized output, with the dev build as the positive control:
+
+```bash
+npx shadow-cljs compile app -A :dev   # dev build (no -A :dev on the top-level route)
+grep -c "rf.xray" public/js/main.js   # expect more than 0, else the search is broken
+npx shadow-cljs release app
+grep -c "rf.xray" public/js/main.js   # expect 0; any hit means Xray reached the release graph
+```
+
+Substitute your build's output file for `public/js/main.js`. The grep is a leak detector, not proof of zero retained bytes — see [`tools/xray/README.md` §Bundle isolation](https://github.com/day8/re-frame2/blob/main/tools/xray/README.md#bundle-isolation); [Fresco diagnostics §Verify production erasure](https://github.com/day8/re-frame2/blob/main/docs/core/fresco/16-diagnostics.md#verify-production-erasure) runs the same check.
 
 `day8/re-frame2-xray` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Xray's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `(rf/register-listener! :epoch …)`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Xray.
 
@@ -76,8 +89,6 @@ npm install --save-dev @xyflow/react@12.4.2 elkjs@^0.11.1
 ```
 
 Keep the versions **in lockstep** with the re-frame2 checkout's `implementation/package.json` (`<path-to-re-frame2>/implementation/package.json`) — read the current `@xyflow/react` / `elkjs` versions there rather than trusting the literals above, which track a point-in-time pin (at this writing `@xyflow/react 12.4.2`, `elkjs ^0.11.1`). They are dev-only (the Machine inspector is dev-only chrome) and elide with the rest of Xray in production builds. If the project's shadow-cljs build is `:js-options {:resolve ...}`-customised or uses a non-default `node_modules` location, install into whichever root that build resolves from.
-
-Xray is **dev-only by construction** — production builds elide every byte of it through the framework's `re-frame.interop/debug-enabled?` gate (`goog.DEBUG=false`). A CI gate at `implementation/scripts/check-bundle-isolation.cjs` greps production bundles for Xray-internal sentinels; any hit is a release blocker. See [`tools/xray/README.md` §Bundle isolation](https://github.com/day8/re-frame2/blob/main/tools/xray/README.md#bundle-isolation).
 
 ### 3. Wire the preload
 
