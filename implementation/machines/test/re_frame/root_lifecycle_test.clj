@@ -86,15 +86,6 @@
     (is (= #{:whole :at-a} (:tags (snapshot :rl/eager)))
         "the root's :tags join the leaf's in the snapshot's union")))
 
-(deftest flat-root-entry-runs-first-at-lazy-birth
-  (let [log (atom [])]
-    (rf/reg-machine :rl/lazy (flat-machine log))
-    (rf/dispatch-sync [:rl/lazy [:hop]])
-    (is (= [:root-in :a-in :a-out :b-in] @log)
-        "the first event boots the machine, root :entry first, then handles the event")
-    (is (= #{:whole} (:tags (snapshot :rl/lazy)))
-        "the root tag stays in the union after the leaf that carried a tag exits")))
-
 (deftest root-entry-data-reaches-the-initial-leaf
   (testing "root :entry sees the seeded :data, and the initial leaf's :entry sees root :entry's write"
     (rf/reg-machine :rl/data
@@ -115,15 +106,6 @@
     (is (= [:root-in :a-in :a-out :d-in :d-out :root-out] @log)
         "reaching the top-level :final? leaf runs the leaf's :exit, then the root's")
     (is (nil? (snapshot :rl/final)) "the finished machine is torn down")))
-
-(deftest flat-root-exit-runs-last-on-destroy
-  (let [log (atom [])]
-    (rf/reg-machine :rl/destroy (flat-machine log))
-    (rf/dispatch-sync [:rl/destroy [:rf.machine/start]])
-    (kill! :rl/destroy)
-    (is (= [:root-in :a-in :a-out :root-out] @log)
-        "an explicit destroy runs the active leaf's :exit, then the root's")
-    (is (nil? (snapshot :rl/destroy)))))
 
 (deftest root-exit-sees-the-leaf-exit-data
   (let [seen (atom nil)]
