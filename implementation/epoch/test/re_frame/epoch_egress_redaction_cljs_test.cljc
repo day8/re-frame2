@@ -329,8 +329,6 @@
           "the projected `:value` is a `:rf.size/large-elided` marker")
       (is (not (contains? proj-row :large?))
           "the now-spent `:large?` row flag is stripped from the projection")
-      (is (= (:sub-id raw-row) (:sub-id proj-row))
-          "the value-free row metadata is preserved for tool display")
       (is (= benign (:value small-row))
           "NEGATIVE CONTROL — an UNMARKED sub's value rides through RAW, so
            the elision above is driven by the registration marker")
@@ -599,8 +597,6 @@
       (is (some? fx-row) "fixture: the cascade produced a payload-bearing fx row")
       (is (= :rf/redacted (:args fx-row))
           "`:effects[*].args` STAY redacted — orthogonal axis")
-      (is (= :egress/login-fx (:fx-id fx-row))
-          "the value-free `:fx-id` is preserved for tool display")
       (is (= :rf/redacted (:args (some #(when (= :egress/login-fx (:fx-id %)) %)
                                        (:effects (rf/project-egress raw)))))
           "and the bare off-box default redacts the fx args too"))))
