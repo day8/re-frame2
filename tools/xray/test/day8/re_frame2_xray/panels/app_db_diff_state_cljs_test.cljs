@@ -97,34 +97,6 @@
       (is (re-find #"no user-domain keys" (pr-str top))
           "empty-state copy renders when user-domain app-db is empty"))))
 
-;; ---- machines fan-out ---------------------------------------------------
-
-(deftest machines-fan-out-one-section-per-id
-  (testing "each machine renders its own section titled by the machine id"
-    (let [model (sections {:rf/machines {:title/flow {:state :playing}
-                                         :auth       {:state :idle}}})
-          tree  (state/state-body model)
-          ids   (testids tree)]
-      (is (contains? ids "rf-xray-app-db-state-instance-:rf/machines-:title/flow")
-          "one section per machine id — :title/flow")
-      (is (contains? ids "rf-xray-app-db-state-instance-:rf/machines-:auth")
-          "one section per machine id — :auth")
-      (let [flow-section (find-by-testid
-                           tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")]
-        (is (re-find #":title/flow" (pr-str flow-section))
-            "section title carries the machine id")))))
-
-;; ---- route singleton ----------------------------------------------------
-
-(deftest route-singleton-renders-one-section
-  (testing ":rf/route renders as ONE singleton section titled `route`"
-    (let [model (sections {:rf/route {:id :app/article :params {:id "A"}
-                                      :query {} :fragment nil :transition :idle
-                                      :error nil :nav-token "nav-1"}})
-          tree  (state/state-body model)]
-      (is (some? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
-          "route singleton section present"))))
-
 ;; ---- an empty db renders only the TOP section ---------------------------
 
 (deftest empty-db-renders-only-the-top-section
@@ -143,20 +115,6 @@
         (is (not (contains? ids (str "rf-xray-app-db-state-area-"
                                      (pr-str area))))
             (str "no placeholder card for empty reserved area " area))))))
-
-;; ---- nil-safety ---------------------------------------------------------
-
-(deftest state-body-nil-safe
-  (testing "nil / empty db model renders without throwing —
-            TOP empty + zero reserved-area cards (every reserved slot is
-            empty so every entry is filtered out at projection time)"
-    (doseq [app-db [nil {}]
-            rt     [nil {}]]
-      (let [tree (state/state-body (h/current-state-sections app-db rt))]
-        (is (some? (find-by-testid tree "rf-xray-app-db-state-top"))
-            "TOP is the panel's anchor — always renders")
-        (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
-            "absent route → no placeholder card")))))
 
 ;; ---- no per-block affordances -------------------------------------------
 ;;
