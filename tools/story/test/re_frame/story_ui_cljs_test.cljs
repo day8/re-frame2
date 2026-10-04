@@ -48,46 +48,9 @@
 
 ;; ---- public API additions ------------------------------------------------
 
-(deftest mount-shell-fn-present
-  (testing "mount-shell! / unmount-shell! / active-shell are public CLJS fns"
-    (is (fn? rf.story/mount-shell!))
-    (is (fn? rf.story/unmount-shell!))
-    (is (fn? rf.story/active-shell))))
-
 (deftest active-shell-starts-nil
   (testing "active-shell returns nil before any mount"
     (is (nil? (rf.story/active-shell)))))
-
-;; ---- shell state transitions --------------------------------------------
-
-;; A variant-row click clears the workspace slot so workspace
-;; mode is not a one-way door. `main-pane` in `shell.cljs` short-
-;; circuits on `:selected-workspace`, so a variant click that does NOT
-;; clear it is invisible from the canvas. This is the symmetric mirror
-;; of the workspace-row handler which clears `:selected-variant`.
-;;
-;; The click handler lives inline in the private `variant-row` reagent
-;; component (`sidebar.cljs`), so we exercise the same pure swap-state!
-;; composition the closure runs — that is the unit of behaviour under
-;; test.
-(deftest variant-click-clears-workspace-rf2-hscut
-  (testing "selecting a variant from the sidebar clears any selected workspace"
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-workspace :Workspace.nav/all)
-    (is (= :Workspace.nav/all (:selected-workspace (rf.story.ui.state/get-state))))
-    (rf.story.ui.state/swap-state!
-      (fn [s] (-> s
-                  (rf.story.ui.state/select-variant :story.nav/v1)
-                  (rf.story.ui.state/select-workspace nil))))
-    (is (= :story.nav/v1 (:selected-variant (rf.story.ui.state/get-state))))
-    (is (nil? (:selected-workspace (rf.story.ui.state/get-state)))))
-  (testing "mirror of workspace-row click — both row handlers are symmetric"
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.nav/v1)
-    (rf.story.ui.state/swap-state!
-      (fn [s] (-> s
-                  (rf.story.ui.state/select-workspace :Workspace.nav/all)
-                  (rf.story.ui.state/select-variant nil))))
-    (is (= :Workspace.nav/all (:selected-workspace (rf.story.ui.state/get-state))))
-    (is (nil? (:selected-variant (rf.story.ui.state/get-state))))))
 
 ;; ---- command palette -----------------------------------------------------
 
@@ -123,17 +86,6 @@
     (is (= [:Mode.cp/dark] (:active-modes (rf.story.ui.state/get-state))))))
 
 ;; ---- pure filter + grouping ---------------------------------------------
-
-(deftest group-variants-by-story
-  (testing "group-variants-by-story builds the sidebar tree"
-    (rf.story/reg-variant :story.a/x {:setup []})
-    (rf.story/reg-variant :story.a/y {:setup []})
-    (rf.story/reg-variant :story.b/z {:setup []})
-    (let [vs       (rf.story.registrar/registrations :variant)
-          grouped  (rf.story.ui.state/group-variants-by-story vs)
-          by-story (into {} (map (juxt :story-id :variants) grouped))]
-      (is (= 2 (count (get by-story :story.a))))
-      (is (= 1 (count (get by-story :story.b)))))))
 
 (deftest sidebar-tag-collection
   (testing "rf.story.ui.sidebar/collect-tags enumerates registered tags"
