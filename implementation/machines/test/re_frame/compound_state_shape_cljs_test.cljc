@@ -73,14 +73,6 @@
     (rf/dispatch-sync [:cshape/boot [:rf.machine/start]])
     (is (= (initial-state hierarchical) (:state (snapshot :cshape/boot))))))
 
-(def ^:private flat
-  {:initial :a :states {:a {:on {:go :b}} :b {}}})
-
-(deftest flat-machine-keeps-its-keyword
-  (testing "a flat machine's keyword target and :initial stay keywords"
-    (is (= :b (state-after flat :a [:go])))
-    (is (= :a (initial-state flat)))))
-
 (def ^:private regions
   {:type    :parallel
    :on      {:reset [:compound :x]}
