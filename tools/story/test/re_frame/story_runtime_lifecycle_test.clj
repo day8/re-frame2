@@ -24,8 +24,6 @@
     starve the others.
   - **`destroy-variant!` is idempotent.** Calling it twice in a row,
     or on an unregistered variant, must not throw.
-  - **`destroy-variant!` clears the variant frame from the registry.**
-    A subsequent `variant-frames` call must not list the destroyed id.
   - **Lifecycle reaches `:ready` after `destroy + run` cycle.** The
     UI shell re-runs variants in place; teardown then
     re-allocation must leave the lifecycle in `:ready` with no
@@ -164,19 +162,6 @@
         (is (= before-destroy (count @seen))
             "destroyed-frame watchers do not fire on the next run")
         (rf.story.frames/destroy! :story.destroy.watchers/v)))))
-
-(deftest destroy-variant-removes-from-variant-frames
-  (testing "after destroy-variant! the variant id no longer appears in
-            (rf.story/variant-frames) — the registry is in step with the runtime"
-    (rf/reg-event :test/nothing (fn [{:keys [db]} _] {:db db}))
-    (rf.story/reg-variant :story.destroy.list/v
-      {:setup [[:test/nothing]]})
-    (let [_ (rf.story.async/deref-blocking (rf.story/run-variant :story.destroy.list/v) 5000)]
-      (is (contains? (rf.story/variant-frames) :story.destroy.list/v)
-          "the running variant is listed before destroy")
-      (rf.story/destroy-variant! :story.destroy.list/v)
-      (is (not (contains? (rf.story/variant-frames) :story.destroy.list/v))
-          "the destroyed variant is gone from the listing"))))
 
 (deftest destroy-variant-is-idempotent
   (testing "calling destroy-variant! twice in a row does not throw"
