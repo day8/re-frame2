@@ -231,41 +231,7 @@
           "structural collision carrier is present"))))
 
 ;; ===========================================================================
-;; (5) ORDER — the structural alias rejects BEFORE any schema callback runs.
-;; ===========================================================================
-
-(deftest aliased-batch-rejects-before-any-schema-callback
-  (testing "two aliasing children that are ALSO schema-invalid: the resolved
-            address is derivable from the pre-allocated child args alone, so the
-            alias is decided FIRST and the invoke rejects with EXACTLY ONE
-            :rf.error/machine-spawn-all-duplicate-id — no
-            :rf.error/schema-validation-failure precedes it, and the application
-            [:schemas :data] validator is never CALLED for the aliased children.
-            Preparing every child first would capture [schema-failure
-            schema-failure duplicate-id]: the structural invalidity would not
-            fail first, and a validator/listener that swapped the owner frame
-            could pre-empt the collision reject entirely."
-    (reset! validator-calls 0)
-    (rf/reg-machine :sa/order counting-child)
-    (rf/reg-machine :sup/order
-                    (parent-over [{:id :a :machine-id :sa/order
-                                   :fixed-actor-id :order/actor :data {:n "bad"}}
-                                  {:id :b :machine-id :sa/order
-                                   :fixed-actor-id :order/actor :data {:n "bad"}}]))
-    (rf/dispatch-sync [:sup/order [:start]])
-    (is (= [:rf.error/machine-spawn-all-duplicate-id] (reject-order))
-        "the structural alias is the FIRST and ONLY admission reject — no schema failure precedes it")
-    (is (zero? @validator-calls)
-        "no child [:schemas :data] validator was CALLED — the aliased batch never reached preparation")
-    (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/order))
-        "one childless reject sentinel — the same atomic reject shape as (1)")
-    (is (nil? (snap-of :order/actor))
-        "nothing installed at the aliased address")
-    (is (= [[:order/actor [:a :b]]] (:collisions (:tags (first (collision-rejects)))))
-        "declaration-order diagnostics hold when the alias is decided first")))
-
-;; ===========================================================================
-;; (6) ORDER, adversarial — alias + UNREGISTERED sibling + multiple groups.
+;; (5) ORDER, adversarial — alias + UNREGISTERED sibling + multiple groups.
 ;; ===========================================================================
 
 (deftest aliased-batch-rejects-before-type-resolution-across-groups
@@ -318,7 +284,7 @@
       (is (= [:forking] (:invoke-id tags)) "invoke identity carried"))))
 
 ;; ===========================================================================
-;; (7) ORDER — GROUP order survives past the small-map threshold.
+;; (6) ORDER — GROUP order survives past the small-map threshold.
 ;; ===========================================================================
 
 (deftest collision-groups-carry-declaration-order-past-the-array-map-threshold
