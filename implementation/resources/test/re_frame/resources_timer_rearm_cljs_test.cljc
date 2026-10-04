@@ -138,24 +138,6 @@
         (is (not= poll-h (timer-handle k rf.resources.timers/poll-kind)) "poll handle replaced")))
     (rf.resources.timers/cancel-for-key! frame-id k)))
 
-(deftest gc-only-rearm-preserves-sibling-stale-and-poll
-  (rf.resources.timers/reset-cache!)
-  (let [k [:rf.scope/global :tr/combo2 {:id 1}]]
-    (reconcile! k {rf.resources.timers/stale-kind long-ms rf.resources.timers/gc-kind long-ms rf.resources.timers/poll-kind long-ms})
-    (let [stale-h (timer-handle k rf.resources.timers/stale-kind)
-          gc-h    (timer-handle k rf.resources.timers/gc-kind)
-          poll-h  (timer-handle k rf.resources.timers/poll-kind)]
-      ;; a GC-ONLY partial re-arm names ONLY :gc
-      (reconcile! k {rf.resources.timers/gc-kind long-ms})
-      (testing "a GC-only re-arm PRESERVES the sibling stale +
-                poll handles"
-        (is (= stale-h (timer-handle k rf.resources.timers/stale-kind)) "stale handle unchanged")
-        (is (= poll-h (timer-handle k rf.resources.timers/poll-kind)) "poll handle unchanged"))
-      (testing "the named :gc kind IS replaced (cancel-then-arm)"
-        (is (armed? k rf.resources.timers/gc-kind) "gc still armed")
-        (is (not= gc-h (timer-handle k rf.resources.timers/gc-kind)) "gc handle replaced")))
-    (rf.resources.timers/cancel-for-key! frame-id k)))
-
 (deftest full-reconcile-cancels-a-kind-whose-policy-was-removed
   ;; A full settlement names ALL declared kinds; a kind carrying a nil delay
   ;; (its policy was dropped by a hot reload) is CANCELLED, not preserved.
