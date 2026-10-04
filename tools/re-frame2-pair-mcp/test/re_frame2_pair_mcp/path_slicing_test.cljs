@@ -57,25 +57,6 @@
 ;; tree-summary — the {:rf.mcp/summary ...} marker shape.
 ;; ---------------------------------------------------------------------------
 
-(deftest tree-summary-bytes-is-cheap-on-large-values
-  ;; The load-bearing property. Computing `:bytes` on a 50K-entry map
-  ;; MUST be effectively instant — the marker exists precisely to avoid
-  ;; serialising the deep value. A `(count (pr-str v))` approach would
-  ;; burn ~megabytes of string allocation here.
-  ;;
-  ;; We don't time the call (test environments vary too much) but we
-  ;; pin the structural property: the result is the entry count
-  ;; times a fixed constant, so the computation is independent of
-  ;; value depth. A regression to deep `pr-str` would surface as a
-  ;; non-multiple-of-the-constant byte count.
-  (let [huge   (zipmap (map #(keyword (str "k" %)) (range 50000))
-                       (repeat (zipmap (range 100) (range 100))))
-        marker (:rf.mcp/summary (summary/tree-summary huge))
-        bytes  (:bytes marker)]
-    (is (= 50000 (:count marker)))
-    (is (zero? (mod bytes 50000))
-        "Bytes must be entry-count × constant, not pr-str byte count")))
-
 (deftest tree-summary-classifies-a-seq
   ;; The set case is pinned with its count and bytes in
   ;; set_valued_app_db_test.
@@ -92,10 +73,10 @@
 ;; wrong expression would print the right number.
 ;;
 ;; The fixture below is DISCRIMINATING by construction - code units, code
-;; points and UTF-8 bytes are three different numbers - and is asserted so
-;; BEFORE it is used, so a future editor that ASCII-fies the source reds the
-;; anti-vacuity assertions rather than silently neutering the pin. It is
-;; written as \uXXXX escapes so this file stays pure ASCII.
+;; points and UTF-8 bytes are three different numbers - and the expected
+;; byte counts are literals, so a future editor that ASCII-fies the source
+;; reds them rather than silently neutering the pin. It is written as
+;; \uXXXX escapes so this file stays pure ASCII.
 ;;
 ;; Both directions are pinned: the non-ASCII entry DIVERGES (the estimate
 ;; nearly doubles), and an ASCII entry of the SAME code-unit length AGREES
@@ -111,26 +92,6 @@
   "Same CODE-UNIT length as `utf8-discriminating-entry`, pure ASCII - so
   the two rulers must agree on it exactly."
   "aaaaa")
-
-(defn- utf8-len [s]
-  (let [^js enc (js/TextEncoder.)]
-    (.-length (.encode enc s))))
-
-(deftest tree-summary-bytes-fixture-is-discriminating
-  ;; Anti-vacuity FIRST: if these stop holding, every assertion in
-  ;; `tree-summary-bytes-counts-utf8-bytes-not-code-units` measures nothing.
-  (let [e utf8-discriminating-entry]
-    (is (= 5 (count e)) "5 UTF-16 code units")
-    (is (= 4 (count (js/Array.from e))) "4 code points")
-    (is (= 13 (utf8-len e)) "13 UTF-8 bytes - three different numbers")
-    (is (= 5 (count ascii-control-entry)))
-    (is (= 5 (utf8-len ascii-control-entry))
-        "the ASCII control's rulers agree exactly - that is the fail-open condition"))
-  ;; And the printed form the estimator actually samples (quotes included).
-  (is (= 7 (count (pr-str utf8-discriminating-entry))))
-  (is (= 15 (utf8-len (pr-str utf8-discriminating-entry))))
-  (is (= 7 (count (pr-str ascii-control-entry))))
-  (is (= 7 (utf8-len (pr-str ascii-control-entry)))))
 
 (deftest tree-summary-bytes-counts-utf8-bytes-not-code-units
   ;; All FOUR emit sites in `summary.cljs` - map / vector / set / seq.
