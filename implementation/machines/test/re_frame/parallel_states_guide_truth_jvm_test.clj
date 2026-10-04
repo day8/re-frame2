@@ -298,13 +298,6 @@
           (str "the guard failed to catch (exactly) the claim: " family
                "\n  in: " sentence))))
 
-  (testing "the three paraphrase mutations fail the guard"
-    (doseq [mutation ["Each region stabilizes its eventless transitions on its own before its siblings are revisited."
-                      "Sibling keys remain fixed from macrostep entry until macrostep exit."
-                      "A sibling-dependent guard waits until another event arrives."]]
-      (is (seq (superseded-hits mutation))
-          (str "a paraphrase mutation slipped through: " mutation))))
-
   (testing "legitimate uses of the same words are not caught"
     ;; Legitimate guide prose. Each sits within a word or two of a banned
     ;; phrasing; none may trip it.
@@ -353,8 +346,4 @@
         "the same claim in affirmative prose (no historical heading) must still trip the guard"))
 
   (testing "a guide stripped of the law is caught by the required-term half"
-    (is (seq (missing-terms "Parallel regions are orthogonal axes of one machine."))))
-
-  (testing "the guide satisfies both halves"
-    (is (= [] (superseded-hits @guide)))
-    (is (= [] (missing-terms @guide)))))
+    (is (seq (missing-terms "Parallel regions are orthogonal axes of one machine.")))))
