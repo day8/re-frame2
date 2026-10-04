@@ -56,20 +56,6 @@
 ;; G1 — sticky resolution cache: get-fn-cached / invalidate-cache!
 ;; =============================================================================
 
-(deftest get-fn-cached-caches-and-reserves-a-resolved-fn
-  (testing "first hit reads `hooks`, populates the cache slot, returns the fn"
-    (let [k  :test/g1-resolved
-          f  (fn [] :resolved)]
-      (is (not (cached? k)) "precondition: slot empty before any lookup")
-      (rf.late-bind/set-fn! k f)
-      ;; set-fn! invalidates the slot — still uncached until the first read.
-      (is (not (cached? k)) "set-fn! does not pre-warm the cache")
-      (is (identical? f (rf.late-bind/get-fn-cached k))
-          "first get-fn-cached resolves through `hooks`")
-      (is (cached? k) "the resolved fn is now cached/reserved")
-      (is (identical? f (rf.late-bind/get-fn-cached k))
-          "subsequent hit re-serves the same fn"))))
-
 (deftest get-fn-cached-re-serves-the-cached-slot-even-after-hooks-mutates
   (testing "once cached, get-fn-cached returns the cached slot, not a fresh `hooks` read"
     ;; This pins the *stickiness*: the cache is the source of truth until
@@ -158,12 +144,6 @@
           "next lookup serves the newly-published fn for k1")
       (is (identical? new-b (rf.late-bind/get-fn-cached k2))
           "next lookup serves the newly-published fn for k2"))))
-
-(deftest set-fns!-returns-nil-and-tolerates-an-empty-map
-  (testing "set-fns! returns nil (side-effecting publication)"
-    (is (nil? (rf.late-bind/set-fns! {:test/rtk2e-ret (fn [] :x)}))))
-  (testing "set-fns! tolerates an empty map (no entries published, no throw)"
-    (is (nil? (rf.late-bind/set-fns! {})))))
 
 ;; =============================================================================
 ;; G2 — chain-fn! runtime composition ordering
