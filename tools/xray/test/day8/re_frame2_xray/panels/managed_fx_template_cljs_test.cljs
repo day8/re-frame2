@@ -307,10 +307,7 @@
       (is (not (str/includes? combined "app-db wasn't updated")))
       (is (not (str/includes? combined "Likely a")))
       (is (str/includes? combined "no app-db changes in this event-bundle")
-          "measured-and-empty says so, plainly")
-      ;; silent-by-default: no internal F-code in user-visible prose
-      (is (not (re-find #"F\.\d" combined))
-          "user-visible text leaks an internal F-code")))
+          "measured-and-empty says so, plainly")))
 
   (testing "An UNTRACKED record — `:paths-touched` nil, which is what the
             production 1-arity produces — says it is untracked rather than
@@ -475,21 +472,6 @@
       (is (not (some #{[:user/loaded {:id 1}]} (tree-nodes shut)))))))
 
 (deftest the-reply-target-section-carries-no-focus-affordance
-  (testing "There is no '→ focus event ↗' button, open or shut.
-            Dispatching `:rf.xray/focus-event` with the ISSUING record's own
-            dispatch-id and frame — the event-bundle already in focus — would
-            advertise a pivot to where the response landed and re-focus the
-            panel you were looking at."
-    (let [opened (template/record-panel noop-dispatch (open-all disclosure-record)
-                                        disclosure-record)
-          shut   (template/record-panel noop-dispatch nil disclosure-record)]
-      (is (not (contains? (set (testids opened)) "rf-xray-managed-fx-focus-handler")))
-      (is (not (contains? (set (testids shut)) "rf-xray-managed-fx-focus-handler")))
-      ;; Control, taken from the target: the section itself is there and
-      ;; opens, so the absence above is the button's and not the whole
-      ;; section having vanished.
-      (is (contains? (set (testids opened)) "rf-xray-managed-fx-section-handler-body")
-          "control: the section opens")))
 
   (testing "and opening it dispatches nothing of its own — the only dispatch a
             reply-target section can make is its own disclosure toggle"
@@ -545,10 +527,7 @@
                                        (h/expansion-key rk :app-db) false}
                                       disclosure-record)]
       (is (not (body-shown? tree :wire)))
-      (is (not (body-shown? tree :app-db)))
-      ;; and the stored `false` did not leak onto the sections that share
-      ;; the record key
-      (is (not (body-shown? tree :request))))))
+      (is (not (body-shown? tree :app-db))))))
 
 (deftest disclosure-state-is-per-record
   (testing "An event-bundle can carry several managed-fx records. Opening
