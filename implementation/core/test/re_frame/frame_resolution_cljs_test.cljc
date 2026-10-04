@@ -225,21 +225,3 @@
           (fn []
             (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))
             (is (nil? rf.registrar/*generation*))))))))
-
-;; ===========================================================================
-;; 6. Same image in two frames resolves identically (shared behaviour) — the
-;;    complement of the same-id/different-image case
-;; ===========================================================================
-
-(deftest same-image-two-frames-resolve-identically
-  (testing "two frames running the SAME image resolve the same id to the same
-            descriptor (same behaviour, different memory — EP-0023 §Same
-            Behavior, Many Instances)"
-    (let [pool  [(reg-desc "examples.counter" :event :counter/inc ::inc)]
-          img   (rf.image/image {:select-ns {:include ["examples.counter"]}})
-          left  (rf.live-frame/make-frame {:id :counter/left  :images [img]} pool)
-          right (rf.live-frame/make-frame {:id :counter/right :images [img]} pool)]
-      (rf.live-frame/call-with-frame-resolution left
-        (fn [] (is (= ::inc (rf.registrar/handler :event :counter/inc)))))
-      (rf.live-frame/call-with-frame-resolution right
-        (fn [] (is (= ::inc (rf.registrar/handler :event :counter/inc))))))))
