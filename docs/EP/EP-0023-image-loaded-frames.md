@@ -1017,17 +1017,14 @@ There can still be explicit inline image entries for generated code, tests, or l
 
 That should be an option, not the only way to build an image. Most human-authored code should stay close to ordinary `reg-*` forms.
 
-When inline entries are used, prefer registrar-keyed sections that mirror the public `reg-*` names: `:reg-event`, `:reg-sub`, `:reg-interceptor`, `:reg-view`, `:reg-fx`, `:reg-cofx`, `:reg-resource`, and so on. Handler entries should be call-shaped tuples:
+When inline entries are used, they are registrar-keyed sections that mirror the public `reg-*` names, and exactly four kinds have an inline form: `:reg-event`, `:reg-sub`, `:reg-fx` and `:reg-cofx`. Every other kind, including `:reg-interceptor`, `:reg-view` and `:reg-resource`, is namespace-authored: its `reg-*` form lives in a namespace that the image selects. An inline section under any other key fails `rf/image` with `:rf.error/invalid-image`; it is never silently dropped. So a frame test that needs an interceptor, such as an event recorder, registers it with `reg-interceptor` in a namespace, as [Spec 008 §Recording dispatched events](../../spec/008-Testing.md#recording-dispatched-events) does, and a frame built from explicit images selects that namespace too. [EP-0026 §Inline Registration Grammar](EP-0026-image-api-simplification.md#inline-registration-grammar) is the governing grammar. Each entry is a call-shaped tuple, and its metadata map is optional:
 
 ```clojure
+[id body]
 [id metadata body]
 ```
 
-Metadata-only entries can use:
-
-```clojure
-[id metadata]
-```
+A metadata-only `[id metadata]` entry is invalid, because every inline registration carries a body.
 
 The important rule is that image entries are descriptions, not secretly executed calls. Do not make a macro body full of fake `reg-*` forms. Do not scan vars at runtime to infer an image. Either use ordinary `reg-*` forms and select by recorded provenance, or provide explicit registrar-keyed data. Both paths should lower to the same runtime descriptor shape.
 
