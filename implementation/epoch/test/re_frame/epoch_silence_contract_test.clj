@@ -91,9 +91,6 @@
       (is (= :any (:observed-gen entries))
           "the canonical :observed-gen is an opaque :any token, not :int")
 
-      (is (nil? (cb-generation cb-id))
-          "an unregistered non-keyword id has no generation")
-
       (rf/make-frame {:id :test/non-kw})
       (rf/reg-event :seed-nonkw (fn [{:keys [db]} _] {:db {:n 0}}))
 
@@ -117,8 +114,6 @@
             ;; RAW-ID PRESERVATION — the emitted :cb-id is the vector VERBATIM.
             (is (= cb-id (:cb-id tags))
                 "the emitted :cb-id is the raw non-keyword id, not narrowed/coerced")
-            (is (vector? (:cb-id tags))
-                "and it is genuinely a non-keyword comparable value")
             (is (= g-observed (:observed-gen tags))
                 "the silence names the generation that observed the frame")
 

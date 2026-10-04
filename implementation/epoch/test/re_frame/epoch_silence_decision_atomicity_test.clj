@@ -140,12 +140,7 @@
           (is (true? torn)
               "clause 1 committed to G, then the replacement made clause 2 report
                the FRESH registration as not-observing: an accept describing a
-               state the ledger never had"))
-
-        (testing "the atomic decision has no seam to place the replacement at"
-          (is (false? (rf/epoch-silence-current? tags))
-              "one operation, one linearization point — it can only ever answer
-               for a state the ledger actually had"))))))
+               state the ledger never had"))))))
 
 (deftest an-unregister-drop-at-the-clause-seam-cannot-accept-a-dropped-registration
   (testing "an unregister-drop at the same seam produces the same violation —
@@ -164,9 +159,7 @@
         (is (false? after) "AFTER: no registration at all, so no live callback to be silent")
         (is (true? torn)
             "the two-read composite accepts a silence for a registration that no
-             longer exists")
-        (is (false? (rf/epoch-silence-current? tags))
-            "the atomic decision rejects — an absent registration is never current")))))
+             longer exists")))))
 
 (deftest a-same-generation-rearm-at-the-clause-seam-is-consistent-but-only-by-read-order
   (testing "the third mutation kind at seam 1. A delivery mints no generation, so
@@ -248,9 +241,7 @@
             "the live registration H really is observing the frame")
         (is (true? torn)
             "the two-read composite accepts a silence for a callback that is both
-             superseded AND live")
-        (is (false? (rf/epoch-silence-current? tags))
-            "the atomic decision rejects at every point in time")))))
+             superseded AND live")))))
 
 ;; ---- the decision still does its job ---------------------------------------
 

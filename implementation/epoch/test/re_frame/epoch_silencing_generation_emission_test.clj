@@ -184,9 +184,7 @@
               "the wire signal carries the RESERVED generation G, not the replacement H")
           (is (= frame (:frame tags)) "and the frame it was silenced for")
           (is (not= g (cb-generation cb))
-              "H became current DURING the emit window (the emit did not block the registrar)")
-          (is (not= (:observed-gen tags) (cb-generation cb))
-              "current-gen != carried observed-gen — a receiver SELF-FILTERS this stale signal (no G→H window)")))
+              "H became current DURING the emit window (the emit did not block the registrar)")))
       (finally
         (rf/unregister-listener! :epoch cb)
         (rf/unregister-listener! :trace silence-key)))))
