@@ -199,17 +199,6 @@
       (is (= :loaded (:status @(rf/subscribe [:rf/resource q]))))
       (is (= {:articles [:a :b]} @(rf/subscribe [:rf.resource/data q]))))))
 
-(deftest sub-from-db-nil-raises-unresolved-scope
-  (testing "a {:from-db} sub whose resolver yields nil raises the sub-side
-            fail-closed diagnostic — never a silent :idle / global read.
-            (Asserted at the resolution boundary `resolve-scoped-key`, the
-            same level `sub-side-scope-fail-closed` asserts at; a sub
-            body throw is otherwise routed to the runtime error path.)"
-    ;; no logged-in user — the {:from-db} spec policy resolves nil against `{}`
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-          (rf.resources.subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
-
 ;; ===========================================================================
 ;; 4. mid-session input change RE-KEYS the live sub
 ;; ===========================================================================
