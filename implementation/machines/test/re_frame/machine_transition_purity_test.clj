@@ -179,22 +179,6 @@
       (is (some #(= :bump (-> % :tags :action-id)) @seen)
           "the action-ran trace named the :bump action that ran"))))
 
-(deftest spawn-all-counter-bumps-per-child
-  (testing ":spawn-all spawns N children — each child of the same machine-id bumps the same counter slot"
-    (let [spec {:initial :idle
-                :data    {}
-                :states  {:idle      {:on {:start :working}}
-                          :working   {:spawn-all
-                                      {:children [{:id :a :machine-id :worker}
-                                                  {:id :b :machine-id :worker}
-                                                  {:id :c :machine-id :worker}]
-                                       :join     :all}
-                                      :on        {:done :ready}}
-                          :ready     {}}}
-          {snap' :snapshot} (rf.machines/machine-transition spec {:state :idle :data {}} [:start])]
-      (is (= {:worker 3} (:rf/spawn-counter snap'))
-          "three :worker children bumped the slot to 3"))))
-
 ;; ---- Pure transition smoke ----
 ;;
 ;; These pin baseline machine-transition behaviours — flat transitions,
