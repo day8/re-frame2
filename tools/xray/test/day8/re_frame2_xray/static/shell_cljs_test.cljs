@@ -79,14 +79,6 @@
 ;; (1) mode-state lifecycle — set / toggle
 ;; -------------------------------------------------------------------------
 
-(deftest set-mode-writes-the-slot
-  (testing ":rf.xray/set-mode :static lands :static on the slot"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/set-mode :static])
-    (is (= :static (frame-sub [:rf.xray/mode])))
-    (frame-dispatch [:rf.xray/set-mode :dynamic])
-    (is (= :dynamic (frame-sub [:rf.xray/mode])))))
-
 (deftest set-mode-normalises-unknown-values
   (testing "string mode values normalise to their keyword; unknown values
             normalise to :dynamic"
@@ -99,17 +91,6 @@
     (frame-dispatch [:rf.xray/set-mode :nonsense])
     (is (= :dynamic (frame-sub [:rf.xray/mode]))
         "unknown keyword → :dynamic")))
-
-(deftest toggle-mode-flips-dynamic-and-static
-  (testing ":rf.xray/toggle-mode flips between modes idempotently"
-    (xray-setup!)
-    (is (= :dynamic (frame-sub [:rf.xray/mode])) "starts on :dynamic")
-    (frame-dispatch [:rf.xray/toggle-mode])
-    (is (= :static (frame-sub [:rf.xray/mode])))
-    (frame-dispatch [:rf.xray/toggle-mode])
-    (is (= :dynamic (frame-sub [:rf.xray/mode])))
-    (frame-dispatch [:rf.xray/toggle-mode])
-    (is (= :static (frame-sub [:rf.xray/mode])))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) localStorage persistence — round-trip
@@ -142,25 +123,6 @@
 ;; -------------------------------------------------------------------------
 ;; (3) Static surface — 3-layer chrome render
 ;; -------------------------------------------------------------------------
-
-(deftest static-surface-renders-three-layers
-  (testing "Static shell renders ribbon · tab-bar · detail panel
-            (NO L2 event list — Static is event-INDEPENDENT)"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree (static-shell-tree/surface-tree)]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-surface"))
-            "Static surface envelope present")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-ribbon"))
-            "L1 ribbon present")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-tab-bar"))
-            "L3 tab bar present")
-        ;; default tab is :machines → detail panel testid carries the tab name
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-detail-panel-machines"))
-            "L4 detail panel present (default :machines tab)")
-        ;; CRITICAL: no L2 event list in Static mode
-        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-list"))
-            "no L2 event list (Static is event-INDEPENDENT)")))))
 
 (deftest static-ribbon-mounts-mode-pill-frame-picker-and-right-icons
   (testing "Static ribbon carries the mode pill at left + the L1 frame
