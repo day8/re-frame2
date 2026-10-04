@@ -100,13 +100,13 @@
         (spit exp-f (:source result))
         (write-edn! rep-f entries))
 
+      ;; A missing expectation file throws inside the `is` that reads it, and
+      ;; `is` reports that as an error under this case's `testing` name.
       (testing (str name* " — the rewrite")
-        (is (.exists exp-f) (str "missing " exp-f))
         (is (= (slurp exp-f) (:source result))
             (str name* ": the fixer wrote something other than expected.cljs")))
 
       (testing (str name* " — the report")
-        (is (.exists rep-f) (str "missing " rep-f))
         (is (= (read-edn rep-f) entries)
             (str name* ": the fixer SAID something other than expected-report.edn")))
 
