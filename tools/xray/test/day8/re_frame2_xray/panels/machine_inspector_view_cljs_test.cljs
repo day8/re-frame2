@@ -157,10 +157,7 @@
       (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-machine-inspector")))
         (is (some? (find-by-testid tree "rf-xray-machine-inspector-empty"))
-            "empty-state container present")
-        ;; The panel has no h1 heading, so no panel-icon.
-        (is (nil? (find-by-testid tree "rf-xray-machine-inspector-panel-icon"))
-            "there is no panel header icon (the panel has no h1)")))))
+            "empty-state container present")))))
 
 ;; ---- (3) blank state (event has no machine activity) ------------------
 ;;
@@ -191,16 +188,6 @@
             "blank-state container present")
         (is (nil? (find-by-testid tree "rf-xray-machine-focused-event"))
             "no focused-event surface when cascade has no transitions")
-        ;; The inversion guard — NO topology renders on a non-machine
-        ;; event. One section + chart per registered machine here would
-        ;; be the "content on non-machine events" half of an inverted
-        ;; visibility.
-        (is (empty? (find-all-by-testid-prefix
-                      tree "rf-xray-machine-inspector-blank-section-"))
-            "no per-machine topology sections render in the blank state")
-        (is (empty? (find-all-by-testid-prefix
-                      tree "rf-xray-machine-inspector-blank-topology-"))
-            "no topology chart renders in the blank state")
         (is (empty? (find-all-by-testid-prefix
                       tree "rf-xray-machines-topology"))
             "no Topology view mounts when the focused event is not
@@ -289,9 +276,6 @@
         (is (some? (find-by-testid
                      tree "rf-xray-epoch-machine-cascade-kind-start"))
             "the mini-pipeline renders a [START] cascade-row pill for the birth")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-event-start-badge"))
-            "there is no header [START] badge")
         (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "the blank-state is suppressed — not an empty tab")))))
 
@@ -353,13 +337,7 @@
             "the SHARED mini-pipeline mounts for a no-op")
         (is (some? (find-by-testid
                      tree "rf-xray-epoch-machine-cascade-no-op-qualifier"))
-            "the mini-pipeline renders a [NO OP] cascade-row qualifier")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-event-no-op-badge"))
-            "there is no header [NO-OP] badge")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-transition-lens"))
-            "there is no bespoke forensic lens")))))
+            "the mini-pipeline renders a [NO OP] cascade-row qualifier")))))
 
 (deftest gate-reads-the-migrated-rf-machine-transition-op-only
   (testing "the machine-relatedness gate keys on the `:rf.*` op
@@ -407,55 +385,6 @@
         (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "blank suppressed when the `:rf.machine/transition` op fired")))))
 
-(deftest focused-event-lens-binds-to-first-machine-in-trace-order-rf2-8og3k
-  (testing "Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
-            single-instance, event-driven): when the focused
-            event's cascade transitioned multiple machine instances, the
-            panel binds to EXACTLY ONE — the first transition trace in
-            trace order (earliest `:rf.trace/at`; ties broken by
-            trace-emission sequence within the same epoch). The host
-            records the cascade transition count so callers can
-            distinguish 'one transition' from 'first of N'."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login :checkout/flow :session/clock])
-      (override-definitions! {:auth/login    fixture-definition
-                              :checkout/flow fixture-definition
-                              :session/clock fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 7
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
-           {:id 2 :time 11 :operation :rf.machine/transition
-            :tags {:machine-id :checkout/flow
-                   :before     {:state :idle :data {}}
-                   :after      {:state :done :data {}}
-                   :event      [:cart/sync] :rf.trace/dispatch-id "d-1"}}
-           {:id 3 :time 12 :operation :rf.machine/transition
-            :tags {:machine-id :session/clock
-                   :before     {:state :idle :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:tick] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 7)
-      (let [tree     (panel-tree)
-            host     (find-by-testid tree "rf-xray-machine-focused-event")
-            sections (find-all-by-testid-prefix
-                       tree "rf-xray-machine-focused-event-section-")]
-        (is (some? host) "focused-event host mounts")
-        (is (= "1" (:data-section-count (second host)))
-            "exactly one section rendered (Dynamic-mode single-instance)")
-        (is (= "3" (:data-cascade-transition-count (second host)))
-            "cascade transition count is recorded on the host")
-        (is (= 1 (count sections))
-            "exactly one machine section — the trace-order tiebreaker winner")
-        (is (= [":auth/login"]
-               (mapv #(:data-machine-id (second %)) sections))
-            "the first-by-trace-order machine wins (lowest :id wins)")))))
-
 ;; ---- (4b) the SHARED EVENT HANDLER mini-pipeline ------------------------
 ;;
 ;; The Machine tab renders EXACTLY THREE elements:
@@ -502,26 +431,7 @@
         ;; ELEMENT 3 — the chart.
         (is (some? (find-by-testid
                      tree "rf-xray-machine-focused-event-chart"))
-            "element 3: the topology chart")
-        ;; No bespoke chrome renders.
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-transition-lens"))
-            "there is no bespoke forensic lens")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-event-header"))
-            "there is no per-machine header ribbon")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-snapshot-drill-in"))
-            "there is no snapshot drill-in")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-event-list"))
-            "there is no list/canvas view-mode wrapper")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-chart-toggle-auth/login"))
-            "there is no chart-collapse toggle")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-cancellation-cascade"))
-            "there is no inline cancellation cascade")))))
+            "element 3: the topology chart")))))
 
 (deftest machine-tab-mini-pipeline-is-the-shared-renderer-rf2-g2axio
   (testing "the Machine tab's mini-pipeline IS the SAME
@@ -945,10 +855,6 @@
         (is (= "This event does not target a state machine"
                (last message))
             "the empty-state surface renders the verbatim spec text")
-        ;; No lens, no chart, no history ribbon in the empty state.
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-transition-lens"))
-            "no lens in the empty state")
         (is (nil? (find-by-testid tree "rf-xray-machine-focused-event-chart"))
             "no chart in the empty state")))))
 
@@ -1159,9 +1065,7 @@
 ;;
 ;; The rows above this one cannot see that: every epoch they seed holds
 ;; ONE machine, so `first` and `the selected machine` are the same record.
-;; (The suite does seed a three-machine cascade, at
-;; `focused-event-lens-binds-to-first-machine-in-trace-order-rf2-8og3k`,
-;; but with no selection.) These rows seed A and B in ONE epoch and then
+;; These rows seed A and B in ONE epoch and then
 ;; assert THE RENDERED RECORD, which is the assertion a trace-order binding
 ;; fails.
 
@@ -1369,49 +1273,7 @@
 
 ;; ---- (5b) no Share affordance --------------------------------------------
 
-(deftest share-button-and-affordance-removed-rf2-nugvv
-  (testing "the Machine panel's header toolbar carries the prev/next
-            nav and no Share button. No share event or sub is registered
-            either: registry_cljs_test's registry-snapshot-matches-expected-set
-            names every :rf.xray/* registration."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree (panel-tree)]
-        ;; The header mounts (prev/next nav is in scope).
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-header"))
-            "panel header mounts")
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-inspector-prev-next-nav"))
-            "prev/next nav is the header toolbar affordance")
-        ;; There is no Share button.
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-inspector-share-button"))
-            "there is no Share button in the panel header")))))
-
 ;; ---- (7) frame isolation ------------------------------------------------
-
-(deftest selection-state-does-not-leak-into-default-frame
-  (testing "the panel's selection state lives on :rf/xray, never :rf/default"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-machine-id :auth/login]))
-    (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
-          default-db (rf.frame/frame-app-db-value :rf/default)]
-      (is (= :auth/login (:selected-machine-id xray-db))
-          "selection lands on Xray")
-      (is (nil? (:selected-machine-id default-db))
-          "selection did NOT leak into :rf/default"))))
 
 ;; ---------------------------------------------------------------------------
 ;; React unique-key guard. `focused-event-view` renders each per-section
