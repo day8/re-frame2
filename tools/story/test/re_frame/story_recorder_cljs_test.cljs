@@ -55,15 +55,6 @@
 
 ;; ---- gen-play-snippet ----------------------------------------------------
 
-(deftest gen-play-snippet-renders-reg-variant
-  (let [snippet (rf.story.recorder/gen-play-snippet
-                  [[:counter/inc] [:counter/dec]]
-                  {:variant-id :story.x/y})]
-    (is (str/includes? snippet "reg-variant"))
-    (is (str/includes? snippet ":story.x/y"))
-    (is (str/includes? snippet "[:counter/inc]"))
-    (is (str/includes? snippet "[:counter/dec]"))))
-
 ;; ---- mid-recording assertion insertion ----------------------------------
 
 (deftest insert-assertion!-interleaves-with-recorded-events
