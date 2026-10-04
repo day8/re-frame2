@@ -16,7 +16,10 @@
   lowered claims only until the next resource commit reconciles it against
   the current registrations.
 
-  Every scenario runs twice: re-registered, and unchanged as the control.
+  Every scenario runs re-registered and unchanged, the unchanged run as the
+  control. For a resource's prior data across a remove and a mutation's prior
+  result across a clear, the unchanged control is the read-sub egress suite's
+  load/refetch/evict and success/clear tests.
 
   Every assertion read off the trace bus sits inside a
   `(when rf.interop/debug-enabled? …)` arm: `trace/emit!` is dev
@@ -163,9 +166,6 @@
       (is (seq (sub-runs window)))
       (is (not (carries? ssn-1 (sub-runs window)))))))
 
-(deftest control-an-unchanged-resources-prior-data-stays-redacted-across-a-remove
-  (assert-prior-profile-redacted nil))
-
 (deftest a-re-registered-resources-prior-data-keeps-its-declaration-across-a-remove
   (testing "the owner is re-registered without its declaration before the remove"
     (assert-prior-profile-redacted {})))
@@ -205,9 +205,6 @@
         (is (= {:token redacted :ok true} (:rf.sub/prev-value result))))
       (is (seq (sub-runs window)))
       (is (not (carries? token (sub-runs window)))))))
-
-(deftest control-an-unchanged-mutations-prior-result-stays-redacted-across-a-clear
-  (assert-prior-result-redacted nil))
 
 (deftest a-re-registered-mutations-prior-result-keeps-its-declaration-across-a-clear
   (testing "the owner is re-registered without its declaration before the clear"
