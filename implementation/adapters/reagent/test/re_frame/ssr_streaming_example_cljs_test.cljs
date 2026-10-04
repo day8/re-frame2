@@ -119,11 +119,8 @@
           (str ":rf/suspense-boundary is a server-only marker; it must not "
                "reach a client render tree. Got: " html))
       (is (not (str/includes? html "<card"))
-          (str "A keyword view-ref head renders as a literal DOM tag on the "
-               "client. Got: " html))
-      (is (not (str/includes? html "<card-skeleton"))
-          (str "A keyword view-ref head renders as a literal DOM tag on the "
-               "client. Got: " html)))))
+          (str "A keyword view-ref head (`<card`, `<card-skeleton`) renders as "
+               "a literal DOM tag on the client. Got: " html)))))
 
 ;; ---- (2) the client paints the same structure the server streamed ----------
 
