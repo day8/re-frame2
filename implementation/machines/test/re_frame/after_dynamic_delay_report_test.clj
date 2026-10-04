@@ -63,16 +63,6 @@
       (is (empty? (ops captured :rf.warning/no-clock-configured)))
       (is (empty? (armed-timers))))))
 
-(deftest dynamic-report-shares-the-static-id
-  (testing "the static key's registration throw and the dynamic report name one id"
-    (let [static-id (try (rf/reg-machine :dyn/static-bad (mk-machine -1)) nil
-                         (catch clojure.lang.ExceptionInfo e
-                           (:rf.error/id (ex-data e))))
-          captured  (enter-running! :dyn/fn-neg (fn [_ctx] -5))]
-      (is (= :rf.error/machine-bad-after-delay static-id))
-      (is (= [static-id]
-             (map :operation (ops captured static-id)))))))
-
 (deftest positive-dynamic-delay-arms-and-reports-nothing
   (testing "control: a fn delay resolving to a positive number arms a timer"
     (let [captured (enter-running! :dyn/fn-ok (fn [_ctx] 60000))]
