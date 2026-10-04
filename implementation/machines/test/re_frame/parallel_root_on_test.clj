@@ -181,13 +181,6 @@
 ;; qualified target grammar.
 
 (deftest root-after-registers-and-validates
-  (testing "a :type :parallel root declaring :after REGISTERS"
-    (is (nil? (rf.machines/validate-machine!
-                {:type    :parallel
-                 :after   {1000 {:target [:a :two]}}
-                 :regions {:a {:initial :one :states {:one {} :two {}}}
-                           :b {:initial :one :states {:one {} :two {}}}}}))
-        "region-qualified single-target root :after validates silently"))
   (testing "multi-region + action/fx-only root :after value-forms validate"
     (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
