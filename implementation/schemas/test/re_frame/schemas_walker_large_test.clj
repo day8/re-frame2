@@ -91,29 +91,24 @@
 ;; shape stays minimal (Spec 009 §Size elision marker shape). Pinned
 ;; here at the walker level for BOTH flags.
 
-(deftest hint-propagated-verbatim-for-large
-  (testing "a :large? slot carrying :hint surfaces the hint verbatim in
-            the declaration map"
-    (is (= {[:upload] {:large? true :source :schema :hint "video-blob"}}
-           (rf.schemas/extract-large-paths-from-schema
-             [:map [:upload {:large? true :hint "video-blob"} :string]]
-             [])))))
-
-(deftest hint-propagated-verbatim-for-sensitive
-  (testing "a :sensitive? slot carrying :hint surfaces the hint verbatim —
-            :hint composes with either flag"
-    (is (= {[:password] {:sensitive? true :source :schema :hint "argon2id"}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:map [:password {:sensitive? true :hint "argon2id"} :string]]
-             [])))))
-
-(deftest hint-only-rides-when-flag-is-true
-  (testing "a slot carrying :hint but NOT the flag set to true produces
-            no declaration at all — the :hint is inert without its flag
+(deftest hint-rides-verbatim-only-beside-a-true-flag
+  (testing "a slot's :hint surfaces verbatim in the declaration for either
+            flag, and is inert without its flag set to true
             (declaration-from-properties gates on the flag-key, not on :hint)"
-    (is (= {} (rf.schemas/extract-large-paths-from-schema
-                [:map [:blob {:hint "orphan-hint"} :string]] []))
-        ":hint without :large? true → no declaration")
-    (is (= {} (rf.schemas/extract-large-paths-from-schema
-                [:map [:blob {:large? false :hint "x"} :string]] []))
-        ":large? false (not true) → no declaration even with a :hint")))
+    (are [extract schema expected] (= expected (extract schema []))
+      ;; :large? slot carrying :hint
+      rf.schemas/extract-large-paths-from-schema
+      [:map [:upload {:large? true :hint "video-blob"} :string]]
+      {[:upload] {:large? true :source :schema :hint "video-blob"}}
+      ;; :hint composes with :sensitive? too
+      rf.schemas/extract-sensitive-paths-from-schema
+      [:map [:password {:sensitive? true :hint "argon2id"} :string]]
+      {[:password] {:sensitive? true :source :schema :hint "argon2id"}}
+      ;; :hint without :large? true -> no declaration
+      rf.schemas/extract-large-paths-from-schema
+      [:map [:blob {:hint "orphan-hint"} :string]]
+      {}
+      ;; :large? false (not true) -> no declaration even with a :hint
+      rf.schemas/extract-large-paths-from-schema
+      [:map [:blob {:large? false :hint "x"} :string]]
+      {})))
