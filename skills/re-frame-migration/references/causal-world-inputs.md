@@ -25,11 +25,11 @@ The split mirrors the cofx doctrine: production host-reads come from a recordabl
 
 Every host read the migration touches falls into exactly one bucket. The rewrite is forced **only** for the durable bucket.
 
-- **Durable** — the read's value is written into `:db`, `:rf.db/runtime`, a resource entry, a work-ledger row, a machine snapshot, durable routing state, an epoch snapshot, or a hydration payload. **MUST move to a causal token / recordable coeffect.** This is the only bucket that changes.
+- **Durable** — the read's value is written into `:db`, `:rf.db/runtime`, a resource entry, a work-ledger row, a machine snapshot, durable routing state, an epoch snapshot, or a hydration payload — **or it decides such a write without being stored anywhere**: a guard that picks which `:db` the handler returns, which effect it emits or suppresses, or which child event it dispatches. **MUST move to a causal token / recordable coeffect.** This is the only bucket that changes.
 - **Diagnostic** — the read feeds a trace row, a performance span, a log line, a local devtool view, or an always-on error record that does **not** change frame-state. **May stay ambient.** (`now-ms` for a dev-only elapsed-time log is fine.)
 - **Host-transient** — the read manages a timer handle, an `AbortController`, a socket, a promise, a DOM/listener handle, a cache cell, or a monotonic high-water allocator that lives *outside* frame-state. **May stay ambient**, but if its later result will affect durable state it must dispatch a causal token first (e.g. a stale-sweep timer re-reads the durable entry and writes using the *timer-fire event's* `:time-ms`, not its own ambient clock).
 
-The test for "durable": *does this value ride restore/replay/SSR?* If yes, it is durable, and an ambient read of it is the violation.
+The test for "durable": *does this value ride restore/replay/SSR, or would replaying the same token against different host state return a different result?* If yes, it is durable, and an ambient read of it is the violation.
 
 ## Identify — the up-front grep
 
@@ -50,6 +50,38 @@ rg -n 'inject-cofx|:rf.world/inputs|:rf.world/keys|:now\b' src
 > **Keep these aligned with the framework's own check.** `scripts/check_ambient_durable_reads.py` is the authoritative ambient-durable-read detector for the re-frame2 codebase; its clock/random pattern list (`now-ms` / `js/Date.now` / `.now js/Date` / `random-uuid` / `getRandomValues`) is the canonical core. The extra raw-JS forms above (`(js/Date.)` + `.getTime`, `js/Math.random` / `.random js/Math`, `crypto.randomUUID` / `.randomUUID js/crypto`) are the ones a **v1 consumer app** commonly uses that the framework code does not — a migration grep that only covers the framework's set under-reports and can falsely conclude EP-0010 is clean. Include both.
 
 For each hit: if the value flows into a durable write → it migrates (below). If it's diagnostic or host-transient → leave it, and note in the report *why* it's allowed to stay ambient.
+
+**Then walk the callees — a zero-hit census does not finish the audit.** The patterns match direct calls only. A handler that calls a helper over a host-owned atom reads the host just as ambiently, and nothing above matches it:
+
+```clojure
+(defonce host-editor (atom nil))                ; the host owner: holds the live JS editor
+(defn editor-ready? [] (boolean @host-editor))
+
+(rf/reg-event :document/maybe-save
+  (fn [{:keys [db]} _]
+    (if (editor-ready?)                         ; never stored, yet it picks the :db result
+      {:db (assoc db :saved? true)}
+      {})))
+```
+
+So follow the calls each handler, reducer, machine action and guard makes back to their source. A deref of an atom the host owns, or a host API reached through a helper, is a host read: classify it like a direct hit. Here the boolean selects the durable write, so it is durable although nothing stores it. Record the minimal normalized fact and leave the handle with its owner — a recordable coeffect whose supplier reduces the handle to EDN:
+
+```clojure
+(rf/reg-cofx :editor/ready? {:recordable? true} (fn [] (editor-ready?)))
+
+(rf/reg-event :document/maybe-save
+  {:rf.cofx/requires [:editor/ready?]}
+  (fn [{:keys [db editor/ready?]} _]
+    (if ready? {:db (assoc db :saved? true)} {})))
+```
+
+Live, the supplier runs at processing-start and `{:editor/ready? true}` is recorded in the token's `:rf.cofx`; replay re-presents it and takes the same branch whatever the editor is doing by then. Where the code that owns the editor also dispatches the event, the event payload (below) is the simpler route.
+
+The walk does not mean recording every atom read. Leave these alone:
+
+- a value derived from app-db, however many helpers it passes through — the [source triage](#triage-in-handler-reads-by-source) reads it from `:db`;
+- a read that feeds only a log line, a trace or a devtool view (diagnostic);
+- a read that only manages the handle — creating, focusing or disposing the editor in an effect or a lifecycle hook — with no durable result (host-transient).
 
 ## Route time → declare `:rf/time-ms`
 
