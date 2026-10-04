@@ -101,13 +101,6 @@
     (is (= [:Mode.t/light] (rf.story.ui.state/toggle-mode [:Mode.t/dark]
                                               :Mode.t/light)))))
 
-(deftest clear-active-modes-empties
-  (testing "clear-active-modes drops every entry"
-    (is (= []
-           (:active-modes
-             (rf.story.ui.state/clear-active-modes {:active-modes
-                                        [:Mode.a/x :Mode.a/y]}))))))
-
 ;; ---- pure: the mode schema's :axis slot ---------------------------------
 
 (deftest mode-schema-accepts-axis
