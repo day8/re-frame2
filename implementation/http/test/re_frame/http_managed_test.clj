@@ -2129,18 +2129,18 @@
     (is (zero? (rf.http.registry/issuance-counter-count)))
     ;; Adversarial: 500 DISTINCT single-issuance request-ids, each issued once
     ;; then completed. Without eviction the map would end holding 500 entries; the
-    ;; conditional-atomic evict on completion keeps it at zero.
-    (doseq [i (range 500)]
-      (let [rid      [:fetch-doc i]
-            issuance (rf.http.registry/next-issuance! :frame/counters rid)]
-        (is (= 1 issuance) "a fresh distinct id starts at issuance 1")
-        (is (= 1 (rf.http.registry/issuance-counter-count))
-            "exactly one live counter while the request is in flight")
-        (rf.http.registry/evict-issuance-on-completion! :frame/counters rid issuance)
-        (is (zero? (rf.http.registry/issuance-counter-count))
-            "the counter is evicted the moment the request completes")))
-    (is (zero? (rf.http.registry/issuance-counter-count))
-        "the map stays bounded across 500 distinct single-issuance request-ids")))
+    ;; conditional-atomic evict on completion keeps it at zero. Each row is
+    ;; [i issuance live-count-in-flight count-after-completion], and the read
+    ;; reports every row that strays from [1 1 0].
+    (let [rows (mapv (fn [i]
+                       (let [rid      [:fetch-doc i]
+                             issuance (rf.http.registry/next-issuance! :frame/counters rid)
+                             live     (rf.http.registry/issuance-counter-count)]
+                         (rf.http.registry/evict-issuance-on-completion! :frame/counters rid issuance)
+                         [i issuance live (rf.http.registry/issuance-counter-count)]))
+                     (range 500))]
+      (is (= [] (filterv (fn [[_ issuance live after]] (not= [1 1 0] [issuance live after])) rows))
+          "every distinct id starts at issuance 1, holds exactly one live counter while in flight, and is evicted the moment it completes, so the map stays bounded across 500 ids"))))
 
 (deftest issuance-counter-eviction-preserves-live-successor
   (testing "the eviction is CONDITIONAL-ATOMIC (evict only when
