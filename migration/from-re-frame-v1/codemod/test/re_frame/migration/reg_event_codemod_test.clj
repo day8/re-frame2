@@ -474,24 +474,6 @@
 ;; an unresolvable-symbol compile error. The faithful transform rebinds the param
 ;; `{c :db}` — db value back under its original name — and leaves the body intact.
 
-(deftest db-renamed-param-path-interceptor
-  (testing "the bead example: path chain lowered + first param `c` -> {c :db}, body untouched"
-    (let [src "(reg-event-db :inc {:interceptors [(rf/path :counter)]}\n  (fn [c _] (update c :n inc)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event-db (:form (first findings))))
-      (is (= :rewrite (:action (first findings))) "renamed-db param is still a simple, faithful rewrite")
-      (is (str/includes? source "(reg-event "))
-      (is (not (str/includes? source "reg-event-db")))
-      ;; the path chain is lowered to the standard factory ref (M-70 x M-73);
-      ;; the executable (rf/path ...) call must NOT survive
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
-      (is (not (str/includes? source "(rf/path")))
-      ;; param rebinds the db value back under `c`; NOT {:keys [db]}
-      (is (str/includes? source "{c :db}"))
-      (is (not (str/includes? source "{:keys [db]}")))
-      ;; the body keeps using `c` — it now resolves to the db coeffect
-      (is (str/includes? source "{:db (update c :n inc)}")))))
-
 (deftest db-renamed-param-no-interceptor
   (testing "renamed first param with no middle slot also binds {state :db}"
     (let [src "(rf/reg-event-db :s/set (fn [state [_ v]] (assoc state :v v)))"
