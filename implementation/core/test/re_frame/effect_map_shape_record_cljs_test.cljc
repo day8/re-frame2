@@ -43,7 +43,7 @@
   sentence by interpolating the key and event id, and it is the slot
   `emit-error-both!`'s component-attribution lift would drag onto the record if
   `:failing-id` ever diverged from `:event-id`. It does not diverge
-  here, and `the-record-carries-no-payload-derived-value` is what keeps that
+  here, and `the-always-on-record-key-set-is-closed` is what keeps that
   true.
 
   Deliberately NOT used: `with-redefs` on `interop/debug-enabled?` — the flag is
@@ -54,7 +54,6 @@
   Plain CLJC; no DOM dependency."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.event-emit :as rf.event-emit]
@@ -84,14 +83,6 @@
   `:offending-key`."
   #{:error :event :event-id :frame :time :exception :elapsed-ms :source-coord
     :offending-key})
-
-(def ^:private payload-bearing-keys
-  "Slots the DEV TRACE carries that the always-on record must NEVER.
-
-  `:value` is the rejected effect payload verbatim; `:reason` is prose that
-  interpolates the offending key into a sentence; `:rf.event/v` is the whole
-  event vector unelided. All three stay on the axis that DCEs."
-  #{:value :reason :rf.event/v :rf.trace/event-id})
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers — read the ALWAYS-ON axis, which is what a production build has.
@@ -174,22 +165,16 @@
 (deftest the-always-on-record-key-set-is-closed
   (testing "every slot on this record reaches an off-box shipper. Adding one is
             an egress decision; this assertion is where it gets reviewed. Read
-            `router/emit-effect-map-shape!`'s §Egress before widening it."
-    (let [rec (first (refuse! {:acme/foreign 1} :bad/closed))]
+            `router/emit-effect-map-shape!`'s §Egress before widening it. The
+            key is program structure; the VALUE the handler built is not. A
+            refused payload is handler-authored and, on any path fed from a
+            system boundary, attacker-controlled or user-private."
+    (let [secret "sentinel-secret-value"
+          rec    (first (refuse! {:acme/foreign {:token secret}} :bad/closed))]
       (is (= record-keys (set (keys rec)))
           (str "the always-on record's key set is CLOSED. Extra keys are an "
                "unreviewed egress widening; a MISSING `:offending-key` leaves a "
-               "production build blind to the cause.")))))
-
-(deftest the-record-carries-no-payload-derived-value
-  (testing "the key is program structure; the VALUE the handler built is not.
-            A refused payload is handler-authored and, on any path fed from a
-            system boundary, attacker-controlled or user-private."
-    (let [secret "sentinel-secret-value"
-          rec    (first (refuse! {:acme/foreign {:token secret}} :bad/carrier))]
-      (is (some? rec) "precondition: the refusal fanned its record")
-      (is (empty? (set/intersection payload-bearing-keys (set (keys rec))))
-          "no payload-bearing slot is present")
+               "production build blind to the cause."))
       (is (not (str/includes? (pr-str rec) secret))
           "and the payload's content does not reach the record by ANY route —
            not under :value, not interpolated into a :reason"))))
