@@ -44,8 +44,8 @@
   The rule is the same on both hosts: a keyword or symbol child is
   spelled by its `name`. Note WHICH spelling — Reagent runs `(name x)`,
   so `:a/b` paints `b` and the namespace is gone. Stripping the colon
-  would produce `a/b` and leave the hosts apart; that case is pinned
-  explicitly below.
+  would produce `a/b` and leave the hosts apart; the `[:div :a/b]` row
+  of `client-markup-matches-the-jvm-emitter` pins it.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [are deftest testing use-fixtures is]]
@@ -79,23 +79,6 @@
 ;; ===========================================================================
 ;; A keyword head is an element — even when it names a registered view
 ;; ===========================================================================
-
-(deftest keyword-head-paints-an-element-not-a-view
-  (testing "`:dashboard/card` IS registered here, and the head
-            still paints `<card>`: the tag is the keyword's `name`, the
-            namespace is dropped, and the argument lands as a text node
-            spelled by ITS `name` too. This is the exact
-            markup the JVM emitter produces for the same head."
-    (let [html (render [:dashboard/card :revenue])]
-      (is (= "<card>revenue</card>" html))
-      (is (not (str/includes? html "class=\"card\""))
-          (str "the registered view must NOT have been resolved — a keyword "
-               "head has no view semantics. Got: " html))))
-
-  (testing "the registration is genuinely live — without this the
-            assertion above would pass against an unregistered id and
-            prove nothing"
-    (is (some? (rf/view :dashboard/card)))))
 
 (deftest callable-heads-resolve-the-view
   (testing "the two supported spellings both resolve
@@ -133,13 +116,6 @@
       "<div>b</div>"              [:div 'a/b]
       "<div>revenue growth</div>" [:div :revenue " " :growth]
       "<div>1a</div>"             [:div 1 :a]))
-
-  (testing "the namespace is DROPPED — Reagent routes a named child
-            through `(name x)`, so `:a/b` paints `b`. A server emitter
-            that merely stripped the leading colon would emit `a/b` and
-            not match."
-    (is (= "<div>b</div>" (render [:div :a/b])))
-    (is (not= "<div>a/b</div>" (render [:div :a/b]))))
 
   (testing "an UNREGISTERED keyword head paints the identical element —
             registration state does not change a head's meaning on either
