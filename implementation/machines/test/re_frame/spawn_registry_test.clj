@@ -30,8 +30,8 @@
       prefix-path so two states named `:loading` in different parents
       do not collide either.
 
-  The CLJS-side coverage of the same invariants lives in
-  machines_spawn_cljs_test.cljs (machine-spawn-cljs and friends); these
+  The dual-host coverage of the registry slot lives in
+  spawn_reentry_mirror_cljs_test and tracked_slot_prune_cljs_test; these
   JVM-side tests run on the plain-atom substrate and assert against
   the runtime-db slot directly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
