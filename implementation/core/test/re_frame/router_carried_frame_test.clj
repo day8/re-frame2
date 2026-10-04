@@ -15,15 +15,17 @@
        frame-registry lookup. There is no `:rf/default` floor.
 
   This file pins the EP §3 test matrix:
-    - bare dispatch outside any context FAILS;
+    - bare dispatch outside any context FAILS. An async bare dispatch after
+      the scope unwinds is the same case: a captured thunk reads the
+      ambient frame when it is invoked, not when it was captured;
     - dispatch under `with-frame` works;
-    - async bare dispatch after the scope unwinds FAILS;
-    - frame-bound (held) dispatch after the scope unwinds works;
-    - explicit `{:frame :rf/default}` works only if that frame is
-      registered (and raises `:rf.error/frame-destroyed`, NOT
-      `:rf.error/no-frame-context`, when it is not — a bad explicit
-      target is a registry-lookup failure, a different category from
-      absence).
+    - frame-bound (held) dispatch after the scope unwinds works — pinned,
+      together with `bind-fn`'s rebinding, by `re-frame.capture-frame-test`;
+    - an explicit `{:frame …}` wins over the scope, and an explicit
+      `{:frame :rf/default}` that is not registered raises
+      `:rf.error/frame-destroyed`, NOT `:rf.error/no-frame-context` — a
+      bad explicit target is a registry-lookup failure, a different
+      category from absence.
 
   The `frame-provider` (React-context) tier is platform-specific and is
   exercised in `re-frame.router-carried-frame-cljs-test`.
@@ -168,72 +170,7 @@
     (is (= 1 (:n (rf/app-db-value :app/main)))
         "the handler ran against the with-frame scope frame")))
 
-;; ---- async bare dispatch after scope unwinds FAILS ------------------------
-
-(deftest async-bare-dispatch-after-unwind-fails
-  (testing "a callback CAPTURED inside a scope but INVOKED after the scope
-            unwinds — with a bare `dispatch` (no captured handle) — fails:
-            the dynamic binding did not survive the async escape, so there
-            is no carried stamp"
-    (rf/make-frame {:id :app/main :doc "scope frame"})
-    (rf/reg-event :app/noop {:frame :app/main} (fn [{:keys [db]} _] {:db db}))
-    ;; Capture a thunk inside the scope; the bare dispatch reads the
-    ;; ambient frame at INVOKE time, not capture time.
-    (let [thunk (rf/with-frame :app/main
-                  (fn [] (rf/dispatch-sync [:app/noop])))]
-      ;; Invoke after the scope has unwound (the JS async-callback shape:
-      ;; fresh stack, no dynamic binding).
-      (binding [rf.frame/*current-frame* nil]
-        (let [ex (no-frame-context-ex thunk)]
-          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
-              "the unwound bare dispatch raised :rf.error/no-frame-context"))))))
-
-;; ---- frame-bound (held) dispatch after unwind works -----------------------
-
-(deftest frame-bound-dispatch-after-unwind-works
-  (testing "a capture-frame CAPTURED inside the scope carries the frame
-            stamp as a VALUE; calling its `:dispatch` after the scope
-            unwinds still targets the captured frame (the hold tier)"
-    (rf/make-frame {:id :app/main :doc "scope frame"})
-    (rf/reg-event :app/inc {:frame :app/main}
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [handle (rf/with-frame :app/main
-                   (rf/capture-frame))]            ;; no-arg capture inside scope
-      (is (= :app/main (:frame handle))
-          "the handle captured the scope frame at creation time")
-      ;; Fire after the scope has unwound — the held stamp survives.
-      (binding [rf.frame/*current-frame* nil]
-        ((:dispatch-sync handle) [:app/inc]))
-      (is (= 1 (:n (rf/app-db-value :app/main)))
-          "the held dispatch ran against the captured frame despite no scope"))))
-
-(deftest bind-fn-after-unwind-works
-  (testing "re-frame.frame/bind-fn (the internal dynamic-rebinding
-            primitive) re-establishes the captured scope so an inner bare dispatch
-            resolves the captured frame after unwind"
-    (rf/make-frame {:id :app/main :doc "scope frame"})
-    (rf/reg-event :app/inc {:frame :app/main}
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [bound (rf/with-frame :app/main
-                  (rf.frame/bind-fn :app/main (fn [] (rf/dispatch-sync [:app/inc]))))]
-      (binding [rf.frame/*current-frame* nil]
-        (bound))
-      (is (= 1 (:n (rf/app-db-value :app/main)))
-          "bind-fn re-bound the captured frame for the inner dispatch"))))
-
-;; ---- explicit {:frame :rf/default} works only if registered ---------------
-
-(deftest explicit-default-works-when-registered
-  (testing "explicit `{:frame :rf/default}` is an override and works when
-            `:rf/default` is registered as an ordinary frame"
-    (rf/make-frame {:id :rf/default :doc "ordinary explicit frame"})
-    (rf/reg-event :app/inc {:frame :rf/default}
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    ;; No surrounding scope — the explicit override carries the stamp.
-    (binding [rf.frame/*current-frame* nil]
-      (rf/dispatch-sync [:app/inc] {:frame :rf/default}))
-    (is (= 1 (:n (rf/app-db-value :rf/default)))
-        "the explicit :rf/default override resolved and ran the handler")))
+;; ---- explicit {:frame :rf/default} unregistered is a bad target ----------
 
 (deftest explicit-default-unregistered-is-frame-destroyed-not-no-frame-context
   (testing "explicit `{:frame :rf/default}` when :rf/default is NOT
