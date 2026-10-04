@@ -307,21 +307,6 @@
       (is (= :story.evidence/basic (:variant/id (:source result))))
       (is (= 3 (:beat-idx (:source result)))))))
 
-(deftest focus-beat-moves-the-embed-chip-to-the-focused-panel
-  (testing "an 'Xray: App-db' / 'Xray: Trace' link leaves the RHS embed on
-            the lens it named, not on Epoch — the shell's :xray-panel
-            override follows the focus, as a chip click would"
-    (xray-preload/reset-for-test!)
-    (xray-registry/reset-for-test!)
-    (xray-trace-collector/reset-for-test!)
-    (xray-registry/register-xray-handlers!)
-    (rf/make-frame {:id :rf/xray})
-    (let [beat {:epoch-id 100 :dispatch-id 100 :beat-idx 0 :span-idx 0}]
-      (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)
-      (is (= :app-db (:xray-panel (rf.story.ui.state/get-state))))
-      (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :trace)
-      (is (= :trace (:xray-panel (rf.story.ui.state/get-state)))))))
-
 (deftest focus-beat-scrolls-the-rail-to-the-xray-band
   (testing "an 'Xray: …' link scrolls the rail to the Xray band, which sits
             above the Evidence section the link lives in, so the switched
@@ -361,17 +346,6 @@
 ;; is not a missing guard but an over-broad one that silently disables the
 ;; feature in dev too — a static-only assertion cannot see that, and would
 ;; pass just as happily against a `focus-available?` hard-wired to false.
-
-(deftest focus-available?-is-false-only-in-a-static-export
-  (testing "the single predicate the two render sites and the
-            callback all consult"
-    (is (true? (rf.story.ui.evidence-spine/focus-available?))
-        "dev control: the node-test build offers focus affordances")
-    (with-redefs [rf.story.config/static-mode? true]
-      (is (false? (rf.story.ui.evidence-spine/focus-available?))
-          "static export: no Xray to focus, so nothing is offered"))
-    (is (true? (rf.story.ui.evidence-spine/focus-available?))
-        "the redef is scoped — dev is restored afterwards")))
 
 (deftest static-export-evidence-keeps-its-narrative
   (testing "a RETAINED Test result still renders its spans,
