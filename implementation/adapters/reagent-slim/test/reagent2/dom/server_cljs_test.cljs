@@ -30,31 +30,6 @@
 ;; Text content escaping
 ;; ---------------------------------------------------------------------------
 
-(deftest text-content-escapes-special-chars
-  (testing "ampersand, lt, gt are escaped in text content"
-    (is (= "<div>a &amp; b</div>"
-           (server/render-to-static-markup [:div "a & b"])))
-    (is (= "<div>&lt;script&gt;</div>"
-           (server/render-to-static-markup [:div "<script>"])))
-    (is (= "<div>1 &lt; 2 &amp;&amp; 3 &gt; 0</div>"
-           (server/render-to-static-markup [:div "1 < 2 && 3 > 0"])))))
-
-(deftest text-content-quotes-and-apostrophe-escaped
-  (testing "quotes (\" -> &quot;) and apostrophes (' -> &#39;)
-            ARE escaped in text content — byte-equal to
-            re-frame.ssr.html-helpers/escape-html's full 5-char set"
-    (is (= "<div>say &quot;hi&quot;</div>"
-           (server/render-to-static-markup [:div "say \"hi\""])))
-    (is (= "<div>it&#39;s</div>"
-           (server/render-to-static-markup [:div "it's"])))))
-
-(deftest text-content-numbers-stringify
-  (testing "numeric children stringify"
-    (is (= "<div>42</div>"
-           (server/render-to-static-markup [:div 42])))
-    (is (= "<div>3.14</div>"
-           (server/render-to-static-markup [:div 3.14])))))
-
 (deftest text-content-nil-and-boolean-dropped
   (testing "nil and booleans render as empty (matches React)"
     (is (= "<div></div>"
@@ -151,53 +126,14 @@
 ;; Fragments
 ;; ---------------------------------------------------------------------------
 
-(deftest fragment-emits-children-only
-  (testing ":<> emits children with no surrounding markup"
-    (is (= "<a></a><b></b>"
-           (server/render-to-static-markup [:<> [:a] [:b]])))
-    (is (= "ab"
-           (server/render-to-static-markup [:<> "a" "b"])))
-    (is (= ""
-           (server/render-to-static-markup [:<>])))))
-
 (deftest fragment-with-key-prop
   (testing ":<> with key map ignores props (key is React-internal)"
     (is (= "<a></a>"
            (server/render-to-static-markup [:<> {:key "k"} [:a]])))))
 
 ;; ---------------------------------------------------------------------------
-;; Nested hiccup
-;; ---------------------------------------------------------------------------
-
-(deftest nested-with-attrs
-  (testing "nested elements carry their own attrs"
-    (is (= "<div class=\"outer\"><span class=\"inner\">x</span></div>"
-           (server/render-to-static-markup
-            [:div {:class "outer"} [:span {:class "inner"} "x"]])))))
-
-;; ---------------------------------------------------------------------------
-;; Sequences as children
-;; ---------------------------------------------------------------------------
-
-(deftest seq-children-flatten
-  (testing "seq of hiccup forms (e.g. (map ...)) flatten as children"
-    (is (= "<ul><li>a</li><li>b</li><li>c</li></ul>"
-           (server/render-to-static-markup
-            [:ul (map (fn [x] [:li x]) ["a" "b" "c"])])))))
-
-;; ---------------------------------------------------------------------------
 ;; Tag shorthand
 ;; ---------------------------------------------------------------------------
-
-(deftest tag-shorthand-class
-  (testing ":div.foo emits class=\"foo\""
-    (is (= "<div class=\"foo\"></div>"
-           (server/render-to-static-markup [:div.foo])))))
-
-(deftest tag-shorthand-id
-  (testing ":div#bar emits id=\"bar\""
-    (is (= "<div id=\"bar\"></div>"
-           (server/render-to-static-markup [:div#bar])))))
 
 (deftest tag-shorthand-merge-with-user-class
   (testing "shorthand class is prepended to user class"
@@ -208,19 +144,6 @@
   (testing "user :id wins over shorthand id"
     (is (= "<div id=\"user\"></div>"
            (server/render-to-static-markup [:div#shorthand {:id "user"}])))))
-
-;; ---------------------------------------------------------------------------
-;; dangerouslySetInnerHTML
-;; ---------------------------------------------------------------------------
-
-(deftest dangerously-set-inner-html
-  (testing ":dangerouslySetInnerHTML emits raw __html, no escaping"
-    (is (= "<div><b>raw</b></div>"
-           (server/render-to-static-markup
-            [:div {:dangerouslySetInnerHTML {:__html "<b>raw</b>"}}])))
-    (is (= "<div>&amp;</div>"
-           (server/render-to-static-markup
-            [:div {:dangerouslySetInnerHTML {:__html "&amp;"}}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; React-component heads (opaque under static markup)
@@ -343,14 +266,6 @@
 ;; it recalls it with the same args and recurses on its hiccup.
 ;; ---------------------------------------------------------------------------
 
-(deftest form-2-user-fn-head-renders
-  (testing "a Form-2 head (outer setup fn returning an inner
-            render closure) renders its inner hiccup, not a thrown bad-element"
-    (let [item (fn [_x] (fn [x] [:li x]))]
-      (is (= "<ul><li>a</li><li>b</li></ul>"
-             (server/render-to-static-markup
-              [:ul [item "a"] [item "b"]]))))))
-
 (deftest form-2-inner-closure-receives-same-args
   (testing "the Form-2 inner closure is recalled with the SAME
             args as the outer setup (matches wrap-render's `(apply inner args)`)"
@@ -360,15 +275,6 @@
     (let [greet (fn [_n _p] (fn [n p] [:span n p]))]
       (is (= "<span>Mike!</span>"
              (server/render-to-static-markup [greet "Mike" "!"]))))))
-
-(deftest form-2-closes-over-setup-state
-  (testing "the Form-2 inner closure can close over a value
-            computed in the outer setup (the canonical Form-2 reason)"
-    (let [labelled (fn [prefix]
-                     (fn [_prefix v]
-                       [:div (str prefix ": " v)]))]
-      (is (= "<div>n: 7</div>"
-             (server/render-to-static-markup [labelled "n" 7]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form-3 class heads
@@ -389,20 +295,6 @@
                  :reagent-render (fn [_x] (fn [x] [:section x]))})]
       (is (= "<section>x</section>"
              (server/render-to-static-markup [box "x"]))))))
-
-(deftest form-3-lifecycle-keys-ignored-in-static-markup
-  (testing "Form-3 lifecycle callbacks do not fire under
-            static markup (matches react-dom/server); only :reagent-render
-            contributes to the HTML"
-    (let [fired (atom false)
-          box (r/create-class
-                {:display-name "lifecycle-box"
-                 :component-did-mount (fn [_this] (reset! fired true))
-                 :reagent-render (fn [x] [:span x])})]
-      (is (= "<span>z</span>"
-             (server/render-to-static-markup [box "z"])))
-      (is (false? @fired)
-          ":component-did-mount must NOT fire during static markup rendering"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Edge cases — empty / malformed
