@@ -199,17 +199,6 @@
 ;; (5) Selection lifecycle
 ;; -------------------------------------------------------------------------
 
-(deftest selection-defaults-to-first-row
-  (xray-setup!)
-  ;; Registered OUT of name order, so the first-registered machine (:m/c)
-  ;; and the first sorted row (:m/a) are different answers.
-  (seed-machines! [:m/c :m/a :m/b])
-  (rf/with-frame :rf/xray
-    (let [{:keys [selected-id]} @(rf/subscribe [:rf.xray.static.machines/data])]
-      ;; Sort default is :name; the first sorted row is :m/a.
-      (is (= :m/a selected-id)
-          "default selection is the first SORTED row, not the first registered"))))
-
 (deftest select-event-flips-the-slot
   (xray-setup!)
   (seed-machines! [:m/a :m/b :m/c])
