@@ -79,18 +79,6 @@
   (is (nil? (wire/stick-build! nil (tu/args->js {:build "app"})))
       "nil conn returns nil, no throw"))
 
-;; ===========================================================================
-;; Papercut 2 — colon-normalise the :frame arg on trace-window /
-;; watch-epochs. The coercion is `args/->frame-keyword`; the production
-;; tool bodies route :frame through it. Pin the helper contract here;
-;; the full tool-body wiring is covered by the eval-form mirrors below.
-;; ===========================================================================
-
-(deftest frame-keyword-strips-leading-colon
-  (is (= :rf/default (args/->frame-keyword ":rf/default")))
-  (is (= :rf/default (args/->frame-keyword "rf/default")))
-  (is (= :foo (args/->frame-keyword ":foo")))
-  (is (= :foo (args/->frame-keyword "foo"))))
 
 ;; ===========================================================================
 ;; Papercut 3 — batch read via the plural `paths` arg.

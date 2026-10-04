@@ -122,6 +122,7 @@
     (is (nil? (args/->id-keyword 42))))
   (testing "->frame-keyword is the same gate"
     (is (= :rf/xray (args/->frame-keyword ":rf/xray")))
+    (is (= :rf/default (args/->frame-keyword "rf/default")))
     (is (nil? (args/->frame-keyword (str "rf/xray (" payload ")"))))))
 
 (deftest invalid-id-keyword-finds-a-bad-key-at-any-depth
