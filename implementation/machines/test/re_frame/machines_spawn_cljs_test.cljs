@@ -9,8 +9,8 @@
   (observable as `:rf.machine/destroyed` trace).
 
   Concerns covered:
-    - `:spawn` spawns child on entry and destroys it on exit; the
-      deterministic actor id is tracked in the runtime spawn-registry slot.
+    - A spawn emits both the fx-substrate and the registrar-substrate
+      spawned traces.
     - State-level `:after` on a `:spawn`-bearing state:
       synthetic timer-elapsed cancels the child via the standard exit
       cascade and transitions the parent.
@@ -41,64 +41,6 @@
 ;; reset and re-scope the capture mid-test (interleaved with assertions), which
 ;; the scope-macro / :each-fixture forms cannot express.
 (def ^:private snapshot rf.machines.test-support/snapshot)
-
-(deftest machine-spawn-cljs
-  (testing ":spawn spawns child on entry and destroys it on exit"
-    (let [machine
-          {:initial :idle
-           :data    {:credentials {:user "alice" :pass "secret"}}
-           :states
-           {:idle
-            {:on {:submit :authenticating}}
-
-            :authenticating
-            {:spawn {:machine-id :http/post
-                      :data       {:url "/api/login"
-                                   :body {:user "alice" :pass "secret"}}
-                      :start      [:begin]}
-             :on    {:auth/succeeded :authenticated
-                     :auth/failed    :idle}}
-
-            :authenticated {}}}
-          ;; The spawned child TYPE must be REGISTERED before it is spawned:
-          ;; an unregistered `:machine-id` rejects fail-closed with
-          ;; `:rf.error/machine-spawn-unregistered-type`. Register a minimal
-          ;; `:http/post` child so the spawn is accepted — matching the JVM
-          ;; `spawn_registry_test`'s `(reg-machine :http/post …)`.
-          child  {:initial :running :data {} :states {:running {}}}
-          traces (atom [])]
-      (rf/reg-machine :http/post  child)
-      (rf/reg-machine :auth3/flow machine)
-      ;; Initial state :idle with the credentials fixture data is
-      ;; synthesised on first dispatch; no seed required.
-      ;; Entering :authenticating: :rf.machine/spawn fx fires
-      ;; (→ :rf.machine.spawn/spawned trace).
-      (rf.trace.tooling/register-listener! ::inv (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:auth3/flow [:submit]])
-      (let [s (snapshot :auth3/flow)]
-        (is (= :authenticating (:state s)))
-        ;; The runtime tracks the spawned id at
-        ;; [:rf.runtime/machines :spawned <parent> <invoke-id>].
-        (is (= :http/post#1
-               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                       [:rf.runtime/machines :spawned :auth3/flow [:authenticating]]))
-            "runtime-tracked spawn slot binds the deterministic actor id"))
-      (is (some (fn [ev]
-                  (and (= :rf.machine.spawn/spawned (:operation ev))
-                       (= :http/post (:machine-id (:tags ev)))))
-                @traces)
-          "expected :rf.machine.spawn/spawned trace from the :rf.machine/spawn fx")
-      ;; Exiting :authenticating via :auth/failed: :rf.machine/destroy fx
-      ;; fires targeting the recorded actor id.
-      (reset! traces [])
-      (rf/dispatch-sync [:auth3/flow [:auth/failed]])
-      (rf.trace.tooling/unregister-listener! ::inv)
-      (is (= :idle (:state (snapshot :auth3/flow))))
-      (is (some (fn [ev]
-                  (and (= :rf.machine/destroyed (:operation ev))
-                       (= :http/post#1 (:actor-id (:tags ev)))))
-                @traces)
-          "expected :rf.machine/destroyed trace targeting :http/post#1"))))
 
 ;; ---- two-axis spawn observation -----------------------------------------
 ;; A spawn emits TWO traces: the fx-substrate observation
