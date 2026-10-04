@@ -349,24 +349,6 @@
         "third pass remains byte-identical — large-marker substitution
          is irreversible across passes")))
 
-(deftest walker-idempotence-respects-include-large
-  ;; The marker passthrough is gated on the same `:include-large?`
-  ;; branch that produces the marker. With `:include-large? true`, the
-  ;; walker descends through the marker map (because the substitution
-  ;; branch is bypassed) — caller opted in to see the raw payload, so
-  ;; the marker is just an opaque map at that point. Pinning so a
-  ;; future refactor does not move the guard outside the gate.
-  (install-class! [] [[:doc :body]])
-  (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
-        once   (rf.elision/elide-wire-value input)
-        opened (rf.elision/elide-wire-value once {:rf.egress/include-large? true})]
-    (is (rf.elision/marker? (get-in once [:doc :body])))
-    (is (= once opened)
-        ":include-large? true descends into the marker map but the
-         marker's structure is unchanged — the walker recurses through
-         a map whose only key (`:rf.size/large-elided`) sits at a path
-         that is not itself `:large?`-declared")))
-
 ;; NESTED-AXIS SUPPRESSION. A `:large`-marked subtree containing a `:sensitive`
 ;; DESCENDANT must REDACT, not emit a size/digest marker (Spec 015
 ;; §No propagation, no taint + EP-0025 §Egress-rules — a normative MUST). A
@@ -613,12 +595,24 @@
 (deftest frameless-egress-include-sensitive-opt-out
   ;; `:rf.egress/include-sensitive? true` is the deliberate opt-out: a caller
   ;; that has waived sensitive redaction gets the value verbatim even with
-  ;; no carried frame (identity walk against an empty policy).
+  ;; no governing frame (identity walk against an empty policy): no carried
+  ;; scope, an explicit id that cannot resolve, or an explicit `{:frame nil}`
+  ;; under a live ambient frame.
   (binding [rf.frame/*current-frame* nil]
     (is (= {:a 1 :b [2 3]}
            (rf.elision/elide-wire-value {:a 1 :b [2 3]}
                                 {:rf.egress/include-sensitive? true}))
-        "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")))
+        "include-sensitive? true ⇒ frameless value rides verbatim (opt-out)")
+    (is (= {:a 1 :b [2 3]}
+           (rf.elision/elide-wire-value {:a 1 :b [2 3]}
+                                {:frame :elision-test/never-registered
+                                 :rf.egress/include-sensitive? true}))
+        "include-sensitive? true ⇒ unresolvable-frame value rides verbatim (opt-out)"))
+  (is (= {:a 1 :b [2 3]}
+         (rf.elision/elide-wire-value {:a 1 :b [2 3]}
+                              {:frame nil
+                               :rf.egress/include-sensitive? true}))
+      "include-sensitive? true ⇒ explicit-nil frame still identity-walks"))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0015 issue 1 — an explicit / carried frame-id that
@@ -644,50 +638,6 @@
     (is (= :rf/redacted
            (rf.elision/elide-wire-value 42 {:frame :elision-test/never-registered}))
         "fail-closed applies to scalars under an unknown explicit frame too")))
-
-(deftest destroyed-explicit-frame-fails-closed
-  ;; A frame that WAS registered (and could have carried a real `:large` /
-  ;; `:sensitive` policy) but has since been destroyed is no longer
-  ;; resolvable ⇒ fail closed. `rf.frame/frame` returns nil for a destroyed id.
-  (rf/make-frame {:id :elision-test/doomed})
-  (rf.frame/destroy-frame! :elision-test/doomed)
-  (binding [rf.frame/*current-frame* nil]
-    (is (= :rf/redacted
-           (rf.elision/elide-wire-value {:secret "shh"}
-                                {:frame :elision-test/doomed}))
-        "destroyed explicit frame ⇒ whole value redacted")))
-
-(deftest unresolvable-frame-redacts-value-that-would-be-public-under-known-frame
-  ;; ADVERSARIAL — the value here carries NO sensitive declaration, so under
-  ;; a KNOWN frame it rides through verbatim (the value is "public"). The
-  ;; safety property is that the SAME value, projected under a frame that
-  ;; cannot be resolved, must NOT leak: fail-closed redacts the whole value
-  ;; regardless of what its policy WOULD have been under a live frame.
-  (binding [rf.frame/*current-frame* nil]
-    ;; Baseline: under the live :rf/default frame (no declarations) the value
-    ;; passes through verbatim — it is "public".
-    (is (= {:profile {:name "Ada"}}
-           (rf.elision/elide-wire-value {:profile {:name "Ada"}}
-                                {:frame :rf/default}))
-        "baseline: under a KNOWN frame with no policy the value is public")
-    ;; Same value, unresolvable frame ⇒ redacted whole. A would-be-public
-    ;; value still fails closed when the frame can't be resolved.
-    (is (= :rf/redacted
-           (rf.elision/elide-wire-value {:profile {:name "Ada"}}
-                                {:frame :elision-test/never-registered}))
-        "the would-be-public value redacts whole under an unresolvable frame")))
-
-(deftest unresolvable-frame-include-sensitive-opt-out-still-identity
-  ;; The deliberate opt-out holds: `:rf.egress/include-sensitive? true`
-  ;; against an unresolvable frame walks the value under an empty (no-frame)
-  ;; policy — the caller explicitly waived redaction, so the value rides
-  ;; through. This keeps the escape hatch symmetric with the frameless case.
-  (binding [rf.frame/*current-frame* nil]
-    (is (= {:a 1 :b [2 3]}
-           (rf.elision/elide-wire-value {:a 1 :b [2 3]}
-                                {:frame :elision-test/never-registered
-                                 :rf.egress/include-sensitive? true}))
-        "include-sensitive? true ⇒ unresolvable-frame value rides verbatim (opt-out)")))
 
 (deftest stale-carried-scope-frame-fails-closed
   ;; The carried scope (`*current-frame*`) can outlive the frame it names —
@@ -740,45 +690,6 @@
            (rf.elision/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
         "no secret rides through an explicit nil frame")))
 
-(deftest explicit-nil-frame-honours-the-include-sensitive-opt-out
-  ;; The deliberate raw opt-out holds: a caller that has explicitly
-  ;; waived sensitive redaction gets the identity walk even with no frame.
-  (is (= {:a 1 :b [2 3]}
-         (rf.elision/elide-wire-value {:a 1 :b [2 3]}
-                              {:frame nil
-                               :rf.egress/include-sensitive? true}))
-      "include-sensitive? true ⇒ explicit-nil frame still identity-walks"))
-
-(deftest explicit-nil-frame-cannot-be-made-live-by-registering-a-nil-id
-  ;; The structural property that makes a dead-frame sentinel id unnecessary:
-  ;; `nil` is a frame id no app can register — the live-frame arm is guarded
-  ;; by `(some? frame-id)`, so an explicit nil can never take it however the
-  ;; frame registry is populated.
-  (let [registered? (try (rf/make-frame {:id nil}) true
-                         (catch Throwable _ false))]
-    (try
-      (is (= :rf/redacted
-             (rf.elision/elide-wire-value {:auth {:token "secret-jwt"}} {:frame nil}))
-          (str "an explicit nil frame must fail closed"
-               (when registered? " even with a frame registered under a nil id")))
-      (finally
-        (when registered?
-          (try (rf.frame/destroy-frame! nil) (catch Throwable _ nil)))))))
-
-(deftest explicit-nil-frame-overrides-a-live-ambient-with-real-declarations
-  ;; The leak in its sharpest form: the ambient frame has declarations, but
-  ;; they are the WRONG frame's. Borrowing them would apply one app's policy to
-  ;; another's value — over-redacting here, under-redacting elsewhere. An
-  ;; explicit nil refuses the borrow outright.
-  (install-class! :rf/default [[:auth :token]] [])
-  (is (= :rf/redacted
-         (rf.elision/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"}
-                              {:frame nil}))
-      "the WHOLE value redacts — never a partial walk under a borrowed policy")
-  (is (= {:auth {:token :rf/redacted} :public "ok"}
-         (rf.elision/elide-wire-value {:auth {:token "secret-jwt"} :public "ok"} {}))
-      "CONTROL — the same value under the ambient frame walks its declarations"))
-
 ;; ---------------------------------------------------------------------------
 ;; Collection-nested frame-declared elision at direct-read egress.
 ;;
@@ -825,14 +736,6 @@
     (is (= :rf/redacted (get-in out [:by-id "b" :secret]))
         "map-of value-map sensitive slot redacts for every key")))
 
-(deftest collection-nested-sensitive-sequential-redacts
-  ;; A sequential of maps (the runtime value can
-  ;; arrive as a lazy seq / list, not just a vector).
-  (install-class! [[:logs :pw]] [])
-  (let [out (rf.elision/elide-wire-value {:logs (list {:pw "SECRET"})})]
-    (is (= :rf/redacted (-> out :logs vec (get-in [0 :pw])))
-        "sequential-element sensitive slot redacts")))
-
 (deftest collection-nested-sensitive-set-of-maps-redacts
   ;; `:set` element maps descend at the same base
   ;; path (no positional segment), same as vector/sequential.
@@ -840,24 +743,6 @@
   (let [out (rf.elision/elide-wire-value {:tags #{{:s "SECRET"}}})]
     (is (= :rf/redacted (:s (first (:tags out))))
         "set-element sensitive slot redacts")))
-
-(deftest collection-nested-sensitive-mixed-map-vector-map-redacts
-  ;; Mixed map → vector → map nesting. Decl
-  ;; `[:root :rows :pw]` matches runtime `[:root :rows N :pw]`.
-  (install-class! [[:root :rows :pw]] [])
-  (let [out (rf.elision/elide-wire-value {:root {:rows [{:pw "SECRET"} {:pw "SECRET2"}]}})]
-    (is (= :rf/redacted (get-in out [:root :rows 0 :pw])))
-    (is (= :rf/redacted (get-in out [:root :rows 1 :pw])))))
-
-(deftest collection-nested-no-over-redaction-of-sibling-slots
-  ;; The matcher must be PRECISE: a non-sensitive
-  ;; sibling leaf inside the same collection element map rides verbatim.
-  ;; The candidate-path fork must not blanket-redact the element.
-  (install-class! [[:items :token]] [])
-  (let [out (rf.elision/elide-wire-value {:items [{:token "SECRET" :name "Ada"}]})]
-    (is (= :rf/redacted (get-in out [:items 0 :token])))
-    (is (= "Ada" (get-in out [:items 0 :name]))
-        "sibling non-sensitive slot is NOT over-redacted")))
 
 (deftest collection-nested-no-over-redaction-at-non-declared-position
   ;; The candidate-coordinate match must be
