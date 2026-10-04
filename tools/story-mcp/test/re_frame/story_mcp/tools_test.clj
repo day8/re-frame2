@@ -197,10 +197,11 @@
 
 (deftest registry-shape
   (testing "tool-registry is a vector of complete entries"
+    ;; `:name` is held by `registry-covers-impl-spec-7-2` (the fixture's
+    ;; string names) and `:inputSchema` by
+    ;; `every-tool-schema-accepts-max-tokens`.
     (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (string? (:name t)) (str "tool name: " (:name t)))
       (is (string? (:description t)))
-      (is (map? (:inputSchema t)))
       (is (#{:dev :docs :testing :write} (:category t)))
       (is (fn? (:handler t)))))
   (testing "tool-descriptors strips category + handler (MCP wire shape)"
@@ -212,30 +213,21 @@
 (deftest typical-tokens-hint-on-every-tool
   ;; `:typicalTokens` is an informational ballpark of
   ;; response-payload size in tokens; AI clients use it to budget calls.
-  ;; Not a cap. Required to be a positive integer on every tool.
-  (testing "registry: every tool carries a positive-integer :typicalTokens"
-    (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (integer? (:typicalTokens t))
-          (str "missing :typicalTokens on " (:name t)))
-      (is (pos? (:typicalTokens t))
-          (str "non-positive :typicalTokens on " (:name t)))))
-  (testing "tool-descriptors surfaces :typicalTokens to the wire"
+  ;; Not a cap. Required to be a positive integer on every tool: the
+  ;; registry asserts that on every entry at load time, and this test pins
+  ;; that the wire projection carries it.
+  (testing "tool-descriptors surfaces a positive-integer :typicalTokens on every tool"
     (let [ds (rf.story-mcp.tools.registry/tool-descriptors)]
       (is (every? #(integer? (:typicalTokens %)) ds))
       (is (every? #(pos? (:typicalTokens %)) ds)))))
 
 (deftest output-schema-on-every-tool
   ;; Every tool descriptor MUST declare an `:outputSchema`
-  ;; describing its `structuredContent` payload shape. Asserted at
-  ;; load time in `registry.cljc` too; this test makes the contract
-  ;; visible in the test corpus and pins the wire projection.
-  (testing "registry: every tool carries a map :outputSchema"
-    (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (map? (:outputSchema t))
-          (str "missing :outputSchema on " (:name t)))))
-  (testing "tool-descriptors surfaces :outputSchema to the wire"
+  ;; describing its `structuredContent` payload shape. The registry
+  ;; asserts that on every entry at load time; this test makes the
+  ;; contract visible in the test corpus and pins the wire projection.
+  (testing "tool-descriptors surfaces a map :outputSchema on every tool"
     (let [ds (rf.story-mcp.tools.registry/tool-descriptors)]
-      (is (every? :outputSchema ds))
       (is (every? #(map? (:outputSchema %)) ds)))))
 
 (deftest annotations-on-every-tool
@@ -245,10 +237,8 @@
   ;; at load time in `registry.cljc` too; this test pins the wire
   ;; projection and the load-bearing classification (at least one of
   ;; `readOnlyHint` / `destructiveHint` must be set).
-  (testing "registry: every tool carries a map :annotations"
+  (testing "registry: every tool's :annotations carries a classification"
     (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (map? (:annotations t))
-          (str "missing :annotations on " (:name t)))
       (is (or (true? (get-in t [:annotations :readOnlyHint]))
               (true? (get-in t [:annotations :destructiveHint])))
           (str "annotations on " (:name t)
@@ -256,7 +246,6 @@
                "readOnlyHint / destructiveHint must be set"))))
   (testing "tool-descriptors surfaces :annotations to the wire"
     (let [ds (rf.story-mcp.tools.registry/tool-descriptors)]
-      (is (every? :annotations ds))
       (is (every? #(map? (:annotations %)) ds))))
   (testing "matrix: read-only tools have readOnlyHint"
     (let [by-name (into {} (map (juxt :name identity)) rf.story-mcp.tools.registry/tool-registry)
@@ -465,13 +454,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest get-story-instructions-returns-text
-  (let [r (invoke "get-story-instructions" {})]
-    (is (success? r))
-    (let [text (-> r :content first :text)]
-      (is (string? text))
-      (is (re-find #"reg-story" text))
-      (is (re-find #":rf.assert" text))
-      (is (re-find #"snapshot-identity" text)))))
+  ;; `get-story-instructions-emits-structured-content` reads the call's
+  ;; success and `get-story-instructions-covers-the-full-registration-surface`
+  ;; the `reg-*` macros; this test holds the mentions pinned nowhere else.
+  (let [text (-> (invoke "get-story-instructions" {}) :content first :text)]
+    (is (string? text))
+    (is (re-find #":rf.assert" text))
+    (is (re-find #"snapshot-identity" text))))
 
 (deftest get-story-instructions-covers-the-full-registration-surface
   ;; The onboarding text + descriptor are the agent-facing
@@ -2456,12 +2445,10 @@
       (is (not (overflow-marker? (rf.story-mcp.tools.wire-pipeline/invoke-tool
                                    "list-tags" {:max-tokens (+ text-tok struct-tok)})))))))
 (deftest every-tool-schema-accepts-max-tokens
-  (testing "every tool's input schema carries the `:max-tokens` slot"
+  (testing "every tool's input schema carries an integer `:max-tokens` slot"
     (doseq [t rf.story-mcp.tools.registry/tool-registry]
-      (is (contains? (-> t :inputSchema :properties) :max-tokens)
-          (str "tool " (:name t) " missing :max-tokens slot"))
       (is (= "integer" (-> t :inputSchema :properties :max-tokens :type))
-          (str "tool " (:name t) " :max-tokens slot is not integer-typed")))))
+          (str "tool " (:name t) " missing :max-tokens slot, or it is not integer-typed")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-egress privacy posture
@@ -3855,12 +3842,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest sensitive-reads-gate-flag-flips-config
+  ;; An argv with no recognised flag leaves every gate slot unset, so the
+  ;; boot merge keeps the sysprop/env value;
+  ;; `boot-config-unknown-flag-logged-and-ignored` pins that.
   (testing "--allow-sensitive-reads flag flips the boot config"
     (let [cfg (#'rf.story-mcp.server/parse-args ["--allow-sensitive-reads"])]
-      (is (true? (:allow-sensitive-reads? cfg))))
-    (let [cfg (#'rf.story-mcp.server/parse-args [])]
-      (is (nil? (:allow-sensitive-reads? cfg))
-          "absent flag leaves the slot unset so merge respects sysprop/env defaults"))))
+      (is (true? (:allow-sensitive-reads? cfg))))))
 
 (deftest tools-list-strips-include-sensitive-when-gate-closed
   (testing "tools/list omits :include-sensitive from the schema when the gate is closed"
@@ -3879,9 +3866,8 @@
       (doseq [tname include-sensitive-tools]
         (let [t     (some #(when (= tname (:name %)) %) descriptors)
               props (-> t :inputSchema :properties)]
-          (is (contains? props :include-sensitive)
-              (str "gate open: " tname " must advertise :include-sensitive"))
-          (is (= "boolean" (-> props :include-sensitive :type))))))))
+          (is (= "boolean" (-> props :include-sensitive :type))
+              (str "gate open: " tname " must advertise :include-sensitive as a boolean")))))))
 
 (deftest preview-variant-gate-closed-ignores-per-call-flag
   (testing "with gate closed, :include-sensitive true is silently ignored at egress"
