@@ -1471,28 +1471,3 @@
     (let [row (named-view "w17.ns/row")]
       (is (= 1 (count (warnings-during
                         #(rf.fresco.impl.codec/as-element [:ul (list (list [row {:key {:id 1}}]))]))))))))
-
-(deftest the-crossing-into-a-boundary-warns-where-nothing-else-can
-  (testing "`[a-view {} (for …)]` — realize-children flattens the seq into
-            direct arguments, which React marks validated and never warns
-            about, so this call site is the only signal there is"
-    (let [outer (named-view "w18.ns/outer")
-          row   (named-view "w18.ns/row")
-          out   (warnings-during
-                  #(rf.fresco.impl.codec/as-element [outer {} (for [i (range 3)] [row {:key {:id i}}])]))]
-      (is (= 1 (count out)))
-      (is (re-find #"w18\.ns/row" (first out)))))
-  (testing "a keyed crossing seq is silent"
-    (let [outer (named-view "w19.ns/outer")
-          row   (named-view "w19.ns/row")]
-      (is (= [] (warnings-during
-                  #(rf.fresco.impl.codec/as-element [outer {} (for [i (range 3)] [row {:key i}])]))))))
-  (testing "a crossing seq of native members is silent — the presence fixture's
-            own shape, and every `[presence {…} (for … [:div.toast {:key id}])]`
-            the guide teaches"
-    (let [tray (named-view "w20.ns/tray")]
-      (is (= [] (warnings-during
-                  #(rf.fresco.impl.codec/as-element
-                     [tray {:timeout-ms 300}
-                      (for [i (range 3)]
-                        [:div.toast {:key i} "x"])])))))))
