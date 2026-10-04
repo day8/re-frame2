@@ -8,10 +8,12 @@
   tests pin the observable contract so an inadvertent slide back to the
   naive shape would break the suite.
 
+  The 0- and 1-arity branches are `build-recompute-fn`'s own, pinned by
+  `re-frame.substrate.spine-build-recompute-fn-cljs-test`; the rows here pin
+  the slim Reaction wiring around it.
+
   Pins:
 
-    * 0-arity: 0-input compute-fn
-    * 1-arity: layer-1 sub shape
     * 2-arity: layer-n sub shape
     * ≥3-arity: fallback path
     * source-vector order preserved through the recompute closure"
@@ -26,19 +28,6 @@
 
 (defn- make-derived-value [sources f]
   ((:make-derived-value rf.adapter.reagent-slim/adapter) sources f))
-
-(deftest derived-zero-arity-cljs-test
-  (testing "0 sources — compute-fn called with no args"
-    (let [derived (make-derived-value [] (fn [] ::seed))]
-      (is (= ::seed @derived)))))
-
-(deftest derived-one-arity-cljs-test
-  (testing "1 source — derefs source per recompute (layer-1 dominant path)"
-    (let [src     (make-source 7)
-          derived (make-derived-value [src] (fn [a] (* a 10)))]
-      (is (= 70 @derived))
-      (write! src 8)
-      (is (= 80 @derived) "1-arity recompute picks up source mutation"))))
 
 (deftest derived-two-arity-cljs-test
   (testing "2 sources — derefs both per recompute (layer-n dominant path)"
