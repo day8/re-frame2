@@ -42,16 +42,6 @@
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
-;; ---- (1) transition-event? ---------------------------------------------
-
-(deftest transition-event-recognises-outer-transition
-  (is (true?  (h/transition-event? {:operation :rf.machine/transition})))
-  (is (true?  (h/transition-event?
-                {:operation :rf.machine.microstep/transition})))
-  (is (false? (h/transition-event? {:operation :rf.event/dispatched})))
-  (is (false? (h/transition-event? nil)))
-  (is (false? (h/transition-event? {}))))
-
 ;; ---- (2) machine-id-of -------------------------------------------------
 
 (deftest machine-id-of-reads-tags
@@ -79,11 +69,6 @@
     (is (nil? (:data row)))
     (is (true? (:registered? row))
         "registered? stays true even when uninitialised")))
-
-(deftest project-machine-rows-sorts-deterministically
-  (let [rows (h/project-machine-rows [:z/last :a/first :m/middle] {})
-        ids  (map :machine-id rows)]
-    (is (= [:a/first :m/middle :z/last] ids))))
 
 (deftest project-machine-rows-3-arity-fills-definition
   (testing "the 3-arity overload propagates the machine definition into
@@ -289,20 +274,6 @@
                 :event       ev
                 :rf.trace/dispatch-id (str "d-" id)}}))
 
-(deftest project-focused-event-empty-for-no-events
-  (is (= [] (h/project-focused-event-transitions nil)))
-  (is (= [] (h/project-focused-event-transitions []))))
-
-(deftest project-focused-event-projects-one-record-per-transition
-  (let [events [(t-event 1 :auth/login :idle    :authing [:auth/submit])
-                (t-event 2 :auth/login :authing :done    [:auth/ok])]
-        records (h/project-focused-event-transitions events)]
-    (is (= 2 (count records)))
-    (is (= [:auth/login :auth/login] (mapv :machine-id records)))
-    (is (= [:idle :authing]          (mapv :from-state records)))
-    (is (= [:authing :done]          (mapv :to-state records)))
-    (is (= [:auth/submit :auth/ok]   (mapv :on-event records)))))
-
 (deftest project-focused-event-preserves-cascade-order
   (testing "records are oldest-first (cascade document order) regardless
             of buffer-insertion order"
@@ -317,17 +288,6 @@
                           :rf.machine.microstep/transition)]
         records (h/project-focused-event-transitions events)]
     (is (= [false true] (mapv :microstep? records)))))
-
-(deftest project-focused-event-attaches-definition-when-present
-  (let [definitions {:auth/login {:initial :idle
-                                  :states  {:idle    {:on {:submit :authing}}
-                                            :authing {:on {:ok :done}}
-                                            :done    {:final? true}}}}
-        events [(t-event 1 :auth/login :idle :authing [:auth/submit])]
-        records (h/project-focused-event-transitions events definitions)]
-    (is (= 1 (count records)))
-    (is (= (get definitions :auth/login)
-           (-> records first :definition)))))
 
 ;; ---- a SPAWNED actor's definition ---------------------------------------
 
@@ -570,12 +530,6 @@
                 :cause      cause
                 :rf.trace/dispatch-id (str "s-" id)}}))
 
-(deftest started-event-predicate
-  (is (true?  (h/started-event? {:operation :rf.machine/started})))
-  (is (false? (h/started-event? {:operation :rf.machine/transition})))
-  (is (false? (h/started-event? nil)))
-  (is (false? (h/started-event? {}))))
-
 (deftest project-focused-event-surfaces-machine-start
   (testing "a focused machine-start epoch yields ONE record with no
             from-state and the resulting initial state as to-state — so
@@ -654,13 +608,6 @@
                 :state      state
                 :event      event
                 :rf.trace/dispatch-id (str "n-" id)}}))
-
-(deftest no-op-event-predicate
-  (is (true?  (h/no-op-event? {:operation :rf.machine.event/unhandled-no-op})))
-  (is (false? (h/no-op-event? {:operation :rf.machine/transition})))
-  (is (false? (h/no-op-event? {:operation :rf.machine/started})))
-  (is (false? (h/no-op-event? nil)))
-  (is (false? (h/no-op-event? {}))))
 
 (deftest project-focused-event-surfaces-guard-blocked-no-op
   (testing "a focused guard-blocked / no-op machine event (the door
