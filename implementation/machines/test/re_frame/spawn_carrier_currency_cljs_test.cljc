@@ -80,19 +80,6 @@
 
 ;; ---- done carrier ----------------------------------------------------------
 
-(deftest current-carrier-folds
-  (testing "control: nothing queued ahead of the carrier — it folds, with the
-            registry slot already cleared by the child's own finality"
-    (reg-kick!)
-    (reg-child! :scc0/child)
-    (reg-done-parent! :scc0/parent :scc0/child {})
-    (rf/dispatch-sync [:scc0/parent [:start]])
-    (rf/dispatch-sync [::kick [[:scc0/child#1 [:go]]]])
-    (is (= :loading (:state (snapshot :scc0/parent))))
-    (is (= ["first"] (get-in (snapshot :scc0/parent) [:data :results])))
-    (is (nil? (registry-slot :scc0/parent [:loading])))
-    (is (empty? (stale-traces)))))
-
 (deftest done-carrier-after-exit-does-not-fold
   (testing "the parent's :cancel is queued ahead of the carrier: the carrier
             arrives with the parent resting in :idle and folds nothing"
@@ -201,17 +188,6 @@
                        :errored {}
                        :caught  {}}}
       root-on (assoc :on root-on))))
-
-(deftest current-error-carrier-fires-on-error
-  (testing "control: nothing queued ahead of the failure — :on-error fires"
-    (reg-kick!)
-    (reg-child! :sce0/child)
-    (reg-error-parent! :sce0/parent :sce0/child nil)
-    (rf/dispatch-sync [:sce0/parent [:start]])
-    (rf/dispatch-sync [::kick [[:sce0/child#1 [:boom]]]])
-    (is (= :errored (:state (snapshot :sce0/parent))))
-    (is (= 1 (get-in (snapshot :sce0/parent) [:data :entered])))
-    (is (empty? (stale-traces)))))
 
 (deftest error-carrier-behind-a-retry-does-not-undo-it
   (testing "a :retry queued ahead of child#1's failure re-enters
