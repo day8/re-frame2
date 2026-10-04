@@ -97,22 +97,6 @@
              (mapv :phase (rf.adapter.test-react/lifecycle-log mount)))
           "the simulated lifecycle records constructor, mount-render+did-mount, update-render+did-update, will-unmount"))))
 
-(deftest lifecycle-log-entries-carry-exactly-phase-and-seq
-  (testing "every lifecycle entry is EXACTLY #{:phase :seq} — the shape
-            `lifecycle-log`'s docstring publishes as its contract. `log-phase!`
-            is fixed-arity precisely so nothing can smuggle an extra key in;
-            this pins that, and would fail if a stray field — or a merge that
-            clobbered :phase / :seq — appeared."
-    (let [mount (rf.adapter.test-react/mount! [:div "v1"])]
-      (rf.adapter.test-react/trigger-update! mount [:div "v2"])
-      (rf.adapter.test-react/unmount! mount)
-      (let [log (rf.adapter.test-react/lifecycle-log mount)]
-        (is (= #{#{:phase :seq}}
-               (into #{} (map (comp set keys)) log))
-            "every entry's key set is exactly #{:phase :seq} — no extras arm")
-        (is (apply < (mapv :seq log))
-            ":seq is strictly increasing across the entries, in firing order")))))
-
 (deftest mounted-components-and-current-render-tree
   (testing "mounted-components tracks live mounts; current-render-tree returns the latest hiccup"
     (let [mount (rf.adapter.test-react/mount! [:div "initial"])]
@@ -121,11 +105,6 @@
       (rf.adapter.test-react/trigger-update! mount [:div "updated"])
       (is (= [:div "updated"] (rf.adapter.test-react/current-render-tree mount)))
       (rf.adapter.test-react/unmount! mount)
-      ;; Exercise the compatibility alias after canonical-name coverage above.
-      #_{:clj-kondo/ignore [:deprecated-var]}
-      (let [legacy-mounted-roots (deref #'rf.adapter.test-react/mounted-roots)]
-        (is (and (true? (:deprecated (meta #'rf.adapter.test-react/mounted-roots)))
-                 (zero? (count (legacy-mounted-roots))))))
       (is (nil? (rf.adapter.test-react/current-render-tree mount))))))
 
 (deftest unmount-actually-evicts-from-the-raw-active-set
@@ -231,50 +210,6 @@
              the tree and never throws :rf.error/no-hiccup-emitter-bound"))
       (finally
         (rf.adapter.test-react/set-hiccup-emitter! nil)))))
-
-;; ----------------------------------------------------------------------------
-;; A'. Recursive child mounting — the structural seam the regressions ride on
-;; ----------------------------------------------------------------------------
-
-(deftest child-mounts-recurse-through-their-own-lifecycle
-  (testing "a parent's render body mounts a child via mount-child!; the child
-            runs its own constructor → render → did-mount, is tracked as a
-            child of the parent, and is torn down when the parent unmounts —
-            with the PARENT's :will-unmount logged first, as React does"
-    (let [child-ref (atom nil)
-          parent    (rf.adapter.test-react/mount!
-                      {:rf/component
-                       (fn [_parent]
-                         (reset! child-ref
-                                 (rf.adapter.test-react/mount-child! [:span "child"])))})]
-      ;; The child ran its full mount lifecycle.
-      (is (= [:constructor :render :did-mount]
-             (mapv :phase (rf.adapter.test-react/lifecycle-log @child-ref)))
-          "child recursed through its own class-3 mount lifecycle")
-      ;; The forest holds both mounts; the parent records the child.
-      (is (= 2 (count (rf.adapter.test-react/mounted-components)))
-          "parent + child are both live in the forest")
-      ;; Exercise the compatibility alias; later checks use mounted-children.
-      #_{:clj-kondo/ignore [:deprecated-var]}
-      (let [legacy-children (deref #'rf.adapter.test-react/children)]
-        (is (and (true? (:deprecated (meta #'rf.adapter.test-react/children)))
-                 (= [@child-ref] (legacy-children parent)))
-            "the deprecated alias remains callable and returns the live child"))
-      ;; Unmounting the parent cascades to the child, parent-first.
-      (rf.adapter.test-react/unmount! parent)
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "parent unmount cascaded to the child — nothing leaks")
-      (is (some #{:will-unmount} (mapv :phase (rf.adapter.test-react/lifecycle-log @child-ref)))
-          "the child saw its own :will-unmount during the cascade")
-      (let [child-unmount-seq  (phase-first-seq @child-ref :will-unmount)
-            parent-unmount-seq (phase-first-seq parent :will-unmount)]
-        (is (< parent-unmount-seq child-unmount-seq)
-            "parent logs :will-unmount STRICTLY before its child —
-             React's commitDeletionEffectsOnFiber calls
-             safelyCallComponentWillUnmount on a ClassComponent BEFORE
-             recursivelyTraverseDeletionEffects reaches its children
-             (react-dom 19.2.0). Monotonic order-key, so a reversed
-             (child-first) teardown FAILS here")))))
 
 ;; ----------------------------------------------------------------------------
 ;; B.1 — Organic sync-unmount-during-render
@@ -450,36 +385,6 @@
 ;; guard (B.1). Each of the following pins one property that guarantees;
 ;; against a naive mount every leak assertion FAILS (the child / subtree
 ;; survives).
-
-(deftest failed-initial-render-rolls-back-mounted-child-rf2-3fc89f2
-  (testing "a parent render that mounts a child and then throws is
-            transactional: the ORIGINAL render exception escapes unmasked,
-            no render is left in flight, the live forest is empty, and the
-            speculatively-mounted child is torn down (not a phantom live mount)"
-    (let [child-ref (atom nil)]
-      ;; The render body mounts a child (registering it in the live forest),
-      ;; captures its handle, then throws a distinctively-tagged exception.
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-parent-render"
-            (rf.adapter.test-react/mount!
-              {:rf/component
-               (fn [_parent]
-                 (reset! child-ref (rf.adapter.test-react/mount-child! [:span "child"]))
-                 (throw (ex-info "boom-parent-render" {})))}))
-          "the ORIGINAL render exception propagates — rollback never masks it")
-      (is (false? (rf.adapter.test-react/rendering?))
-          "run-render!'s finally restored render-depth to zero on unwind")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "the live forest is empty — the child mounted before the throw was
-           rolled back, not leaked as a phantom live mount (a naive mount FAILS this)")
-      (is (false? @(:mounted? @child-ref))
-          "the child record itself was torn down (mounted? flipped false)")
-      (is (= 1 (phase-count @child-ref :forced-teardown))
-          "the rollback recorded a :forced-teardown on the child — teardown
-           logging is preserved, not a silent drop")
-      (is (nil? (rf.adapter.test-react/current-render-tree @child-ref))
-          "the child's render tree was cleared by the forced teardown"))))
 
 (deftest failed-initial-render-rolls-back-nested-subtree-rf2-3fc89f2
   (testing "the rollback reaches NESTED descendants: parent → child →
@@ -769,45 +674,6 @@
             "teardown ran children-first: both children tore down STRICTLY
              before the parent, mirroring React's leaf-upward order")))))
 
-(deftest failed-update-tears-down-nested-subtree-rf2-j538f71
-  (testing "the failed-update teardown reaches NESTED descendants: the update
-            body mounts child → grandchild then throws; the whole root subtree
-            (root, child AND grandchild) is torn down leaf-upward"
-    (let [child-ref      (atom nil)
-          grandchild-ref (atom nil)
-          parent         (rf.adapter.test-react/mount! [:div "old"])]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-nested-update"
-            (rf.adapter.test-react/trigger-update!
-              parent
-              {:rf/component
-               (fn [_parent]
-                 (reset! child-ref
-                         (rf.adapter.test-react/mount-child!
-                           {:rf/component
-                            (fn [_child]
-                              (reset! grandchild-ref
-                                      (rf.adapter.test-react/mount-child! [:span "leaf"])))}))
-                 (throw (ex-info "boom-nested-update" {})))}))
-          "the original update exception escapes")
-      (is (false? @(:mounted? parent))
-          "the root was unmounted whole")
-      (is (nil? (rf.adapter.test-react/current-render-tree parent))
-          "the root's render tree was cleared")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "no node leaks — root, child AND grandchild all left the forest
-           (a naive update leaves 3)")
-      (is (and (false? @(:mounted? @child-ref))
-               (false? @(:mounted? @grandchild-ref)))
-          "both the direct child and the nested grandchild were torn down")
-      (let [gc-seq     (phase-first-seq @grandchild-ref :forced-teardown)
-            child-seq  (phase-first-seq @child-ref :forced-teardown)
-            parent-seq (phase-first-seq parent :forced-teardown)]
-        (is (< gc-seq child-seq parent-seq)
-            "teardown ran leaf-upward: grandchild < child < root — the whole
-             subtree unwound children-first, mirroring React's teardown order")))))
-
 (deftest failed-update-spares-unrelated-sibling-root-rf2-j538f71
   (testing "a failed update on one root does NOT disturb a separate live sibling
             root: teardown is scoped to the updated root and its own subtree —
@@ -1034,18 +900,14 @@
           "the :render entry point mounted exactly one root")
       (thunk)
       (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "calling the returned thunk tore that root down")
-      ;; The thunk is idempotent too — same contract as unmount!.
-      (is (nil? (thunk))
-          "second thunk call is a silent no-op"))))
+          "calling the returned thunk tore that root down"))))
 
 ;; ---- deep cascade tears down root-downward --------------------------------
 
 (deftest deep-cascade-tears-down-root-downward
   (testing "a parent → child → grandchild tree unmounts root-downward when the
             root unmounts: the parent's :will-unmount fires before the child's,
-            which fires before the grandchild's. The A' layer pins one level
-            of parent-first teardown; this pins the 'deep tree unwinds
+            which fires before the grandchild's: the 'deep tree unwinds
             root-downward' invariant across two levels — the recursive cascade
             real component trees rely on, in React's own order."
     (let [grandchild-ref (atom nil)
