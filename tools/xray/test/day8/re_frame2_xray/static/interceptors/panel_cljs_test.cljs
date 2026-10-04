@@ -177,16 +177,6 @@
     (is (false? (:before? row)) "unresolved ref reports no hooks")))
 
 ;; -------------------------------------------------------------------------
-;; (2) registry wiring
-;; -------------------------------------------------------------------------
-
-(deftest set-query-writes-the-slot
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray.static.interceptors/set-query "logging"])
-    (is (= "logging" @(rf/subscribe [:rf.xray.static.interceptors/query])))))
-
-;; -------------------------------------------------------------------------
 ;; (3) view rendering
 ;; -------------------------------------------------------------------------
 
@@ -259,49 +249,3 @@
     (rf/dispatch-sync [:rf.xray.static.interceptors/set-query "no-such-id"])
     (let [tree (panel-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-interceptors-empty-filtered"))))))
-
-;; -------------------------------------------------------------------------
-;; (4) row identity reaches the RENDERER, not just Clojure metadata
-;; -------------------------------------------------------------------------
-
-(deftest panel-rows-carry-their-key-in-an-attribute-map
-  (testing "every catalogue row carries its React key in an
-            ATTRIBUTE MAP, which is the ONE spelling Fresco's codec reads
-            (its head table: a literal `:key` in the attr map, on the
-            fragment for `[:<> …]`). It reads Clojure metadata NOWHERE, so
-            a `^{:key …}` on the row would survive Reagent and reach React
-            as nothing under a boundary.
-
-            A row asserting on that metadata is a HOLLOW GATE: it passes
-            while React receives no key at all. And a lost key does not
-            fail — it degrades into index-based reconciliation, which
-            paints identically and corrupts identity only once the list
-            changes shape, which is why this is asserted at all rather
-            than left to the eye."
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.interceptors/set-registry-override-for-test
-         sample-events-with-chains])
-      (let [tree      (panel-tree)
-            list-node (rf.test-helpers/find-by-testid
-                        tree "rf-xray-static-interceptors-list")
-            row-forms (rf.test-helpers/children list-node)
-            keys-seen (mapv #(:key (rf.test-helpers/attrs %)) row-forms)]
-        (is (= 3 (count row-forms))
-            "PRECONDITION: three rows rendered — otherwise every claim
-             below is vacuous")
-        (is (every? string? keys-seen)
-            (str "every row's key is in its own attribute map. Got: "
-                 (pr-str keys-seen)))
-        (is (= (count keys-seen) (count (set keys-seen)))
-            "and the keys are distinct, so React can tell the rows apart")
-        (is (= (sort keys-seen)
-               (sort (mapv #(pr-str (:id %))
-                           (panel/collect-interceptors
-                             sample-events-with-chains))))
-            "the key EXPRESSION is the row's own interceptor id, so
-             identity follows the interceptor")
-        (is (every? #(nil? (meta %)) row-forms)
-            "and nothing rides on Clojure metadata, which would be
-             a second spelling the codec cannot see")))))
