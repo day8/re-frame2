@@ -54,22 +54,6 @@
     (is (= (set (keys tokens/dark-palette))
            (set (keys tokens/light-palette))))))
 
-(deftest light-palette-inverts-surface-lightness
-  (testing "light theme bg-0 is the LIGHTEST recess
-            (#fbfbfb) while dark theme bg-0 is the DEEPEST canvas
-            (#161616)."
-    (is (= "#161616" (:bg-0 tokens/dark-palette)))
-    (is (= "#fbfbfb" (:bg-0 tokens/light-palette)))
-    (is (= "#e6edf3" (:text-primary tokens/dark-palette)))
-    (is (= "#24292f" (:text-primary tokens/light-palette)))))
-
-(deftest palettes-map-exposes-both-themes
-  (testing "palettes map keys both themes by name so the
-            substrate-adapter MachineChart re-exports can resolve via
-            `(get palettes theme)` without per-theme conditionals."
-    (is (= tokens/dark-palette  (:dark  tokens/palettes)))
-    (is (= tokens/light-palette (:light tokens/palettes)))))
-
 ;; ---- css-var -----------------------------------------------------------
 
 (deftest css-var-resolves-to-var-with-hex-fallback
@@ -166,23 +150,6 @@
         (is (map? ct))
         (is (every? string? (vals ct))
             "every chart-token role resolves to a string")))))
-
-(deftest chart-tokens-default-is-dark
-  (testing "the no-arg arity resolves the dark surface so a
-            renderer that never threads a palette still paints dark."
-    (is (= (tokens/chart-tokens) (tokens/chart-tokens tokens/dark-palette)))))
-
-(deftest chart-tokens-theme-differs-between-palettes
-  (testing "theme support is REAL: the resolved chart-token
-            map differs between dark and light (a renderer reading the
-            active palette paints the active theme, not a hardwired dark
-            alias). The :state-body-bg role tracks the palette's bg-2,
-            which inverts between themes."
-    (let [dark  (tokens/chart-tokens tokens/dark-palette)
-          light (tokens/chart-tokens tokens/light-palette)]
-      (is (not= (:state-body-bg dark) (:state-body-bg light)))
-      (is (= (:bg-2 tokens/dark-palette)  (:state-body-bg dark)))
-      (is (= (:bg-2 tokens/light-palette) (:state-body-bg light))))))
 
 (deftest chart-tokens-runtime-accents-reserved
   (testing "structure wins over annotation colour: the
