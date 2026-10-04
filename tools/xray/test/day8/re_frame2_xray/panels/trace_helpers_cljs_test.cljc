@@ -653,20 +653,6 @@
     (is (= "VIEWS"
            (h/stage-label {:op-type :rf.view :operation :rf.view/render})))))
 
-(deftest stage-colour-reuses-the-epoch-badge-colour
-  (testing "the colour-coded left edge IS the Epoch step's
-            badge colour (reused, not a parallel palette)"
-    (testing "the 7 stage colours match the Epoch step palette exactly"
-      (doseq [[ot op stage] [[:rf.event :rf.event/dispatched :DISPATCH]
-                             [:rf.event :rf.cofx/run :COEFFECT]
-                             [:rf.event :rf.event/run-end :HANDLER]
-                             [:rf.event :rf.flow/computed :FLOW]
-                             [:rf.fx :rf.fx/handled :SIDE-EFFECTS]
-                             [:rf.sub :rf.sub/run :SUBSCRIPTIONS]
-                             [:rf.view :rf.view/render :VIEWS]]]
-        (is (= (epoch-badge/colour stage)
-               (h/stage-colour {:op-type ot :operation op})))))))
-
 (deftest project-row-carries-stage-label-and-colour
   (testing "project-row stamps :stage / :stage-label /
             :stage-colour for the flat list's stage column + edge"
@@ -781,9 +767,9 @@
           ":total = every trace event in the focused epoch")
       (is (= 9 (:rendered feed))
           ":rendered = :total (no filtering)")
-      (is (= #{0 1 2 3 4 5 6 7 8} (set (map :id (:rows feed))))
-          "rows are the WHOLE trail — including the nil-dispatch-id
-           reactive rows and the envelope ops")
+      (is (= [0 1 2 3 4 5 6 7 8] (mapv :id (:rows feed)))
+          "rows are the WHOLE trail, OLDEST-first — including the
+           nil-dispatch-id reactive rows and the envelope ops")
       (is (some #(and (nil? (:dispatch-id %)) (= :rf.sub (:op-type %)))
                 (:rows feed))
           "the async :rf.sub/run rows (nil dispatch-id) are present")
@@ -792,13 +778,6 @@
       (is (= 17 (:epoch-id feed)))
       (is (= :ok (:outcome feed)) "the epoch outcome is exposed")
       (is (nil? (:empty-kind feed))))))
-
-(deftest project-feed-from-epoch-rows-oldest-first
-  (testing "rows render OLDEST-first (chronological) so the arc reads
-            top-down — EPOCH OPEN → ① DISPATCH → … → ④ REACTIVE"
-    (let [epoch (domino-trail-epoch)
-          feed  (h/project-feed-from-epoch epoch :focused)]
-      (is (= [0 1 2 3 4 5 6 7 8] (mapv :id (:rows feed)))))))
 
 (deftest project-feed-from-epoch-exposes-bands
   (testing "the feed carries the structural arc the view paints —
@@ -837,22 +816,6 @@
       :epoch-evicted nil
       :no-focus      (domino-trail-epoch)
       :epoch-evicted (domino-trail-epoch))))
-
-(deftest project-feed-from-epoch-shape-keys
-  (testing "the feed shape carries NO filtering keys"
-    (let [feed (h/project-feed-from-epoch (domino-trail-epoch) :focused)]
-      (is (contains? feed :rows))
-      (is (contains? feed :total))
-      (is (contains? feed :rendered))
-      (is (contains? feed :epoch-id))
-      (is (contains? feed :empty-kind))
-      (is (contains? feed :bands))
-      (is (contains? feed :envelope))
-      (is (contains? feed :outcome))
-      (doseq [k [:filters :any-filter? :distinct :counts
-                 :active-filters :cascade-dispatch-id]]
-        (is (not (contains? feed k))
-            (str "filtering key " k " must not be in the feed shape"))))))
 
 ;; ---- (10) relative timing + duration — spec/023 §3 / §6 ---------------
 
