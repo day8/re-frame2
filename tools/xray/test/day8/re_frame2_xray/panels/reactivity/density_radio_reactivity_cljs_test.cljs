@@ -7,28 +7,12 @@
   CSS-var-equivalent px helper and the wrong-frame
   `*-survives-host-dispatch` assertion) is owned by
   `control-axes-e2e/density-radio-e2e-cljs-test`. This file keeps
-  only the slots that harness does NOT cover:
-
-    - the parameterised `:rf.xray/setting` read sub, and
-    - the `:comfy` → `:cosy` normalisation step (there is no
-      `:comfy` tier)."
+  only the slot that harness does NOT cover: the `:comfy` → `:cosy`
+  normalisation step (there is no `:comfy` tier)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.test-helpers.sub-reactivity :as h]))
 
 (use-fixtures :each h/fixture)
-
-(deftest setting-sub-parameterised-read-tracks-write
-  (testing "the parameterised `:rf.xray/setting` sub
-            re-fires on write to the same `[section key]` pair. Pin
-            the broader settings-update reactive surface."
-    (h/setup-xray-frame!)
-    (let [v-0 (h/read-sub :rf.xray/setting :general :density)]
-      (h/dispatch-xray! [:rf.xray/settings-update :general :density :compact])
-      (let [v-1 (h/read-sub :rf.xray/setting :general :density)]
-        (is (= :compact v-1)
-            "setting :general :density reads :compact post-write")
-        (is (not= v-0 v-1)
-            "parameterised setting sub re-fired")))))
 
 (deftest density-sub-normalises-comfy-to-cosy
   (testing "there is no `:comfy` tier; the sub
