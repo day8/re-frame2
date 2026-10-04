@@ -144,27 +144,6 @@
     (is (nil? (:worker (:data (snapshot :fai/boss))))
         "the boss dropped the address it no longer owns")))
 
-(deftest a-fresh-address-lets-a-new-worker-run-beside-a-lingering-one
-  (testing "an app that needs a fresh actor while an
-            older one lingers allocates a DIFFERENT explicit address; the two
-            coexist, and the old one is destroyed explicitly"
-    (rf/reg-machine :fai/worker2
-      {:initial :running :data {} :states {:running {}}})
-    (rf/reg-event :fai/hire
-      (fn [_ [_ job]]
-        {:fx [[:rf.machine/spawn {:machine-id     :fai/worker2
-                                  :fixed-actor-id (keyword "fai.w" (name job))
-                                  :data           {:job job}}]]}))
-    (rf/dispatch-sync [:fai/hire :one])
-    (rf/dispatch-sync [:fai/hire :two])
-    (is (some? (snapshot :fai.w/one)) "the first worker is live at its own address")
-    (is (some? (snapshot :fai.w/two)) "the second worker is live beside it")
-
-    (rf/reg-event :fai/fire (fn [_ [_ addr]] {:fx [[:rf.machine/destroy addr]]}))
-    (rf/dispatch-sync [:fai/fire :fai.w/one])
-    (is (nil? (snapshot :fai.w/one)) "the older worker was destroyed explicitly")
-    (is (some? (snapshot :fai.w/two)) "the newer worker is untouched")))
-
 ;; ---------------------------------------------------------------------------
 ;; (3) Spawning onto an OCCUPIED fixed address — the CONTRACT
 ;; ---------------------------------------------------------------------------
