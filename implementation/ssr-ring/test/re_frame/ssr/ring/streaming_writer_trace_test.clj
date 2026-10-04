@@ -243,12 +243,6 @@
           "throw on write 3 → :phase :final-payload")
       (is (= :suffix (-> suffix-ev :tags :phase))
           "throw on write 4 → :phase :suffix")
-      ;; The discriminating contract: the three phases are pairwise
-      ;; distinct (a single undifferentiated trace would fail this).
-      (is (= 3 (count (distinct [(-> prefix-ev :tags :phase)
-                                 (-> final-ev :tags :phase)
-                                 (-> suffix-ev :tags :phase)])))
-          "three forced phases yield three DISTINCT :phase tags")
       ;; Every writer phase runs post-head-commit.
       (doseq [ev [prefix-ev final-ev suffix-ev]]
         (is (true? (-> ev :tags :committed?))

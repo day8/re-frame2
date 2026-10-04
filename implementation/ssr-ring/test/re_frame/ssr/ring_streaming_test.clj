@@ -174,11 +174,9 @@
       ;; <template>, which is OUTSIDE #app — so it too lands after the close.
       (is (< idx-app-close idx-comments)
           "the resolved subtree body streams after the app-root close")
-      ;; Defense-in-depth: NO `__rf_payload` appears between the #app open and
-      ;; its close (i.e. the payload is not nested in the app root).
+      ;; Defense-in-depth: NO resolved-template protocol node of any kind
+      ;; appears between the #app open and its close.
       (let [app-inner (subs body idx-app-open idx-app-close)]
-        (is (not (str/includes? app-inner "__rf_payload"))
-            "no __rf_payload script nested inside #app")
         (is (not (str/includes? app-inner "data-rf2-suspense-resolved"))
             "no resolved-template protocol node nested inside #app")))))
 
@@ -212,10 +210,7 @@
       (is (some? idx-payload) "the payload streamed")
       (is (< idx-close idx-payload)
           "even with zero continuations, #app closes before the
-           __rf_payload script")
-      (let [app-inner (subs body (str/index-of body "<div id=\"app\"") idx-close)]
-        (is (not (str/includes? app-inner "__rf_payload"))
-            "the payload is not nested inside #app on the degenerate path")))))
+           __rf_payload script — the payload is not nested inside #app"))))
 
 (deftest stream-handler-multiple-boundaries-FIFO
   (testing "Multiple boundaries emit resolved chunks in document-order FIFO"
@@ -274,32 +269,15 @@
       (let [payload (final-payload body)]
         (is (some? payload) "final payload parses back to data")
         (is (= #{:test/throwy} (payload-failed-boundaries payload))
-            "the EXACT failed id set rides the final payload's runtime slice")))))
-
-(deftest stream-handler-failed-set-round-trips-through-hydration
-  (testing "hydrating the final payload makes `frame-failed-boundaries`
-            report the wire outcome. This is the whole point of carrying the set
-            — a client render tree asks the frame, not the DOM."
-    (rf/reg-view ^{:rf/id :test/throwing-section} throwing-section []
-      (throw (ex-info "rendering broke" {})))
-    (rf/reg-view ^{:rf/id :test/fragile-root} fragile-root []
-      [:main
-       [:rf/suspense-boundary
-        {:id :test/throwy :fallback [:p "Still loading…"]}
-        [(rf/view :test/throwing-section)]]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/fragile-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          payload  (final-payload body)
-          client   :test/hydrated-client]
-      (is (= #{:test/throwy} (payload-failed-boundaries payload)))
-      (rf/make-frame {:id client :platform :client})
-      (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
-      (is (= #{:test/throwy} (rf.ssr.suspense/frame-failed-boundaries client))
-          "the hydrated frame's runtime-db reflects the server's answer"))))
+            "the EXACT failed id set rides the final payload's runtime slice")
+        (testing "hydrating the final payload makes `frame-failed-boundaries`
+                  report the wire outcome. This is the whole point of carrying
+                  the set — a client render tree asks the frame, not the DOM."
+          (rf/make-frame {:id :test/hydrated-client :platform :client})
+          (rf/dispatch-sync [:rf/hydrate payload] {:frame :test/hydrated-client})
+          (is (= #{:test/throwy}
+                 (rf.ssr.suspense/frame-failed-boundaries :test/hydrated-client))
+              "the hydrated frame's runtime-db reflects the server's answer"))))))
 
 (deftest stream-handler-carries-nested-failures-and-spares-a-successful-sibling
   (testing "the accumulator must follow the GROWABLE FIFO — a
@@ -340,11 +318,9 @@
       (is (= 200 (:status response)) "a mixed stream still completes")
       (is (str/includes? body "GOOD BODY") "the successful sibling resolved its body")
       (is (= #{:test/inner-bad :test/sibling-bad} failed)
-          "exactly the two failed ids — the NESTED one included")
-      (is (not (contains? failed :test/sibling-good))
-          "a boundary that resolved is never in the set")
-      (is (not (contains? failed :test/outer-ok))
-          "an outer boundary that rendered fine is not failed by its child")
+          "exactly the two failed ids — the NESTED one included; never the
+           sibling that resolved, nor the outer boundary that rendered fine
+           around its failing child")
       (testing "visible fallback behaviour"
         (is (str/includes? body "data-rf2-suspense-failed=\"1\"")
             "failed chunks carry the wire marker")
@@ -518,8 +494,8 @@
       (is (str/includes? body "__rf_payload") "final payload emitted"))))
 
 ;; ===========================================================================
-;; Streaming redirect short-circuit MUST destroy the
-;; per-request frame.
+;; The streaming redirect short-circuit MUST destroy the per-request frame —
+;; inline and incarnation-EXACTLY — and ship the accumulator's own headers.
 ;;
 ;; The redirect branch returns BEFORE the writer thread (whose `finally`
 ;; tears the frame down on the streaming path) is ever spawned, so the
@@ -529,26 +505,47 @@
 ;; response / pending-error-trace) on every redirected streaming request
 ;; — a per-request leak on auth-gated SSR routes (login redirects) where
 ;; redirects are common. Spec 011 §Per-request frame teardown contract.
+;;
+;; Being the deterministic inline-teardown path (no writer thread to wait
+;; on), the redirect branch is also the clean seam to prove that a streaming
+;; terminal cleanup destroys the frame VALUE make-frame returned (carrying the
+;; exact incarnation token), not the bare gensym frame-id.
+;;
+;; The bodiless 3xx carries no handler Content-Type default: it materialises
+;; the response accumulator exactly as the non-streaming redirect does, so
+;; whatever Content-Type rides is the accumulator's and the two handlers agree.
 ;; ===========================================================================
 
 (deftest stream-handler-redirect-destroys-frame
   (testing "a :rf.server/redirect on the streaming path
-            short-circuits to a Location response AND destroys the per-
-            request frame inline — no frame / side-channel-slot leak.
-            The redirect branch never spawns the writer thread, so the
-            teardown CANNOT defer to the writer's finally."
+            short-circuits to a bodiless Location response AND destroys the
+            per-request frame VALUE inline — no frame / side-channel-slot
+            leak, and a same-id successor is left intact. The redirect branch
+            never spawns the writer thread, so the teardown CANNOT defer to
+            the writer's finally."
     (rf/reg-event :rf.test.stream/redirect
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
     (rf/reg-view ^{:rf/id :test/should-not-stream} should-not-stream []
       [:div "should not render under redirect"])
-    (let [handler       (rf.ssr.ring/stream-handler
-                          {:initial-events [[:rf.test.stream/redirect]]
+    (let [opts            {:initial-events [[:rf.test.stream/redirect]]
                            :root-view [(rf/view :test/should-not-stream)]
-                           :payload :rf.ssr.payload/whole-app-db})
-          baseline-fids (disj (rf.frame/frame-ids) :rf/default)
-          response      (handler {:uri "/secret" :request-method :get})]
+                           :payload :rf.ssr.payload/whole-app-db}
+          handler         (rf.ssr.ring/stream-handler opts)
+          real-destroy    rf/destroy-frame!
+          teardown-target (atom ::none)
+          baseline-fids   (disj (rf.frame/frame-ids) :rf/default)
+          response        (with-redefs [rf/destroy-frame!
+                                        (fn [target & more]
+                                          (when (and (= ::none @teardown-target)
+                                                     (rf.frame/frame-value? target))
+                                            (reset! teardown-target target))
+                                          (apply real-destroy target more))]
+                            (handler {:uri "/secret" :request-method :get}))
+          content-type    (fn [resp]
+                            (or (get (:headers resp) "Content-Type")
+                                (get (:headers resp) "content-type")))]
       ;; Redirect response shape — status + Location, empty body, no
       ;; chunked InputStream (a redirect has no streamed body).
       (is (= 302 (:status response)) "redirect status on the wire")
@@ -557,8 +554,6 @@
         (is (= "/login" loc) "Location header carries the redirect target"))
       (is (= "" (:body response))
           "redirect short-circuits the stream — empty body, no InputStream")
-      (is (not (instance? InputStream (:body response)))
-          "redirect body is NOT a streamed pipe — it short-circuits")
       ;; Teardown — the per-request frame + its request slot MUST be
       ;; gone immediately after the call (no writer thread to wait on).
       (let [end-fids (disj (rf.frame/frame-ids) :rf/default)
@@ -568,89 +563,19 @@
                  redirect path — found leaked frame-ids: " (vec leaked))))
       (doseq [fid (disj (rf.frame/frame-ids) :rf/default)]
         (is (nil? (rf.ssr/get-request fid))
-            (str "no request slot leaks for frame " fid))))))
-
-;; ===========================================================================
-;; The streaming terminal cleanup is incarnation-EXACT.
-;;
-;; The redirect branch is the deterministic inline-teardown path (no writer
-;; thread to wait on), so it is the clean seam to prove that a streaming
-;; terminal cleanup destroys the frame VALUE make-frame returned (carrying the
-;; exact incarnation token), not the bare gensym frame-id.
-;; ===========================================================================
-
-(deftest stream-handler-terminal-teardown-is-incarnation-exact
-  (testing "a streaming terminal cleanup (redirect inline teardown) destroys the
-            per-request frame VALUE — carrying the exact incarnation token — not
-            the bare gensym id, so it is incarnation-EXACT"
-    (rf/reg-event :rf.test.stream/redirect2
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
-    (rf/reg-view ^{:rf/id :test/should-not-stream2}
-      incarnation-exact-should-not-stream []
-      [:div "should not render under redirect"])
-    (let [real-destroy    rf/destroy-frame!
-          teardown-target (atom ::none)
-          handler         (rf.ssr.ring/stream-handler
-                            {:initial-events [[:rf.test.stream/redirect2]]
-                             :root-view [(rf/view :test/should-not-stream2)]
-                             :payload :rf.ssr.payload/whole-app-db})
-          baseline-fids   (disj (rf.frame/frame-ids) :rf/default)]
-      (with-redefs [rf/destroy-frame!
-                    (fn [target & more]
-                      (when (and (= ::none @teardown-target)
-                                 (rf.frame/frame-value? target))
-                        (reset! teardown-target target))
-                      (apply real-destroy target more))]
-        (let [response (handler {:uri "/secret" :request-method :get})]
-          (is (= 302 (:status response)) "redirect short-circuit on the wire")))
-      ;; N released: no per-request frame leaks after the inline teardown.
-      (is (empty? (clojure.set/difference (disj (rf.frame/frame-ids) :rf/default)
-                                          baseline-fids))
-          "the per-request incarnation is fully released on the streaming redirect path")
+            (str "no request slot leaks for frame " fid)))
       ;; N+1 protected: the terminal teardown targeted the incarnation VALUE.
       (is (rf.frame/frame-value? @teardown-target)
           "streaming terminal teardown targeted the make-frame VALUE, not the bare id")
       (is (some? (rf.frame/frame-value-incarnation-token @teardown-target))
           "the teardown target carries the exact incarnation token — so a same-id
-           successor (N+1) is left intact by the two-argument destroy"))))
-
-(deftest stream-handler-redirect-no-content-type-stamped
-  (testing "the streaming redirect path does NOT stamp a
-            default Content-Type on the bodiless 302 — it agrees with the
-            non-streaming redirect path (which passes no default-content-
-            type). A redirect has no body, so a defaulted Content-Type is
-            meaningless; the two handlers must not diverge."
-    (rf/reg-event :rf.test.stream/redirect-ct
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
-    (rf/reg-view ^{:rf/id :test/redirect-ct-root} redirect-ct-root []
-      [:div "noop"])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.stream/redirect-ct]]
-                      :root-view [(rf/view :test/redirect-ct-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/secret" :request-method :get})
-          headers  (:headers response)
-          ct       (or (get headers "Content-Type") (get headers "content-type"))]
-      (is (= 302 (:status response)))
-      ;; The SSR runtime may set a Content-Type in the response
-      ;; accumulator's default headers; the contract under test is that
-      ;; the streaming redirect does not ADD the handler's
-      ;; `:content-type` default on top — it passes the 2-arg form. Pin
-      ;; the agreement: whatever Content-Type rides is the accumulator's,
-      ;; identical to the non-streaming redirect of the same response.
-      (let [ns-handler (rf.ssr.ring/ssr-handler
-                         {:initial-events [[:rf.test.stream/redirect-ct]]
-                          :root-view [(rf/view :test/redirect-ct-root)]
-                          :payload :rf.ssr.payload/whole-app-db})
-            ns-resp    (ns-handler {:uri "/secret" :request-method :get})
-            ns-ct      (or (get (:headers ns-resp) "Content-Type")
-                           (get (:headers ns-resp) "content-type"))]
-        (is (= ct ns-ct)
-            "streaming + non-streaming redirect paths agree on Content-Type")))))
+           successor (N+1) is left intact by the two-argument destroy")
+      (let [ns-response ((rf.ssr.ring/ssr-handler opts)
+                         {:uri "/secret" :request-method :get})]
+        (is (= (content-type ns-response) (content-type response))
+            "streaming + non-streaming redirect paths agree on Content-Type —
+             the bodiless 3xx carries the accumulator's headers, with no
+             handler default stamped on top")))))
 
 ;; ===========================================================================
 ;; STREAMING SHELL FAILURES FAIL CLOSED to a non-200
@@ -820,10 +745,8 @@
                 "Location header carries the post-shell redirect target"))
           (is (= "" (:body response))
               "post-shell redirect is BODILESS — :body \"\", NOT a streamed
-               full HTML document (the latent fail-open this guards)")
-          (is (not (instance? InputStream (:body response)))
-              "post-shell redirect body is NOT a PipedInputStream — no
-               writer pipe is handed out")
+               full HTML document or a writer pipe (the latent fail-open this
+               guards)")
           ;; No writer thread spawned + frame torn down inline (the writer's
           ;; finally — the streaming teardown path — never runs on this
           ;; branch, so the inline destroy is load-bearing).
@@ -1105,7 +1028,7 @@
 ;; API-contract gap — a custom shell carries CSP nonces / asset URLs /
 ;; root markup an app would lose switching ssr-handler → stream-handler).
 
-(deftest stream-handler-rejects-html-shell-fn-at-construction
+(deftest stream-handler-refuses-html-shell-at-construction
   (testing "a one-piece :html-shell fn (the non-streaming
             contract) is REJECTED at handler-construction time — not
             silently ignored per-request"
@@ -1127,10 +1050,8 @@
       (is (str/includes? (str (:reason data)) ":html-shell")
           "the reason explains :html-shell is unsupported under streaming")
       (is (str/includes? (str (:reason data)) "ssr-handler")
-          "the reason points the caller at the non-streaming handler"))))
-
-(deftest stream-handler-rejects-non-fn-html-shell-at-construction
-  (testing "ANY non-nil :html-shell value is rejected — the
+          "the reason points the caller at the non-streaming handler")))
+  (testing "…and so is ANY other non-nil :html-shell value — the
             streaming path supports no one-piece shell of any shape, so a
             string / map / vector fails closed the same way a fn does"
     (doseq [bad ["<html>…</html>" {:shape :map} [:vector]]]
@@ -1143,25 +1064,11 @@
                  (str "stream-handler must reject :html-shell " (pr-str bad)))]
         (is (= :rf.error/ssr-streaming-unsupported-opt
                (:rf.error/id (ex-data ex)))
-            (str "structured rejection for :html-shell " (pr-str bad)))))))
-
-(deftest stream-handler-constructs-without-html-shell
-  (testing "absent OR explicit-nil :html-shell constructs
-            cleanly and streams normally — the rejection gates only a
-            non-nil override, never the no-override common path"
-    ;; Absent — the default streaming construction path.
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/root)]
-                      :payload   :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))]
-      (is (= 200 (:status response)) "absent :html-shell streams a 200")
-      (is (str/includes? body "<!DOCTYPE html>")
-          "the default streaming prefix opens the document")
-      (is (str/includes? body "<h1>News</h1>")
-          "the default split envelope streams the rendered shell"))
-    ;; Explicit nil — "no override requested" passes the gate.
+            (str "structured rejection for :html-shell " (pr-str bad))))))
+  (testing "…while an explicit-nil :html-shell constructs cleanly and
+            streams the default envelope — the refusal gates only a non-nil
+            override. (The absent key is how every other test here
+            constructs the handler.)"
     (let [handler  (rf.ssr.ring/stream-handler
                      {:initial-events  [[:rf.test.server/init]]
                       :root-view  [(rf/view :test/root)]
