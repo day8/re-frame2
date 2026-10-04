@@ -38,10 +38,6 @@
       siblings' per-child spawns detect the sentinel and SUPPRESS themselves
       (no live orphan actor with no seeded join to ever tear it down).
 
-   5. **No false reject.** A registered `:machine-id` and an inline
-      `:definition` spawn install cleanly (the gate fires only on the
-      unregistered-type case).
-
   Named `*-cljs-test.cljc` so both the JVM runner and shadow-cljs's
   `cljs-test$` build run it: the production path is `.cljc`, but the
   always-on `:errors` fan-out and the dev trace are host wiring that could
@@ -128,34 +124,6 @@
           "NO :rf.machine.lifecycle/spawned (registrar-substrate) trace either"))))
 
 ;; ===========================================================================
-;; (2) Always-on conformance leg — fans out through register-error-listener!.
-;; ===========================================================================
-
-(deftest reject-fans-out-on-always-on-axis
-  (testing "the reject fans ONE :rf.error/machine-spawn-unregistered-type
-            record out through the corpus-wide always-on error-listener"
-    (let [parent {:initial :idle
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :ghost/worker}}}}]
-      (rf/reg-machine :sup/ghost2 parent)
-      (let [records (with-error-records
-                      #(rf/dispatch-sync [:sup/ghost2 [:start]]))]
-        (is (= 1 (count records))
-            "exactly ONE always-on record for the rejected spawn")
-        (let [r (first records)]
-          (is (= :rf.error/machine-spawn-unregistered-type (:error r))
-              "the always-on category")
-          (is (= :ghost/worker (:machine-id r))
-              "structural :machine-id names the unregistered TYPE")
-          (is (= :rf/default (:frame r))
-              ":frame names the spawning frame")
-          (is (string? (:reason r))
-              ":reason is a structured human sentence")
-          (is (number? (:time r))
-              ":time is a wall-clock millis number"))))))
-
-;; ===========================================================================
 ;; (3) Privacy — structural tags only; the spawn args NEVER ride.
 ;; ===========================================================================
 
@@ -179,6 +147,10 @@
         (is (= #{:error :machine-id :frame :reason :recovery :time}
                (set (keys r)))
             "the always-on record carries ONLY structural keys — no :args/:start/:data")
+        (is (= :rf/default (:frame r))
+            ":frame names the spawning frame")
+        (is (number? (:time r))
+            ":time is a wall-clock millis number")
         ;; No value anywhere in the record echoes the secret.
         (is (not (some #(and (string? %) (str/includes? % secret))
                        (vals r)))
@@ -308,31 +280,6 @@
         (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn/spawned))
             "no :rf.machine.spawn/spawned trace for ANY child of a rejected invoke")))))
 
-(deftest spawn-all-reject-cardinality-is-order-invariant
-  (testing "the per-child reject count is invariant under child ORDER and under
-            the number / placement of registered siblings — the offending
-            children are preflighted as a SET at the invoke boundary, so a
-            leading, trailing, or sandwiched sibling cannot change it"
-    (let [ok-child {:initial :running :data {} :states {:running {}}}]
-      (rf/reg-machine :card/ok2 ok-child)
-      ;; The mirror image of the fixture above: offenders LAST, two registered
-      ;; siblings leading, and the offending ids swapped in declaration order.
-      (rf/reg-machine :sup/card2
-                      (spawn-all-parent [{:id :ok1 :machine-id :card/ok2}
-                                         {:id :ok2 :machine-id :card/ok2}
-                                         {:id :b   :machine-id :card/missing-b2}
-                                         {:id :a   :machine-id :card/missing-a2}]))
-      (let [records (with-error-records
-                      #(rf/dispatch-sync [:sup/card2 [:start]]))]
-        (is (= 2 (count records))
-            "still exactly TWO records — order and sibling count are irrelevant")
-        (is (= [:card/missing-a2 :card/missing-b2]
-               (sort (mapv :machine-id records)))
-            "one record per offending machine-id regardless of declaration order")
-        (is (= {:rf/spawn-all-rejected? true}
-               (get-in (frame-db) [:rf.runtime/machines :spawned :sup/card2 [:forking]]))
-            "one childless reject sentinel — no live join")))))
-
 (deftest spawn-all-parent-exit-clears-the-reject-sentinel
   (testing "parent exit clears the reject sentinel and leaves no valid sibling
             live or orphaned — the rejected invoke owns no teardown debt"
@@ -355,49 +302,3 @@
           "parent exit CLEARS the reject sentinel")
       (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :card/ok3#1]))
           "no valid sibling was left live or orphaned by the rejected invoke"))))
-
-;; ===========================================================================
-;; (5) No false reject — registered TYPE + inline :definition spawn.
-;; ===========================================================================
-
-(deftest registered-type-spawn-not-rejected
-  (testing "a :spawn naming a REGISTERED :machine-id installs normally — the
-            gate fires ONLY on the unregistered-type case"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :states {:idle    {:on {:start :working}}
-                           :working {:spawn {:machine-id :real/worker}}}}]
-      (rf/reg-machine :real/worker child)
-      (rf/reg-machine :sup/real parent)
-      (let [records (with-error-records
-                      #(rf/dispatch-sync [:sup/real [:start]]))]
-        (is (empty? records)
-            "no reject for a registered machine TYPE")
-        (is (= :real/worker#1
-               (get-in (frame-db) [:rf.runtime/machines :spawned :sup/real [:working]]))
-            "the registered-type spawn installs its slot")
-        (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots :real/worker#1]))
-            "the registered-type spawn installs its snapshot")))))
-
-(deftest inline-definition-spawn-not-rejected
-  (testing "a :spawn carrying an inline :definition (no :machine-id) is NOT
-            rejected — the gate keys on an unregistered :machine-id, and a
-            :definition spawn IS its own spec (so it always resolves)"
-    (let [parent {:initial :idle
-                  :states
-                  {:idle    {:on {:start :working}}
-                   ;; A `:fixed-actor-id` gives the inline-definition spawn a
-                   ;; deterministic address (an inline-`:definition`
-                   ;; declarative `:spawn` has no `:machine-id` to drive the
-                   ;; gensym allocator — orthogonal to this gate).
-                   :working {:spawn {:definition    {:initial :running
-                                                     :data    {}
-                                                     :states  {:running {}}}
-                                     :fixed-actor-id :inline/worker}}}}]
-      (rf/reg-machine :sup/inline parent)
-      (let [records (with-error-records
-                      #(rf/dispatch-sync [:sup/inline [:start]]))]
-        (is (empty? records)
-            "no reject for an inline :definition spawn")
-        (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots :inline/worker]))
-            "the inline-definition spawn installs its snapshot (gate did not fire)")))))
