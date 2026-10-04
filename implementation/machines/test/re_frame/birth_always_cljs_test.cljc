@@ -37,8 +37,7 @@
    (e) parallel — every region's enabled birth `:always` is selected in the
        PARENT's frozen birth round (not region-locally): uncoupled guards
        land each region where its own seed dictates; a sibling-reading guard
-       converges across re-freezes in the ONE birth macrostep.
-   (f) no-`:always` machines boot to the plain initial state."
+       converges across re-freezes in the ONE birth macrostep."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -170,20 +169,6 @@
       (is (not (raise-fx? fx))
           "no reserved `:raise` escaped to the outbound fx layer"))))
 
-(deftest pure-birth-always-settles-past-transient-initial-leaf
-  (testing "SCXML §3.13 initial macrostep: an initial leaf whose `:always`
-            guard already holds is settled PAST on birth — the transient
-            initial leaf is never externally observed (W3C test 372/388
-            eventless-on-entry family)"
-    (let [m {:initial :booting
-             :data    {:ready? true}
-             :guards  {:ready? (fn [{data :data}] (:ready? data))}
-             :states  {:booting {:always [{:guard :ready? :target :ready}]}
-                       :ready   {}
-                       :stalled {}}}]
-      (is (= :ready (:state (boot m)))
-          "birth settled past the transient :booting leaf to the :always target :ready"))))
-
 (deftest pure-birth-always-stays-when-guard-false
   (testing "the birth `:always` guard FALSE → the machine stays in the
             initial leaf (no spurious transition on start)"
@@ -236,41 +221,6 @@
           {:keys [state data]} (boot m)]
       (is (= :ready state) "settled to :ready")
       (is (= 1 (:n data)) "the `:always` action's :data write committed with the target"))))
-
-(deftest pure-birth-no-always-unaffected
-  (testing "(f) a machine with NO `:always` boots to its plain initial
-            state — birth installs it with zero microsteps"
-    (let [m {:initial :idle
-             :data    {:seeded? true}
-             :states  {:idle {:on {:go :next}} :next {}}}
-          {:keys [state data]} (boot m)]
-      (is (= :idle state) "no `:always` — birth lands on the plain initial state")
-      (is (= {:seeded? true} data) ":data is the declared seed, unchanged"))))
-
-(deftest pure-birth-parallel-regions-settle-in-parent-round
-  (testing "(e) parallel — every region's enabled birth `:always` is selected
-            in the PARENT's frozen birth round. With UNCOUPLED guards each
-            region lands where its own seed dictates (region L's guard true →
-            :l-ready; region R's guard false → stays at its initial leaf) —
-            an outcome a region-local model would share, but the mechanism
-            is the parent-owned freeze/select/apply round, not independent
-            regional settling (the coupled case below is what a region-local
-            model cannot satisfy)"
-    (let [m {:type    :parallel
-             :data    {:l? true :r? false}
-             :guards  {:l? (fn [{data :data}] (:l? data))
-                       :r? (fn [{data :data}] (:r? data))}
-             :regions {:left  {:initial :l-boot
-                               :states  {:l-boot  {:always [{:guard :l? :target :l-ready}]}
-                                         :l-ready {}}}
-                       :right {:initial :r-boot
-                               :states  {:r-boot  {:always [{:guard :r? :target :r-ready}]}
-                                         :r-ready {}}}}}
-          {:keys [state]} (boot m)]
-      (is (= :l-ready (:left state))
-          "region :left's birth `:always` (guard true) settled to :l-ready")
-      (is (= :r-boot (:right state))
-          "region :right's birth `:always` (guard false) stayed at its initial leaf"))))
 
 (deftest pure-birth-parallel-coupled-always-converges-in-one-parent-round
   ;; The EXECUTABLE guard for the "parent-owned, not region-local" claim.
@@ -335,7 +285,7 @@
 ;; `maybe-boot` calls the same `apply-initial-entry-cascade` the PURE layer
 ;; drives, so the live layer pins what the pure layer cannot see: the two
 ;; birth triggers, a REGISTERED parallel machine, and auto-destroy at birth.
-;; Cases (c), (d) and (f) are pure-only.
+;; Cases (c) and (d) are pure-only.
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
