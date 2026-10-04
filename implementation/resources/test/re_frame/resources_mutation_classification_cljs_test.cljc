@@ -24,7 +24,6 @@
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    [re-frame.elision :as rf.elision]
-   [re-frame.late-bind :as rf.late-bind]
    [re-frame.privacy :as rf.privacy]
    [re-frame.resources.classification :as rf.resources.classification]
    [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
