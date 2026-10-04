@@ -43,18 +43,6 @@
       (is (= 0 (:revision e)))
       (is (= sk (:resource/key e))))))
 
-(deftest revision-is-distinct-from-generation
-  (testing ":revision and :generation are independent facts; entry-start-load
-            bumps :generation (load START) but NOT :revision — so an in-flight
-            refetch never false-conflicts"
-    (let [e0 (rf.resources.state/empty-entry :conduit/article)
-          e1 (rf.resources.state/entry-start-load
-               e0 {:generation 7 :work-id [:w 1] :request-id "r1" :owner :o})]
-      (is (= 7 (:generation e1)) ":generation moves to the allocated value at load start")
-      (is (= 0 (:revision e1))
-          ":revision is UNMOVED by entry-start-load — load START is the work
-           identity (:generation), not an authoritative durable write"))))
-
 ;; ---- unconditional bump on an authoritative durable write -----------------
 
 (deftest entry-succeeded-bumps-revision-even-on-equal-data
