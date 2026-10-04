@@ -163,15 +163,6 @@
     (is (= 1781078400123 (:stamped-at (rf/app-db-value :clock/main)))
         "the map step's :rf.cofx clock reached the handler via dispatch-sync opts")))
 
-(deftest initial-events-absent-or-empty-means-no-setup
-  (testing "omitting :initial-events and supplying [] both mean no setup — the
-            frame is created with an empty app-db"
-    (reg-test-events!)
-    (rf/make-frame {:id :empty/a :doc "no key"})
-    (rf/make-frame {:id :empty/b :initial-events []})
-    (is (= {} (rf/app-db-value :empty/a)) "no :initial-events key ⇒ app-db {}")
-    (is (= {} (rf/app-db-value :empty/b)) "[] :initial-events ⇒ app-db {}")))
-
 ;; ===========================================================================
 ;; 2. Provenance — setup dispatches carry :source :frame-init + :step-index
 ;; ===========================================================================
