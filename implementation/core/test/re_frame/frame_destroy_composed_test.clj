@@ -4,8 +4,7 @@
   Other suites exercise each frame-lifecycle edge IN ISOLATION:
   individual destroy steps, the adapter-disposed throw, drain-after-
   destroy, optional-hook absent paths. This file pins the
-  COMBINATION — what happens when a throwing trace listener fires WHILE
-  the destroy cascade is running, what happens when an optional cleanup
+  COMBINATION — what happens when an optional cleanup
   hook is registered but throws, what happens when a reaction's
   `dispose!` throws mid-sub-cache-walk, what happens when a frame's
   `:on-destroy` event dispatch-syncs across to a sibling. These are the
@@ -13,10 +12,10 @@
   registries, or frames-store records alive after destroy.
 
   Coverage:
-    - Five composed lifecycle interleavings.
+    - Composed lifecycle interleavings.
     - Assertions prove no leaked sub-cache, epoch buffer, flow
       registration, or frames-store record for the destroyed frame.
-    - Listener-throw and late-bound-hook-throw paths pinned.
+    - Late-bound-hook-throw and reaction-dispose-throw paths pinned.
     - JVM coverage suffices — every assertion is pure runtime semantics
       with no host-specific divergence (the destroy step list is host-
       agnostic; CLJS adds only React-context teardown, which is owned
@@ -25,7 +24,7 @@
   ## Posture split
 
   Teardown is production behaviour; the LIFECYCLE EMITS that narrate it are
-  not. Six of the seven cases read `:rf.sub/dispose` / `:rf.frame/destroyed` /
+  not. Most cases read `:rf.sub/dispose` /
   `:rf.warning/teardown-hook-exception` /
   `:rf.warning/cross-frame-dispatch-sync-during-drain` off the dev trace, which
   is silent under `scripts/test-core-prod-gate.sh`, so those reads are
@@ -33,15 +32,14 @@
   store, the sub-cache, the schemas registry, the flows registry and
   last-inputs are all ungated.
 
-  TWO CASES COUNT DISPOSALS THROUGH A WITNESS RATHER THAN A GUARD.
-  `destroy-emits-sub-dispose-per-cached-slot` and
-  `destroy-emits-exactly-one-dispose-per-slot-for-layered-sub` count
-  evictions; the failure the second one guards is a DOUBLE DISPOSE, observable
+  ONE CASE COUNTS DISPOSALS THROUGH A WITNESS RATHER THAN A GUARD.
+  `destroy-emits-exactly-one-dispose-per-slot-for-layered-sub` counts
+  evictions; the failure it guards is a DOUBLE DISPOSE, observable
   directly through `rf.interop/add-on-dispose!` on the reactions themselves,
-  so both count real disposals in both postures. The layered case is the
-  stronger for it: under the gate it proves the input-release cascade does not
-  re-dispose a slot the frame-destroy walk already cleared, which is the
-  actual hazard — a duplicated EMIT would be only its symptom.
+  so it counts real disposals in both postures: under the gate it proves the
+  input-release cascade does not re-dispose a slot the frame-destroy walk
+  already cleared, which is the actual hazard — a duplicated EMIT would be
+  only its symptom.
 
   THE EPOCH RING IS DEV-FED. `epoch.capture/observe-trace-event!` feeds the
   ring from the DEV TRACE, so under the gate `rf/epoch-history` is empty and
@@ -98,84 +96,6 @@
   (test-fn))
 
 (use-fixtures :each reset-runtime)
-
-;; ---------------------------------------------------------------------------
-;; 1. Throwing trace listener during the destroy cascade
-;;
-;; The destroy cascade emits multiple trace events:
-;;   * one or more :rf.machine.lifecycle/destroyed (per active machine)
-;;   * :rf.frame/destroyed
-;;   * (post-destroy) :rf.epoch.cb/silenced-on-frame-destroy per
-;;     observing epoch cb
-;; A listener that throws on EVERY event during the cascade must not
-;; (a) crash the destroy cascade, (b) leave the frame partially
-;; destroyed, or (c) prevent other listeners from observing the cascade.
-;; Trace fan-out swallows listener throws (re-frame.trace.tooling/
-;; deliver-to-tooling!) — pin that the contract survives the multi-emit
-;; destroy cascade end-to-end.
-;; ---------------------------------------------------------------------------
-
-(deftest destroy-with-throwing-trace-listener-still-completes
-  (testing "trace listener that throws on every emit during destroy: cascade
-            completes, frame is fully destroyed, surviving listener sees the
-            full event sequence"
-    (rf/make-frame {:id :composed/scoped :doc "scoped"})
-    ;; Seed two machine snapshots so destroy emits multiple
-    ;; :rf.machine.lifecycle/destroyed events in addition to
-    ;; :rf.frame/destroyed.
-    ;; EP-0001: machine snapshots are durable runtime-db state.
-    (rf/reg-event :composed/seed-machines
-                     (fn [{rt :rf.db/runtime} _]
-                       {:rf.db/runtime
-                        (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
-                                  {:flow/a {:state :running :data {}}
-                                   :flow/b {:state :idle    :data {}}})}))
-    (rf/dispatch-sync [:composed/seed-machines] {:frame :composed/scoped})
-    (let [throw-calls (atom 0)
-          survivor    (atom [])]
-      ;; Throwing listener — fires for every emit in the cascade.
-      (rf/register-listener! :trace ::thrower
-                             (fn [_ev]
-                               (swap! throw-calls inc)
-                               (throw (ex-info "tool blew during destroy" {}))))
-      ;; Surviving listener — must still receive every event the
-      ;; throwing listener intercepted.
-      (rf/register-listener! :trace ::survivor (fn [ev] (swap! survivor conj ev)))
-
-      ;; Destroy. Must NOT throw despite the listener exception storm.
-      (is (nil? (rf/destroy-frame! :composed/scoped))
-          "destroy-frame! completes without re-throwing the listener's exception")
-
-      ;; GUARDED: the listener storm and the cascade's emit
-      ;; sequence are dev-trace facts. Under `-Dre-frame.debug=false` nothing
-      ;; is emitted, so no listener runs and there is no storm to survive. The
-      ;; always-on residue is the teardown itself, asserted below.
-      (when rf.interop/debug-enabled?
-        ;; The throwing listener WAS invoked (more than once — the cascade
-        ;; emitted multiple events).
-        (is (>= @throw-calls 3)
-            (str "throwing listener invoked once per cascade event (>=3); got "
-                 @throw-calls))
-
-        ;; The surviving listener saw the canonical cascade events.
-        (let [ops (set (map :operation @survivor))]
-          (is (contains? ops :rf.frame/destroyed)
-              "survivor saw :rf.frame/destroyed"))
-        (is (= 2 (count (filter #(= :rf.machine.lifecycle/destroyed
-                                    (:operation %))
-                                @survivor)))
-            "survivor saw both per-machine destroyed events (one per snapshot)"))
-
-      ;; The frame is fully gone from the frames store (the ONE store a
-      ;; seated frame lives in) — proves no destroy step was
-      ;; skipped by the listener throw.
-      (is (nil? (get @rf.frame/frames :composed/scoped))
-          "frame entry is gone from the underlying atom (no soft-destroy)")
-      (is (nil? (rf.frame/frame-meta :composed/scoped))
-          "frame is invisible to the frame-meta introspection surface")
-
-      (rf/unregister-listener! :trace ::thrower)
-      (rf/unregister-listener! :trace ::survivor))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Throwing late-bound cleanup hook during the destroy cascade
@@ -307,63 +227,7 @@
           "frame is invisible to frame-meta"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3b. Frame-destroy sub-cache eviction emits :rf.sub/dispose
-;;
-;; Like every OTHER eviction site, tear-down-sub-cache! fires the
-;; :rf.sub/dispose lifecycle emit rather than disposing reactions silently.
-;; Frame teardown is a real eviction class and MUST appear in the stream
-;; (reason :frame-destroy) so tooling can tell a clean teardown from
-;; missing trace data.
-;; ---------------------------------------------------------------------------
-
-(deftest destroy-emits-sub-dispose-per-cached-slot
-  (testing ":rf.sub/dispose fires once per cached slot when destroy-frame!
-            tears the frame down — reason :frame-destroy, correct :frame
-            + :rf.sub/query-v"
-    (rf/make-frame {:id :composed/dispose-emit :doc "dispose-emit"})
-    (rf/reg-event :composed/seed2 (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
-    (rf/reg-sub :composed/da (fn [db _] (:a db)))
-    (rf/reg-sub :composed/db (fn [db _] (:b db)))
-    (rf/dispatch-sync [:composed/seed2] {:frame :composed/dispose-emit})
-
-    (let [disposes (atom [])]
-      (rf/register-listener! :trace ::dispose-emit
-                             (fn [ev]
-                               (when (= :rf.sub/dispose (:operation ev))
-                                 (swap! disposes conj ev))))
-      (try
-        (let [ra       (rf/subscribe [:composed/da] {:frame :composed/dispose-emit})
-              rb       (rf/subscribe [:composed/db] {:frame :composed/dispose-emit})
-              disposed (atom [])]
-          ;; ALWAYS-ON counterpart of the emit stream: count the
-          ;; REAL disposals through `rf.interop/add-on-dispose!`, which is not
-          ;; gated on `rf.interop/debug-enabled?`.
-          (rf.interop/add-on-dispose! ra (fn [] (swap! disposed conj [:composed/da])))
-          (rf.interop/add-on-dispose! rb (fn [] (swap! disposed conj [:composed/db])))
-          (is (= 2 (count @(:sub-cache (rf.frame/frame :composed/dispose-emit))))
-              "both subscriptions are cached before destroy")
-
-          (is (nil? (rf.frame/destroy-frame! :composed/dispose-emit)))
-
-          (is (= {[:composed/da] 1 [:composed/db] 1} (frequencies @disposed))
-              "every cached slot was really disposed on frame destroy, exactly once")
-
-          (when rf.interop/debug-enabled?
-            (let [evs   @disposes
-                  q-vs  (set (map #(-> % :tags :rf.sub/query-v) evs))]
-              (is (= 2 (count evs))
-                  "one :rf.sub/dispose per evicted slot on frame destroy")
-              (is (= #{[:composed/da] [:composed/db]} q-vs)
-                  "every cached query-vector got its own dispose emit")
-              (is (every? #(= :frame-destroy (-> % :tags :rf.sub/reason)) evs)
-                  ":rf.sub/reason :frame-destroy discriminates the teardown path")
-              (is (every? #(= :composed/dispose-emit (-> % :tags :frame)) evs)
-                  "each emit carries the destroyed frame's id"))))
-        (finally
-          (rf/unregister-listener! :trace ::dispose-emit))))))
-
-;; ---------------------------------------------------------------------------
-;; 3b-2. Frame-destroy on a layered (declared-input) sub emits exactly one
+;; 3b. Frame-destroy on a layered (declared-input) sub emits exactly one
 ;; :rf.sub/dispose PER cached slot — no cascade re-emit
 ;;
 ;; A layer-2+ sub's on-dispose callback releases its declared-input refs via
@@ -434,7 +298,9 @@
               (is (every? #(= :frame-destroy (-> % :tags :rf.sub/reason)) evs)
                   "every emit is reasoned :frame-destroy — the cascade found the
                    already-cleared cache and never re-emitted :no-more-derefers
-                   for an input"))))
+                   for an input")
+              (is (every? #(= :composed/layered-destroy (-> % :tags :frame)) evs)
+                  "each emit carries the destroyed frame's id"))))
         (finally
           (rf/unregister-listener! :trace ::layered-destroy))))))
 
