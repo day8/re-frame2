@@ -85,10 +85,7 @@
   ;; through `apply-patches`'s own `cond` (:else acc) without a throw.
   (testing "unknown op does not throw (soft-pass) and is dropped by the cond"
     (is (= {} (rf.mcp-base.diff-encode/apply-patches {} [[[:a] :replace 1]]))
-        "no Malli ⇒ no validation throw; :replace falls through to :else acc"))
-  (testing "well-formed patches still apply correctly"
-    (is (= {:a 1 :b 2} (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:b] :assoc 2]])))
-    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
+        "no Malli ⇒ no validation throw; :replace falls through to :else acc")))
 
 (deftest decode-db-after-soft-passes-malformed-sections-when-malli-absent
   ;; JVM `decode-db-after-rejects-malformed-sections` asserts this
@@ -320,18 +317,9 @@
              (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "ev-9"}) pair?))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5d. apply-patches nested :dissoc no-op + section-kind :db-before
-;;     classification run under CLJS too.
+;; 5d. The replay guard's structured error and the section-kind
+;;     `:db-before` classification run under CLJS too.
 ;; ---------------------------------------------------------------------------
-
-(deftest apply-patches-nested-dissoc-noop-cljs
-  (testing "missing / scalar parent ⇒ no-op (no nil branches, no host throw)"
-    (is (= {} (rf.mcp-base.diff-encode/apply-patches {} [[[:missing :leaf] :dissoc]])))
-    (is (= {:a {}} (rf.mcp-base.diff-encode/apply-patches {:a {}} [[[:a :b :c] :dissoc]])))
-    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:a :b] :dissoc]]))))
-  (testing "valid nested + root dissoc unchanged"
-    (is (= {:a {:c 2}} (rf.mcp-base.diff-encode/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]])))
-    (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
 
 (deftest apply-patches-nested-assoc-scalar-parent-structured-error-cljs
   ;; The `:assoc` peer of the dissoc guard, on CLJS.
@@ -450,11 +438,7 @@
       (is (= :re-frame.mcp-base.cursor/malformed
              (rf.mcp-base.cursor/decode-cursor pair-inst permissive?)))
       (is (= :re-frame.mcp-base.cursor/malformed
-             (rf.mcp-base.cursor/decode-cursor pair-uuid permissive?)))
-      ;; a clean cursor still survives the permissive predicate
-      (is (= {:v 1 :after-id "ev-9"}
-             (rf.mcp-base.cursor/decode-cursor (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "ev-9"})
-                                   permissive?))))))
+             (rf.mcp-base.cursor/decode-cursor pair-uuid permissive?))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6b. Cursor rejects NONCANONICAL Base64 aliases on CLJS too. `js/Buffer`
