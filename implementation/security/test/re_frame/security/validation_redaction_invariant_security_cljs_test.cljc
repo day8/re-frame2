@@ -638,11 +638,12 @@
              (finally
                (rf.late-bind/set-fn! :subs/resolve-sub-override nil))))))))
 
-;; SUPPLEMENTARY — the handcrafted tag-shape tests below backstop the
-;; production-path drivers above: they exercise the shared seam against the
-;; EXACT tag map each site builds, so a shape drift (a new value-bearing slot
-;; added without listing it in `value-bearing-slots`) is caught here even if a
-;; production-path refactor stops building that slot.
+;; SUPPLEMENTARY — the handcrafted tag-shape test below backstops the
+;; sub-override production-path driver above, which runs only on CLJS: it
+;; exercises the shared seam against the EXACT tag map the `:sub-override`
+;; site builds, so the JVM lane also checks that seam against that shape.
+;; The flow-output site needs no such copy, because its production-path driver
+;; runs on both hosts.
 
 (deftest sub-override-tag-shape-redacts-through-seam
   (testing "the :where :sub-override tag shape redacts every
@@ -664,25 +665,6 @@
       (is (= :rf/redacted (:rf.sub/query-v out)) ":rf.sub/query-v redacted")
       (is (not (contains-sentinel? out))
           (str "the sentinel survived the :sub-override redaction: " (pr-str out))))))
-
-(deftest flow-output-tag-shape-redacts-through-seam
-  (testing "the :where :flow-output tag shape redacts :explain AND :value
-            through the shared seam"
-    (let [tags  {:category   :rf.error/schema-validation-failure
-                 :where      :flow-output
-                 :rf.flow/id :flow/secret
-                 :failing-id :flow/secret
-                 :schema-id  :flow/secret
-                 :path       [:derived]
-                 :value      failing-sensitive-value
-                 :explain    {:value failing-sensitive-value}
-                 :recovery   :no-recovery}
-          out   (rf.schemas/redact-validation-tags sensitive-map-schema tags)]
-      (is (true? (:sensitive? out)) ":sensitive? stamped")
-      (is (= :rf/redacted (:value out)) ":value redacted")
-      (is (= :rf/redacted (:explain out)) ":explain redacted")
-      (is (not (contains-sentinel? out))
-          (str "the sentinel survived the :flow-output redaction: " (pr-str out))))))
 
 ;; ---------------------------------------------------------------------------
 ;; PROPERTY — across arbitrary collection/map nestings of a sensitive slot,
