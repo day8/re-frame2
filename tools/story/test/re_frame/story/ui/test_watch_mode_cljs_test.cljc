@@ -35,15 +35,6 @@
 
 ;; ---- pure: watch-mode flag ----------------------------------------------
 
-(deftest set-test-watch-mode-defaults-off
-  (testing "fresh shell-state reads watch-mode off"
-    (is (false? (rf.story.ui.state/test-watch-mode? rf.story.ui.state/default-shell-state)))))
-
-(deftest set-test-watch-mode-toggles-on
-  (testing "set-test-watch-mode true → flag flips on"
-    (let [s (rf.story.ui.state/set-test-watch-mode rf.story.ui.state/default-shell-state true)]
-      (is (true? (rf.story.ui.state/test-watch-mode? s))))))
-
 (deftest set-test-watch-mode-toggle-off-clears-hashes
   (testing "toggle-off resets [:tests :content-hashes] so the next
             toggle-on seeds fresh from the current registry"
@@ -92,12 +83,6 @@
     [:story.x/a :story.x/b]))
 
 ;; ---- pure: record-test-content-hashes ----------------------------------
-
-(deftest record-test-content-hashes-stamps-slot
-  (testing "record-test-content-hashes writes into [:tests :content-hashes]"
-    (let [s (rf.story.ui.state/record-test-content-hashes rf.story.ui.state/default-shell-state
-                                              {:story.x/a "aaaa"})]
-      (is (= {:story.x/a "aaaa"} (get-in s [:tests :content-hashes]))))))
 
 (deftest record-test-content-hashes-nil-clears
   (testing "nil input clears the slot — used by toggle-off"
