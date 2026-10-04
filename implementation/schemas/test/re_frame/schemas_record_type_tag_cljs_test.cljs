@@ -95,18 +95,14 @@
   (testing "a planted own `constructor` classifies to the
             CONSTANT fallback; the sentinel appears nowhere in the tag"
     (let [t (tag (planted-constructor-obj))]
-      (is (= "object" t))
-      (is (not (str/includes? t sentinel))
+      (is (= "object" t)
           (str "the value's own constructor text reached the type tag; got "
-               (pr-str t)))
-      (is (contains? closed-vocabulary t)))))
+               (pr-str t))))))
 
 (deftest tag-survives-a-hostile-accessor
   (testing "a diagnostic must not explode while explaining a rejection —
             the throwing Proxy classifies rather than propagating"
-    (let [t (tag (hostile-proxy))]
-      (is (= "object" t))
-      (is (contains? closed-vocabulary t)))))
+    (is (= "object" (tag (hostile-proxy))))))
 
 (deftest tag-is-closed-over-foreign-and-native-cljs-values
   (testing "every arm yields a framework literal — a masquerading value gets
@@ -118,8 +114,7 @@
                js/Math js/JSON]]
       (let [t (tag v)]
         (is (contains? closed-vocabulary t)
-            (str "tag escaped the closed vocabulary — got " (pr-str t)))
-        (is (not (str/includes? t sentinel)))))))
+            (str "tag escaped the closed vocabulary — got " (pr-str t)))))))
 
 ;; ---- end to end: the emitted record does not disclose ---------------------
 

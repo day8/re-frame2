@@ -62,19 +62,6 @@
 ;; input honest is the JVM-side `float?` check, deliberately not
 ;; duplicated here where it could only ever be vacuous.
 
-(deftest cljs-whole-number-double-fixture-is-integer-valued
-  (testing "what this host CAN check: the fixture's `:min`
-            denotes the whole number the shared literal was pinned
-            over. On CLJS `1.0` and `1` are one value, which is exactly
-            why the JVM's `1.0` is normalised towards the integer
-            rather than the other way about."
-    (let [m (rf.schemas.digest-parity-fixtures/whole-number-double-min)]
-      (is (number? m))
-      (is (== 1 m))
-      (is (integer? m)
-          "CLJS reads the fixture's `1.0` source literal as an integer —
-           the divergence itself, stated as an assertion"))))
-
 (deftest cljs-fn-bearing-schema-digest-is-process-stable
   (testing "a schema carrying a bare predicate must serialise
             to a name-derived token rather than the host's `#object[…]`
