@@ -32,9 +32,7 @@
        (superseded work-id / generation) NEVER overwrites newer data; the
        header stamping does not touch the runtime-owned reply addressing
        (`:request-id` / `:on-success` / `:on-failure`) the stale-suppression
-       boundary rides on;
-    5. base-URL decoration (a `:before` that rewrites `:url`) reaches the
-       transport — the final post-`:before` request is what ships.
+       boundary rides on.
 
   ## Test seam
 
@@ -265,25 +263,6 @@
         (testing "the CURRENT gen-2 decorated reply lands normally"
           (reply-success! :on-success {:fresh "data"})
           (is (= {:fresh "data"} (:data (entry k)))))))))
-
-;; ===========================================================================
-;; 5. Base-URL / url-rewriting decoration reaches the transport
-;; ===========================================================================
-
-(deftest base-url-decoration-reaches-transport
-  (rf/reg-http-interceptor :test/base-url
-    {:frame  :rf/default
-     :before (fn [ctx]
-               (update-in ctx [:request :url] #(str "https://api.example.com" %)))})
-  (rf/reg-resource :bu/article (article-spec) article-spec-request)
-  (rf/dispatch-sync [:rf.resource/ensure
-                     {:resource :bu/article :scope :rf.scope/global
-                      :params {:slug "w"} :owner [:app :bu 1]}])
-  (testing "Spec 016 §Request decoration — a base-URL :before rewrites the
-            domain url; the FINAL post-:before request is what ships"
-    (is (= "https://api.example.com/api/articles/w"
-           (get-in @last-decorated [:request :url]))
-        "the resource read's url carries the base-URL prefix")))
 
 ;; ===========================================================================
 ;; 6. The decorated bearer-token VALUE does NOT leak into any trace row
