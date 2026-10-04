@@ -48,7 +48,6 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.observability :as rf.observability]
-            [re-frame.projection :as rf.projection]
             [re-frame.test-support :as rf.test-support]
             ;; The example's production source — the subject. Requiring it
             ;; registers the whole app at ns-load; all this ns reads off it are
@@ -96,20 +95,14 @@
 (deftest example-declares-a-well-formed-error-sink-policy
   (testing "the example's frame policy names ONE :errors sink, under a member
             of the closed egress-profile enum, using the same id its own
-            registration uses"
-    (is (keyword? app/error-sink-id)
-        "the sink id is a keyword — what a frame entry's :sink must carry")
+            registration uses (the routing row below fails if the id or
+            the profile does not resolve)"
     (let [entries (:errors app/observability)]
       (is (= [:errors] (keys app/observability))
           "the policy declares the :errors stream and nothing else")
       (is (= 1 (count entries))
           "exactly one sink entry — the example teaches one monitor")
       (let [entry (first entries)]
-        (is (= app/error-sink-id (:sink entry))
-            "the entry names the example's own sink id, so the policy and the
-             registration cannot drift apart")
-        (is (contains? rf.projection/profiles (:rf.egress/profile entry))
-            "the egress profile is a member of the closed EP-0015 enum")
         (is (= :rf.egress/off-box-observability (:rf.egress/profile entry))
             "and it is the off-box boundary — this record leaves the box for a
              hosted monitor, which is the profile that decides how much of it
@@ -148,9 +141,7 @@
         ;; the frame's classification before handing it over.
         (is (= :rf/redacted (get-in (:event r) [1 :auth :token]))
             "the sensitive JWT inside the error's :event is REDACTED — the sink
-             received an already-projected record and re-implements nothing")
-        (is (not= sensitive-token (get-in (:event r) [1 :auth :token]))
-            "explicitly: the raw token did not reach the sink")))))
+             received an already-projected record and re-implements nothing")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. fail-closed — the DECLARATION is what opens the channel
