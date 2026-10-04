@@ -240,8 +240,6 @@
                                  ["elkjs"         ":elkjs-version"]]]
             (let [impl-pin (read-package-json-pin pkg)
                   tpl-pin  (extract-pin pj-text pkg)]
-              (is (some? tpl-pin)
-                  (str "the emitted package.json declares " pkg))
               (is (= (base-version impl-pin) tpl-pin)
                   (str "Template " literal " (" tpl-pin ") must match "
                        "implementation/package.json " pkg " (" impl-pin ") — P5 "

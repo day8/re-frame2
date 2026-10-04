@@ -86,14 +86,12 @@
         ;; The opt-in env var. Without it `emitted_test_run_test.clj`
         ;; short-circuits every behavioural deftest to a skip-assert, so
         ;; the gate would compile/run nothing.
-        (is (string/includes? job "RF2_TEMPLATE_RUN_EMITTED_TESTS")
-            "test-template must set RF2_TEMPLATE_RUN_EMITTED_TESTS — it is
-             the opt-in flag that turns the emitted-app compile/run/release
-             tier ON. Without it the release gate is a fast-loop-only shape
-             check and a broken scaffold can be published.")
         (is (re-find #"RF2_TEMPLATE_RUN_EMITTED_TESTS:\s*[\"']?1" job)
-            "RF2_TEMPLATE_RUN_EMITTED_TESTS must be set to 1 (string),
-             matching test.yml / expensive-tests.yml.")
+            "test-template must set RF2_TEMPLATE_RUN_EMITTED_TESTS to 1
+             (string), matching test.yml / expensive-tests.yml — it is the
+             opt-in flag that turns the emitted-app compile/run/release tier
+             ON. Without it the release gate is a fast-loop-only shape check
+             and a broken scaffold can be published.")
         ;; Node + npm ci provision implementation/node_modules so the
         ;; emitted bundle's React imports resolve at compile/run time.
         (is (string/includes? job "setup-node")
