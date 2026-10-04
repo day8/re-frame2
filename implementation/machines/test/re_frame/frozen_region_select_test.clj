@@ -15,19 +15,16 @@
   snapshot — not an evolving same-event view.
 
   Acceptance fixtures:
-    (1) `:data` write in region A is NOT visible to region B's same-event
-        GUARD (B sees the frozen pre-event `:data`); B fires only on a
-        later event / raised rebroadcast.
-    (2) region B's `:all-state` / `:tags` GUARD does NOT see region A's
-        same-event transition during selection (frozen).
-    (3) an ACTION's `:all-state` / `:tags` ALSO reflect the frozen
-        pre-broadcast snapshot (not an evolving rebuild), while `:data`
-        accumulation across co-selected regions in declaration order holds.
-    (4) CONVERGENCE — guarded `:always` settles in parent-owned rounds after
-        the complete event set applies.
-    (5) parallel SELECTION is DECLARATION-ORDER-INDEPENDENT — the same
+    (1) an ACTION's `:all-state` / `:tags` reflect the frozen pre-broadcast
+        snapshot (not an evolving rebuild), while `:data` accumulation across
+        co-selected regions in declaration order holds.
+    (2) parallel SELECTION is DECLARATION-ORDER-INDEPENDENT — the same
         machine with regions declared a-then-b vs b-then-a yields the same
-        selected set / same committed state."
+        selected set / same committed state. A guard that saw a sibling's
+        same-event `:data` write or transition would break this symmetry.
+
+  Convergence of guarded `:always` in parent-owned rounds is pinned in
+  `final_region_sourcing_test.clj`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -42,96 +39,7 @@
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
-;; ---- (1) :data write in A is NOT visible to B's same-event guard -----------
-;;
-;; The canonical xstate@5.32.0 case (a=:done, b=:idle, x=1): region a on :go
-;; does (assign :x inc) and goes :done; region b on :go has guard (pos? x);
-;; x starts 0. Result a=:done, b=:idle, x=1 — b's guard saw x=0 (frozen).
-;;
-;; The reader region b is declared AFTER the writer a — the adversarial order.
-;; The SELECT/APPLY split resolves EVERY region's event guard in
-;; a SELECT pass against ONE frozen pre-event view (which freezes `:data`
-;; alongside `:all-state` / `:tags`) BEFORE any region's action applies, so b's
-;; guard reads the pre-event `:x=0` regardless of declaration order. The one
-;; value that flows (`:data`) accumulates only in the APPLY phase, reaching a
-;; later region's ACTION — never an earlier-selected guard. (Threading `:data`
-;; through selection would leak here: with b declared after a, a's `:bump`
-;; would thread `cur-data {:x 1}` into b's guard, so b would fire — the
-;; declaration-order-dependent footgun the split closes.)
-
-(deftest data-write-not-visible-to-same-event-guard
-  (testing "region b's same-event guard reads the frozen pre-event :data — b
-            does NOT fire on the event a writes the value, even with b declared
-            AFTER the writer a (xstate@5.32.0 a=:done, b=:idle, x=1)"
-    (let [m {:type    :parallel
-             :data    {:x 0}
-             :guards  {:x-pos? (fn [{:keys [data]}] (pos? (:x data)))}
-             :actions {:bump  (fn [{:keys [data]}] {:data (update data :x inc)})}
-             :regions
-             ;; a (the WRITER) declared FIRST; b (the reader) declared AFTER —
-             ;; the order an evolving-:data model would leak on. Frozen SELECT
-             ;; blocks the leak.
-             {:a {:initial :idle
-                  :states  {:idle {:on {:go {:target :done :action :bump}}}
-                            :done {}}}
-              :b {:initial :idle
-                  :states  {:idle {:on {:go {:target :done :guard :x-pos?}}}
-                            :done {}}}}}]
-      (rf/reg-machine :frozen/data m)
-      (rf/dispatch-sync [:frozen/data [:go]])
-      (let [s (snapshot :frozen/data)]
-        (is (= {:a :done :b :idle} (:state s))
-            "a transitioned + bumped :x; b's guard saw frozen :x=0 → b stayed :idle")
-        (is (= 1 (get-in s [:data :x]))
-            ":x accumulated to 1 from a's :bump action"))
-      ;; A SECOND :go now sees :x=1 (prior-microstep value) → b fires.
-      (rf/dispatch-sync [:frozen/data [:go]])
-      (is (= :done (get-in (snapshot :frozen/data) [:state :b]))
-          "on a LATER event b's guard reads the committed :x=1 → b fires"))))
-
-;; ---- (2) B's :all-state / :tags guard does NOT see A's same-event move -----
-
-(deftest all-state-guard-frozen-during-selection
-  (testing "region b's :all-state guard does NOT see region a's same-event
-            transition — it reads the frozen pre-event sibling config"
-    (let [m {:type    :parallel
-             :data    {}
-             :guards  {:a-done? (fn [{:keys [all-state]}]
-                                  (= :done (:a all-state)))}
-             :regions
-             {:a {:initial :idle
-                  :states  {:idle {:on {:go :done}}
-                            :done {}}}
-              :b {:initial :idle
-                  :states  {:idle {:on {:go {:target :fire :guard :a-done?}}}
-                            :fire {}}}}}]
-      (rf/reg-machine :frozen/all-state m)
-      (rf/dispatch-sync [:frozen/all-state [:go]])
-      (is (= {:a :done :b :idle} (:state (snapshot :frozen/all-state)))
-          "a moved to :done; b's :all-state guard saw frozen :a=:idle → b blocked")
-      ;; Later event: b's guard now reads the committed :a=:done → b fires.
-      (rf/dispatch-sync [:frozen/all-state [:go]])
-      (is (= :fire (get-in (snapshot :frozen/all-state) [:state :b]))
-          "on a later event b's guard reads committed :a=:done → b fires")))
-
-  (testing ":tags guard is likewise frozen during selection"
-    (let [m {:type    :parallel
-             :data    {}
-             :guards  {:a-tagged? (fn [{:keys [tags]}]
-                                    (contains? tags :a/done))}
-             :regions
-             {:a {:initial :idle
-                  :states  {:idle {:on {:go :done}}
-                            :done {:tags #{:a/done}}}}
-              :b {:initial :idle
-                  :states  {:idle {:on {:go {:target :fire :guard :a-tagged?}}}
-                            :fire {}}}}}]
-      (rf/reg-machine :frozen/tags m)
-      (rf/dispatch-sync [:frozen/tags [:go]])
-      (is (= {:a :done :b :idle} (:state (snapshot :frozen/tags)))
-          "b's :tags guard saw the frozen union (no :a/done yet) → b blocked"))))
-
-;; ---- (3) ACTION :all-state / :tags frozen; :data accumulation in order -----
+;; ---- (1) ACTION :all-state / :tags frozen; :data accumulation in order -----
 
 (deftest action-all-state-frozen-data-accumulates
   (testing "a co-selected region's ACTION sees the frozen pre-broadcast
@@ -175,30 +83,7 @@
         (is (= [:a] (get-in b-ev [:data-seen :log]))
             "b's action saw a's :data write (the one value that flows)")))))
 
-;; ---- (4) CONVERGENCE — parent eventless rounds + raised FIFO ---------------
-
-(deftest convergence-via-parent-always-round
-  (testing "a guarded :always reading a sibling's state converges in the SAME
-            macrostep, after the complete selected event set has applied"
-    (let [m {:type    :parallel
-             :data    {}
-             :guards  {:a-done? (fn [{:keys [all-state]}]
-                                  (= :done (:a all-state)))}
-             :regions
-             {:a {:initial :idle
-                  :states  {:idle {:on {:go :done}}
-                            :done {}}}
-              ;; b uses a guarded :always reading sibling :a's state.
-              :b {:initial :waiting
-                  :states  {:waiting {:always {:target :ready :guard :a-done?}}
-                            :ready   {}}}}}]
-      (rf/reg-machine :frozen/converge m)
-      (rf/dispatch-sync [:frozen/converge [:go]])
-      (is (= {:a :done :b :ready} (:state (snapshot :frozen/converge)))
-          "event actions completed, then the frozen parent :always round saw
-           :a=:done and moved b before the one macrostep committed"))))
-
-;; ---- (5) SELECTION is DECLARATION-ORDER-INDEPENDENT ------------------------
+;; ---- (2) SELECTION is DECLARATION-ORDER-INDEPENDENT ------------------------
 
 (defn- order-machine
   "Build the same parallel machine with regions in `region-order` — a vector
