@@ -18,107 +18,30 @@
 
   Two properties are pinned here:
 
-    1. BRANCH + REDACTION coverage — every `cond` arm of `value-summary`
-       (nil / map / vector / set / string / keyword / symbol / boolean /
-       number / seq / fn / seqable / scalar) is exercised, each asserting
-       the offending VALUE never rides into the summary.
+    1. HOSTILE INPUT — a value whose `toString` throws still summarises.
+       The parity corpus below cannot carry one, so it is pinned on its own.
 
     2. MIRROR PARITY — `value-summary` is a hand-copied 'content-byte-for-byte
        mirror' of `re-frame.error/diag-value-summary` (replicated INLINE
        because the slim bundle-isolation gate forbids the production build
        `:require`-ing re-frame.*). A hand-replicated mirror with no parity
        test silently drifts, so this asserts the two agree over a value
-       corpus. Bundle-isolation binds only PRODUCTION builds; this test-only
+       corpus that reaches every `cond` arm, and
+       `re-frame.diag-value-summary-cljs-test` pins each arm's redaction on
+       the original. Bundle-isolation binds only PRODUCTION builds; this test-only
        ns may require both — the slim bundle-isolation gate
        (check-reagent-slim-bundle-isolation.cjs) inspects shipped bundles,
        not the test classpath.
 
   Pure data — no runtime state; rides `npm run test:cljs` via the `cljs-test$`
   ns-regexp."
-  (:require [clojure.string :as str]
-            [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.diag :as diag]
             [re-frame.error :as rf.error]))
 
-;; ---- per-branch shape coverage --------------------------------------------
-
-(deftest value-summary-degenerate-shapes
-  (testing "nil / fn / boolean / seq summarise to their bare shape tag"
-    (is (= {:type :nil} (diag/value-summary nil)))
-    (is (= {:type :fn} (diag/value-summary (fn [] nil))))
-    ;; A boolean's VALUE is app content and `:type` already says
-    ;; everything the diagnostic needs, so nothing distinguishes them.
-    (is (= {:type :boolean} (diag/value-summary true)))
-    (is (= {:type :boolean} (diag/value-summary false)))
-    ;; A lazy-seq (and a plain list) is caught by the `seq?` arm BEFORE the
-    ;; catch-all `seqable?` arm — count is intentionally NOT carried (an
-    ;; unbounded/lazy seq must not be realised on the failure path).
-    (is (= {:type :seq} (diag/value-summary (map inc [1 2 3]))))
-    (is (= {:type :seq} (diag/value-summary '(1 2 3))))))
-
-(deftest value-summary-collections-are-shape-only
-  (testing "vector / set carry :count but never their elements"
-    (is (= {:type :vector :count 3}
-           (diag/value-summary [:div {:on-click (fn [] nil)} "child xyzzy"])))
-    (is (= :set (:type (diag/value-summary #{1 2 3}))))
-    (is (= 3   (:count (diag/value-summary #{1 2 3}))))
-    ;; no child content in the printed vector summary
-    (is (not (re-find #"xyzzy"
-                      (pr-str (diag/value-summary [:div "child xyzzy"])))))))
-
-(deftest value-summary-scalar-shapes-carry-no-head
-  (testing "keyword / symbol values carry no head: they are not always
-            structural — `(keyword user-string)` is app content — and a
-            head for them has no safe length bound"
-    (is (= {:type :keyword} (diag/value-summary :ws.app/request)))
-    (is (= {:type :symbol}  (diag/value-summary 'reagent2.template/as-element)))
-    (is (= {:type :number}  (diag/value-summary 42)))
-    ;; A keyword built from user input carries none of it.
-    (is (= {:type :keyword}
-           (diag/value-summary (keyword "SENTINELSENTINELSENTINEL-and-more"))))))
-
 ;; ---- REDACTION: a string discloses its SIZE and nothing else --------------
 
-(deftest value-summary-string-discloses-no-content
-  (testing "a string discloses only its size: a printed head would return
-            a short token whole and leak a bearer token's prefix"
-    (let [secret "SENTINELSENTINELSENTINEL-tail-0123456789"
-          s      (diag/value-summary secret)]
-      (is (= {:type :string :count (count secret)} s)
-          "size is shape and stays; nothing else survives")
-      (is (not (str/includes? (pr-str s) "SENTINEL"))
-          "no raw prefix of the secret reaches the summary")))
-  (testing "a SHORT secret (24 chars or fewer) discloses nothing either"
-    (let [s (diag/value-summary "SENTINELSENTINEL")]
-      (is (= {:type :string :count 16} s))
-      (is (not (str/includes? (pr-str s) "SENTINEL"))))))
-
 ;; ---- REDACTION: a map discloses its CARDINALITY and nothing else ----------
-
-(deftest value-summary-map-discloses-neither-keys-nor-values
-  (testing "a map discloses no keys: map keys are app-controlled, so they
-            carry content, and an attacker-sized key set would grow the
-            summary unbounded"
-    (let [m {:token "secret" :pdf "%PDF-1.4 huge blob" :n 7}
-          s (diag/value-summary m)]
-      (is (= {:type :map :count 3} s))
-      (let [printed (pr-str s)]
-        (is (not (str/includes? printed "secret")))
-        (is (not (str/includes? printed "token")) "no map KEY either")
-        (is (not (str/includes? printed "%PDF")))))
-    ;; sentinel-bearing DYNAMIC keys of every key type
-    (doseq [m [{"SENTINELSENTINELSENTINEL" 1}
-               {(keyword "SENTINELSENTINELSENTINEL") 1}
-               {(symbol "SENTINELSENTINELSENTINEL") 1}
-               {["SENTINELSENTINELSENTINEL"] 1}
-               {"<script>alert('SENTINEL')</script>" 1}]]
-      (is (not (str/includes? (pr-str (diag/value-summary m)) "SENTINEL"))
-          (str "key content leaked for " (pr-str (keys m))))))
-  (testing "a VERY large map summarises to a FIXED size"
-    (let [m       (into {} (map (fn [i] [(str "SENTINEL-key-" i) i])) (range 2000))
-          printed (pr-str (diag/value-summary m))]
-      (is (= "{:type :map, :count 2000}" printed))
-      (is (not (str/includes? printed "SENTINEL"))))))
 
 ;; ---- a hostile toString cannot throw OUT of the diagnostic ---------------
 
