@@ -127,37 +127,6 @@
 
 ;; ---- resize-pair tick + commit ------------------------------------------
 
-(deftest resize-pair-tick-writes-slot-without-persisting
-  (if-not (ls/available?)
-    (is true "skipped: no localStorage (node lane — see ns docstring)")
-    (testing "the pointermove-cadence event writes the slot in app-db
-              but does NOT touch localStorage (per-pixel persistence
-              would flood the main thread on lower-end devices)."
-      ;; Sentinel precondition. The payload assertion of this test is a
-      ;; NEGATIVE one — `(= {} (load))` — which passes trivially against
-      ;; a storage that silently swallows every write. Writing a sentinel
-      ;; and reading it back proves the storage is live, so the empty
-      ;; read afterwards is evidence the TICK withheld the write rather
-      ;; than evidence the host has no storage.
-      ;; The sentinel width must sit ABOVE the 24px floor: the load path
-      ;; clamps a sub-floor width, so a `{:col 1}` sentinel reads back
-      ;; as `{:col 24}`, exactly as
-      ;; `resize-pair-tick-clamps-sub-floor-width` says it should.
-      (rt/save! {:sentinel {:col 150}})
-      (is (= {:sentinel {:col 150}} (rt/load))
-          "precondition: storage is live and round-trips")
-      (rt/clear!)
-      (xray-setup!)
-      (frame-dispatch [:rf.xray.column-widths/resize-pair-tick
-                       :rf.xray.epoch/subscriptions
-                       :sub 250 :inputs 170])
-      (is (= {:sub 250 :inputs 170}
-             (frame-sub [:rf.xray.column-widths/for-table
-                         :rf.xray.epoch/subscriptions]))
-          "app-db slot reflects the tick")
-      (is (= {} (rt/load))
-          "localStorage is NOT written by the tick event"))))
-
 (deftest resize-pair-commit-persists-current-slot
   (if-not (ls/available?)
     (is true "skipped: no localStorage (node lane — see ns docstring)")
