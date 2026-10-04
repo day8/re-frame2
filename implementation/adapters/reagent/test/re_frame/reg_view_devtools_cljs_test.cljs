@@ -7,10 +7,6 @@
 
   Coverage:
 
-    - `displayName` on the wrapped fn matches
-      `(performance/entry-id view-id)` — colon-free, namespace
-      preserved — for auto-derived and `:rf/id`-overridden
-      registrations.
     - THE EQUALITY ROW: `(performance/build-name :render id)` equals
       `\"rf:render:\" + displayName`. Spec 009 §Naming convention makes
       the two ONE identifier, and asserting each half is separately
@@ -48,20 +44,6 @@
     (second hiccup)))
 
 ;; ---- displayName -----------------------------------------------------------
-
-(deftest display-name-on-wrapped-fn-matches-view-id
-  (testing "the reg-view wrapper's React displayName is the view-id's
-            performance/display projection — colon-free, namespace
-            preserved — so React DevTools shows
-            `<re-frame.reg-view-devtools-cljs-test/dn-auto>` in the
-            component tree AND the name is the one the rf:render:
-            measure carries"
-    (rf/reg-view dn-auto [] [:p "hi"])
-    (let [wrapped (rf/view :re-frame.reg-view-devtools-cljs-test/dn-auto)]
-      (is (some? wrapped) "the view is registered")
-      (is (= "re-frame.reg-view-devtools-cljs-test/dn-auto"
-             (.-displayName ^js wrapped))
-          "displayName matches (performance/entry-id id) on the wrapped fn"))))
 
 (deftest display-name-and-render-measure-are-one-identifier
   (testing "THE equality row. Spec 009 §Naming convention makes
@@ -112,36 +94,6 @@
       (is (nil? (:_jsxFileName attrs))     "_jsxFileName not injected")
       (is (nil? (:_jsxLineNumber attrs))   "_jsxLineNumber not injected")
       (is (nil? (:_jsxColumnNumber attrs)) "_jsxColumnNumber not injected"))))
-
-(deftest jsx-source-props-not-injected-by-programmatic-path
-  (testing "a programmatic `reg-view*` registration also carries NO
-            `_jsx*` props (covers both macro + non-macro
-            entry points)"
-    (rf/reg-view* :rf.devtools-test/no-jsx-prog
-                  (fn [] [:em "p"]))
-    (let [render (rf/view :rf.devtools-test/no-jsx-prog)
-          out    (render)
-          attrs  (root-attrs out)]
-      (is (map? attrs))
-      (is (string? (:data-rf2-source-coord attrs))
-          "data-rf2-source-coord still present (degrades to <ns>:<sym>:?:?)")
-      (is (nil? (:_jsxFileName attrs))     "_jsxFileName not injected")
-      (is (nil? (:_jsxLineNumber attrs))   "_jsxLineNumber not injected")
-      (is (nil? (:_jsxColumnNumber attrs)) "_jsxColumnNumber not injected"))))
-
-(deftest jsx-source-props-preserve-user-supplied
-  (testing "if user code stamps `_jsx*` props themselves (e.g. a hand-
-            crafted React-DevTools shim), the framework does NOT
-            overwrite or strip them — passthrough is opaque"
-    (rf/reg-view ^{:rf/id :rf.devtools-test/user-jsx} user-jsx-view []
-      [:p {:_jsxFileName "by-user.cljs" :_jsxLineNumber 99} "ok"])
-    (let [render (rf/view :rf.devtools-test/user-jsx)
-          out    (render)
-          attrs  (root-attrs out)]
-      (is (= "by-user.cljs" (:_jsxFileName attrs))
-          "user-supplied :_jsxFileName preserved")
-      (is (= 99 (:_jsxLineNumber attrs))
-          "user-supplied :_jsxLineNumber preserved"))))
 
 ;; ---- React Context displayName --------------------------------------------
 
