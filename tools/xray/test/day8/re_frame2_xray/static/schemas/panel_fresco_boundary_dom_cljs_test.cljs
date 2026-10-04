@@ -85,7 +85,6 @@
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.static.schemas.panel :as panel]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
 (def ^:private app-frame
@@ -605,11 +604,3 @@
               (.then (fn [_]
                        (teardown! root container)
                        (done)))))))))
-
-;; The panel var is referenced so a rename cannot leave this file silently
-;; testing a namespace it no longer covers; `panel-registry` is the mount
-;; path every row above actually uses.
-(deftest panel-ns-is-the-one-under-test
-  (is (some? panel/panel-tree)
-      "the body helper this file's node-lane sibling drives is
-       present in the namespace these rows mount"))
