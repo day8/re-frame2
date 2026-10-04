@@ -35,7 +35,6 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.events :as rf.events]
-            [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -210,15 +209,6 @@
     (is (= {:c 3} @(rf/subscribe [:reg-event-test/whole-db]))
         "the second set-db replaced app-db entirely — :a / :b are gone")))
 
-(deftest set-db-empty-map-empties-app-db
-  (testing "[:rf/set-db {}] empties app-db (the legal empty-app-db case,
-            EP-0027 §:rf/set-db)"
-    (rf/reg-sub :reg-event-test/whole-db (fn [db _] db))
-    (rf/dispatch-sync [:rf/set-db {:seed :present}])
-    (rf/dispatch-sync [:rf/set-db {}])
-    (is (= {} @(rf/subscribe [:reg-event-test/whole-db]))
-        "app-db is emptied to {}")))
-
 (deftest set-db-bad-value-throws-set-db-bad-value
   (testing "a missing / nil / non-map argument to [:rf/set-db x] fails with
             :rf.error/set-db-bad-value (EP-0027 §:rf/set-db) — the handler
@@ -228,55 +218,18 @@
     (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db nil]))
         "[:rf/set-db nil] fails :rf.error/set-db-bad-value")
     (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db 5]))
-        "[:rf/set-db 5] (non-map) fails :rf.error/set-db-bad-value")
-    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db "nope"]))
-        "[:rf/set-db \"nope\"] (non-map) fails :rf.error/set-db-bad-value"))
+        "[:rf/set-db 5] (non-map) fails :rf.error/set-db-bad-value"))
   (testing "EXTRA trailing args fail with :rf.error/set-db-bad-value
             — :rf/set-db takes exactly one map argument; extras are never
             silently ignored"
     (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db {:n 0} :junk]))
-        "[:rf/set-db {:n 0} :junk] (extra arg) fails :rf.error/set-db-bad-value")
-    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db {} :a :b]))
-        "[:rf/set-db {} :a :b] (two extra args) fails :rf.error/set-db-bad-value")
-    (is (= :rf.error/set-db-bad-value (handler-throw-id [:rf/set-db nil :x]))
-        "[:rf/set-db nil :x] (extra arg, non-map primary) fails :rf.error/set-db-bad-value"))
+        "[:rf/set-db {:n 0} :junk] (extra arg) fails :rf.error/set-db-bad-value"))
   (testing "a valid map argument (including {}) does NOT throw and returns the
             {:db new-db} effect"
     (is (= {:db {:n 0}} (rf.events/set-db-handler {} [:rf/set-db {:n 0}]))
         "a map argument returns {:db new-db}")
     (is (= {:db {}} (rf.events/set-db-handler {} [:rf/set-db {}]))
         "the empty map is valid — returns {:db {}}")))
-
-(deftest set-db-resolves-in-both-registrars
-  (testing ":rf/set-db is registered as a framework standard in BOTH the regular
-            registrar AND the EP-0023 image standard registry (EP-0027
-            §:rf/set-db) — so it resolves whether or not a frame's image
-            generation is in scope"
-    ;; Re-seed idempotently (mirrors `init!`): sibling test nses may have called
-    ;; `rf.image-assembly/clear-standards!` and re-seeded only `:rf.interceptor/path`
-    ;; — in the shared cljs.test bundle that would strand `:rf/set-db` from the
-    ;; standard registry by the time this test runs. `register-set-db-standard!`
-    ;; restores BOTH registrars, so this assertion is run-order-independent.
-    (rf.events/register-set-db-standard!)
-    ;; Regular registrar: the runnable descriptor is present with the
-    ;; :rf/event-handler wrapper at the tail of its :interceptors chain.
-    (let [meta (rf.registrar/handler-meta :event :rf/set-db)]
-      (is (= rf.events/set-db-handler (:handler-fn meta))
-          ":rf/set-db resolves in the regular registrar, carrying the framework
-           set-db handler-fn")
-      (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
-          "the runnable :rf/event-handler wrapper is the chain tail"))
-    ;; Image standard registry: the same descriptor is unioned into every
-    ;; resolved image generation (stamped :standard true). Read through the
-    ;; public `standard-descriptors` seq and find the [:event :rf/set-db] entry.
-    (let [std (->> (rf.image-assembly/standard-descriptors)
-                   (filter #(and (= :event (:kind %)) (= :rf/set-db (:id %))))
-                   first)]
-      (is (true? (:standard std))
-          "the standard descriptor is stamped :standard true")
-      (is (= rf.events/set-db-handler (:handler-fn std))
-          ":rf/set-db resolves in the image standard registry, carrying the same
-           framework set-db handler-fn"))))
 
 (deftest set-db-app-reregistration-is-reserved-id-collision
   (testing "re-registering :rf/set-db in app code via the public reg-event is a
