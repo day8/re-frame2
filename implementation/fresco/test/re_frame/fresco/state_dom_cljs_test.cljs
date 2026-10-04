@@ -3,24 +3,22 @@
 
   [[re-frame.fresco.state-cljs-test]] proves the sugar against a real
   frame with no React at all, and says so: the DOM half is this file.
-  Here are the three claims only a browser can make, and the first two
-  are the architectural ones:
+  Here are the two claims only a browser can make:
 
-  1. **It costs no hook.** The widget's shell is counted at React's own
-     dispatcher ([[re-frame.fresco.hook-probe]]), and it is the same two
-     calls a boundary that had never heard of `reg-state` makes. That is
-     the whole \"ordinary core artefacts\" claim, measured: the sugar
-     mints a sub and an event, and a sub read through the ambient
-     collector is not a hook.
-  2. **HD-028's memo bail-out still bails.** A parent re-render rebuilds
+  1. **HD-028's memo bail-out still bails.** A parent re-render rebuilds
      its children's key vectors — `(child-key row :detail)` allocates a
      fresh vector every time — and `React.memo`'s comparator is `=` on the
      props map, so a fresh-but-equal vector must NOT look like a changed
      prop. If it did, this sugar would produce the 300-of-300 cascade
      the keyed reads exist to prevent, and it would do it through
      the very helper that makes nesting work.
-  3. **Two instances on one page are independent**, clicked in a real
+  2. **Two instances on one page are independent**, clicked in a real
      browser, read back out of the real DOM.
+
+  The widget costs no hook of its own: a `reg-state` read is an ordinary
+  sub read through the ambient collector, so its shell is the shell every
+  boundary has, and [[re-frame.fresco.hook-budget-cljs-test]] counts that
+  one at React's own dispatcher whatever it reads.
 
   ## Why a `console` capture rides the ordinary path
 
@@ -48,7 +46,6 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.checkpoint-support :as rf.fresco.checkpoint-support]
-            [re-frame.fresco.hook-probe :as rf.fresco.hook-probe]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
             [re-frame.fresco.impl.state :as rf.fresco.impl.state]
@@ -159,45 +156,7 @@
              above could be green over a live exception cljs.test never sees")))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — no hook. The ≤2-hook ledger is untouched.
-;; ---------------------------------------------------------------------------
-
-(deftest a-reg-state-widget-shell-still-calls-exactly-two-hooks
-  (cond
-    (not (rf.fresco.impl.mount/browser?)) (skip! ":node-test has no DOM")
-
-    (not (rf.fresco.hook-probe/install!))
-    (is false (str "React's internals slot was not found, so the ≤2-hook budget "
-                   "is UNWITNESSED for reg-state. A gate nobody has watched fire "
-                   "is not evidence — fix "
-                   (pr-str 're-frame.fresco.hook-probe)
-                   " rather than reading this as a pass."))
-
-    :else
-    (do
-      (fresh!)
-      (let [container (rf.fresco.impl.mount/fresh-container!)
-            !handle   (volatile! nil)
-            names     (rf.fresco.hook-probe/record!
-                        (fn []
-                          (vreset! !handle
-                                   (rf.fresco.impl.mount/root! container frame-id
-                                                [disclosure {:ikey :solo :title "Solo"}]))))]
-        (rf.fresco.impl.mount/release! @!handle)
-        (is (= ["useContext" "useSyncExternalStore"] names)
-            (str "the shell called " (pr-str names) " — reg-state mints a sub "
-                 "and an event, and a sub read through the ambient collector is "
-                 "not a hook. A third call here is a budget breach (HD-020(b)) "
-                 "and would mean this sugar had grown machinery."))
-        (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count names))
-            "and the declared ledger is the measured one — reg-state adds
-             nothing to it")
-        (is (not-any? #{"useRef" "useState"} names)
-            "neither hook is per-instance React state: the value lives in
-             app-db, which is the whole point of keying it explicitly")))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — HD-028's bail-out survives a key vector rebuilt every render
+;; 2 — HD-028's bail-out survives a key vector rebuilt every render
 ;; ---------------------------------------------------------------------------
 
 (deftest a-fresh-but-equal-key-vector-does-not-defeat-the-memo-bail-out
@@ -232,7 +191,7 @@
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — a bad key refuses on the page, and the page keeps working
+;; 3 — a bad key refuses on the page, and the page keeps working
 ;; ---------------------------------------------------------------------------
 
 (deftest a-nil-keyed-widget-refuses-loudly-and-its-sibling-keeps-rendering
