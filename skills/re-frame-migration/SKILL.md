@@ -102,7 +102,7 @@ The done-bar also covers what the local dev build never runs — the suite on a 
 
 ## Scaling to a large migration (opt-in)
 
-The phases assume one session, which suits most migrations. When Phase 0a finds ~30+ source files with rule families colliding inside the same files, split work goes wrong without a scheduling layer: merge conflicts and silent reverts. [`orchestrating-a-large-migration.md`](references/orchestrating-a-large-migration.md) covers the one-file-one-owner partition, the Wave-0 id contract, the bridge-handler idiom, wave sequencing and the single post-sweep compile gate. It schedules the Phase-3 sweep rather than replacing the phases, and the partition plan doubles as the cardinal-rule-4 announcement.
+The phases assume one session, which suits most migrations. When Phase 0a finds ~30+ source files with rule families colliding inside the same files, split work goes wrong without a scheduling layer: merge conflicts and silent reverts. [`orchestrating-a-large-migration.md`](references/orchestrating-a-large-migration.md) covers the one-file-one-owner partition, the Wave-0 id contract, producer retargeting through each event's owner, wave sequencing and the single post-sweep compile gate. It schedules the Phase-3 sweep rather than replacing the phases, and the partition plan doubles as the cardinal-rule-4 announcement.
 
 ## Boot and init
 
