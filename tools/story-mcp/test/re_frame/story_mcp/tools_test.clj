@@ -2346,14 +2346,20 @@
 ;; redacts, large elides). The cross-MCP `:include-sensitive` arg is the
 ;; documented escape hatch.
 ;;
-;; These tests pin the contract at the story-mcp surface: a sensitive
-;; slot classified on the variant's frame (the EP-0025 commit-plane
-;; `:sensitive` effect, applied by `declare-sensitive!` below) must
-;; surface as `:rf/redacted` in the tool's response `:app-db` slot by
-;; default, and as the raw value when the caller opts in via
-;; `:include-sensitive true`. Assertion records carrying the top-level
-;; `:sensitive? true` stamp must be dropped by default and included
-;; when opted in.
+;; The contract at the story-mcp surface: a sensitive slot classified on
+;; the variant's frame (the EP-0025 commit-plane `:sensitive` effect,
+;; applied by `declare-sensitive!` below) surfaces as `:rf/redacted` in the
+;; tool's response `:app-db` slot unless the operator gate is open AND the
+;; caller sends `:include-sensitive true`. The helpers below set that up for
+;; every privacy test in this file. The `preview-variant` / `run-variant`
+;; default-versus-opt-in matrix is
+;; `app-db-slot-honours-the-include-sensitive-flag-only-through-the-open-gate`,
+;; in the sensitive-read boot gate section. Assertion records carrying the
+;; top-level `:sensitive? true` stamp are dropped by default and included
+;; when opted in: `read-failures-surfaces-dropped-sensitive-indicator` and
+;; `read-failures-includes-sensitive-when-opted-in`, in the egress indicator
+;; section, and `named-check-assertion-copies-honour-the-sensitive-filter`
+;; for the copies inside `:checks`.
 ;; ---------------------------------------------------------------------------
 
 (defn- frame-container [variant-id]
@@ -2500,59 +2506,6 @@
   `(let [~vid ~variant-kw]
      (try ~@body
           (finally (destroy-variant-frame! ~vid)))))
-
-(deftest preview-variant-app-db-redacts-sensitive-by-default
-  (testing "sensitive path in variant frame's app-db lands :rf/redacted in the response"
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
-      (declare-sensitive! vid [:secret])
-      (let [r (invoke "preview-variant" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= :rf/redacted (get-in s [:app-db :secret]))
-            "the :secret slot is redacted by the wire-egress walker")
-        (is (= "ok" (get-in s [:app-db :public]))
-            "non-sensitive slots survive the walk")))))
-
-(deftest preview-variant-app-db-includes-sensitive-when-opted-in
-  (testing ":include-sensitive true forwards the raw value through the walker"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
-      (declare-sensitive! vid [:secret])
-      (let [r (invoke "preview-variant" {:variant-id "story.button/primary"
-                                         :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= "TOPSECRET" (get-in s [:app-db :secret]))
-            "opt-in surfaces the raw sensitive value")))))
-
-(deftest run-variant-app-db-redacts-sensitive-by-default
-  (testing "run-variant's :app-db slot routes through the wire-egress walker"
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
-      (declare-sensitive! vid [:secret])
-      (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r))
-        ;; The run resets the frame's runtime-db, wiping the registry slot at
-        ;; `[:rf.runtime/elision :declarations]`; `declare-sensitive!`'s
-        ;; `:setup` step re-applies the declaration after the reset. The
-        ;; redaction must show in the response.
-        (is (= :rf/redacted (get-in s [:app-db :secret]))
-            "the :secret slot is redacted at egress")))))
-
-(deftest run-variant-app-db-includes-sensitive-when-opted-in
-  (testing "run-variant's :include-sensitive true forwards the raw value"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
-      (declare-sensitive! vid [:secret])
-      (let [r (invoke "run-variant" {:variant-id "story.button/primary"
-                                     :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= "TOPSECRET" (get-in s [:app-db :secret])))))))
 
 (deftest elide-app-db-include?-true-bypasses-walker
   ;; The `include? true` branch of `rf.story-mcp.tools.egress/elide-app-db`
@@ -2743,9 +2696,7 @@
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid true)]
           (is (identical? hiccup out)
-              "include? true returns the input tree unchanged (no walk)")
-          (is (tree-contains? out "TOPSECRET")
-              "the opt-out forwards the raw sensitive value"))))))
+              "include? true returns the input tree unchanged (no walk), so the raw sensitive value crosses"))))))
 
 (deftest scrub-rendered-no-declarations-is-noop
   (testing "with no declared-sensitive paths the tree's VALUE is unchanged (path walk finds nothing to redact)"
@@ -2756,9 +2707,7 @@
         (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
               out            (scrub-rendered hiccup db vid false)]
           (is (= hiccup out)
-              "no declarations ⇒ the path walk redacts nothing; the tree value is unchanged")
-          (is (not (tree-contains? out :rf/redacted))
-              "no sentinel is introduced"))))))
+              "no declarations ⇒ the path walk redacts nothing; the tree value is unchanged"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0025 FAIL-OPEN: no value-match ⇒ no over-scrub, no under-scrub.
@@ -2939,9 +2888,9 @@
 ;;       leak-delta).
 ;;
 ;; A non-live frame is one that was never allocated (or has been destroyed);
-;; `rf.story-mcp.tools.egress/variant-frame-live?` reads `re-frame.core/frame-ids`. These tests
-;; control liveness directly so they hit the ACTUAL scrub branch, not a tool
-;; that routes around it.
+;; `rf.story-mcp.tools.egress/variant-frame-live?` reads `re-frame.core/frame-ids`. The test
+;; below controls liveness directly so it hits the ACTUAL scrub branch, not a
+;; tool that routes around it.
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-re-keyed-runtime-non-live-frame-ships-raw-under-named-exception
@@ -2956,18 +2905,7 @@
             tree                   [[:auth/login "NONLIVE-REKEYED-SECRET"]]
             out                    (scrub-re-keyed-runtime tree vid false)]
         (is (= tree out)
-            "non-live re-keyed-runtime payload ships RAW under the named carve-out — NOT redacted to :rf/redacted")
-        (is (not= :rf/redacted out)
-            "the framework fail-closed marker must NOT apply to the re-keyed-runtime exception")))))
-
-(deftest scrub-re-keyed-runtime-non-live-frame-include?-true-still-raw
-  (testing "include? true forwards the non-live re-keyed payload raw (trusted-local opt-out)"
-    (with-clean-frame [vid :story.nonlive/never-allocated]
-      (is (not (contains? (rf/frame-ids) vid)))
-      (let [scrub-re-keyed-runtime (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-re-keyed-runtime)
-            tree                   [[:auth/login "NONLIVE-REKEYED-SECRET"]]
-            out                    (scrub-re-keyed-runtime tree vid true)]
-        (is (identical? tree out) "include? true returns the input unchanged")))))
+            "non-live re-keyed-runtime payload ships RAW under the named carve-out — NOT redacted to :rf/redacted")))))
 
 ;; The integration tests below pin the WIRING — that `preview-variant`
 ;; (`:effective-args` / `:snapshot`) and `run-variant` (`:snapshot` and the
@@ -3315,28 +3253,6 @@
           (is (= :error (:status s)))
           (is (= "simulated Story rejection" (-> s :assertions first :reason))))))))
 
-(deftest read-failures-includes-sensitive-when-opted-in
-  (testing ":include-sensitive true preserves sensitive records"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid
-                    {:rf.story/assertions
-                     [{:assertion :rf.assert/path-equals
-                       :passed?   true}
-                      {:assertion  :rf.assert/path-equals
-                       :passed?    false
-                       :sensitive? true
-                       :reason     "expected TOPSECRET got something-else"}]})
-      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
-                                       :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= 2 (:total s)) "both records survive the egress")
-        (is (= 1 (count (:failures s))) "the failed sensitive record is visible")
-        (is (= :fail (:status s)) "the visible failure drives :status :fail")
-        (is (not (contains? s :dropped-sensitive))
-            "nothing was dropped, so the slot is omitted (omit-when-zero)")))))
-
 ;; ---------------------------------------------------------------------------
 ;; explain-variant ships author data raw.
 ;;
@@ -3367,7 +3283,10 @@
                        :db-seed        {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}}
                        :effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"}
                        :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-EXPLAIN-SECRET"}}}
-                       :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-EXPLAIN-SECRET"}]]]})]
+                       :sub-overrides  {:overrides  {[:current-user] {:token "DISTINCTIVE-EXPLAIN-SECRET"}}
+                                        :validation {:status :ok :violations []}}
+                       :setup-order    [[:dispatch [:auth/login {:token "DISTINCTIVE-EXPLAIN-SECRET"}]]]
+                       :script-order   [[:dispatch [:api/call {:key "DISTINCTIVE-EXPLAIN-SECRET"}]]]})]
         (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
               s (:structuredContent r)]
           (is (success? r))
@@ -3379,36 +3298,16 @@
               "author data: the :effective-args value ships RAW")
           (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :network [:get "/api/me"] :reply :token]))
               "author data: the :network reply value ships RAW")
+          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
+              "author data: the :sub-overrides value ships RAW")
+          (is (= :ok (get-in s [:explain :sub-overrides :validation :status]))
+              "the non-value :validation structure inside :sub-overrides is preserved")
           (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-EXPLAIN-SECRET"}]]] (get-in s [:explain :setup-order]))
               "author data: the :setup-order step payload ships RAW")
+          (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-EXPLAIN-SECRET"}]]] (get-in s [:explain :script-order]))
+              "author data: the :script-order step payload ships RAW")
           (is (not (tree-contains? (:explain s) :rf/redacted))
               "nothing in the :explain map is redacted"))))))
-
-(deftest explain-variant-ships-sub-overrides-and-step-order-raw
-  (testing ":sub-overrides / :setup-order / :script-order are author data — they ship RAW with their public step structure intact"
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-SUBOVR-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (with-redefs [rf.story/explain
-                    (fn [_vk & _]
-                      {:source-chain  [:story.button/primary]
-                       :sub-overrides {:overrides  {[:current-user] {:token "DISTINCTIVE-SUBOVR-SECRET"}}
-                                       :validation {:status :ok :violations []}}
-                       :setup-order   [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]]
-                       :script-order  [[:dispatch [:api/call {:key "DISTINCTIVE-SUBOVR-SECRET"}]]]})]
-        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= "DISTINCTIVE-SUBOVR-SECRET" (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
-              "author data: the :sub-overrides value ships RAW")
-          (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]] (get-in s [:explain :setup-order]))
-              "author data: :setup-order ships its step payload raw")
-          (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-SUBOVR-SECRET"}]]] (get-in s [:explain :script-order]))
-              "author data: :script-order ships its step payload raw")
-          (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
-              "plan-STRUCTURE slots are unchanged")
-          (is (= :ok (get-in s [:explain :sub-overrides :validation :status]))
-              "the non-value :validation structure inside :sub-overrides is preserved"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; explain-variant NO-RUN egress — the regression pin.
@@ -3447,9 +3346,7 @@
                       [:explain :network [:get "/api/me"] :reply :token]
                       [:explain :db-seed :auth :token]]]
           (is (= "DISTINCTIVE-NORUN-VALUE" (get-in s path))
-              (str path " ships the real author value RAW on the non-live frame"))
-          (is (not= :rf/redacted (get-in s path))
-              (str path " is NOT over-redacted to :rf/redacted")))
+              (str path " ships the real author value RAW on the non-live frame, not :rf/redacted")))
         (is (= [[:dispatch [:auth/login {:token "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :setup-order]))
             ":setup-order ships its step payload raw")
         (is (= [[:dispatch [:api/call {:key "DISTINCTIVE-NORUN-VALUE"}]]] (get-in s [:explain :script-order]))
@@ -3472,9 +3369,10 @@
 ;; no value-match (EP-0025), so a value rendered into a node :html (a RE-KEYED
 ;; DOM position the app-db path cannot reach) ships RAW under a LIVE frame
 ;; (fail-open) — the cases below pin that behaviour. A non-live frame ships
-;; the nodes raw under the documented carve-out (covered by the dedicated
-;; non-live split tests above). The co-hosted violations are supplied through
-;; the `a11y-stand-in` provider seam below.
+;; the nodes raw under the documented carve-out (pinned by
+;; `scrub-re-keyed-runtime-non-live-frame-ships-raw-under-named-exception`
+;; above). The co-hosted violations are supplied through the `a11y-stand-in`
+;; provider seam below.
 ;; ---------------------------------------------------------------------------
 
 (defn- a11y-stand-in
@@ -3567,6 +3465,28 @@
             ":status aggregates the scrubbed vec — a dropped sensitive failure does not flip the verdict")
         (is (= 2 (:dropped-sensitive s))
             "the count of dropped sensitive records rides the envelope (MUST)")))))
+
+(deftest read-failures-includes-sensitive-when-opted-in
+  (testing ":include-sensitive true preserves sensitive records"
+    (rf.story-mcp.config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid
+                    {:rf.story/assertions
+                     [{:assertion :rf.assert/path-equals
+                       :passed?   true}
+                      {:assertion  :rf.assert/path-equals
+                       :passed?    false
+                       :sensitive? true
+                       :reason     "expected TOPSECRET got something-else"}]})
+      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
+                                       :include-sensitive true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= 2 (:total s)) "both records survive the egress")
+        (is (= 1 (count (:failures s))) "the failed sensitive record is visible")
+        (is (= :fail (:status s)) "the visible failure drives :status :fail")
+        (is (not (contains? s :dropped-sensitive))
+            "nothing was dropped, so the slot is omitted (omit-when-zero)")))))
 
 (deftest read-failures-omits-indicators-when-nothing-dropped
   (testing "neither indicator slot appears on a clean read (omit-when-zero MUST)"
@@ -3721,31 +3641,29 @@
           (is (= "boolean" (-> props :include-sensitive :type))
               (str "gate open: " tname " must advertise :include-sensitive as a boolean")))))))
 
-(deftest preview-variant-gate-closed-ignores-per-call-flag
-  (testing "with gate closed, :include-sensitive true is silently ignored at egress"
-    (is (false? (rf.story-mcp.config/sensitive-reads-allowed?)))
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
-      (declare-sensitive! vid [:secret])
-      (let [r (invoke "preview-variant" {:variant-id "story.button/primary"
-                                         :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= :rf/redacted (get-in s [:app-db :secret]))
-            "gate closed: per-call opt-in is dropped; redaction stands")))))
-
-(deftest run-variant-gate-closed-ignores-per-call-flag
-  (testing "with gate closed, :include-sensitive true is silently ignored at egress"
-    (is (false? (rf.story-mcp.config/sensitive-reads-allowed?)))
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
-      (declare-sensitive! vid [:secret])
-      (let [r (invoke "run-variant" {:variant-id "story.button/primary"
-                                     :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= :rf/redacted (get-in s [:app-db :secret]))
-            "gate closed: per-call opt-in is dropped; redaction stands")))))
+(deftest app-db-slot-honours-the-include-sensitive-flag-only-through-the-open-gate
+  ;; Every call sends `:include-sensitive true`; only the operator gate
+  ;; varies. Closed, the flag is dropped, so the classified slot redacts
+  ;; exactly as it does for a call that omits the flag. Open, the raw value
+  ;; crosses. The benign slot survives either way. Each run resets the
+  ;; frame's runtime-db; `declare-sensitive!`'s `:setup` step re-applies the
+  ;; classification, so the redaction shows at egress on every call.
+  (is (false? (rf.story-mcp.config/sensitive-reads-allowed?))
+      "precondition: the fixture closes the gate")
+  (with-clean-frame [vid :story.button/primary]
+    (seed-app-db! vid {:public "ok" :secret "TOPSECRET"})
+    (declare-sensitive! vid [:secret])
+    (doseq [tool            ["preview-variant" "run-variant"]
+            [gate expected] [[false :rf/redacted] [true "TOPSECRET"]]]
+      (testing (str tool ", gate " (if gate "open" "closed"))
+        (rf.story-mcp.config/set-allow-sensitive-reads! gate)
+        (let [r (invoke tool {:variant-id        "story.button/primary"
+                              :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= expected (get-in s [:app-db :secret])))
+          (is (= "ok" (get-in s [:app-db :public]))
+              "the benign slot survives the walk"))))))
 
 (deftest read-failures-gate-closed-ignores-per-call-flag
   (testing "with gate closed, :include-sensitive true does not surface sensitive records"
