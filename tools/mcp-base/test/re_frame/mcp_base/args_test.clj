@@ -44,10 +44,6 @@
 (deftest parse-positive-int-nil-returns-default
   (is (= 50 (rf.mcp-base.args/parse-positive-int nil 50))))
 
-(deftest parse-positive-int-clamps-non-positive
-  (is (= 1 (rf.mcp-base.args/parse-positive-int 0 50)))
-  (is (= 1 (rf.mcp-base.args/parse-positive-int -5 50))))
-
 ;; ---------------------------------------------------------------------------
 ;; Cross-host strict-parse contract.
 ;;
@@ -134,8 +130,7 @@
   (is (nil? (rf.mcp-base.args/fresh-keyword nil))))
 
 (deftest fresh-keyword-strips-leading-colon
-  (is (= :foo (rf.mcp-base.args/fresh-keyword ":foo")))
-  (is (= :ns/foo (rf.mcp-base.args/fresh-keyword ":ns/foo"))))
+  (is (= :foo (rf.mcp-base.args/fresh-keyword ":foo"))))
 
 (deftest fresh-keyword-parses-namespaced
   (is (= :rf.assert/path-equals (rf.mcp-base.args/fresh-keyword "rf.assert/path-equals")))

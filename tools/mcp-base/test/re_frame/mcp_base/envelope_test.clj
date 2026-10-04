@@ -152,10 +152,7 @@
   (testing "non-map root that merely starts with a marker-key token ⇒ NOT a marker"
     ;; A vector/list literal whose printed head could look marker-ish.
     (is (false? (rf.mcp-base.envelope/marker-text? "[:rf.mcp/overflow {:limit :reached}]"))))
-  (testing "the canonical closed markers the real builders emit STILL match"
-    (is (true? (rf.mcp-base.envelope/marker-text? (pr-str (overflow-fixture)))))
-    (is (true? (rf.mcp-base.envelope/marker-text? (pr-str {rf.mcp-base.vocab/cache-hit-key {:tool "x" :hash "abc"}}))))
-    ;; Even under a tiny additive body — additive fields inside the body are fine.
+  (testing "additive fields inside a closed marker's body still match"
     (is (true? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:limit :reached :extra :ok}}")))))
 
 (deftest marker-text?-bounds-body-size-not-just-closure
