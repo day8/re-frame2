@@ -73,6 +73,12 @@
             :let [descriptor (descriptor-by-name tool)
                   p          (props descriptor)]]
       (is (some? descriptor) (str "no descriptor registered for tool " tool))
+      ;; The closed-schema posture is the whole reason an omission
+      ;; matters: a closed schema that omits a supported input makes that
+      ;; input unavailable. It stays closed, so it is never loosened as a
+      ;; shortcut.
+      (is (false? (get-in descriptor [:inputSchema :additionalProperties]))
+          (str tool " must keep :additionalProperties false"))
       (doseq [knob knobs]
         (is (contains? p knob)
             (str tool " descriptor must publish " knob
@@ -101,17 +107,3 @@
                 (str tool "'s " (name knob) " must ride through clj->js onto the wire surface"))
             (is (= "boolean" (j/get (j/get js-props (name knob)) :type))
                 (str tool "'s " (name knob) " must surface as a boolean on the wire surface"))))))))
-
-(deftest additional-properties-closed-but-knobs-allowed
-  (testing "descriptors stay :additionalProperties false yet declare the knobs"
-    ;; The closed-schema posture is the whole reason an omission matters
-    ;; — a closed schema that omits a supported input makes that input
-    ;; unavailable. Assert the schema stays closed (so we never loosen it
-    ;; as a shortcut) AND the knobs are explicitly declared.
-    (doseq [[tool knobs] handler-consumed-knobs
-            :let [descriptor (descriptor-by-name tool)]]
-      (is (false? (get-in descriptor [:inputSchema :additionalProperties]))
-          (str tool " must keep :additionalProperties false"))
-      (doseq [knob knobs]
-        (is (contains? (props descriptor) knob)
-            (str tool " must EXPLICITLY declare " knob " under the closed schema"))))))
