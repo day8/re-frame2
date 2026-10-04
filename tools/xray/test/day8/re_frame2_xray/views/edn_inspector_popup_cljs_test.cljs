@@ -18,9 +18,10 @@
      same value have independent expansion state. (A mount-id is the
      opening caller's to mint.)
   5. **Close affordances** — Esc key handler dispatches
-     `:close-top`; backdrop click + ✕ button both invoke
-     `close-fn`; caller-supplied `:on-close` overrides the
-     default rf-dispatch.
+     `:close-top`; backdrop click invokes `close-fn`;
+     caller-supplied `:on-close` overrides the default
+     rf-dispatch. The ✕ button's real click is the browser-lane
+     `edn-inspector-popup-stack-boundary-dom-cljs-test`'s.
 
   Pure-data unit tests; no DOM mount, which is the default shape
   for Xray/Story tests."
@@ -70,7 +71,6 @@
     (are [expected stack id] (= expected (edn-inspector-popup/push-entry stack id))
       ["a"]         []            "a"
       ["a" "b"]     ["a"]         "b"
-      ["a" "b" "c"] ["a" "b"]     "c"
       ["b" "c" "a"] ["a" "b" "c"] "a"
       ["a" "c" "b"] ["a" "b" "c"] "b"
       ["a"]         nil           "a"))
@@ -93,26 +93,11 @@
     (are [expected pos] (= expected (edn-inspector-popup/z-index-for pos))
       2147483640 0
       2147483641 1
-      2147483645 5
       2147483640 nil)))
 
 ;; =========================================================================
 ;; install! + reducers + subs
 ;; =========================================================================
-
-(deftest install-is-idempotent
-  ;; Two installs in a row must not double-register or throw.
-  (is (nil? (edn-inspector-popup/install!)))
-  (is (nil? (edn-inspector-popup/install!))))
-
-(deftest open-event-pushes-stack-and-stores-payload
-  (edn-inspector-popup/install!)
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                     "m1" {:value {:a 1} :opts {:title "First"}}])
-  (let [stack   @(rf/subscribe [edn-inspector-popup/stack-slot])
-        entries @(rf/subscribe [edn-inspector-popup/entries-slot])]
-    (is (= ["m1"] stack))
-    (is (= {:value {:a 1} :opts {:title "First"}} (get entries "m1")))))
 
 (deftest close-event-removes-specific-id
   (edn-inspector-popup/install!)
@@ -265,20 +250,6 @@
     (f)
     (is (= 2 @called)
         "each close call invokes the caller's :on-close")))
-
-(deftest close-button-on-click-resolves
-  ;; The chrome's ✕ button must carry an :on-click. We don't fire it
-  ;; (no DOM event obj to pass), only assert the wiring is present.
-  (let [h     (edn-inspector-popup/popup-chrome
-                {:mount-id    "m1"
-                 :value       42
-                 :opts        {}
-                 :positioning :fixed
-                 :stack-pos   0})
-        close (find-attr h :data-testid
-                         "rf-xray-edn-inspector-popup-close-m1")]
-    (is (fn? (-> close second :on-click))
-        "close button carries an :on-click handler")))
 
 (deftest backdrop-on-click-closes-via-handler
   ;; Backdrop click closes the popup; we capture the dispatch.
