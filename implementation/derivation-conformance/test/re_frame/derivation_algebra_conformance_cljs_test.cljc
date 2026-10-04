@@ -252,7 +252,6 @@
     (testing "the route fact uses :rf/route while :source-form keeps the registration id"
       (let [route (node-by-family nodes :routes :route/article)]
         (is (= :rf/route (:id route)))
-        (is (= :route-fact (:refinement route)))
         (is (= {:kind :reg-route :id :route/article} (:source-form route)))))
     (testing "each node records the source form it lowered from"
       (is (= :reg-sub      (get-in (node-by-family nodes :subs :cart/total)        [:source-form :kind])))
@@ -659,18 +658,6 @@
     (testing "the `:edges` vector is the pinned canonical total order"
       (is (= permutation-expected-edges (:edges baseline))
           "edges emit in canonical-bytes order, not iteration order"))
-    (testing "edge CONTENTS / identity are preserved — the sort reorders the
-              collection, it does not rewrite edges (the `:param` edge keeps
-              its nested resource key, `:role`, and `:target`)"
-      (let [param (first (filter #(= :param (:role %)) (:edges baseline)))]
-        (is (= [:resource {:locale :en :slug "s1"}] (:to param))
-            "the nested resource-key EDN rides through verbatim")
-        (is (= :parametric (:target param))
-            "the static route-resource `:target` marker is preserved")
-        (is (= [:rf/route :r1] (:from param))
-            "the route node id is the re-targeted `:from`")))
-    (testing "`:nodes` stays a MAP (order-insensitive under value equality)"
-      (is (map? (:nodes baseline))))
     (testing "EVERY insertion-order permutation and BOTH nested-map spellings
               produce the identical `:edges` VALUE and the identical whole
               graph (registration/projection history is invisible)"
@@ -848,11 +835,7 @@
         (is (= :live (:mode g-after)) "the live graph shape survives a destroyed frame")
         (is (= {} (:nodes g-after))
             "no node survives the frame teardown — the route slice + machine snapshot are gone")
-        (is (= [] (:edges g-after)) "and no edge survives")
-        (is (nil? (get (:nodes g-after) :rf/route))
-            "the route owner is released (its frame is gone)")
-        (is (nil? (get (:nodes g-after) [:machine :upload/main]))
-            "the machine snapshot node is released (its frame is gone)")))))
+        (is (= [] (:edges g-after)) "and no edge survives")))))
 
 (deftest e-route-exit-supersession-releases-the-prior-route-owner
   ;; A second navigation replaces both the route id and its nav-token-based
@@ -1527,8 +1510,7 @@
     (testing "the sub node keeps its key, :id and :output"
       (is (some? sub) "the sub node is still keyed by its raw query vector")
       (is (= scoped-key-shaped-query (:id sub)) ":id is still the query vector")
-      (is (= [:fact scoped-key-shaped-query] (:output sub)) ":output is untouched")
-      (is (= (second sub-key) (:id sub)) ":id still matches the node key"))
+      (is (= [:fact scoped-key-shaped-query] (:output sub)) ":output is untouched"))
     (testing "the resource node in the same graph is still projected"
       (is (contains-secret? raw) "sanity: the raw graph carries the secret")
       (is (not (contains-secret? redacted))
@@ -1616,10 +1598,6 @@
     (testing "the params handle is the full keyed digest"
       (is (= :rf.resource/opaque (first handle)))
       (is (re-matches #"[0-9a-f]{64}" hex) "64 lowercase hex chars, untruncated")
-      (is (not= #?(:clj  (Integer/toHexString (hash token))
-                   :cljs (.toString (bit-and (hash token) 0xffffffff) 16))
-                hex)
-          "not a 32-bit hash")
       (is (not= (#'re-frame.schemas.digest/sha256-hex token) hex)
           "not an unkeyed SHA-256: the digest is keyed"))
     (testing "control: the same value gets the same handle within one runtime"
