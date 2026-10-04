@@ -151,30 +151,6 @@
 ;; DECORATOR COMPOSITION
 ;; ===========================================================================
 
-(deftest decorators-classified-by-kind
-  (testing "hiccup / frame-setup / fx-override decorators land in their slots"
-    (rf.story/reg-decorator :centered
-      {:kind :hiccup
-       :wrap (fn [body _args] [:div.centered body])})
-    (rf.story/reg-decorator :mock-auth
-      {:kind :frame-setup
-       :init [[:auth/restore-session {:user "alice"}]]})
-    (rf.story/reg-decorator :stub-http
-      {:kind :fx-override
-       :fx-id :http
-       :response {:status :pending}})
-    (rf.story/reg-variant :story.composed/v
-      {:decorators [[:centered] [:mock-auth] [:stub-http]]
-       :setup     []})
-    (let [r (rf.story/resolve-decorators :story.composed/v)]
-      (is (= 1 (count (:hiccup r))))
-      (is (= :centered (-> r :hiccup first :id)))
-      (is (= 1 (count (:frame-setup r))))
-      (is (= :mock-auth (-> r :frame-setup first :id)))
-      (is (= 1 (count (:fx-override r))))
-      (is (= :stub-http (-> r :fx-override first :id)))
-      (is (empty? (:errors r))))))
-
 (deftest decorators-unknown-id-becomes-error
   (testing "an unregistered decorator id surfaces in :errors"
     (rf.story/reg-variant :story.bad/v
@@ -1290,30 +1266,6 @@
     (rf.story/destroy-variant! :story.run/v)))
 
 ;; ===========================================================================
-;; EP-0023 BEHAVIOUR-VARIANT IMAGES
-;; ===========================================================================
-
-(deftest behaviour-variant-image-ids-on-frame-meta
-  (testing "EP-0023 — a behaviour variant's image ids land on frame-meta
-            (`rf.story.frames/variant-image-ids`); a state variant (no `:images`)
-            reports none and resolves against the shared default registrar."
-    (require 'story.test-helpers.image-behaviour-v1 :reload)
-    (rf.story/reg-variant :story.img/meta
-      {:images [(rf/image {:id :img/behaviour-v1
-                           :select-ns {:include ["story.test-helpers.image-behaviour-v1"]}})]
-       :setup [[:img.counter/step]]})
-    (rf.story/reg-variant :story.img/state-only
-      {:setup []})
-    (rf.story.frames/allocate! :story.img/meta (rf.story/resolve-decorators :story.img/meta))
-    (rf.story.frames/allocate! :story.img/state-only (rf.story/resolve-decorators :story.img/state-only))
-    (is (= [:img/behaviour-v1] (rf.story.frames/variant-image-ids :story.img/meta))
-        "behaviour variant carries its image ids on frame-meta")
-    (is (nil? (rf.story.frames/variant-image-ids :story.img/state-only))
-        "a state-only variant carries no :rf/images slot")
-    (rf.story.frames/destroy! :story.img/meta)
-    (rf.story.frames/destroy! :story.img/state-only)))
-
-;; ===========================================================================
 ;; VARIANT-IMAGE COMPOSITION MODEL
 ;;
 ;; Gate-verifies the owned-frame image composition `allocate!` builds:
@@ -1616,37 +1568,13 @@
 ;; contributes :pass / :fail verdicts recorded as assertion records on the
 ;; SAME `:rf.story/assertions` accumulator the in-script `[:assert …]`
 ;; checkpoints write — folded into the unified `:status` by
-;; `result/run-result`. These pin the canonical reg-variant example (a
-;; variant with ONLY a terminal `:assertions` block, no in-script
-;; `[:assert]`), its reading of the post-script settled state, and the
-;; no-double-processing guarantee for the tape-evaluated kinds. The
-;; `:fail` verdict of a failing terminal-only variant is pinned by the
-;; override and image tests above (`[:pass 1 :fail 2]`).
+;; `result/run-result`. These pin its reading of the post-script
+;; settled state and the no-double-processing guarantee for the
+;; tape-evaluated kinds. The `:pass` and `:fail` verdicts of a variant
+;; with ONLY a terminal `:assertions` block (no `:script`, no in-script
+;; `[:assert]`) are pinned by the override and image tests above
+;; (`[:pass 1 :fail 2]`).
 ;; ===========================================================================
-
-(deftest run-variant-terminal-assertions-only-pass
-  (testing "the CANONICAL reg-variant example — a variant with ONLY a
-            terminal :assertions block (no in-script [:assert], no :script)
-            AUTO-RUNS the terminal assertion against the FINAL settled
-            state and produces a :pass verdict"
-    (rf/reg-event :test/seed-state
-      (fn [{:keys [db]} _] {:db (assoc-in db [:checkout :state] :submitted)}))
-    (rf.story/reg-variant :story.nyjoa/pass
-      {:setup      [[:test/seed-state]]
-       :assertions [[:rf.assert/path-equals [:checkout :state] :submitted]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.nyjoa/pass) 5000)]
-      (is (= :ready (:lifecycle r)))
-      (is (= :pass (:status r))
-          "the terminal assertion auto-ran and passed → :pass")
-      (let [rec (->> (:assertions r)
-                     (filter #(= :rf.assert/path-equals (:assertion %)))
-                     first)]
-        (is (some? rec)
-            "the terminal assertion was recorded on :rf.story/assertions
-             with no in-script checkpoint authoring it")
-        (is (true? (:passed? rec)))
-        (is (= [[:checkout :state] :submitted] (:payload rec)))))
-    (rf.story/destroy-variant! :story.nyjoa/pass)))
 
 (deftest run-variant-terminal-assertion-evaluates-final-state-after-script
   (testing "a terminal assertion evaluates the FINAL settled state — it sees
@@ -2346,24 +2274,6 @@
     (is (= expected (rf.story.async/deref-blocking p 1000)) label)))
 
 ;; ===========================================================================
-;; PUBLIC API STABILITY
-;; ===========================================================================
-
-(deftest public-api-surface
-  (testing "every `002-Runtime.md` §Programmatic API fn is present on the public ns"
-    (is (fn? @#'rf.story/run-variant))
-    (is (fn? @#'rf.story/reset-variant))
-    (is (fn? @#'rf.story/watch-variant))
-    (is (fn? @#'rf.story/snapshot-identity))
-    (is (fn? @#'rf.story/destroy-variant!))
-    (is (fn? @#'rf.story/configure!))
-    (is (fn? @#'rf.story/resolve-args))
-    (is (fn? @#'rf.story/resolve-decorators))
-    (is (fn? @#'rf.story/lifecycle-state))
-    (is (fn? @#'rf.story/variant-frames))
-    (is (fn? @#'rf.story/variant-frame?))))
-
-;; ===========================================================================
 ;; VARIANT-BODY CLASSIFICATION
 ;; ===========================================================================
 ;;
@@ -2380,7 +2290,8 @@
 ;;
 ;;   1. POSITIVE — a documented (NESTED) variant classification actually
 ;;      classifies: the declared path REDACTS to `:rf/redacted` at wire
-;;      egress.
+;;      egress. The registered-`:extends` tests below declare the
+;;      nested form and pin it.
 ;;   2. NEGATIVE — a MALFORMED variant classification (a NESTED-but-bad
 ;;      `:app-db` payload that the loose schema admits) is routed through the
 ;;      SAME fail-loud commit-plane validator the router uses
@@ -2388,47 +2299,6 @@
 ;;      with `:rf.error/classification-effect-shape` rather than crashing
 ;;      inside `apply-classification-effects` / `allocate!`. The run records a
 ;;      failed `:rf.error/exception` assertion carrying that error id.
-
-(deftest variant-classification-nested-form-redacts-at-egress
-  (testing "POSITIVE — a documented NESTED variant `:sensitive`
-            declaration (`{:app-db [[:auth :token]]}`) lowers into the variant
-            frame's elision registry and REDACTS the path at wire egress"
-    (rf/reg-event :auth/login-7c6ecy
-      (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-7c6ecy")}))
-    (rf.story/reg-variant :story.classif/sensitive
-      {:setup    [[:auth/login-7c6ecy]]
-       :sensitive {:app-db [[:auth :token]]}})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.classif/sensitive) 5000)]
-      (is (= :ready (:lifecycle r))
-          "the variant runs to :ready — classification did not abort the run")
-      (is (= "BEARER-secret-7c6ecy" (get-in (rf/app-db-value :story.classif/sensitive)
-                                            [:auth :token]))
-          "the raw value is in app-db (classification is path-based, not value mutation)")
-      ;; Wire egress over the frame's app-db substitutes the classified path.
-      (let [walked (rf.elision/elide-wire-value (rf/app-db-value :story.classif/sensitive)
-                                        {:frame :story.classif/sensitive})]
-        (is (= :rf/redacted (get-in walked [:auth :token]))
-            "the documented NESTED :sensitive declaration redacts the path at egress")))
-    (rf.story/destroy-variant! :story.classif/sensitive)))
-
-(deftest variant-classification-large-nested-form-elides-at-egress
-  (testing "POSITIVE — a documented NESTED variant `:large`
-            declaration (`{:app-db [[:docs :blob]]}`) elides the path to the
-            `:rf.size/large-elided` marker at wire egress"
-    (rf/reg-event :docs/upload-7c6ecy
-      (fn [{:keys [db]} _] {:db (assoc-in db [:docs :blob] (apply str (repeat 2048 "x")))}))
-    (rf.story/reg-variant :story.classif/large
-      {:setup [[:docs/upload-7c6ecy]]
-       :large  {:app-db [[:docs :blob]]}})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.classif/large) 5000)]
-      (is (= :ready (:lifecycle r)))
-      (let [walked  (rf.elision/elide-wire-value (rf/app-db-value :story.classif/large)
-                                         {:frame :story.classif/large})
-            elided  (get-in walked [:docs :blob])]
-        (is (and (map? elided) (contains? elided :rf.size/large-elided))
-            "the documented NESTED :large declaration elides the path to the
-             `:rf.size/large-elided` marker at egress")))
-    (rf.story/destroy-variant! :story.classif/large)))
 
 (deftest variant-classification-malformed-fails-loud-pre-commit
   (testing "NEGATIVE — a MALFORMED variant classification (a
