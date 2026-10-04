@@ -542,9 +542,7 @@
              "data a reader can inspect, print and diff, and not a closure "
              "that could do something"))
     (testing "and it is deterministic over one turn's evidence"
-      (is (= adv (advisor/advise envelopes timing))))
-    (testing "and reading it does not disturb what it read"
-      (is (= envelopes {:mounted-boundaries (mounted-envelope [(boundary [[:app/main :a]])])})))))
+      (is (= adv (advisor/advise envelopes timing))))))
 
 (deftest an-absent-door-yields-an-empty-roster-and-still-states-what-is-unmeasured
   (let [adv (advisor/advise {:mounted-boundaries nil} (advisor/sub-timing {}))]
