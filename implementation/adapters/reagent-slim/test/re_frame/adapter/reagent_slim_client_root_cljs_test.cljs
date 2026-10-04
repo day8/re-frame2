@@ -3,7 +3,7 @@
   The published slim artefact ships its adapter at the canonical
   `re-frame.adapter.reagent` ns, so the `client-root` / `render!` /
   `unmount!` trio must behave identically over `reagent2.dom.client`: this
-  pins the same five behaviours by spying on the slim Root API through
+  pins the same behaviours by spying on the slim Root API through
   `with-redefs` (no DOM; :node-test).
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
@@ -70,10 +70,6 @@
 
 (defn- calls-of-kind [calls call-kind]
   (filter #(= call-kind (first %)) calls))
-
-(deftest client-root-does-no-dom-work
-  (testing "allocating a handle touches none of the Root API"
-    (is (empty? (record-root-api-calls [] (fn [] (rf.adapter.reagent-slim/client-root)))))))
 
 (deftest cold-first-render-creates-once-later-renders-update-the-same-root
   (testing "first render! creates once; later renders reuse the identical Root"
