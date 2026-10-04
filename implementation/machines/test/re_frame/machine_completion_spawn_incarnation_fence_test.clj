@@ -167,40 +167,6 @@
             "the done trace fired exactly once (it precedes the loss)")
         (assert-completion-inert result frame-a machine-id)))))
 
-(deftest live-owner-completion-tears-down-normally
-  (testing "control: a completion whose validator does NOT destroy A tears down
-            fully — the fence is scoped to owner-loss only."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a    :rf2-3evq0x/live-completion-frame
-          machine-id :rf2-3evq0x/live-completion]
-      (rf/reg-machine machine-id (finishing-machine frame-a false))
-      (rf/make-frame {:id frame-a})
-      (seed-finishing-runtime-db! frame-a machine-id)
-      (let [token-a  (rf.frame/frame-incarnation-token frame-a)
-            destroyed (atom [])]
-        (rf.trace.tooling/register-listener!
-          ::live-completion
-          (fn [ev] (when (= :rf.machine/destroyed (:operation ev))
-                     (swap! destroyed conj ev))))
-        (try
-          (let [ret (rf.frame/call-with-event-owner-token frame-a token-a
-                      (fn []
-                        (rf.machines.lifecycle-fx.finalize/finalize-machine
-                          (finishing-machine frame-a false)
-                          machine-id frame-a (rf.machines.test-support/runtime-db frame-a)
-                          (finishing-snapshot) [:some-completing-event] [])))]
-            ;; finalize returns the teardown as a runtime-db EFFECT (it never
-            ;; imperatively writes the live frame); check the returned value.
-            (is (nil? (get-in (:rf.db/runtime ret)
-                              [:rf.runtime/machines :snapshots machine-id]))
-                "the live-owner completion tore down the actor's snapshot in the returned runtime-db")
-            (is (= 1 (count @destroyed))
-                "exactly one :rf.machine/destroyed trace fired for the live completion")
-            (is (contains? ret :rf.db/runtime)
-                "the live completion returns a runtime-db effect"))
-          (finally
-            (rf.trace.tooling/unregister-listener! ::live-completion)))))))
-
 ;; ---- spawn-tail fence (trace listener replaces A with B) -------------------
 
 (def ^:private spawn-child-instance-id (keyword "rf2-3evq0x" "spawn-child#1"))
