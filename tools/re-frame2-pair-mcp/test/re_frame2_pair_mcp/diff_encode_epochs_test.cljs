@@ -12,21 +12,17 @@
   pipeline composes the transform via
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`.
 
-  Tests pin the public surfaces this server composes:
-  `re-frame.mcp-base.diff-encode/diff-encode-db-after` +
-  `decode-db-after` through their round-trip property,
-  `re-frame.mcp-base.diff-encode/diff-encode-epochs`,
-  `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`,
-  `tools.args/parse-epochs-mode`. A rename or signature change
-  surfaces as a failing test rather than silent contract drift. The
-  `collect-patches` / `apply-patches` primitives are mcp-base's own and
-  its suite pins them on both the JVM and CLJS lanes.
+  Tests pin the two surfaces this server composes:
+  `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot` and
+  `tools.args/parse-epochs-mode`. The encoding itself
+  (`diff-encode-db-after`, `decode-db-after`, `diff-encode-epochs` and
+  the patch primitives under them) is mcp-base's own, and its suite
+  pins the round-trip property on both the JVM and CLJS lanes.
 
   Live end-to-end coverage runs against a real shadow-cljs build
   with a populated `epoch-history`; this file pins the pure CLJS
-  transforms and the round-trip property."
+  transforms."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]))
 
@@ -44,142 +40,6 @@
                   :user {:id 7}}
    :db-after     {:cart {:items [{:sku "A1"}] :total 10}
                   :user {:id 7}}})
-
-;; ---------------------------------------------------------------------------
-;; Round-trip property: encode → decode → identity.
-;; ---------------------------------------------------------------------------
-
-(deftest round-trip-identical-db-before-and-db-after
-  ;; Degenerate case: no change. Sections list is empty (empty patches →
-  ;; empty sections); decoder returns :db-before unchanged.
-  (let [epoch (assoc fixture-epoch :db-after (:db-before fixture-epoch))
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))
-    (is (= [] (-> enc :db-after :sections)))))
-
-(deftest round-trip-all-keys-changed
-  ;; Degenerate case: no overlap. Every key in :db-before is dissoc'd
-  ;; and every key in :db-after is assoc'd. Wire size won't shrink
-  ;; for this case (the patches carry the new values); but round-trip
-  ;; MUST still reconstruct.
-  (let [epoch {:db-before {:a 1 :b 2}
-               :db-after  {:c 3 :d 4}}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))))
-
-(deftest round-trip-deeply-nested-leaf-change
-  ;; The load-bearing efficiency case: one tiny change in a deeply
-  ;; nested tree. The wire shape is sections-per-cluster — the encoded
-  ;; :db-after carries the section wrapper (~60-80 chars constant
-  ;; overhead per cluster) plus the patches themselves. The win scales:
-  ;; when the unchanged parts truly dwarf the change, the encoded
-  ;; :db-after is a small fraction of the full one.
-  (let [;; Build a wide map so the unchanged parts dwarf the change.
-        ;; 200 keys × ~30 chars each ≈ 6KB of unchanged context.
-        wide (into {} (for [i (range 200)]
-                        [(keyword (str "k" i))
-                         (apply str (repeat 30 (char (+ 97 (mod i 26)))))]))
-        epoch {:db-before {:user {:auth {:tokens {:access "abc"
-                                                  :refresh "def"}}}
-                            :wide wide
-                            :cart {:items (vec (range 200))}}
-               :db-after  {:user {:auth {:tokens {:access "xyz"
-                                                  :refresh "def"}}}
-                            :wide wide
-                            :cart {:items (vec (range 200))}}}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))
-    ;; Efficiency check: encoded :db-after should be a small fraction
-    ;; of the full db-after for a tiny change in a large tree.
-    (let [full-size (count (pr-str (:db-after epoch)))
-          enc-size  (count (pr-str (:db-after enc)))]
-      (is (< enc-size (/ full-size 20))
-          (str "Encoded :db-after (" enc-size " chars) should be << full ("
-               full-size " chars) for a single-leaf change. Ratio: "
-               (/ enc-size full-size 1.0))))))
-
-(deftest round-trip-map-key-removal
-  (let [epoch {:db-before {:a 1 :b 2 :c 3}
-               :db-after  {:a 1 :c 3}}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)
-        sections (-> enc :db-after :sections)]
-    (is (= epoch dec))
-    (is (= 1 (count sections)) "one removed key → one section")
-    (let [s (first sections)]
-      (is (= [:b] (:section-path s))
-          "top-level singleton keeps its full path as the breadcrumb")
-      (is (= :removed (:section-kind s))
-          "all-:dissoc section → :section-kind :removed")
-      (is (= [[[:b] :dissoc]] (:patches s))
-          ":b was removed → surfaces as a :dissoc patch inside the section"))))
-
-(deftest round-trip-vector-reordering
-  ;; Same-length vectors diff element-wise under index paths; the
-  ;; round-trip MUST still reconstruct exactly regardless of patch
-  ;; granularity.
-  (let [epoch {:db-before {:items [1 2 3]}
-               :db-after  {:items [3 2 1]}}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))))
-
-(deftest round-trip-empty-maps
-  (let [epoch {:db-before {} :db-after {}}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))
-    (is (= [] (-> enc :db-after :sections)))))
-
-(deftest round-trip-scalar-app-db
-  ;; A pathological app-db that's a scalar — rare but valid. The
-  ;; encoder records the change as a root-level :assoc replacement.
-  (let [epoch {:db-before 42 :db-after 99}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))))
-
-(deftest round-trip-value-changed-to-nil
-  ;; Edge case: a key's value legitimately becomes nil. The encoder
-  ;; emits an :assoc with the nil value (distinguishable from a
-  ;; :dissoc which removes the key entirely).
-  (let [epoch {:db-before {:k :v} :db-after {:k nil}}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec) "{:k nil} is not {} — the nil-valued key survives")))
-
-(deftest round-trip-nested-key-addition-and-removal
-  ;; Two-axis change: one key removed, another added, deep in the tree.
-  (let [epoch {:db-before {:user {:profile {:name "alice" :age 30}}}
-               :db-after  {:user {:profile {:name "alice" :email "a@b"}}}}
-        enc   (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        dec   (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= epoch dec))))
-
-;; ---------------------------------------------------------------------------
-;; diff-encode-epochs — the slice-level transform.
-;; ---------------------------------------------------------------------------
-
-(deftest diff-encode-epochs-each-record-self-contained
-  ;; Independence property: each epoch encodes against ITS OWN
-  ;; :db-before; reordering / pagination / filtering of the slice
-  ;; doesn't break decode.
-  (let [e1 {:db-before {:a 1} :db-after {:a 2}}
-        e2 {:db-before {:b 9} :db-after {:b 9 :c 7}}
-        enc (rf.mcp-base.diff-encode/diff-encode-epochs [e1 e2] :diff)]
-    (is (= e1 (rf.mcp-base.diff-encode/decode-db-after (first enc))))
-    (is (= e2 (rf.mcp-base.diff-encode/decode-db-after (second enc))))
-    ;; Reverse order — still decodable.
-    (let [reversed (reverse enc)]
-      (is (= e2 (rf.mcp-base.diff-encode/decode-db-after (first reversed))))
-      (is (= e1 (rf.mcp-base.diff-encode/decode-db-after (second reversed)))))))
-
-(deftest diff-encode-epochs-empty-vector
-  (is (= [] (rf.mcp-base.diff-encode/diff-encode-epochs [] :diff)))
-  (is (= [] (rf.mcp-base.diff-encode/diff-encode-epochs [] :full))))
 
 ;; ---------------------------------------------------------------------------
 ;; diff-encode-epochs-in-snapshot — the snapshot-tool integration.
@@ -239,40 +99,3 @@
            [42 :diff "a number falls back to diff"]
            [:other :diff "an unknown keyword falls back to diff"]]]
     (is (= expected (args/parse-epochs-mode input)) note)))
-
-;; ---------------------------------------------------------------------------
-;; Wire-size impact: 10-epoch window with a 1MB app-db, single-key
-;; change per epoch — the load-bearing scenario.
-;; ---------------------------------------------------------------------------
-
-(deftest ten-epoch-window-with-1mb-app-db-shrinks-dramatically
-  (let [;; Build a "big" app-db: 1024 keys, each pointing at a 1KB
-        ;; string value ⇒ ~1MB pr-str.
-        big-db (into {} (for [i (range 1024)]
-                          [(keyword (str "k" i))
-                           (apply str (repeat 1024 \x))]))
-        ;; 10 epochs, each modifying exactly one key.
-        epochs (vec (for [i (range 10)]
-                      {:epoch-id (str "ep-" i)
-                       :frame :rf/default
-                       :event-id :touch
-                       :db-before big-db
-                       :db-after  (assoc big-db
-                                         (keyword (str "k" i))
-                                         (apply str (repeat 1024 \y)))}))
-        full-size (count (pr-str epochs))
-        diff-encoded (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff)
-        diff-size (count (pr-str diff-encoded))]
-    (testing "diff-encoded slice is much smaller than the full pair"
-      ;; Full: 10 × ~2MB = ~20MB on the wire.
-      ;; Diff: 10 × ~1MB (the :db-before reference) + tiny patches.
-      ;; That's ~50% off — the :db-before is still present per record
-      ;; for self-containment, but the duplicate :db-after disappears.
-      (is (< diff-size full-size))
-      (is (< diff-size (* 0.6 full-size))
-          (str "Diff-encoded size (" diff-size
-               ") should be << 60% of full (" full-size
-               "). Ratio: " (/ diff-size full-size 1.0))))
-    (testing "round-trip still reconstructs every epoch"
-      (let [decoded (mapv rf.mcp-base.diff-encode/decode-db-after diff-encoded)]
-        (is (= epochs decoded))))))
