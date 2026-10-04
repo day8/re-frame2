@@ -12,17 +12,20 @@
   pipeline composes the transform via
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`.
 
-  Tests pin the two surfaces this server composes:
+  Tests pin the surfaces this server composes:
+  `re-frame.mcp-base.diff-encode/diff-encode-epochs` (every record
+  decodes on its own, and an empty slice stays an empty vector),
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot` and
-  `tools.args/parse-epochs-mode`. The encoding itself
-  (`diff-encode-db-after`, `decode-db-after`, `diff-encode-epochs` and
-  the patch primitives under them) is mcp-base's own, and its suite
-  pins the round-trip property on both the JVM and CLJS lanes.
+  `tools.args/parse-epochs-mode`. The per-record encoding
+  (`diff-encode-db-after`, `decode-db-after` and the patch primitives
+  under them) is mcp-base's own, and its suite pins the round-trip
+  property on both the JVM and CLJS lanes.
 
   Live end-to-end coverage runs against a real shadow-cljs build
   with a populated `epoch-history`; this file pins the pure CLJS
   transforms."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.mcp-base.diff-encode :as rf.mcp-base.diff-encode]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]))
 
@@ -40,6 +43,28 @@
                   :user {:id 7}}
    :db-after     {:cart {:items [{:sku "A1"}] :total 10}
                   :user {:id 7}}})
+
+;; ---------------------------------------------------------------------------
+;; diff-encode-epochs — the slice-level transform.
+;; ---------------------------------------------------------------------------
+
+(deftest diff-encode-epochs-each-record-self-contained
+  ;; Independence property: each epoch encodes against ITS OWN
+  ;; :db-before; reordering / pagination / filtering of the slice
+  ;; doesn't break decode.
+  (let [e1 {:db-before {:a 1} :db-after {:a 2}}
+        e2 {:db-before {:b 9} :db-after {:b 9 :c 7}}
+        enc (rf.mcp-base.diff-encode/diff-encode-epochs [e1 e2] :diff)]
+    (is (= e1 (rf.mcp-base.diff-encode/decode-db-after (first enc))))
+    (is (= e2 (rf.mcp-base.diff-encode/decode-db-after (second enc))))
+    ;; Reverse order — still decodable.
+    (let [reversed (reverse enc)]
+      (is (= e2 (rf.mcp-base.diff-encode/decode-db-after (first reversed))))
+      (is (= e1 (rf.mcp-base.diff-encode/decode-db-after (second reversed)))))))
+
+(deftest diff-encode-epochs-empty-vector
+  (is (= [] (rf.mcp-base.diff-encode/diff-encode-epochs [] :diff)))
+  (is (= [] (rf.mcp-base.diff-encode/diff-encode-epochs [] :full))))
 
 ;; ---------------------------------------------------------------------------
 ;; diff-encode-epochs-in-snapshot — the snapshot-tool integration.
