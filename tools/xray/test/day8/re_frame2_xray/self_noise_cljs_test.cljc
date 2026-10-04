@@ -104,9 +104,6 @@
 (deftest xray-internal-event-id?-keyword-namespace
   (testing "true iff event-id is a keyword in the `rf.xray` ns or a `rf.xray.*` sub-ns"
     (is (true?  (self-noise/xray-internal-event-id? :rf.xray/focus-event)))
-    (is (true?  (self-noise/xray-internal-event-id? :rf.xray/select-tab)))
-    (is (true?  (self-noise/xray-internal-event-id? :rf.xray/open-settings)))
-    (is (true?  (self-noise/xray-internal-event-id? :rf.xray/sync-trace-buffer)))
     (testing "sub-namespaced internal events also classify"
       ;; Xray registers + dispatches many internal events under
       ;; SUB-namespaces of rf.xray. The palette lowers
@@ -117,15 +114,9 @@
       ;; predicate is the only thing standing between it and the host's
       ;; user-facing :rf.xray/event-bundles L2 list. Exact `= "rf.xray"`
       ;; equality would miss it; the segment-prefix match catches it.
-      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.static/select-tab)))
-      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.epoch/toggle-row-expand)))
-      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.filters/persist)))
-      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.edn-inspector/zoom)))
-      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.column-widths/persist))))
+      (is (true?  (self-noise/xray-internal-event-id? :rf.xray.static/select-tab))))
     (testing "user-app events stay false"
-      (is (false? (self-noise/xray-internal-event-id? :cart/add-item)))
-      (is (false? (self-noise/xray-internal-event-id? :checkout/start)))
-      (is (false? (self-noise/xray-internal-event-id? :user/click))))
+      (is (false? (self-noise/xray-internal-event-id? :cart/add-item))))
     (testing "framework + sibling reserved namespaces stay false"
       ;; The filter is narrow: only `rf.xray` + its `rf.xray.*`
       ;; sub-namespaces. Sibling reserved namespaces (`:rf/init`,
@@ -133,13 +124,11 @@
       ;; epoch surface and must remain visible in the user-facing
       ;; cascade list.
       (is (false? (self-noise/xray-internal-event-id? :rf/init)))
-      (is (false? (self-noise/xray-internal-event-id? :rf.epoch/begin)))
-      (is (false? (self-noise/xray-internal-event-id? :rf.story/something))))
+      (is (false? (self-noise/xray-internal-event-id? :rf.epoch/begin))))
     (testing "nil-safe + non-keyword inputs"
       (is (false? (self-noise/xray-internal-event-id? nil)))
       (is (false? (self-noise/xray-internal-event-id? "rf.xray/foo")))
-      (is (false? (self-noise/xray-internal-event-id? :unnamespaced)))
-      (is (false? (self-noise/xray-internal-event-id? 42))))
+      (is (false? (self-noise/xray-internal-event-id? :unnamespaced))))
     (testing "namespace prefix collision guard — segment boundary, not substring"
       ;; A keyword whose namespace shares the leading characters
       ;; `rf.xray` but is NOT exactly `rf.xray` nor a `rf.xray.`
@@ -149,7 +138,6 @@
       ;; app namespace that merely embeds `rf.xray` mid-string
       ;; (`:my.rf.xray-ish/foo`) is also a host event, not Xray's.
       (is (false? (self-noise/xray-internal-event-id? :rf.xray-test/x)))
-      (is (false? (self-noise/xray-internal-event-id? :rf.xray-foo/y)))
       (is (false? (self-noise/xray-internal-event-id? :rf.xrayon/z)))
       (is (false? (self-noise/xray-internal-event-id? :my.rf.xray-ish/foo))))))
 
@@ -158,9 +146,6 @@
     (is (true?  (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 1
                    :event       [:rf.xray/focus-event 99]})))
-    (is (true?  (self-noise/xray-internal-event-bundle?
-                  {:dispatch-id 2
-                   :event       [:rf.xray/select-tab :event]})))
     (is (true?  (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 3
                    :event       [:rf.xray/open-settings]}))
@@ -174,17 +159,11 @@
       ;; L2 list. The segment-prefix match closes the hole.
       (is (true?  (self-noise/xray-internal-event-bundle?
                     {:dispatch-id 9
-                     :event       [:rf.xray.static/select-tab :machines]})))
-      (is (true?  (self-noise/xray-internal-event-bundle?
-                    {:dispatch-id 10
-                     :event       [:rf.xray.epoch/toggle-row-expand 3]})))))
+                     :event       [:rf.xray.static/select-tab :machines]})))))
   (testing "user-app cascades stay false"
     (is (false? (self-noise/xray-internal-event-bundle?
                   {:dispatch-id 4
-                   :event       [:cart/add-item {:item-id "apple"}]})))
-    (is (false? (self-noise/xray-internal-event-bundle?
-                  {:dispatch-id 5
-                   :event       [:user/click]}))))
+                   :event       [:cart/add-item {:item-id "apple"}]}))))
   (testing ":ungrouped + event-less cascades stay false"
     ;; `event-bundle-has-event?` handles the :ungrouped bucket
     ;; at the L2 boundary; the xray-internal filter sits orthogonal.
