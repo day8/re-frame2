@@ -53,10 +53,9 @@
       successor registers) → same: one aborted reply, ZERO re-issue, no phantom
       `:retried`. This is the second transition gap.
    3. unit: `clear-in-flight!` (2-arg) is identity-conditional —
-      a completing OLD attempt does NOT evict a same-id SUCCESSOR's handle.
-   4. the same identity-conditional clear preserves the successor's
-      actor-index entry.
-   5. a same-id SUCCESSOR issued inside either handoff window
+      a completing OLD attempt evicts neither a same-id SUCCESSOR's
+      request-id slot nor its actor-index entry.
+   4. a same-id SUCCESSOR issued inside either handoff window
       keeps the request-id slot. Each handoff decides to proceed before the
       supersede lands, so an unconditional publication would overwrite the
       successor's slot and its own abort re-check would then empty it, leaving
@@ -229,7 +228,7 @@
   (testing "second transition — an abort landing at the timer-fire→attempt-N+1 handoff (after the timer won `fired?`, before the successor registers) yields exactly one :rf.http/aborted reply, ZERO re-issue, and NO phantom :retried; the abort resolves the still-registered predecessor backoff handle (its abort-fn loses the timer's fired? CAS), and run-attempt!'s post-registration re-check delivers the single reply and suppresses the fresh attempt"
     (run-injected-abort-case! :retry/before-attempt)))
 
-;; ---- (4) actor-index identity clear survives a successor -------------------
+;; ---- (3) identity clear survives a successor, in both indexes --------------
 
 (deftest clear-in-flight-2arg-preserves-successor-actor-index
   (testing "an OLD attempt's identity-conditional clear does not evict a same-id successor even when actor-indexed (mirrors remove-from-actor-index!)"
@@ -246,7 +245,7 @@
         (is (not (some #(identical? % h-a) v)) "H_A dropped from the actor index by identity")))
     (rf.http.registry/clear-all-in-flight!)))
 
-;; ---- (5) a successor issued inside a handoff window ----------------------
+;; ---- (4) a successor issued inside a handoff window ----------------------
 ;;
 ;; R1 gets a 500 and hands off into its retry. At `inject-point` — squarely
 ;; inside a handoff, on R1's own thread — the interleaving hook issues the

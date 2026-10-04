@@ -21,10 +21,10 @@
    2. Multiple in-flight requests from the same actor → all abort
    3. Sibling actors are NOT affected when one is destroyed
    4. Direct event-handler dispatch (no spawned-actor) → no cancellation
-   6. Anonymous child request → actor-destroy cleans the actor index
-   6c. `schedule-backoff-handle!`'s abort-fn cleans an anonymous
-       (request-id-less) backoff handle's actor slot when fired by a
-       trigger that does not pre-clear the actor slot
+   5. Anonymous child request → actor-destroy cleans the actor index
+   6. `schedule-backoff-handle!`'s abort-fn cleans an anonymous
+      (request-id-less) backoff handle's actor slot when fired by a
+      trigger that does not pre-clear the actor slot
    7.  IMPERATIVELY-spawned actor (`[:rf.machine/spawn …]` from an
        ordinary event handler — NO `:spawned` registry slot) → its managed
        request is aborted on imperative `[:rf.machine/destroy …]`; ownership
@@ -155,6 +155,8 @@
                 "trace tags carry the destroyed spawned-actor id")
             (is (= [:worker/proc :slow] (:request-id tags))
                 "trace tags carry the user-supplied :request-id")))
+        (is (empty? (filter #(= :rf.http/stale-suppressed (:operation %)) @traces))
+            "the ordinary reply target is still meaningful, so no stale-suppression row fires")
         (is (empty? (rf.http.managed/actor-in-flight-snapshot))
             "actor index is empty after the abort")
         (.countDown latch)
@@ -339,7 +341,7 @@
         (.countDown latch)
         (finally (stop-server! srv))))))
 
-;; ---- (6) anonymous (request-id-less) child request → actor-destroy clean --
+;; ---- (5) anonymous (request-id-less) child request → actor-destroy clean --
 
 (deftest anonymous-child-request-abort-cleans-actor-index
   (testing "an anonymous (no :request-id) request issued from inside a spawned actor is indexed ONLY in actor-in-flight; actor-destroy aborts it and the abort-fn's cleanup leaves the actor index empty (the abort-fn passes its in-scope handle to clear-in-flight!, so cleanup is unconditionally correct rather than depending on the actor-destroy eager-dissoc invariant)"
@@ -401,7 +403,7 @@
         (.countDown latch)
         (finally (stop-server! srv))))))
 
-;; ---- (6c) the SECOND abort-fn site — schedule-backoff-handle! -------------
+;; ---- (6) the SECOND abort-fn site — schedule-backoff-handle! --------------
 ;; ----      a backoff-window abort fired WITHOUT a ----------------------------
 ;; ----      pre-clear must clean the anonymous handle's actor slot -----------
 
@@ -409,7 +411,7 @@
   @#'rf.http.transport/schedule-backoff-handle!)
 
 (deftest backoff-abort-fn-cleans-anonymous-handle-without-actor-slot-preclear
-  (testing "schedule-backoff-handle!'s abort-fn — the SECOND of two structurally-identical abort-fns — cleans an anonymous (request-id-less, issued-from-actor) backoff handle's actor-in-flight slot when fired by a trigger that does NOT pre-clear the slot first. This is the sibling of (6b): the abort-fn passes its in-scope handle to the 2-arg clear-in-flight!, so the actor slot is removed by identity regardless of the nil request-id. A 1-arg form would no-op on the nil id and strand the handle under any abort trigger that does not pre-clear (only actor-destroy's eager dissoc would mask the leak)"
+  (testing "schedule-backoff-handle!'s abort-fn — the SECOND of two structurally-identical abort-fns — cleans an anonymous (request-id-less, issued-from-actor) backoff handle's actor-in-flight slot when fired by a trigger that does NOT pre-clear the slot first. The abort-fn passes its in-scope handle to the 2-arg clear-in-flight!, so the actor slot is removed by identity regardless of the nil request-id. A 1-arg form would no-op on the nil id and strand the handle under any abort trigger that does not pre-clear (only actor-destroy's eager dissoc would mask the leak)"
     (rf.http.managed/clear-all-in-flight!)
     (let [actor-id :worker/anon-backoff#1
           ;; Anonymous request sitting in a backoff window: request-id nil,
@@ -464,7 +466,7 @@
 ;; ----     would classify the actor's request as unowned and never abort it.
 ;; ----     Ownership keys on the durable snapshot `:rf/machine-type` marker -
 ;; ----     (the SAME discriminator the destroy side keys on), so the owning --
-;; ----     set includes imperative spawns. Tests 1–6c above cover ------------
+;; ----     set includes imperative spawns. Tests 1–6 above cover -------------
 ;; ----     DECLARATIVE `:spawn` only, so they cannot catch this case — ------
 ;; ----     hence this dedicated test.
 
