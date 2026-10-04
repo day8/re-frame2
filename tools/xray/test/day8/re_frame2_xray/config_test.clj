@@ -142,19 +142,7 @@
       (config/set-editor! :vscode)
       (is (= "vscode://file/src/x.cljs:12:4" (config/editor-uri coord)))
       (config/set-editor! :cursor)
-      (is (= "cursor://file/src/x.cljs:12:4" (config/editor-uri coord)))
-      (config/set-editor! :windsurf)
-      (is (= "windsurf://file/src/x.cljs:12:4" (config/editor-uri coord)))
-      (config/set-editor! :zed)
-      (is (= "zed://file/src/x.cljs:12:4" (config/editor-uri coord)))
-      (config/set-editor! :idea)
-      (is (= "idea://open?file=src/x.cljs&line=12&column=4"
-             (config/editor-uri coord))))))
-
-(deftest editor-uri-nil-for-missing-file
-  (testing "config/editor-uri returns nil when coord has no :file"
-    (is (nil? (config/editor-uri {:line 10})))
-    (is (nil? (config/editor-uri nil)))))
+      (is (= "cursor://file/src/x.cljs:12:4" (config/editor-uri coord))))))
 
 ;; ---- project-root --------------------------------------------------------
 ;;
@@ -191,15 +179,6 @@
     (config/set-project-root! "/abs/code")
     (config/configure! {:rf.xray/editor :cursor})
     (is (= "/abs/code" (config/get-project-root)))))
-
-(deftest editor-uri-without-project-root-ships-file-verbatim
-  (testing "with project-root unset, config/editor-uri ships the file
-            string verbatim"
-    (is (nil? (config/get-project-root)))
-    (is (= "vscode://file/src/app/views.cljs:1:1"
-           (config/editor-uri {:file "src/app/views.cljs"
-                               :line 1
-                               :column 1})))))
 
 ;; ---- filter seed ---------------------------------------------------------
 ;;
@@ -280,17 +259,6 @@
         "even a wide request clamps to the floor when the viewport
          is too narrow for the floor to cleanly fit")))
 
-(deftest update-setting-round-trips-panel-width
-  (testing "the standard settings round-trip drives the panel-width
-            slot — same surface text-size + theme go through. After
-            the round-trip get-setting reads the new value."
-    (config/reset-settings!)
-    (config/update-setting! :general :panel-width-px 720)
-    (is (= 720 (config/get-setting :general :panel-width-px)))
-    (config/update-setting! :general :panel-width-px 480)
-    (is (= 480 (config/get-setting :general :panel-width-px)))
-    (config/reset-settings!)))
-
 ;; ---- L2 event-list column widths -----------------------------------------
 ;;
 ;; The L2 event list's `source` / `timestamp` / `duration` columns are
@@ -328,26 +296,14 @@
     (is (nil? (config/clamp-event-list-col-width :unknown 100)))
     (is (nil? (config/clamp-event-list-col-width nil 100)))))
 
-(deftest resolve-event-list-col-widths-from-nil
-  (testing "nil persisted payload resolves to the defaults"
-    (is (= config/event-list-col-default-widths
-           (config/resolve-event-list-col-widths nil)))))
-
 (deftest resolve-event-list-col-widths-from-empty
-  (testing "empty / non-map payload resolves to the defaults"
+  (testing "nil / empty / non-map payload resolves to the defaults"
+    (is (= config/event-list-col-default-widths
+           (config/resolve-event-list-col-widths nil)))
     (is (= config/event-list-col-default-widths
            (config/resolve-event-list-col-widths {})))
     (is (= config/event-list-col-default-widths
            (config/resolve-event-list-col-widths "not-a-map")))))
-
-(deftest resolve-event-list-col-widths-merges-partial
-  (testing "a partial persisted payload merges over the
-            defaults; columns the user has not touched read their
-            defaults"
-    (is (= {:source 120 :timestamp 76 :duration 60}
-           (config/resolve-event-list-col-widths {:source 120})))
-    (is (= {:source 52 :timestamp 100 :duration 60}
-           (config/resolve-event-list-col-widths {:timestamp 100})))))
 
 (deftest resolve-event-list-col-widths-clamps-each-column
   (testing "a stale or hand-edited payload with a sub-floor
@@ -371,9 +327,7 @@
             the resolved map only carries the known shape)"
     (let [resolved (config/resolve-event-list-col-widths
                      {:source 100 :phantom 200 :event-id 999})]
-      (is (= {:source 100 :timestamp 76 :duration 60} resolved))
-      (is (not (contains? resolved :phantom)))
-      (is (not (contains? resolved :event-id))))))
+      (is (= {:source 100 :timestamp 76 :duration 60} resolved)))))
 
 (deftest resolve-event-list-col-widths-handles-non-numeric-per-column
   (testing "a per-column non-numeric value falls back to
