@@ -18,11 +18,11 @@
                      and NO `:value` (no app mutation)
 
   The suite also checks the invariants shared by every reply: each reply
-  validates through `re-frame.reply/validate-reply`; the
-  `:status` is in the closed `re-frame.reply/statuses`; the `:rf.reply/work-status`
-  (when present) is in the closed `re-frame.reply/work-statuses`; the
-  `:rf.reply/work-id` is a `[:rf.work/* …]` tuple that is EDN-round-trippable;
-  and the reply is data-only. It separately compares stale correlation and
+  validates through `re-frame.reply/validate-reply`, which holds the
+  `:status` to the closed `re-frame.reply/statuses`, the `:rf.reply/work-status`
+  (when present) to the closed `re-frame.reply/work-statuses`, and the reply to
+  data-only; and the `:rf.reply/work-id` is a `[:rf.work/* …]` tuple that is
+  EDN-round-trippable. It separately compares stale correlation and
   causal `:completed-at` propagation across implementations.
 
   This is pure conformance over builders, with no runtime fixture. It lives in
@@ -571,20 +571,7 @@
     (testing (str family " / " situation)
       (is (rf.reply/valid-reply? reply)
           (str family " " situation " reply MUST validate against the shared "
-               "re-frame.reply/validate-reply: " (rf.reply/validate-reply reply)))
-      (testing ":status is in the closed status vocabulary"
-        (is (contains? rf.reply/statuses (:status reply))
-            (str family " " situation " :status " (:status reply)
-                 " is not in the closed " rf.reply/statuses)))
-      (testing ":rf.reply/work-status is in the closed work-status vocabulary"
-        (when (contains? reply :rf.reply/work-status)
-          (is (contains? rf.reply/work-statuses (:rf.reply/work-status reply))
-              (str family " " situation " :rf.reply/work-status " (:rf.reply/work-status reply)
-                   " is not in the closed " rf.reply/work-statuses))))
-      (testing "the reply contains no host handles"
-        (is (not-any? #(= :rf.reply/host-handle (:rf.reply/problem %))
-                      (rf.reply/validate-reply reply))
-            (str family " " situation " reply carries a host handle"))))))
+               "re-frame.reply/validate-reply: " (rf.reply/validate-reply reply))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Work-id identity metadata. `:work-head` is REQUIRED descriptor metadata, never
@@ -911,9 +898,7 @@
     (let [reply (rf.http.reply/failure-reply http-ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
       (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
       (is (= :error (:status reply)) "timeout is NOT a top-level :status")
-      (is (= :timed-out (:rf.reply/work-status reply)))
-      (is (contains? rf.reply/work-statuses (:rf.reply/work-status reply))
-          ":timed-out is in the closed work-status vocabulary"))))
+      (is (= :timed-out (:rf.reply/work-status reply))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cancellation shape: cancelled status and work status, the boolean marker,
