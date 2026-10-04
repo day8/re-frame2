@@ -90,10 +90,8 @@
           low     (* capped 0.75)
           high    (* capped 1.25)
           samples (repeatedly 200 #(rf.http.encoding/compute-backoff-ms cfg attempt))]
-      (doseq [s samples]
-        (is (and (<= low s) (<= s high))
-            (str "jittered sample " s " sits in ±25% window ["
-                 low ", " high "]")))
+      (is (= [] (remove #(<= low % high) samples))
+          (str "every jittered sample sits in the ±25% window [" low ", " high "]"))
       ;; And the samples are not all identical — sanity check that
       ;; jitter is actually being applied (catches a regression where
       ;; `:jitter true` silently falls through to the un-jittered branch).
@@ -110,10 +108,8 @@
           ;; attempt 10 — raw = 1000 × 512 = 512000, clamped to 2000.
           ;; Jittered samples should sit in [1500, 2500] (±25% of 2000).
           samples (repeatedly 200 #(rf.http.encoding/compute-backoff-ms cfg 10))]
-      (doseq [s samples]
-        (is (and (<= 1500 s) (<= s 2500))
-            (str "post-clamp jittered sample " s " sits in ±25% window
-                  around clamp (1500..2500)")))
+      (is (= [] (remove #(<= 1500 % 2500) samples))
+          "every post-clamp jittered sample sits in the ±25% window around the clamp (1500..2500)")
       ;; Clamping AFTER jitter would pin every sample at max-ms: the raw
       ;; value's jitter window [384000, 640000] lies wholly above the clamp.
       ;; Jittering the clamped value spreads samples both sides of it.
