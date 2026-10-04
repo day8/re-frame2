@@ -423,8 +423,8 @@
                              :host   "localhost:8031"
                              :origin origin}))]
             (is (= 405 (:status resp)) (str "Origin " (pr-str origin)))
-            (is (some? (:body resp)) (str "Origin " (pr-str origin)))
-            (is (re-find #"\"error\":\"method-not-allowed\"" (str (:body resp))))
+            (is (re-find #"\"error\":\"method-not-allowed\"" (str (:body resp)))
+                (str "Origin " (pr-str origin) ": the 405 carries a JSON body"))
             (is (zero? (count @calls))))))))
   (testing "an OPTIONS that fails admission — a remote Origin, a non-loopback
             Host — is refused 403, also with a JSON body"
@@ -664,10 +664,8 @@
 (deftest launch-passes-column-without-line-through-to-file-spec
   (testing "end-to-end through the endpoint: a request with `column` and no
             `line` reaches `launch!` with `line` nil / `column` 7 — parsing
-            never drops it — and folding those exact values through
-            `build-file-spec` (the function `launch!` delegates to) yields
-            the NORMALIZED `path:1:<column>` spec, not a bare `path:<column>`
-            launch-editor would misread as a line jump"
+            never drops it. `build-file-spec-normalizes-column-only-to-line-1`
+            pins what `launch!` then encodes for those values"
     (let [calls (atom [])]
       (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& args] (swap! calls conj (vec args))
                                    {:ok true})]
@@ -679,11 +677,9 @@
                       :headers        {"host" "localhost:8031"}})]
           (is (= 200 (:status resp)))
           (is (= 1 (count @calls)))
-          (let [[abs-path line column _cmd] (first @calls)]
+          (let [[_abs-path line column _cmd] (first @calls)]
             (is (nil? line) "no line param was sent")
-            (is (= 7 column) "column parsed through, not dropped upstream")
-            (is (= (str abs-path ":1:7") (#'rf.testbed.open-in-editor-server/build-file-spec abs-path line column))
-                "build-file-spec normalizes column-only to line 1")))))))
+            (is (= 7 column) "column parsed through, not dropped upstream")))))))
 
 ;; launch-editor silently ignores missing files, so the JVM must reject them.
 
@@ -1017,9 +1013,8 @@
                       :remote-addr    "127.0.0.1"
                       :headers        {"host" "localhost:8031"}})]
           (is (= 422 (:status resp))
-              "a 200 here would be a false claim that 27:9 reached the editor")
-          (is (not (<= 200 (:status resp) 299))
-              "non-2xx is the whole contract with the client: `fetch-launcher!`
+              "a 200 here would be a false claim that 27:9 reached the editor;
+               non-2xx is the whole contract with the client: `fetch-launcher!`
                runs the coordinate-preserving URI fallback on any non-2xx")
           (is (re-find #"\"ok\":false" (:body resp)))
           (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
@@ -1654,8 +1649,7 @@
                     :remote-addr    "127.0.0.1"
                     :headers        {"host" "localhost:8031"}})]
         (is (= 422 (:status resp))
-            "a 200 here would claim 27:9 reached an editor that never got it")
-        (is (not (<= 200 (:status resp) 299))
-            "non-2xx is what runs the client's coordinate-preserving fallback")
+            "a 200 here would claim 27:9 reached an editor that never got it;
+             non-2xx is what runs the client's coordinate-preserving fallback")
         (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
             "the same token the declared-vocabulary decline emits")))))
