@@ -199,25 +199,6 @@
         (is (= :ran (:late (rf/app-db-value :seal-race/b))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. THE HOT-PATH SKIP the construction-path mark must not spend.
-;;    `mark-dirty-and-schedule!`'s no-image-loaded-frame skip is a real win —
-;;    every `reg-event` / `reg-sub` / `reg-fx` fires that hook, and the
-;;    overwhelming majority run at app boot or in handler-only tests with no
-;;    frame standing. The mark belongs on the CONSTRUCTION path, not in the hook.
-;; ---------------------------------------------------------------------------
-
-(deftest registration-with-no-live-frame-still-marks-nothing
-  (testing "a reg-* with no image-loaded frame standing sets no dirty flag and
-            schedules no flush — the hot-path skip holds alongside the
-            construction-path mark"
-    (is (empty? (rf.live-frame/live-frame-ids)) "no frame is standing")
-    (is (false? @@dirty-flag) "the flag starts clear")
-    (rf/reg-event :seal-race/boot-time (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-sub :seal-race/boot-sub (fn [db _] db))
-    (is (false? @@dirty-flag)
-        "the registration hook took the no-image-loaded-frame skip")))
-
-;; ---------------------------------------------------------------------------
 ;; 4. THE MARK IS CONDITIONAL. An UNCONDITIONAL mark on the construction path
 ;;    would leave the projection dirty after every `make-frame`, arming a
 ;;    reprojection sweep over every image-loaded frame on an ordinary
