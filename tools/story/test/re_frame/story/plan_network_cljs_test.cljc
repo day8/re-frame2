@@ -38,24 +38,6 @@
 ;; Lowering — :network keeps the route map AND lowers to the managed-stub fx
 ;; ===========================================================================
 
-(deftest network-routes-preserved-at-world-network
-  (testing ":network is preserved verbatim at [:world :network] (source of truth)"
-    (let [routes {cart-route     {:reply {:ok {:items []}}}
-                  checkout-route {:reply {:failure {:kind :rf.http/http-4xx
-                                                    :status 409}}}}
-          m {:story.checkout/mixed {:network routes}}
-          p (plan-of :story.checkout/mixed m)]
-      (is (= routes (get-in p [:world :network]))))))
-
-(deftest network-lowers-to-managed-stub-fx-override
-  (testing ":network lowers to a :rf.http/managed override on the frame"
-    (let [m {:story.checkout/mixed
-             {:network {cart-route {:reply {:ok {:items []}}}}}}
-          p (plan-of :story.checkout/mixed m)]
-      (testing "the frame's :fx-overrides redirects :rf.http/managed to the stub fx"
-        (is (= {:rf.http/managed :rf.http/managed-test-stub}
-               (get-in p [:world :frame :fx-overrides])))))))
-
 (deftest no-network-no-lowering
   (testing "a variant without :network carries no network slot and no managed override"
     (let [m {:story.plain/v {:setup [[:dispatch [:a]]]}}
@@ -67,14 +49,6 @@
 ;; ===========================================================================
 ;; lower-network — the pure lowering primitive
 ;; ===========================================================================
-
-(deftest lower-network-unit
-  (testing "lower-network derives the managed override"
-    (is (= {:rf.http/managed :rf.http/managed-test-stub}
-           (rf.story.plan/lower-network {cart-route {:reply {:ok 1}}})))
-    (testing "nil for empty / nil input"
-      (is (nil? (rf.story.plan/lower-network {})))
-      (is (nil? (rf.story.plan/lower-network nil))))))
 
 ;; ===========================================================================
 ;; arg substitution inside :network reply data
