@@ -419,11 +419,7 @@
 ;;   discover-app {port 8033} -> OK, resolves :examples/machine-epochs
 ;;   orient {}  (NO :build)   -> must target :examples/machine-epochs
 ;;
-;; `sticky_build_invoke_test/port-discover-sticks-build-through-invoke`
-;; drives discover-app{port} then a no-build call through `tools/invoke`,
-;; but it PRE-SEEDS `:probed-builds` with the resolved build, so
-;; `discover-app`'s own `ensure-runtime!` short-circuits without the real
-;; preload probe. In the LIVE flow the `:port`-resolved build is NOT
+;; In the LIVE flow the `:port`-resolved build is NOT
 ;; pre-probed — discover-app must run the actual `runtime-preloaded?`
 ;; round-trip (a DISTINCT eval form from the `(runtime/health)` read) and
 ;; `mark-conn-probed!` itself before reaching the cache-writing branch.
