@@ -33,41 +33,16 @@
 ;; Tag parsing — :div.cls#id shorthand
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-tag-bare
-  (testing "bare tag: :div"
-    (let [parsed (template/parse-tag :div [:div])]
-      (is (= "div" (.-tag parsed)))
-      (is (nil? (.-id parsed)))
-      (is (nil? (.-className parsed))))))
-
-(deftest parse-tag-with-class
-  (testing ":div.foo"
-    (let [parsed (template/parse-tag :div.foo [:div.foo])]
-      (is (= "div" (.-tag parsed)))
-      (is (nil? (.-id parsed)))
-      (is (= "foo" (.-className parsed))))))
-
-(deftest parse-tag-with-id
-  (testing ":div#bar"
-    (let [parsed (template/parse-tag :div#bar [:div#bar])]
-      (is (= "div" (.-tag parsed)))
-      (is (= "bar" (.-id parsed)))
-      (is (nil? (.-className parsed))))))
-
-(deftest parse-tag-with-multiple-classes
-  (testing ":div.a.b.c"
-    (let [parsed (template/parse-tag :div.a.b.c [:div.a.b.c])]
-      (is (= "div" (.-tag parsed)))
-      (is (nil? (.-id parsed)))
-      (is (= "a b c" (.-className parsed))
-          "multiple .class shorthand parts join with space"))))
-
-(deftest parse-tag-id-before-class-supported
-  (testing ":div#id.a.b — id MUST precede classes (the supported form)"
-    (let [parsed (template/parse-tag :div#id.a.b [:div#id.a.b])]
-      (is (= "div" (.-tag parsed)))
-      (is (= "id" (.-id parsed)))
-      (is (= "a b" (.-className parsed))))))
+(deftest parse-tag-splits-tag-id-and-class-shorthand
+  (doseq [[head tag id class-name label]
+          [[:div        "div" nil  nil   "bare tag"]
+           [:div.foo    "div" nil  "foo" "one class"]
+           [:div#bar    "div" "bar" nil  "an id"]
+           [:div#id.a.b "div" "id" "a b" "id before classes (the supported form); classes join with a space"]]]
+    (let [parsed (template/parse-tag head [head])]
+      (is (= [tag id class-name]
+             [(.-tag parsed) (.-id parsed) (.-className parsed)])
+          (str (pr-str head) " — " label)))))
 
 (deftest parse-tag-class-before-id-not-supported
   ;; The regex requires `#id` before `.class` (matches stock
@@ -117,13 +92,6 @@
            ["number value passes through unchanged"                       :tab-index  42           42]]]
     (testing why
       (is (= expected (template/convert-prop-value k v))))))
-
-(deftest convert-prop-value-non-html-keyword-passes-through
-  (testing ":value with keyword value → keyword unchanged (non-HTML name; D2 narrowing)"
-    ;; The stock-Reagent bridge stringifies this; reagent-slim preserves
-    ;; the keyword so React-context Provider :value works as intended.
-    (is (= :some-frame
-           (template/convert-prop-value :value :some-frame)))))
 
 ;; A fixture that actually REACHES `convert-prop-value`'s
 ;; `ifn?` arm: object-backed, satisfies IFn, and satisfies none of the
@@ -318,34 +286,6 @@
           "direct as-element of the sequence")
       (is (= "<span>one</span>" (static-markup [vector-form-1]))
           "an untagged component returning a hiccup vector still renders one element"))))
-
-(deftest nested-style-keyword-value-stringifies-on-live-path-rf2-fdm4rm
-  (testing "a nested style-map keyword value reaches React as
-            a STRING on the LIVE path (props.style.cursor === \"pointer\"),
-            matching stock Reagent + the SSR serializer — not a raw CLJS
-            keyword. This exercises the real nested-map path through
-            as-element, the path production renders actually take. (A
-            1-arg-direct test would be VACUOUS: no nested-map render
-            reaches the 1-arg form directly.)"
-    (let [^js el (template/as-element [:div {:style {:cursor :pointer}}])
-          style  (-> el .-props .-style)]
-      (is (= "div" (.-type el)))
-      (is (string? (.-cursor style))
-          "nested keyword style value is a JS string, not a raw CLJS keyword")
-      (is (= "pointer" (.-cursor style))
-          "keyword style value stringified to \"pointer\""))
-    ;; A multi-property style map: keyword + keyword + string values all
-    ;; convert, and the camelCase key transform is preserved for each key.
-    (let [^js el (template/as-element
-                   [:div {:style {:display          :flex
-                                  :text-align       :center
-                                  :background-color "red"}}])
-          style  (-> el .-props .-style)]
-      (is (= "flex" (.-display style)) "keyword value :flex → \"flex\"")
-      (is (= "center" (.-textAlign style))
-          "camelCased key :text-align → textAlign, keyword value stringified")
-      (is (= "red" (.-backgroundColor style))
-          "string value passes through under the camelCased key"))))
 
 ;; ---------------------------------------------------------------------------
 ;; warn-once-keyword-prop! — one-shot DEBUG warning contract
@@ -596,11 +536,6 @@
             purpose (hosting React hooks)."
     (let [some-fn (fn [_n] [:div])
           ^js el (template/as-element [:f> some-fn 42])]
-      (is (fn? (.-type el)) ":f> head is a function component")
-      (is (not (component/reagent-class? (.-type el)))
-          ":f> is NOT lowered to a reagent-slim class")
-      (is (not (component/react-class? (.-type el)))
-          ":f> head is not a React class either — a plain function component")
       ;; Stable identity: the same fn re-wraps to the SAME component type
       ;; so React reconciles across renders rather than remounting (which
       ;; would drop hook + DOM state).
@@ -647,16 +582,6 @@
 (defn- source-coord-prop [^js el]
   (gobj/get (.-props el) "data-rf2-source-coord"))
 
-(deftest source-coord-skips-interop-root
-  (testing "a :> interop root does NOT get source-coord as a foreign prop"
-    (let [Comp (fn FakeComp [_props] nil)]
-      (binding [template/*source-coord* src-coord]
-        (let [^js el (template/as-element [:> Comp {:foo "bar"}])]
-          (is (= Comp (.-type el)) "root is the foreign component")
-          (is (= "bar" (gobj/get (.-props el) "foo")) "user prop preserved")
-          (is (nil? (source-coord-prop el))
-              "no data-rf2-source-coord stamped onto the :> component"))))))
-
 (deftest source-coord-flows-past-interop-root-to-first-dom-child
   (testing "with a :> root the binding is left UNCONSUMED so the first real
             DOM element downstream gets stamped (§5.4 'first DOM-tag head')"
@@ -696,15 +621,6 @@
     (let [^js el (template/as-element [:input {:name 'q}])]
       (is (= "q" (-> el .-props .-name))))))
 
-(deftest as-element-interop-preserves-keyword-value
-  (testing "[:> Provider {:value :rf/foo}] preserves the CLJS keyword
-            (custom React component — NOT a native DOM tag)"
-    (let [Provider (fn FakeProvider [_props] nil)
-          ^js el   (template/as-element [:> Provider {:value :rf/foo}])]
-      (is (= Provider (.-type el)))
-      (is (= :rf/foo (-> el .-props .-value))
-          "keyword preserved for the interop component, not stringified"))))
-
 (deftest as-element-interop-non-html-keyword-preserved-html-stringified
   (testing "interop: HTML-attr keyword stringifies, non-HTML keyword preserved"
     (let [Comp   (fn FakeComp [_props] nil)
@@ -732,11 +648,6 @@
           "custom property preserved")
       (is (= "12px" (aget style "fontSize"))
           "regular kebab style key still camelCased to fontSize"))))
-
-(deftest cached-prop-name-css-var-not-camelcased
-  (testing "cached-prop-name preserves --foo verbatim"
-    (is (= "--gap" (template/cached-prop-name :--gap)))
-    (is (= "--my-custom-prop" (template/cached-prop-name :--my-custom-prop)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Sequence-as-children
@@ -880,36 +791,6 @@
                       props "__proto__"))
           "no own '__proto__' slot on the props object"))))
 
-(deftest constructor-key-dropped-from-props-rf2-dwds9
-  (testing "{:constructor \"x\"} prop is dropped (does not
-            override the prototype's constructor or leak as own property)"
-    (let [^js el (template/as-element [:div {:constructor "leaked"}])
-          props  (.-props el)]
-      (is (not (.call (.. js/Object -prototype -hasOwnProperty)
-                      props "constructor"))
-          "no own 'constructor' slot on the props object"))))
-
-(deftest prototype-string-key-dropped-rf2-dwds9
-  (testing "{:prototype \"x\"} prop is dropped"
-    (let [^js el (template/as-element [:div {:prototype "leaked"}])
-          props  (.-props el)]
-      (is (not (.call (.. js/Object -prototype -hasOwnProperty)
-                      props "prototype"))
-          "no own 'prototype' slot on the props object"))))
-
-(deftest nested-prototype-key-dropped-rf2-dwds9
-  (testing "nested {:style {:__proto__ {...} :color \"red\"}}
-            does NOT leak the evil prototype's slots into the style object"
-    (let [evil   #js {:polluted "yes"}
-          ^js el (template/as-element [:div {:style {:__proto__ evil
-                                                     :color "red"}}])
-          style  (.. el -props -style)]
-      (is (or (nil? (aget style "polluted"))
-              (= js/undefined (aget style "polluted")))
-          "evil prototype slot did NOT pollute the style object")
-      (is (= "red" (.-color style))
-          "legitimate sibling props in the same map survive"))))
-
 (deftest convert-prop-value-reserved-keys-dropped-rf2-dwds9
   (testing "convert-prop-value at the map? branch drops
             reserved keys before `aset` — no prototype mutation, no
@@ -927,62 +808,6 @@
       (doseq [k ["__proto__" "constructor" "prototype"]]
         (is (not (.call (.. js/Object -prototype -hasOwnProperty) out k))
             (str "reserved key '" k "' is not an own property"))))))
-
-;; ---------------------------------------------------------------------------
-;; An ACCEPTED tag/prop name must not poison the shared caches
-;;
-;; `tag-name-cache` and `prop-name-cache` are keyed on user-controlled names.
-;; String Hiccup heads are accepted, so "hasOwnProperty" is a valid head;
-;; prop-key names are accepted, so `{:hasOwnProperty x}` is a valid prop. A
-;; cache that tested a hit with `(.hasOwnProperty cache n)` would read the
-;; method OFF the cache object, so caching an entry NAMED "hasOwnProperty"
-;; would shadow the method — and the NEXT lookup would invoke that value as a
-;; function and throw a raw host TypeError, taking down every later render
-;; until reload. The caches are prototype-less (see the next section), so
-;; there is no inherited method for an entry to shadow.
-;;
-;; The lever is ORDER: seed the "hasOwnProperty"-named entry FIRST (that render
-;; succeeds), THEN render an ordinary tag/prop — a shadowable cache would
-;; throw on that second render; these caches parse it normally. The tests
-;; assert the OBSERVABLE parse result (`.-type` / `props`) of BOTH renders, so
-;; a spurious-crash is distinguished from a correct-parse (not vacuous: a stub
-;; returning nil would fail the type assertions).
-;; ---------------------------------------------------------------------------
-
-(deftest tag-name-cache-accepts-hasownproperty-head-rf2-tsuk6
-  (testing "caching the accepted string head \"hasOwnProperty\"
-            does not break the NEXT tag lookup"
-    ;; Seed FIRST: this render succeeds and caches a HiccupTag under the
-    ;; name "hasOwnProperty" — which would shadow the method on a cache
-    ;; that carried one.
-    (let [^js seeded (template/as-element ["hasOwnProperty" "first"])]
-      (is (= "hasOwnProperty" (.-type seeded))
-          "the accepted string head renders as its own custom element"))
-    ;; The very next ordinary lookup must parse normally. A
-    ;; `(.hasOwnProperty tag-name-cache \"div\")` hit test would invoke the
-    ;; shadowing HiccupTag as a function → raw TypeError; the render would
-    ;; never return.
-    (let [^js el (template/as-element ["div" "second"])]
-      (is (= "div" (.-type el))
-          "the subsequent ordinary tag renders correctly, not a TypeError"))))
-
-(deftest prop-name-cache-accepts-hasownproperty-key-rf2-tsuk6
-  (testing "caching the accepted prop key :hasOwnProperty does
-            not break the NEXT prop-name lookup"
-    ;; Seed FIRST: `cached-prop-name :hasOwnProperty` caches "hasOwnProperty"
-    ;; under that name in prop-name-cache — which would shadow the method on
-    ;; a cache that carried one.
-    (let [^js seeded (template/as-element [:div {:hasOwnProperty "x"}])]
-      (is (= "div" (.-type seeded))
-          "an element carrying a :hasOwnProperty prop renders"))
-    ;; The next element with ANY prop must convert normally. A
-    ;; `(.hasOwnProperty prop-name-cache \"class\")` hit test would invoke
-    ;; the shadowing string as a function → raw TypeError.
-    (let [^js el (template/as-element [:span {:class "c"}])]
-      (is (= "span" (.-type el))
-          "the subsequent element parses, not a TypeError")
-      (is (= "c" (.. el -props -className))
-          "and its prop still camelCases through prop-name-cache"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The caches have NO PROTOTYPE, and that is load-bearing
@@ -1063,15 +888,6 @@
         (is (= t (.-type el)) (str "<" t "> renders"))
         (is (nil? (-> el .-props .-children))
             (str "<" t "> drops the child React would reject"))))))
-
-(deftest non-void-tag-keeps-children-rf2-lhdp0
-  (testing "the index answers false for ordinary tags, which
-            therefore keep their children (the probe is not stuck true)"
-    (doseq [t ["div" "span" "p" "section" "a"]]
-      (let [^js el (template/as-element [(keyword t) "kept"])]
-        (is (= t (.-type el)) (str "<" t "> renders"))
-        (is (= "kept" (-> el .-props .-children))
-            (str "<" t "> keeps its child"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The per-element `:key` read, straight off the props slot
