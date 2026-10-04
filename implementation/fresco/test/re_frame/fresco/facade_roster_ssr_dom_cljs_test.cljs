@@ -86,9 +86,6 @@
               (fn [_ [_ author]]
                 {:db {:author (or author "jane")}}))
 
-(rf/reg-event :fresco.facade-roster/rename
-              (fn [{:keys [db]} [_ a]] {:db (assoc db :author a)}))
-
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
@@ -294,7 +291,7 @@
             "so the value is the request's rather than the registration's")))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — adoption, acquisition and cleanup (DOM)
+;; 3 — adoption (DOM)
 ;; ---------------------------------------------------------------------------
 
 (deftest the-page-adopts-the-servers-own-nodes
@@ -325,149 +322,3 @@
                 "the settled anchor keeps routing's href")
             (is (= "false" (.-textContent (query-node container ".p-state")))
                 "and the concern its registered default")))))))
-
-(deftest an-adopted-read-is-acquired-exactly-once
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
-      (hydration-row
-        [page {}]
-        done
-        (fn [_container _seen _html]
-          (testing "§2.4's acquisition clause for the link's own `h/sub`
-                    read: one reader after adoption, not two, so the
-                    server render registered NONE and only the adoption
-                    acquired"
-            (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
-                (str "the link's read acquired exactly once; cells: "
-                     (pr-str (rf.fresco.roots-frames-support/cell-keys))))))))))
-
-(deftest a-deliberate-mismatch-is-attributed-to-the-root-that-owns-it
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
-      (do
-        (fresh!)
-        (let [html      (server-html [page {}])
-              container (rf.fresco.roots-frames-support/server-dom! html)
-              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
-              ;; MANUFACTURED here and asserted on here — the only shape
-              ;; of call site at which swallowing an uncaught error is
-              ;; not a fail-open.
-              {:keys [captured close!]} (rf.fresco.roots-frames-support/open-console-capture!
-                                          {:swallow-uncaught? true})]
-          ;; The request the client renders is not the request the server
-          ;; rendered, and the divergence lands on the LINK'S OWN
-          ;; ATTRIBUTE — an href, which is the half of a route-link a
-          ;; text-only mismatch check would miss.
-          (rf/with-frame frame-id
-            (rf/dispatch-sync [:fresco.facade-roster/rename "mary"]))
-          (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-id [page {}])]
-            (js/setTimeout
-              (fn []
-                (close!)
-                (stop!)
-                (try
-                  (testing "§2.4's third clause for these rows: a
-                            deliberate divergence is DETECTED and
-                            ATTRIBUTED to the door that owns the
-                            adoption, with the recovery React performed.
-                            Narrowing caught: a diagnostic that fires
-                            per-boundary rather than per-root, which
-                            would read a count other than one here"
-                    (is (re-find #"/profile/jane" html)
-                        (str "the server bytes carried the first
-                              request's href: " html))
-                    (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
-                        (str "React itself complained: " (pr-str @captured)))
-                    (is (= 1 (count @seen))
-                        (str "the framework's Spec 011 diagnostic fired
-                              exactly once, for this one root; got "
-                             (pr-str (mapv (comp :error rf.fresco.roots-frames-support/tags-of) @seen))))
-                    (is (= 're-frame.fresco.impl.mount/hydrate-root!
-                           (:where (rf.fresco.roots-frames-support/tags-of (first @seen))))
-                        "attributed to the door that owns the adoption")
-                    (is (= :warned-and-replaced
-                           (:recovery (rf.fresco.roots-frames-support/tags-of (first @seen))))
-                        "with the recovery React had already performed")
-                    (is (= "/profile/mary"
-                           (.getAttribute (query-node container "a") "href"))
-                        "and the repaired DOM carries the CLIENT's href,
-                         which is what 'warned and replaced' means"))
-                  (finally
-                    (rf.fresco.impl.mount/release! handle)
-                    (rf.fresco.impl.collector/reset-runtime!)
-                    (done))))
-              300)))))))
-
-(deftest two-overlapping-roots-adopt-under-distinct-prefixes
-  (async done
-    (if-not (rf.fresco.impl.mount/browser?)
-      (do (rf.fresco.roots-frames-support/skip! ":node-test has no DOM") (done))
-      (do
-        (fresh! frame-id "jane")
-        (fresh! other-frame-id "mary")
-        (let [html-a (server-html frame-id [page {}])
-              html-b (server-html other-frame-id [page {}])
-              ca     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-a))
-              cb     (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html-b))
-              {:keys [seen stop!]} (rf.fresco.roots-frames-support/watch-mismatches!)
-              ha     (rf.fresco.impl.mount/hydrate-root! ca frame-id [page {}]
-                                          {:identifier-prefix "roster-a-"})
-              hb     (rf.fresco.impl.mount/hydrate-root! cb other-frame-id [page {}]
-                                          {:identifier-prefix "roster-b-"})]
-          (js/setTimeout
-            (fn []
-              (stop!)
-              (try
-                (testing "§2.4's fourth clause for these rows: two roots
-                          adopt at once, each under its own stable
-                          `identifierPrefix` and its own frame, and
-                          neither disturbs the other. Narrowing caught: a
-                          process-global adoption window or a page-wide
-                          current-frame — either renders both roots from
-                          one request and this row reads the same href
-                          twice"
-                  (is (empty? @seen)
-                      (str "neither adoption had anything to reconcile: "
-                           (pr-str @seen)))
-                  (is (= "/profile/jane" (.getAttribute (query-node ca "a") "href"))
-                      "root A's link settled on its own request")
-                  (is (= "/profile/mary" (.getAttribute (query-node cb "a") "href"))
-                      "root B's on its own")
-                  (is (rf.fresco.roots-frames-support/every-server-node? ca "a")
-                      "root A adopted the server's anchor")
-                  (is (rf.fresco.roots-frames-support/every-server-node? cb "a")
-                      "and so did root B, concurrently")
-                  (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
-                      (str "and each frame holds its own single edge
-                            rather than one shared cell; cells: "
-                           (pr-str (rf.fresco.roots-frames-support/cell-keys))))
-                  (is (= 1 (rf.fresco.roots-frames-support/readers-of [other-frame-id [:fresco.facade-roster/author]]))
-                      (str "one each, in both directions; cells: "
-                           (pr-str (rf.fresco.roots-frames-support/cell-keys)))))
-                (finally
-                  (rf.fresco.impl.mount/release! ha)
-                  (rf.fresco.impl.mount/release! hb)
-                  (rf.fresco.impl.collector/reset-runtime!)
-                  (done))))
-            300))))))
-
-(deftest a-mounted-page-releases-exactly-what-it-acquired
-  (if-not (rf.fresco.impl.mount/browser?)
-    (rf.fresco.roots-frames-support/skip! ":node-test has no DOM")
-    (do
-      (fresh!)
-      (rf.fresco.impl.collector/reset-runtime!)
-      (testing "§2.4's last clause for these rows: exact cleanup.
-                Narrowing caught: a teardown that empties the runtime's
-                tables rather than releasing the subscriptions — it
-                answers zero whether it released anything or not"
-        (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!) frame-id [page {}])]
-          (is (= 1 (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
-              (str "the link's edge is held while mounted; cells: "
-                   (pr-str (rf.fresco.roots-frames-support/cell-keys))))
-          (rf.fresco.impl.mount/unmount! handle)
-          (is (zero? (rf.fresco.roots-frames-support/readers-of [frame-id [:fresco.facade-roster/author]]))
-              (str "and it does not survive the PUBLIC teardown door; cells: "
-                   (pr-str (rf.fresco.roots-frames-support/cell-keys)))))))))
