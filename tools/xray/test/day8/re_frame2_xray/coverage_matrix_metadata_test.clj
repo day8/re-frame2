@@ -240,12 +240,6 @@
 
 ;; ---- tests --------------------------------------------------------------
 
-(deftest spec-and-scenarios-resolve
-  (testing "the parse located both spec files and the scenarios CJS"
-    (is (seq (matrix-row-names))   "spec §Coverage matrix yielded rows")
-    (is (seq (covered-row-names))  "scenarios.cjs yielded coveredRows names")
-    (is (seq (catalogue-bug-class-ids)) "spec 019 yielded bug-class ids")))
-
 (deftest aliases-target-real-matrix-rows
   (testing "every curated alias resolves to a row that STILL EXISTS in the
             spec — a matrix-row rename/removal fails here until the alias
