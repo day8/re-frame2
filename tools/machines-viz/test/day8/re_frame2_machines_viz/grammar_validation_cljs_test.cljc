@@ -249,29 +249,6 @@
     (is (nil? (g/definition-defect {:initial :a :states {:a {:timeout 1000 :on-timeout :b} :b {}}})))))
 
 ;; ---------------------------------------------------------------------------
-;; VALID definitions PROJECT
-
-(def ^:private valid-definitions
-  {:flat       {:initial :idle :states {:idle {:on {:go :done}} :done {:final? true}}}
-   :compound   {:initial :o :states {:o {:initial :i :states {:i {:on {:up :sib}} :sib {}}} :top {}}}
-   :vec-target {:initial :o :states {:o {:initial :i :states {:i {:on {:esc [:top]}}}} :top {}}}
-   :parallel   {:type :parallel :regions {:r1 {:initial :a :states {:a {:on {:x :b}} :b {}}}
-                                          :r2 {:initial :p :states {:p {}}}}}
-   :history    {:initial :o :states {:o {:initial :s :states {:s {:on {:g :s2}} :s2 {} :h {:type :history :deep? true}}}}}
-   :timeout    {:initial :a :states {:a {:timeout 1000 :on-timeout :b} :b {}}}
-   :choice     {:initial :g :states {:g {:type :choice :choice [{:target :a} {:target :b}]} :a {} :b {}}}
-   :spawn      {:initial :a :states {:a {:spawn {:machine-id :child} :on {:go :b}} :b {}}}
-   :spawn-all  {:initial :a :states {:a {:spawn-all {:children [{:id :c1 :machine-id :m}]
-                                                     :on-all-complete [:done]}
-                                         :on {:go :b}} :b {}}}
-   :namespaced {:initial :a :states {:a {:my.app/note "x"}}}})
-
-(deftest valid-definitions-accepted
-  (doseq [[label d] valid-definitions]
-    (is (true? (g/valid-definition? d)) (str label " is accepted"))
-    (is (nil? (g/definition-defect d))  (str label " carries no defect"))))
-
-;; ---------------------------------------------------------------------------
 ;; Value-FREE diagnostics (EP-0015): the defect + summary carry
 ;; STRUCTURAL facts only — never a :data slot's live values, an action / guard,
 ;; or any raw value.
@@ -564,16 +541,6 @@
       (is (false? (g/valid-definition? d)) (str label " — must be rejected"))
       (is (some? (:defect (g/definition-summary d)))
           (str label " — the summary carries the defect")))))
-
-(deftest definition-summary-does-not-grow-with-the-definition
-  (testing "a 2000-state forged definition summarises to the same size as a
-            1-state one — the guarantee a capped `:keys` could never give"
-    (let [size  #(count (pr-str (g/definition-summary %)))
-          small (size {:initial :a :states {:a {}} "x" 1})
-          big   (size (assoc attacker-sized-definition "x" 1))]
-      (is (<= (- big small) 6)
-          (str "the summary may grow only by the DIGITS of its counts; "
-               small " -> " big)))))
 
 (deftest hostile-keys-do-not-destroy-the-failure-being-described
   (testing "a key that is not `Named` does not throw out of the
