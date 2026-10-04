@@ -5,12 +5,13 @@
   UPGRADED variant can prove, never on the snippet's shape:
 
   1. the emitted snippet reads as EDN;
-  2. the completed child compiles to a plan whose `:fidelity` lacks
-     `:sub-overrides`;
-  3. a handler defect the pinned parent CANNOT detect IS detected by the
+  2. a handler defect the pinned parent CANNOT detect IS detected by the
      upgraded child.
 
-  Clause 3 grades the RENDER-PATH read — what the view would show for the
+  The compiled child's `:fidelity` is graded host-free in
+  `re-frame.story.ui.view-state-test`.
+
+  Clause 2 grades the RENDER-PATH read — what the view would show for the
   subscription — because that is exactly what a pin masks. It deliberately
   does not grade `:rf.assert/sub-equals`: that assertion reads `compute-sub`
   against app-db and ignores overrides, so a child still carrying the pin
@@ -22,7 +23,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
-            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.render :as rf.story.render]
             [re-frame.story.sub-overrides :as rf.story.sub-overrides]
@@ -84,18 +84,6 @@
     (is (= 'rf.story/reg-variant op) "the snippet reads back as a reg-variant form")
     (rf.story.registrar/reg-variant* id (assoc body :setup [[:dispatch [:login/set-email address]]]))
     id))
-
-(deftest completed-upgrade-compiles-without-the-pin
-  (reg-set-email! false)
-  (let [id (upgrade!)]
-    (testing "control — the source really is a pinned picture"
-      (is (= #{:sub-overrides}
-             (get-in (rf.story.plan/variant-plan :story.upgrade/pinned) [:world :fidelity]))))
-    (testing "the completed child rests on real setup alone"
-      (let [plan (rf.story.plan/variant-plan id)]
-        (is (= #{:real-setup} (get-in plan [:world :fidelity])))
-        (is (empty? (get-in plan [:world :render :sub-overrides]))
-            "no pinned subscription reaches the child's render path")))))
 
 (deftest upgraded-child-detects-a-handler-defect-the-pinned-parent-cannot
   (let [id (upgrade!)]
