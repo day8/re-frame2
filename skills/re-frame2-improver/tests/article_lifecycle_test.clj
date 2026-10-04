@@ -161,13 +161,11 @@
                "the RemoteData slice. Left at :loading, a reader pasting this canonical "
                "fix into a status-driven page gets a permanent spinner after a perfectly "
                "good load.")))
-    (testing "the validated payload is stored unchanged at the schema'd path"
+    (testing "the validated payload is stored unchanged at the schema'd path, with no lifecycle key"
       (is (= article (get-in db [:article :data]))
-          ":value must land verbatim under [:article :data] — reg-app-schema sees it."))
-    (testing "lifecycle keys stay OFF the schema-registered payload path"
-      (is (= #{:slug :title :body :authors} (set (keys (get-in db [:article :data]))))
-          (str "a lifecycle key leaked under [:article :data], which is registered "
-               "against Article — that fails dev app-schema validation.")))))
+          (str ":value must land verbatim under [:article :data] — reg-app-schema sees it, "
+               "and a lifecycle key leaked there, registered against Article, fails dev "
+               "app-schema validation.")))))
 
 (deftest failure-settles-the-lifecycle-and-stores-the-classified-error
   (let [db (:db ((handler :article/load-failed) {:db @loading-db} [:article/load-failed failure-reply]))]
