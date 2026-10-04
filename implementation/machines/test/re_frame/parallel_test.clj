@@ -1,37 +1,20 @@
 (ns re-frame.parallel-test
   "Per Spec 005 §Parallel regions (the Nine States pattern).
 
-  Parallel-region semantics covered:
-    - A `:type :parallel` machine's initial snapshot has `:state` as a
-      map of region-name → that region's cascaded initial state.
-    - Every region is active simultaneously when the machine is active.
-    - Events broadcast across regions — each region's active state
-      independently resolves through deepest-wins; resolved regions
-      transition, undeclined regions stay put.
-    - Shared `:data` flows sequentially through region actions in
-      declaration order (each region's action sees the prior region's
-      :data writes) — parallel-broadcast-event-both-regions.edn and
-      frozen-region-select-test pin it.
-    - Tag union composes across regions (per Spec 005 §Tags compose
-      across regions): snapshot's `:tags` is the union of every active
-      state's :tags across every region.
-    - Compound region: a region's state-tree can itself be hierarchical
-      (its own :initial cascade + LCA exit/entry semantics, snapshot's
-      region-value is a vector path inside the region).
-    - Per-region `:always`: a region selects its eventless transitions
-      from its own active state and targets within its own tree, so its
-      `:always` step leaves sibling regions' states alone. The parent owns
-      each eventless round, and every region's guards see the same frozen
-      whole-machine context (`:all-state`, `:tags`, shared `:data`), so a
-      guard can read sibling state.
-    - Initial snapshot stamped at registration with the full region map.
+  The broadcast semantics — the initial region map, events broadcast across
+  regions with undeclined regions staying put, shared `:data` flowing through
+  region actions in declaration order, tag union across regions, compound
+  regions and per-region `:always` — are pinned by the
+  spec/conformance/fixtures/parallel-*.edn fixtures that
+  `machines_conformance_test` runs, together with the SCXML parallel tests and
+  the region suites.
+
+  Covered here:
     - Print/read round-trip: parallel snapshots survive pr-str ↔
       read-string with shape intact.
     - Registration-time rejection of bad shape (`:type :parallel`
       without `:regions`, nested parallel, malformed region body).
-
-  These JVM tests pair with the conformance fixtures
-  spec/conformance/fixtures/parallel-*.edn."
+    - The synthetic per-region machine is memoised per machine."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -46,133 +29,7 @@
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
-;; ---- 1. flat two-region parallel machine — initial state map ------------
-
-(deftest parallel-flat-two-regions-initial-state
-  (testing "initial snapshot's :state is a map of region → that region's :initial"
-    (let [m {:type    :parallel
-             :data    {:count 0}
-             :regions {:left  {:initial :a
-                               :states  {:a {:on {:left/go :b}}
-                                         :b {}}}
-                       :right {:initial :x
-                               :states  {:x {:on {:right/go :y}}
-                                         :y {}}}}}]
-      (rf/reg-machine :par/two-region m)
-      ;; Force initialisation via a no-op event the machine doesn't handle.
-      (rf/dispatch-sync [:par/two-region [:no-match]])
-      (let [s (snapshot :par/two-region)]
-        (is (= {:left :a :right :x} (:state s))
-            "the parallel snapshot's :state is a map; each region's initial state lands at the region key")
-        (is (= {:count 0} (select-keys (:data s) [:count]))
-            ":data carries the declared initial data (no per-region :data slot)")))))
-
-;; ---- 2. event broadcasts to every region --------------------------------
-
-(deftest parallel-event-broadcasts-to-every-region
-  (testing "one event reaches every region; matching regions transition independently"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:left  {:initial :a
-                               :states  {:a {:tags #{:left/a} :on {:flip :b}}
-                                         :b {:tags #{:left/b} :on {:flip :a}}}}
-                       :right {:initial :x
-                               :states  {:x {:tags #{:right/x} :on {:flip :y}}
-                                         :y {:tags #{:right/y} :on {:flip :x}}}}}}]
-      (rf/reg-machine :par/broadcast m)
-      (rf/dispatch-sync [:par/broadcast [:flip]])
-      (is (= {:left :b :right :y} (:state (snapshot :par/broadcast)))
-          "both regions transitioned on the single broadcast event")
-      (is (= #{:left/b :right/y} (:tags (snapshot :par/broadcast)))
-          "tag union reflects both regions' new states"))))
-
-;; ---- 3. event handled by ONE region; sibling stays put -----------------
-
-(deftest parallel-event-handled-by-one-region
-  (testing "region without matching :on stays put; matching region transitions"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:left  {:initial :a
-                               :states  {:a {:on {:left-only :b}}
-                                         :b {}}}
-                       :right {:initial :x
-                               :states  {:x {}
-                                         :y {}}}}}]
-      (rf/reg-machine :par/one-region m)
-      (rf/dispatch-sync [:par/one-region [:left-only]])
-      (is (= {:left :b :right :x} (:state (snapshot :par/one-region)))
-          ":left transitioned; :right stayed at its initial"))))
-
-;; ---- 4. tags compose across regions ------------------------------------
-
-(deftest parallel-tags-union-across-regions
-  (testing "snapshot's :tags is the union of every active state's :tags across regions"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:data {:initial :loading
-                              :states  {:loading {:tags #{:data/loading :data/transient}}}}
-                       :form {:initial :neutral
-                              :states  {:neutral {:tags #{:form/neutral}}}}
-                       :mode {:initial :active
-                              :states  {:active {:tags #{:mode/active}}}}}}]
-      (rf/reg-machine :par/tags m)
-      (rf/dispatch-sync [:par/tags [:no-match]])
-      (is (= #{:data/loading :data/transient :form/neutral :mode/active}
-             (:tags (snapshot :par/tags)))
-          "tag union picks up tags from every active state across every region"))))
-
-;; ---- 5. compound region — vector path inside the region ----------------
-
-(deftest parallel-compound-region
-  (testing "a region's state-tree may itself be a compound state"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:auth      {:initial :authenticated
-                                   :states
-                                   {:authenticated
-                                    {:tags    #{:auth/in}
-                                     :initial :dashboard
-                                     :states  {:dashboard {:tags #{:dash}
-                                                           :on   {:open-settings :settings}}
-                                               :settings  {:tags #{:settings}}}}}}
-                       :lifecycle {:initial :idle
-                                   :states  {:idle {}}}}}]
-      (rf/reg-machine :par/compound m)
-      (rf/dispatch-sync [:par/compound [:open-settings]])
-      (let [s (snapshot :par/compound)]
-        (is (= {:auth      [:authenticated :settings]
-                :lifecycle :idle}
-               (:state s))
-            "compound region carries a vector path inside that region")
-        (is (= #{:auth/in :settings} (:tags s))
-            "tag union walks the compound region's active path")))))
-
-;; ---- 6. per-region :always cascade -------------------------------------
-
-(deftest parallel-always-cascade-per-region
-  (testing ":always microsteps fire scoped to the region that transitioned"
-    (let [m {:type    :parallel
-             :data    {:left-ready? false}
-             :guards  {:ready? (fn [{d :data}] (true? (:left-ready? d)))}
-             :actions {:mark-ready (fn [{d :data}] {:data (assoc d :left-ready? true)})}
-             :regions {:left  {:initial :idle
-                               :states  {:idle
-                                         {:always [{:guard :ready? :target :resolved}]
-                                          :on     {:prep {:target :idle :action :mark-ready}}}
-                                         :resolved {:tags #{:left/done}}}}
-                       :right {:initial :a
-                               :states  {:a {:tags #{:right/a}}}}}}]
-      (rf/reg-machine :par/always m)
-      (rf/dispatch-sync [:par/always [:prep]])
-      (let [s (snapshot :par/always)]
-        (is (= :resolved (get-in s [:state :left]))
-            ":always microstep advanced :left after :prep made the guard true")
-        (is (= :a (get-in s [:state :right]))
-            ":right is unaffected by :left's :always cascade")
-        (is (= #{:left/done :right/a} (:tags s))
-            "tag union reflects the post-:always-microstep states")))))
-
-;; ---- 7. snapshot print/read round-trip ---------------------------------
+;; ---- 1. snapshot print/read round-trip ---------------------------------
 
 (deftest parallel-snapshot-print-read-roundtrip
   (testing "parallel-region snapshot survives pr-str ↔ read-string with shape intact"
@@ -194,7 +51,7 @@
         (is (= #{:data/loaded :form/neutral} (:tags deserialised))
             ":tags survives the round-trip")))))
 
-;; ---- 8. registration-time validation ----------------------------------
+;; ---- 2. registration-time validation ----------------------------------
 
 (deftest parallel-registration-time-validation
   (testing ":type :parallel without :regions is rejected at registration"
@@ -242,7 +99,7 @@
                                                 :regions {:in {:initial :s
                                                                :states  {:s {}}}}}}}}})))))
 
-;; ---- 9. region-machine memoization ---------------------------------------
+;; ---- 3. region-machine memoization ---------------------------------------
 
 (deftest region-machine-result-is-memoised-per-machine
   (testing "region-machine returns identical-equal results across repeat calls for the same parent-machine"
