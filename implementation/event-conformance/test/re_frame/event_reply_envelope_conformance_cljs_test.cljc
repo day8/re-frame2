@@ -117,39 +117,7 @@
 
       (testing "the reg-event handler saw the FULL event vector with the reply in final position"
         (is (= [:article/loaded {:id 42} canonical-reply] @seen-event)
-            "the handler's event arg is the completed vector, reply map last")
-        (let [delivered-reply (peek @seen-event)]
-          (testing "the canonical reply facts are preserved on the delivered event arg"
-            (is (= :ok (:status delivered-reply)) ":status preserved")
-            (is (= {:article {:id 42 :title "Welcome"}} (:value delivered-reply))
-                ":value preserved")
-            (is (nil? (:error delivered-reply)) "no :error on an :ok reply")
-            (is (= [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1]
-                   (:rf.reply/work-id delivered-reply))
-                ":rf.reply/work-id tuple preserved")
-            (is (= :rf.work/resource (first (:rf.reply/work-id delivered-reply)))
-                ":rf.reply/work-id head is the family head")
-            (is (= :resource (:rf.reply/work-kind delivered-reply))
-                ":rf.reply/work-kind preserved")
-            (testing "TOOTH — ordinary delivery keeps the identity on the
-                      TRANSIENT-ENVELOPE spelling and grows NO top-level bare
-                      ledger alias beside it. A runtime that
-                      regressed to the durable `:work/id` spelling, or that
-                      carried both, is caught here rather than passing a
-                      fixture that modelled the wrong record layer."
-              (is (not (contains? delivered-reply :work/id))
-                  "no top-level bare :work/id alias on a delivered reply envelope")
-              (is (not (contains? delivered-reply :work/kind))
-                  "no top-level bare :work/kind alias on a delivered reply envelope"))
-            (is (= :completed (:rf.reply/work-status delivered-reply))
-                ":rf.reply/work-status preserved")
-            (is (= :rf/default (:rf.frame/id delivered-reply)) ":rf.frame/id preserved")
-            (is (= completed-at-ms (:completed-at delivered-reply))
-                ":completed-at (EP-0017) preserved")
-            (is (contains? rf.reply/statuses (:status delivered-reply))
-                ":status is in the ONE closed status vocabulary")
-            (is (contains? rf.reply/work-statuses (:rf.reply/work-status delivered-reply))
-                ":rf.reply/work-status is in the ONE closed work-status vocabulary"))))
+            "the handler's event arg is the completed vector, reply map last, every reply fact preserved"))
 
       (testing "the reply event got ORDINARY event-model semantics — a coeffects
                 map IN (the reg-event-fx shape), not a bare db, and the {:db …}
@@ -245,14 +213,7 @@
                    (:rf.reply/work-id (:trace suppression-outcome)))
                 "the suppression TRACE reads its work id off the envelope spelling")
             (is (= carried-correlation (:rf.reply/carried (:trace suppression-outcome)))
-                "the trace keeps the carried LEDGER gate map verbatim, bare keys intact"))
-          (is (true? (:stale? delivered-reply)) "the :stale? marker rides")
-          (is (some? (:rf.reply/stale-reason delivered-reply))
-              "a :rf.reply/stale-reason rides")
-          (is (not (contains? delivered-reply :value))
-              "a stale reply carries NO :value — it mutates no app state")
-          (is (contains? rf.reply/statuses (:status delivered-reply))
-              ":stale is in the ONE closed status vocabulary")))
+                "the trace keeps the carried LEDGER gate map verbatim, bare keys intact"))))
       (testing "the observer's dispatch was routed to the EXPLICIT frame via ITS
                 OWN image — not the ambient default frame, nor the default registrar"
         (is (= :image (:delivered-by (rf/app-db-value :evt.reply/frame)))

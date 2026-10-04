@@ -703,11 +703,8 @@
       ;; the one form.
       (is (= [:rf/event-handler] (mapv :id (:interceptors event-metadata)))
           "the ONLY framework wrapper is the single :rf/event-handler interceptor")
-      (let [event-wrapper (first (:interceptors event-metadata))]
-        (is (= :rf/event-handler (:id event-wrapper))
-            "the wrapper id is :rf/event-handler")
-        (is (true? (:rf/default? event-wrapper))
-            "the wrapper carries :rf/default? true (filtered as a framework auto-wrapper)")))))
+      (is (true? (:rf/default? (first (:interceptors event-metadata))))
+          "the wrapper carries :rf/default? true (filtered as a framework auto-wrapper)"))))
 
 (deftest reg-event-chain-references-an-interceptor-from-public-reg-interceptor
   (testing "an event chain resolves an interceptor registered through the public facade"
