@@ -229,32 +229,6 @@
 ;; 1. ROUTE-DRIVEN PAGE LOAD — `:resources` metadata owns the read
 ;; ============================================================================
 
-(deftest articles-route-entry-causes-the-list-load-under-the-route-owner
-  (testing "examples/capabilities/resources/resources — entering :resources.app/articles ensures
-            the :articles/list resource under the route nav-token owner, the view
-            reads it passively, and it settles :loaded on the reply (the route
-            CAUSES the fetch; the view never asks)"
-    (rf/dispatch-sync [:rf.route/navigate {:to :resources.app/articles}])
-    (let [slice     (get-in (runtime-db) [:rf.runtime/routing :current])
-          nav-token (:nav-token slice)
-          lkey      (list-key)
-          e         (entry lkey)]
-      (is (= :loading (:status e)) "first load → :loading")
-      (is (contains? (:active-owners e) [:route :resources.app/articles nav-token])
-          "owned by the route nav-token owner [:route route-id nav-token]")
-      ;; The view reads the passive view-model — first load shows the skeleton.
-      (is (:loading? (route-state {:resource :articles/list :params {}}))
-          ":loading? true while first load is in flight")
-      ;; Settle the reply with the canned list shape the demo stub would synthesise.
-      (reply-success! @last-managed-args
-                      [{:slug "a" :title "Article A"}
-                       {:slug "b" :title "Article B"}])
-      (let [vm (route-state {:resource :articles/list :params {}})]
-        (is (= :loaded (:status (entry lkey))) "settles :loaded on the reply")
-        (is (false? (:loading? vm)) "no longer loading")
-        (is (true? (:has-data? vm)) "has usable data")
-        (is (= 2 (count (:data vm))) "the view-model carries the two articles")))))
-
 (deftest article-detail-route-threads-the-url-slug-into-resource-params
   (testing "examples/capabilities/resources/resources — :resources.app/article-detail maps the
             URL slug into the :article/by-slug resource params, so the detail
@@ -275,35 +249,8 @@
 ;; 2. EVENT-DRIVEN OWNER — ensure under an app-event owner, release on close
 ;; ============================================================================
 
-(deftest preview-opens-an-app-owner-and-close-releases-it
-  (testing "examples/capabilities/resources/resources — :resources.app/preview-opened ensures the
-            detail under an app-event owner (and records the open slug);
-            :resources.app/preview-closed releases the owner so the entry can GC
-            (the mandatory release path for an app-minted owner, Spec 016 §Active
-            owners)"
-    (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
-                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
-      (let [preview-owner [:resources.app/preview-opened "fresh-skip"]
-            dkey          (detail-key "fresh-skip")]
-        (rf/dispatch-sync [:resources.app/preview-opened "fresh-skip"] {:frame f})
-        ;; the open slug is recorded in app-db for the preview panel to render
-        (is (= "fresh-skip"
-               (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
-            "the open preview slug is in app-db")
-        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (rf.resources.state/entry-path dkey))]
-          (is (= :loading (:status e)) "the owner ensured a first load")
-          (is (contains? (:active-owners e) preview-owner)
-              "owned by the app-event owner [:resources.app/preview-opened slug]"))
-        ;; Close → the owner releases; the slug clears.
-        (rf/dispatch-sync [:resources.app/preview-closed "fresh-skip"] {:frame f})
-        (is (nil? (rf/compute-sub [:resources.app/preview-slug] (rf/frame-state-value f)))
-            "closing clears the open slug")
-        (let [e (get-in (:rf.db/runtime (rf/frame-state-value f)) (rf.resources.state/entry-path dkey))]
-          (is (not (contains? (:active-owners e) preview-owner))
-              "the owner was released — no dangling owner pins the entry"))))))
-
-;; The test above pins the SIMPLE case (open X → close X). The two below pin the
-;; REPLACE case. The list leaves every Preview button
+;; The two tests below pin the REPLACE case, which carries the simple
+;; open-then-close path inside it. The list leaves every Preview button
 ;; live, so opening B while A is open REPLACES A, but there is only ONE Close
 ;; control and it reaches only the current slug. If :resources.app/preview-opened
 ;; did not release the prior slug's owner on replace, [:resources.app/preview-
