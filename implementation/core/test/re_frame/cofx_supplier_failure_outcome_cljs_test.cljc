@@ -94,27 +94,6 @@
 ;; Supplier failures settle `:error`
 ;; ===========================================================================
 
-(deftest throwing-ambient-supplier-fails-the-event
-  (testing "an ambient supplier that throws during context assembly settles
-            the event as `:error`, and a clean dispatch after it settles `:ok`"
-    (let [handler-runs (atom 0)]
-      (rf/reg-cofx ::throws-ambient
-        (fn [] (throw (ex-info "ambient supplier boom" {}))))
-      (rf/reg-event ::uses-ambient
-        {:rf.cofx/requires [::throws-ambient]}
-        (fn [{:keys [db]} _]
-          (swap! handler-runs inc)
-          {:db (assoc db :handled true)}))
-      (rf/reg-event ::control
-        (fn [{:keys [db]} _] {:db (assoc db :control true)}))
-      (let [failed  (record-both-axes #(rf/dispatch-sync [::uses-ambient]))
-            control (record-both-axes #(rf/dispatch-sync [::control]))]
-        (assert-supplier-failure failed ::uses-ambient ::throws-ambient handler-runs)
-        (is (= [[::control :ok]] (outcomes control))
-            "a clean dispatch after the failure settles `:ok`")
-        (is (empty? (:errors control)) "and emits no error record")
-        (is (true? (:control (app-db))) "and commits its write")))))
-
 (deftest throwing-generator-fails-the-event
   (testing "the generator behind a recordable fact takes the same route: a
             throw while it mints the fact settles the event as `:error`"
@@ -137,7 +116,8 @@
 (deftest failed-delivery-installs-nothing
   (testing "a failed coeffect delivery aborts the event like a handler throw:
             effects an interceptor staged around the skipped handler are not
-            installed, and no `:fx` walks"
+            installed, no `:fx` walks, and a clean dispatch after it settles
+            `:ok`"
     (let [handler-runs (atom 0)
           fx-runs      (register-counting-fx!)]
       (rf/reg-cofx ::throws-ambient
@@ -154,11 +134,18 @@
         (fn [_ _]
           (swap! handler-runs inc)
           {}))
-      (let [failed (record-both-axes #(rf/dispatch-sync [::staged-uses-ambient]))]
+      (rf/reg-event ::control
+        (fn [{:keys [db]} _] {:db (assoc db :control true)}))
+      (let [failed  (record-both-axes #(rf/dispatch-sync [::staged-uses-ambient]))
+            control (record-both-axes #(rf/dispatch-sync [::control]))]
         (assert-supplier-failure failed ::staged-uses-ambient ::throws-ambient handler-runs)
         (is (nil? (:staged (app-db)))
             "no `:db` install: the staged write never reached app-db")
-        (is (zero? @fx-runs) "no `:fx` walk: the staged effect never ran")))))
+        (is (zero? @fx-runs) "no `:fx` walk: the staged effect never ran")
+        (is (= [[::control :ok]] (outcomes control))
+            "a clean dispatch after the failure settles `:ok`")
+        (is (empty? (:errors control)) "and emits no error record")
+        (is (true? (:control (app-db))) "and commits its write")))))
 
 ;; ===========================================================================
 ;; The control — an intentional skip is not a failure
