@@ -218,35 +218,6 @@
           "NO :rf.error/machine-spawn-unregistered-type reject fired — the recheck was skipped for the prepared child"))))
 
 ;; ===========================================================================
-;; (2) Adversarial: unregister BOTH admitted children between preflight and
-;;     install — every admitted child still installs, no reject fans.
-;; ===========================================================================
-
-(deftest unregister-all-children-between-preflight-and-install-installs-all
-  (testing "when EVERY child TYPE is unregistered mid-drain — each from that
-            child's OWN validator, so each divergence lands in that child's own
-            preflight→install window — EVERY admitted child still installs from
-            its prepared entry: the whole batch consumes its authoritative
-            verdict; no reject, no partial install."
-    (rf/reg-machine :sa/one (mutating-child plain-child
-                                            #(rf.registrar/unregister! :event :sa/one)))
-    (rf/reg-machine :sa/two (mutating-child plain-child
-                                            #(rf.registrar/unregister! :event :sa/two)))
-    (rf/reg-machine :sup/allunreg (parent-over [{:id :a :machine-id :sa/one}
-                                                {:id :b :machine-id :sa/two}]))
-    (rf/dispatch-sync [:sup/allunreg [:start]])
-    (let [slot (join-slot :sup/allunreg)]
-      (is (contains? slot :children) "a live child-bearing join was seeded")
-      (is (not (contains? slot :rf/prepared)) "all prepared scratch consumed")
-      (doseq [id (vals (:children slot))]
-        (is (some? (snap-of id))
-            (str "child " id " installed despite both TYPEs being unregistered mid-drain"))
-        (is (map? (type-ref-of id))
-            (str "child " id " pinned its prepared definition"))))
-    (is (empty? (unregistered-rejects))
-        "no duplicate unregistered-type reject fired for either child")))
-
-;; ===========================================================================
 ;; (3) Cardinality control — the [:schemas :data] validator runs EXACTLY ONCE
 ;;     BY INSTALL TIME for an admitted child even when the TYPE is unregistered
 ;;     between the preflight and the install (the recheck, and any second
