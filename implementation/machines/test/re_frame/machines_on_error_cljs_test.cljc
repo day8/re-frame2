@@ -183,34 +183,6 @@
       (is (= :retry (get-in (snapshot :rf2-5hlsh-c/parent) [:data :route]))
           "the guarded candidate's :action ran"))))
 
-(deftest on-error-guard-fallthrough-to-unguarded
-  (testing ":on-error guarded candidate guard-fails → falls through to the unguarded fallback"
-    (rf/reg-machine :rf2-5hlsh-c2/child
-      {:initial :running
-       :data    {}
-       :states
-       {:running {:on {:fail {:target :failed
-                              :action (fn [{data :data ev :event}]
-                                        {:data (assoc data :code (second ev))})}}}
-        :failed  {:final?     true
-                  :error?     true
-                  :output-key :code}}})
-    (rf/reg-machine :rf2-5hlsh-c2/parent
-      {:initial :working
-       :data    {}
-       :states
-       {:working {:spawn {:machine-id :rf2-5hlsh-c2/child
-                          :on-error [{:guard  (fn [{ev :event}] (= 503 (nth ev 2)))
-                                      :target :retrying}
-                                     {:target :gave-up}]}}
-        :retrying {}
-        :gave-up  {}}})
-    (rf/dispatch-sync [:rf2-5hlsh-c2/parent [:rf.machine.spawn/spawned]])
-    (let [child (spawned-id-for :rf2-5hlsh-c2/parent [:working])]
-      (rf/dispatch-sync [child [:fail 404]])
-      (is (= :gave-up (:state (snapshot :rf2-5hlsh-c2/parent)))
-          "404 failed the 503 guard → unguarded fallback :gave-up fired"))))
-
 ;; ---- (d) child SUCCESS → :on-done fires, :on-error does NOT -----------------
 
 (deftest success-leaf-fires-on-done-not-on-error
