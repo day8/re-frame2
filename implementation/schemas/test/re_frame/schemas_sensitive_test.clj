@@ -98,7 +98,18 @@
       ;; :vector descends at the same base-path
       [:vector [:string {:sensitive? true}]]
       [:tokens]
-      {[:tokens] {:sensitive? true :source :schema}})))
+      {[:tokens] {:sensitive? true :source :schema}}
+      ;; :tuple claims each element at its POSITION-pinned path (conj base i),
+      ;; not the index-free base-path — the source of tuple sibling precision
+      [:tuple [:string {:sensitive? true}] :int]
+      []
+      {[0] {:sensitive? true :source :schema}}
+      [:tuple :int [:string {:sensitive? true}]]
+      []
+      {[1] {:sensitive? true :source :schema}}
+      [:tuple [:string {:sensitive? true}] :int]
+      [:pt]
+      {[:pt 0] {:sensitive? true :source :schema}})))
 
 ;; ---- schema-has-sensitive? -----------------------------------------------
 
@@ -193,84 +204,60 @@
 ;; prevent. These tests pin the alignment.
 
 (defn- app-db-failure-trace
-  "Helper: register `schema` at `path`, validate `db` (which must fail
-  the schema), and return the single schema-validation-failure trace."
+  "Helper: register `schema` at `path` as the frame's only app-schema,
+  validate `db` (which must fail the schema), and return the single
+  schema-validation-failure trace. Clearing the registry first lets one
+  test run several rows, each against its own registration alone."
   [path schema db failing-id]
+  (rf.schemas/clear-schemas-by-frame!)
   (rf/reg-app-schema path schema)
   (with-trace-recorder! [traces]
     (rf.schemas/validate-app-schema! db failing-id)
     (first (filter #(= :rf.error/schema-validation-failure (:operation %))
                    @traces))))
 
-(deftest app-db-validation-redacts-sensitive-slot-nested-in-vector
-  (testing "a :sensitive? slot inside a :vector element redacts
-            even though Malli's :in carries the element index"
-    ;; [:items] => vector of maps; the per-element :token is sensitive.
-    ;; The second element's :token is an int (99) — fails :string.
-    (let [v (app-db-failure-trace
-              [:items]
-              [:vector [:map [:token {:sensitive? true} :string]]]
-              {:items [{:token "ok"} {:token 99}]}
-              :items/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — the index segment does not block the match")
-      (is (= :rf/redacted (-> v :tags :value))
-          ":value redacted — the raw 99 (and the rest of the vector) does not leak")
-      (is (= :rf/redacted (-> v :tags :explain))
-          ":explain redacted — Malli's explanation re-carries the value verbatim"))))
-
-(deftest app-db-validation-redacts-sensitive-slot-nested-in-map-of
-  (testing "a :sensitive? slot inside a :map-of value redacts
-            even though Malli's :in carries the map key"
-    (let [v (app-db-failure-trace
-              [:by-id]
-              [:map-of :string [:map [:secret {:sensitive? true} :string]]]
-              {:by-id {"a" {:secret 99}}}
-              :by-id/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — the map-of key segment does not block the match")
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (= :rf/redacted (-> v :tags :explain))))))
-
-(deftest app-db-validation-redacts-sensitive-slot-nested-in-sequential
-  (testing ":sequential behaves identically to :vector"
-    (let [v (app-db-failure-trace
-              [:log]
-              [:sequential [:map [:pw {:sensitive? true} :string]]]
-              {:log [{:pw 1}]}
-              :log/bad)]
-      (is (some? v))
-      (is (true? (:sensitive? v)))
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (= :rf/redacted (-> v :tags :explain))))))
-
-(deftest app-db-validation-redacts-sensitive-slot-nested-deeply
-  (testing "a sensitive slot under a map → vector → map chain
-            redacts (mixed map-key + collection-index :in segments)"
-    (let [v (app-db-failure-trace
-              [:accounts]
-              [:map [:items [:vector [:map [:tok {:sensitive? true} :string]]]]]
-              {:accounts {:items [{:tok 99}]}}
-              :accounts/bad)]
-      (is (some? v))
-      (is (true? (:sensitive? v)))
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (= :rf/redacted (-> v :tags :explain))))))
-
-(deftest app-db-validation-redacts-scalar-sensitive-collection-element
-  (testing "a :vector whose ELEMENT type is itself sensitive
-            (container-level :sensitive? on the element schema) redacts"
-    (let [v (app-db-failure-trace
-              [:tokens]
-              [:vector [:string {:sensitive? true}]]
-              {:tokens ["ok" 99]}
-              :tokens/bad)]
-      (is (some? v))
-      (is (true? (:sensitive? v)))
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (= :rf/redacted (-> v :tags :explain))))))
+(deftest app-db-validation-redacts-sensitive-slot-nested-in-a-collection
+  (testing "a :sensitive? slot inside a collection redacts although Malli's
+            :in carries the element index or map key, and :path keeps those
+            navigable index / plain-key segments"
+    (doseq [{:keys [desc path schema db expected-path]}
+            [{:desc          ":vector element map — the index segment does not block the match"
+              :path          [:items]
+              :schema        [:vector [:map [:token {:sensitive? true} :string]]]
+              :db            {:items [{:token "ok"} {:token 99}]}
+              :expected-path [:items 1 :token]}
+             {:desc          ":map-of value map — the plain map-of key stays a navigable locator"
+              :path          [:by-id]
+              :schema        [:map-of :string [:map [:secret {:sensitive? true} :string]]]
+              :db            {:by-id {"a" {:secret 99}}}
+              :expected-path [:by-id "a" :secret]}
+             {:desc          ":sequential element map, as :vector"
+              :path          [:log]
+              :schema        [:sequential [:map [:pw {:sensitive? true} :string]]]
+              :db            {:log [{:pw 1}]}
+              :expected-path [:log 0 :pw]}
+             {:desc          "map -> vector -> map chain (mixed map-key and index segments)"
+              :path          [:accounts]
+              :schema        [:map [:items [:vector [:map [:tok {:sensitive? true} :string]]]]]
+              :db            {:accounts {:items [{:tok 99}]}}
+              :expected-path [:accounts :items 0 :tok]}
+             {:desc          ":vector whose ELEMENT schema is itself sensitive"
+              :path          [:tokens]
+              :schema        [:vector [:string {:sensitive? true}]]
+              :db            {:tokens ["ok" 99]}
+              :expected-path [:tokens 1]}
+             {:desc          ":tuple whose sensitive element 0 fails — position precision does not under-redact it"
+              :path          [:point]
+              :schema        [:tuple [:string {:sensitive? true}] :int]
+              :db            {:point [99 7]}
+              :expected-path [:point 0]}]]
+      (let [v (app-db-failure-trace path schema db :collection/bad)]
+        (is (some? v) (str desc " — a trace fired"))
+        (is (true? (:sensitive? v)) (str desc " — top-level :sensitive? stamp present"))
+        (is (= :rf/redacted (-> v :tags :value)) (str desc " — :value redacted"))
+        (is (= :rf/redacted (-> v :tags :explain)) (str desc " — :explain redacted"))
+        (is (= expected-path (-> v :tags :path))
+            (str desc " — :path keeps its navigable segments"))))))
 
 (deftest app-db-validation-collection-non-sensitive-not-over-redacted
   (testing "a collection failure where NO slot is
@@ -316,58 +303,91 @@
       (is (not (str/includes? (pr-str (:tags v)) "SECRET-OK-9f3a"))
           "the conforming sensitive sibling does NOT egress anywhere in the tags"))))
 
-;; ---- :set-element values kept out of the :path tag -----------------------
-;; Malli reports a :set failure's :in segment as the failing ELEMENT VALUE
-;; itself (a set has no positional index) — e.g. :in = ({:token 99 :ssn
-;; "..."} :token). validate-app-schema! concats the :in into the
-;; structural :path tag, which Spec 010 declares unredacted; for a :set the
-;; raw segment would ship the ENTIRE failing element map (sibling secrets
-;; included) verbatim in :path, even with :value / :explain correctly
-;; redacted. So the :set-element segment is scrubbed to :rf/redacted while
-;; navigable :vector / :map-of / :tuple index/key segments are kept.
+;; ---- value-bearing :in segments kept out of the :path tag ----------------
+;; validate-app-schema! concats the failing :in into the structural :path tag
+;; and builds :reason from it, and Spec 010 declares :path unredacted. Some
+;; :in segments are VALUES, not locators, so for a sensitive schema
+;; sanitize-sensitive-path scrubs each of them to :rf/redacted:
+;;
+;;   - a :set failure's segment is the failing ELEMENT VALUE itself (a set has
+;;     no positional index), sibling secrets included;
+;;   - a :map-of KEY whose key schema is :sensitive? is the secret used as
+;;     the key. A compiled m/schema key, alone or hidden under a vector
+;;     wrapper, carries a flag Malli honours but the walker cannot see, so
+;;     align-in-path and sanitize-sensitive-path both also consult
+;;     schema-has-opaque-child?: the leaf resolves sensitive and the key is
+;;     scrubbed;
+;;   - past a wrapper whose branch the path cannot identify (a multi-child
+;;     :or / :and, :orn, :multi) every remaining segment fails closed,
+;;     scalars included, because a tail scalar may be a :set element.
+;;
+;; Navigable segments — :vector / :tuple indices, declared :map keys, plain
+;; :map-of keys — survive, so :path stays a get-in locator for those shapes.
 
-(deftest app-db-validation-set-path-carries-no-secret
-  (testing "a :set of sensitive maps emits a :path tag with NO
-            verbatim element value; the sensitive element (and its sibling
-            secrets) never ship in :path"
-    (let [v (app-db-failure-trace
-              [:members]
-              [:set [:map [:token {:sensitive? true} :string] [:ssn :string]]]
-              {:members #{{:token 123456789 :ssn "078-05-1120"}}}
-              :members/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      ;; The structural :path must NOT carry the element value. The
-      ;; :set-element segment is scrubbed to the sentinel; the surrounding
-      ;; navigable segments survive.
-      (is (= [:members :rf/redacted :token] (-> v :tags :path))
-          ":path's :set-element segment is the :rf/redacted sentinel")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "078-05-1120"))
-          "the sibling :ssn secret does NOT appear in :path")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "123456789"))
-          "the sensitive :token value does NOT appear in :path")
-      ;; Belt-and-braces: NO secret anywhere in the whole tag map.
-      (is (not (str/includes? (pr-str (:tags v)) "078-05-1120"))
-          "the secret does NOT appear anywhere in the emitted tags")
-      (is (not (str/includes? (pr-str (:tags v)) "123456789"))
-          "the sensitive token does NOT appear anywhere in the emitted tags"))))
-
-(deftest app-db-validation-vector-path-stays-navigable
-  (testing ":vector :path keeps its integer index
-            (the navigable locator), only the value-bearing :set segment is
-            scrubbed; :path remains a get-in locator for :vector"
-    (let [v (app-db-failure-trace
-              [:items]
-              [:vector [:map [:token {:sensitive? true} :string]]]
-              {:items [{:token "ok"} {:token 99}]}
-              :items/bad)]
-      (is (some? v))
-      (is (= [:items 1 :token] (-> v :tags :path))
-          ":path keeps the navigable vector index (1)")
-      (is (= :rf/redacted (-> v :tags :value))))))
+(deftest app-db-validation-scrubs-value-bearing-path-segments
+  (testing "each value-bearing :in segment of a sensitive failure is the
+            :rf/redacted sentinel in :path while navigable segments survive;
+            :value and :explain redact, and no secret reaches :reason or any
+            other tag"
+    (doseq [{:keys [desc path schema db expected-path secrets]}
+            [{:desc          ":set element map — the element segment carries the sibling :ssn"
+              :path          [:members]
+              :schema        [:set [:map [:token {:sensitive? true} :string] [:ssn :string]]]
+              :db            {:members #{{:token 123456789 :ssn "078-05-1120"}}}
+              :expected-path [:members :rf/redacted :token]
+              :secrets       ["078-05-1120" "123456789"]}
+             {:desc          ":map-of with a :sensitive? KEY schema"
+              :path          [:by-token]
+              :schema        [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
+              :db            {:by-token {"secret-token-123" {:age "not-an-int"}}}
+              :expected-path [:by-token :rf/redacted :age]
+              :secrets       ["secret-token-123"]}
+             {:desc          ":map-of with a COMPILED m/schema :sensitive? KEY"
+              :path          [:by-token]
+              :schema        [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
+              :db            {:by-token {"SECRET-KEY-XYZ" {:age "not-an-int"}}}
+              :expected-path [:by-token :rf/redacted :age]
+              :secrets       ["SECRET-KEY-XYZ"]}
+             {:desc          ":map-of whose KEY is a vector wrapper hiding a compiled m/schema"
+              :path          [:by-token]
+              :schema        [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
+              :db            {:by-token {"NESTED-SECRET-ABC" {:age "not-an-int"}}}
+              :expected-path [:by-token :rf/redacted :age]
+              :secrets       ["NESTED-SECRET-ABC"]}
+             {:desc          "sensitive :map-of KEY in the later branch of a multi-child :or"
+              :path          [:secrets]
+              :schema        [:or
+                              [:map-of :int :int]
+                              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]]
+              :db            {:secrets {"secret-token-abc" {:age "not-an-int"}}}
+              :expected-path [:secrets :rf/redacted]
+              :secrets       ["secret-token-abc"]}
+             {:desc          "sensitive :map-of KEY in a later conjunct of a multi-child :and"
+              :path          [:secrets]
+              :schema        [:and
+                              [:map-of :string [:map [:age :int]]]
+                              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]]
+              :db            {:secrets {"secret-token-xyz" {:age "not-an-int"}}}
+              :expected-path [:secrets :rf/redacted :rf/redacted]
+              :secrets       ["secret-token-xyz"]}
+             {:desc          ":set of sensitive SCALARS under an :orn — the element rides the fail-closed tail"
+              :path          [:tokens]
+              :schema        [:orn [:tokens [:set [:string {:sensitive? true}]]]]
+              :db            {:tokens #{123456789}}
+              :expected-path [:tokens :rf/redacted]
+              :secrets       ["123456789"]}]]
+      (let [v (app-db-failure-trace path schema db :segment/bad)]
+        (is (some? v) (str desc " — a trace fired"))
+        (is (true? (:sensitive? v)) (str desc " — top-level :sensitive? stamp present"))
+        (is (= :rf/redacted (-> v :tags :value)) (str desc " — :value redacted"))
+        (is (= :rf/redacted (-> v :tags :explain)) (str desc " — :explain redacted"))
+        (is (= expected-path (-> v :tags :path))
+            (str desc " — each value-bearing segment is the sentinel in :path"))
+        (doseq [secret secrets]
+          (is (not (str/includes? (pr-str (-> v :tags :reason)) secret))
+              (str desc " — " secret " is not in :reason"))
+          (is (not (str/includes? (pr-str (:tags v)) secret))
+              (str desc " — " secret " is in no tag")))))))
 
 (deftest app-db-validation-set-non-sensitive-leaf-sensitive-sibling-path-carries-no-secret
   (testing "a failure at a NON-sensitive leaf inside a :set
@@ -393,195 +413,14 @@
       (is (not (str/includes? (pr-str v) secret))
           "the sibling secret does NOT appear ANYWHERE in the whole trace event"))))
 
-;; ---- sensitive SCALAR collection elements / map-of KEYS in :path ----------
-;; Two scalar-leak shapes the :set-element scrub alone does NOT
-;; cover, because the value-bearing scalar is the KEY (`:map-of`) or rides in
-;; the FAIL-CLOSED tail under an ambiguous wrapper (`:orn`/`:multi`):
-;;
-;;   (a) `[:map-of [:string {:sensitive? true}] …]` — Malli reports the key
-;;       VALUE verbatim as the `:in` key segment (`["secret-token-123" :age]`),
-;;       and a `:map-of` branch that KEPT every key (a navigable locator)
-;;       would ship a secret-as-key raw in `:path` / `:reason`.
-;;   (b) `[:orn [:tokens [:set [:string {:sensitive? true}]]]]` — the `:orn`
-;;       is multi-branch, so the walk drops to the fail-closed tail with the
-;;       set element value as the remaining segment (`[123456789]`); a
-;;       scalar-keep tail would KEEP it, leaking the scalar secret in `:path` /
-;;       `:reason`.
-;;
-;; So a `:map-of` key whose KEY SCHEMA declares `:sensitive?` is scrubbed, and
-;; EVERY tail segment (scalars included) past an unresolvable op fails closed,
-;; while non-sensitive `:map-of` keys / `:vector` / `:tuple` indices stay
-;; navigable.
-
-(deftest app-db-validation-map-of-sensitive-key-scrubbed-from-path
-  (testing "(a) a :map-of with a :sensitive? KEY schema and a
-            failing value child scrubs the secret key from :path AND :reason;
-            the secret never appears anywhere in the emitted tags"
-    (let [v (app-db-failure-trace
-              [:by-token]
-              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
-              {:by-token {"secret-token-123" {:age "not-an-int"}}}
-              :by-token/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — the key schema is sensitive")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      ;; The sensitive KEY is scrubbed; the navigable inner :age segment
-      ;; (a real :map key, not the secret) survives so :path stays locatable
-      ;; down to the failing slot.
-      (is (= [:by-token :rf/redacted :age] (-> v :tags :path))
-          ":path's sensitive :map-of key segment is the :rf/redacted sentinel")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "secret-token-123"))
-          "the secret key does NOT appear in :path")
-      (is (not (str/includes? (pr-str (-> v :tags :reason)) "secret-token-123"))
-          "the secret key does NOT appear in the generated :reason text")
-      ;; Belt-and-braces: NO secret anywhere in the whole tag map.
-      (is (not (str/includes? (pr-str (:tags v)) "secret-token-123"))
-          "the secret key does NOT appear anywhere in the emitted tags"))))
-
-(deftest app-db-validation-orn-wrapped-set-sensitive-scalar-scrubbed
-  (testing "(b) an :orn-wrapped :set of :sensitive? SCALARS scrubs
-            the scalar element from :path AND :reason via the fail-closed tail;
-            the scalar secret never appears anywhere in the emitted tags"
-    (let [v (app-db-failure-trace
-              [:tokens]
-              [:orn [:tokens [:set [:string {:sensitive? true}]]]]
-              {:tokens #{123456789}}
-              :tokens/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — the set element schema is sensitive")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      ;; The :orn is ambiguous, so the walk fail-closes the tail — the
-      ;; scalar set element is scrubbed (it is value-bearing, not a locator).
-      (is (= [:tokens :rf/redacted] (-> v :tags :path))
-          ":path's fail-closed scalar set-element segment is the :rf/redacted sentinel")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "123456789"))
-          "the sensitive scalar element does NOT appear in :path")
-      (is (not (str/includes? (pr-str (-> v :tags :reason)) "123456789"))
-          "the sensitive scalar element does NOT appear in the generated :reason text")
-      (is (not (str/includes? (pr-str (:tags v)) "123456789"))
-          "the sensitive scalar element does NOT appear anywhere in the emitted tags"))))
-
-(deftest app-db-validation-non-sensitive-map-of-key-stays-navigable
-  (testing "a :map-of whose KEY schema is NOT sensitive
-            (only the nested VALUE slot is) keeps the navigable map key in
-            :path; only sensitive KEYS are scrubbed, never plain keys"
-    (let [v (app-db-failure-trace
-              [:by-id]
-              [:map-of :string [:map [:secret {:sensitive? true} :string]]]
-              {:by-id {"a" {:secret 99}}}
-              :by-id/bad)]
-      (is (some? v))
-      (is (true? (:sensitive? v))
-          "the nested :secret value slot is sensitive — redaction still runs")
-      (is (= [:by-id "a" :secret] (-> v :tags :path))
-          ":path keeps the navigable plain map-of key (\"a\") — no over-redaction")
-      (is (= :rf/redacted (-> v :tags :value))))))
-
-;; ---- sensitive :map-of KEY that is OPAQUE / nested-opaque -----------------
-;; A VECTOR-form `:sensitive?` key (`[:string {:sensitive? true}]`) is
-;; visible to the pure-data walker directly. A COMPILED `m/schema` value
-;; (or a vector wrapper hiding one, e.g. `[:and (m/schema …)]`) used as the
-;; `:map-of` KEY carries a `:sensitive?` flag Malli honours but the walker cannot
-;; introspect — so `schema-has-sensitive?` on the key returns false. An
-;; `align-in-path` `:map-of` branch that dropped the key and descended only the
-;; VALUE schema would leave `leaf-sensitive? = false`, so `:path`/`:reason`
-;; would NEVER be sanitised even though `:value`/`:explain` ARE redacted
-;; fail-closed (via `schema-has-opaque-child?`): the secret KEY would ship
-;; VERBATIM in `:path` / `:reason` — a fail-OPEN privacy leak. So
-;; `schema-has-opaque-child?` is ORed into BOTH the align-in-path key-position
-;; fallback (so the leaf resolves sensitive) AND the sanitize-sensitive-path
-;; key-scrub gate (so the key is scrubbed) — deep whole-structure scan, not just
-;; the value slot.
-
-(deftest app-db-validation-opaque-map-of-sensitive-key-scrubbed-from-path
-  (testing "a :map-of with a COMPILED (m/schema) :sensitive? KEY and
-            a failing value child scrubs the secret key from :path AND :reason;
-            the secret never appears ANYWHERE in the whole emitted tag map
-            (deep whole-structure scan, not just the redacted :value slot)"
-    (let [v (app-db-failure-trace
-              [:by-token]
-              [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
-              {:by-token {"SECRET-KEY-XYZ" {:age "not-an-int"}}}
-              :by-token/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — the opaque key fails closed")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      ;; The sensitive opaque KEY is scrubbed to the sentinel; the navigable
-      ;; inner :age segment (a real :map key, not the secret) survives.
-      (is (= [:by-token :rf/redacted :age] (-> v :tags :path))
-          ":path's opaque sensitive :map-of key segment is the :rf/redacted sentinel")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "SECRET-KEY-XYZ"))
-          "the secret key does NOT appear in :path")
-      (is (not (str/includes? (pr-str (-> v :tags :reason)) "SECRET-KEY-XYZ"))
-          "the secret key does NOT appear in the generated :reason text")
-      ;; Belt-and-braces: a DEEP whole-structure scan of the entire tag map —
-      ;; the leak would live in :path/:reason while :value/:explain look redacted.
-      (is (not (str/includes? (pr-str (:tags v)) "SECRET-KEY-XYZ"))
-          "the secret key does NOT appear ANYWHERE in the emitted tags"))))
-
-(deftest app-db-validation-nested-opaque-map-of-sensitive-key-scrubbed-from-path
-  (testing "a :map-of whose KEY is a VECTOR WRAPPER hiding a compiled
-            m/schema (`[:and (m/schema [:string {:sensitive? true}])]`) — the
-            root is walkable EDN but the nested opaque child's :sensitive? is
-            invisible to the walker — still scrubs the secret key everywhere"
-    (let [v (app-db-failure-trace
-              [:by-token]
-              [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
-              {:by-token {"NESTED-SECRET-ABC" {:age "not-an-int"}}}
-              :by-token/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — the nested-opaque key fails closed")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      (is (= [:by-token :rf/redacted :age] (-> v :tags :path))
-          ":path's nested-opaque sensitive :map-of key segment is the :rf/redacted sentinel")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "NESTED-SECRET-ABC"))
-          "the secret key does NOT appear in :path")
-      (is (not (str/includes? (pr-str (-> v :tags :reason)) "NESTED-SECRET-ABC"))
-          "the secret key does NOT appear in the generated :reason text")
-      (is (not (str/includes? (pr-str (:tags v)) "NESTED-SECRET-ABC"))
-          "the secret key does NOT appear ANYWHERE in the emitted tags"))))
-
-;; ---- sensitive :map-of KEY nested under an ambiguous :or / :and wrapper -----
-;; A `sanitize-sensitive-path` that treated `:and` / `:or` as SINGLE-child
-;; transparent wrappers and followed ONLY the first child would, when a
-;; sensitive `:map-of` KEY schema lives in a LATER branch — an `:or` whose
-;; non-sensitive branch is first, or an `:and` whose sensitive conjunct is not
-;; first — descend the WRONG branch, classify the failing `:in` key segment as
-;; a navigable `:map-of` locator (its key schema being the WRONG branch's
-;; non-sensitive one), and KEEP it. The raw sensitive key would then ship
-;; VERBATIM in `:path` and `:reason` (and thus every serialized trace tag) even
-;; with `:value` / `:explain` correctly redacted — the same scalar-key leak
-;; class as the plain sensitive `:map-of` key above, hidden behind a
-;; multi-branch wrapper. `:and` / `:or` are
-;; MULTI-child ambiguous wrappers: with more than one child the branch that
-;; produced the failing `:in` cannot be identified from the path alone (an `:or`
-;; value matched some ONE branch; an `:and` value is constrained by ALL), so the
-;; walk fails CLOSED on the whole remaining tail (like `:multi` / `:orn`),
-;; scrubbing the secret key. The degenerate single-child case stays an
-;; unambiguous, precise descent (navigable locators preserved).
-
-;; -- direct `sanitize-sensitive-path` unit tests (deterministic; independent of
-;;    Malli's `:in` shape) --
-
-(deftest sanitize-fails-closed-on-multi-child-and
-  (testing "a sensitive :map-of key reached under a MULTI-child :and
-            (sensitive conjunct not first) is scrubbed via the fail-closed tail"
-    (let [schema [:and
-                  [:map-of :string [:map [:age :int]]]                    ;; conjunct 0 — non-sensitive key
-                  [:map-of [:string {:sensitive? true}] [:map [:age :int]]]] ;; conjunct 1 — sensitive key
-          in     ["secret-token-xyz" :age]
-          out    (rf.schemas.walker/sanitize-sensitive-path schema in)]
-      (is (= [:rf/redacted :rf/redacted] out))
-      (is (not (some #{"secret-token-xyz"} out))
-          "the sensitive :map-of key does NOT survive in the sanitized path"))))
+;; ---- sanitize-sensitive-path through :and / :or ---------------------------
+;; A multi-child :and / :or cannot say which branch produced the failing :in
+;; (an :or value matched some ONE branch; an :and value is constrained by
+;; ALL), so following only the first child would read a later branch's
+;; sensitive :map-of key as a navigable locator and ship it verbatim. The walk
+;; fails closed on the whole remaining tail instead (the multi-child :or and
+;; :and rows of the table above). A degenerate single-child :and / :or is
+;; unambiguous, so it still descends precisely.
 
 (deftest sanitize-single-child-and-or-descend-precisely
   (testing "a DEGENERATE single-child :and / :or is
@@ -592,27 +431,6 @@
         "single-child :or descends into its one branch and keeps the map key")
     (is (= [:k] (rf.schemas.walker/sanitize-sensitive-path [:and [:map [:k :int]]] [:k]))
         "single-child :and descends into its one branch and keeps the map key")))
-
-(deftest schema-sensitive-at?-true-for-opaque-map-of-key
-  (testing "schema-sensitive-at? (the leaf decision that gates path
-            sanitisation) is TRUE at a failing value under an opaque sensitive
-            :map-of key; an align-in-path that descended only the VALUE
-            schema would return false, and the sanitiser would never run"
-    (is (true? (rf.schemas.walker/schema-sensitive-at?
-                 [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
-                 ["SECRET-KEY-XYZ" :age]))
-        "compiled m/schema key → leaf sensitive (fails closed)")
-    (is (true? (rf.schemas.walker/schema-sensitive-at?
-                 [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
-                 ["NESTED-SECRET-ABC" :age]))
-        "nested-opaque [:and (m/schema …)] key → leaf sensitive (fails closed)")
-    ;; Regression guard: a NON-sensitive, NON-opaque :map-of key must stay a
-    ;; navigable locator (only the nested value is sensitive here) — no
-    ;; over-redaction of the key.
-    (is (false? (rf.schemas.walker/schema-sensitive-at?
-                  [:map-of :string [:map [:plain :int]]]
-                  ["a" :plain]))
-        "plain :map-of key with a fully non-sensitive value → NOT leaf-sensitive")))
 
 ;; -- direct unit tests: the `:maybe` transparent-wrapper arm --
 ;;
@@ -684,63 +502,13 @@
     ;; Malli reports a `:set` failure's `:in` segment as the failing ELEMENT
     ;; VALUE itself (not an index); the secret element must NOT ride verbatim in
     ;; `:path`. The outer map key `:s` is kept; the set element is redacted.
-    (let [out (rf.schemas.walker/sanitize-sensitive-path
-                [:map [:s [:maybe [:set [:string {:sensitive? true}]]]]]
-                [:s "SECRET-SET-ELEMENT"])]
-      (is (= [:s :rf/redacted] out)
-          "map key kept; set element scrubbed to the sentinel across `:maybe`")
-      (is (not (some #{"SECRET-SET-ELEMENT"} out))
-          "the sensitive set element does NOT survive in the sanitized path"))))
+    (is (= [:s :rf/redacted]
+           (rf.schemas.walker/sanitize-sensitive-path
+             [:map [:s [:maybe [:set [:string {:sensitive? true}]]]]]
+             [:s "SECRET-SET-ELEMENT"]))
+        "map key kept; set element scrubbed to the sentinel across `:maybe`")))
 
-;; -- end-to-end via validate-app-schema! (:path / :reason / whole-tags egress) --
-
-(deftest app-db-validation-or-wrapped-map-of-sensitive-key-scrubbed
-  (testing "a :map-of with a :sensitive? KEY schema nested under a
-            MULTI-child :or (non-sensitive branch FIRST) scrubs the secret key
-            from :path AND :reason; the secret never appears anywhere in tags"
-    (let [v (app-db-failure-trace
-              [:secrets]
-              [:or
-               [:map-of :int :int]
-               [:map-of [:string {:sensitive? true}] [:map [:age :int]]]]
-              {:secrets {"secret-token-abc" {:age "not-an-int"}}}
-              :secrets/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — a sensitive key schema is in the :or")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "secret-token-abc"))
-          "the secret key does NOT appear in :path")
-      (is (not (str/includes? (pr-str (-> v :tags :reason)) "secret-token-abc"))
-          "the secret key does NOT appear in the generated :reason text")
-      (is (not (str/includes? (pr-str (:tags v)) "secret-token-abc"))
-          "the secret key does NOT appear anywhere in the emitted tags"))))
-
-(deftest app-db-validation-and-wrapped-map-of-sensitive-key-scrubbed
-  (testing "a :map-of with a :sensitive? KEY schema nested under a
-            MULTI-child :and (sensitive conjunct NOT first) scrubs the secret key
-            from :path AND :reason; the secret never appears anywhere in tags"
-    (let [v (app-db-failure-trace
-              [:secrets]
-              [:and
-               [:map-of :string [:map [:age :int]]]
-               [:map-of [:string {:sensitive? true}] [:map [:age :int]]]]
-              {:secrets {"secret-token-xyz" {:age "not-an-int"}}}
-              :secrets/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present — a sensitive key schema is in the :and")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      (is (not (str/includes? (pr-str (-> v :tags :path)) "secret-token-xyz"))
-          "the secret key does NOT appear in :path")
-      (is (not (str/includes? (pr-str (-> v :tags :reason)) "secret-token-xyz"))
-          "the secret key does NOT appear in :reason")
-      (is (not (str/includes? (pr-str (:tags v)) "secret-token-xyz"))
-          "the secret key does NOT appear anywhere in the emitted tags"))))
-
-(deftest app-db-validation-non-sensitive-or-key-stays-navigable
+(deftest app-db-validation-non-sensitive-or-failure-rides-verbatim
   (testing "a fully NON-sensitive multi-child :or failure
             is not stamped :sensitive? and its value rides verbatim
             (sanitize-sensitive-path is not invoked on a non-sensitive failure,
@@ -756,7 +524,7 @@
       (is (not= :rf/redacted (-> v :tags :value))
           ":value rides verbatim — a non-sensitive failure is not scrubbed"))))
 
-;; ---- ancestor-sensitive container wrapped by :and/:multi/:orn ------------
+;; ---- ancestor-sensitive container wrapped by :and/:multi/:orn/:or --------
 ;; When a slot is declared {:sensitive? true} as a CONTAINER and the failing
 ;; leaf lives under a transparent-but-unrecognised wrapper op
 ;; (:and / :or / :multi / :orn), an align-in-path :else fallback that
@@ -767,63 +535,36 @@
 ;; value leak. So the fallback carries the consumed prefix through, and a
 ;; descendant failure under a sensitive ancestor is redacted + stamped.
 
-(deftest app-db-validation-redacts-under-and-ancestor-sensitive
-  (testing "a sensitive container wrapping an :and whose inner
-            leaf fails redacts the value and stamps :sensitive?"
-    (let [secret "SECRET-AND-9f3a"
-          v (app-db-failure-trace
-              [:root]
-              [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
-              {:root {:s {:k secret}}}
-              :and/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp present (consumed-ancestor sensitivity)")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
-      (is (not (str/includes? (pr-str (:tags v)) secret))
-          "the raw secret does NOT appear anywhere in the emitted tags"))))
-
-(deftest app-db-validation-redacts-under-multi-ancestor-sensitive
-  (testing "sensitive container wrapping a :multi"
-    (let [secret "SECRET-MULTI-deadbeef"
-          v (app-db-failure-trace
-              [:root]
-              [:map [:s {:sensitive? true}
-                     [:multi {:dispatch :t} [:a [:map [:t :keyword] [:k :int]]]]]]
-              {:root {:s {:t :a :k secret}}}
-              :multi/bad)]
-      (is (some? v))
-      (is (true? (:sensitive? v)))
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (not (str/includes? (pr-str (:tags v)) secret))
-          "the raw secret does NOT leak"))))
-
-(deftest app-db-validation-redacts-under-orn-ancestor-sensitive
-  (testing "sensitive container wrapping an :orn"
-    (let [secret "SECRET-ORN-cafe"
-          v (app-db-failure-trace
-              [:root]
-              [:map [:s {:sensitive? true} [:orn [:a [:map [:k :int]]]]]]
-              {:root {:s {:k secret}}}
-              :orn/bad)]
-      (is (some? v))
-      (is (true? (:sensitive? v)))
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (not (str/includes? (pr-str (:tags v)) secret))))))
-
-(deftest app-db-validation-redacts-under-or-ancestor-sensitive
-  (testing "sensitive container wrapping an :or"
-    (let [secret "SECRET-OR-1234"
-          v (app-db-failure-trace
-              [:root]
-              [:map [:s {:sensitive? true} [:or [:map [:k :int]]]]]
-              {:root {:s {:k secret}}}
-              :or/bad)]
-      (is (some? v))
-      (is (true? (:sensitive? v)))
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (not (str/includes? (pr-str (:tags v)) secret))))))
+(deftest app-db-validation-redacts-under-wrapped-sensitive-ancestor
+  (testing "a failing leaf under a :sensitive? container whose inner schema
+            is an :and / :multi / :orn / :or wrapper redacts the value and
+            stamps :sensitive? — the consumed ancestor's flag carries through
+            align-in-path's fallback"
+    (doseq [{:keys [desc schema value secret]}
+            [{:desc   ":and"
+              :schema [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
+              :value  {:s {:k "SECRET-AND-9f3a"}}
+              :secret "SECRET-AND-9f3a"}
+             {:desc   ":multi"
+              :schema [:map [:s {:sensitive? true}
+                             [:multi {:dispatch :t} [:a [:map [:t :keyword] [:k :int]]]]]]
+              :value  {:s {:t :a :k "SECRET-MULTI-deadbeef"}}
+              :secret "SECRET-MULTI-deadbeef"}
+             {:desc   ":orn"
+              :schema [:map [:s {:sensitive? true} [:orn [:a [:map [:k :int]]]]]]
+              :value  {:s {:k "SECRET-ORN-cafe"}}
+              :secret "SECRET-ORN-cafe"}
+             {:desc   ":or"
+              :schema [:map [:s {:sensitive? true} [:or [:map [:k :int]]]]]
+              :value  {:s {:k "SECRET-OR-1234"}}
+              :secret "SECRET-OR-1234"}]]
+      (let [v (app-db-failure-trace [:root] schema {:root value} :ancestor/bad)]
+        (is (some? v) (str desc " ancestor — a trace fired"))
+        (is (true? (:sensitive? v)) (str desc " ancestor — top-level :sensitive? stamp present"))
+        (is (= :rf/redacted (-> v :tags :value)) (str desc " ancestor — :value redacted"))
+        (is (= :rf/redacted (-> v :tags :explain)) (str desc " ancestor — :explain redacted"))
+        (is (not (str/includes? (pr-str (:tags v)) secret))
+            (str desc " ancestor — the raw secret is in no tag"))))))
 
 (deftest schema-sensitive-at-ancestor-under-and-multi-orn
   (testing "schema-sensitive-at? returns true for a leaf under
@@ -851,38 +592,6 @@
                    [:other [:and [:map [:j :int]]]]]
                   [:other :j]))
         "a sibling's sensitivity does not taint a failure under a non-sensitive sibling")))
-
-;; ---- walker unit tests for the :in-path alignment -------------------------
-
-(deftest schema-sensitive-at-aligns-collection-index-segments
-  (testing "schema-sensitive-at? matches an index-bearing :in
-            path against the walker's index-free decl path"
-    ;; :vector-of-map, :in = [1 :token]
-    (is (true? (rf.schemas/schema-sensitive-at?
-                 [:vector [:map [:token {:sensitive? true} :string]]]
-                 [1 :token])))
-    ;; :map-of value, :in = ["a" :secret]
-    (is (true? (rf.schemas/schema-sensitive-at?
-                 [:map-of :string [:map [:secret {:sensitive? true} :string]]]
-                 ["a" :secret])))
-    ;; :tuple, :in = [1]
-    (is (true? (rf.schemas/schema-sensitive-at?
-                 [:tuple :int [:string {:sensitive? true}]]
-                 [1])))
-    ;; deep mixed path, :in = [:items 0 :tok]
-    (is (true? (rf.schemas/schema-sensitive-at?
-                 [:map [:items [:vector [:map [:tok {:sensitive? true} :string]]]]]
-                 [:items 0 :tok])))
-    ;; non-sensitive collection failure stays false
-    (is (false? (rf.schemas/schema-sensitive-at?
-                  [:vector [:map [:name :string]]]
-                  [0 :name])))
-    ;; sibling-sensitive does not taint the failing non-sensitive leaf
-    (is (false? (rf.schemas/schema-sensitive-at?
-                  [:vector [:map
-                            [:secret {:sensitive? true} :string]
-                            [:age :int]]]
-                  [0 :age])))))
 
 ;; ---- :tuple element-precision — no sibling taint -------------------------
 ;; A bare :tuple's elements are HETEROGENEOUS — each position carries its own
@@ -926,21 +635,6 @@
       (is (true?  (rf.schemas/schema-sensitive-at? s []))       "whole tuple carries the secret")
       (is (false? (rf.schemas/schema-sensitive-at? s [1]))      "non-sensitive sibling element 1"))))
 
-(deftest extract-tuple-emits-position-pinned-paths
-  (testing "the walker emits a tuple element flag at its
-            POSITION-pinned path ((conj base i)), not the index-free tuple
-            base-path; this is what gives the sibling precision"
-    (is (= {[0] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:tuple [:string {:sensitive? true}] :int] [])))
-    (is (= {[1] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:tuple :int [:string {:sensitive? true}]] [])))
-    ;; base-path threads through.
-    (is (= {[:pt 0] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:tuple [:string {:sensitive? true}] :int] [:pt])))))
-
 (deftest app-db-validation-tuple-sibling-narrowed-value-verbatim-whole-explain-redacted
   (testing "PER-SLOT DECISION SCOPING on
             a :tuple. element 0 is {:sensitive?} :string (CONFORMING \"ok\");
@@ -965,22 +659,6 @@
           "top-level :sensitive? stamp present — a whole-payload slot redacted")
       (is (not (str/includes? (pr-str (:tags v)) "SECRET-TUP-ok"))
           "the conforming sensitive element does NOT egress anywhere in the tags"))))
-
-(deftest app-db-validation-tuple-sensitive-element-still-redacts
-  (testing "when the SENSITIVE tuple element fails,
-            the value is redacted and stamped (position precision must not
-            under-redact the declared position)"
-    ;; element 0 is {:sensitive?} :string but supplied an int → element 0 fails.
-    (let [v (app-db-failure-trace
-              [:point]
-              [:tuple [:string {:sensitive? true}] :int]
-              {:point [99 7]}
-              :point/bad)]
-      (is (some? v) "a trace fired")
-      (is (true? (:sensitive? v))
-          "the sensitive element 0 failed — top-level :sensitive? stamp present")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted"))))
 
 ;; ---- redaction at event validation site ----------------------------------
 
