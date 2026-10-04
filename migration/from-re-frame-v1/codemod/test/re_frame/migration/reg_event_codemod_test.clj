@@ -261,92 +261,68 @@
 ;; Any other function named `path` is a custom inline interceptor: unresolved
 ;; M-70 Type B, source unchanged — never a silent rewrite.
 
-(deftest custom-qualified-path-flagged-not-rewritten
-  (testing "the reopen probe: a custom qualified fn named `path` is NOT lowered"
-    (let [src (str "(ns app.events\n"
+(deftest non-standard-path-heads-flagged
+  (testing "a head named `path` that does not resolve to re-frame.core/path flags, source unchanged"
+    (doseq [[label src]
+            [["custom qualified namespace"
+              (str "(ns app.events\n"
                    "  (:require [re-frame.core :as rf]\n"
                    "            [app.interceptors]))\n"
                    "\n"
                    "(rf/reg-event-db :tenant/load\n"
                    "  {:interceptors [(app.interceptors/path :tenant)]}\n"
-                   "  (fn [db _] (assoc db :loaded true)))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= 1 (count findings)))
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (not (str/includes? source ":rf.interceptor/path"))
-          "custom path semantics must never be replaced by the standard factory ref")
-      (is (= src source) "flagged site left byte-for-byte unchanged"))))
-
-(deftest custom-aliased-path-flagged
-  (testing "an ALIAS of a custom namespace whose fn is named `path` flags too"
-    (let [src (str "(ns app.events\n"
+                   "  (fn [db _] (assoc db :loaded true)))\n")]
+             ["alias of a custom namespace"
+              (str "(ns app.events\n"
                    "  (:require [re-frame.core :as rf]\n"
                    "            [app.interceptors :as icpt]))\n"
                    "(rf/reg-event-db :x {:interceptors [(icpt/path :tenant)]}\n"
-                   "  (fn [db _] (assoc db :k 1)))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
+                   "  (fn [db _] (assoc db :k 1)))\n")]
+             ["dotted custom namespace in an ns-less fragment"
+              "(rf/reg-event-db :x {:interceptors [(app.interceptors/path :tenant)]} (fn [db _] (assoc db :k 1)))"]
+             ["alias the ns form does not resolve"
+              (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(rf/reg-event-db :x {:interceptors [(xyz/path :a)]} (fn [db _] (assoc db :k 1)))\n")]
+             ["bare path the ns form does not refer"
+              (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(rf/reg-event-db :x {:interceptors [(path :a)]} (fn [db _] (assoc db :k 1)))\n")]]]
+      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+        (is (= [:flag :interceptors] ((juxt :action :flag) (first findings)))
+            (str label " must flag"))
+        (is (= src source)
+            (str label " left byte-for-byte unchanged, never given the standard factory ref"))))))
 
-(deftest custom-dotted-path-flagged-in-ns-less-fragment
-  (testing "even with no ns form, a DOTTED head namespace that is not re-frame.core flags"
-    (let [src "(rf/reg-event-db :x {:interceptors [(app.interceptors/path :tenant)]} (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
-
-(deftest unknown-alias-path-flagged-when-ns-form-present
-  (testing "an alias the ns form does not resolve is ambiguous -> conservative flag"
-    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                   "(rf/reg-event-db :x {:interceptors [(xyz/path :a)]} (fn [db _] (assoc db :k 1)))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
-
-(deftest local-bare-path-flagged-when-not-referred
-  (testing "a bare `path` under an ns form that does NOT refer it is a local fn -> flag"
-    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                   "(rf/reg-event-db :x {:interceptors [(path :a)]} (fn [db _] (assoc db :k 1)))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
-
-(deftest standard-alias-resolved-through-ns-form
-  (testing "the canonical rf alias resolves through the ns form and still lowers"
-    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+(deftest standard-path-heads-lowered
+  (testing "a head that resolves to re-frame.core/path lowers, through the ns form or without one"
+    (doseq [[label src ref]
+            [["rf alias resolved through the ns form"
+              (str "(ns app.events (:require [re-frame.core :as rf]))\n"
                    "(rf/reg-event-db :counter/inc\n"
                    "  {:interceptors [(rf/path :counter)]}\n"
                    "  (fn [db _] (update db :value inc)))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
-      (is (not (str/includes? source "(rf/path"))))))
-
-(deftest standard-referred-bare-path-resolved
-  (testing "a bare `path` the ns form refers from re-frame.core lowers; :refer :all too"
-    (doseq [req ["[re-frame.core :refer [reg-event-db path]]"
-                 "[re-frame.core :refer :all]"]]
-      (let [src (str "(ns app.events (:require " req "))\n"
-                     "(reg-event-db :counter/inc\n"
-                     "  {:interceptors [(path :counter)]}\n"
-                     "  (fn [db _] (update db :value inc)))\n")
-            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= :rewrite (:action (first findings))) (str "require " req))
-        (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))))))
-
-(deftest standard-fully-qualified-path-resolved-everywhere
-  (testing "a fully qualified re-frame.core/path head is standard with or without an ns form"
-    (doseq [src [(str "(ns app.events (:require [re-frame.core]))\n"
-                      "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))\n")
-                 "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))"]]
+              "{:interceptors [[:rf.interceptor/path [:counter]]]}"]
+             ["bare path in :refer"
+              (str "(ns app.events (:require [re-frame.core :refer [reg-event-db path]]))\n"
+                   "(reg-event-db :counter/inc\n"
+                   "  {:interceptors [(path :counter)]}\n"
+                   "  (fn [db _] (update db :value inc)))\n")
+              "{:interceptors [[:rf.interceptor/path [:counter]]]}"]
+             ["bare path under :refer :all"
+              (str "(ns app.events (:require [re-frame.core :refer :all]))\n"
+                   "(reg-event-db :counter/inc\n"
+                   "  {:interceptors [(path :counter)]}\n"
+                   "  (fn [db _] (update db :value inc)))\n")
+              "{:interceptors [[:rf.interceptor/path [:counter]]]}"]
+             ["fully qualified, with an ns form"
+              (str "(ns app.events (:require [re-frame.core]))\n"
+                   "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))\n")
+              "[:rf.interceptor/path [:a]]"]
+             ["fully qualified, in an ns-less fragment"
+              "(re-frame.core/reg-event-db :x {:interceptors [(re-frame.core/path :a)]} (fn [db _] (assoc db :k 1)))"
+              "[:rf.interceptor/path [:a]]"]]]
       (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= :rewrite (:action (first findings))))
-        (is (str/includes? source "[:rf.interceptor/path [:a]]"))))))
+        (is (= :rewrite (:action (first findings))) (str label " must rewrite"))
+        (is (str/includes? source ref) (str label " must lower to the standard factory ref"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; path-head resolution — LEXICAL SHADOWING at the call site (rf2-8odvg reopen)
@@ -359,14 +335,27 @@
 ;; check applies to bare heads only.
 
 (deftest shadowed-bare-path-flagged-across-binding-forms
-  (testing "fn params, defn params, letfn names and for/doseq bindings shadow too"
+  (testing "an enclosing form that binds `path` makes a bare `(path ...)` the local: flag, source unchanged"
     (doseq [[label open close]
-            [["let"     "(let [path app.interceptors/path]"            ")"]
+            [;; the binding vocabulary
+             ["let"     "(let [path app.interceptors/path]"            ")"]
              ["if-let"  "(if-let [path (resolve-path)]"                " nil)"]
              ["fn"      "((fn [path]"                                  ") app.interceptors/path)"]
              ["defn"    "(defn install! [path]"                        ")"]
              ["letfn"   "(letfn [(path [k] [k])]"                      ")"]
-             ["doseq"   "(doseq [path [:a :b]]"                        ")"]]]
+             ["doseq"   "(doseq [path [:a :b]]"                        ")"]
+             ;; a qualified spelling binds exactly as the simple one does, and
+             ;; the vocabulary is keyed by simple names, so it must still count
+             ["clojure.core/let" "(clojure.core/let [path app.interceptors/path]" ")"]
+             ["cljs.core/let"    "(cljs.core/let [path app.interceptors/path]"    ")"]
+             ["aliased core/let" "(c/let [path app.interceptors/path]"            ")"]
+             ["clojure.core/fn"  "((clojure.core/fn [path]"                       ") app.interceptors/path)"]
+             ;; a head outside the vocabulary whose vector child binds the name
+             ;; is a binder whatever its head, which can only ever produce a flag
+             ["defmethod"     "(defmethod install! :web [_ path]"       ")"]
+             ["when-first"    "(when-first [path paths]"                ")"]
+             ["dotimes"       "(dotimes [path 3]"                       ")"]
+             ["project macro" "(app.macros/with-scope [path :tenant]"   ")"]]]
       (let [src (str "(ns app.events\n"
                      "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
                      open "\n"
@@ -374,63 +363,9 @@
                      "    {:interceptors [(path :tenant)]}\n"
                      "    (fn [db _] (assoc db :k 1)))" close "\n")
             {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= :flag (:action (first findings))) (str label " must flag"))
-        (is (= :interceptors (:flag (first findings))) (str label " flag kind"))
-        (is (= src source) (str label " left unchanged"))))))
-
-(deftest shadowed-bare-path-flagged-under-a-qualified-binder
-  (testing "a QUALIFIED spelling of a binder shadows too (rf2-8odvg reopen probe)"
-    ;; `clojure.core/let` is valid Clojure and binds exactly as `let` does, but
-    ;; the binding vocabulary is keyed by simple names — matching the head
-    ;; verbatim missed it and lowered the local as the framework constructor.
-    (doseq [[label binder]
-            [["clojure.core/let" "clojure.core/let"]
-             ["cljs.core/let"    "cljs.core/let"]
-             ["aliased core/let" "c/let"]
-             ["clojure.core/fn"  nil]]]
-      (let [src (if binder
-                  (str "(ns app.events\n"
-                       "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                       "(" binder " [path app.interceptors/path]\n"
-                       "  (reg-event-db :counter/inc\n"
-                       "    {:interceptors [(path :tenant)]}\n"
-                       "    (fn [db _] (update db :value inc))))\n")
-                  (str "(ns app.events\n"
-                       "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                       "((clojure.core/fn [path]\n"
-                       "   (reg-event-db :counter/inc\n"
-                       "     {:interceptors [(path :tenant)]}\n"
-                       "     (fn [db _] (update db :value inc))))\n"
-                       " app.interceptors/path)\n"))
-            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= [:flag :interceptors]
-               ((juxt :action :flag) (first findings)))
+        (is (= [:flag :interceptors] ((juxt :action :flag) (first findings)))
             (str label " must flag, not lower"))
-        (is (not (str/includes? source ":rf.interceptor/path"))
-            (str label " must never emit the framework ref"))
         (is (= src source) (str label " left byte-for-byte unchanged"))))))
-
-(deftest shadowed-bare-path-flagged-under-an-unrecognised-binder
-  (testing "a head outside the vocabulary that binds `path` in a vector child flags"
-    ;; The roster will never hold every binder spelling; a form enclosing the
-    ;; registration whose vector child binds the name is treated as a binder
-    ;; whatever its head, which can only ever produce a flag.
-    (doseq [[label open close]
-            [["defmethod"  "(defmethod install! :web [_ path]"        ")"]
-             ["when-first" "(when-first [path paths]"                 ")"]
-             ["dotimes"    "(dotimes [path 3]"                        ")"]
-             ["project macro" "(app.macros/with-scope [path :tenant]" ")"]]]
-      (let [src (str "(ns app.events\n"
-                     "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                     open "\n"
-                     "  (reg-event-db :x\n"
-                     "    {:interceptors [(path :tenant)]}\n"
-                     "    (fn [db _] (assoc db :k 1)))" close "\n")
-            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= [:flag :interceptors]
-               ((juxt :action :flag) (first findings)))
-            (str label " must flag"))
-        (is (= src source) (str label " left unchanged"))))))
 
 (deftest unrecognised-head-without-a-path-binding-still-lowers
   (testing "the catch-all is narrow: an enclosing form that does NOT bind `path` is inert"
