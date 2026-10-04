@@ -1,7 +1,8 @@
 (ns re-frame.parent-destroy-reaps-tracked-children-test
   "An actor's destroy ends the children its own `:spawn` / `:spawn-all` slots
   track, whatever destroys it: an explicit `[:rf.machine/destroy <id>]`, a
-  replacement at an occupied `:fixed-actor-id`, or its own parent's exit.
+  replacement at an occupied `:fixed-actor-id` (pinned in
+  `fixed_actor_id_addressing_test`), or its own parent's exit.
 
   Spec 005 §Declarative `:spawn` binds such a child's lifetime to the state
   that spawned it, and the runtime records the relation at
@@ -160,26 +161,6 @@
       (is (nil? (snapshot gc-id)) "the grandchild ends with the child")
       (is (= [[parent :exit] [child :exit] [gc :exit]] @log))
       (is (nil? (spawned-root child-id))))))
-
-;; ---- (d) replacement at an occupied :fixed-actor-id ------------------------
-
-(deftest replacing-an-occupant-reaps-its-tracked-child
-  (testing "a spawn onto an occupied :fixed-actor-id destroys the occupant and
-            the child the occupant's :spawn slot tracks"
-    (let [log (atom [])]
-      (reg-logging-child! :prd/kid log)
-      (reg-parent! :prd/parent :prd/kid log)
-      (rf/reg-event :prd/hire
-        (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :prd/parent
-                                            :fixed-actor-id :prd/p}]]}))
-      (rf/dispatch-sync [:prd/hire])
-      (rf/dispatch-sync [:prd/p [:go]])
-      (is (some? (snapshot :prd/kid#1)) "the occupant's child is live")
-      (rf/dispatch-sync [:prd/hire])
-      (is (= :idle (:state (snapshot :prd/p))) "the replacement is installed")
-      (is (nil? (snapshot :prd/kid#1)) "the occupant's child ended with the occupant")
-      (is (= [[:prd/parent :exit] [:prd/kid :exit]] @log))
-      (is (nil? (spawned-root :prd/p))))))
 
 ;; ---- (e) a re-created parent re-mints its child's address ------------------
 
