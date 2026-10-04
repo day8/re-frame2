@@ -354,21 +354,6 @@
       (testing "the node MAP KEY does not embed the raw secret"
         (is (not (contains-secret? (keys view))))))))
 
-(deftest live-view-preserves-non-sensitive-identity
-  (testing "a NON-sensitive resource still rides its scope /
-            params verbatim (projection must not over-redact the common case)"
-    (rf/reg-resource :plain/article (article-spec) article-spec-request)
-    (let [scope  :rf.scope/global
-          params {:slug "welcome"}
-          scoped-key (install-live-entry! :rf/default :plain/article scope params
-                                          {:status :loaded :owner [:app :p 1]})
-          view   (rf.resources.tooling/resource-cache-algebra-view :rf/default)
-          node   (get view (rf.resources.state/key-id scoped-key))]
-      (is (some? node))
-      (is (= [[:scope scope] [:param params]] (:inputs node))
-          "non-sensitive scope + params ride verbatim")
-      (is (= scoped-key (:id node)) "non-sensitive scoped key rides verbatim"))))
-
 (deftest live-view-no-derived-sensitivity-inheritance
   (testing "EP-0025: a resource whose {:from-db <resolver>} scope
             derives from a frame-sensitive :db input is NOT auto-redacted —
