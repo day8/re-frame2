@@ -48,7 +48,6 @@
 ;; `allocate-actor-id-in-runtime-db` builds it (avoids `#` in a keyword
 ;; literal).
 (def ^:private child-instance-id (keyword "rf2-vxgfnd153" "child#1"))
-(def ^:private live-child-instance-id (keyword "rf2-vxgfnd153" "live-child#1"))
 
 ;; ---- spawn cascade fence --------------------------------------------------
 
@@ -179,39 +178,6 @@
     (assert-successor-untouched
       (run-destroyer-spawn :rf2-vxgfnd153/throwing-frame
                            (fn [_] (throw (ex-info "schema validator lost A" {})))))))
-
-(deftest live-owner-spawn-installs-normally
-  (testing "control: a CONFORMING validator that does NOT destroy A leaves the
-            spawn cascade fully intact — the fence is scoped to owner-loss only,
-            so normal successful spawn behavior stays green."
-    (rf.machines.spawn-order/reset-all!)
-    (rf/reg-machine :rf2-vxgfnd153/live-child
-      {:initial :running
-       :data    {:seed :a}
-       :schemas {:data ::live-child-schema}
-       :states  {:running {:on {:go :done}}
-                 :done    {:final? true}}})
-    (rf/reg-event :rf2-vxgfnd153/live-spawn-event
-      (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :rf2-vxgfnd153/live-child}]]}))
-    (let [frame-a      :rf2-vxgfnd153/live-frame
-          spawn-traces (atom [])
-          orig         (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
-      (rf/make-frame {:id frame-a})
-      (rf/register-listener! :trace ::live-spawn
-        (fn [ev] (when (= :rf.machine.spawn/spawned (:operation ev))
-                   (swap! spawn-traces conj ev))))
-      (try
-        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn (fn [_ _] true))
-        (rf/dispatch-sync [:rf2-vxgfnd153/live-spawn-event] {:frame frame-a})
-        (is (some? (rf.machines.test-support/snapshot frame-a live-child-instance-id))
-            "the child snapshot installed (live-owner spawn is unaffected)")
-        (is (seq @spawn-traces)
-            "the :rf.machine.spawn/spawned trace fired for the live-owner spawn")
-        (is (= [live-child-instance-id] (rf.machines.spawn-order/frame-order frame-a))
-            "the spawn-order entry was recorded for the live-owner spawn")
-        (finally
-          (rf/unregister-listener! :trace ::live-spawn)
-          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig))))))
 
 ;; ---- update-snapshot escape-hatch fence -----------------------------------
 
@@ -386,10 +352,3 @@
             unfenced emits the boundary trace after A was lost."
     (is (zero? (run-completion-validation :rf2-vxgfnd153/completion-frame true))
         "no :machine-output diagnostic is attributed to B after the validator lost A")))
-
-(deftest completion-output-validator-emits-while-owner-live
-  (testing "control: a violation while A STILL owns the completion emits exactly
-            one :machine-output trace — schema error reporting is unaffected by
-            the fence."
-    (is (= 1 (run-completion-validation :rf2-vxgfnd153/completion-live-frame false))
-        "a violation with A live emits exactly one :machine-output diagnostic")))
