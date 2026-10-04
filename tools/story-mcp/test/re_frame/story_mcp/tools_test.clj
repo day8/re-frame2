@@ -552,16 +552,6 @@
     (is (= :pass (:status s)) "no assertions ⇒ vacuously :pass")
     (is (vector? (:checks s)))))
 
-(deftest preview-variant-not-found
-  (let [r (invoke "preview-variant" {:variant-id "story.nope/missing"})]
-    (is (error? r))
-    (is (re-find #"not found" (-> r :content first :text)))))
-
-(deftest preview-variant-missing-arg
-  (let [r (invoke "preview-variant" {})]
-    (is (error? r))
-    (is (re-find #"variant-id" (-> r :content first :text)))))
-
 ;; On the JVM stdio host the substrate registry is
 ;; UNREACHABLE (no browser bridge), so `list-substrates` must return a
 ;; machine-readable capability-unavailable error, NOT a false-empty
@@ -756,10 +746,22 @@
         ":effective-args is the real resolved args map, not :rf/redacted")
     (is (contains? e :required-runner) "the plan's runner requirement is surfaced")))
 
-(deftest explain-variant-unknown
-  (let [r (invoke "explain-variant" {:variant-id "story.nope/missing"})]
-    (is (error? r))
-    (is (re-find #"not found" (-> r :content first :text)))))
+(deftest lookup-tools-refuse-unknown-or-missing-ids
+  ;; A lookup tool refuses an id the registry does not hold, or an absent
+  ;; required id, as a tool-execution error naming the problem.
+  (doseq [[tool args text-re]
+          [["preview-variant"   {:variant-id "story.nope/missing"} #"not found"]
+           ["preview-variant"   {}                                 #"variant-id"]
+           ["run-variant"       {:variant-id "story.nope/missing"} #"not found"]
+           ["snapshot-identity" {:variant-id "story.nope/missing"} nil]
+           ["explain-variant"   {:variant-id "story.nope/missing"} #"not found"]
+           ["get-docs-markdown" {:story-id "story.nope/missing"}   #"not found"]
+           ["get-docs-markdown" {}                                 #"story-id"]]]
+    (testing (str tool " " (pr-str args))
+      (let [r (invoke tool args)]
+        (is (error? r))
+        (when text-re
+          (is (re-find text-re (-> r :content first :text))))))))
 
 (deftest list-tags-includes-canonical
   (let [r (invoke "list-tags" {})
@@ -888,16 +890,6 @@
         "includes per-variant :doc")
     (is (= :story.button (:story-id s)))
     (is (vector? (:variants s)))))
-
-(deftest get-docs-markdown-unknown-story
-  (let [r (invoke "get-docs-markdown" {:story-id "story.nope/missing"})]
-    (is (error? r))
-    (is (re-find #"not found" (-> r :content first :text)))))
-
-(deftest get-docs-markdown-missing-arg
-  (let [r (invoke "get-docs-markdown" {})]
-    (is (error? r))
-    (is (re-find #"story-id" (-> r :content first :text)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pagination on the Docs `list-*` tools
@@ -1065,11 +1057,6 @@
     (is (vector? (:assertions s)))
     (is (vector? (:checks s)) "the unified :checks group is present")))
 
-(deftest run-variant-unknown
-  (let [r (invoke "run-variant" {:variant-id "story.nope/missing"})]
-    (is (error? r))
-    (is (re-find #"not found" (-> r :content first :text)))))
-
 (deftest lifecycle-tools-refuse-with-no-adapter
   ;; The NEGATIVE CONTROL for the no-adapter refusal. `reset-story-and-config` installs
   ;; `plain-atom` before every test — exactly the boot a consuming project's
@@ -1130,10 +1117,6 @@
       (is (= :cannot-run (:status s))
           "no reactive evidence ⇒ the causal expectation is :cannot-run, not a silent pass"))
     (invoke "unregister-variant" {:variant-id "story.cause/unrunnable"})))
-
-(deftest snapshot-identity-unknown
-  (let [r (invoke "snapshot-identity" {:variant-id "story.nope/missing"})]
-    (is (error? r))))
 
 (deftest run-opts-wrongly-typed-arg-rejected
   ;; `:active-modes` advertises an array argument
