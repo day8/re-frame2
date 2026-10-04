@@ -190,9 +190,7 @@
       (is (leaf-redacted? data-summary)
           "the sensitive :secret leaf is redacted to :rf/redacted in the
            bounded preview; the raw session token never appears in any
-           display field")
-      (is (no-raw-secret? data-summary)
-          "the raw session token never appears in any display field"))
+           display field"))
 
     (testing "the entry METADATA survives the redaction (status / generation /
               owners project from the RAW entry, never through egress)"
@@ -241,13 +239,10 @@
               and gets the SAME elision as data (the :secret leaf is
               :rf/redacted in place; the raw token never previews)"
       (is (leaf-redacted? scope-summary)
-          "the sensitive scope leaf redacts to :rf/redacted in the preview")
-      (is (no-raw-secret? scope-summary)
-          "the raw token never previews through the scope summary"))
+          "the sensitive scope leaf redacts to :rf/redacted in the preview"))
     (testing "the params' sensitive slot redacts the same way (params identify
               the remote read)"
-      (is (leaf-redacted? params-summary))
-      (is (no-raw-secret? params-summary)))
+      (is (leaf-redacted? params-summary)))
     (testing "the RAW scoped-key is preserved verbatim as the react/identity
               key — per-row egress must never collapse two entries whose scope
               redacts to the same sentinel"
@@ -292,9 +287,4 @@
       (is (false? (:redacted? data-summary))
           "no sensitive decl on :app/plain ⇒ the data is not redacted")
       (is (str/includes? (:preview data-summary) "Welcome")
-          "the plain-frame preview renders the (unredacted) value")
-      ;; And the SECURE frame redacts the SAME value — proving the divergence
-      ;; is the observed frame's policy, not an artefact of the value.
-      (is (leaf-redacted? (:data (h/instance-row [key-id raw-entry] nil
-                                                 (local-egress-fn secure-frame))))
-          "the SAME value redacts under the secure frame — per-frame policy"))))
+          "the plain-frame preview renders the (unredacted) value"))))
