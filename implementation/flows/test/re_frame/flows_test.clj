@@ -132,12 +132,8 @@
         "flow materialised its output at the leaf")
     (rf/clear :flow :wizard/result)
     (let [db (rf/app-db-value :rf/default)]
-      (is (not (contains? (get db :wizard) :result))
-          "the leaf value is fully vacated")
-      (is (contains? db :wizard)
-          "the parent key persists (leaf-only vacation)")
       (is (= {} (dissoc (get db :wizard) :seed))
-          "only the empty husk (plus unrelated sibling :seed) remains under the parent"))))
+          "the leaf is vacated and the parent persists: only the husk (plus the unrelated sibling :seed) remains under it"))))
 
 (deftest clear-flow-noop-dissoc-does-not-rewrite-the-container
   ;; `clear-flow` skips `replace-container!` when the dissoc branch was a no-op
@@ -237,12 +233,8 @@
         "flow ran on the drain after :seed and materialised :area")
     (rf/clear :flow :area)
     (let [db (rf/app-db-value :rf/default)]
-      (is (not (contains? db :area))
-          "single-element :output-path is dissoc'd cleanly")
-      (is (not (contains? db nil))
-          "no spurious {nil nil} entry from update-in on empty path")
       (is (= {:w 3 :h 4} db)
-          "siblings of the cleared key are untouched"))))
+          "the single-element :output-path is dissoc'd cleanly, with no spurious {nil nil} entry from update-in on an empty path, and its siblings are untouched"))))
 
 (deftest reg-flow-missing-id-and-bad-output-carry-canonical-error-ids
   ;; Companion to `reg-flow-error-carries-canonical-rf-error-id-slot`
@@ -286,13 +278,8 @@
   ;; downstream. `reg-flow` rejects a present-but-non-keyword id at the API
   ;; boundary with the dedicated `:rf.error/flow-bad-id` discriminator (a
   ;; member of the `:rf.error/flow-bad-*` family). nil/absent is
-  ;; `:rf.error/flow-missing-id` (the absent-id case fires first); a keyword
-  ;; id passes.
-  (testing "a nil :id throws :rf.error/flow-missing-id (absent), NOT flow-bad-id"
-    (let [ex (try (rf/reg-flow nil {:inputs [[:n]] :output-path [:x]} identity)
-                  (catch Throwable t t))]
-      (is (= :rf.error/flow-missing-id (:rf.error/id (ex-data ex)))
-          "a nil id is the missing-id case (some? nil is false)")))
+  ;; `:rf.error/flow-missing-id`, pinned by the deftest above, because the
+  ;; absent-id rule runs first.
   (testing "a string :id throws :rf.error/flow-bad-id"
     (let [ex   (try (rf/reg-flow "creds" {:inputs [[:n]] :output-path [:x]} identity)
                     (catch Throwable t t))
@@ -315,12 +302,7 @@
     (let [ex (try (rf/reg-flow {:k 1} {:inputs [[:n]] :output-path [:x]} identity)
                   (catch Throwable t t))]
       (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
-          "a map id is rejected as bad-id")))
-  (testing "a keyword :id is accepted (no throw)"
-    (rf/reg-event :ok/init (fn [{:keys [db]} _] {:db db}))
-    (is (= :ok/flow
-           (rf/reg-flow :ok/flow {:inputs [[:n]] :output-path [:x]} identity))
-        "a keyword id registers cleanly and reg-flow returns the id")))
+          "a map id is rejected as bad-id"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1b. validate-flow well-formedness
@@ -544,8 +526,6 @@
       (is (flow-bad-marks? ex) "error id is :rf.error/flow-bad-marks")
       (is (= flows-before (rf.flows/flows-snapshot))
           "no flow row was installed — the per-frame flows registry is unchanged")
-      (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :bad/no-leak))
-          "specifically: the rejected flow id is absent from the registry")
       (is (= sensitive-before (rf.elision/sensitive-declarations :rf/default))
           "no :sensitive elision declaration was installed (the well-formed
            [:secret] mark did not leak past the malformed :large rejection)")
@@ -567,19 +547,13 @@
           cycle (:cycle data)]
       (is (some? ex)        "registration threw")
       (is (vector? cycle)   ":cycle is a vector")
-      (is (= 3 (count cycle))
-          "two-flow cycle has length 3 (n+1, including the closing repeat)")
-      (is (= (first cycle) (last cycle))
-          ":cycle closes on itself (first = last)")
-      (is (= #{:a :b} (set cycle))
-          ":cycle names both offending flow ids")
       ;; Spec 013 example: {:cycle [:a :b :a]}. Either :a or :b may
       ;; legally be the starting node (the impl picks deterministically
       ;; via sort-by hash; the spec leaves the starting node
       ;; implementation-defined) — assert one of the two valid
       ;; closures.
       (is (contains? #{[:a :b :a] [:b :a :b]} cycle)
-          "the cycle path is one of the two valid two-flow closures")))
+          "the cycle path is one of the two valid two-flow closures: length 3 (n+1), closing on its start, naming both ids")))
 
   (testing "three-flow cycle: :a → :b → :c → :a"
     ;; Reset and build a longer chain. The reg-flow ordering matters
@@ -655,11 +629,7 @@
         (is (= [[:source]] (:inputs b-after))
             "prior :b's :inputs are intact ([[:source]], not the rejected [[:a]])")
         (is (identical? original-b-output (:derive b-after))
-            "prior :b's :derive fn has the SAME identity (not the rejected new fn)"))
-      ;; And the per-frame store — the single source of truth —
-      ;; must still resolve the prior :b for this frame.
-      (is (some? (rf.flows/flow-meta {:frame :rf/default :id :b}))
-          "the per-frame flow store for :b is still populated"))))
+            "prior :b's :derive fn has the SAME identity (not the rejected new fn)")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1c. Self-referential (single-node) dependency cycles

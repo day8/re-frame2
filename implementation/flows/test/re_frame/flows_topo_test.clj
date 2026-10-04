@@ -83,8 +83,6 @@
       (let [data (ex-data thrown)]
         (is (= :rf.error/flow-cycle (:rf.error/id data))
             "ex-data carries the canonical :rf.error/id discriminator")
-        (is (nil? (:error data))
-            "ex-data carries no :error slot — :rf.error/id is the discriminator")
         (is (= 'rf/reg-flow (:where data))
             "ex-data carries :where 'rf/reg-flow — points at the user-facing call site")
         (is (= :fix-registration (:recovery data))

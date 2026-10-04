@@ -58,8 +58,7 @@
 (deftest empty-registry-returns-empty-map
   (testing "(flow-algebra-view) returns {} (not nil) when no flows are registered"
     (rf.flows/reset-flows!)
-    (is (= {} (rf.flows.tooling/flow-algebra-view)))
-    (is (map? (rf.flows.tooling/flow-algebra-view))))
+    (is (= {} (rf.flows.tooling/flow-algebra-view))))
   (testing "(flow-algebra-view frame-id) returns {} for a frame with no flows"
     (is (= {} (rf.flows.tooling/flow-algebra-view :rf/default)))))
 
