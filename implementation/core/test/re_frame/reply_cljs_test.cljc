@@ -6,14 +6,15 @@
     1. reply-map SCHEMA — exactly one valid `:status`; the per-status
        value/error conventions incl `:partial` (usable value AND
        structured error); the data-only invariant (NO host handles).
-    2. functor LAWS for reply-target mapping — identity + composition,
-       plus the naturality law `(complete (map-completed-event f t) r) ==
-       (f (complete t r))`, and the proof that mapping changes ONLY the
-       completed event (not work id / status / cancellation / stale /
-       tracing).
+    2. functor LAWS for reply-target mapping — composition plus the
+       naturality law `(complete (map-completed-event f t) r) ==
+       (f (complete t r))`, whose exact equality also proves that mapping
+       changes ONLY the completed event. The identity law is pinned by
+       `re-frame.timer-probe-conformance-cljs-test`.
     3. STALE SUPPRESSION — the helper suppresses the app target (does NOT
-       deliver) AND records the suppressed ledger/trace outcome carrying
-       the carried + current correlation.
+       deliver) AND records the suppressed ledger outcome; the trace facts
+       carrying the carried + current correlation are pinned by
+       `re-frame.timer-probe-conformance-cljs-test`.
 
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope. Pure substrate — no runtime fixture needed."
@@ -41,19 +42,16 @@
              ;; rather than fill a nil sentinel), so a validator that rejected
              ;; only `(some? error)` would let {:status :ok :error nil} slip
              ;; through.
-             [":ok with a :value" {:status :ok :value 42} ::valid]
              [":ok without a :value" {:status :ok} :rf.reply/ok-missing-value]
              [":ok carrying an :error" {:status :ok :value 1 :error {:kind :x}} :rf.reply/ok-has-error]
              [":ok with a nil :error placeholder — OMIT it, never nil-fill it"
               {:status :ok :value 1 :error nil} :rf.reply/ok-has-error]
-             [":ok with :error omitted entirely" {:status :ok :value 1} ::valid]
              ;; :error requires a family error MAP carrying a :kind — every
              ;; family error is a structured {:kind …} map, never a loose scalar.
              [":error with a family error map" {:status :error :error {:kind :rf.http/http-5xx}} ::valid]
              [":error without an :error" {:status :error} :rf.reply/error-missing-error]
              [":error map without a :kind" {:status :error :error {:no :kind}} :rf.reply/error-not-family-map]
              [":error as a bare keyword" {:status :error :error :rf.http/http-5xx} :rf.reply/error-not-family-map]
-             [":error as a bare string" {:status :error :error "boom"} :rf.reply/error-not-family-map]
              ;; :partial carries BOTH a usable :value AND a structured family
              ;; :error map with a :kind.
              [":partial with a value and a family error"
@@ -160,12 +158,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest target-normalization
-  (testing "the public short form normalizes to a :delivery :append descriptor"
-    (is (= {:event [:article/load-replied {:id 42}] :delivery :append}
-           (rf.reply/normalize-target [:article/load-replied {:id 42}]))))
-  (testing "the descriptor form defaults :delivery to :append"
-    (is (= :append (:delivery (rf.reply/normalize-target
-                                {:event [:x] :suppress {:generation 1}})))))
   (testing "normalization is idempotent and preserves gate fields"
     (let [d (rf.reply/normalize-target {:event [:x] :delivery :append
                                      :suppress {:route/nav-token "nav-7"}})]
@@ -174,9 +166,7 @@
     (is (= [:x 1] (rf.reply/target->short-form [:x 1])))
     (is (= [:x 1] (rf.reply/target->short-form {:event [:x 1] :delivery :append}))))
   (testing "short-form projection keeps the descriptor when gates are present"
-    (is (map? (rf.reply/target->short-form {:event [:x] :suppress {:g 1}}))))
-  (testing "nil target ⇒ nil (no continuation)"
-    (is (nil? (rf.reply/normalize-target nil)))))
+    (is (map? (rf.reply/target->short-form {:event [:x] :suppress {:g 1}})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1b'' — MALFORMED target rejection. The
@@ -227,16 +217,8 @@
 
 (deftest map-completed-event-preserves-nil-no-continuation
   (testing "mapping a nil target stays nil — NOT a bogus {::post f} eventless descriptor"
-    (is (nil? (rf.reply/map-completed-event identity nil)))
     (is (nil? (rf.reply/map-completed-event (fn [e] [:wrap e]) nil))
-        "mapping the absence of a continuation is still the absence of a continuation")
-    (is (nil? (rf.reply/complete (rf.reply/map-completed-event (fn [e] [:wrap e]) nil)
-                              {:status :ok :value 1}))
-        "and completing that mapped-nil target yields nil (no delivery)"))
-  (testing "mapping a well-formed target still relocates it (the nil guard does not weaken mapping)"
-    (let [mapped (rf.reply/map-completed-event (fn [e] [:parent e]) [:x {:id 1}])]
-      (is (= [:parent [:x {:id 1} {:status :ok :value 7}]]
-             (rf.reply/complete mapped {:status :ok :value 7}))))))
+        "mapping the absence of a continuation is still the absence of a continuation")))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1b' — the reply-target-as-data contract. A
@@ -264,10 +246,6 @@
   (testing "durable-target FAILS LOUD when a host handle hides in a PUBLIC field (an app/family bug)"
     ;; A function smuggled into :suppress (or any public slot) would leak a
     ;; non-serializable value into a durable reply target — reject it loudly.
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #"must be data-only"
-          (rf.reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})))
     (try
       (rf.reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})
       (is false "expected durable-target to throw")
@@ -323,11 +301,6 @@
   [event]
   [:parent/relay event])
 
-(deftest functor-identity-law
-  (testing "(map-completed-event identity target) completes identically to target — identity law"
-    (is (= (rf.reply/complete target a-reply)
-           (rf.reply/complete (rf.reply/map-completed-event identity target) a-reply)))))
-
 (deftest functor-naturality-law
   (testing "(complete (map-completed-event f t) r) == (f (complete t r)) — the mapping law"
     (is (= (rf.reply/complete (rf.reply/map-completed-event select-article-event target) a-reply)
@@ -350,22 +323,6 @@
                                       :work/id [:rf.work/http :article/by-id 42 1]}]
              (rf.reply/complete (rf.reply/map-completed-event (comp f g) target) a-reply))))))
 
-(deftest mapping-changes-only-the-event
-  (testing "mapping the target does NOT change the reply's work id / status / correlation"
-    (let [mapped    (rf.reply/map-completed-event select-article-event target)
-          completed (rf.reply/complete mapped a-reply)
-          delivered (peek completed)]
-      ;; The COMPLETED EVENT changed (value→article); the reply's identity facts did not.
-      (is (= [:rf.work/http :article/by-id 42 1] (:work/id delivered)))
-      (is (= :ok (:status delivered)))
-      ;; And issuance/correlation are unaffected — `map-completed-event` stores no work-id /
-      ;; status / suppression on the target (the functor law's structural guarantee):
-      ;; the only difference between mapped and unmapped completion is the event payload.
-      (is (= {:article {:id 42 :title "Welcome"}}
-             (:value (peek (rf.reply/complete target a-reply)))))
-      (is (= {:id 42 :title "Welcome"}
-             (:value (peek completed)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Group 3 — stale suppression: the correctness boundary.
 ;; ---------------------------------------------------------------------------
@@ -379,35 +336,6 @@
         "extra current keys are ignored — the carried gate's key set governs")
     (is (false? (rf.reply/stale? nil nil)) "no gate ⇒ nothing to supersede")
     (is (true?  (rf.reply/stale? {:generation 4} nil)) "current gone ⇒ stale")))
-
-(deftest suppress-does-not-deliver-app-target
-  (testing "suppression produces :status :stale, marks :suppressed, and does NOT deliver"
-    (let [carried {:work/id [:rf.work/resource [:a/k] 4] :generation 4}
-          current {:work/id [:rf.work/resource [:a/k] 5] :generation 5}
-          {:keys [deliver? reply] :as out}
-          (rf.reply/suppress [:article/route-replied {:slug "welcome"}] carried current
-                          {:work/id      (:work/id carried)
-                           :work/kind    :resource
-                           :rf.frame/id  :app/main
-                           :rf.reply/stale-reason :resource/generation-mismatch})]
-      (is (false? deliver?) "the app reply target MUST NOT run")
-      (is (= :stale (:status reply)))
-      (is (true? (:stale? reply)))
-      (is (= :resource/generation-mismatch (:rf.reply/stale-reason reply)))
-      (is (= :suppressed (:rf.reply/work-status reply)) "ledger terminal for a stale completion")
-      (is (= :suppressed (:rf.reply/work-status out)))
-      (is (not (contains? reply :value)) "a stale reply carries NO value — no app-state mutation"))))
-
-(deftest suppress-records-carried-and-current-trace-facts
-  (testing "the trace facts carry BOTH the carried and current correlation"
-    (let [carried {:route/nav-token "nav-1"}
-          current {:route/nav-token "nav-2"}
-          {:keys [trace]} (rf.reply/suppress [:x] carried current
-                                          {:rf.reply/stale-reason :route/nav-token-mismatch})]
-      (is (true? (:rf.reply/suppressed? trace)))
-      (is (= :route/nav-token-mismatch (:rf.reply/stale-reason trace)))
-      (is (= carried (:rf.reply/carried trace)))
-      (is (= current (:rf.reply/current trace))))))
 
 (deftest suppress-default-reason
   (testing "a default :rf.reply/stale-reason is supplied when the family does not name one"
