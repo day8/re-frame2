@@ -20,7 +20,10 @@
        `:id` / `:time` / `:tags` and NO span-shape fields (no `:start`,
        `:end`, `:duration`, `:child-of`).
     6. Frame-aware tagging: trace events emitted on behalf of a specific
-       frame carry `:frame frame-id` under `:tags`.
+       frame carry `:frame frame-id` under `:tags`. (Pinned by
+       `frame-isolation-trace-events-carry-only-their-own-frame` in
+       `trace_buffer_test.clj`: the ring and the listeners receive the
+       same event.)
     7. Production elision is gated on `re-frame.interop/debug-enabled?`:
        `emit!` and the user-facing listener emit path are wrapped in the
        compile-time gate so Closure DCE strips them in `:advanced` builds
@@ -67,12 +70,6 @@
 (use-fixtures :each reset-runtime)
 
 ;; ---- helpers ---------------------------------------------------------------
-
-(defn- dispatched-events
-  [evs]
-  (filterv #(and (= :rf.event (:op-type %))
-                 (= :rf.event/dispatched (:operation %)))
-           evs))
 
 (def ^:private span-shape-keys
   "Span-shape fields explicitly excluded by Spec 009 §The trace event model:
@@ -163,27 +160,6 @@
                 (str "expected no span-shape keys; saw: "
                      (pr-str (vec (take 3 violators))))))))
       (rf/unregister-listener! :trace ::shape))))
-
-;; ---- 5. Frame-aware tagging -----------------------------------------------
-
-(deftest ^:requires-debug different-frames-carry-distinct-frame-tags
-  (testing "events emitted on behalf of different frames carry their respective :frame ids"
-    (rf/make-frame {:id :frame/a})
-    (rf/make-frame {:id :frame/b})
-    (let [seen (atom [])]
-      (rf/register-listener! :trace ::multi (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:ping] {:frame :frame/a})
-      (rf/dispatch-sync [:ping] {:frame :frame/b})
-      (let [a (->> @seen dispatched-events
-                   (filter #(= :frame/a (get-in % [:tags :frame])))
-                   first)
-            b (->> @seen dispatched-events
-                   (filter #(= :frame/b (get-in % [:tags :frame])))
-                   first)]
-        (is a "frame :frame/a's :rf.event/dispatched delivered with its frame tag")
-        (is b "frame :frame/b's :rf.event/dispatched delivered with its frame tag"))
-      (rf/unregister-listener! :trace ::multi))))
 
 ;; ---- clear-listeners! direct contract pin --------------------------------
 ;;
