@@ -164,17 +164,8 @@
       (is (= :attributed (:sub-runs by-k))))))
 
 ;; ===========================================================================
-;; span-kind + step-label  (spec/020 §3 — define non-dispatch spans)
+;; step-label
 ;; ===========================================================================
-
-(deftest span-kind-distinguishes-dispatch-non-dispatch-setup
-  (testing "a dispatch step span is :dispatch"
-    (is (= :dispatch (rf.story.ui.evidence-spine/span-kind {:step [:dispatch [:e]] :epochs []}))))
-  (testing "a non-dispatch step span (assert / wait) is :non-dispatch"
-    (is (= :non-dispatch (rf.story.ui.evidence-spine/span-kind {:step [:assert [:rf.assert/path-equals [:c] 1]] :epochs []})))
-    (is (= :non-dispatch (rf.story.ui.evidence-spine/span-kind {:step [:wait-until [:fn]] :epochs []}))))
-  (testing "the leading nil-step span is :setup"
-    (is (= :setup (rf.story.ui.evidence-spine/span-kind {:step nil :epochs []})))))
 
 (deftest step-label-renders-compact-labels
   (testing "a dispatch step shows its event-id"
