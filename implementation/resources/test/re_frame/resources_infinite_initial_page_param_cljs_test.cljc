@@ -3,9 +3,9 @@
   (EP-0021 R8, Spec 016 §Causal event — load-more — the page-0 cursor, the
   TanStack `initialPageParam` analogue).
 
-  The pure boundary (`rf.resources.state/page-param-for-spec`) is pinned in
-  `resources_infinite_state_cljs_test` (`page-0-param-default`). This suite
-  pins the RUNTIME half: that a non-nil `:initial-page-param` actually RIDES
+  The nil default is pinned by the load-more suite's page-0 request (no
+  cursor sent). This suite pins the override: that a non-nil
+  `:initial-page-param` actually RIDES
   into the page-0 request and is recorded as page-0's `:page-params` entry.
   Ignoring the override on the page-0 fetch (e.g. hardcoding nil) would pass
   every default-param test — every other event/example test uses the
