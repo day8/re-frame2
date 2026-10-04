@@ -30,12 +30,11 @@
   SUCCEEDS and the id is resolvable in the registrar (the cascade continues).
 
   The NEGATIVE warning assertions are guarded too — a negative over an empty
-  trace ring is vacuous — five per deftest across the five registrar kinds:
-  `namespaced-and-known-keys-pass-silently-per-registrar` and
-  `schema-v2-key-passes-where-spec-would-fail` both certify the absence of an
-  unknown-key warning with `(is (empty? warns))` over a stream that carries
-  nothing at all under the gate. Unguarded, both deftests would be GREEN
-  there on one real assertion (the no-throw) and five free ones."
+  trace ring is vacuous — five across the five registrar kinds:
+  `namespaced-and-known-keys-pass-silently-per-registrar` certifies the absence
+  of an unknown-key warning with `(is (empty? warns))` over a stream that
+  carries nothing at all under the gate. Unguarded, it would be GREEN there on
+  the no-throw and five free assertions."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.interop :as rf.interop]
             [re-frame.events :as rf.events]
@@ -158,9 +157,10 @@
 ;; ---- namespaced extension key + known keys — SILENT (the carve-out) -------
 
 (deftest namespaced-and-known-keys-pass-silently-per-registrar
-  (testing "a valid registration — known bare keys plus a NAMESPACED extension
-            key (the open-map carve-out) — passes with NO unknown-key warning and
-            NO throw"
+  (testing "a valid registration — known bare keys, including `:schema` (the
+            v2 name the retired-`:spec` guard must never reject), plus a
+            NAMESPACED extension key (the open-map carve-out) — passes with NO
+            unknown-key warning and NO throw"
     (doseq [[kind id] kinds]
       (testing (str kind)
         (let [ed    (atom :not-thrown)
@@ -169,6 +169,7 @@
                                     (fn []
                                       (register! kind id
                                                  {:doc            "a valid registration"
+                                                  :schema         [:map]
                                                   :myapp/extra-id 42})))))]
           ;; ALWAYS-ON: the carve-out does not throw, and the registration lands.
           (is (nil? @ed)
@@ -182,21 +183,3 @@
             (is (empty? warns)
                 (str "no unknown-key warning for known + namespaced keys; got "
                      (pr-str warns)))))))))
-
-;; ---- the schema-bearing kinds accept `:schema` (the v2 name) --------------
-
-(deftest schema-v2-key-passes-where-spec-would-fail
-  (testing "the kinds that carry `:schema` accept the v2 spelling silently — the
-            retired-key guard rejects ONLY the v1 `:spec`, never its replacement"
-    (doseq [kind [:event :sub :fx :cofx :interceptor]]
-      (testing (str kind)
-        (let [id    (get kinds kind)
-              warns (with-captured-warnings
-                      #(is (nil? (caught-ex-data
-                                   (fn [] (register! kind id {:doc "x" :schema [:map]}))))
-                           (str "reg-" (name kind) " accepts `:schema`")))]
-          (is (some? (rf.registrar/lookup kind id))
-              "the `:schema`-bearing registration landed")
-          ;; Dev-instrumentation arm — vacuous under the gate, as above.
-          (when rf.interop/debug-enabled?
-            (is (empty? warns) "`:schema` is a known key — no unknown-key warning")))))))
