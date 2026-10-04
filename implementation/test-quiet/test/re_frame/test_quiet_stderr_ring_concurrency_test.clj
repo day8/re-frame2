@@ -77,7 +77,10 @@
   (testing "releasing *err* and raw System.err writers together past the cap never throws or exceeds the cap"
     (let [trials       30
           writes-each  3
-          failures     (atom [])]
+          failures     (atom [])
+          ;; One row per trial; each property below is read once over all
+          ;; rows, so a failure lists the offending trials together.
+          rows         (atom [])]
       (dotimes [trial-index trials]
         (let [{:keys [stderr-ring dynamic-err-writer system-err-stream]}
               (make-stderr-wiring)
@@ -103,26 +106,29 @@
           ;; prove each channel's newest write survives inside a bounded ring.
           (.println dynamic-err-writer (str "ERR-TAIL-" trial-index))
           (.println system-err-stream (str "SYS-TAIL-" trial-index))
-          ;; Bind booleans / the length BEFORE asserting so clojure.test's
-          ;; `actual:` form never embeds the up-to-256-KiB ring string — a
-          ;; failing trial stays readable rather than dumping the whole ring.
-          (let [ring-text        (locking stderr-ring (.toString stderr-ring))
-                ring-length      (.length stderr-ring)
-                dynamic-err-tail? (str/includes? ring-text
-                                                 (str "ERR-TAIL-" trial-index))
-                system-err-tail? (str/includes? ring-text
-                                                (str "SYS-TAIL-" trial-index))]
-            (is (<= ring-length stderr-buffer-cap)
-                (str "the ring must stay at or below the " stderr-buffer-cap
-                     "-char cap after a concurrent flood; got " ring-length
-                     " chars on trial " trial-index))
-            (is dynamic-err-tail?
-                (str "the *err* channel's newest write must survive the ring on"
-                     " trial " trial-index " (ring-length=" ring-length ")"))
-            (is system-err-tail?
-                (str "the System.err channel's newest write must survive the"
-                     " ring on trial " trial-index
-                     " (ring-length=" ring-length ")")))))
+          ;; Record booleans and the length, never the ring text, so a failing
+          ;; read stays readable rather than dumping up to 256 KiB of ring.
+          (let [ring-text (locking stderr-ring (.toString stderr-ring))]
+            (swap! rows conj
+                   {:trial             trial-index
+                    :ring-length       (.length stderr-ring)
+                    :dynamic-err-tail? (str/includes? ring-text
+                                                      (str "ERR-TAIL-" trial-index))
+                    :system-err-tail?  (str/includes? ring-text
+                                                      (str "SYS-TAIL-" trial-index))}))))
+      (let [over-cap         (remove #(<= (:ring-length %) stderr-buffer-cap) @rows)
+            lost-dynamic-err (remove :dynamic-err-tail? @rows)
+            lost-system-err  (remove :system-err-tail? @rows)]
+        (is (empty? over-cap)
+            (str "the ring must stay at or below the " stderr-buffer-cap
+                 "-char cap after a concurrent flood; over it: "
+                 (pr-str over-cap)))
+        (is (empty? lost-dynamic-err)
+            (str "the *err* channel's newest write must survive the ring;"
+                 " lost on: " (pr-str lost-dynamic-err)))
+        (is (empty? lost-system-err)
+            (str "the System.err channel's newest write must survive the"
+                 " ring; lost on: " (pr-str lost-system-err))))
       (is (empty? @failures)
           (str "concurrent writes through the two JVM stderr channels must"
                " never throw (a torn StringBuilder is a reporter bug that"
