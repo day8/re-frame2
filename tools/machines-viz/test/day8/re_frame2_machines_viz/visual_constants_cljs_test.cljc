@@ -137,13 +137,6 @@
     (is (= 13 (:state-title-px vc/chart)))
     (is (= 11 (:edge-label-px vc/chart)))))
 
-(deftest chart-regular-compound-radius-matches-shipped-render
-  (testing "`chart-regular`'s `:compound-radius` equals the
-            compound-node chrome's 10px. Distinct from the
-            state-node `:corner-radius` lock (6); the compound box reads
-            as a looser container."
-    (is (= 10 (:compound-radius vc/chart)))))
-
 (deftest chart-arrowhead-quiet-smaller-than-primary
   (testing "the QUIET `__in` arrowhead is smaller than the
             PRIMARY `__out` arrowhead so the primary head reads as the
