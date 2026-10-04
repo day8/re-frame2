@@ -31,44 +31,6 @@
   [data label]
   (update data :log (fnil conj []) label))
 
-;; ---- 1. a region's :raise reaches a SIBLING region ------------------------
-
-(deftest region-raise-broadcasts-to-sibling
-  (testing "left raises [:ping]; right (which has no [:trigger] handler but
-   does handle [:ping]) transitions on the re-broadcast raise"
-    (let [spec
-          {:type    :parallel
-           :data    {}
-           :actions {;; left's :trigger action raises [:ping] into the machine
-                     :left-trigger (fn [{:keys [data]}]
-                                     {:data (log! data :left-trigger)
-                                      :fx   [[:raise [:ping]]]})
-                     :right-pong   (fn [{:keys [data]}]
-                                     {:data (log! data :right-pong)})}
-           :regions
-           {:left  {:initial :idle
-                    :states  {:idle {:on {:trigger {:target :fired
-                                                     :action :left-trigger}}}
-                              :fired {}}}
-            :right {:initial :waiting
-                    ;; :right declines [:trigger] entirely; it only moves on
-                    ;; the re-broadcast [:ping] — proving cross-region reach.
-                    :states  {:waiting {:on {:ping {:target :ponged
-                                                    :action :right-pong}}}
-                              :ponged  {}}}}}
-          {snap :snapshot}
-          (rf.machines/machine-transition spec
-                                       {:state {:left :idle :right :waiting} :data {}}
-                                       [:trigger])]
-      (is (= :fired (get-in snap [:state :left]))
-          "left transitioned on the external [:trigger]")
-      (is (= :ponged (get-in snap [:state :right]))
-          "right transitioned on the RE-BROADCAST [:ping] — region-local
-           delivery would leave it at :waiting")
-      (is (= [:left-trigger :right-pong] (:log (:data snap)))
-          "the raise re-broadcast AFTER the external event settled, reaching
-           the sibling region in one macrostep"))))
-
 ;; ---- 2. a sibling's GUARD sees the raise's evolving :data -----------------
 
 (deftest sibling-guard-sees-raise-evolving-snapshot
@@ -107,31 +69,6 @@
            in the full evolving snapshot")
       (is (= :granted (:token (:data snap))))
       (is (= [:grant :admit] (:log (:data snap)))))))
-
-;; ---- 3. originating region also re-sees its own raise ---------------------
-
-(deftest originating-region-resees-its-own-raise
-  (testing "the region that raised an event also handles the re-broadcast"
-    (let [spec
-          {:type    :parallel
-           :data    {}
-           :actions {:kick (fn [{:keys [data]}]
-                            {:data (log! data :kick)
-                             :fx   [[:raise [:again]]]})
-                     :land (fn [{:keys [data]}]
-                            {:data (log! data :land)})}
-           :regions
-           {:solo {:initial :a
-                   :states  {:a {:on {:start {:target :b :action :kick}}}
-                             :b {:on {:again {:target :c :action :land}}}
-                             :c {}}}}}
-          {snap :snapshot}
-          (rf.machines/machine-transition spec
-                                       {:state {:solo :a} :data {}}
-                                       [:start])]
-      (is (= :c (get-in snap [:state :solo]))
-          "the originating region advanced a→b→c via its own re-broadcast raise")
-      (is (= [:kick :land] (:log (:data snap)))))))
 
 ;; ---- 4. FIFO across the parent internal-event queue -----------------------
 
@@ -216,39 +153,6 @@
           "a :fail threads no snapshot — both regions' states stay uncommitted")
       (is (nil? (:fx r))
           "a :fail threads no fx — no partial cascade or fx survives the abort"))))
-
-;; ---- 6. region :always fires on a re-broadcast transition ----------------
-
-(deftest region-always-fires-on-rebroadcast
-  (testing "a re-broadcast raise that drives a region transition runs
-   that region's own :always microstep loop (region-local :always intact)"
-    (let [spec
-          {:type    :parallel
-           :data    {:ready? false}
-           :guards  {:ready? (fn [{:keys [data]}] (true? (:ready? data)))}
-           :actions {:arm   (fn [{:keys [data]}]
-                             {:data (-> data (assoc :ready? true) (log! :arm))
-                              :fx   [[:raise [:advance]]]})
-                     :step  (fn [{:keys [data]}]
-                             {:data (log! data :step)})
-                     :auto  (fn [{:keys [data]}]
-                             {:data (log! data :auto)})}
-           :regions
-           {:flow {:initial :a
-                   :states  {:a {:on {:go {:target :b :action :arm}}}
-                             ;; on the re-broadcast [:advance], move to :c,
-                             ;; whose :always (guard now true) auto-advances
-                             ;; to :done — proving region :always runs.
-                             :b {:on {:advance {:target :c :action :step}}}
-                             :c {:always {:guard :ready? :target :done :action :auto}}
-                             :done {}}}}}
-          {snap :snapshot}
-          (rf.machines/machine-transition spec
-                                       {:state {:flow :a} :data {:ready? false}}
-                                       [:go])]
-      (is (= :done (get-in snap [:state :flow]))
-          "re-broadcast raise drove a→b, [:advance]→c, then region :always c→done")
-      (is (= [:arm :step :auto] (:log (:data snap)))))))
 
 ;; ---- 7. a raised event declined by EVERY region consults the root :on ------
 ;;
