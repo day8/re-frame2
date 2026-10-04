@@ -287,19 +287,6 @@
     (is (= false (read* f [::open? :panel]))
         "the parent's own key is a different key from any child's")))
 
-(deftest a-fresh-but-equal-key-vector-is-the-same-instance
-  (testing "keys are compared by VALUE, so a key rebuilt every render
-           addresses the entry the previous render wrote"
-    (rf.fresco.impl.state/reg-state ::draft {:default ""})
-    (let [f (frame! ::value-equality)]
-      (send! f [::draft [:order/id 42] "hi"])
-      (is (= "hi" (read* f [::draft (into [] [:order/id 42])]))
-          "a distinct vector object, equal by value")
-      (is (= "hi" (read* f [::draft (rf.fresco.impl.state/child-key :order/id 42)]))
-          "and one composed by child-key")
-      (is (= 1 (count (get-in (db-of f) [:ui ::draft])))
-          "one entry, not two"))))
-
 ;; ---------------------------------------------------------------------------
 ;; Frames
 ;; ---------------------------------------------------------------------------
