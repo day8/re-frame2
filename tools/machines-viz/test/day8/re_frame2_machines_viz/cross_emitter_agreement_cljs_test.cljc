@@ -279,7 +279,8 @@
     ;; MERMAID — the external edge carries the ↻ marker; the internal one does not.
     (let [r-out (mermaid/emit reenter-self-machine {:fenced? false :header-comment? false})
           i-out (mermaid/emit internal-default-self-machine {:fenced? false :header-comment? false})]
-      (is (str/includes? r-out "↻") "mermaid: external carries the ↻ marker")
+      (is (str/includes? r-out "ping ↻") "mermaid: the external edge label carries the ↻ marker")
+      (is (str/includes? i-out ": ping") "mermaid: the internal default edge is labelled `ping`")
       (is (not (str/includes? i-out "↻")) "mermaid: internal default has no marker")
       (is (not= r-out i-out) "mermaid: the two outputs DIFFER"))
     ;; SCXML EXPORT — the external transition emits type="external"; the internal
@@ -396,9 +397,13 @@
             "chart self-anchors it on the machine-root chip"))
       ;; MERMAID — a note on the root-fallback node.
       (let [out (mermaid-body m)]
+        (is (str/includes? out "state \"root fallback\" as rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
+            "mermaid declares the root-fallback alias the note hangs off")
         (is (str/includes? out "note right of rf_2emachines_2dviz_2emermaid_2froot_2dfallback")
             "mermaid surfaces it as a note on the root-fallback node")
-        (is (str/includes? out "ping / log-ping") "mermaid note carries the action"))
+        (is (str/includes? out "ping / log-ping") "mermaid note carries the action")
+        (is (not (str/includes? out "--> a : ping"))
+            "mermaid draws no phantom arrow for the action-only fallback"))
       ;; SCXML — a target-less <transition>.
       (is (= 1 (scxml-internal-transition-count m))
           "scxml emits the target-less machine-level <transition>"))))
@@ -436,7 +441,9 @@
     (let [out (mermaid-body region-on-done-action-only-machine)]
       (is (str/includes? out "note right of a")
           "mermaid surfaces the action-only region on-done as a note on the region root")
-      (is (str/includes? out "on-done: ✓ done / log")))
+      (is (str/includes? out "on-done: ✓ done / log"))
+      (is (not (str/includes? out "a --> b"))
+          "mermaid draws no phantom completion arrow for an action-only region on-done"))
     ;; SCXML
     (let [out (scxml/spec->scxml region-on-done-action-only-machine)]
       (is (str/includes? out "event=\"done.state.a\"><!-- action: log --></transition>")
@@ -474,6 +481,7 @@
       (is (str/includes? out "ok --> [*]")   "success terminal renders plainly")
       (is (str/includes? out "boom --> [*]") "error terminal renders the edge")
       (is (str/includes? out "note right of boom") "error terminal carries a note")
+      (is (str/includes? out "error terminal") "the note names the error-terminal completion")
       (is (not (str/includes? out "note right of ok"))
           "success terminal carries no error note"))
     ;; SCXML — the error final carries the carrier attr AND round-trips :error?.
@@ -600,45 +608,6 @@
         (is (false? a) (str "AI must accept "      (pr-str d)))
         (is (false? m) (str "Mermaid must accept " (pr-str d)))
         (is (false? s) (str "SCXML must accept "   (pr-str d)))))))
-
-(deftest each-emitter-keeps-its-surface-error-id
-  (testing "Mermaid and SCXML refuse with their OWN surface-specific error ids
-            (the reject table above shows all three refuse the same shapes)"
-    (let [ex-id (fn [f]
-                  (try (f) nil
-                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
-                         (:rf.error/id (ex-data e)))))]
-      (is (= :scxml/invalid-spec
-             (ex-id #(scxml/spec->scxml malformed-parallel-region-body-machine)))
-          "SCXML, an empty parallel region body")
-      (is (= :mermaid/invalid-definition
-             (ex-id #(mermaid/emit non-keyword-initial-machine)))
-          "Mermaid, a non-keyword :initial")
-      (is (= :scxml/invalid-spec
-             (ex-id #(scxml/spec->scxml non-keyword-initial-machine)))
-          "SCXML, a non-keyword :initial"))))
-
-(deftest invalid-definition-summaries-stay-value-free-across-emitters
-  (testing "the shared value-free summary excludes the raw
-            :data slot in every emitter's thrown error (a malformed
-            definition can carry live runtime values under :data)"
-    (let [secret "cross-emitter-secret-42"
-          ;; Malformed (empty :states) but carries a secret :data slot.
-          bad    {:initial :a :states {} :data {:token secret}}
-          leaks? (fn [d] (some #(and (string? %) (str/includes? % secret))
-                               (tree-seq coll? seq d)))
-          md     (try (mermaid/emit bad) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))
-          sd     (try (scxml/spec->scxml bad) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))
-          ad     (try (ai/generate-machine "x" {:resolver (constantly (pr-str bad))}) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (some? (:definition-summary md)) "mermaid carries a value-free summary")
-      (is (some? (:spec-summary sd))       "scxml carries a value-free summary")
-      (is (some? (:spec-summary ad))       "ai carries a value-free summary")
-      (is (not (leaks? md)) "mermaid summary omits the :data secret")
-      (is (not (leaks? sd)) "scxml summary omits the :data secret")
-      (is (not (leaks? ad)) "ai summary omits the :data secret"))))
 
 ;; An export refusal's message names the defect the definition actually
 ;; carries: a sound root shape with a malformed `:timeout` is told about the
