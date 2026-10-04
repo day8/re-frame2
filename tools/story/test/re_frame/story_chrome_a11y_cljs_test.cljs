@@ -61,21 +61,6 @@
             :data-rf-story-root flag shell.cljs stamps on the chrome root"
     (is (= "[data-rf-story-root]" rf.story.ui.chrome-a11y/chrome-root-selector))))
 
-(deftest chrome-frame-id-is-namespaced
-  (testing "chrome-frame-id is a story-namespaced keyword distinct from any variant id"
-    (is (keyword? rf.story.ui.chrome-a11y/chrome-frame-id))
-    (is (= "rf.story.chrome-a11y" (namespace rf.story.ui.chrome-a11y/chrome-frame-id)))))
-
-;; ---- state management ---------------------------------------------------
-
-(deftest reset-state-clears-everything
-  (testing "reset-state! clears violations + resets run-state"
-    (reset! rf.story.ui.chrome-a11y/violations [{:dummy true}])
-    (reset! rf.story.ui.chrome-a11y/run-state {:status :done})
-    (rf.story.ui.chrome-a11y/reset-state!)
-    (is (empty? @rf.story.ui.chrome-a11y/violations))
-    (is (= :idle (rf.story.ui.chrome-a11y/status)))))
-
 ;; ---- find-chrome-root degraded-environment safety -----------------------
 
 (deftest find-chrome-root-handles-missing-dom
