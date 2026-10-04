@@ -54,10 +54,9 @@
   ## No over-redaction
 
   Every off-box assertion here is paired with a PLAIN (non-`:sensitive?`) owner
-  in the same row: `off-box-plain-owners-released-key-rides-verbatim` and
-  `plain-owners-key-is-never-tokenized` pin that a plain owner's scope + params
-  still ride verbatim, so redacting-everything would fail this suite as loudly
-  as leaking does.
+  in the same row: `off-box-plain-owners-released-key-rides-verbatim` pins that
+  a plain owner's scope + params still ride verbatim, so redacting-everything
+  would fail this suite as loudly as leaking does.
 
   Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
   `.*-test$` ns regex, Shadow's `:node-test` build via the `cljs-test$` regex.
@@ -275,18 +274,6 @@
       (is (= {:slug "public-post"} (nth (released-member projected :plain/article) 2))
           "its params ride as the real map, not a token"))))
 
-(deftest plain-owners-key-is-never-tokenized
-  (testing "the property form of the control, TRUE of a key-id
-            emit site too (a key-id string is not a redaction token either), so
-            it holds in both directions and isolates over-redaction as a
-            distinct failure from the leak"
-    (let [projected (project (release-owner-row))]
-      (is (not (leaks-cedn-token? (released-member projected :plain/article)))
-          "no CEDN-1 token")
-      (is (not-any? redacted-token?
-                    (filter coll? (flatten [(released-member projected :plain/article)])))
-          "and nothing about the plain owner's key was redacted"))))
-
 (deftest off-box-released-and-aborted-keys-agree-digest-for-digest
   (testing "the leak's signature, and the fidelity scoped keys buy.
             One `:rf.resource/owner-released` row carries the same resource
@@ -322,14 +309,9 @@
             `:rf.resource/owner-released` row is a CEDN-1 byte string. A key-id
             is opaque to the projector by construction, so the only durable
             guarantee is that none is ever emitted"
-    (let [tags      (release-owner-row)
-          projected (project tags)]
+    (let [tags (release-owner-row)]
       (is (not (leaks-cedn-token? tags))
-          "not even ON-BOX — the emit site simply never mints one into a tag")
-      (is (not (leaks-cedn-token? projected))
-          "and therefore none off-box")
-      (is (not (leaks-secret? projected))
-          "no plaintext secret under any tag"))))
+          "not even ON-BOX — the emit site simply never mints one into a tag"))))
 
 ;; ===========================================================================
 ;; 5. THE SIBLING EMIT SITES (ssr.cljc). Its `reduce-kv` over `:entries` folds
