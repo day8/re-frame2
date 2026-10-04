@@ -115,7 +115,17 @@ v2 changes app boot structurally, so boot is where migrations hit the most frict
 
 Facts 1 and 4 are silent at compile and fact 3 is loud at runtime; the boot smoke-test is what confirms them.
 
-A single-frame migration target names no **image** (the registration set a frame runs): the ordinary `reg-*` calls write the default registration source and your one frame resolves it. Reach for explicit images only for two isolated surfaces on one page, or isolated test / story frames — see the `re-frame2` skill's `references/fundamentals/frames.md`.
+A single-frame migration target usually names no **image** (the registration set a frame runs): the ordinary `reg-*` calls write the default registration source and your one frame resolves it. One v1 habit breaks that. v1 let a later registration of an id replace an earlier one, so an application namespace could override a library's registration; the default image projects every loaded registration and refuses two namespaces registering one kind and id, failing frame creation with `:rf.error/image-duplicate-id` (its ex-data names the `:kind` and `:id`). So inventory duplicates before boot. Fix an accidental duplicate at its source. Keep an intended override — the definition v1 actually ran, the last one loaded — by selecting each side into its own image and ordering the application's image later; the later image wins whatever order the namespaces load in:
+
+```clojure
+(def library-image (rf/image {:id :acme.widgets/image :select-ns {:include ["acme.widgets.**"]}}))
+(def app-image     (rf/image {:id :my.app/image       :select-ns {:include ["my.app.**"]}}))
+
+(rf/make-frame {:id :app/main :images [library-image app-image]})   ; boot
+(rf/make-frame {:images [library-image app-image] :preset :test})   ; a test frame over the same images
+```
+
+Keep the selections disjoint (one image selecting both sides is the same error) and select every registering namespace into one of them; the framework's own registrations sit beneath automatically. `(rf/frame-generation :app/main)`'s `:rf.gen/shadows` names each override. Beyond overrides, reach for explicit images for two isolated surfaces on one page, or isolated test / story frames — see the `re-frame2` skill's `references/fundamentals/frames.md` §Images.
 
 ## Reference map — load on demand
 
