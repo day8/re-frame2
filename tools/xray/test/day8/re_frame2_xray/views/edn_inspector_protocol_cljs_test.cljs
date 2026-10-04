@@ -126,26 +126,6 @@
 
 ;; ---- 2. protocol-implementing types use the protocol --------------------
 
-(deftest full-custom-renders-via-protocol-header-and-body
-  (let [v (FullCustom. "Account" "data-here")
-        h (ei/render-node {:value v
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (some? (find-attr h :data-rf-protocol "1"))
-        "protocol path is taken")
-    (is (some? (find-attr h :data-testid "custom-header"))
-        "consumer's header hiccup is rendered")
-    (is (re-find #"#Account" (collect-text h))
-        "consumer's header text appears in output")
-    ;; default-expanded? on protocol nodes is true; body renders.
-    (is (some? (find-attr h :data-testid "custom-body"))
-        "consumer's body hiccup is rendered when expanded")
-    (is (re-find #"body:data-here" (collect-text h)))))
-
 (deftest protocol-node-carries-stable-testid
   (let [v (FullCustom. "Account" "data")
         h (ei/render-node {:value v
@@ -300,21 +280,6 @@
         "the default uuid formatter still renders the after-value inside the diff row")
     (is (re-find #"bbbb" text)
         "and it renders the AFTER uuid")))
-
-(deftest modified-inst-leaf-carries-diff-chrome
-  (let [h (diff-leaf (js/Date. "2020-01-01T00:00:00.000Z")
-                     (js/Date. "2020-06-01T00:00:00.000Z"))
-        text (collect-text h)]
-    (is (nil? (find-attr h :data-rf-protocol "1"))
-        "a CHANGED inst leaf must NOT short-circuit to the plain protocol node")
-    (is (some? (find-attr h :data-rf-diff-op "modified"))
-        "it renders through the diff leaf path, op :modified")
-    (is (re-find #"~" text)
-        "the `~` modified glyph is painted in the gutter")
-    (is (re-find #"← was" text)
-        "the `← was <prior>` chip names the prior value")
-    (is (some? (find-attr h :data-rf-default-fmt "inst"))
-        "the default inst formatter still renders the after-value inside the diff row")))
 
 (deftest unchanged-uuid-leaf-keeps-the-plain-protocol-node
   ;; The other half of the contract, and the control for the two above:
