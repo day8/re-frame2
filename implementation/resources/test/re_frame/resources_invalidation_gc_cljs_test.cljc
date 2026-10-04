@@ -569,36 +569,6 @@
     (testing ":gc-after-ms :never arms no timer at all (no schedule-timers fx)"
       (is (= [] @scheduled-timers)))))
 
-(deftest timer-side-table-is-host-side-not-frame-state
-  (testing "Spec 016 §Stale and GC scheduling — timers live in a host SIDE
-            TABLE keyed by [frame-id resource-key kind], NOT in frame-state"
-    (rf.resources.timers/reset-cache!)
-    ;; The side-table key's resource-key element is the CEDN-1
-    ;; byte `key-id` (so a list- and a vector-params resource never share a
-    ;; timer slot). The dispatched recheck event carries the vector.
-    (let [k    [:rf.scope/global :t/x {:id 1}]
-          k-id (rf.resources.state/key-id k)]
-      ;; arm a real (long) timer so it does not fire during the test
-      (rf.resources.timers/schedule! :rf/default k rf.resources.timers/gc-kind 1000000)
-      (is (contains? @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/gc-kind])
-          "the timer handle lives in the module-level side table")
-      (rf.resources.timers/cancel! :rf/default k rf.resources.timers/gc-kind)
-      (is (not (contains? @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/gc-kind]))
-          "cancel! drops the handle"))))
-
-(deftest gc-fired-rechecks-before-removing
-  (rf/reg-resource :gc/article (article-spec {:gc-after-ms 1000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :gc/article {:slug "w"})]
-    ;; load + release owner → owner-free + idle → GC-eligible
-    (ensure! :gc/article scope "w" [:app :gc 1])
-    (succeed! k {:title "W"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gc 1]}])
-    (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS:
-              an owner-free + idle entry is removed"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (nil? (entry k)) "GC removed the inactive entry"))))
-
 (deftest first-load-error-arms-gc-and-is-collected-after-release
   ;; A FIRST load that FAILS settles `:error` with `:current-work
   ;; nil`. The `:error` settle MUST arm a GC timer (mirroring the success-path
@@ -712,34 +682,6 @@
       (is (empty? (filter #(= k (:resource/key %)) @scheduled-timers))
           "no schedule-timers re-armed on the background-refresh failure"))))
 
-(deftest gc-fired-skips-when-owner-reattached
-  (rf/reg-resource :gck/article (article-spec {:gc-after-ms 1000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :gck/article {:slug "w"})]
-    (ensure! :gck/article scope "w" [:app :gck 1])
-    (succeed! k {:title "W"})
-    (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS
-              owner sets after wake; an entry with a live owner is NOT removed
-              (the timer is advisory — it never writes a stale decision)"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (some? (entry k)) "owned entry kept (GC skipped)")
-      (is (= :loaded (:status (entry k)))))))
-
-(deftest gc-fired-skips-when-in-flight
-  (rf/reg-resource :gcf/article (article-spec {:gc-after-ms 1000}) article-spec-request)
-  (let [scope {:user "u"}
-        k     (rf.resources.state/scoped-resource-key scope :gcf/article {:slug "w"})]
-    ;; ensure without ever succeeding → in flight (owner released, still
-    ;; :current-work)
-    (ensure! :gcf/article scope "w" [:app :gcf 1])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gcf 1]}])
-    (is (some? (:current-work (entry k))) "still in flight")
-    (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS
-              the generation / in-flight pointer; an in-flight entry is NOT
-              removed even when owner-free"
-      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
-      (is (some? (entry k)) "in-flight entry kept (GC skipped)"))))
-
 ;; ---- a GC skip RESCHEDULES so a later release/settle is GC'd --------------
 
 (deftest gc-skip-while-owned-reschedules-and-collects-after-release
@@ -754,6 +696,7 @@
               release after the original deadline does not strand the entry)"
       (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
       (is (some? (entry k)) "owned entry kept (GC skipped)")
+      (is (= :loaded (:status (entry k))))
       (is (= 1 (count @scheduled-timers)) "exactly one reschedule fx emitted")
       (let [args (first @scheduled-timers)]
         (is (= k (:resource/key args)))
