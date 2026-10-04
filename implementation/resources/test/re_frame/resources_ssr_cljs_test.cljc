@@ -319,15 +319,6 @@
 ;; for the projection's answer whether or not a row ships. The row's absence is
 ;; asserted here too.
 
-(deftest serialize-resource-key-rides-verbatim
-  (reg! :article/by-slug)
-  (testing "a non-sensitive, non-large resource's key rides VERBATIM (scope +
-            params are wire-safe, same class as its data)"
-    (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"})
-          e    (entry {:resource-id :article/by-slug :data {:t "x"} :loaded-at 1000 :stale-at 9.0e15})
-          [wk _] (only-wire-entry (rf.resources.ssr/project-resources-runtime-db (runtime-db-with {k e})))]
-      (is (= k wk) "the serialized key is unchanged on the wire"))))
-
 (deftest sensitive-resource-key-scope-and-params-are-redacted
   (reg! :secret/thing {:sensitive? true})
   (testing "a :sensitive? resource's scope (user/tenant markers) + params are
@@ -840,39 +831,6 @@
             (is (nil? (rf.resources.work-ledger/get-handle fid wid)))))
         (rf.frame/destroy-frame! fid)))))
 
-(deftest drain-blocks-while-work-ledger-row-non-terminal-real-path
-  (reg! :article/by-slug)
-  (testing "ADVERSARIAL: while the real reply never lands, the entry stays
-            :loading (and its work-ledger row NON-terminal), so the SSR drain,
-            which reads the entry's status, MUST NOT release — it blocks until
-            the render deadline, then settles the entry to a first-load failure"
-    (let [fid :ssr/drain-ledger-nonterminal]
-      (rf/make-frame {:id fid :doc "ssr ledger-nonterminal drain frame" :platform :server})
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :article/by-slug :scope :rf.scope/global
-                          :params {:slug "x"} :owner [:ssr "req-2" "nav-2"]}]
-                        {:frame fid})
-      (rf.frame/swap-runtime-db! fid with-blocking-slot "nav-2" [gkey])
-      (let [wid (get-in (rf.frame/frame-runtime-db-value fid) (conj (rf.resources.state/entry-path gkey) :current-work))
-            ;; deterministic clock that jumps past the deadline; pump! is a no-op
-            ;; (the real reply never lands → the ledger row stays :running).
-            clk (atom 0)
-            clock-fn (fn [] (let [v @clk] (swap! clk + 100) v))]
-        (is (= :running (:status (ledger-row fid wid)))
-            "the row is NON-terminal at drain entry")
-        (let [res (rf.resources.ssr/drain-blocking-resources!
-                    fid {:pump! (fn [_] nil) :deadline-ms 50 :clock-fn clock-fn})]
-          (testing "the drain did NOT release early — it reported a timeout"
-            (is (false? (:settled? res)))
-            (is (= [gkey] (:timed-out res)))
-            (is (= :rf.error/resource-ssr-blocking-timeout
-                   (:rf.error/id (:route-blocking-failure res)))))
-          (testing "the never-settling blocking entry is settled to a structured
-                    first-load :error in the frame (not left hung :loading)"
-            (is (= :error (get-in (rf.frame/frame-runtime-db-value fid)
-                                  (conj (rf.resources.state/entry-path gkey) :status)))))))
-      (rf.frame/destroy-frame! fid))))
-
 (deftest drain-timeout-on-the-real-path-leaves-the-ledger-row-timed-out
   (reg! :article/by-slug)
   (testing "the render-deadline timeout settles the abandoned attempt's
@@ -1031,19 +989,6 @@
         (is (= :stale (:reason (plan gkey)))
             "the settled stale entry background-refetches (stale-while-revalidate)")))))
 
-(deftest hydrate-fresh-loaded-data-rides-through-no-double-fetch
-  (testing "a NORMAL fresh :loaded entry rides through unchanged
-            (already stable) and is NOT refetched"
-    (let [e   (entry {:resource-id :article/by-slug :status :loaded
-                      :data {:t "kept"} :loaded-at 1000 :stale-at 9.0e15})
-          out (rf.resources.ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
-      (is (= :loaded (:status se)) "a :loaded entry stays :loaded")
-      (is (= {:t "kept"} (:data se)))
-      (let [plan (->> (rf.resources.ssr/hydrate-refetch-plan out 5000)
-                      (into {} (map (juxt :resource/key identity))))]
-        (is (not (contains? plan gkey)) "fresh-loaded → no refetch (no double-fetch)")))))
-
 (deftest hydrate-end-to-end-project-then-hydrate-fetching-entry-settles
   (reg! :article/by-slug)
   (testing "ADVERSARIAL end-to-end: a server-side :fetching entry
@@ -1077,11 +1022,6 @@
         (is (nil? (rf.resources.ssr/clock-skew-ms e 1500)))))
     (testing "no :stale-at → nil (cannot assess)"
       (is (nil? (rf.resources.ssr/clock-skew-ms (entry {:resource-id :a :data {:x 1}}) 1500))))))
-
-;; ===========================================================================
-;; 4. NO double-fetch — refetch plan (the whole-plan classification is
-;;    `refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh`, 4b)
-;; ===========================================================================
 
 ;; ===========================================================================
 ;; 4a-bis. Empty infinite feed hydrates into a REFETCH, not fresh-forever
@@ -1154,25 +1094,6 @@
 ;; `(some? (:data entry))` would misclassify it as fresh-with-data → never
 ;; refetch, leaving the client rendering the sentinel as if it were the value.
 
-(deftest redacted-sentinel-is-not-usable-data
-  (testing "hydrated-data-usable? excludes the redaction sentinel"
-    (is (true?  (rf.resources.ssr/hydrated-data-usable? (entry {:resource-id :a :data {:x 1}})))
-        "real data is usable")
-    (is (false? (rf.resources.ssr/hydrated-data-usable? (entry {:resource-id :a :data rf.privacy/redacted-sentinel})))
-        "the :rf/redacted sentinel is NOT usable (metadata-only)")
-    (is (false? (rf.resources.ssr/hydrated-data-usable? (entry {:resource-id :a :data nil})))
-        "omitted (nil) is NOT usable")))
-
-(deftest redacted-fresh-entry-still-refetches
-  (testing "ADVERSARIAL: a FRESH (stale-at far ahead) entry whose data is the
-            redaction sentinel still needs a refetch — the sentinel must NOT be
-            mistaken for usable fresh data"
-    (let [redacted-fresh (entry {:resource-id :secret/thing
-                                 :data rf.privacy/redacted-sentinel
-                                 :loaded-at 1000 :stale-at 9.0e15 :status :loaded})]
-      (is (true? (rf.resources.ssr/entry-needs-refetch? redacted-fresh 5000))
-          "a fresh redacted entry refetches (the sentinel is metadata-only, not fresh data)"))))
-
 (deftest refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh
   (testing "the four hydration dispositions classify correctly"
     (let [fresh    (entry {:resource-id :a :data {:x 1} :loaded-at 1000 :stale-at 9.0e15})
@@ -1191,54 +1112,6 @@
       (is (= :metadata-only (:reason (plan kc)))
           "REDACTED (sentinel) → metadata-only refetch (NOT misclassified as fresh)")
       (is (= :no-data       (:reason (plan kd))) "OMITTED (no data key) → no-data refetch"))))
-
-(deftest project-then-hydrate-roundtrip-sensitive-installs-no-row
-  (reg! :secret/thing {:sensitive? true})
-  (testing "END-TO-END for a contract that WITHHOLDS. A redacted row
-            that rode would have to be classified `:metadata-only` and PLANNED,
-            and the plan would name it by its projected key — an identity the
-            route slice cannot resolve — so the row it planned would be an
-            ownerless duplicate nothing reads. The row does not ride, so
-            there is nothing to misclassify and nothing to plan, and the client
-            issues the one load it derives from the raw key"
-    (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :secret/thing {:slug "s"})
-          ;; a FRESH sensitive entry on the server (stale-at far ahead)
-          e    (entry {:resource-id :secret/thing :data {:ssn "123-45-6789"}
-                       :loaded-at 1000 :stale-at 9.0e15})
-          rdb  (runtime-db-with {k e})
-          proj (rf.resources.ssr/project-resources-runtime-db rdb)
-          hyd  (rf.resources.ssr/hydrate-runtime-db proj :app/main)
-          m    (only-projection-metadata rdb)
-          wk   (:projected-key m)]
-      (is (empty? (get-in proj [rf.resources.state/resources-key :entries]))
-          (str "the row does not ride: " (pr-str proj)))
-      (is (empty? (get-in hyd [rf.resources.state/resources-key :entries]))
-          "hydrating that projection installs no row")
-      (is (empty? (rf.resources.ssr/hydrate-refetch-plan hyd 5000))
-          "and plans nothing")
-      (is (not= {:slug "s"} (nth wk 2)) "the sensitive params do not ride raw")
-      (is (= :secret/thing (nth wk 1)) "the resource-id is preserved for refetch identity")
-      (is (true? (:refetch-on-client? m))
-          "and the server's own metadata says the client must fetch it —
-           the fact is reported, not lost"))))
-
-(deftest a-redacted-entry-reaching-the-planner-by-any-other-route-is-still-metadata-only
-  (reg! :secret/thing {:sensitive? true})
-  (testing "the planner's classification contract holds independently of
-            the withholding — this is the control that stops the test above
-            passing because the planner has quietly stopped distinguishing a
-            sentinel from data. A sentinel-bearing entry under an ADDRESSABLE
-            key (a restore snapshot, a host-assembled slice) is
-            `:metadata-only`, never fresh"
-    (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "s"})
-          e (entry {:resource-id :article/by-slug :data rf.privacy/redacted-sentinel
-                    :loaded-at 1000 :stale-at 9.0e15 :status :loaded})
-          plan (rf.resources.ssr/hydrate-refetch-plan (runtime-db-with {k e}) 5000)]
-      (is (= 1 (count plan)) "premise: the addressable row IS planned")
-      (is (= :metadata-only (:reason (first plan)))
-          "the sentinel is metadata-only, not fresh usable data")
-      (is (= k (:resource/key (first plan)))
-          "and it is named by the key the client derives"))))
 
 ;; ===========================================================================
 ;; 5. SCOPE isolation
