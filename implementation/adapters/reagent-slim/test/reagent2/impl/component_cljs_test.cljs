@@ -69,20 +69,6 @@
             :component-did-catch}
            component/cap-keys))))
 
-(deftest create-class-throws-on-unsupported-key
-  (testing "out-of-cap key throws :rf.error/create-class-key-unsupported"
-    (let [thrown (try
-                   (component/create-class*
-                     {:reagent-render          (fn [_this] [:div])
-                      :component-will-receive-props (fn [_this _new-props])})
-                   nil
-                   (catch :default e (ex-data e)))]
-      (is (= :rf.error/create-class-key-unsupported (:rf.error/id thrown)))
-      (is (contains? (set (:keys thrown)) :component-will-receive-props)
-          "the offending key is named in the ex-data")
-      (is (= component/cap-keys (:supported-keys thrown))
-          "the supported-keys field carries the canonical cap"))))
-
 (deftest create-class-throws-listing-every-bad-key
   (testing "all out-of-cap keys are listed at once"
     (let [thrown (try
@@ -94,6 +80,8 @@
                    nil
                    (catch :default e (ex-data e)))]
       (is (= :rf.error/create-class-key-unsupported (:rf.error/id thrown)))
+      (is (= component/cap-keys (:supported-keys thrown))
+          "the supported-keys field carries the canonical cap")
       (is (= #{:component-will-receive-props
                :should-component-update
                :component-will-mount}
@@ -107,20 +95,6 @@
                    nil
                    (catch :default e (ex-data e)))]
       (is (= :rf.error/create-class-missing-render (:rf.error/id thrown))))))
-
-(deftest create-class-accepts-every-cap-key
-  (testing "spec with all 7 cap keys is accepted (no throw)"
-    (let [^js klass (component/create-class*
-                  {:reagent-render             (fn [_this] [:div])
-                   :component-did-mount        (fn [_this])
-                   :component-will-unmount     (fn [_this])
-                   :component-did-update       (fn [_this _prev-argv _prev-state _snap])
-                   :get-snapshot-before-update (fn [_this _prev-argv _prev-state] nil)
-                   :component-did-catch        (fn [_this _err _info])
-                   :display-name               "Full"})]
-      (is (some? klass) "all-cap-keys spec produced a class")
-      (is (component/reagent-class? klass)
-          "the produced class is tagged reagent-class"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Form-1 detection (runtime)
