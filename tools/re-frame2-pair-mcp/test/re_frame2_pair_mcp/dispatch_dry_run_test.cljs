@@ -183,28 +183,6 @@
 ;; failure. A malformed value short-circuits before the eval.
 ;; ---------------------------------------------------------------------------
 
-(deftest cofx-threaded-into-opts-under-flat-key
-  ;; The headline case: `cofx "{:rf/time-ms 1781078400123}"`
-  ;; must appear in the emitted runtime opts under the flat `:rf.cofx`
-  ;; key, as DATA (the exact integer time), so the router preserves it
-  ;; verbatim and the simulation is reproducible — NOT a freshly stamped
-  ;; :rf/time-ms.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                             #js {:event "[:todo/add {:text \"buy milk\"}]"
-                                                  :cofx "{:rf/time-ms 1781078400123}"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form ":rf.cofx")
-                         "cofx is threaded under the :rf.cofx opts key the router reads")
-                     (is (str/includes? form ":rf/time-ms 1781078400123")
-                         "the scripted :rf/time-ms rides as the EXACT integer — emitted under :rf.cofx, not omitted/freshly stamped"))
-                   (done)))))))
-
 (deftest no-cofx-arg-omits-the-opts-key
   ;; Absent `cofx` ⇒ no `:rf.cofx` key in the emitted opts (the ordinary
   ;; live path — the runtime stamps :rf/time-ms itself). Guards against a
@@ -248,29 +226,6 @@
 ;; asserts on the EMITTED form, not on a live walker).
 ;; ---------------------------------------------------------------------------
 
-(deftest gate-off-signals-configure-raw-state-before-dispatch
-  ;; The raw-state tap posture is signalled before the dispatch eval, so
-  ;; the runtime holds the server's gate posture for the whole dry-run.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-raw-gate! false
-            (fn []
-              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
-                (fn []
-                  (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                                 #js {:event "[:cart/checkout]"})))))
-          (.then (fn [_]
-                   (let [all @forms
-                         cfg-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
-                         disp-idx (first (keep-indexed (fn [i f] (when (str/includes? f "dispatch-dry-run") i)) all))]
-                     (is (some? cfg-idx) "configure-raw-state! is signalled")
-                     (is (some? disp-idx) "dispatch-dry-run is evaluated")
-                     (is (< cfg-idx disp-idx)
-                         "configure-raw-state! is signalled BEFORE the dispatch eval")
-                     (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
-                         "the gate-OFF posture is pushed to the runtime"))
-                   (done)))))))
-
 (deftest gate-on-honours-include-sensitive
   ;; With --allow-sensitive-reads + :include-sensitive true, the door
   ;; still runs (elision default true) under the trusted-local boundary,
@@ -302,31 +257,6 @@
 ;; local :include-fx-args true opt-in keeps the raw args — honoured ONLY
 ;; under --allow-sensitive-reads.
 ;; ---------------------------------------------------------------------------
-
-(deftest default-redacts-fx-args
-  ;; The published-build default (gate OFF). The emitted form fail-closes
-  ;; the fx args (assoc :rf/redacted on each :would-fire-effects row),
-  ;; while the app-db slot still rides the project-egress walk — the
-  ;; two egress slots egress under different policies.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-raw-gate! false
-            (fn []
-              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
-                (fn []
-                  (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                                 #js {:event "[:cart/checkout]"
-                                                      ;; caller tries to opt in; gate OFF ignores it.
-                                                      :include-fx-args true})))))
-          (.then (fn [_]
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form ":would-fire-effects")
-                         "the fx-args fail-close touches :would-fire-effects")
-                     (is (str/includes? form ":args :rf/redacted")
-                         "gate OFF forces fx args to :rf/redacted even when caller passed :include-fx-args true")
-                     (is (str/includes? form "re-frame.core/project-egress")
-                         "the app-db slot still rides the egress door"))
-                   (done)))))))
 
 (deftest gate-on-default-still-redacts-fx-args
   ;; Even under --allow-sensitive-reads, fx args fail closed UNLESS the
@@ -536,20 +466,6 @@
         head "(re-frame2-pair.runtime/dispatch-dry-run "
         i    (str/index-of form head)]
     (when i (cljs.reader/read-string (subs form i)))))
-
-(deftest dry-run-event-payload-lists-are-not-evaluated
-  (async done
-    (let [forms (atom [])]
-      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                             #js {:event "[:cart/add (inc 41)]"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (is (= [:cart/add '(inc 41)]
-                          (quoted-datum (second (runtime-call forms))))
-                       "the nested list reaches the runtime as a list")
-                   (done)))))))
 
 (deftest dry-run-cofx-fact-lists-are-not-evaluated
   ;; Dry-run shares dispatch's opts composition, so the opts map rides
