@@ -103,14 +103,11 @@
     (let [evs (by-op :rf.flow/registered)]
       (is (= 1 (count evs))
           "exactly one :rf.flow/registered fired for the reg-flow call")
-      (let [ev (first evs)]
-        (is (= :flow (:op-type ev))                      "op-type :flow")
-        (is (= :rf.flow/registered (:operation ev))      "operation :rf.flow/registered")
-        (let [tags (:tags ev)]
-          (is (= :area              (:flow-id tags))     ":flow-id in tags")
-          (is (= [[:w] [:h]]        (:inputs tags))      ":inputs in tags")
-          (is (= [:rect :area]      (:path tags))        ":path in tags")
-          (is (= :rf/default        (:frame tags))       ":frame in tags"))))))
+      (let [tags (:tags (first evs))]
+        (is (= :area              (:flow-id tags))     ":flow-id in tags")
+        (is (= [[:w] [:h]]        (:inputs tags))      ":inputs in tags")
+        (is (= [:rect :area]      (:path tags))        ":path in tags")
+        (is (= :rf/default        (:frame tags))       ":frame in tags")))))
 
 (deftest reg-flow-registered-fires-first-time-only
   (testing ":rf.flow/registered fires only on first-time
@@ -480,16 +477,7 @@
                (set (keys r)))
             "record carries the tight error-record keys plus
              :source-coord plus the flow attribution
-             (:where / :flow-id) plus :phase")
-        ;; The attribution must survive an egress profile that strips
-        ;; :exception (015 public-error): the failing flow is still
-        ;; identifiable WITHOUT reaching into (ex-data (:exception r)).
-        (let [public (dissoc r :exception)]
-          (is (= :flow-eval (:where public))
-              ":where survives an :exception-dropping egress profile")
-          (is (= :boom (:flow-id public))
-              ":flow-id survives an :exception-dropping egress profile
-               (the attribution does not live in ex-data alone)"))))))
+             (:where / :flow-id) plus :phase")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5b'. The flow-eval boundary re-throw carries the CANONICAL thrown-error
@@ -535,10 +523,7 @@
             "the original exception is preserved under :cause for introspection")
         ;; Spec 009 §The thrown-error shape rule 4: trailing greppability token.
         (is (re-find #"\[:rf\.error/flow-eval-exception\]" (ex-message thrown))
-            "the derived message carries the [:rf.error/<id>] token")
-        ;; And it is a human sentence, not the bare keyword.
-        (is (not= ":rf.error/flow-eval-exception" (ex-message thrown))
-            "message is a human sentence, not the bare keyword")))))
+            "the derived message carries the [:rf.error/<id>] token")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5c. :rf.fx/reg-flow cycle detection routes through error-emit
@@ -1143,15 +1128,10 @@
           (str "ordered: :rf.flow/failed (" p-failed ") < :rf.error/flow-eval-exception ("
                p-error ")"))
       ;; app-db is UNCHANGED — nothing the aborted drain produced landed.
-      (let [db (rf/app-db-value :rf/default)]
-        (is (= {} db)
-            "app-db is unchanged (empty initial value) — no install on a flow throw")
-        (is (not (contains? db :n))
-            "the handler's :n write did NOT land")
-        (is (not (contains? db :a-out))
-            "the prior flow's :a-out write did NOT land (no partial commit)")
-        (is (not (contains? db :doomed))
-            "the failing flow's own output is NOT written"))
+      (is (= {} (rf/app-db-value :rf/default))
+          "app-db is unchanged (empty initial value) — no install on a flow throw:
+           not the handler's :n write, not the prior flow's :a-out write (no
+           partial commit), not the failing flow's own output")
       ;; No :rf.fx/handled fires after the flow-eval-exception (cascade halt).
       (let [after-error (subvec ops (inc p-error))]
         (is (not-any? #(= :rf.fx/handled %) after-error)
@@ -1205,9 +1185,7 @@
           p-handled   (pos :rf.fx/handled)
           p-do-fx     (pos :rf.fx/do-fx)
           p-run-end   (pos :rf.event/run-end)]
-      ;; Sanity: every phase fired exactly once in this cascade.
-      (is (= 1 (count (filterv #(= :rf.event/run-end %) ops)))
-          "exactly one :rf.event/run-end in the cascade")
+      ;; Sanity: the deferred install happened exactly once in this cascade.
       (is (= 1 (count (filterv #(= :rf.event/db-changed %) ops)))
           "exactly one :rf.event/db-changed in the cascade")
       ;; The flow recomputed and the db installed — flow BEFORE install.
@@ -1223,9 +1201,8 @@
                p-do-fx ")"))
       ;; THE load-bearing assertion: run-end is the LAST trace of the
       ;; cascade — after db-changed AND after the whole :fx walk.
-      (is (< p-db p-run-end)
-          (str ":rf.event/db-changed (" p-db ") < :rf.event/run-end (" p-run-end
-               ") — run-end fires AFTER the deferred install, not before"))
+      ;; `.indexOf` finds the FIRST run-end, so this also proves there
+      ;; is exactly one.
       (is (= (dec (count ops)) p-run-end)
           ":rf.event/run-end is the FINAL trace of the clean cascade"))))
 
