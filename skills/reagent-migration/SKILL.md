@@ -95,7 +95,7 @@ clojure -Srepro \
   -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
 ```
 
-It reads source text on a bare JVM, loads no re-frame2, touches no file, and writes an EDN report (without `--report`, `reagent-to-fresco-report.edn` beside the first path scanned). Expect one stderr warning that a path is external to the project (`Deprecated use of path … external to project …` on a current Clojure CLI, `Use of :paths external to the project has been deprecated` on an older one): the tool puts a shared `.cljc` file on its own classpath deliberately, so it is not a failure. The Fresco jar does not carry the reporter, so this git coordinate is how it is delivered; pin a newer `:git/sha` from `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you want one.
+It reads source text on a bare JVM, loads no re-frame2, touches no file, and writes an EDN report (without `--report`, `reagent-to-fresco-report.edn` beside the first path scanned). Expect one stderr warning, `Deprecated use of path … external to project …`: the codemod is a dependency here, and its own `:paths` deliberately reach outside its folder for a shared `.cljc` file, so it is not a failure. The Fresco jar does not carry the reporter, so this git coordinate is how it is delivered; pin a newer `:git/sha` from `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you want one.
 
 **Already working from a re-frame2 checkout?** Run the reporter from it rather than fetching a second revision. Swap the git coordinate for a `:local/root` on the checkout's `migration/reagent-to-fresco/codemod` directory and keep everything else: the entry point, the flags, the report, and source and report paths relative to the consumer's project.
 
