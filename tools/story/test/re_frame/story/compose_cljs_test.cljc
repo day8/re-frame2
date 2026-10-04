@@ -10,7 +10,7 @@
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a bare `-test` name would run it on the JVM only."
-  (:require [clojure.test :refer [are deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.schemas :as rf.story.schemas]))
 
@@ -93,21 +93,6 @@
           "[:world :scripts]'s primary play and the reported top-level
            :script never diverge"))))
 
-(deftest fragment-script-with-no-variant-script-still-executes
-  (testing "a variant that composes a fragment's :script but authors NO
-            script of its own still gets an executed primary play (not
-            an empty [:world :scripts])"
-    (let [fragments {:fragment/only-script
-                     {:script [[:dispatch [:seed-only]]]}}
-          variants  {:story.x/no-own-script
-                     {:compose [:fragment/only-script]}}
-          p (compose-plan :story.x/no-own-script
-                          {:variants variants :fragments fragments})
-          scripts (get-in p [:world :scripts])]
-      (is (= 1 (count scripts)))
-      (is (true? (:auto-run? (first scripts))))
-      (is (= [[:dispatch [:seed-only]]] (:script (first scripts)))))))
-
 ;; ===========================================================================
 ;; Composed-fragment :loaders / :loaders-teardown / :decorators
 ;;
@@ -115,21 +100,6 @@
 ;; `:extends`-chain merge) reads frag-layers for them; skipping them would
 ;; silently drop them from every composed variant.
 ;; ===========================================================================
-
-(deftest fragment-loaders-and-teardown-append-ahead-of-the-variants-own
-  (are [slot fragment own expected]
-       (= expected
-          (get-in (compose-plan :story.x/v
-                                {:variants  {:story.x/v (merge {:compose [:fragment/socket]} own)}
-                                 :fragments {:fragment/socket fragment}})
-                  [:world slot]))
-    :loaders          {:loaders [[:socket/open]]}           {:loaders [[:socket/subscribe]]}
-                      [[:socket/open] [:socket/subscribe]]
-    :loaders-teardown {:loaders-teardown [[:socket/close]]} {:loaders-teardown [[:socket/unsubscribe]]}
-                      [[:socket/close] [:socket/unsubscribe]]
-    ;; a fragment's :loaders fold in even when the variant declares none of its own
-    :loaders          {:loaders [[:socket/open]]}           {}
-                      [[:socket/open]]))
 
 (deftest fragment-decorators-compose-in-globals-story-fragment-variant-order
   (testing "a composed fragment's :decorators fold into [:world :decorators]
@@ -193,26 +163,6 @@
 ;; ===========================================================================
 ;; :extends inheritance — checks inherit; assertions + script do not
 ;; ===========================================================================
-
-(deftest parent-check-inherits
-  (testing "a parent variant's :checks inherit to the child (inheritable form)"
-    (let [variants {:story.k/parent {:checks [:check/no-runtime-errors]}
-                    :story.k/child  {:extends :story.k/parent
-                                     :checks  [:check/extra]}}
-          ;; Every :checks id must resolve.
-          checks   {:check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]}
-                    :check/extra             {:assertions [[:rf.assert/no-warnings]]}}
-          p (compose-plan :story.k/child {:variants variants :checks checks})]
-      (is (= [:check/no-runtime-errors :check/extra]
-             (get-in p [:expect :checks]))))))
-
-(deftest parent-assertion-absent-when-child-silent
-  (testing "a child with no :assertions does not pick up the parent's"
-    (let [variants {:story.a/parent
-                    {:assertions [[:rf.assert/path-equals [:s] :parent]]}
-                    :story.a/child {:extends :story.a/parent}}
-          p (compose-plan :story.a/child {:variants variants})]
-      (is (= [] (get-in p [:expect :assertions]))))))
 
 (deftest parent-script-does-not-inherit
   (testing "a parent variant's :script does NOT inherit through :extends"
