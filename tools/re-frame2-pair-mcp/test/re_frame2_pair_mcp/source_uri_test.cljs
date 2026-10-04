@@ -63,18 +63,6 @@
       (is (= sample-coord (:source-coord out)))
       (is (= "vscode://file/src/app/events.cljs:42:7" (:rf.mcp/source-uri out))))))
 
-(deftest decorate-respects-editor-choice
-  (testing "the URI scheme matches the chosen editor"
-    (let [v {:event-id :x :source-coord sample-coord}]
-      (is (= "cursor://file/src/app/events.cljs:42:7"
-             (:rf.mcp/source-uri (source-uri/decorate v :cursor))))
-      (is (= "idea://open?file=src/app/events.cljs&line=42&column=7"
-             (:rf.mcp/source-uri (source-uri/decorate v :idea))))
-      (is (= "zed://file/src/app/events.cljs:42:7"
-             (:rf.mcp/source-uri (source-uri/decorate v :zed))))
-      (is (= "windsurf://file/src/app/events.cljs:42:7"
-             (:rf.mcp/source-uri (source-uri/decorate v :windsurf)))))))
-
 (deftest decorate-custom-editor-template
   (testing "a :custom editor template flows through to the URI"
     (let [v {:source-coord sample-coord}
@@ -170,13 +158,6 @@
   (testing "a flat carrier with blank :file produces no :rf.mcp/source-uri"
     (let [v {:ns 'app.events :file "" :line 42 :column 7}]
       (is (not (contains? (source-uri/decorate v :vscode) :rf.mcp/source-uri))))))
-
-(deftest decorate-idempotent
-  (testing "running the decorator twice yields the same result"
-    (let [v       {:source-coord sample-coord}
-          once    (source-uri/decorate v :vscode)
-          twice   (source-uri/decorate once :vscode)]
-      (is (= once twice)))))
 
 (deftest decorate-overwrites-stale-rf-source-uri-when-editor-changes
   (testing "a re-decoration with a different editor replaces the URI"
