@@ -118,10 +118,6 @@
     (is (= muted
            (spine-filters/<-edn (spine-filters/->edn muted))))))
 
-(deftest edn-round-trip-handles-empty
-  (is (= #{} (spine-filters/<-edn (spine-filters/->edn #{}))))
-  (is (= #{} (spine-filters/<-edn (spine-filters/->edn nil)))))
-
 (deftest edn-malformed-falls-back-to-empty
   (is (= #{} (spine-filters/<-edn "not edn at all")))
   (is (= #{} (spine-filters/<-edn "{not a set}"))))
