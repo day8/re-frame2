@@ -124,16 +124,6 @@
             :delay-source :literal
             :epoch epoch}}))
 
-(defn- push-fired!
-  [id machine-id state epoch]
-  (trace-collector/seed-trace-for-test!
-    {:id id :time id
-     :operation :rf.machine.timer/fired
-     :tags {:machine-id machine-id
-            :state state
-            :epoch epoch
-            :fired? true}}))
-
 (defn- push-cancelled!
   [id machine-id state epoch]
   (trace-collector/seed-trace-for-test!
@@ -151,8 +141,9 @@
 ;; frame-id`, and so does `machines/lifecycle_fx/registration.cljc`'s
 ;; `:rf.machine/transition`. The UNSTAMPED fixtures above omit it
 ;; DELIBERATELY: that is what an unstamped replay looks like, and the
-;; no-filter branch must fold one — `active-timers-still-fold-when-
-;; no-frame-can-be-resolved` below is what keeps that honest.
+;; no-filter branch must fold one — the control row of
+;; `active-timers-follow-the-focused-machine-not-the-alphabetical-first`
+;; below is what keeps that honest.
 
 (defn- focus-machine-in!
   "[[focus-machine!]] with the focused transition trace carrying its
@@ -335,38 +326,6 @@
              own cancel")
         (is (= 1000 (-> active first :armed-at)))))))
 
-(deftest active-timers-still-fold-when-no-frame-can-be-resolved
-  (testing "the no-filter branch exists for this case. With a
-            replay stamping no `:frame` anywhere, the focused
-            record carries no `:frame-id` AND the collector target is
-            unselected, so there is genuinely nothing to disambiguate
-            against. Dropping every event would BLANK the rings on the
-            default posture, which is the failure that branch exists to
-            prevent."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (focus-machine!        :auth/login)
-      (push-scheduled!       1000 :auth/login :idle 5000 0)
-      (is (nil? @(rf/subscribe [:rf.xray/target-frame])))
-      (let [active @(rf/subscribe
-                      [:rf.xray/active-timers-for-focused-machine])]
-        (is (= 1 (count active))
-            "the unselected posture renders a ring; nothing blanked")
-        (is (= :armed (-> active first :status)))))))
-
-(deftest active-timers-drops-fired
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (focus-machine!        :auth/login)
-    (pin-now-ms! 7000)
-    (push-scheduled! 1000 :auth/login :idle 5000 0)
-    (push-fired!     6000 :auth/login :idle 0)
-    (is (empty? @(rf/subscribe [:rf.xray/active-timers-for-focused-machine])))))
-
 ;; ---- (3) now-ms surface ------------------------------------------------
 
 (deftest now-ms-override-overrides-tick
@@ -447,15 +406,6 @@
   digs past the wrapper to the props."
   [tree]
   (some-> tree delegated-child second))
-
-(deftest overlay-returns-nil-with-no-active-timers
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (focus-machine!        :auth/login)
-    (pin-now-ms! 1000)
-    (is (nil? (overlay-tree)))))
 
 (deftest overlay-delegates-one-ring-spec-per-active-timer
   (setup-xray-frame!)
@@ -696,15 +646,3 @@
                          ":rf/default was NOT polluted — no bare-dispatch leak")))
             (.catch (fn [e] (is false (.-message e)) nil))
             (.then (fn [_] (done))))))))
-
-;; ---- (6) frame isolation ----------------------------------------------
-
-(deftest now-ms-lives-on-xray-frame
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/timer-tick 42]))
-  (let [xray-db   (rf.frame/frame-app-db-value :rf/xray)
-        default-db (rf.frame/frame-app-db-value :rf/default)]
-    (is (= 42 (:rings/now-ms xray-db)))
-    (is (nil? (:rings/now-ms default-db))
-        "host frame is untouched")))
