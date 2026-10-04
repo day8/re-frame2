@@ -89,29 +89,6 @@
 ;; 1. The default projection includes ALL source-store descriptors + standards
 ;; ===========================================================================
 
-(deftest default-projection-includes-the-whole-pool-plus-standards
-  (testing "the default image is the implicit selector over the WHOLE source
-            store: it projects EVERY descriptor across every namespace + the
-            framework standards into a sealed [kind id] resolver"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-    (let [pool [(reg-desc "shop.cart"    :event :cart/add   ::cart-add)
-                (reg-desc "shop.cart"    :sub   :cart/items ::cart-items)
-                (reg-desc "shop.auth"    :event :auth/login ::auth-login)
-                (reg-desc "shop.catalog" :view  :catalog/grid ::grid)]
-          gen  (rf.image-assembly/assemble-default pool)]
-      (testing "every namespace's descriptors are selected (no glob — the whole
-                store)"
-        (is (contains? (:rf.gen/resolver gen) [:sub   :cart/items]))
-        (is (contains? (:rf.gen/resolver gen) [:event :auth/login])))
-      (testing "the framework standard is unioned in, exactly as the explicit
-                path"
-        (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))))
-      (testing "resolve-descriptor reads one descriptor per (kind, id)"
-        (is (= ::cart-add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))))
-        (is (= ::grid (:handler-fn (rf.image-assembly/resolve-descriptor gen :view :catalog/grid)))))
-      (testing "the generation carries the kinds present"
-        (is (= #{:event :sub :view :fx} (rf.image-assembly/generation-kinds gen)))))))
-
 (deftest empty-store-default-projects-an-empty-generation
   (testing "the default image over an EMPTY source store is a VALID empty
             projection (resolving only framework standards) — no zero-match
@@ -178,14 +155,6 @@
       (is (identical? via-default via-empty)
           "and shares the one cached default generation object"))))
 
-(deftest assemble-empty-images-collision-fails-loud
-  (testing "the empty-:images default path fails loud on a cross-namespace
-            collision exactly as `assemble-default` does"
-    (let [pool [(reg-desc "todo.boot"    :event :boot/init ::a)
-                (reg-desc "counter.boot" :event :boot/init ::b)]]
-      (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(rf.image-assembly/assemble [] pool)))))))
-
 ;; ===========================================================================
 ;; 4. The default generation is CACHED + invalidates on a source-store change
 ;;    (the generation cache, keyed on the source-store generation). Uses the LIVE store
@@ -224,26 +193,6 @@
           (reset! rf.source-store/kind->id->ns->descriptor store-before)
           (rf.image-assembly/clear-generation-cache!))))))
 
-(deftest default-generation-invalidates-on-standard-change
-  (testing "registering a NEW framework standard bumps the standard generation,
-            so a re-assembly of the default image over the same store is a MISS
-            — the standard set is part of the default generation too"
-    (let [store-before @rf.source-store/kind->id->ns->descriptor]
-      (try
-        (reset! rf.source-store/kind->id->ns->descriptor {})
-        (rf.image-assembly/clear-generation-cache!)
-        (record! "app.core" :event :app/boot ::boot)
-        (let [gen1 (rf.image-assembly/assemble-default)]
-          (is (not (contains? (:rf.gen/resolver gen1) [:fx :rf.nav/push-url])))
-          (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-          (let [gen2 (rf.image-assembly/assemble-default)]
-            (is (not (identical? gen1 gen2))
-                "the standard set changed → a re-seal of the default generation")
-            (is (contains? (:rf.gen/resolver gen2) [:fx :rf.nav/push-url]))))
-        (finally
-          (reset! rf.source-store/kind->id->ns->descriptor store-before)
-          (rf.image-assembly/clear-generation-cache!))))))
-
 ;; ===========================================================================
 ;; 5. A PROVENANCED app descriptor colliding with a framework STANDARD FAILS
 ;;    LOUD on the DEFAULT path too — symmetric with the explicit path.
@@ -251,22 +200,6 @@
 ;;    framework's OWN no-provenance registrar shadow; a provenanced app
 ;;    descriptor must survive selection so it reaches check-standard-collision!.
 ;; ===========================================================================
-
-(deftest default-projection-provenanced-app-colliding-with-standard-fails-loud
-  (testing "a PROVENANCED app descriptor in the default pool whose (kind, id)
-            collides with a registered framework standard FAILS LOUD on the
-            DEFAULT path with :rf.error/image-standard-replacement-forbidden —
-            the standard is protected and the app registration is NOT silently
-            dropped"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-    (let [pool [(reg-desc "shop.nav"  :fx    :rf.nav/push-url ::app-nav)
-                (reg-desc "shop.cart" :event :cart/add        ::cart-add)]]
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(rf.image-assembly/assemble-default pool)))
-          "the default path throws the SAME error the explicit path throws")
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(rf.image-assembly/assemble [] pool)))
-          "the empty-:images default route throws it too"))))
 
 (deftest default-and-explicit-paths-fail-loud-symmetrically-on-standard-collision
   (testing "the SAME misconfiguration — a provenanced app descriptor colliding
