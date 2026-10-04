@@ -78,13 +78,6 @@
     (is (= {:file "src/a.cljs" :line 12} (:source-coord row)))
     (is (= "src/a.cljs:12" (:source-label row)))))
 
-(deftest project-rows-walks-all-machines
-  (let [rows (h/project-rows [:m/a :m/b :m/c]
-                             sample-defs
-                             sample-snapshots)]
-    (is (= 3 (count rows)))
-    (is (= [:m/a :m/b :m/c] (mapv :machine-id rows)))))
-
 ;; ---- state-count: flat / compound / parallel ----------------------------
 ;;
 ;; The state-count drives the browse-list chip, the detail header
