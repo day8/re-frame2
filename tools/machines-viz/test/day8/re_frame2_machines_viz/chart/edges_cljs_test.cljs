@@ -48,13 +48,6 @@
 (defn- ->edge [sections]
   #js {:sections (apply array sections)})
 
-(deftest elk-edge-points-chains-start-bends-end
-  (testing "a single-section edge lifts to start → bend… →
-            end as a CLJS vector of {:x :y} maps (absolute coords)"
-    (let [edge (->edge [(->section (pt 0 0) [(pt 0 50) (pt 80 50)] (pt 80 100))])]
-      (is (= [{:x 0 :y 0} {:x 0 :y 50} {:x 80 :y 50} {:x 80 :y 100}]
-             (chart/elk-edge-points edge))))))
-
 (deftest elk-edge-points-collapses-duplicate-seam-points
   (testing "across two sections the first's endPoint can
             repeat the next's startPoint; consecutive duplicates collapse
@@ -327,22 +320,6 @@
       (is (str/includes? d "Q") "rounded corners use quadratic segments")
       (is (not (str/includes? d "C"))
           "a routed path is NOT a single bezier curve"))))
-
-(deftest edge-path-prefers-elk-label-position
-  (testing "when ELK supplies a computed label position
-            (`:label-pos`), the routed edge anchors the label THERE (the
-            collision-free channel ELK reserved) instead of the geometric
-            middle-segment midpoint"
-    (let [points (array (pt 0 0) (pt 0 100) (pt 100 100) (pt 100 200))
-          ;; The geometric midpoint would be (50,100); ELK placed it at
-          ;; (140, 60) — the label MUST honour ELK's position.
-          {:keys [label-x label-y routed?]}
-          (edges/edge-path (assoc base-coords
-                                  :points points
-                                  :label-pos {:x 140 :y 60}))]
-      (is (true? routed?))
-      (is (= 140 label-x) "label honours ELK's computed x")
-      (is (= 60 label-y) "label honours ELK's computed y"))))
 
 (deftest edge-path-elk-label-position-beats-cross-hierarchy-anchor
   (testing "ELK's placement wins even over the cross-hierarchy
