@@ -8,7 +8,7 @@ A `Skill` that helps `Claude Code` rewrite Reagent view code into Fresco — `re
 
 This skill's first job is to check whether it has a job.
 
-re-frame2 ships first-class, actively-supported adapters. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter, and keeps its view code — that is a finished migration, and it is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill's job.
+re-frame2 ships first-class, actively-supported adapters. `day8/re-frame2-reagent` is the default browser substrate and the adapter the reference suite runs against. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter, and stays on Reagent — that is a finished migration, and it is the [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) skill's job. Staying on Reagent does not leave every view untouched: re-frame-migration's [M-11](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/guided-views-m11.md) gives each plain-function view that subscribes or dispatches in its render a frame (`reg-view`, or a frame carried in explicitly), while a pure view that renders only its arguments needs no change.
 
 Rewriting views into Fresco is a separate, optional second step, and it is a rewrite rather than a respelling: views change shape, handlers become data, view-held state leaves the component. 2 facts frame the choice, and the skill states both before it starts:
 

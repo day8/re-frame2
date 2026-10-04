@@ -75,10 +75,14 @@ lock framed the journey as (1) v1→v2 required, then (2) optionally
 Reagent→Freehand. That is still the shape, but the first half is now stronger
 than "optional" implied, and the skill must say so before it does anything:
 
-**With a first-class Reagent adapter, an app moving from re-frame v1 keeps its
-view code and needs no rewrite to land on re-frame2.** `day8/re-frame2-reagent`
+**With a first-class Reagent adapter, an app moving from re-frame v1 stays on
+Reagent and needs no Fresco rewrite to land on re-frame2.** `day8/re-frame2-reagent`
 is the default browser substrate and the adapter the reference suite runs
-against. The v1→v2 move *completes* on its own.
+against. The v1→v2 move *completes* on its own. It does not leave every view
+untouched, so the skill never promises unchanged view code: re-frame-migration's
+M-11 gives each plain-function view that subscribes or dispatches in its render
+a frame (`reg-view`, or a frame carried in explicitly), and a pure view that
+renders only its arguments needs nothing.
 
 So the second step is chosen for what Fresco offers, not required to arrive. The
 skill states the trade in both directions. An explicit request to use Fresco
