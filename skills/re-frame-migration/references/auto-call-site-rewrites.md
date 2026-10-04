@@ -576,6 +576,8 @@ As written it scans: it reports every retired-registrar site and writes nothing.
 
 **Check the dry run's file count before a broad `--write`.** Only a `rewrite` or `rename` finding changes a file, so the dry run's closing `N file(s) would change (dry run)` must equal the number of distinct files those findings name. A larger N is churn the write would add to the review, which at the sha above means CRLF files with no accepted change being rewritten to LF: narrow `PATH` to the files the findings name, or pin a later sha. After the write, confirm a rewritten CRLF file kept its endings by counting bytes (`open(p, 'rb').read().count(b'\r\n')` in Python), not with `grep` or `sed`.
 
+**The census counts active registrations only.** A `#_` reader-discarded form is not code, so the codemod neither reports nor rewrites one, at any depth, and returns its bytes untouched; a discard inside a live registration (a `#_` middle slot, say) is invisible to that site's analysis too. There is no separate report of discarded registrations and no opt-in to rewrite them: remove the `#_` first to migrate one. At the sha pinned above the codemod still counts and rewrites discarded forms, so pin a later sha, or subtract the discarded sites from its findings by hand.
+
 The mechanical (Type A) cases:
 
 **`reg-event-fx` → `reg-event` — pure rename.** The handler is byte-for-byte unchanged.

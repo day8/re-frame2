@@ -839,6 +839,41 @@
       (is (str/includes? source "(when true db)")))))
 
 ;; ---------------------------------------------------------------------------
+;; reader-discarded source — a `#_` form holds no registration
+;; ---------------------------------------------------------------------------
+
+(deftest discarded-forms-not-scanned-or-rewritten
+  (testing "a #_ subtree yields no finding and keeps every byte; the active sites beside it count once"
+    (doseq [[label src actions out]
+            [["discarded only"
+              "(ns demo (:require [re-frame.core :as rf]))\n#_(rf/reg-event-fx :d (fn [cofx event] {}))\n"
+              [] nil]
+             ["active beside discarded, comments kept"
+              "(ns demo (:require [re-frame.core :as rf]))\n;; live\n(rf/reg-event-fx :a (fn [cofx event] {}))\n#_ ;; parked\n(rf/reg-event-fx :d (fn [cofx event] {}))\n"
+              [:rename]
+              "(ns demo (:require [re-frame.core :as rf]))\n;; live\n(rf/reg-event :a (fn [cofx event] {}))\n#_ ;; parked\n(rf/reg-event-fx :d (fn [cofx event] {}))\n"]
+             ["discarded Type B shapes"
+              "#_(rf/reg-event-ctx :d (fn [ctx] ctx))\n#_(rf/reg-event-db :d2 [my-interceptor] (fn [db _] (when db db)))\n"
+              [] nil]
+             ["nested and stacked discards"
+              (str "#_(do (rf/reg-event-fx :d1 (fn [c e] {})) #_(rf/reg-event-db :d2 (fn [db _] db)))\n"
+                   "#_ #_ (rf/reg-event-fx :d3 (fn [c e] {})) (rf/reg-event-fx :d4 (fn [c e] {}))\n"
+                   "(let [x 1]\n  #_(rf/reg-event-fx :d5 (fn [c e] {}))\n  x)\n")
+              [] nil]
+             ["a discarded slot inside an active call"
+              "(rf/reg-event-fx :a #_[my-interceptor] (fn [cofx event] {}))\n(rf/reg-event-db :b (fn [db _] (assoc db :k 1) #_(old db)))\n"
+              [:rename :rewrite]
+              "(rf/reg-event :a #_[my-interceptor] (fn [cofx event] {}))\n(rf/reg-event :b (fn [{:keys [db]} _] {:db (assoc db :k 1)} #_(old db)))\n"]
+             ["bare and qualified active sites beside discards"
+              "(ns demo (:require [re-frame.core :as rf :refer [reg-event-fx]]))\n#_(reg-event-fx :d (fn [c e] {}))\n(reg-event-fx :a (fn [c e] {}))\n(rf/reg-event-fx :b (fn [c e] {}))\n"
+              [:rename :rename]
+              "(ns demo (:require [re-frame.core :as rf :refer [reg-event-fx reg-event]]))\n#_(reg-event-fx :d (fn [c e] {}))\n(reg-event :a (fn [c e] {}))\n(rf/reg-event :b (fn [c e] {}))\n"]]]
+      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+        (is (= actions (mapv :action (rf.migration.reg-event-codemod/scan-string src))) (str label ": scan"))
+        (is (= actions (mapv :action findings)) (str label ": rewrite"))
+        (is (= (or out src) source) label)))))
+
+;; ---------------------------------------------------------------------------
 ;; filesystem entry points
 ;; ---------------------------------------------------------------------------
 
@@ -894,6 +929,7 @@
 (deftest write-keeps-line-endings
   (let [sources   {"no-event" ["(ns eol-control)" "(def value 1)"]
                    "flagged"  ["(ns eol-control)" "(rf/reg-event-db :eol-control/event [(rf/unwrap)] (fn [db event] db))"]
+                   "discarded" ["(ns eol-control)" "#_(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]
                    "rename"   ["(ns eol-control)" "(rf/reg-event-fx :eol-control/event (fn [cofx event] {}))"]
                    "bare"     ["(ns eol-control (:require [re-frame.core :refer [reg-event-fx]]))"
                                "(reg-event-fx :eol-control/event (fn [cofx event] {}))"]}
@@ -904,19 +940,22 @@
         text      (fn [lines sep] (str (str/join sep lines) sep))
         files     (into {} (for [[n lines] sources [eol sep] eols]
                              [(str n "-" eol ".cljs") (text lines sep)]))]
-    (testing "no-event and flagged-only files are left byte-identical; a rename, qualified or bare, keeps its convention"
+    (testing "no-event, flagged-only and discarded-only files are left byte-identical; a rename, qualified or bare, keeps its convention"
       (with-source-dir files
         (fn [dir]
           (is (= (set (for [n (keys rewritten) eol (keys eols)] (str n "-" eol ".cljs")))
                  (rewrite-dir! dir)))
-          (doseq [n ["no-event-lf.cljs" "no-event-crlf.cljs" "flagged-lf.cljs" "flagged-crlf.cljs"]]
+          (doseq [n ["no-event-lf.cljs" "no-event-crlf.cljs" "flagged-lf.cljs" "flagged-crlf.cljs"
+                     "discarded-lf.cljs" "discarded-crlf.cljs"]]
             (is (= (text-bytes (files n)) (file-bytes (io/file dir n))) n))
           (doseq [[n lines] rewritten [eol sep] eols]
             (is (= (text-bytes (text lines sep)) (file-bytes (io/file dir (str n "-" eol ".cljs"))))
                 (str n "-" eol))))))
-    (testing "the CLI counts only the renamed files as rewritten"
+    (testing "the CLI dry run and write count only the renamed files, and a discard adds no finding"
       (with-source-dir files
         (fn [dir]
+          (is (str/includes? (with-out-str (rf.migration.reg-event-codemod/-main "--rewrite" (.getPath dir)))
+                             "4 file(s) would change (dry run); summary: {:total 6, :rewrite 0, :rename 4, :flag 2}"))
           (is (str/includes? (with-out-str (rf.migration.reg-event-codemod/-main "--rewrite" "--write" (.getPath dir)))
                              "4 file(s) rewritten")))))))
 
