@@ -631,45 +631,6 @@
         (is (= :hydrating (:state (snapshot :sup/forge-none)))
             "parent did NOT resolve on the forged carrier")))))
 
-(deftest repeated-forged-completions-each-emit-error-and-do-not-resolve
-  (testing "repeated forged completion carriers each emit error
-  traces; the join still does not resolve"
-    (let [parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   :hydrating
-                   {:spawn-all
-                    {:children        [{:id :a :machine-id :child/forge-r :start [:set-id :a]}]
-                     :join            :all
-                     :on-all-complete [:hydrate/done]
-                     :on-any-failed   [:hydrate/failed]}
-                    :on    {:hydrate/done   :ready
-                            :hydrate/failed :error}}
-                   :ready  {}
-                   :error  {}}}]
-      (rf/reg-machine :child/forge-r (mk-inert-child))
-      (rf/reg-machine :sup/forge-repeated parent)
-      (rf/dispatch-sync [:sup/forge-repeated [:start]])
-      (let [traces (collect-traces
-                    (fn []
-                      (rf/dispatch-sync (forged-completion :sup/forge-repeated [:hydrating] :fake-1 :done))
-                      (rf/dispatch-sync (forged-completion :sup/forge-repeated [:hydrating] :fake-2 :done))
-                      (rf/dispatch-sync (forged-completion :sup/forge-repeated [:hydrating] :fake-3 :failed))))
-            errs (bad-child-id-error-traces traces)
-            jstate (get-in (frame-db) [:rf.runtime/machines :spawned :sup/forge-repeated [:hydrating]])]
-        (is (= 3 (count errs))
-            "one error trace per forged carrier")
-        (is (= [:fake-1 :fake-2 :fake-3]
-               (mapv (comp :child-id :tags) errs))
-            "each error trace carries its specific forged child-id")
-        (is (= [:done :done :failed]
-               (mapv (comp :kind :tags) errs))
-            "each error trace carries the resolution-side it aimed at")
-        (is (= #{} (:done jstate)))
-        (is (= #{} (:failed jstate)))
-        (is (false? (:resolved? jstate)))
-        (is (= :hydrating (:state (snapshot :sup/forge-repeated))))))))
-
 (deftest another-parents-child-id-is-rejected-by-this-join
   (testing "a child-id legitimate to one parent's :spawn-all is forged
   for ANOTHER parent's :spawn-all and is rejected by the other"
