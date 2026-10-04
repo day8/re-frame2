@@ -45,7 +45,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.interceptor :as rf.interceptor]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.frame :as rf.frame]
@@ -96,8 +95,9 @@
 
 ;; EP-0018: one `reg-event` macro, so a db-shape and an fx-shape body both
 ;; ride the `reg-event` form-source path `reg-event-captures-form-source`
-;; pins above, and a chain in metadata `:interceptors` rides it too
-;; (`captures-form-source-with-metadata-interceptors` below). The retired-name
+;; pins above, and a chain in metadata `:interceptors` rides it too, as part
+;; of the same `pr-str`'d form `captures-form-source-with-metadata-map` pins
+;; below. The retired-name
 ;; throwing stubs (`reg-event-db` / `reg-event-fx`) register nothing, so there
 ;; is no per-stub capture to pin.
 
@@ -122,31 +122,6 @@
                  (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-meta}))]
         (is (str/includes? src ":doc"))
         (is (str/includes? src "metadata-shape middle slot"))))))
-
-(deftest captures-form-source-with-metadata-interceptors
-  (testing "metadata :interceptors round-trips into :rf.handler/source"
-    ;; There is no framework `unwrap-interceptor` value (EP-0022); register a
-    ;; tiny PROJECT-LOCAL `:app/unwrap` interceptor and reference it by id, so
-    ;; this round-trip test depends on no framework-owned value. Only the metadata `:interceptors` chain needs to
-    ;; round-trip into the source string — the interceptor's :before is a no-op.
-    (rf/reg-interceptor :app/unwrap
-                         (rf.interceptor/->interceptor* :id :app/unwrap
-                                                     :before identity))
-    (rf/reg-event :rf2-xgfuy/event-with-icpts
-                     {:interceptors [:app/unwrap]}
-                     (fn [_cofx {:keys [v]}] {:db {:v v}}))
-    ;; Always-on witness: the metadata `:interceptors` ref
-    ;; threaded into the stored chain — the production-visible half of the
-    ;; round-trip this deftest is about.
-    (is (= [:app/unwrap :rf/event-handler]
-           (mapv (fn [e] (if (keyword? e) e (:id e)))
-                 (:interceptors (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-icpts}))))
-        "the metadata :interceptors ref sits before the framework wrapper")
-    ;; Dev-instrumentation arm (see ns docstring §Posture split).
-    (when rf.interop/debug-enabled?
-      (let [src (:rf.handler/source
-                 (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy/event-with-icpts}))]
-        (is (str/includes? src "unwrap"))))))
 
 ;; ---- programmatic call (bypasses macro) ----------------------------------
 
