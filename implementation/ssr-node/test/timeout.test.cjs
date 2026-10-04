@@ -19,7 +19,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { withService, collect, observed, refusalOf } = require('./_support.cjs');
-const { CODE, RENDER_THREW_REFUSAL } = require('../src/protocol.cjs');
+const { CODE } = require('../src/protocol.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
 const quick = () => ({ protocol: 1, entry: 'app/quick', state: {} });
@@ -41,6 +41,11 @@ test('a render that never returns is refused inside its budget', async () => {
     // compile. An unterminated hang never returns at all, so any finite
     // number is the whole result.
     assert.ok(elapsed < 5000, `refused after ${elapsed} ms — the deadline is not bounding anything`);
+    // Nothing was emitted, so the torn-response count is 0 — present, and
+    // beside the rest of the detail rather than in place of it.
+    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
+    assert.strictEqual(err.detail.entry, 'app/root');
+    assert.strictEqual(typeof err.detail.isolate, 'number');
   });
 });
 
@@ -100,32 +105,26 @@ test('the service ceiling binds a caller that asks for longer', async () => {
 // posts, but the deadline rejection and `_failPendingRender` build their
 // refusals themselves, from the count the isolate keeps on `pendingRender` —
 // and a transport or consumer branching on the advertised discriminator must
-// not see `undefined` while body bytes have already left. The throw rows
-// below this block pin the worker-reported shape; these are the same claim on
-// the paths the worker cannot report on.
+// not see `undefined` while body bytes have already left. `egress.test.cjs`
+// §4's throw rows pin the worker-reported shape; these are the same claim on
+// the paths the worker cannot report on, and the clean-timeout row at the top
+// of this file pins the zero.
 // ---------------------------------------------------------------------------
 
-test('a TIMEOUT before any chunk carries afterChunks 0', async () => {
-  await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
-    const err = await refusalOf(() => collect(service, hang({ timeoutMs: 200 })));
-    assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
-    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-    // The distinctions the count must not cost.
-    assert.strictEqual(err.detail.timeoutMs, 200);
-    assert.strictEqual(err.detail.entry, 'app/root');
-    assert.strictEqual(typeof err.detail.isolate, 'number');
-  });
-});
-
-test('a TIMEOUT after chunks is a TORN response, and names the exact count', async () => {
+test('a TIMEOUT after chunks is a TORN response, names the exact count, and never completes', async () => {
   await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
     const chunks = [];
+    let complete = null;
     const err = await refusalOf(async () => {
       for await (const frame of service.renderFrames(torn({ timeoutMs: 400 }))) {
         if (frame.type === 'chunk') chunks.push(frame.html);
+        else complete = frame;
       }
     });
     assert.strictEqual(chunks.length, 2, 'both chunks really did reach the caller');
+    // The half a count alone would not prove: the caller must not be handed
+    // a `complete` frame describing the chunks it did get.
+    assert.strictEqual(complete, null, 'a torn stream must never yield a complete frame');
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT, 'still a timeout, not reclassified');
     assert.strictEqual(err.detail.afterChunks, 2, 'the tear is named, with its exact count');
     assert.strictEqual(err.detail.timeoutMs, 400, 'the rest of the detail is intact');
@@ -134,63 +133,6 @@ test('a TIMEOUT after chunks is a TORN response, and names the exact count', asy
       'app/torn',
       'and the entry, so an operator can still name the render',
     );
-  });
-});
-
-test('no success completion follows a torn timeout', async () => {
-  // The half a count alone would not prove: the caller must not be handed a
-  // `complete` frame describing the chunks it did get.
-  await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
-    let complete = null;
-    const err = await refusalOf(async () => {
-      for await (const frame of service.renderFrames(torn({ timeoutMs: 400 }))) {
-        if (frame.type === 'complete') complete = frame;
-      }
-    });
-    assert.ok(err, 'the render must not have succeeded');
-    assert.strictEqual(complete, null, 'a torn stream must never yield a complete frame');
-  });
-});
-
-test('a render that throws BEFORE emitting is a clean refusal', async () => {
-  await withService('throws', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() =>
-      collect(service, { protocol: 1, entry: 'app/before', state: {} }),
-    );
-    assert.strictEqual(err.code, CODE.RENDER_THREW);
-    // The wording is the CONTRACT'S, not the module's. Pinning
-    // `/fell over immediately/` — the exact string authored in
-    // `fixtures/throws.cjs` — would make this row a standing witness that
-    // the module's own message crosses into the public refusal, which is
-    // the leak: an exception's message is built from the value being
-    // processed in any real renderer, so that string is the shape request
-    // state travels in. The operator gets the original, with its stack, on
-    // the sidecar's stderr; `egress.test.cjs` §4 is where the absence is
-    // measured with planted sentinels.
-    assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
-    assert.ok(!err.message.includes('fell over immediately'), 'the authored string must not cross');
-    assert.strictEqual(err.detail.afterChunks, 0, 'nothing was written, so nothing is torn');
-  });
-});
-
-test('a render that throws AFTER emitting is a TORN response, and says so', async () => {
-  // The one failure a transport must not smooth over: chunks are already
-  // on their way, so there is no status code left to send and the caller
-  // must not be handed a well-formed shorter page.
-  await withService('throws', { isolates: 1 }, async (service) => {
-    const chunks = [];
-    const err = await refusalOf(async () => {
-      for await (const frame of service.renderFrames({
-        protocol: 1,
-        entry: 'app/after',
-        state: {},
-      })) {
-        if (frame.type === 'chunk') chunks.push(frame.html);
-      }
-    });
-    assert.strictEqual(chunks.length, 1, 'the first chunk did reach the caller');
-    assert.strictEqual(err.code, CODE.RENDER_THREW);
-    assert.strictEqual(err.detail.afterChunks, 1, 'the tear must be named, with its chunk count');
   });
 });
 

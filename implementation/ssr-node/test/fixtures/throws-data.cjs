@@ -3,8 +3,8 @@
 // is the ordinary shape of a renderer exception rather than an exotic one.
 //
 // `throws.cjs` is the well-behaved thrower: its messages are constants, so
-// it can witness that a throw refuses and that a post-emit throw tears,
-// but it cannot witness what a refusal CARRIES. Every real renderer
+// it can witness that a throw refuses without costing the isolate, but it
+// cannot witness what a refusal CARRIES. Every real renderer
 // exception is the other shape — `Cannot read properties of undefined`
 // names the property, a validation error quotes the value, a template
 // error interpolates the row it was rendering. So the interesting question
