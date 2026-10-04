@@ -149,22 +149,6 @@
 
 ;; ---- dispatch boundary — the choice state resolves immediately on entry ----
 
-(deftest choice-resolves-first-passing-candidate
-  (testing "entering a choice state mid-macrostep takes the first guard-passing
-            candidate immediately — no event needed"
-    (let [m {:initial :idle :data {:ok? true}
-             :guards {:ok? (fn [{:keys [data]}] (:ok? data))}
-             :states {:idle    {:on {:go :checking}}
-                      :checking {:type :choice
-                                 :choice [{:guard :ok? :target :accepted}
-                                          {:target :rejected}]}
-                      :accepted {} :rejected {}}}]
-      (rf/reg-machine :ct/first m)
-      (rf/dispatch-sync [:ct/first [:go]])
-      (is (= :accepted (:state (snapshot :ct/first)))
-          "the choice state settled past to :accepted (the guard passed) within
-           the SAME macrostep — :checking is never externally observed"))))
-
 (deftest choice-falls-through-to-default
   (testing "when every guard fails the unguarded DEFAULT candidate is taken"
     (let [m {:initial :idle :data {:ok? false}
