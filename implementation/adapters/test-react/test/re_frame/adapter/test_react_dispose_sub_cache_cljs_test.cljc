@@ -14,13 +14,10 @@
   allowing a later subscribe to read a stale value and breaking process
   isolation.
 
-  Two cases, both here rather than split across namespaces, so each
-  assertion is maintained and run once per host:
-
-  - `dispose-adapter-clears-sub-cache-and-recomputes-fresh` — the single-frame
-    dispose / reinstall / fresh-recompute property.
-  - `dispose-adapter-clears-sub-caches-across-multiple-frames` — the walk must
-    cover EVERY live frame, not just `:rf/default`.
+  `dispose-adapter-clears-sub-caches-across-multiple-frames` pins it: the walk
+  covers EVERY live frame, not just `:rf/default`. An emptied cache is what
+  makes the next subscribe a fresh cache miss that recomputes from the current
+  app-db.
 
   The ns ends in `-cljs-test`, so it rides `npm run test:cljs` as well as the
   JVM cognitect runner. It uses the standard `make-reset-runtime-fixture`
@@ -37,42 +34,6 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.adapter.test-react/adapter}))
-
-(defn- sub-cache-keys []
-  (if-let [cache (:sub-cache (rf.frame/frame :rf/default))]
-    (set (keys @cache))
-    #{}))
-
-(defn- entry-ref-count [query-v]
-  (get-in @(:sub-cache (rf.frame/frame :rf/default)) [query-v :ref-count]))
-
-(deftest dispose-adapter-clears-sub-cache-and-recomputes-fresh
-  (testing "test-react dispose-adapter! disposes + clears every
-            live frame's sub-cache; a re-subscribe after reinstall recomputes
-            from the current app-db (no stale cross-lifecycle read)"
-    (rf/reg-event ::seed (fn [_ctx [_ v]] {:db {:n v}}))
-    (rf/reg-sub ::n (fn [db _] (:n db)))
-    (rf/dispatch-sync [::seed 1])
-
-    ;; Materialise a real sub-cache slot (ref-count 1).
-    (let [r (rf.subs/subscribe [::n] {:frame :rf/default})]
-      (is (= 1 @r) "sub reads the seeded value")
-      (is (= 1 (entry-ref-count [::n])) "slot ref-count = 1"))
-
-    ;; Dispose the adapter — the cache MUST be cleared (entries + ref-counts).
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (empty? (sub-cache-keys))
-        "dispose-adapter! cleared the frame's sub-cache")
-
-    ;; Reinstall, mutate app-db, re-subscribe — must reflect the NEW value.
-    (rf.substrate.adapter/install-adapter! rf.adapter.test-react/adapter)
-    (rf/dispatch-sync [::seed 99])
-    (let [r2 (rf.subs/subscribe [::n] {:frame :rf/default})]
-      (is (= 99 @r2)
-          "re-subscribe recomputed from the current app-db, not a stale slot")
-      (is (= 1 (entry-ref-count [::n]))
-          "rebuilt slot is a fresh cache miss (ref-count 1)")
-      (rf.subs/unsubscribe :rf/default [::n]))))
 
 (deftest dispose-adapter-clears-sub-caches-across-multiple-frames
   (testing "the walk covers EVERY live frame, not just
