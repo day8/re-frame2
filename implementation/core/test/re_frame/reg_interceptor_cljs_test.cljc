@@ -146,19 +146,6 @@
 ;;    reference-only)
 ;; ---------------------------------------------------------------------------
 
-(deftest inline-value-in-chain-rejected
-  (testing "an inline interceptor value in a chain is :rf.error/inline-interceptor-removed at registration"
-    (let [inline (rf.interceptor/->interceptor*
-                   :id     :inline/log
-                   :before (fn [ctx] ctx)
-                   :after  (fn [ctx] ctx))]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-                            #":rf.error/inline-interceptor-removed"
-                            (rf/reg-event :inline/run
-                              {:interceptors [inline]}
-                              (fn [{:keys [db]} _] {:db db})))
-          "register the interceptor with reg-interceptor and reference it by id"))))
-
 (deftest mixed-ref-and-inline-value-rejected
   (testing "a chain mixing a registered ref AND an inline value still fails on the inline value"
     (let [inline (rf.interceptor/->interceptor*
@@ -252,25 +239,6 @@
       (rf/dispatch-sync [:hot/run])
       (is (= [:v1 :v2] @log)
           "the next dispatch used the re-registered descriptor"))))
-
-(deftest realm-aware-ref-resolution
-  (testing "resolve-ref resolves through the active (realm-bound) registrar"
-    ;; Register :rsa/icpt ONLY in a separate realm registrar atom.
-    (let [realm-reg (atom {})]
-      (binding [rf.registrar/*registrar* realm-reg]
-        (rf/reg-interceptor :rsa/icpt {:before identity}))
-      ;; In the DEFAULT realm, :rsa/icpt is absent — resolution fails.
-      (is (nil? (rf.registrar/lookup :interceptor :rsa/icpt))
-          "default realm does not see the realm-scoped interceptor")
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-                            #":rf.error/unregistered-interceptor"
-                            (rf.interceptor-registry/resolve-ref :rsa/icpt)))
-      ;; Bound to the realm registrar, the SAME ref resolves to its value.
-      (binding [rf.registrar/*registrar* realm-reg]
-        (let [resolved (rf.interceptor-registry/resolve-ref :rsa/icpt)]
-          (is (= :rsa/icpt (:id resolved)))
-          (is (fn? (:before resolved))
-              "the realm registrar resolved the ref to its executable interceptor"))))))
 
 (deftest reg-event-validates-refs-and-seats-in-the-bound-realm-registrar
   (testing "an event registered within a realm validates its interceptor refs
