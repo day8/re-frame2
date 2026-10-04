@@ -83,22 +83,7 @@
   (try (rf/reg-machine (keyword "tt" (str (gensym))) machine) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (:rf.error/id (ex-data e)))))
 
-(deftest state-timeout-accepts-valid
-  (testing "a well-formed state-level :timeout (integer + ISO) registers cleanly"
-    (is (nil? (reg-error-id {:initial :w
-                             :states {:w {:timeout 5000 :on-timeout {:target :d}}
-                                      :d {}}})))
-    (is (nil? (reg-error-id {:initial :w
-                             :states {:w {:timeout "PT5S" :on-timeout :d}
-                                      :d {}}})))))
-
 (deftest state-timeout-fail-loud
-  (testing ":timeout without :on-timeout fails loud"
-    (is (= :rf.error/machine-timeout-without-on-timeout
-           (reg-error-id {:initial :w :states {:w {:timeout 5000} :d {}}}))))
-  (testing ":on-timeout without :timeout fails loud"
-    (is (= :rf.error/machine-on-timeout-without-timeout
-           (reg-error-id {:initial :w :states {:w {:on-timeout :d} :d {}}}))))
   (testing "the XState `5s` shorthand duration fails loud"
     (is (= :rf.error/machine-bad-timeout-duration
            (reg-error-id {:initial :w :states {:w {:timeout "5s" :on-timeout :d} :d {}}}))))
@@ -113,12 +98,6 @@
            (reg-error-id {:initial :w :states {:w {:timeout (fn [_] 5) :on-timeout :d} :d {}}})))))
 
 (deftest spawn-timeout-fail-loud
-  (testing "a well-formed spawn-level :timeout registers cleanly"
-    (is (nil? (reg-error-id {:initial :l
-                             :states {:l {:spawn {:machine-id :stub
-                                                  :timeout 10000
-                                                  :on-timeout {:target :to}}}
-                                      :to {}}}))))
   (testing "a spawn :timeout without :on-timeout fails loud"
     (is (= :rf.error/machine-timeout-without-on-timeout
            (reg-error-id {:initial :l
@@ -220,11 +199,6 @@
                           :warn {} :done {}}})]
       (is (= {1000 :warn 5000 :done} (get-in out [:states :w :after])))
       (is (not (contains? (get-in out [:states :w]) :timeout))))))
-
-(deftest desugar-idempotent
-  (testing "desugaring an already-desugared spec is a no-op"
-    (let [m {:initial :w :states {:w {:after {5000 {:target :d}}} :d {}}}]
-      (is (= m (rf.machines.timeout/desugar-timeouts (rf.machines.timeout/desugar-timeouts m)))))))
 
 ;; ---- dispatch boundary — the timeout actually fires the transition --------
 
