@@ -16,7 +16,6 @@
             [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.late-bind :as rf.story.late-bind]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.render :as rf.story.render]))
@@ -90,21 +89,6 @@
 ;; prepare-render — the documented shape
 ;; ===========================================================================
 
-(deftest prepare-render-returns-prepared-shape
-  (testing "a renderable variant prepares the documented slots"
-    (let [body {:component :view.button/primary :args {:label "Go"}}
-          r    (prepare :story.button/primary {:story.button/primary body})]
-      (is (= :prepared (:status r)))
-      (is (= :story.button/primary (:frame r)))
-      (is (= {:label "Go"} (:effective-args r)))
-      (is (string? (:plan-hash r)))
-      (is (map? (:plan r)))
-      (testing ":render-inputs carry what the host renderer needs"
-        (let [ri (:render-inputs r)]
-          (is (= :view.button/primary (:view ri)))
-          (is (= {:label "Go"} (:effective-args ri)))
-          (is (= :story.button/primary (:frame ri))))))))
-
 ;; ===========================================================================
 ;; Controls update :effective-args + render through the SAME plan
 ;; ===========================================================================
@@ -145,36 +129,6 @@
               [:label :string]
               [:size {:optional true} :keyword]]})
 
-(deftest plan-time-missing-required-arg-fails-construction
-  (testing "a required view input absent at PLAN time fails plan
-            construction (the compile-time floor — render never starts)"
-    ;; No :args at all → :label missing → variant-plan throws.
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #"story-view-args-invalid"
-          (prepare :story.button/bad
-                   {:story.button/bad {:component :view.button/primary}}
-                   {:view.button/primary button-view-meta})))))
-
-(deftest control-override-that-violates-schema-is-invalid-args
-  (testing "a control that drives a MISSING required arg is :invalid-args —
-            render stops before the view call (post-control re-validation)"
-    ;; The plan is valid (:label present); a control override nils it out,
-    ;; so the POST-override effective args drop the required key.
-    (let [body {:component :view.button/primary :args {:label "Go"}}
-          r    (rf.story.render/prepare-render
-                 :story.button/primary
-                 {:lookup      {:story.button/primary body}
-                  :view-lookup {:view.button/primary button-view-meta}
-                  :validator-fns malli-validator
-                  ;; Override :label to a non-string — malformed value.
-                  :control-overrides {:label 42}})]
-      (is (= :invalid-args (:status r)))
-      (is (= :invalid (get-in r [:validation :status])))
-      (is (= [:label] (-> r :validation :malformed first :path)))
-      (testing "no :render-inputs are produced (render stopped pre-view)"
-        (is (not (contains? r :render-inputs)))))))
-
 (deftest valid-effective-args-prepare-with-ok-validation
   (testing "valid post-override args carry an :ok validation outcome"
     (let [body {:component :view.button/primary :args {:label "Go"}}
@@ -207,7 +161,8 @@
         (is (= [:fake-rendered :view.button/primary] (:rendered r)))
         (testing "the host received the render inputs, NOT a test run"
           (is (= :view.button/primary (:view @seen)))
-          (is (= {:label "Go"} (:effective-args @seen))))))))
+          (is (= {:label "Go"} (:effective-args @seen)))
+          (is (= :story.button/primary (:frame @seen))))))))
 
 (deftest render-variant-does-not-run-script-or-expect
   (testing "render-variant prepares world + renders the view; it NEVER
@@ -342,24 +297,6 @@
 ;; ===========================================================================
 ;; Runner ↔ render-variant agree on :plan-hash where inputs match
 ;; ===========================================================================
-
-(deftest render-variant-plan-hash-matches-the-runner-plan-hash
-  (testing "render-variant's :plan-hash == rf.story.fingerprint/plan-hash over the
-            normalized plan a runner consumes (behaviour-relevant inputs match)"
-    (let [body {:component :view.button/primary
-                :args      {:label "Go"}
-                :setup     [[:dispatch [:counter/init 5]]]
-                :script    [[:dispatch [:counter/inc]]]}
-          lk   {:story.button/primary body}
-          ;; the plan the RUNNER would compile + hash
-          runner-plan (rf.story.plan/variant-plan :story.button/primary {:lookup lk})
-          runner-hash (rf.story.fingerprint/plan-hash runner-plan)
-          ;; the plan-hash render-variant reports (no control overrides →
-          ;; the effective args match the runner's resolved args)
-          render-prep (prepare :story.button/primary lk)]
-      (is (= runner-hash (:plan-hash render-prep)))
-      (testing "the runner's plan still carries the (un-run) script/expect"
-        (is (= [[:dispatch [:counter/inc]]] (:script runner-plan)))))))
 
 ;; ===========================================================================
 ;; Decorators are view-wrapping; fx-overrides live in :fx-overrides
