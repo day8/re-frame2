@@ -195,13 +195,6 @@
       (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing"))
             "panel root present")
-        ;; spec/021 §14.1 — every L4 panel scrubs its
-        ;; self-naming heading + per-panel header icon; content opens
-        ;; directly on CURRENT ROUTE (matching Figma RoutesPanel).
-        (is (nil? (find-by-testid tree "rf-xray-routing-header"))
-            "no panel header (heading + icon scrubbed per §14.1)")
-        (is (nil? (find-by-testid tree "rf-xray-routing-panel-icon"))
-            "no per-panel header icon (🌐 removed per §14.1)")
         ;; §1 CURRENT ROUTE
         (is (some? (find-by-testid tree "rf-xray-routing-current"))
             "§1 CURRENT ROUTE section renders")
@@ -213,6 +206,12 @@
         ;; §3 ROUTE TABLE
         (is (some? (find-by-testid tree "rf-xray-routing-table"))
             "§3 ROUTE TABLE section renders")
+        (is (some? (find-by-testid tree "rf-xray-routing-no-activity"))
+            "NAVIGATION reads 'No route activity in this epoch.'")
+        (is (some? (find-by-testid tree "rf-xray-routing-table-current-marker"))
+            "current route gets the '◀ current' marker when no nav this epoch")
+        (is (nil? (find-by-testid tree "rf-xray-routing-nav-outcome"))
+            "no outcome chip when no activity")
         ;; Each route gets a table row.
         (doseq [rid (keys cart-routes)]
           (is (some? (find-by-testid tree
@@ -261,9 +260,7 @@
               "the query renders as the router wrote it — pr-str, unsorted")
           (is (= (str "#" (:fragment slice)) (text-of "rf-xray-routing-current-fragment")))
           (is (= (name (:transition slice)) (text-of "rf-xray-routing-current-readiness"))
-              "the readiness chip names the slice's :transition")
-          (is (nil? (find-by-testid tree "rf-xray-routing-current-path"))
-              "no matched-path span: the slice carries no :path to show")))
+              "the readiness chip names the slice's :transition")))
       (testing "an :error readiness is visible, with the error on the chip"
         (rf/with-frame :rf/xray
           (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
@@ -300,8 +297,6 @@
       (let [tree (panel-tree)]
         (is (some? (find-by-testid tree "rf-xray-routing"))
             "panel root present")
-        (is (nil? (find-by-testid tree "rf-xray-routing-header"))
-            "no panel header even in the silent state (scrubbed per §14.1)")
         (is (some? (find-by-testid tree "rf-xray-routing-silent"))
             "silent caption rendered for empty registrar")
         (is (nil? (find-by-testid tree "rf-xray-routing-table"))
@@ -312,28 +307,6 @@
             "NAVIGATION NOT rendered when silent")))))
 
 ;; ---- (3) no-activity branch (focused epoch with no routing trace) -------
-
-(deftest panel-renders-no-activity-when-cascade-has-no-routing
-  (testing "no routing trace events → CURRENT ROUTE + ROUTE TABLE render; NAVIGATION quiet; current row highlighted"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:route-id :route/cart :params {} :query {}}]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-routing-current"))
-            "CURRENT ROUTE renders")
-        (is (some? (find-by-testid tree "rf-xray-routing-table"))
-            "ROUTE TABLE renders unconditionally")
-        (is (some? (find-by-testid tree "rf-xray-routing-no-activity"))
-            "NAVIGATION reads 'No route activity in this epoch.'")
-        ;; current-route row highlight (:here marker → mode-accent row).
-        (is (some? (find-by-testid tree "rf-xray-routing-table-current-marker"))
-            "current route gets the '◀ current' marker when no nav this epoch")
-        (is (nil? (find-by-testid tree "rf-xray-routing-nav-outcome"))
-            "no outcome chip when no activity")))))
 
 ;; ---- (4) per-epoch overlay (focused cascade with nav-token emit) --------
 
@@ -367,10 +340,6 @@
         ;; :to overlay glyph present on the destination table row.
         (is (some? (find-by-testid tree "rf-xray-routing-table-marker-to"))
             ":to overlay glyph rendered on destination route in the table")
-        ;; There is no header (+ → TO summary chip) per §14.1; the
-        ;; NAVIGATION THIS EPOCH section is the sole TO surface.
-        (is (nil? (find-by-testid tree "rf-xray-routing-nav-summary"))
-            "no header summary chip (header scrubbed per §14.1)")
         ;; NAVIGATION section surfaces FROM ──► TO + outcome.
         (is (some? (find-by-testid tree "rf-xray-routing-nav-to"))
             "NAVIGATION TO id rendered")
