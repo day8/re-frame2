@@ -390,30 +390,13 @@
 ;;
 ;; The template emits one mount node and no host, and so does the skill: no
 ;; `<aside data-rf-xray-host>` column beside `#app`, and none of a host's
-;; published geometry (--rf-xray-inline-width, 420px). Three locks pin the
-;; ABSENCE of the host — in the emitted page, in every skill file, and in the
-;; DOM shape.
+;; published geometry (the `--rf-xray*` custom properties, 420px). Two locks
+;; pin the ABSENCE of the host — in every skill file, and in the DOM shape.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private xray-host-tokens
-  ["data-rf-xray-host" "rf2-xray-host" "--rf-xray-inline-width" "420px"
+  ["data-rf-xray-host" "rf2-xray-host" "--rf-xray" "420px"
    ":devtools/preloads" "day8.re-frame2-xray.preload"])
-
-(deftest default-scaffold-ships-no-xray-host
-  (testing "first-counter.md's index.html / app.css blocks carry no Xray host CSS variable"
-    ;; The host's attribute and class names are pinned absent from the whole
-    ;; of first-counter.md by `skill-carries-no-xray-host-wiring`; this lock
-    ;; adds the whole `--rf-xray*` custom-property family on the two blocks
-    ;; that would carry host geometry.
-    (let [html (get @first-counter-files "resources/public/index.html" "")
-          css  (get @first-counter-files "resources/public/css/app.css" "")]
-      (is (seq html) "first-counter.md carries no resources/public/index.html block.")
-      (is (seq css)  "first-counter.md carries no resources/public/css/app.css block.")
-      (doseq [[label body] [["index.html" html] ["app.css" css]]]
-        (is (not (str/includes? body "--rf-xray"))
-            (str "the default scaffold's " label " carries `--rf-xray` — the reduced "
-                 "template ships no Xray host; Xray attaches "
-                 "later by its own recipe."))))))
 
 (deftest skill-carries-no-xray-host-wiring
   (testing "no skill file names the Xray host / preload as scaffold wiring"
@@ -748,8 +731,6 @@
                "route."))))
   (testing "SKILL.md frames Xray as a later step the handoff points at, and states the scaffold is small"
     (let [skill @skill-md]
-      (is (str/includes? skill "Xray")
-          "SKILL.md does not mention Xray at all — the handoff should point at it as an optional next step.")
       (is (str/includes? skill "no Xray")
           "SKILL.md does not state that Xray is not day-one.")
       (is (str/includes? skill "Next steps")
@@ -858,10 +839,8 @@
 (deftest docs-setup-page-references-link-is-plural
   (testing "docs/skills/re-frame2-setup.md links the reference leaves to the real plural `references/` path"
     (let [body @docs-setup-page-md]
-      (is (not (re-find #"skills/re-frame2-setup/reference(?!s)" body))
-          (str "docs/skills/re-frame2-setup.md links the reference leaves to "
-               "the SINGULAR `skills/re-frame2-setup/reference` GitHub path, "
-               "which 404s."))
+      ;; A SINGULAR `skills/re-frame2-setup/reference` link 404s; it is a broken
+      ;; in-repo URL, which scripts/check_doc_slugs.py refuses.
       (is (re-find #"skills/re-frame2-setup/references" body)
           (str "docs/skills/re-frame2-setup.md does not link the reference "
                "leaves to the real plural path.")))))
@@ -966,17 +945,13 @@
 (deftest uix-core-carries-after-load-render-hook
   (testing "entry-namespace.md's UIx core.cljs re-renders from a ^:dev/after-load hook"
     (let [body (get @uix-files "src/acme/my_app/core.cljs" "")]
-      (is (re-find #"\(defn\s+\^:dev/after-load\s+mount!" body)
-          (str "entry-namespace.md's UIx core.cljs does not define "
-               "`(defn ^:dev/after-load mount! ...)`. shadow does NOT re-run the "
-               "module :init-fn after a hot reload — without this hook the "
-               "scaffolded app compiles, reloads, and never "
-               "repaints."))
       (is (re-find #"\(defn\s+\^:dev/after-load\s+mount!(?:[\s\S]{0,600}?)frame-root\s+\{:id\s+app-frame[\s\S]{0,120}?:initial-events\s+\[\[:counter/initialise\]\]"
                    body)
-          (str "entry-namespace.md's `^:dev/after-load mount!` does not "
-               "contains the frame-root ENSURE mount. The hook must be what "
-               "re-renders.")))))
+          (str "entry-namespace.md's UIx core.cljs does not define a "
+               "`(defn ^:dev/after-load mount! ...)` carrying the frame-root ENSURE "
+               "mount. shadow does NOT re-run the module :init-fn after a hot "
+               "reload — without this hook the scaffolded app compiles, reloads, "
+               "and never repaints.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 15 — the UIx route is the template's four-file swap of the same

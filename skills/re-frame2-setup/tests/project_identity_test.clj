@@ -233,10 +233,11 @@
 (deftest skill-md-states-the-derived-identity-for-the-worked-example
   (testing "the section names each derived form for the dotted qualified example"
     (let [section @identity-section
-          {:keys [namespace nested-dirs npm-name]} (doc-identity "com.acme/my-cool-app")]
-      (doseq [[what v] [["namespace" namespace]
-                        ["source path" nested-dirs]
-                        ["npm name" npm-name]
+          {:keys [namespace nested-dirs]} (doc-identity "com.acme/my-cool-app")]
+      ;; The namespace and npm name need no row of their own: the `:init-fn`
+      ;; read below contains the namespace, and the coordinate row contains the
+      ;; npm name.
+      (doseq [[what v] [["source path" nested-dirs]
                         ["supplied coordinate" "com.acme/my-cool-app"]]]
         (is (str/includes? section v)
             (str "SKILL.md §Project identity does not show the derived " what " `" v
