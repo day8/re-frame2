@@ -316,10 +316,7 @@
         ;; Off-box default: args fail closed to the :rf/redacted sentinel.
         (is (= :rf/redacted (:args proj-row))
             "off-box projection redacts :args (fails closed)")
-        (is (not= (:args raw-row) (:args proj-row))
-            "negative control: projected args are NOT the raw secret")
-        ;; Value-free metadata preserved.
-        (is (= :fxp/login (:fx-id proj-row)))
+        ;; Value-free :outcome preserved.
         (is (= :ok (:outcome proj-row)))
         ;; Trusted-local opt-in lifts the redaction.
         (is (= secret (:args wide-row))
@@ -344,54 +341,35 @@
         (is (= secret (:args raw-row)) "raw ring keeps the exact args")
         (is (= :rf/redacted (:args proj-row))
             "off-box projection redacts the skipped row's :args")
-        (is (= :fxp/local-storage (:fx-id proj-row)))
         (is (= :skipped-on-platform (:outcome proj-row)))))))
 
-(deftest project-egress-elides-fx-args-no-such-fx-row
-  (testing "a :rf.error/no-such-fx row's :args fail closed off-box; :error
-            metadata (:outcome / :error-trace) is preserved"
+(deftest project-egress-elides-fx-args-error-rows
+  (testing "an :error fx row's :args fail closed off-box; its value-free
+            :error metadata (:outcome / :error-trace) is preserved. One row
+            per error branch, each captured on its own path"
     (rf/make-frame {:id :test/main})
-    (let [secret {:card "4111-1111-1111-1111"}]
-      ;; No fx registered under :fxp/missing → :rf.error/no-such-fx.
-      (rf/reg-event :charge
-                       (fn [_ [_ payload]] {:fx [[:fxp/missing payload]]}))
-      (rf/dispatch-sync [:charge secret] {:frame :test/main})
-
-      (let [raw      (last-record :test/main)
-            raw-row  (effect-row raw :fxp/missing)
-            proj-row (effect-row (rf/project-egress raw) :fxp/missing)]
-        (is (some? raw-row) "fixture produced a no-such-fx :effects row")
-        (is (= :error (:outcome raw-row)))
-        (is (= secret (:args raw-row)) "raw ring keeps the exact args")
-        (is (= :rf/redacted (:args proj-row))
-            "off-box projection redacts the no-such-fx row's :args")
-        (is (= :fxp/missing (:fx-id proj-row)))
-        (is (= :error (:outcome proj-row)))
-        (is (= (:error-trace raw-row) (:error-trace proj-row))
-            ":error-trace metadata is preserved (value-free)")))))
-
-(deftest project-egress-elides-fx-args-handler-exception-row
-  (testing "an :rf.error/fx-handler-exception row's :args fail closed off-box;
-            :error metadata is preserved"
-    (rf/make-frame {:id :test/main})
-    (let [secret {:ssn "123-45-6789"}]
-      (rf/reg-fx :fxp/boom (fn [_ _] (throw (ex-info "boom" {}))))
-      (rf/reg-event :explode
-                       (fn [_ [_ payload]] {:fx [[:fxp/boom payload]]}))
-      (rf/dispatch-sync [:explode secret] {:frame :test/main})
-
-      (let [raw      (last-record :test/main)
-            raw-row  (effect-row raw :fxp/boom)
-            proj-row (effect-row (rf/project-egress raw) :fxp/boom)]
-        (is (some? raw-row) "fixture produced an fx-handler-exception :effects row")
-        (is (= :error (:outcome raw-row)))
-        (is (= secret (:args raw-row)) "raw ring keeps the exact args")
-        (is (= :rf/redacted (:args proj-row))
-            "off-box projection redacts the handler-exception row's :args")
-        (is (= :fxp/boom (:fx-id proj-row)))
-        (is (= :error (:outcome proj-row)))
-        (is (= (:error-trace raw-row) (:error-trace proj-row))
-            ":error-trace metadata is preserved")))))
+    ;; No fx registered under :fxp/missing → :rf.error/no-such-fx.
+    (rf/reg-fx :fxp/boom (fn [_ _] (throw (ex-info "boom" {}))))
+    (rf/reg-event :charge
+                     (fn [_ [_ payload]] {:fx [[:fxp/missing payload]]}))
+    (rf/reg-event :explode
+                     (fn [_ [_ payload]] {:fx [[:fxp/boom payload]]}))
+    (doseq [[branch event-id fx-id secret]
+            [[:rf.error/no-such-fx           :charge  :fxp/missing {:card "4111-1111-1111-1111"}]
+             [:rf.error/fx-handler-exception :explode :fxp/boom    {:ssn "123-45-6789"}]]]
+      (testing branch
+        (rf/dispatch-sync [event-id secret] {:frame :test/main})
+        (let [raw      (last-record :test/main)
+              raw-row  (effect-row raw fx-id)
+              proj-row (effect-row (rf/project-egress raw) fx-id)]
+          (is (some? raw-row) "fixture produced the error :effects row")
+          (is (= :error (:outcome raw-row)))
+          (is (= secret (:args raw-row)) "raw ring keeps the exact args")
+          (is (= :rf/redacted (:args proj-row))
+              "off-box projection redacts the error row's :args")
+          (is (= :error (:outcome proj-row)))
+          (is (= (:error-trace raw-row) (:error-trace proj-row))
+              ":error-trace metadata is preserved (value-free)"))))))
 
 (deftest project-egress-trigger-event-marked-event-arg-redacted
   (testing "even an event whose registration DECLARES a

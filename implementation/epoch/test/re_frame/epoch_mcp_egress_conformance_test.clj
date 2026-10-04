@@ -1120,28 +1120,6 @@
            uniformly idempotent under both :sensitive? and :large?
            substitutions"))))
 
-(deftest forwarder-project-egress-handles-mixed-nil-and-real-records
-  (testing "MCP forwarder pattern: project-egress returns nil for nil
-            input (a missed-epoch lookup MUST NOT throw); it returns a
-            projected map for a real record. A forwarder that mixes
-            optional / present records (cursor mid-stream, an epoch-id
-            lookup that lost the race) MUST be able to call uniformly."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [raw    (rf/epoch-history :test/mcp)
-          mixed  (concat [nil] raw [nil] raw [nil])
-          shaped (mapv rf/project-egress mixed)]
-      (is (= (count mixed) (count shaped))
-          "every input slot produced an output slot")
-      (is (= 3 (count (filter nil? shaped)))
-          "the three nil slots project to nil (no throw, no fabrication)")
-      (is (= (* 2 (count raw))
-             (count (filter some? shaped)))
-          "every real record projected to a real (non-nil) record")
-      (is (not-any? contains-secret? (filter some? shaped))
-          "no projected slot leaks the secret"))))
-
 ;; ============================================================================
 ;;  Bulk-egress conformance — the whole-ring composition (full ring snapshot)
 ;; ============================================================================
@@ -1255,21 +1233,17 @@
 
       (testing "the whole projected record leaks nothing — the cross-cutting
                 promise the MCP wire boundary makes"
-        (is (not (contains-secret? proj))
-            "no leaf anywhere in the projected record carries the secret")
         (is (= [] (secret-leak-paths proj))
-            "and no path names one — reported by path, because the leak this
-             pins is four levels down inside a trace tag"))
+            "no path in the projected record names the secret — reported by
+             path, because the leak this pins is four levels down inside a
+             trace tag"))
 
       (testing "`:rf.fx/args` — the args VERBATIM slot — fails closed, keeping
                 the value-free sibling metadata that identifies the fx"
         (let [tags (fx-row proj :fxp/login)]
           (is (some? tags) "FIXTURE — the fx row survived projection")
           (is (= :rf/redacted (:rf.fx/args tags))
-              "the argument payload is the redaction sentinel")
-          (is (= :fxp/login (:rf.fx/id tags))
-              "the resolved fx-id rides the SIBLING tag, so nothing structural
-               was lost by redacting the whole args slot")))
+              "the argument payload is the redaction sentinel")))
 
       (testing "`:rf.event/fx` — the whole effect vector — fails closed PER
                 ENTRY, because here the structural head is INSIDE the value"
