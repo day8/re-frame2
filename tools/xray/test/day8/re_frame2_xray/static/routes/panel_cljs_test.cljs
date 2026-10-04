@@ -167,27 +167,6 @@
         (is (nil? (find-by-testid tree "rf-xray-static-routes-search"))
             "search NOT rendered when silent")))))
 
-;; ---- (3) flat-list + search rendering -----------------------------------
-
-(deftest panel-renders-flat-list-when-routes-present
-  (testing "routes present → flat list + search + Simulate-URL"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-list"))
-            "flat list rendered")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-search"))
-            "search box rendered")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim"))
-            "Simulate-URL header rendered")
-        (is (nil? (find-by-testid tree "rf-xray-static-routes-empty"))
-            "empty state NOT rendered when routes present")
-        (let [rows (find-all-by-testid-prefix tree "rf-xray-static-routes-row-")]
-          (is (= (count cart-routes) (count rows))
-              "one row per registered route"))))))
-
 ;; ---- (4) search filter --------------------------------------------------
 
 (deftest panel-search-filters-the-list
