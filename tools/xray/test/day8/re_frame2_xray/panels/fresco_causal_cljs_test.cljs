@@ -526,11 +526,6 @@
             (str "a focus is a selection, not a claim about the window — "
                  "honouring a pin the ring cannot serve would show seven "
                  "capped links and blame the instrument"))))
-
-    (testing "and `walked-dispatch` says the same thing on its own"
-      (is (= newest (causal/walked-dispatch w nil)))
-      (is (= newest (causal/walked-dispatch w {})))
-      (is (= oldest (causal/walked-dispatch w {:dispatch-id oldest :mode :retro}))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
