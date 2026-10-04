@@ -27,21 +27,14 @@
 
   ## What is pinned, and why in this shape
 
-  Both deftests drive the REAL swap path: one mount, one component instance,
+  The deftest drives the REAL swap path: one mount, one component instance,
   the provider's `:frame` prop changed and the tree re-rendered in place. That
   is the trap this suite exists to avoid — a test that remounts, or that
   renders a second instance, exercises nothing, because a fresh mount runs its
-  effect afresh and passes with or without the dependency. Each therefore
+  effect afresh and passes with or without the dependency. It therefore
   asserts the DOM element is `identical?` across the swap before drawing any
-  conclusion from what the listener did.
-
-  The negative control is a second component carrying the ORIGINAL deps
-  vector, marked `^:lint/disable` so UIx's exhaustive-deps linter reads the
-  omission as deliberate rather than warning on it. It is the control this
-  suite would otherwise be missing: without it, a green here could equally
-  mean the deps vector works or that the swap never reached the component.
-  It fails in the specific way described above — the second event lands in A
-  again, and B never hears it.
+  conclusion from what the listener did, and B hearing the post-swap event is
+  what shows the swap reached the component.
 
   The recipe component is compiled here with its real spelling
   (`uix/use-effect` + `rf.adapter.uix/use-frame` + a UIx `use-ref` on a DOM
@@ -57,12 +50,12 @@
   dependency differs.
 
   TOOTH: cut the recipe component's deps to `[tile-id]` and
-  `imperative-effect-follows-the-frame-across-a-provider-swap` fails exactly
-  where the negative control below already fails.
+  `imperative-effect-follows-the-frame-across-a-provider-swap` fails the way
+  described above — the second event lands in A again, and B never hears it.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
   `-dom-cljs-test$`) discovers it; `:node-test`'s `cljs-test$` regex also
-  matches, where both deftests self-gate on `(browser?)` and no-op cleanly."
+  matches, where the deftest self-gates on `(browser?)` and no-ops cleanly."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -129,25 +122,6 @@
       [tile-id dispatch-sync])
     ($ :div {:ref ref :class "tile"})))
 
-(defui stale-tile-inner
-  "The recipe with the frame dependency omitted — identical but for the deps
-  vector, which names the domain prop alone. `^:lint/disable` because the
-  omission is the subject here, not a mistake for UIx's linter to report."
-  [{:keys [tile-id]}]
-  (let [ref                     (uix/use-ref)
-        {:keys [dispatch-sync]} (rf.adapter.uix/use-frame)]
-    (uix/use-effect
-      (fn []
-        (let [el       @ref
-              listener (fn [_evt] (dispatch-sync [::finished tile-id]))]
-          (swap! effect-log conj :setup)
-          (.addEventListener el "animationend" listener)
-          (fn cleanup []
-            (swap! effect-log conj :cleanup)
-            (.removeEventListener el "animationend" listener))))
-      ^:lint/disable [tile-id])
-    ($ :div {:ref ref :class "tile"})))
-
 ;; ---- the shared drive ------------------------------------------------------
 
 (defn- run-provider-swap!
@@ -156,7 +130,7 @@
   fire it again. Returns the observations; asserts the in-place update itself,
   because every later conclusion depends on it.
 
-  The two frames and the `::finished` handler are created here so each deftest
+  The two frames and the `::finished` handler are created here so each run
   gets them fresh from the reset fixture.
 
   The ambient `:rf/default` dynamic scope the fixture installs is cleared for
@@ -233,23 +207,3 @@
               (str "the effect re-ran ONCE and its cleanup was balanced — the "
                    "old listener was removed, so one event produces one "
                    "dispatch rather than two")))))))
-
-(deftest omitting-the-frame-dep-keeps-dispatching-into-the-previous-frame
-  (testing "the negative control: with the domain prop alone in the deps
-            vector the effect never re-runs, and the listener installed under
-            A keeps writing into A after the provider has moved to B"
-    (with-browser-act
-      (fn [act-fn]
-        (let [{:keys [after-mount log a b]} (run-provider-swap! act-fn stale-tile-inner)]
-          (is (= [7] (:a after-mount))
-              "control: the listener starts out routed to the mounting frame")
-
-          (is (= [:setup] log)
-              "the effect did NOT re-run across the swap — React was told only
-               that the unchanged prop was unchanged")
-          (is (= [7 7] a)
-              "so the post-swap event landed in A a second time")
-          (is (nil? b)
-              (str "and B — the frame the component is now rendered under — "
-                   "never heard it. This is what the recipe's deps vector "
-                   "prevents")))))))
