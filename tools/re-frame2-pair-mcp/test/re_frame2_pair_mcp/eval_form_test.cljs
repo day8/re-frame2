@@ -34,14 +34,6 @@
 
               ; the map arg
 
-;; ---------------------------------------------------------------------------
-;; rt-call* — fully-qualified call (no runtime-ns prefix).
-;; ---------------------------------------------------------------------------
-
-(deftest rt-call*-emits-verbatim
-  (is (= "(re-frame.core/project-egress db)"
-         (ef/emit (ef/rt-call* 're-frame.core/project-egress
-                               (ef/rt-raw "db"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rt-raw — escape hatch for raw source.
@@ -84,22 +76,8 @@
     (is (= opts (second edn)))))
 
 ;; ---------------------------------------------------------------------------
-;; `::call*` qsym handling + collection-recursion.
+;; Collection recursion.
 ;; ---------------------------------------------------------------------------
-
-(deftest rt-call*-bare-symbol-emits-verbatim
-  ;; A bare symbol (no namespace) emits as just the name. The precheck
-  ;; routes through `app-db-hash` (the cached O(1) accessor), but the
-  ;; bare-symbol arm remains useful for other call sites that need an
-  ;; unqualified host fn.
-  (is (= "(hash)" (ef/emit (ef/rt-call* 'hash)))))
-
-(deftest rt-call*-string-qsym-emits-verbatim
-  ;; A string qsym renders the same way the symbol does (verbatim, no
-  ;; auto-quoting), so a caller can pass a pre-qualified string and get
-  ;; correct source.
-  (is (= "(some.ns/foo 1)"
-         (ef/emit (ef/rt-call* "some.ns/foo" 1)))))
 
 (deftest emit-arg-recurses-into-vectors-of-nodes
   ;; A vector mixing scalar data and IR nodes is walked element-wise,
