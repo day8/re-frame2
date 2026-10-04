@@ -17,7 +17,9 @@
   `:rf/hydrate`, the resources rearm arms the `:poll` timer of each hydrated
   entry that is owned and whose resource declares `:poll-interval-ms`, beside
   its GC timer. An owner-free hydrated entry arms no poll (S3), a release of
-  the last owner stops polling, and a server-side hydrate arms nothing.
+  the last owner stops polling, and a server-side hydrate arms nothing (its
+  empty rearm is pinned by the GC suite's server-side test: the rearm is the
+  only arm path a hydrate takes).
 
   TWO INSTRUMENTS, as in `resources-hydrated-gc-arming-cljs-test`: the
   captured `:rf.resource/hydrate-rearm` / `:rf.resource/schedule-timers`
@@ -295,14 +297,3 @@
 
 ;; ---- nothing arms on a server-side hydrate ---------------------------------
 
-(deftest server-side-hydrate-arms-no-poll-timer
-  (testing "hydrating onto a `:platform :server` frame — the isomorphic
-            loopback shape — requests no rearm and arms no poll timer"
-    (reg-article!)
-    (let [sfid :hg/server]
-      (rf/make-frame {:id sfid :platform :server})
-      (hydrate! sfid #{[:route :route/article "nav-1"]})
-      (is (some? (entry sfid))
-          "the payload DID install, so the empty table below is the gate working")
-      (is (empty? @rearms) "no rearm requested by a server-side hydrate")
-      (is (nil? (poll-slot sfid)) "no poll timer on a server-side hydrate"))))
