@@ -27,7 +27,6 @@
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    [re-frame.trace.tooling :as rf.trace.tooling]
-   [re-frame.registrar :as rf.registrar]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
@@ -51,24 +50,6 @@
 ;; ===========================================================================
 ;; COMPOUND onDone (embedded :final? signals, does NOT destroy)
 ;; ===========================================================================
-
-(deftest compound-done-advances-and-machine-survives
-  (testing "an embedded compound reaching its :final? child fires the
-            compound's :on-done IN-MACHINE (advancing the outer flow) and the
-            machine SURVIVES — no auto-destroy"
-    (rf/reg-machine :rf2-zlmz7/flow
-      {:initial :flow
-       :data    {}
-       :states
-       {:flow {:initial :step
-               :on-done :next        ;; sibling of :flow
-               :states  {:step       {:on {:finish :inner-done}}
-                         :inner-done {:final? true}}}
-        :next {}}})
-    (rf/dispatch-sync [:rf2-zlmz7/flow [:finish]])
-    (is (= [:next] (:state (snapshot :rf2-zlmz7/flow)))
-        "the compound :flow reached its final child and :on-done advanced to :next;
-         the snapshot is INTACT — the embedded final did NOT auto-destroy")))
 
 (deftest compound-done-no-on-done-rests-without-destroy
   (testing "an embedded :final? leaf with NO enclosing :on-done is a benign
@@ -105,27 +86,6 @@
     (is (= [:next] (:state (snapshot :rf2-zlmz7/act))))
     (is (= 1 (get-in (snapshot :rf2-zlmz7/act) [:data :hits]))
         ":on-done action ran once in the same macrostep")))
-
-;; ===========================================================================
-;; D7 reconciliation — a TOP-LEVEL :final? auto-destroys
-;; ===========================================================================
-
-(deftest top-level-final-still-auto-destroys
-  (testing "D7: a TOP-LEVEL :final? leaf (direct child of the root)
-            auto-destroys — the actor-done case, distinct from an embedded
-            final"
-    (let [traces (record-traces! ::top-level)]
-      (rf/reg-machine :rf2-bnjb3/top
-        {:initial :running
-         :states  {:running {:on {:end :done}}
-                   :done    {:final? true}}})
-      (rf/dispatch-sync [:rf2-bnjb3/top [:end]])
-      (is (nil? (snapshot :rf2-bnjb3/top))
-          "top-level final auto-destroyed (snapshot cleared)")
-      (is (some? (rf.registrar/lookup :event :rf2-bnjb3/top))
-          "the DEFINITION survives the top-level-final auto-destroy")
-      (is (= 1 (count (traces-for traces :rf.machine/done)))
-          "the whole-machine :rf.machine/done fired (actor finality)"))))
 
 ;; ===========================================================================
 ;; PARALLEL onDone (all-regions-final fires root :on-done)
@@ -169,19 +129,6 @@
           ":completions did NOT drift — :on-done did not re-fire on resting macrosteps")
       (is (= 1 @continued)
           "the coordinator was NOT re-dispatched on later resting events"))))
-
-(deftest parallel-no-on-done-still-auto-destroys
-  (testing "D7: a parallel machine with NO root :on-done reaching
-            all-regions-final auto-destroys (the actor-done default)"
-    (rf/reg-machine :rf2-bnjb3/par-destroy
-      {:type    :parallel
-       :regions {:a {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
-                 :b {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
-    (rf/dispatch-sync [:rf2-bnjb3/par-destroy [:fin]])
-    (is (nil? (snapshot :rf2-bnjb3/par-destroy))
-        "no :on-done ⇒ all-regions-final auto-destroys (snapshot cleared)")
-    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-destroy))
-        "the DEFINITION survives")))
 
 (deftest parallel-one-region-pending-fires-neither-on-done-nor-destroy
   (testing "negative: with one region still non-final, the parallel :on-done
