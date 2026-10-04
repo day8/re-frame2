@@ -173,20 +173,32 @@ If the author wants the bleeding edge, they can use a `:git/url` + `:git/sha` co
 
 ## The consumability done-gate
 
-The `:local/root` sibling-checkout route above (and in [`deps-versions.md` §The `:local/root` sibling-checkout dev route](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish)) is a **dev convenience, not a shippable coordinate** — that route is the SETUP half; this is the **UNWIRE** half that complements it. A `:local/root` coord resolves to an **absolute path on the author's own disk**: `{:local/root "../re-frame2/implementation/core"}` names *this* machine's sibling checkout, nothing a clean runner can find. So a migration that consumes pre-publish re-frame2 (the monorepo modules + Xray) and any forked upstream entirely through `:local/root` paths can compile 0/0, boot, and pass the boot smoke-test **locally** — looking "done" — while **every CI run is red from the first step**, because the runner has no such paths:
+The `:local/root` sibling-checkout route above (and in [`deps-versions.md` §The `:local/root` sibling-checkout dev route](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#the-localroot-sibling-checkout-dev-route-pre-publish)) is the SETUP half; this is the **UNWIRE** half that complements it. Every coordinate the migration leaves behind must resolve on a **clean runner** — a fresh checkout on a machine that has never seen the author's disk — and a local build cannot show that. A `:local/root` resolves against the filesystem, so a migration that consumes pre-publish re-frame2 (the monorepo modules + Xray) and any forked upstream through sibling checkouts only the author's machine holds can compile 0/0, boot, and pass the boot smoke-test **locally** — looking "done" — while **every CI run is red from the first step**, because the runner has no such paths:
 
 ```
 Error building classpath. Local lib day8/re-frame2-reagent not found: ...
 ```
 
-**The done-gate:** before the migration is "done", repin **every** re-frame2 (and forked-upstream) dep to a coordinate a **clean runner can resolve**:
+**The done-gate:** before the migration is "done", **every** re-frame2 (and forked-upstream) dep resolves on a clean runner by one of two routes.
+
+**Route 1 — a coordinate the runner resolves by itself.**
 
 - **`:git/url` + `:git/sha` pinned to a PUSHED commit** — the pragmatic pre-publish coord (no Maven release required). One coord per artefact, each a `{:git/url … :git/sha … :deps/root "implementation/<subdir>"}` git-subdir coord — **one `:deps/root` per monorepo module**. Shapes in [`deps-versions.md` §Choosing the coordinate](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/references/deps-versions.md#choosing-the-coordinate-publication-state-decides-the-shape).
 - **`:mvn/version`** — once the artefacts are published to a registry the runner can reach.
 
-**Any forked or extended upstream MUST be pushed.** A `:git/sha` that exists only in a local commit is no more resolvable than a `:local/root` path — CI cannot fetch an unpushed SHA. Push the fork's branch so its SHA is fetchable, then pin to it.
+**Route 2 — relative `:local/root` coordinates over a sibling checkout the runner provisions.** tools.deps accepts a `:local/root` directory path "either absolute or relative to the location of the project directory", so a runner that deterministically places the framework checkout at the same relative location resolves the coordinate unchanged. When the author has chosen this route, keep it rather than introducing a Route-1 coordinate. It meets the gate only with evidence that:
 
-The real done-signal is therefore **CI green on a clean checkout**, not a green local build — see [`runtime-smoke-test.md` §The done-bar is more than the local dev build](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build). Record the final clean-runner-resolvable coords in the migration report, exactly as the chosen `<v2-version>` / route is recorded above.
+- the runner fetches a **reachable, reviewed full commit SHA** — never a branch or tag name — verifies the checkout's HEAD is that SHA, and verifies the manifests the coordinates point at (`implementation/core/deps.edn`, each selected `implementation/<module>`) exist;
+- **one source revision** feeds every selected framework module, and every module the app needs — transitive modules and forks included — is provisioned this way or pinned by Route 1;
+- every relative root resolves **inside** the provisioned checkout;
+- a **fresh** resolution (no cached basis standing in) of the selected basis under **every active alias** — build, dev, test, and any combination CI uses — places each `day8/re-frame2*` library inside that checkout, with no second provider of the same library (the classpath check in [§Edge cases](#edge-cases) is the instrument);
+- the basis selects the framework at all — a provisioned checkout nothing selects, or a basis still resolving v1, proves nothing.
+
+A missing, stale (HEAD not the pinned SHA) or escaping root, mismatched revisions across modules, and a basis selecting zero framework libraries each fail the gate. So does an absolute path, or a relative one the runner does not provision — the error above.
+
+**Any forked or extended upstream MUST be pushed.** A `:git/sha` (or a provisioned SHA) that exists only in a local commit is no more resolvable than an unprovisioned `:local/root` path — CI cannot fetch an unpushed SHA. Push the fork's branch so its SHA is fetchable, then pin to it.
+
+The real done-signal is therefore **CI green on a clean checkout** — its compile, tests, release compile and live verification — not a green local build; see [`runtime-smoke-test.md` §The done-bar is more than the local dev build](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build). Record the route in the migration report, exactly as the chosen `<v2-version>` / route is recorded above: for Route 1 the final coords; for Route 2 the source pin and how it is fetched, the directory layout, and the selected coordinates.
 
 ## The pay-as-you-go artefact split — the principle
 
