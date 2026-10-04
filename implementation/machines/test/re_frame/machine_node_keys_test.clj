@@ -6,8 +6,10 @@
     - an unknown BARE key on a `:spawn` / `:spawn-all` child spec →
       `:rf.error/machine-unknown-spawn-key`;
     - a non-set `:tags` slot → `:rf.error/machine-bad-tags`;
-    - a NAMESPACED user key passes (the open extension carve-out);
-    - `:type :choice` and `:type :history` nodes are not double-rejected."
+    - a NAMESPACED user key passes (the open extension carve-out).
+
+  That well-formed `:type :choice` and `:type :history` nodes register is
+  pinned in `choice_node_keys_test` and `scxml_conformance_cljs_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load the machines facade so `rf/reg-machine` routes through its
@@ -139,25 +141,3 @@
       (is (= :rf.error/machine-bad-tags (:rf.error/id d)))
       (is (= :idle (:state d)))
       (is (= [:busy] (:tags d)) "names the offending non-set value"))))
-
-;; ---- (4) choice and history nodes are not double-rejected ----------------
-
-(deftest valid-choice-and-history-nodes-not-double-rejected
-  (testing "a :type :choice node and a :type :history node — which carry keys
-            OUTSIDE the ordinary vocabulary but are validated by their OWN
-            closed-key-set validators — are NOT rejected by the node-key walk"
-    ;; :type :choice carries :choice (not an ordinary-node key) — must pass here.
-    (is (nil? (reg-error-id
-                {:initial :route
-                 :states {:route {:type :choice
-                                  :choice [{:guard (constantly true) :target :a}
-                                           {:target :b}]}
-                          :a {} :b {}}})))
-    ;; :type :history carries :deep? / :default-target — must pass here.
-    (is (nil? (reg-error-id
-                {:initial :outer
-                 :states {:outer {:initial :one
-                                  :states {:one {:on {:go :two}}
-                                           :two {}
-                                           :hist {:type :history :deep? true
-                                                  :default-target :one}}}}})))))
