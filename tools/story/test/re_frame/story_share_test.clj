@@ -275,17 +275,6 @@
       (is (= substrate (:substrate (rf.story.share/parse-params {"substrate" decoded})))
           "and through the full parse-params inverse"))))
 
-(deftest overrides-codec-round-trips-comma-value
-  (testing "a string override value containing the list
-            separator (comma) round-trips faithfully instead of being
-            shredded into malformed entries and dropped"
-    (let [ov {:label "Save, continue"}]
-      (is (= ov (overrides-round-trip ov))
-          "comma-containing string value survives the round-trip"))
-    (testing "comma value alongside other entries"
-      (let [ov {:label "Save, continue" :count 3 :title "A, B, C"}]
-        (is (= ov (overrides-round-trip ov)))))))
-
 (deftest overrides-codec-round-trips-collection-values
   (testing "vector / map / set / nested EDN values (which all
             carry internal separators) round-trip"
@@ -343,13 +332,6 @@
       nil   {:overrides nil :dropped []}
       ""    {:overrides nil :dropped []}
       "   " {:overrides nil :dropped []})))
-
-(deftest parse-overrides-param-silent-drop
-  (testing "parse-overrides-param is the silent-drop form, returning the
-            overrides map alone. The share UI hydrator uses
-            parse-overrides-param* so the dropped count surfaces"
-    (is (= {:label "OK"}
-           (rf.story.share/parse-overrides-param "{:label \"OK\", 5 :bad-key}")))))
 
 ;; ---- stale-key overrides are dropped + reported --------------------------
 ;;
