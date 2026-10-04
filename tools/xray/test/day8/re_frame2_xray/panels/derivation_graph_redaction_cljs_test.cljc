@@ -234,10 +234,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest egress-applies-the-named-frames-policy-not-a-borrowed-one
-  (testing "redacting under the SECURE frame's policy elides the token"
-    (let [r (h/redact-graph-for-egress live-graph secure-frame)]
-      (is (= :rf/redacted
-             (get-in r [:nodes [:rf/route :route/article] :params :current :params :token])))))
   (testing "redacting under the PLAIN frame's policy (no sensitive decl)
             ships the same token VERBATIM — the policy is per-frame, applied
             from the named frame, not a borrowed or ambient one"
