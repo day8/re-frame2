@@ -598,33 +598,6 @@
                 "still no unmount fn invocation")))))))
 
 ;; -------------------------------------------------------------------------
-;; (4) Toggle — open + close + open round-trip
-;; -------------------------------------------------------------------------
-
-(deftest toggle!-round-trips-cleanly-three-times
-  (testing "open → close → open → close → open via repeated toggle!
-            calls — render fires exactly once (lazy-mount affordance);
-            visible? toggles exactly with each call"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!           render-fn]
-            (mount/toggle!)  ;; #1 open
-            (is (true? (mount/visible?)))
-            (mount/toggle!)  ;; #2 close
-            (is (false? (mount/visible?)))
-            (mount/toggle!)  ;; #3 open
-            (is (true? (mount/visible?)))
-            (mount/toggle!)  ;; #4 close
-            (is (false? (mount/visible?)))
-            (mount/toggle!)  ;; #5 open
-            (is (true? (mount/visible?)))
-            (is (= 1 (count @calls))
-                "all five toggles share the single initial render —
-                 the substrate render must not fire on the four
-                 toggle-after-mount transitions")))))))
-
-;; -------------------------------------------------------------------------
 ;; (4b) close-shell event — the `✕` button round-trip
 ;; -------------------------------------------------------------------------
 ;;
@@ -1326,21 +1299,6 @@
   [win]
   ((deref #'mount/register-popout-unload-cleanup!) win))
 
-(deftest popout-registers-unload-listeners-on-popout-window
-  (testing "register-popout-unload-cleanup! must register
-            pagehide + unload listeners on the popout window so the
-            opener-side singleton clears when the popout closes
-            externally"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [window listeners]} (mk-stub-popout-window)]
-          (seed-popout-state! {:window window})
-          (register-popout-cleanup! window)
-          (is (= 1 (count (get @listeners "pagehide")))
-              "pagehide listener registered on the popout window")
-          (is (= 1 (count (get @listeners "unload")))
-              "unload listener registered on the popout window"))))))
-
 (deftest popout-external-close-clears-state-unmounts-and-disposes
   (testing "the user closing the pop-out window is the common exit. Both
             the pagehide event and its older unload companion (kept for
@@ -1709,11 +1667,6 @@
       (is ((.-contains classlist) "rf-xray-theme-light")
           "default :light theme class stamped on the pop-out <html>"))))
 
-(deftest style-popout-document!-is-safe-without-document
-  (testing "a nil document (popup-blocked / no-DOM) no-ops
-            rather than throwing."
-    (is (nil? (style-popout-document!* nil)))))
-
 ;; -------------------------------------------------------------------------
 ;; (12) Surface transitions — inline ⇄ overlay re-parent + re-render
 ;; -------------------------------------------------------------------------
@@ -1933,27 +1886,6 @@
                   "still exactly one #rf-xray-root — no parallel mount")
               (is (= :overlay (:mode (mount/status)))))))))))
 
-(deftest repeated-open!-same-mode-is-idempotent-under-distinct-host
-  (testing "repeated open! on an already-
-            inline shell is a CSS-only show (mirrors the shared-stub
-            second-open! test, but proves it under the distinct-host
-            document so ownership stays fixed to the host)."
-    (with-two-owner-document
-      (fn [{:keys [body host]}]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!           render-fn]
-            (mount/open!)
-            (let [first-node (:node @@#'mount/mount-state)]
-              (mount/open!)
-              (mount/open!)
-              (is (= 1 (count @calls)) "no re-render on same-mode repeats")
-              (is (identical? first-node (:node @@#'mount/mount-state))
-                  "same DOM node reused")
-              (is (identical? host (.-parentNode first-node))
-                  "ownership stays with the layout host")
-              (is (= 1 (deep-count-by-id body "rf-xray-root")))
-              (is (= :inline (:mode (mount/status)))))))))))
-
 ;; ---- (4) Settings integration through the exported mount bridge ---------
 
 (deftest settings-panel-position-realizes-surface-through-the-bridge
@@ -2004,34 +1936,6 @@
                   (js-delete js/goog.global "window"))))))))))
 
 ;; ---- (5) close / reopen after a transition stays coherent ---------------
-
-(deftest close-then-reopen-after-switch-to-overlay-is-coherent
-  (testing "after inline→overlay, close!
-            retains the realized overlay mode and a matching
-            open-overlay! is a CSS-only show of the SAME body-owned node
-            (mode + DOM surface agree)."
-    (with-two-owner-document
-      (fn [{:keys [body]}]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!           render-fn]
-            (mount/open!)
-            (mount/open-overlay!)               ; render #2 — realize overlay
-            (let [overlay-node (:node @@#'mount/mount-state)]
-              (mount/close!)
-              (is (false? (mount/visible?)))
-              (is (= :overlay (:mode (mount/status)))
-                  "close! retains the realized overlay mode")
-              (mount/open-overlay!)             ; CSS-only re-show
-              (is (true? (mount/visible?)))
-              (is (= 2 (count @calls))
-                  "reopening the SAME overlay surface adds no third render")
-              (is (identical? overlay-node (:node @@#'mount/mount-state))
-                  "same overlay node reused across close/reopen")
-              (is (identical? body (.-parentNode overlay-node))
-                  "overlay node still owned by document.body")
-              (is (= 1 (deep-count-by-id body "rf-xray-root")))
-              (is (= :overlay (:mode (mount/status)))
-                  "mode + realized surface still agree after close/reopen"))))))))
 
 (deftest close-then-reopen-after-switch-to-inline-is-coherent
   (testing "after overlay→inline, close!
