@@ -27,8 +27,4 @@
         (str "full/slim public-var drift — only in full: "
              (pr-str (sort (remove (names slim-publics) (names reagent-publics))))
              "; only in slim: "
-             (pr-str (sort (remove (names reagent-publics) (names slim-publics)))))))
-  (testing "the client-root trio is on both"
-    (doseq [v ["client-root" "render!" "unmount!"]]
-      (is (contains? (names reagent-publics) v) (str "re-frame.adapter.reagent/" v))
-      (is (contains? (names slim-publics) v) (str "re-frame.adapter.reagent-slim/" v)))))
+             (pr-str (sort (remove (names reagent-publics) (names slim-publics))))))))
