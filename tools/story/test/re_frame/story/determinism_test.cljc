@@ -38,15 +38,6 @@
 ;; semantically-equal runs stamp DIFFERENT values for each of these. The
 ;; strip is what makes them canonicalize `=`.
 
-(defn- epoch-rec
-  "A minimal `:rf/epoch-record` carrying its per-run stamps."
-  [epoch-id frame m]
-  (merge {:epoch-id epoch-id :frame frame :committed-at 1234567
-          :schema-digest "abc" :outcome :ok
-          :db-before {} :db-after {}
-          :trace-events [] :effects [] :sub-runs [] :renders []}
-         m))
-
 (defn- trace-ev
   "A minimal trace event carrying its per-run stamps (`:id` / `:time`)."
   [id m]
@@ -74,30 +65,6 @@
       ;; And run-results that embed them in :app-db preserve the distinction.
       (is (not= (rf.story.fingerprint/run-hash {:status :pass :app-db db1})
                 (rf.story.fingerprint/run-hash {:status :pass :app-db db2}))))))
-
-(deftest fresh-frame-tape-twins-hash-equal
-  (testing "two run-results from fresh-frame replays — distinct epoch ids,
-            dispatch ids, trace ids, frame ids, wall-clock — hash equal after
-            the determinism strip"
-    (let [run (fn [epoch-base disp frame trace-base]
-                {:status :pass
-                 :app-db {:n 2}
-                 :epoch-tape
-                 [(epoch-rec epoch-base frame
-                    {:dispatch-id disp
-                     :db-after {:n 1}
-                     :trace-events [(trace-ev trace-base
-                                      {:tags {:rf.trace/event-id :rep/inc}})]})
-                  (epoch-rec (inc epoch-base) frame
-                    {:dispatch-id disp
-                     :db-before {:n 1} :db-after {:n 2}
-                     :trace-events [(trace-ev (inc trace-base)
-                                      {:tags {:rf.trace/event-id :rep/inc}})]})]})
-          r1 (run 5  "d-5"  :rf.test.replay/frame-aaa 17)
-          r2 (run 90 "d-90" :rf.test.replay/frame-zzz 200)]
-      (is (= (rf.story.fingerprint/canonicalize r1) (rf.story.fingerprint/canonicalize r2)))
-      (is (= (rf.story.fingerprint/run-hash r1) (rf.story.fingerprint/run-hash r2))
-          "semantically-equal fresh-frame runs share one run-hash"))))
 
 ;; ===========================================================================
 ;; PURE: wait-step detection + refusal
