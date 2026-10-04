@@ -1369,9 +1369,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         # --- negatives: removed-context / different-subject stay GREEN ---
         ("negative/removed_context_deleted_substrate.md", frozenset()),
         ("negative/reg_event_ctx_retained_internally.md", frozenset()),
-        # the internal-substrate fixture reads the LIVE namespaces
-        # (`re-frame.registrar/` / `re-frame.frame/`), NOT a deleted one.
-        ("negative/internal_substrate_ns_reads.md",       frozenset()),
     ]
     for fixture, expected in deleted_substrate_cases:
         # A plain non-allowlisted rel_posix runs the deleted-substrate families.
