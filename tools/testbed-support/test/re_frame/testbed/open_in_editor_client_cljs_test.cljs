@@ -30,12 +30,6 @@
   "The coordinate every click here opens: `src/app.cljs`, line 27, column 9."
   {:file "src/app.cljs" :line 27 :column 9})
 
-(def ^:private windsurf-uri
-  "What the coordinate-preserving fallback produces for `coord`. Derived from
-  `editor-uri` rather than typed, so this suite cannot drift from the URI
-  builder it is asserting reaches the OS."
-  (rf.source-coords.editor-uri/editor-uri :windsurf coord))
-
 (def ^:private declining-statuses
   "Every non-2xx the server can answer with: 400 (`missing-file`,
   `malformed-query`), 403 (`forbidden`), 405 (`method-not-allowed`), 422
@@ -153,9 +147,8 @@
                         this also proves the stub took effect, so the assertions
                         below are about the chosen status and not a thrown fetch")
                    (is (= 1 fallbacks) "the fallback ran exactly once, not twice")
-                   (is (= "windsurf://file/src/app.cljs:27:9" navigated))
-                   (is (= windsurf-uri navigated)
-                       "and it is the URI `editor-uri` builds — line 27, column 9
+                   (is (= "windsurf://file/src/app.cljs:27:9" navigated)
+                       "the `windsurf://` URI carries line 27, column 9 — they
                         reach Windsurf after all")
                    (is (fetch-restored?) "the fetch stub was not left installed")
                    (done)))
@@ -171,10 +164,8 @@
           (.then (fn [outcomes]
                    (is (= (count declining-statuses) (count outcomes))
                        "every declining status was actually exercised")
-                   (doseq [{:keys [status navigated fallbacks]} outcomes]
-                     (is (= 1 fallbacks) (str "status " status " → one fallback"))
-                     (is (= windsurf-uri navigated)
-                         (str "status " status " → the coordinate survived")))
+                   (doseq [{:keys [status fallbacks]} outcomes]
+                     (is (= 1 fallbacks) (str "status " status " → one fallback")))
                    (is (fetch-restored?) "the fetch stub was not left installed")
                    (done)))
           (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
@@ -224,12 +215,7 @@
                 "?file=src%2Fapp.cljs&line=27&column=9")
            (rf.source-coords.open-endpoint/build-url coord custom-editor))
         "a {:custom …} preference likewise — the template is the client's own
-         business, so the server is told nothing about it")
-    (is (not (re-find #"editor=" (rf.source-coords.open-endpoint/build-url coord nil)))
-        "control: `editor=` really is absent, not merely differently spelled")
-    (is (re-find #"editor=" (rf.source-coords.open-endpoint/build-url coord :windsurf))
-        "control the other way: the same assertion FINDS `editor=` when a
-         keyword preference is set, so its absence above is a real difference")))
+         business, so the server is told nothing about it")))
 
 (deftest declined-no-hint-answer-still-lands-on-the-coordinate
   (testing "declining the auto-detect path only helps

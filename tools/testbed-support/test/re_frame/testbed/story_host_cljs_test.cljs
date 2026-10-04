@@ -120,28 +120,21 @@
 ;; neither sets a root nor clears one the consumer set.
 
 (deftest mount-does-not-write-story-project-root
-  (testing "mounting with no Story config leaves the project-root slot unset —
-            the host has no path that writes it"
-    (let [{:keys [window]} (make-fake-window "#/")]
-      (install-window! window)
-      (is (nil? (rf.story.config/get-project-root))
-          "fixture baseline: the slot starts unset")
-      (with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
-                    rf.testbed.story-host/mount-stories! (constantly nil)]
-        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
+  (let [{:keys [window]} (make-fake-window "#/")
+        mount!           #(with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
+                                        rf.testbed.story-host/mount-stories! (constantly nil)]
+                            (rf.testbed.story-host/mount-with-hash-routing! dummy-view))]
+    (install-window! window)
+    (testing "mounting with no Story config leaves the project-root slot unset —
+              the host has no path that writes it"
+      (mount!)
       (is (nil? (rf.story.config/get-project-root))
           "mounting configured no root — source-file resolution is the
-           dev-server endpoint's job, not the host's"))))
-
-(deftest mount-leaves-a-consumer-set-project-root-untouched
-  (testing "a consumer that DOES set `:rf.story/project-root` (an external or
-            non-shadow host leaning on the URI fallback) keeps it across a
-            mount — the carve-out is genuinely reachable"
-    (let [{:keys [window]} (make-fake-window "#/")]
-      (install-window! window)
+           dev-server endpoint's job, not the host's"))
+    (testing "a consumer that DOES set `:rf.story/project-root` (an external or
+              non-shadow host leaning on the URI fallback) keeps it across a
+              mount — the carve-out is genuinely reachable"
       (rf.story.config/set-project-root! "/preset/by/consumer")
-      (with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
-                    rf.testbed.story-host/mount-stories! (constantly nil)]
-        (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
+      (mount!)
       (is (= "/preset/by/consumer" (rf.story.config/get-project-root))
           "the consumer-set root survived the mount untouched"))))
