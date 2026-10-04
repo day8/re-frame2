@@ -94,11 +94,13 @@
 
 (deftest machine-exception-data-redacted-for-sensitive-machine
   (testing "a sensitive machine's :exception-data is redacted on the
-            production emit path, the top-level :sensitive? flag is hoisted, and the
-            sentinel never survives"
+            production emit path, the top-level :sensitive? flag is hoisted, the
+            sentinel never survives, and MCP egress drops the event when
+            sensitive reads are disabled"
     (declare-machine-marks!)
     (let [out  (emit-machine-action-exception-for sensitive-machine-id)
-          tags (:tags out)]
+          tags (:tags out)
+          [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [out] false)]
       (is (some? out) "the machine-action-exception trace was delivered")
       (is (= :rf/redacted (:exception-data tags)) ":exception-data redacted")
       (is (true? (:sensitive? out)) "top-level :sensitive? hoisted")
@@ -110,17 +112,7 @@
       ;; Structural slots remain available to locate the failure.
       (is (= sensitive-machine-id (:machine-id tags)) ":machine-id kept")
       (is (= :do/thing (:action-id tags)) ":action-id kept")
-      (is (= "boom" (:exception-message tags)) ":exception-message kept"))))
-
-(deftest machine-exception-sensitive-event-drops-at-mcp-egress
-  (testing "a sensitive machine's exception event is dropped when MCP
-            sensitive reads are disabled"
-    (declare-machine-marks!)
-    (let [out          (emit-machine-action-exception-for sensitive-machine-id)
-          [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [out] false)]
-      (is (some? out) "the machine-action-exception trace was delivered")
-      (is (true? (rf.mcp-base.sensitive/sensitive-event? out))
-          "MCP egress classifies the emitted event as sensitive (top-level flag)")
+      (is (= "boom" (:exception-message tags)) ":exception-message kept")
       (is (= 1 dropped) "the sensitive machine exception event dropped")
       (is (empty? kept) "nothing egressed with --allow-sensitive-reads disabled"))))
 
