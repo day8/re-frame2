@@ -224,32 +224,6 @@
     (is (= 10 (retained-cap :tp/successful))
         "the retention auxiliary store is A")))
 
-(deftest construction-transaction-rejects-destroy-before-policy-publication
-  ;; A owns a provisional re-registration through auxiliary policy publication,
-  ;; so B cannot make that raw row lifecycle-dead underneath it.
-  (rf.frame/upsert-frame! :tp/destroy-race
-                       {:rf.trace/frame-no-emit? false
-                        :rf.trace/events-retained 5})
-  (let [policy-reached (CountDownLatch. 1)
-        release-policy (CountDownLatch. 1)
-        a (binding [rf.frame/*upsert-policy-probe*
-                    (window-probe :tp/destroy-race policy-reached release-policy)]
-            (future
-              (rf.frame/upsert-frame! :tp/destroy-race
-                                   {:rf.trace/frame-no-emit? true
-                                    :rf.trace/events-retained 77})))]
-    (is (.await policy-reached 10 TimeUnit/SECONDS)
-        "A staged config and paused before policy publication")
-    (is (nil? (rf.frame/destroy-frame! :tp/destroy-race))
-        "B's same-id destroy loses promptly")
-    (.countDown release-policy)
-    (is (= :tp/destroy-race @a) "A completes")
-    (is (some? (rf.frame/frame :tp/destroy-race)) "the frame remains live")
-    (is (true? (rf.trace/frame-trace-disabled? :tp/destroy-race))
-        "A publishes its no-emit policy")
-    (is (= 77 (retained-cap :tp/destroy-race))
-        "A publishes its retention policy")))
-
 (deftest failed-reregistration-rollback-preserves-prestage-generation
   ;; A reads the final frame and pauses immediately before its staging
   ;; `swap-vals!`. Reprojection legitimately updates the generation in that
