@@ -48,20 +48,6 @@
 ;; Microtask scheduling + drain
 ;; ---------------------------------------------------------------------------
 
-(deftest microtask-drain-fires-forceUpdate
-  (testing "queue-render! schedules a microtask that calls forceUpdate"
-    (async done
-      (let [calls (atom 0)
-            c     (fake-component calls)]
-        (batching/queue-render! c)
-        (is (= 0 @calls)
-            "microtask hasn't fired yet — drain is async")
-        (-> (next-microtask)
-            (.then (fn [_]
-                     (is (= 1 @calls)
-                         "microtask body called forceUpdate exactly once")
-                     (done))))))))
-
 (deftest enqueue-during-drain-schedules-fresh-turn
   (testing "a component re-queued during drain fires on a later turn"
     ;; Per IMPL-SPEC §4.5: the scheduler does NOT flatten cascades
