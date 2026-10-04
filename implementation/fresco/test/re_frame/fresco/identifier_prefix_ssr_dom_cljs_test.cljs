@@ -305,7 +305,7 @@
 ;; take its census against.
 ;;
 ;; On THIS lane it is worse than a hang, which is worth knowing before
-;; reading §6's sabotage as merely slow. An unsettled rejection is an
+;; reading a sabotage of it as merely slow. An unsettled rejection is an
 ;; unhandled one, so it reaches the page as an uncaught error, and the
 ;; browser runner treats that as terminal: the run stops at this namespace
 ;; with no summary line at all, and every namespace scheduled after it goes
@@ -313,9 +313,11 @@
 ;; summary, inside one `cljs.test/run-block` with no try/catch. So the cost
 ;; of a rejection here is never one row.
 ;;
-;; `sup/settle-row!` is the one path all four end with, and §6 is what says
-;; it works — because its rejection arm is on no green path, and a branch
-;; nothing takes is untested by construction.
+;; `sup/settle-row!` is the one path all four end with. Its rejection arm is
+;; on no green path here, so the rows that take it are the shared controls:
+;; roots_frames_hydration_dom's
+;; `a-rejected-adoption-still-releases-both-roots-and-the-watcher` and
+;; server_render_ssr_dom's `a-rejected-adoption-leaves-the-next-row-a-clean-page`.
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the SERVER side alone (no DOM; runs under :node-test)
@@ -648,109 +650,3 @@
                                (close!)
                                (stop!)
                                (rf.fresco.impl.mount/release! handle))}))))))))
-
-;; ---------------------------------------------------------------------------
-;; 6 — THE LEAK CONTROL: a rejected adoption still releases the page
-;; ---------------------------------------------------------------------------
-;;
-;; §2 through §5 all FULFIL on a green run, so `sup/settle-row!`'s rejection
-;; arm is on no green path — and a branch nothing takes is untested by
-;; construction. This row takes it.
-;;
-;; The rejection is injected AFTER the adoption completes, which is the
-;; harder case and not the weaker one: every resource the row owns is live
-;; and committed at that moment, so there is strictly MORE to release than
-;; there would be had `sup/adopted!` rejected before the root ever adopted.
-;;
-;; Were the row to end inside the fulfilment handler, nothing below the
-;; injection would run at all. The rejection skips the handler, so the `try`
-;; is never entered and its `finally` never fires: no `stop!`, no
-;; `release!`, no `done`. Without `sup/settle-row!`'s rejection arm the run
-;; stops HERE, with no summary line and every later namespace unrun — see
-;; the Settlement note above for why an unsettled rejection is terminal on
-;; this runner rather than merely slow.
-
-(deftest a-rejected-adoption-still-releases-the-root-console-and-watcher
-  (if-not (rf.fresco.impl.mount/browser?)
-    (rf.fresco.roots-frames-support/skip! "what a rejection can leak here is a real root and a real console")
-    (async done
-      (fresh!)
-      (let [html           (root-shaped-server-html! frame-a [id-page {}] "pfx-a-")
-            container      (rf.fresco.roots-frames-support/stamp-server-nodes! (rf.fresco.roots-frames-support/server-dom! html))
-            watch          (rf.fresco.roots-frames-support/watch-mismatches!)
-            ;; NOT `:swallow-uncaught? true`: this row manufactures a
-            ;; rejected PROMISE, which `sup/settle-row!` handles, and no
-            ;; uncaught window error at all. Swallowing anywhere else is
-            ;; the fail-open the browser runner's pageerror rule forbids.
-            console-before (.-error js/console)
-            capture        (rf.fresco.roots-frames-support/open-console-capture!)
-            stops          (atom 0)
-            finishes       (atom 0)
-            reports        (atom [])]
-        (rf.fresco.impl.collector/reset-runtime!)
-        (let [handle (rf.fresco.impl.mount/hydrate-root! container frame-a [id-page {}]
-                                          {:identifier-prefix "pfx-a-"})]
-          (-> (rf.fresco.roots-frames-support/adopted! handle)
-              (.then
-                (fn [ok]
-                  (is (true? ok) "premise: the root really did adopt")
-                  (is (not= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/census))
-                      (str "premise: the runtime is holding this root's cells "
-                           "and edges, so the census taken after the rejection "
-                           "is a RELEASE and not an empty page; got "
-                           (pr-str (rf.fresco.roots-frames-support/census))))
-                  (js/Promise.reject (js/Error. "adoption rejected on purpose"))))
-              (rf.fresco.roots-frames-support/settle-row!
-                {:row      "the rejected-adoption control"
-                 :done     (fn [] (swap! finishes inc))
-                 :report!  (fn [e] (swap! reports conj e))
-                 :release! (fn []
-                             ((:close! capture))
-                             (swap! stops inc)
-                             ((:stop! watch))
-                             (rf.fresco.impl.mount/release! handle))})
-              ;; The cell reapers are armed at unmount and run past a bare
-              ;; macrotask, so the tables are read at the runtime's own
-              ;; horizon rather than one tick after the release.
-              (.then (fn [_] (rf.fresco.roots-frames-support/quiesced!)))
-              (.then
-                (fn [_]
-                  (testing "the rejection is REPORTED — which is the whole of
-                            what a hang gives away — and the row ends ONCE"
-                    (is (= 1 @finishes)
-                        (str "done ran " @finishes " times"))
-                    (is (= 1 (count @reports))
-                        (str "exactly one report; got " (pr-str @reports)))
-                    (is (str/includes? (str (first @reports))
-                                       "adoption rejected on purpose")
-                        (str "naming what the adoption threw; got "
-                             (pr-str @reports))))
-
-                  (testing "and the page the NEXT row inherits holds nothing of
-                            this one. Two of these four are the row's alone to
-                            give back — the `:each` fixture resets frames,
-                            disposes the adapter and empties the runtime, but it
-                            never unmounts a React root and never hands
-                            `console.error` back. (The trace listener it does
-                            sweep, in its `:before`; `stop!` is asserted here
-                            all the same, because a row that leans on the
-                            fixture to stop its own watcher is measuring the
-                            fixture)"
-                    (is (= rf.fresco.roots-frames-support/released (rf.fresco.roots-frames-support/census))
-                        (str "no root: residue was " (pr-str (rf.fresco.roots-frames-support/census))))
-                    (is (empty? (rf.fresco.roots-frames-support/cell-frames))
-                        (str "no frame: the cell table still mentions "
-                             (pr-str (rf.fresco.roots-frames-support/cell-frames))))
-                    (is (= 1 @stops)
-                        (str "the mismatch watcher was stopped — `stop!` is what "
-                             "unregisters the trace listener; it ran "
-                             @stops " times"))
-                    (is (identical? console-before (.-error js/console))
-                        "`console.error` is the page's own again"))))
-              (rf.fresco.roots-frames-support/settle-row!
-                {:row      "the rejected-adoption control's own settlement"
-                 :done     done
-                 :release! (fn []
-                             ((:close! capture))
-                             ((:stop! watch))
-                             (rf.fresco.impl.mount/release! handle))})))))))
