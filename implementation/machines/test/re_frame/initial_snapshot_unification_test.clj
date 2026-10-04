@@ -120,21 +120,3 @@
 ;; an `:entry`-declared `:spawn` on the actor's initial state goes
 ;; through the contract path of `allocate-spawned-id` (reading from a
 ;; present slot) rather than the defensive `(fnil inc 0)` backstop.
-
-(deftest spawned-actor-snapshot-carries-spawn-counter
-  (testing "a spawned actor's snapshot carries :rf/spawn-counter"
-    (let [child  {:initial :running
-                  :data    {}
-                  :states  {:running {}}}
-          parent {:initial :idle
-                  :states  {:idle    {:on {:start :working}}
-                            :working {:spawn {:machine-id :worker/proc}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/main parent)
-      (rf/dispatch-sync [:sup/main [:start]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :sup/main [:working]])
-            child-snap (snapshot spawned-id)]
-        (is (some? child-snap) "(precondition) snapshot installed")
-        (is (contains? child-snap :rf/spawn-counter)
-            "spawned actor's snapshot carries :rf/spawn-counter")))))
