@@ -204,7 +204,7 @@ This is the **primary escalation surface**. async-flow's `:halt-fns?` slot accep
 The machine equivalent depends on what the predicate closes over:
 
 - **Closes over `:data` only** (e.g. "after 5 retries"): lower to a `:guard` on an `:always` transition — `:guard :retries-exhausted?` reading `(:retry-count data)`. The retry-count is updated by the `:action` on each retry-failure transition.
-- **Closes over external state** (e.g. a sub-table, a websocket message buffer, an app-db slice outside the machine's `:data`): this is the **hard case**. Spec 005 §Strict encapsulation locks actions and guards to the machine's own `:data` only (inside its snapshot at `[:rf.runtime/machines :snapshots <id>]` in runtime-db) — they cannot read arbitrary `app-db`. The migration paths are: (a) restructure so the external state arrives via dispatched events the machine consumes through `:on`, so the relevant signal becomes part of `:data`; (b) use the 3-arity opt-in escape hatch (per Spec 005 §3-arity escape hatch) to read the snapshot's `:meta` (still not arbitrary `app-db`); (c) **escalate** — the encapsulation rule is load-bearing for revertibility and the rewrite is a design conversation, not a mechanical lift.
+- **Closes over external state** (e.g. a sub-table, a websocket message buffer, an app-db slice outside the machine's `:data`): this is the **hard case**. Spec 005 §Strict encapsulation locks actions and guards to the machine's own `:data` only (inside its snapshot at `[:rf.runtime/machines :snapshots <id>]` in runtime-db) — they cannot read arbitrary `app-db`. The migration paths are: (a) restructure so the external state arrives via dispatched events the machine consumes through `:on`, so the relevant signal becomes part of `:data`; (b) when the signal can live in the snapshot's own metadata, read it from the guard's one context map — `:meta` and `:state` arrive beside `:data` and `:event` with no flag (`(fn [{:keys [data meta]}] …)`, per Spec 005 §Snapshot introspection) — which is still not arbitrary `app-db`, and who writes that metadata is part of the design; (c) **escalate** — the encapsulation rule is load-bearing for revertibility and the rewrite is a design conversation, not a mechanical lift.
 
 The agent surfaces every `:halt-fns?` site and explains the three paths; the operator decides.
 
@@ -218,7 +218,29 @@ The migration agent does NOT silently rewrite the following. It presents the cal
 
 1. **`:halt-fns?` predicates closing over state outside `:data`.** See the `:halt-fns?` section above. Strict encapsulation makes this a design decision, not a mechanical translation.
 
-2. **Rules with `:events` as a predicate fn** (not a keyword / vector / collection of keywords). async-flow accepts `:events` as a predicate that runs against each observed event. The machine's `:on` map is keyword-indexed; arbitrary-predicate event matching has no direct equivalent. Escalation paths: (a) restructure the upstream dispatches so the events carry distinguishing ids; (b) use a wildcard `:on {:* {:action <fn-that-pattern-matches-and-may-or-may-not-transition>}}` (per Spec 005 §Wildcard transitions) — works for catch-all behaviour but reads less clearly than named transitions; (c) keep the v1 add-on lib for this specific flow.
+2. **Rules with `:events` as a predicate fn** (not a keyword / vector / collection of keywords). async-flow accepts `:events` as a predicate that runs against each observed event. The machine's `:on` map is keyword-indexed; arbitrary-predicate event matching has no direct equivalent. Escalation paths: (a) restructure the upstream dispatches so the events carry distinguishing ids, each with its own `:on` entry; (b) use a namespace or total wildcard (`:job/*`, `:*`, per Spec 005 §Wildcard transitions) whose `:guard` runs the predicate against `:event` from its one context map — works for catch-all behaviour but reads less clearly than named transitions; (c) when neither fits, hold the flow for the author's design decision. The unchanged add-on is not a destination for a held flow: it fails to compile on v2 ([§Acting is forced](#acting-is-forced-the-conversion-path-is-the-opt-in-part)), so the flow is redesigned or removed, never kept.
+
+    ```clojure
+    ;; v1: halt when any :job/* event reports a failure. :events is a predicate.
+    {:when     :seen?
+     :events   (fn [[id {:keys [status]}]]
+                 (and (= "job" (namespace id)) (= :failed status)))
+     :dispatch [:jobs/failed]
+     :halt?    true}
+
+    ;; v2, path (b): the :job/* wildcard matches the id namespace and the guard
+    ;; tests the payload, reading :event from its one context map.
+    (rf/reg-machine :jobs/watch
+      {:initial :running
+       :guards  {:job-failed? (fn [{:keys [event]}]
+                                (= :failed (:status (second event))))}
+       :states
+       {:running {:on {:job/* {:guard :job-failed? :target :failed}}}
+        :failed  {:final? true
+                  :entry  (fn [_ctx] {:fx [[:dispatch [:jobs/failed]]]})}}})
+    ```
+
+    A `:job/*` event whose payload is not `:failed` is guard-blocked and leaves the machine in `:running`; a failed one reaches `:failed`, which dispatches `[:jobs/failed]` and auto-destroys the machine, as `:halt? true` did. As with any await, the `:job/*` producers dispatch to the machine's address ([§Retarget the producers](#retarget-the-producers--the-1-silent-stall-hazard)).
 
 3. **Flows whose `:rules` vector is computed at runtime** (e.g. `(into base-rules (when feature-flag? extra-rules))`). The machine spec is declarative and stamped at registration time. Conditional behaviour belongs inside the spec (`:guard` predicates that read `:data`, or `:always` transitions that branch on state). A computed `:rules` vector either lowers to one machine with branching guards (preferred) or to multiple `reg-machine` calls behind a runtime selector (rare; escalate).
 
