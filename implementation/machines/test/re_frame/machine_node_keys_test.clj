@@ -9,7 +9,8 @@
     - a NAMESPACED user key passes (the open extension carve-out).
 
   That well-formed `:type :choice` and `:type :history` nodes register is
-  pinned in `choice_node_keys_test` and `scxml_conformance_cljs_test`."
+  pinned in `choice_node_keys_test` and by the history validation rows of
+  `scxml_conformance_cljs_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Load the machines facade so `rf/reg-machine` routes through its
