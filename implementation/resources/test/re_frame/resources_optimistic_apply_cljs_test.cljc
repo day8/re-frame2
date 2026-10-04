@@ -27,7 +27,8 @@
        :before-request` is a loud registration error
        (`:rf.error/mutation-optimistic-before-request`).
     8. TRACE — `:rf.mutation/optimistic-applied` carries the snapshot id, the
-       affected keys, and the per-key revision + forward op shape.
+       affected keys, and the per-key revision + forward op shape (pinned by
+       case 12 of `resources-optimistic-validation-cljs-test`).
 
   The fail-closed law for a `{:from-db …}` optimistic target that resolves
   nil is case 9 of `resources-optimistic-validation-cljs-test`.
@@ -342,29 +343,3 @@
               :params-schema [:map [:slug :string]]
               :optimistic (fn [_p] {})}
              (fn [_p _] {:request {:method :post :url "/x"}}))))))
-
-;; ===========================================================================
-;; 8. Trace — :rf.mutation/optimistic-applied carries the snapshot id + revisions.
-;; ===========================================================================
-
-(deftest optimistic-applied-trace-carries-snapshot-and-revisions
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false}})
-  (let [rev-before (:revision (entry article-key))]
-    (rf/reg-mutation :m/favorite
-      {:scope :rf.scope/global
-       :params-schema [:map [:slug :string]]
-       :optimistic (fn [{:keys [slug]}]
-                     {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                      (fn [a] (assoc-in a [:article :favorited] true))})}
-      (fn [{:keys [slug]} _] {:request {:method :post :url "/fav"}}))
-    (let [tr (applied-trace
-               #(rf/dispatch-sync [:rf.mutation/execute
-                                   {:mutation :m/favorite :params {:slug "w"} :instance :f1}]))]
-      (testing "the optimistic-applied trace carries the snapshot id + affected keys"
-        (is (some? (:snapshot-id tr)))
-        (is (= [article-key] (:affected-keys tr))))
-      (testing "the trace carries the per-key revision (observed at apply) + forward op"
-        (is (= [{:resource/key article-key :revision rev-before :forward :patch}]
-               (:revisions tr)))))))
