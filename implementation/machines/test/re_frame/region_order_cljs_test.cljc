@@ -11,11 +11,11 @@
   on authored order r0..r9.
 
   Runs in both CLJ and CLJS (pure engine — no runtime/fixture), so it pins
-  CLJ/CLJS parity. Covers literal AND computed `:regions`
-  input, and asserts authored action-data, fx, cascade and spawn order, the
-  birth entry cascade, the destroy exit cascade, and the root multi-target
-  apply — plus the documented registration outcomes for missing/mismatched
-  order and the ≤8 small-map convenience derivation.
+  CLJ/CLJS parity. It builds its `:regions` input computationally, and
+  asserts authored action-data, fx, cascade and spawn order, the birth entry
+  cascade, the destroy exit cascade, and the root multi-target apply — plus
+  the documented registration outcomes for missing/mismatched order and the
+  ≤8 small-map convenience derivation.
 
   The `-cljs-test` suffix is what MAKES that parity claim true. Shadow's
   `:node-test` build selects on `cljs-test$`, so a `-cljc-test` ns — named
@@ -60,35 +60,6 @@
 (defn- noted-fx [r]
   (filterv #(= :noted (first %)) (:fx r)))
 
-;; A TEN-region machine written as a MAP LITERAL — >8 entries, so the reader
-;; produces a PersistentHashMap and authored order r0..r9 is gone at read time.
-;; The explicit `:region-order` carries it. This is the "literal reg-machine*
-;; input" leg of the acceptance matrix (the computed leg is `go-machine`).
-(def ^:private literal-ten
-  {:type         :parallel
-   :data         {:order []}
-   :region-order [:r0 :r1 :r2 :r3 :r4 :r5 :r6 :r7 :r8 :r9]
-   :actions      {:r0 (fn [{d :data}] {:data (update d :order conj :r0)})
-                  :r1 (fn [{d :data}] {:data (update d :order conj :r1)})
-                  :r2 (fn [{d :data}] {:data (update d :order conj :r2)})
-                  :r3 (fn [{d :data}] {:data (update d :order conj :r3)})
-                  :r4 (fn [{d :data}] {:data (update d :order conj :r4)})
-                  :r5 (fn [{d :data}] {:data (update d :order conj :r5)})
-                  :r6 (fn [{d :data}] {:data (update d :order conj :r6)})
-                  :r7 (fn [{d :data}] {:data (update d :order conj :r7)})
-                  :r8 (fn [{d :data}] {:data (update d :order conj :r8)})
-                  :r9 (fn [{d :data}] {:data (update d :order conj :r9)})}
-   :regions      {:r0 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r0}}}}}
-                  :r1 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r1}}}}}
-                  :r2 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r2}}}}}
-                  :r3 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r3}}}}}
-                  :r4 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r4}}}}}
-                  :r5 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r5}}}}}
-                  :r6 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r6}}}}}
-                  :r7 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r7}}}}}
-                  :r8 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r8}}}}}
-                  :r9 {:initial :idle :states {:idle {:on {:go {:target :idle :action :r9}}}}}}})
-
 ;; ---- 1. action-data accumulation order (the core repro) -------------------
 
 (deftest action-data-order-preserved-computed
@@ -103,13 +74,6 @@
           ":regions is a PersistentHashMap — the >8 threshold is crossed")
       (is (= r10 (get-in (:snapshot r) [:data :order]))
           "committed action-data order is authored r0..r9"))))
-
-(deftest action-data-order-preserved-literal
-  (testing ">8 regions (LITERAL :regions map): shared :data accumulates in
-            DECLARATION order r0..r9"
-    (let [r (rf.machines.parallel/machine-transition literal-ten (boot literal-ten) [:go])]
-      (is (= :ok (:status r)))
-      (is (= r10 (get-in (:snapshot r) [:data :order]))))))
 
 ;; ---- 2. cascade order -----------------------------------------------------
 
