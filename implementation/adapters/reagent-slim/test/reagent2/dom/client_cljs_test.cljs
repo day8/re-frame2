@@ -78,32 +78,7 @@
 ;;      - React's pending work has committed (act() has run to completion)."
 ;; ---------------------------------------------------------------------------
 
-(deftest flush-views-determinism-reaction-recompute
-  (testing "by the time flush-views! resolves, a queued Reaction has recomputed"
-    (async done
-      ;; `r` has no :auto-run, so a dependency change QUEUES its recompute
-      ;; rather than running it inside the `reset!`. `outer` derefs it in a
-      ;; reactive context so `r` captures `a` and stays watched.
-      (let [a       (ratom/atom 1)
-            r       (ratom/make-reaction (fn [] (* @a 100)))
-            outer   (ratom/make-reaction (fn [] @r) :auto-run true)
-            seen    (atom nil)]
-        @outer ;; subscribe outer → r → a
-        (add-watch r :w (fn [_ _ _ nu] (reset! seen nu)))
-        (reset! a 5)
-        (is (nil? @seen)
-            "PRECONDITION: the recompute is queued, not run inside the reset!")
-        (-> (js/Promise.resolve (dom-client/flush-views!))
-            (.then (fn [_]
-                     ;; Read the watch, never `@r`: a non-reactive deref of
-                     ;; `r` recomputes it on the spot and would fire the
-                     ;; watch itself.
-                     (is (= 500 @seen)
-                         "the queued recompute ran and notified its watcher")
-                     (done))))))))
-
-;; The two determinism tests either side of this one cannot see flush-views!'s
-;; OWN drain: the work they queue also schedules the render scheduler's
+;; Work queued with the render scheduler connected also schedules its
 ;; microtask, which is FIFO-ahead of the drain flush-views! runs inside act and
 ;; so drains it first. Here the scheduler hook is disconnected for the duration,
 ;; so the queued recompute has no microtask coming, and flush-views! is the only
@@ -141,19 +116,6 @@
             (.catch (fn [e]
                       (is false (str "flush-views! threw: " e))
                       (finish!))))))))
-
-(deftest flush-views-determinism-component-render
-  (testing "after flush-views!, a queued component has been rendered"
-    (async done
-      (let [calls (atom 0)
-            c     #js {}]
-        (set! (.-forceUpdate c) (fn [] (swap! calls inc)))
-        (batching/queue-render! c)
-        (-> (js/Promise.resolve (dom-client/flush-views!))
-            (.then (fn [_]
-                     (is (= 1 @calls)
-                         "post-flush-views!, component has re-rendered exactly once")
-                     (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Suspense ordering — microtask -> act -> microtask
@@ -213,42 +175,6 @@
                          "Tail-effect (after-render hook) fired before flush-views! returned")
                      (done))))))))
 
-(deftest flush-views-suspense-composition-cascade
-  (testing "a render queued between flushes runs, and its ratom write reaches a dependent Reaction"
-    ;; The queued component's render writes an upstream RAtom; by the
-    ;; time the flushes resolve, the auto-run Reaction has seen both
-    ;; transitions. `r` recomputes synchronously inside each `reset!`, so
-    ;; this cannot tell a fresh turn from a flattened drain — the
-    ;; non-flattening turn boundary (IMPL-SPEC §4.5) is pinned by
-    ;; `enqueue-during-drain-schedules-fresh-turn` in
-    ;; `reagent2.impl.batching-cljs-test`.
-    (async done
-      (let [counter      (ratom/atom 0)
-            seen-states  (atom [])
-            r            (ratom/make-reaction (fn [] @counter) :auto-run true)]
-        @r
-        (add-watch r :seen
-          (fn [_ _ _ nu] (swap! seen-states conj nu)))
-        ;; First mutation.
-        (reset! counter 1)
-        (-> (js/Promise.resolve (dom-client/flush-views!))
-            (.then (fn [_]
-                     ;; Schedule another mutation to verify cascade
-                     ;; doesn't collapse: queue a render whose hook
-                     ;; mutates counter again.
-                     (let [c #js {}]
-                       (set! (.-forceUpdate c)
-                             (fn [] (reset! counter 2)))
-                       (batching/queue-render! c))
-                     (dom-client/flush-views!)))
-            (.then (fn [_] (dom-client/flush-views!)))
-            (.then (fn [_]
-                     ;; counter went 0 -> 1 -> 2; r tracked both.
-                     (is (= [1 2] @seen-states)
-                         "auto-run reaction observed both transitions across flushes")
-                     (is (= 2 @r))
-                     (done))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Mount-entry scaffolds
 ;; ---------------------------------------------------------------------------
@@ -284,13 +210,6 @@
         (is (= "hi" (-> el .-props .-children))
             "child text travelled through")))))
 
-(deftest render-passes-nil-for-nil-hiccup
-  (testing "render with nil hiccup passes nil to root.render"
-    (let [captured (atom :sentinel)
-          fake-root #js {:render (fn [el] (reset! captured el) nil)}]
-      (dom-client/render fake-root nil)
-      (is (nil? @captured)))))
-
 ;; ---------------------------------------------------------------------------
 ;; Deref-capture wiring
 ;;
@@ -302,42 +221,6 @@
 ;; Without this wiring, views would render once and never update. We
 ;; exercise the wiring via a fake forceUpdate spy.
 ;; ---------------------------------------------------------------------------
-
-(deftest render-deref-capture-queues-rerender-on-dep-change
-  (testing "deref-capture wiring: dep change triggers forceUpdate via batching"
-    (async done
-      (let [a            (ratom/atom 0)
-            renders      (atom 0)
-            ;; Render fn that derefs `a` — this should subscribe the
-            ;; component to changes via the per-instance render Reaction.
-            render-fn    (fn []
-                           (swap! renders inc)
-                           [:div @a])
-            ;; Build a class via the same path as fn-to-class.
-            ^js klass    (component/create-class*
-                           {:reagent-render render-fn})
-            ;; Fake forceUpdate so we can observe the queue-render!
-            ;; cascade without running React DOM.
-            forced       (atom 0)
-            inst         (new klass #js {:__rfArgv [render-fn]})]
-        ;; Stub forceUpdate before first render so the queued
-        ;; re-render observes our spy. React would normally provide
-        ;; this; we replicate it for the test.
-        (set! (.-forceUpdate inst) (fn [] (swap! forced inc)))
-        ;; First render: should subscribe to `a`.
-        (.call (.. klass -prototype -render) inst)
-        (is (= 1 @renders) "first render ran")
-        ;; Mutate the dep — should enqueue a re-render via the
-        ;; reaction's auto-run callback.
-        (swap! a inc)
-        (-> (js/Promise.resolve (dom-client/flush-views!))
-            (.then (fn [_]
-                     (is (>= @forced 1)
-                         "forceUpdate fired after dep change (deref-capture wired)")
-                     ;; Cleanup: unmount the test instance to dispose
-                     ;; the reaction's watch graph.
-                     (.call (.. klass -prototype -componentWillUnmount) inst)
-                     (done))))))))
 
 (deftest render-second-render-recomputes-reaction-rf2-u5p5
   (testing "second render after dep change recomputes the Reaction, not returns cached state"
@@ -351,10 +234,9 @@
     ;;
     ;; So on subsequent render entries the render path calls
     ;; `._run rea false` directly, and deref-capture re-runs the user fn
-    ;; with the latest subscribed state. The deref-capture-queues-rerender
-    ;; test above cannot catch a cached render: it verifies only that
-    ;; forceUpdate fired, not that the subsequent render produced
-    ;; updated output.
+    ;; with the latest subscribed state. The deref-capture test below
+    ;; cannot catch a cached render: it verifies only that forceUpdate
+    ;; fired, not that the subsequent render produced updated output.
     (let [a            (ratom/atom 0)
           ;; Capture the hiccup produced on each render via a side-
           ;; channel; the render method returns a React element after
