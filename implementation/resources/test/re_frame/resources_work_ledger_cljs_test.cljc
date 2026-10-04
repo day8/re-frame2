@@ -31,7 +31,6 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
-   [re-frame.frame :as rf.frame]
    [re-frame.reply :as rf.reply]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + the work-ledger side-table fx these tests
