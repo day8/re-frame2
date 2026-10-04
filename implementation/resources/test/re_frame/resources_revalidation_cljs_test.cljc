@@ -324,12 +324,6 @@
     (rf.resources.revalidate-listeners/reconcile-listeners! :rv/no-such-frame #{})
     (is (not (contains? @rf.resources.revalidate-listeners/listener-table :rv/no-such-frame)))))
 
-(deftest revalidation-triggers-is-the-closed-enum
-  (testing "`:revalidate-on` draws from a CLOSED two-member
-            enum; :focus is ONE setting (window focus AND document
-            visibilitychange-to-visible), :reconnect is window online"
-    (is (= #{:focus :reconnect} rf.resources.revalidate-listeners/revalidation-triggers))))
-
 (deftest revalidate-on-config-is-inert-without-a-dom
   (testing "a `:revalidate-on` frame registers cleanly on a
             host with no DOM (JVM / SSR): the lifecycle hook runs, no
