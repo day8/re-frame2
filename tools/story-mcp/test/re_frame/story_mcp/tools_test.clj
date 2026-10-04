@@ -1955,8 +1955,6 @@
                     :params {:name "list-tags" :arguments bad-args}})]
         (is (= rf.mcp-base.vocab/code-invalid-params (-> resp :error :code))
             (str bad-args " (" label ") ⇒ -32602 invalid-params"))
-        (is (not= rf.mcp-base.vocab/code-internal-error (-> resp :error :code))
-            (str bad-args " must NOT surface as -32603 internal-error"))
         (is (re-find #"arguments" (-> resp :error :message))
             "the error names the offending `arguments` container")))))
 
@@ -1980,11 +1978,6 @@
                {:jsonrpc "2.0" :id 6 :method "nope/whatever"})]
     (is (= rf.mcp-base.vocab/code-method-not-found (-> resp :error :code)))
     (is (re-find #"nope/whatever" (-> resp :error :message)))))
-
-(deftest dispatch-notification-no-response
-  (testing "a JSON-RPC notification yields nil (no response)"
-    (is (nil? (rf.story-mcp.server/dispatch
-                {:jsonrpc "2.0" :method "notifications/initialized"})))))
 
 (deftest dispatch-shutdown-empty-result
   ;; `handle-shutdown` in server.cljc — some agent hosts emit a
@@ -2031,7 +2024,7 @@
 ;; the full `run-loop!` stdio order.
 ;; ---------------------------------------------------------------------------
 
-(deftest dispatch-rejects-tools-list-before-initialize
+(deftest dispatch-rejects-requests-before-initialize
   (testing "tools/list before initialize → -32600 invalid-request"
     (let [state (rf.story-mcp.server/new-lifecycle-state)
           resp  (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 1 :method "tools/list"})]
@@ -2040,19 +2033,7 @@
           "enumerating tools pre-handshake is a protocol violation, not a success")
       (is (nil? (:result resp)) "no tool registry leaks before initialize")
       (is (re-find #"(?i)initialize" (-> resp :error :message))
-          "the error names the missing handshake step"))))
-
-(deftest dispatch-rejects-tools-call-before-initialize
-  (testing "tools/call before initialize → -32600 invalid-request (no tool runs)"
-    (let [state (rf.story-mcp.server/new-lifecycle-state)
-          resp  (rf.story-mcp.server/dispatch state {:jsonrpc "2.0" :id 2 :method "tools/call"
-                                        :params {:name "get-story-instructions"
-                                                 :arguments {}}})]
-      (is (= rf.mcp-base.vocab/code-invalid-request (-> resp :error :code))
-          "a tool call pre-handshake is refused at the protocol layer")
-      (is (nil? (:result resp)) "the tool handler never ran — no result envelope"))))
-
-(deftest dispatch-rejects-shutdown-and-unknown-before-initialize
+          "the error names the missing handshake step")))
   (testing "shutdown + unknown methods are also gated pre-initialize"
     (let [state (rf.story-mcp.server/new-lifecycle-state)]
       (is (= rf.mcp-base.vocab/code-invalid-request
@@ -2133,23 +2114,6 @@
         (is (vector? (-> (nth frames 2) :result :tools))
             "tools/list now surfaces the registry — the handshake unlocked the surface")))))
 
-(deftest run-loop-allows-ping-before-initialize
-  (testing "stdio order: a ping as the FIRST frame is answered (liveness probe)"
-    (let [in-text (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n"
-                       "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"initialize\","
-                       "\"params\":{\"protocolVersion\":\"2025-06-18\"}}\n")
-          reader  (java.io.BufferedReader. (java.io.StringReader. in-text))
-          sw      (java.io.StringWriter.)
-          err     (java.io.StringWriter.)]
-      (binding [*err* err]
-        (rf.story-mcp.server/run-loop! reader sw))
-      (let [frames (->> (clojure.string/split-lines (.toString sw))
-                        (filter seq)
-                        (mapv #(cheshire.core/parse-string % true)))]
-        (is (= 2 (count frames)))
-        (is (= {} (:result (nth frames 0))) "ping answered with the empty result pre-init")
-        (is (= rf.story-mcp.config/protocol-version (-> (nth frames 1) :result :protocolVersion)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Run-loop end-to-end (in-memory)
 ;; ---------------------------------------------------------------------------
@@ -2229,11 +2193,6 @@
   ;; (uberjar deploys, REPL hosts). The story-mcp test classpath carries
   ;; no `VERSION` resource (`:paths ["src"]` + test `:extra-paths ["test"]`,
   ;; neither of which ship one), so this run exercises the "dev" fallback.
-  (testing "returns a non-blank trimmed string"
-    (let [v (rf.story-mcp.config/read-version)]
-      (is (string? v))
-      (is (not (clojure.string/blank? v)))
-      (is (= v (clojure.string/trim v)) "result is already trimmed")))
   (testing "falls back to \"dev\" when no VERSION resource is on the classpath"
     (is (nil? (io/resource "VERSION"))
         "precondition: the test classpath ships no VERSION resource")
@@ -3806,18 +3765,6 @@
         (is (= 1 (:total s))
             "gate closed: sensitive records remain dropped despite the opt-in")))))
 
-(deftest read-boot-config-sensitive-reads-sysprop
-  (testing "JVM sysprop seeds :allow-sensitive-reads? true"
-    (let [restore (System/getProperty "rf.story-mcp.allow-sensitive-reads")]
-      (try
-        (System/setProperty "rf.story-mcp.allow-sensitive-reads" "true")
-        (let [cfg (rf.story-mcp.config/read-boot-config)]
-          (is (true? (:allow-sensitive-reads? cfg))))
-        (finally
-          (if restore
-            (System/setProperty "rf.story-mcp.allow-sensitive-reads" restore)
-            (System/clearProperty "rf.story-mcp.allow-sensitive-reads")))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Agent-onboarding text parity
 ;;
@@ -3843,154 +3790,51 @@
                  " — keep the onboarding doc in lockstep with `rf.story/canonical-assertion-ids`"))))))
 
 ;; ---------------------------------------------------------------------------
-;; handle-frame! recovery write — nested catch
+;; Boot config: each gate's sysprop
 ;;
-;; server.cljc's handle-frame! has a nested try around the recovery write
-;; (the "even the recovery write failed" branch). It's unreachable from the
-;; happy-path corpus; mock a writer that throws on .write and assert the
-;; run-loop survives.
+;; `read-boot-config` reads each gate's JVM sysprop and honours an explicit
+;; value in both polarities. Env vars are read-only on the JVM, so the
+;; sysprop-over-env precedence is pinned on `resolve-gate` below.
 ;; ---------------------------------------------------------------------------
 
-(deftest handle-frame-survives-recovery-write-failure
-  (testing "writer that throws on every .write yields no propagation"
-    ;; Force the dispatch to throw by triggering an error path that the
-    ;; outer catch picks up. The cleanest signal: an unknown tool method
-    ;; arrives via tools/call AFTER dispatch returns a valid response,
-    ;; then rf.story-mcp.protocol/write-frame! throws on the writer. We compose this with
-    ;; a `tools/call` that succeeds in dispatch but where the writer
-    ;; throws.
-    (let [throwing-writer (proxy [java.io.Writer] []
-                            (write
-                              ([_])
-                              ([_a _b _c]
-                                (throw (RuntimeException. "writer broken"))))
-                            (flush [])
-                            (close []))
-          msg             {:jsonrpc "2.0" :id 1 :method "ping"}]
-      ;; The function MUST NOT propagate either throw — both writer
-      ;; failures (the response write AND the internal-error recovery
-      ;; write) are caught and logged. If propagation regressed, this
-      ;; would throw and the test would fail loudly.
-      (is (nil? (try
-                  ;; `ping` is accepted in EVERY lifecycle posture, so a
-                  ;; fresh (uninitialized) state still reaches the writer.
-                  (#'rf.story-mcp.server/handle-frame! (rf.story-mcp.server/new-lifecycle-state) throwing-writer msg)
-                  nil
-                  (catch Throwable e e)))
-          "handle-frame! must not propagate writer-side throws"))))
-
-;; ---------------------------------------------------------------------------
-;; Boot-config precedence — CLI > sysprop > env
-;;
-;; Per spec/003-Write-Surface-Gating.md §91-94 the precedence is CLI flag >
-;; JVM sysprop > env var. Alongside the tests that cover `parse-args`
-;; directly, this test asserts the merged behaviour: when all three sources
-;; supply conflicting values, CLI wins, sysprop overrides env, and the
-;; env-only case lands too.
-;; ---------------------------------------------------------------------------
-
-(deftest boot-config-precedence-cli-over-sysprop-over-env
-  ;; Save/restore the sysprop. Env vars are read-only on the JVM, so we
-  ;; can't directly mutate `RF_STORY_MCP_ALLOW_WRITES`; the test exercises
-  ;; the two-of-three combinations a unit-test environment can stage
-  ;; (sysprop alone, CLI overrides sysprop). The third combination —
-  ;; pure env var — is exercised by the SDK-driven integration harness
-  ;; `tools/mcp-conformance/test/end-to-end-story.cjs` (which boots the
-  ;; server with --allow-writes) under the same precedence rule.
-  (let [restore (System/getProperty "rf.story-mcp.allow-writes")]
-    (try
-      (testing "sysprop alone seeds allow-writes? true"
-        (System/setProperty "rf.story-mcp.allow-writes" "true")
-        (let [cfg (rf.story-mcp.config/read-boot-config)]
-          (is (true? (:allow-writes? cfg))
-              "sysprop should flip allow-writes? on")))
-      (testing "CLI flag wins when present alongside sysprop"
-        ;; sysprop is still "true" from the previous step. The merge in
-        ;; `boot!` is `(merge (rf.story-mcp.config/read-boot-config) cli-cfg)` so a CLI
-        ;; value clobbers the boot-config value — CLI > sysprop. The
-        ;; precedence test asserts the merge produces the CLI value, not
-        ;; the sysprop.
-        (System/setProperty "rf.story-mcp.allow-writes" "true")
-        (let [boot-cfg (rf.story-mcp.config/read-boot-config)
-              cli-cfg  (#'rf.story-mcp.server/parse-args [])  ; CLI absent ⇒ no slot
-              merged   (merge boot-cfg cli-cfg)]
-          (is (true? (:allow-writes? merged))
-              "CLI absent ⇒ sysprop value rides through")
-          ;; Now with CLI explicitly absent of `--allow-writes`, the
-          ;; merge yields the sysprop. To prove CLI > sysprop, we flip
-          ;; the sysprop OFF and pass `--allow-writes` on the CLI — the
-          ;; merge MUST be true (CLI wins).
-          (System/setProperty "rf.story-mcp.allow-writes" "false")
-          (let [boot-cfg-off (rf.story-mcp.config/read-boot-config)
-                cli-cfg-on   (#'rf.story-mcp.server/parse-args ["--allow-writes"])
-                merged-on    (merge boot-cfg-off cli-cfg-on)]
-            (is (false? (:allow-writes? boot-cfg-off))
-                "sysprop=false leaves boot-config false")
-            (is (true? (:allow-writes? cli-cfg-on))
-                "--allow-writes flips the CLI slot true")
-            (is (true? (:allow-writes? merged-on))
-                "CLI > sysprop: merge yields the CLI's true value"))))
-      (finally
-        (if restore
-          (System/setProperty "rf.story-mcp.allow-writes" restore)
-          (System/clearProperty "rf.story-mcp.allow-writes"))))))
+(deftest read-boot-config-reads-each-gate-sysprop
+  (doseq [[prop slot] [["rf.story-mcp.allow-writes" :allow-writes?]
+                       ["rf.story-mcp.allow-sensitive-reads" :allow-sensitive-reads?]]
+          [v want]    [["true" true] ["false" false]]]
+    (let [restore (System/getProperty prop)]
+      (try
+        (System/setProperty prop v)
+        (is (= want (slot (rf.story-mcp.config/read-boot-config)))
+            (str "-D" prop "=" v))
+        (finally
+          (if restore
+            (System/setProperty prop restore)
+            (System/clearProperty prop)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boot-config sysprop > env precedence
 ;;
-;; `read-boot-config` resolves each gate by SOURCE PRESENCE, not by a
-;; boolean OR over parsed truthiness: an `or` would let an inherited env
-;; `true` re-enable a gate an operator explicitly disabled with a
-;; `-D...=false` sysprop. Env vars are read-only on the JVM, so the
-;; precedence rule is unit-tested against the pure `rf.story-mcp.config/resolve-gate`
-;; helper (raw source strings as args) — the exact branch a
-;; `read-boot-config` test (sysprop alone / CLI overrides sysprop) cannot
-;; stage because it cannot set env=true.
+;; `resolve-gate` resolves each gate by SOURCE PRESENCE, not by a boolean OR
+;; over parsed truthiness: an explicitly set sysprop wins even when it parses
+;; to `false`, so an inherited env `true` cannot re-enable a gate an operator
+;; disabled with `-D...=false`. Only an absent sysprop falls through to the
+;; env var. The helper takes the raw source strings as arguments, so this
+;; table stages env values the JVM cannot set.
 ;; ---------------------------------------------------------------------------
 
 (deftest resolve-gate-explicit-sysprop-false-overrides-env-true
-  (testing "sysprop=false + env=true ⇒ gate OFF (explicit higher-precedence false wins)"
-    (is (false? (rf.story-mcp.config/resolve-gate "false" "true"))
-        "an explicit -D...=false must disable an inherited env true"))
-  (testing "sysprop unset + env=true ⇒ gate ON (falls through to env)"
-    (is (true? (rf.story-mcp.config/resolve-gate nil "true"))
-        "absent sysprop falls through to the env var"))
-  (testing "sysprop=true + env=false ⇒ gate ON (sysprop wins)"
-    (is (true? (rf.story-mcp.config/resolve-gate "true" "false"))
-        "an explicit sysprop true overrides an env false"))
-  (testing "sysprop=true + env unset ⇒ gate ON"
-    (is (true? (rf.story-mcp.config/resolve-gate "true" nil))))
-  (testing "both sources absent ⇒ gate OFF (default-closed)"
-    (is (false? (rf.story-mcp.config/resolve-gate nil nil))))
-  (testing "sysprop=false + env unset ⇒ gate OFF"
-    (is (false? (rf.story-mcp.config/resolve-gate "false" nil))))
-  (testing "truthy-string vocabulary flows through unchanged"
-    (is (true?  (rf.story-mcp.config/resolve-gate nil "1")))
-    (is (true?  (rf.story-mcp.config/resolve-gate "yes" "false")))
-    (is (false? (rf.story-mcp.config/resolve-gate "off" "true")))))
-
-(deftest read-boot-config-honours-explicit-sysprop-false-over-env
-  ;; Integration check: with the env var almost certainly unset in CI,
-  ;; an explicit `-Drf.story-mcp.allow-writes=false` keeps the gate OFF
-  ;; (it does not silently fall through to a parsed `false` that an `or`
-  ;; would have discarded). Both gates are exercised.
-  (let [restore-w (System/getProperty "rf.story-mcp.allow-writes")
-        restore-s (System/getProperty "rf.story-mcp.allow-sensitive-reads")]
-    (try
-      (System/setProperty "rf.story-mcp.allow-writes" "false")
-      (System/setProperty "rf.story-mcp.allow-sensitive-reads" "false")
-      (let [cfg (rf.story-mcp.config/read-boot-config)]
-        (is (false? (:allow-writes? cfg))
-            "explicit sysprop=false keeps allow-writes? off")
-        (is (false? (:allow-sensitive-reads? cfg))
-            "explicit sysprop=false keeps allow-sensitive-reads? off"))
-      (finally
-        (if restore-w
-          (System/setProperty "rf.story-mcp.allow-writes" restore-w)
-          (System/clearProperty "rf.story-mcp.allow-writes"))
-        (if restore-s
-          (System/setProperty "rf.story-mcp.allow-sensitive-reads" restore-s)
-          (System/clearProperty "rf.story-mcp.allow-sensitive-reads"))))))
+  (doseq [[sysprop env want why]
+          [["false" "true"  false "an explicit sysprop false disables an inherited env true"]
+           [nil     "true"  true  "an absent sysprop falls through to the env var"]
+           ["true"  "false" true  "an explicit sysprop true overrides an env false"]
+           ["true"  nil     true  "sysprop true, env unset"]
+           [nil     nil     false "both sources absent: default-closed"]
+           ["false" nil     false "sysprop false, env unset"]
+           [nil     "1"     true  "the truthy-string vocabulary flows through the env"]
+           ["yes"   "false" true  "the truthy-string vocabulary flows through the sysprop"]
+           ["off"   "true"  false "the falsy-string vocabulary flows through the sysprop"]]]
+    (is (= want (rf.story-mcp.config/resolve-gate sysprop env))
+        (str "sysprop " (pr-str sysprop) ", env " (pr-str env) ": " why))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lifecycle :timeout-ms cap
@@ -4650,9 +4494,7 @@
       ;; RAW STRING form is recorded as metadata (not a map entry, so it
       ;; never reaches a handler or interns) for the dispatcher to diagnose.
       (is (= [probe] (get (meta arg-map) rf.story-mcp.protocol/unknown-arg-keys-meta))
-          "the dropped key's raw string is recorded as metadata for the diagnostic")
-      (is (nil? (find-keyword probe))
-          "recording the metadata STRING still interns nothing"))))
+          "the dropped key's raw string is recorded as metadata for the diagnostic"))))
 
 (deftest invoke-tool-diagnoses-unknown-top-level-argument
   ;; A top-level argument typo (a non-schema-

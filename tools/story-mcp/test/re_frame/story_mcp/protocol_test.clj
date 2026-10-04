@@ -37,10 +37,10 @@
       (is (= rf.mcp-base.vocab/code-method-not-found (-> e :error :code)))
       (is (= "no such tool" (-> e :error :message)))
       (is (not (contains? (:error e) :data)))))
-  (testing "error response carries optional :data"
-    (let [e (rf.story-mcp.protocol/error-response 1 rf.mcp-base.vocab/code-invalid-params "bad arg"
-                                   {:offending "key"})]
-      (is (= {:offending "key"} (-> e :error :data)))))
+  (testing "internal-error carries its code and optional :data"
+    (let [e (rf.story-mcp.protocol/internal-error 3 "boom" {:trace "abc"})]
+      (is (= rf.mcp-base.vocab/code-internal-error (-> e :error :code)))
+      (is (= {:trace "abc"} (-> e :error :data)))))
   (testing "id may be nil (parse-error before id is known)"
     (let [e (rf.story-mcp.protocol/parse-error)]
       (is (nil? (:id e)))
@@ -132,11 +132,3 @@
           "no embedded newlines per MCP stdio transport rules")
       (is (= {:jsonrpc "2.0" :id 1 :result {:ok true}}
              (parse-line out))))))
-
-;; ---- error-helpers --------------------------------------------------------
-
-(deftest internal-error-attaches-data
-  (testing "internal-error optional :data lands on the error envelope"
-    (let [e (rf.story-mcp.protocol/internal-error 3 "boom" {:trace "abc"})]
-      (is (= rf.mcp-base.vocab/code-internal-error (-> e :error :code)))
-      (is (= {:trace "abc"} (-> e :error :data))))))
