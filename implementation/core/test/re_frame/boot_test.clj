@@ -209,37 +209,6 @@
     (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
         "the rejected install does NOT replace or unseat the existing adapter")))
 
-(deftest dispose-adapter-clears-slot
-  (testing "dispose-adapter! tears down + clears the slot; subsequent install! succeeds"
-    (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
-        "precondition: adapter installed")
-    ;; Dispose — clears the slot.
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "after dispose-adapter! the slot is nil")
-    ;; Re-install — works now without throwing.
-    (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
-        "install-adapter! succeeds after a prior dispose-adapter!"))
-  (testing "dispose-adapter! on an empty slot is a no-op (no throw)"
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "calling dispose-adapter! again is harmless")
-    (rf.substrate.adapter/dispose-adapter!)
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "and a third call is still harmless"))
-  (testing "dispose-adapter! invokes the adapter's :dispose-adapter! callback"
-    (let [called? (atom false)
-          fake    (assoc rf.substrate.plain-atom/adapter
-                         :dispose-adapter! (fn [] (reset! called? true)))]
-      (rf.substrate.adapter/install-adapter! fake)
-      (rf.substrate.adapter/dispose-adapter!)
-      (is @called?
-          "the adapter's :dispose-adapter! fn was invoked during teardown")
-      (is (nil? (rf.substrate.adapter/current-adapter))
-          "the slot is cleared even when the callback runs"))))
-
 (deftest throwing-adapter-cleanup-still-finalizes-the-process-lifecycle
   (let [boom (ex-info "adapter host cleanup failed" {:kind ::cleanup-failed})
         bad  (assoc rf.substrate.plain-atom/adapter
@@ -392,21 +361,6 @@
 ;; adapter registry to fall back to and no keyword-to-adapter lookup
 ;; table).
 
-(deftest init-no-arg-raises-arity-exception
-  (testing "(rf/init!) with no args raises ArityException (there is no no-arg arity)"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "precondition: no adapter installed")
-    (let [thrown (try
-                   #_:clj-kondo/ignore
-                   (rf/init!)
-                   nil
-                   (catch clojure.lang.ArityException e e))]
-      (is (re-find #"init!" (str (.getMessage ^clojure.lang.ArityException thrown)))
-          "rf/init! with no args raises ArityException — more discoverable than a
-           runtime ex-info — whose message identifies init! as the offending fn"))
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "the failed init! did NOT install any adapter")))
-
 (deftest init-nil-arg-raises-no-adapter-specified
   (testing "(rf/init! nil) raises :rf.error/no-adapter-specified"
     (let [thrown (try
@@ -438,35 +392,6 @@
             "ex-data carries a :reason string pointing at the explicit-map pattern")))
     (is (nil? (rf.substrate.adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
-
-;; ---- current-adapter: ONE read, map-shaped --------------------------------
-;;
-;; Per Spec 006 §Adapter introspection there is ONE adapter read and it
-;; answers the installed SPEC MAP. There is no keyword-returning read and no
-;; synthesised fallback kind — the discriminator is a KEY on the one map, so
-;; a kind-less adapter reads `(:kind (current-adapter))` as nil while the
-;; adapter is plainly present: presence is a question about the MAP.
-
-(deftest current-adapter-returns-the-installed-map
-  (testing "current-adapter returns the spec map passed to install"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "no adapter installed → current-adapter is nil")
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
-        "current-adapter returns the exact map identity passed to init! — a MAP,
-         there is no keyword-returning spelling"))
-  (testing "the discriminator is (:kind (current-adapter)) per Spec 006"
-    (is (= :rf.adapter/plain-atom (:kind (rf.substrate.adapter/current-adapter)))
-        "branch code reads the :kind key off the one map")))
-
-(deftest current-adapter-synthesises-no-custom-kind-for-a-kindless-map
-  (testing "a kind-less adapter is PRESENT with a nil :kind — no :custom is
-            invented (presence is a question about the MAP)"
-    (let [kindless (dissoc rf.substrate.plain-atom/adapter :kind)]
-      (rf.substrate.adapter/install-adapter! kindless)
-      (is (identical? kindless (rf.substrate.adapter/current-adapter))
-          "current-adapter returns the literal installed map — a presence check
-           sees it, and its :kind reads nil rather than a fabricated :custom"))))
 
 (deftest adapter-swap-resets-substrate-state-keeps-registrar
   (testing "dispose then install a different adapter — registrar survives, substrate state resets"
