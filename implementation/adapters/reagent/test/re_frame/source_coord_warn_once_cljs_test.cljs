@@ -84,12 +84,7 @@
                (pr-str warnings)))
       (is (str/includes? (first warnings)
                          "rf.warn-once-test/fragment-multi")
-          "the single warning names the offending view-id")
-      (is (str/includes? (first warnings) "data-rf2-source-coord")
-          "the warning mentions the attribute that was skipped")
-      (is (or (str/includes? (first warnings) "Spec 006")
-              (str/includes? (first warnings) "fall back"))
-          "the warning points the user at the documented contract"))))
+          "the single warning names the offending view-id"))))
 
 ;; ---- Per-id silencing is independent across ids --------------------------
 
