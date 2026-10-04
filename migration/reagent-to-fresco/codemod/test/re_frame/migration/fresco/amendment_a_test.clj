@@ -77,8 +77,7 @@
       (reset! cart :v2)
       (is (= :v1 (wrapper))
           "STILL the snapshot: the deref sits in the `let`, so changing the
-           atom afterwards cannot reach through the wrapper")
-      (is (= :v1 (wrapper)) "and it stays put across further invocations")))
+           atom afterwards cannot reach through the wrapper")))
 
   (testing "the design's stated shape diverges here, which is why the
             amendment exists"

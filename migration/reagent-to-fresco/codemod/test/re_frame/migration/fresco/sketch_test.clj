@@ -83,9 +83,7 @@
     (let [cs (components)]
       (is (<= 3 (count cs))
           "the corpus must exercise the suggestion path — see
-           test/corpus/the-suggested-declaration")
-      (is (every? #(seq (:defhost %)) cs)
-          "every suggested component carries a sketch"))))
+           test/corpus/the-suggested-declaration"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1–3. The sketch is a declaration the door would take

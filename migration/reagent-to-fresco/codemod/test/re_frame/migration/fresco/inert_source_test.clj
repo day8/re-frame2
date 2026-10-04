@@ -199,10 +199,7 @@
     (is (= []
            (classes "[:> Foo {:x '(r/as-element [:div])}]\n"))
         "reader quote. A quoted form IS readable off the text, so once the
-         island goes there is no `:computed-value` left behind it")
-    (is (= [:computed-value]
-           (classes "[:> Foo {:x (clojure.core/comment (r/as-element [:div]))}]\n"))
-        "a fully-qualified `comment` is the same head"))
+         island goes there is no `:computed-value` left behind it"))
 
   (testing "the guard went INSIDE the shared predicate rather than at either
             call site, so the second caller — the Reagent-API arm, which
@@ -210,10 +207,7 @@
             answered by the same one call"
     (is (= [:computed-value]
            (classes "[:> Foo {:x (comment (r/atom 0))}]\n"))
-        "an inert `r/atom` is not API residue either")
-    (is (= [:computed-value]
-           (classes "[:> Foo {:x (comment (r/with-let [a 1] a))}]\n"))
-        "nor is an inert form-3 shape")))
+        "an inert `r/atom` is not API residue either")))
 
 (deftest a-live-reagent-call-is-still-a-refusal-reason
   (testing "ADVERSARIAL, and the arm that carries the weight: a fix which

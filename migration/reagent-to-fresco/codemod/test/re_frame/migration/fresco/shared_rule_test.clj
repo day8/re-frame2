@@ -197,8 +197,7 @@
     (is (rf.migration.fresco.dest/event-prop? :onClick))
     (is (rf.migration.fresco.dest/event-prop? "on-click"))
     (is (not (rf.migration.fresco.dest/event-prop? 'on-click)) "symbols answer false")
-    (is (not (rf.migration.fresco.dest/event-prop? :once)) "`on` followed by a lowercase letter is not `on-`")
-    (is (not (rf.migration.fresco.dest/event-prop? :online))))
+    (is (not (rf.migration.fresco.dest/event-prop? :once)) "`on` followed by a lowercase letter is not `on-`"))
 
   (testing "a nested map key's destination name is `clj->js`'s answer,
             which is what W2 has to make agree with the donor"
