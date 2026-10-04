@@ -95,7 +95,19 @@ clojure -Srepro \
   -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
 ```
 
-It reads source text on a bare JVM, loads no re-frame2, touches no file, and writes an EDN report (without `--report`, `reagent-to-fresco-report.edn` beside the first path scanned). Expect one stderr line, `Use of :paths external to the project has been deprecated`: the tool puts a shared `.cljc` file on its own classpath deliberately, so it is not a failure. The Fresco jar does not carry the reporter, so this git coordinate is how it is delivered; pin a newer `:git/sha` from `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you want one.
+It reads source text on a bare JVM, loads no re-frame2, touches no file, and writes an EDN report (without `--report`, `reagent-to-fresco-report.edn` beside the first path scanned). Expect one stderr warning that a path is external to the project (`Deprecated use of path … external to project …` on a current Clojure CLI, `Use of :paths external to the project has been deprecated` on an older one): the tool puts a shared `.cljc` file on its own classpath deliberately, so it is not a failure. The Fresco jar does not carry the reporter, so this git coordinate is how it is delivered; pin a newer `:git/sha` from `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you want one.
+
+**Already working from a re-frame2 checkout?** Run the reporter from it rather than fetching a second revision. Swap the git coordinate for a `:local/root` on the checkout's `migration/reagent-to-fresco/codemod` directory and keep everything else: the entry point, the flags, the report, and source and report paths relative to the consumer's project.
+
+```bash
+git -C ../re-frame2 rev-parse HEAD   # the revision the reporter runs at
+clojure -Srepro \
+  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
+                  {:local/root "../re-frame2/migration/reagent-to-fresco/codemod"}}}' \
+  -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
+```
+
+`../re-frame2` stands for the chosen checkout. A relative `:local/root` resolves against the directory the command runs from, and an absolute path works too. Point it at the checkout itself, not a copy of the directory: the reporter reads one shared `.cljc` file from the checkout's `implementation/fresco/src`, which is what the stderr warning is about. Record the revision beside the report, with any uncommitted edits under those two directories. This coordinate is the reporter alone, run through `-Sdeps`. It never enters the app's build, and the Fresco runtime the app compiles against is a separate dependency ([`references/procedure.md`](references/procedure.md) pre-flight check 3). Without a checkout, use the pinned git coordinate above.
 
 The report has two halves that answer different questions:
 

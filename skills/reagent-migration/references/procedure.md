@@ -35,6 +35,12 @@ Confirm all three, or stop:
    confirm it does, and add nothing else. Never draw an asymmetry here —
    "swap to the adapter now, wait for Fresco" is false.
 
+   That route is the Fresco *runtime* the app compiles against. The reporter
+   Step 0 runs is a separate, tool-only coordinate passed through `-Sdeps`
+   and never added to the app's build: the pinned git coordinate by default,
+   or a `:local/root` on a checkout the author has already chosen
+   ([`../SKILL.md`](../SKILL.md) §Start with the reporter).
+
 ## Step 0 — Run the reporter, and read both halves
 
 Run the command in [`../SKILL.md`](../SKILL.md) §Start with the reporter from
@@ -295,7 +301,8 @@ that must not change.
 
 ## Step 6 — Apply the mechanical codemod, and re-prove
 
-Re-run Step 0's command with `--rewrite` added, using only the converted
+Re-run Step 0's command, on the same coordinate (pinned or `:local/root`),
+with `--rewrite` added, using only the converted
 files as its input paths: a dry run that prints what would change. Keep views
 held on Reagent outside this write pass. Then add `--write` after `--rewrite` to apply it — this
 **rewrites the consumer's source files in place**, so run it on a clean
