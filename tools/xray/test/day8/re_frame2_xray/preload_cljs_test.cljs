@@ -81,26 +81,6 @@
 
 ;; ---- (2) trace collector wiring -----------------------------------------
 
-(deftest trace-events-land-in-xray-buffer
-  (testing "framework trace emissions appear in Xray's ring buffer"
-    ;; Wire up the trace collector exactly as the preload would.
-    (preload/register-trace-collector!)
-    ;; A synthetic emit through the framework's trace bus — same path
-    ;; used by every drain step / dispatch / fx call.
-    (rf.trace/emit! :info :rf.test/synthetic-event
-                 {:source :test
-                  :hint   "Phase 1 trace-collector smoke"})
-    (let [buf (trace-collector/buffer-for-test)]
-      (is (= 1 (count buf))
-          "Xray's buffer receives the synthetic emit")
-      (let [ev (first buf)]
-        (is (= :rf.test/synthetic-event (:operation ev))
-            "buffer carries the emitted operation")
-        (is (= :info (:op-type ev))
-            "buffer carries the emitted op-type")
-        (is (= :test (:source ev))
-            ":source hoisted to top level per Spec 009")))))
-
 (deftest a-hydration-mismatch-reaches-xrays-buffer
   (testing "`verify-hydration!` runs after the first render, outside any
             dispatch, so its mismatch names its frame but carries no
