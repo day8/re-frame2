@@ -158,68 +158,6 @@
   shape; 64 leaves room without letting anything input-sized through."
   64)
 
-;; ---- witnesses: nothing given comes back ---------------------------------
-
-(deftest a-short-secret-is-not-reproduced
-  (testing "a secret UNDER a 24-char head limit would come back verbatim
-            as a `:head`; the summary must disclose none of it"
-    (let [s (rf.error/diag-value-summary short-secret)]
-      (is (= :string (:type s)))
-      (is (= (count short-secret) (:count s)) "length is shape, and stays")
-      (is (not (str/includes? (pr-str s) "SENTINEL"))
-          "the short secret rode back WHOLE in the summary"))))
-
-(deftest sentinel-bearing-map-keys-are-not-reproduced
-  (testing "map KEYS are app/user-controlled — a dynamic key of ANY key type
-            carries content and must not ride into the summary"
-    (doseq [m [{sentinel "v"}
-               {(keyword sentinel) "v"}
-               {(symbol sentinel) "v"}
-               {[sentinel] "v"}
-               {:token "secret" :pdf "%PDF-1.4 huge blob" :n 7}]]
-      (let [s       (rf.error/diag-value-summary m)
-            printed (pr-str s)]
-        (is (= :map (:type s)))
-        (is (= (count m) (:count s)) "cardinality is shape, and stays")
-        (is (not (str/includes? printed "SENTINEL"))
-            (str "key content leaked for " (pr-str (keys m))))
-        (is (not (str/includes? printed "secret")))
-        (is (not (str/includes? printed "%PDF")))))))
-
-(deftest a-very-large-map-summarises-to-a-fixed-size
-  (testing "a `:keys` leg would grow with the key set, so an
-            attacker-sized map would inflate a 'bounded' summary without limit"
-    (let [m       (into {} (map (fn [i] [(str sentinel "-key-" i) i])) (range 2000))
-          printed (pr-str (rf.error/diag-value-summary m))]
-      (is (= 2000 (:count (rf.error/diag-value-summary m))))
-      (is (not (str/includes? printed "SENTINEL")))
-      (is (<= (count printed) max-summary-chars)
-          (str "summary grew with the input: " (count printed) " chars")))))
-
-(deftest keyword-and-symbol-heads-are-not-reproduced
-  (testing "a `:head` returning keywords/symbols with NO length bound, on
-            the guess that they are always structural, would reproduce user
-            content. A keyword built from user input is not structural
-            (leak 3 in the ns docstring)"
-    (doseq [v [(keyword sentinel)
-               (symbol sentinel)
-               (keyword (str/join "" (repeat 200 sentinel)))]]
-      (let [printed (pr-str (rf.error/diag-value-summary v))]
-        (is (not (str/includes? printed "SENTINEL"))
-            "an unbounded structural head reproduced user content")
-        (is (<= (count printed) max-summary-chars))))))
-
-(deftest scalar-values-are-not-reproduced
-  (testing "a number, a boolean and an unknown host object are CONTENT — a
-            card number and a `toString` the framework knows nothing about
-            (leak 4 in the ns docstring)"
-    (is (= {:type :number} (rf.error/diag-value-summary 4111111111111111)))
-    (is (= {:type :boolean} (rf.error/diag-value-summary true)))
-    (is (= {:type :boolean} (rf.error/diag-value-summary false)))
-    (let [printed (pr-str (rf.error/diag-value-summary (hostile-scalar)))]
-      (is (not (str/includes? printed "SENTINEL"))
-          "the :scalar leg called toString on an unknown host value"))))
-
 ;; ---- the capstone: the OUTPUT GRAMMAR forbids content --------------------
 
 (deftest every-summary-is-content-free-and-fixed-size
@@ -258,6 +196,8 @@
     (is (= {:type :keyword}         (rf.error/diag-value-summary :ws.app/request)))
     (is (= {:type :symbol}          (rf.error/diag-value-summary 'reagent2.template/as-element)))
     (is (= {:type :number}          (rf.error/diag-value-summary 42)))
+    (is (= {:type :boolean}         (rf.error/diag-value-summary true)))
+    (is (= {:type :boolean}         (rf.error/diag-value-summary false)))
     (is (= {:type :nil}             (rf.error/diag-value-summary nil)))
     (is (= {:type :fn}              (rf.error/diag-value-summary (fn [] nil))))
     ;; A lazy seq is caught by the `seq?` arm BEFORE the `seqable?` arm and
