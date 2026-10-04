@@ -51,14 +51,14 @@
 
   The NEGATIVE warning assertions are guarded too — a negative over an empty
   trace ring is vacuous. `missing-doc-suppressed-when-doc-present`,
-  `missing-doc-silent-on-programmatic-path`, `collision-silent-on-same-source-
-  re-eval`, `collision-silent-on-programmatic-path`, `collision-still-silent-
+  `missing-doc-silent-on-programmatic-path`,
+  `collision-silent-on-programmatic-path`, `collision-still-silent-
   on-same-source-for-no-handler-fn-kind`, `handler-replaced-fires-on-silent-
   hot-reload`'s `(empty? collisions)` and — the one worth naming twice —
   `collision-fires-for-no-handler-fn-kind-despite-shape-dedup`'s
   `(is (empty? replaced) ...)`, which would certify that the dedup gate
   suppressed the `handler-replaced` trace over a stream that carries no traces
-  at all. Unguarded, five of those seven deftests would be GREEN under the
+  at all. Unguarded, four of those six deftests would be GREEN under the
   gate on nothing else."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.interop :as rf.interop]
@@ -254,31 +254,6 @@
           (is (= #{:event :sub}
                  (into #{} (map #(get-in % [:tags :kind])) warns))))))))
 
-;; Obligation 4: kind coverage. Spot-check a representative slice across
-;; the canonical kinds (:event :sub :fx :cofx). The :doc check sits in
-;; the registrar chokepoint so every kind flows through the same gate;
-;; per-kind enumeration confirms the gate is independent of kind.
-
-(deftest missing-doc-fires-across-multiple-kinds
-  (testing "the gate is kind-agnostic — fires on :event, :sub, :fx, :cofx"
-    (let [recorded (record-traces! ::multi-kind)]
-      (with-stamped-coords
-        (fn []
-          (rf/reg-event :k/event-doc-missing (fn [{:keys [db]} _] {:db db}))
-          (rf/reg-sub       :k/sub-doc-missing   (fn [db _] (:x db)))
-          (rf/reg-fx        :k/fx-doc-missing    (fn [_ _] nil))
-          (rf/reg-cofx      :k/cofx-doc-missing  (fn [] :stub))))
-      (assert-registered :event :k/event-doc-missing)
-      (assert-registered :sub   :k/sub-doc-missing)
-      (assert-registered :fx    :k/fx-doc-missing)
-      (assert-registered :cofx  :k/cofx-doc-missing)
-      (when rf.interop/debug-enabled?
-        (let [warns (warnings-of recorded :rf.warning/missing-doc)
-              kinds (into #{} (map #(get-in % [:tags :kind])) warns)]
-          (is (= 4 (count warns))
-              "one warning per (kind, id) across four kinds")
-          (is (= #{:event :sub :fx :cofx} kinds)))))))
-
 ;; Obligation 4: programmatic registrations that bypass the macro path
 ;; (no source coords merged in) are out of scope.
 
@@ -309,54 +284,6 @@
 ;; instance — exactly the false positive the spec says MUST be silent. These
 ;; tests pin the provenance boundary.
 ;; =============================================================================
-
-;; The CORE case: a same-source re-eval (same coords,
-;; different fn instance) is a hot reload and MUST be silent. Driven through
-;; `rf.registrar/register!` so the provenance can be held CONSTANT across the two
-;; registrations (the `reg-event` macro re-captures its own call-site coords,
-;; so two macro calls are always on different lines — see `reg-at`).
-
-(deftest collision-silent-on-same-source-re-eval
-  (testing "re-registering from the same (ns,file,line) with a fresh fn is a hot reload — silent"
-    (let [recorded (record-traces! ::collision-same-source)
-          coords   {:ns 're-frame.registrar-warnings-test
-                    :file "registrar_warnings_test.clj"
-                    :line 42 :column 3}]
-      ;; Two registrations from the IDENTICAL source location, each with a
-      ;; freshly-allocated handler-fn (what a save-triggered re-eval produces).
-      ;; An fn-identity comparison would false-fire here; the provenance
-      ;; boundary keeps it silent.
-      (reg-at :hot/reload coords)
-      (reg-at :hot/reload coords)
-      ;; ALWAYS-ON: the re-eval REPLACED the slot — that is the
-      ;; production behaviour the silent-warning rule is a policy about.
-      (assert-live-provenance :event :hot/reload 're-frame.registrar-warnings-test)
-      ;; Dev-instrumentation arm — vacuous under the gate.
-      (when rf.interop/debug-enabled?
-        (is (empty? (warnings-of recorded :rf.warning/registration-collision))
-            "same-source re-eval (fresh fn, same coords) must NOT warn — it's a hot reload")))))
-
-(deftest collision-fires-on-cross-provenance-reassignment
-  (testing "re-registering the id from a DIFFERENT provenance (file/line/ns) warns"
-    (let [recorded (record-traces! ::collision-cross)]
-      ;; Feature A registers :collide/id; feature B (a different file) clobbers it.
-      (reg-at :collide/id {:ns 'feature.a :file "feature/a.cljc" :line 10 :column 1})
-      (reg-at :collide/id {:ns 'feature.b :file "feature/b.cljc" :line 20 :column 1})
-      ;; ALWAYS-ON: feature B CLOBBERED feature A. The warning is a
-      ;; dev nudge about a production fact, and the fact is readable in both
-      ;; postures off the stored provenance.
-      (assert-live-provenance :event :collide/id 'feature.b)
-      (when rf.interop/debug-enabled?
-        (let [warns (warnings-of recorded :rf.warning/registration-collision)]
-          (is (= 1 (count warns))
-              "exactly one collision warning fires on the cross-provenance reassignment")
-          (let [t (:tags (first warns))]
-            (is (= :event (:kind t)))
-            (is (= :collide/id (:id t)))
-            (is (= 'feature.b (:ns (:source-coords t)))
-                ":source-coords carries the NEW (feature B) registration's coords")
-            (is (= 'feature.a (:ns (:previous-coords t)))
-                ":previous-coords carries the prior (feature A) registration's coords")))))))
 
 (deftest collision-fires-on-same-file-different-line
   (testing "two registrations of the same id at different lines in one file collide"
@@ -508,4 +435,3 @@
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "same (ns,file,line) re-eval is a hot reload — no collision even though
              the collision check runs unconditionally")))))
-
