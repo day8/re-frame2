@@ -47,6 +47,12 @@
   thread. A high-contention test then hammers both orderings on real threads
   and asserts the invariant holds with no ghost, deadlock, or flake.
 
+  A mid-drain `reg-flow` passes the revalidation reentrantly (the drainer
+  sees its own live token, and the serializer runs the thunk directly);
+  `re-frame.flows-lifecycle-drain-race-test` pins that through its in-drain
+  registrations. An absent-frame `clear-flow` stays a silent no-op, pinned
+  on both hosts by `re-frame.flows-direct-clear-settle-cljs-test`.
+
   CLJS is single-threaded; this race is JVM-only by construction."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -275,46 +281,6 @@
         ;; NO flow row (registration refused, or registered-then-torn-down).
         (is (not (contains? (rf.flows/flows-snapshot) fid))
             (str "no ghost flow row for the destroyed frame on iteration " i))))))
-
-;; ---------------------------------------------------------------------------
-;; Same-frame IN-DRAIN reg-flow reentrancy: a
-;; reg-flow issued from inside an event handler (reentrantly, mid-drain)
-;; registers and materialises. The revalidation passes reentrantly (the
-;; drainer thread sees the SAME live incarnation token) and the serializer runs
-;; the thunk directly rather than self-deadlocking on the lock.
-;; ---------------------------------------------------------------------------
-
-(deftest in-drain-reg-flow-reentrancy-preserved
-  (testing "a mid-drain reg-flow registers and materialises (no deadlock, revalidation passes)"
-    (rf/make-frame {:id :fc/live :doc "in-drain reg-flow frame"})
-    (rf/reg-event :fc/seed (fn [_ _] {:db {:n 5}}))
-    ;; A handler that, mid-drain, registers a NEW flow reentrantly.
-    (rf/reg-event :fc/install-flow
-                  (fn [{:keys [db]} _]
-                    (rf/reg-flow :mid
-                                 {:frame :fc/live :inputs [[:n]] :output-path [:out]}
-                                 (fn [n] (* 3 (or n 0))))
-                    {:db db}))
-    (rf/dispatch-sync [:fc/seed] {:frame :fc/live})
-    (rf/dispatch-sync [:fc/install-flow] {:frame :fc/live})
-    (is (contains? (get (rf.flows/flows-snapshot) :fc/live) :mid)
-        "the mid-drain reg-flow registered its row")
-    (is (= 15 (:out (rf.frame/frame-app-db-value :fc/live)))
-        "the mid-drain flow materialised its output (3 × 5 = 15) on the same drain")))
-
-;; ---------------------------------------------------------------------------
-;; clear-flow stays IDEMPOTENT for an absent frame — the lifecycle gate must
-;; not turn a no-op clear into a throw.
-;; ---------------------------------------------------------------------------
-
-(deftest clear-flow-idempotent-for-absent-frame
-  (testing "a flow clear against a destroyed / never-registered frame is a silent no-op"
-    (rf/make-frame {:id :fc/gone :doc "frame to destroy"})
-    (rf.frame/destroy-frame! :fc/gone)
-    (is (= :whatever (rf/clear :flow :whatever {:frame :fc/gone}))
-        "clear on a DESTROYED frame returns the id (idempotent no-op)")
-    (is (= :whatever (rf/clear :flow :whatever {:frame :fc/never-existed}))
-        "clear on a NEVER-registered frame returns the id (idempotent no-op)")))
 
 ;; ---------------------------------------------------------------------------
 ;; Reentrancy: `destroy-frame!` invoked from INSIDE a cold
