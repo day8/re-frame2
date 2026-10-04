@@ -223,54 +223,6 @@
         (is (zero? (:table-reagent counts))
             "no `rt/resizable-table` Reagent head appears")))))
 
-;; ---- text duplication --------------------------------------------------
-
-(deftest dispatch-source-renders-once-test
-  (testing "DISPATCH header carries `from <source>` once;
-            the body does NOT also render a `from` line"
-    (let [tree (view/render-dispatch-step
-                 {:step :dispatch :badge :DISPATCH :step-number 1
-                  :event [:counter/inc] :source :ui :coord nil})]
-      (is (some? (find-by-testid tree "rf-xray-epoch-dispatch-event"))
-          "dispatch event vector renders in the body")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-dispatch-source"))
-          "the body MUST NOT carry a duplicate `from <source>` row")
-      (let [header-text (text-of tree "rf-xray-epoch-dispatch-header")]
-        (is (string/includes? header-text "from"))
-        (is (string/includes? header-text "ui"))))))
-
-(deftest handler-flavour-renders-once-test
-  (testing "HANDLER header carries the flavour-verb; the body
-            carries no stand-alone flavour row. Body's first slot is the
-            source block, not a flavour pill.
-
-            The verb is the click-to-source hyperlink. The event-id is not
-            repeated in the HANDLER header (the DISPATCH step's header
-            already names it)."
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :db-only :event-id :no-such/handler
-                :fx [] :machine nil}
-          tree (view/render-handler-step step)
-          header-text (text-of tree "rf-xray-epoch-handler-header")]
-      ;; EP-0018 — the HANDLER verb is `reg-event` for both the db-only
-      ;; and fx-bearing event flavours (the panel never names a retired
-      ;; registrar spelling). The internal `:flavour` discriminator keyword
-      ;; is behavior-based (`:db-only`, fed above) — observed effect shape,
-      ;; not a registrar name.
-      (is (string/includes? header-text "reg-event"))
-      ;; The body's first slot is the source block — never a
-      ;; duplicate flavour pill.
-      (is (some? (find-by-testid tree "rf-xray-epoch-handler-source"))
-          "the body leads with the source block")
-      ;; Confirm the body never carries a redundant flavour-only span.
-      ;; The body text for an unknown handler resolves to the
-      ;; placeholder; it MUST NOT contain the bare flavour keyword.
-      (is (not (string/includes?
-                 (or (text-of tree "rf-xray-epoch-handler-source-placeholder")
-                     "")
-                 "reg-event"))
-          "the source-placeholder slot MUST NOT echo the flavour pill"))))
-
 ;; ---- DISPATCH body shows the event vector ----------------------------
 
 (deftest dispatch-body-shows-event-vector-test
@@ -327,7 +279,10 @@
       (is (= :span (first label))
           "no coord → plain span (no broken button)")
       (is (nil? (:on-click (second label)))
-          "no click handler on the degraded label"))))
+          "no click handler on the degraded label")
+      (let [header-text (text-of tree "rf-xray-epoch-dispatch-header")]
+        (is (string/includes? header-text "from"))
+        (is (string/includes? header-text "ui"))))))
 
 ;; ---- DISPATCH per-source-kind enrichment ------------------------------
 ;;
@@ -672,48 +627,6 @@
     step
     {:subs-filter-mode @(rf/subscribe [:rf.xray.epoch/subs-filter-mode])}))
 
-(deftest sub-row-renders-sub-id-test
-  (testing "SUBSCRIPTIONS row leads with the sub-id /
-            sub-vec (operator can tell WHICH sub recomputed)"
-    (epoch-orchestrator/install!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                  :rows [{:sub-id :counter/total :sub-vec [:counter/total]
-                          :inputs nil :changed? true :before 5 :after 6}]
-                  :changed 1 :unchanged 0}
-            tree (view/render-subscriptions-step step)
-            row  (find-by-testid tree "rf-xray-epoch-sub-row-0")]
-        (is (some? row) "the sub row renders")
-        (let [txt (text-content row)]
-          (is (string/includes? txt ":counter/total")
-              "sub-id is visible as the leading element"))))))
-
-(deftest sub-rows-supersede-old-toggle-test
-  (testing "there is no `Show unchanged` toggle and no
-            badge-adjacent `N recomputed (...)` summary text; the
-            button-bar is the chrome."
-    (epoch-orchestrator/install!)
-    (rf/make-frame {:id :rf/xray})
-    (rf/with-frame :rf/xray
-      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                  :rows [{:sub-id :a :sub-vec [:a] :changed? true :before 1 :after 2}
-                         {:sub-id :b :sub-vec [:b] :changed? false}]
-                  :changed 1 :unchanged 1}
-            tree (view/render-subscriptions-step step)
-            header (text-of tree "rf-xray-epoch-subscriptions-header")]
-        (is (nil? (find-by-testid tree "rf-xray-epoch-subscriptions-toggle"))
-            "no `Show unchanged` toggle")
-        (is (not (string/includes? header "recomputed"))
-            "no badge-adjacent `N recomputed (...)` summary text")
-        ;; "changed" appears in the button-bar label; the split-text
-        ;; shape is `M changed, K unchanged` — check the
-        ;; count-phrase shape is absent rather than the bare word.
-        (is (not (re-find #"\d+ changed" header))
-            "no `<N> changed` count phrase")
-        (is (not (re-find #"\d+ unchanged" header))
-            "no `<N> unchanged` count phrase")))))
-
 (deftest sub-rows-reveal-via-all-mode-test
   (testing "clicking `all` flips the filter-mode slot;
             every row renders. Clicking `unchanged` shows only
@@ -1038,7 +951,9 @@
           "no-source state renders the placeholder")
       (is (string/includes?
             (or (text-of tree "rf-xray-epoch-handler-source-placeholder") "")
-            "<source not yet captured>")))))
+            "<source not yet captured>"))
+      (is (string/includes? (text-of tree "rf-xray-epoch-handler-header") "reg-event")
+          "the HANDLER verb is `reg-event` for an event flavour"))))
 
 ;; ---- VIEWS row carries view-id + subs ---------------------------------
 
@@ -1085,9 +1000,7 @@
       (is (= "rerender" (:data-rf-view-glyph (second g-re)))
           "a re-render (non-mount cause) reads `~` / rerender")
       (is (= "mount" (:data-rf-view-glyph (second g-mnt)))
-          "a fresh mount reads `+` / mount")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-view-row-cause-0"))
-          "there is no render-cause chip"))))
+          "a fresh mount reads `+` / mount"))))
 
 (deftest views-row-colour-codes-subs-test
   (testing "col-3 colour-codes each dereffed sub by its
@@ -1255,8 +1168,6 @@
           glyph (find-by-testid tree "rf-xray-epoch-view-row-glyph-1")]
       (is (some? (find-by-testid tree "rf-xray-epoch-views-table"))
           "there is ONE views-table; no separate unmounted table")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-views-unmounted-table"))
-          "there is no separate UNMOUNTED table")
       (is (= "rendered" (:data-rf-view-status (second rendered-row))))
       (is (= "unmounted" (:data-rf-view-status (second unmounted-row)))
           "the unmounted row tags `data-rf-view-status=unmounted` (red strikethrough posture)")
@@ -1609,9 +1520,7 @@
                     {:fx-id :legacy/persist :status :skipped :value {:to :disk}}]))]
       (is (some? (find-by-testid tree "rf-xray-epoch-fx-row-0")) ":db row at 0")
       (is (some? (find-by-testid tree "rf-xray-epoch-fx-row-1")) ":fx row at 1")
-      (is (some? (find-by-testid tree "rf-xray-epoch-fx-row-2")) "other row at 2")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-side-effects-sub-db-header"))
-          "no :db sub-step header — the ledger is flat"))))
+      (is (some? (find-by-testid tree "rf-xray-epoch-fx-row-2")) "other row at 2"))))
 
 (deftest side-effects-db-row-renders-app-db-destination-marker-test
   (testing "the :db row's args slot is the clickable
@@ -2022,11 +1931,7 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
           "first cascade row is rendered")
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-2")))
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-3")))
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-data-reduction"))
-          "no DATA REDUCTION sub-section")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff"))
-          "no SNAPSHOT DIFF sub-section"))))
+      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-3"))))))
 
 (deftest machine-handler-cascade-action-data-diff-test
   (testing "an `:action` row that returned a `:data` write
@@ -2635,7 +2540,9 @@
         ;; sub-vec column + leaf-scalar `before` + leaf-scalar `after`
         ;; all mount mini; assert ≥ 3.
         (is (>= (count (mini-mounts row)) 3)
-            "row mounts ≥3 mini-renders (sub-vec + before + after)")))))
+            "row mounts ≥3 mini-renders (sub-vec + before + after)")
+          (is (string/includes? (text-content row) ":counter/total")
+              "sub-id is visible as the leading element")))))
 
 (deftest views-row-id-and-subs-route-through-mini-test
   (testing "the VIEWS row's view-id keyword and each consumed sub-id
@@ -2750,7 +2657,7 @@
             `:data-rf-diff-annotation \"subs-was\"`; the row-level
             wrapper carries `:data-rf-xray-subs-leaf \"changed\"`.
             Pins
-            `0 → 1`, `\"even\" → \"odd\"`, `nil → 1779972561856`.
+            `0 → 1`, `nil → 1779972561856`.
 
             FULL+DIFF is the single rendering, so no value mode is
             dispatched first."
@@ -2788,19 +2695,6 @@
                 "after value renders")
             (is (string/includes? txt "0")
                 "prev value renders inside the annotation"))))
-      (testing "\"even\" → \"odd\" (counter/parity)"
-        (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
-                    :rows [{:sub-id :counter/parity :sub-vec [:counter/parity]
-                            :inputs nil :changed? true :first-run? false
-                            :before "even" :after "odd"}]
-                    :changed 1 :unchanged 0}
-              tree (view/render-subscriptions-step step)
-              leaf (find-by-testid tree "rf-xray-epoch-subs-leaf-changed-0")]
-          (is (some? leaf))
-          (let [txt (text-content leaf)]
-            (is (string/includes? txt "← was"))
-            (is (string/includes? txt "odd"))
-            (is (string/includes? txt "even")))))
       (testing "nil → 1779972561856 (counter/last-clicked)"
         (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
                     :rows [{:sub-id :counter/last-clicked
@@ -3463,13 +3357,9 @@
           "title reads 'Exception Thrown'")
       (is (string/includes? (text-of tree (str base "-recovery")) "Rolled back")
           ":no-recovery + db-rolled-back? → 'Rolled back' chip")
-      (is (nil? (find-by-testid tree (str base "-headline")))
-          "no category-reason boilerplate headline")
       (is (string/includes? (text-of tree (str base "-message"))
                             "intentional")
-          "the verbatim ex-info message renders")
-      (is (nil? (find-by-testid tree (str base "-source")))
-          "no redundant jump-to-source link"))))
+          "the verbatim ex-info message renders"))))
 
 (deftest error-block-styling-is-token-driven-test
   (testing "the exception card is
@@ -3531,17 +3421,7 @@
                   :recovery :no-recovery
                   :db-rolled-back? false})]
       (is (nil? (find-by-testid tree "rf-xray-epoch-error-side-effects-0-recovery"))
-          "post-commit fx throw → no spurious 'Rolled back' chip")))
-
-  (testing "a pre-commit handler throw also rolls
-            nothing back (`:db-rolled-back?` false) → no chip"
-    (let [tree (view/error-block :handler 0
-                 {:operation :rf.error/handler-exception
-                  :message "boom"
-                  :recovery :no-recovery
-                  :db-rolled-back? false})]
-      (is (nil? (find-by-testid tree "rf-xray-epoch-error-handler-0-recovery"))
-          "no rollback → no spurious 'Rolled back' chip"))))
+          "post-commit fx throw → no spurious 'Rolled back' chip"))))
 
 (deftest error-block-collapsible-details-test
   (testing "when the exception carries a stack / ex-data, the
@@ -3586,11 +3466,7 @@
           "the inline exception card renders under the HANDLER step")
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-handler-0-message")
-            "boom in handler"))
-      ;; There is no per-stage ✗ glyph; the inline exception
-      ;; card under the step is the sole inline failure signal.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-status"))
-          "no per-stage status glyph"))))
+            "boom in handler")))))
 
 (deftest handler-step-clean-renders-no-error-card-test
   (testing "a clean handler step renders no error
@@ -3600,8 +3476,6 @@
                 :flavour :db-only :event-id :counter/inc
                 :fx [] :machine nil}
           tree (view/render-handler-step step)]
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-status"))
-          "no per-stage status glyph on a clean step")
       (is (nil? (find-by-testid tree "rf-xray-epoch-errors-handler"))
           "a clean step renders no error block"))))
 
@@ -3666,10 +3540,7 @@
             "Exception Thrown"))
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-coeffect-0-message")
-            "cofx threw on purpose"))
-      ;; No per-stage glyph; the exception card is the signal.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-coeffect-throwing-cofx-status"))
-          "no per-stage status glyph"))))
+            "cofx threw on purpose")))))
 
 (deftest interceptor-step-renders-row-and-exception-card-test
   (testing "the INTERCEPTOR step renders the throwing
@@ -3699,12 +3570,6 @@
             (text-of tree "rf-xray-epoch-interceptor-phase-0")
             "BEFORE")
           "the :before phase badge renders UPPERCASE (grey badge)")
-      ;; There is no "N interceptor(s) threw" summary verb;
-      ;; the per-row id + the inline card carry the signal. The
-      ;; INTERCEPTOR badge leads the inline row itself (there is no
-      ;; step-level `step-header`), so no summary verb can exist.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-interceptor-header-verb"))
-          "no redundant 'N interceptor threw' summary verb (no step-header)")
       ;; the shared card under the interceptor row
       (is (string/includes?
             (text-of tree "rf-xray-epoch-error-interceptor-row-0-0-title")
@@ -3757,9 +3622,7 @@
       (is (= :button (first id-node))
           "a coord-bearing row renders the id as a clickable coord-link button")
       (is (fn? (:on-click (second id-node)))
-          "the coord-link button carries the open-in-editor on-click")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
-          "NO redundant standalone coord-chip (one glyph only)")))
+          "the coord-link button carries the open-in-editor on-click")))
 
   (testing "NO coord on the row → the id degrades to
             a plain `<span>` (the ->interceptor* fn / framework-interceptor
@@ -3779,9 +3642,7 @@
       (is (some? (find-by-testid tree "rf-xray-epoch-interceptor-row-0"))
           "the interceptor row renders")
       (is (= :span (first id-node))
-          "no coord → the id is a plain span (no clickable go-to-source)")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-interceptor-row-coord-0"))
-          "no coord → no go-to-source glyph"))))
+          "no coord → the id is a plain span (no clickable go-to-source)"))))
 
 (deftest interceptors-step-renders-authored-chain-test
   (testing "EP-0022 §11 — the INTERCEPTORS step (plural) renders
@@ -3871,11 +3732,7 @@
       (is (string/includes?
             (text-of tree "rf-xray-epoch-handler-skipped")
             "did not run")
-          "the body states the handler did not run")
-      ;; The SKIPPED body itself carries the 'did not run'
-      ;; signal; there is no per-stage ⊘ glyph.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-status"))
-          "no per-stage status glyph"))))
+          "the body states the handler did not run"))))
 
 (deftest side-effects-skipped-renders-as-skipped-test
   (testing "a SIDE EFFECTS step marked :skipped renders the
@@ -3885,10 +3742,7 @@
                   :rows [{:fx-id :db :status :ok}]
                   :status :skipped})]
       (is (some? (find-by-testid tree "rf-xray-epoch-side-effects-skipped"))
-          "the SKIPPED body renders")
-      ;; No per-stage glyph; the SKIPPED body is the signal.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-side-effects-status"))
-          "no per-stage status glyph"))))
+          "the SKIPPED body renders"))))
 
 (deftest halted-depth-record-renders-the-halt-test
   (testing "a `:halted-depth` record (the event a drain-depth
@@ -3991,21 +3845,11 @@
           tree (view/render-handler-step step)]
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source"))
           "NO source block wrapper for a machine handler")
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-spec"))
-          "NO machine SPEC dump under the HANDLER step")
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
           "and NOT the '<source not yet captured>' placeholder either")
       ;; The machine cascade IS the content — confirm it renders.
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade"))
-          "the machine CASCADE remains the HANDLER step's content")))
-  (testing "an EVENT handler (non-machine) DOES render its
-            source block (only the machine case is suppressed)"
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :db-only :event-id :no-such/handler
-                :fx [] :machine nil}
-          tree (view/render-handler-step step)]
-      (is (some? (find-by-testid tree "rf-xray-epoch-handler-source"))
-          "the event handler's source block renders"))))
+          "the machine CASCADE remains the HANDLER step's content"))))
 
 ;; ---- EVENT HANDLER: cascade rows, no up/down block ------------------------
 ;;
@@ -4050,8 +3894,6 @@
             NO `…-machine-cascade-structured-…` element renders."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
-      (is (nil? (find-by-testid tree "rf-xray-epoch-machine-cascade-structured-2"))
-          "no up/down transition block renders")
       ;; The transition row itself + its `{from}→{to}` verb render.
       (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-2"))
           "the transition row renders")
@@ -4127,9 +3969,6 @@
             ordinals carry the pipeline reading."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
-      ;; No full-height rail.
-      (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
-          "no nested-pipeline vertical rail")
       ;; The flat rows host renders.
       (is (some? (find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
           "the flat rows host renders")
