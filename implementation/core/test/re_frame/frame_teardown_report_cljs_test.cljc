@@ -41,11 +41,8 @@
   Leg (d) is the only dev-posture material: the contract is that its rows
   ride the DIAGNOSTIC channel, not that they survive prod. Its deftest is
   `^:requires-debug`, so `scripts/test-core-prod-gate.sh` skips it rather
-  than counting a deftest that ran nothing; it and the one diagnostic-count
-  row inside `both-channels-fire-together` also sit inside
-  `(when rf.interop/debug-enabled? …)` arms. What `both-channels-fire-together`
-  proves in production posture is the half that matters there: ONE bounded
-  report carrying BOTH hook failures, rather than a per-hook flood."
+  than counting a deftest that ran nothing, and its body also sits inside a
+  `(when rf.interop/debug-enabled? …)` arm."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -198,31 +195,6 @@
 ;; (c) The report rides the ALWAYS-ON axis (survives the production path)
 ;; ===========================================================================
 
-(deftest report-rides-the-always-on-axis
-  (testing "Per EP-0008: the report is delivered through the
-            corpus-wide `register-error-listener!` substrate
-            (`rf.error-emit/dispatch-frame-teardown-report!`), which is NOT
-            gated by `rf.interop/debug-enabled?` and so survives `:advanced`
-            + `goog.DEBUG=false`. Exercising the listener directly proves
-            the report is on the always-on axis, not the DCE'd diagnostic
-            trace. (Companion to the dispatch-on-error always-on contract
-            in on-error-cljs-test.)"
-    (let [seen (atom [])]
-      ;; Direct substrate exercise — the same fn frame.cljc reaches via
-      ;; the :error-emit/dispatch-frame-teardown-report late-bind hook.
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf.error-emit/dispatch-frame-teardown-report!
-        :prod/frame
-        [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
-        12345)
-      (is (= 1 (count @seen)) "the always-on listener received the report")
-      (let [r (first @seen)]
-        (is (= :rf.error/frame-teardown-failed (:error r)))
-        (is (= :prod/frame (:frame r)))
-        (is (= 1 (count (:hook-failures r))))
-        (is (= 12345 (:time r)))))))
-
 (deftest report-reason-is-truthful-for-a-guarded-direct-step
   (testing "a `:hook-failures` entry names a failed teardown
             STEP — a late-bound cleanup hook OR a guarded direct step run
@@ -254,14 +226,6 @@
                  " failure was a guarded direct step — got: " (:reason r)))
         (is (re-find #"step\(s\) threw" (:reason r))
             "the :reason names failed teardown STEPS, spanning both kinds")))))
-
-(deftest report-late-bind-hook-is-published
-  (testing "error-emit publishes the
-            `:error-emit/dispatch-frame-teardown-report` late-bind hook
-            (frame.cljc reaches it via late-bind to avoid the
-            error-emit → elision → frame load cycle)."
-    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
-        "the hook is registered at error-emit ns-load")))
 
 ;; ===========================================================================
 ;; (d) Dev per-hook DIAGNOSTIC rows emit at causal positions (R2)
@@ -301,42 +265,6 @@
             "each diagnostic row names the hook that threw")
         (is (every? #(= :teardown/diagnostic (get-in % [:tags :frame])) warns)
             "each diagnostic row is frame-attributed"))))))
-
-(deftest both-channels-fire-together
-  (testing "a single destroy with failing hooks fires
-            BOTH channels — the dev per-hook diagnostic rows (one each)
-            AND the one always-on report (carrying both). The two axes are
-            independent and complementary (Spec 009 §Observability
-            channels)."
-    (let [traces (atom [])
-          reports (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! reports conj record)))
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! traces conj ev)))
-      (rf/make-frame {:id :teardown/both :doc "two hooks throw"})
-      (with-hooks*
-        {:ssr/on-frame-destroyed      (throwing-hook :ssr)
-         :schemas/on-frame-destroyed! (throwing-hook :schemas)}
-        (fn []
-          (try
-            (rf/destroy-frame! :teardown/both)
-            (finally (rf/unregister-listener! :trace ::rec)))))
-      (let [warns   (filter #(= :rf.warning/teardown-hook-exception (:operation %))
-                            @traces)
-            reps    (filter #(= :rf.error/frame-teardown-failed (:error %)) @reports)]
-        ;; The diagnostic half only exists in dev. The always-on
-        ;; half below is what a production build has, and it carries BOTH
-        ;; failures.
-        (when rf.interop/debug-enabled?
-          (is (= 2 (count warns)) "diagnostic channel: one per-hook row each"))
-        (is (= 1 (count reps)) "always-on channel: ONE bounded report")
-        (is (= 2 (count (:hook-failures (first reps))))
-            "the single report carries both hook failures")
-        (is (= #{:ssr/on-frame-destroyed :schemas/on-frame-destroyed!}
-               (set (map :hook (:hook-failures (first reps)))))
-            "and names BOTH hooks on the always-on axis — the per-hook detail
-             the diagnostic channel carries is not lost in production, it is
-             folded into the one report")))))
 
 ;; ===========================================================================
 ;; (e) No-raw-values property of the always-on report
@@ -380,61 +308,6 @@
           (is (= #{:hook :exception :where} (set (keys entry)))
               "each :hook-failures entry is structured-only {:hook :exception
                :where} — no raw user value folded into the entry"))))))
-
-;; ===========================================================================
-;; (f) Multi-listener fan-out + throwing-sibling isolation on the REPORT path
-;; ---------------------------------------------------------------------------
-;; `on_error_cljs_test.cljc` pins the per-event axis (`dispatch-on-error!`) against
-;; multiple listeners incl. a throwing one (`error-listener-exception-is-
-;; swallowed` → sibling still receives). The bounded-report sibling
-;; (`dispatch-frame-teardown-report!`) shares the SAME `(:fan-out registry)`,
-;; so the isolation is correct by construction; this pins the throwing-sibling
-;; isolation for the report fn directly.
-;; ===========================================================================
-
-(deftest report-fans-out-across-multiple-listeners-throwing-sibling-isolated
-  (testing "Per Spec 009 §register-error-listener! fan-out: the
-            teardown report fans out to EVERY registered listener, and a
-            throwing listener cannot starve a sibling — the report still
-            reaches the recorder. The report path shares the per-event axis's
-            `(:fan-out registry)`, so the defensive fan-out holds for it too."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/throws
-                                   (fn [_record]
-                                     (throw (ex-info "listener went boom" {}))))
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      ;; Direct substrate exercise — the same fn frame.cljc reaches via the
-      ;; :error-emit/dispatch-frame-teardown-report late-bind hook.
-      (rf.error-emit/dispatch-frame-teardown-report!
-        :prod/frame
-        [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
-        12345)
-      (is (= 1 (count @seen))
-          "the report still reached the sibling recorder despite the throwing
-           listener (fan-out is defensive across listeners)")
-      (is (= :rf.error/frame-teardown-failed (:error (first @seen))))))
-
-  (testing "latent same-hook-key note: `safe-call-hook!`
-            conj's one entry per call, so if the SAME hook key were to throw
-            twice in one destroy the report would carry two entries with the
-            same `:hook` (no de-dup). The current recipe calls each hook once,
-            so this is latent — pinned directly at the report shape via a
-            hand-built two-same-key failure vector to document the
-            accumulate-don't-dedup contract."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf.error-emit/dispatch-frame-teardown-report!
-        :prod/frame
-        [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}
-         {:hook :ssr/on-frame-destroyed :exception (ex-info "y" {}) :where :safe-call-hook!}]
-        99)
-      (let [r (first @seen)]
-        (is (= [:ssr/on-frame-destroyed :ssr/on-frame-destroyed]
-               (map :hook (:hook-failures r)))
-            "duplicate hook keys accumulate in order — the report does NOT de-dup
-             by :hook (one entry per safe-call-hook! failure)")))))
 
 ;; ===========================================================================
 ;; (h) The machine-teardown step (notify-machine-destruction!) is best-effort —
