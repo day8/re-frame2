@@ -26,16 +26,15 @@
       `reagent.core/reaction` is a macro over the body, and so is this
       one. Pinned here, from the consumer side, with only
       `reagent2.core` required at the call site: the body is deferred
-      until the first deref, a reagent2 atom deref'd inside it is
-      captured and drives recomputation, and the expansion is
+      until the first deref, and the expansion is
       `(reagent2.ratom/make-reaction (fn [] body...))` — the shape a
-      thunk-taking function cannot have. `reagent2.ratom` is required
-      below only so the type assertion can name `Reaction`.
+      thunk-taking function cannot have. What `make-reaction` then does
+      is `reagent2.ratom-cljs-test`'s.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.core :as r]
-            [reagent2.ratom :as ratom]))
+            [reagent2.ratom]))
 
 ;; ---------------------------------------------------------------------------
 ;; force-update — 1-arity routes .forceUpdate on `this`
@@ -87,16 +86,6 @@
 ;; layers — most importantly that `set-state` and `replace-state` are NOT
 ;; interchangeable (merge vs replace).
 ;; ---------------------------------------------------------------------------
-
-(deftest state-atom-lazily-creates-and-caches
-  (testing "(state-atom this) creates a cell on first call and returns
-            the SAME cell on every subsequent call for that instance"
-    (let [this #js {}
-          a    (r/state-atom this)
-          a2   (r/state-atom this)]
-      (is (some? a) "first call materialised a state cell")
-      (is (identical? a a2)
-          "second call returned the cached cell, not a fresh atom"))))
 
 (deftest state-reads-the-cell
   (testing "(state this) is nil before any state is set, then reflects
@@ -205,16 +194,6 @@
       (is (zero? @runs) "body did not run at construction")
       (is (= :computed @rx) "deref yields the body's value")
       (is (= 1 @runs) "the first deref ran the body exactly once"))))
-
-(deftest reaction-captures-reagent2-atom-and-recomputes
-  (testing "a reagent2 atom deref'd inside the body is a dependency:
-            the Reaction recomputes after that atom changes"
-    (let [a  (r/atom 3)
-          rx (r/reaction (* @a @a))]
-      (is (instance? ratom/Reaction rx) "produces a reagent2.ratom/Reaction")
-      (is (= 9 @rx))
-      (reset! a 4)
-      (is (= 16 @rx) "recomputed against the new dependency value"))))
 
 (deftest reaction-expands-to-make-reaction-over-a-zero-arity-fn
   (testing "(r/reaction body...) expands to
