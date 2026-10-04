@@ -4,44 +4,12 @@
   Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
   The pure state machine and id parsing are `.cljc` with no reader
   conditional on their path, and the JVM
-  `re-frame.story-review-dialog-test` covers them in full; the few pure
-  rows here keep them running under CLJS. The rest cover the CLJS-only
-  surface: the hiccup renderer the recorder + save-variant flows both
-  depend on, and the clipboard shim."
+  `re-frame.story-review-dialog-test` covers them in full. This ns
+  covers the CLJS-only surface: the hiccup renderer the recorder +
+  save-variant flows both depend on, and the clipboard shim."
   (:require [cljs.test :refer [async] :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.review-dialog :as rf.story.review-dialog]))
-
-;; ---- default-variant-id-with-prefix --------------------------------------
-
-(deftest default-uses-source-namespace
-  (is (= :story.counter/saved-12345
-         (rf.story.review-dialog/default-variant-id-with-prefix
-           :story.counter/happy-path 12345 "saved"))))
-
-;; ---- dialog state machine ------------------------------------------------
-
-(deftest initial-state-is-idle
-  (is (= {:open? false :draft-id nil :source-id nil :context nil}
-         rf.story.review-dialog/initial-state)))
-
-(deftest close-returns-idle
-  (let [opened (rf.story.review-dialog/open rf.story.review-dialog/initial-state
-                                   :story.x/y {} 0 "saved")]
-    (is (= rf.story.review-dialog/initial-state (rf.story.review-dialog/close opened)))))
-
-(deftest parse-and-set-draft-id-parses-on-success
-  (let [s (-> rf.story.review-dialog/initial-state
-              (rf.story.review-dialog/open :story.x/y nil 0 "saved")
-              (rf.story.review-dialog/parse-and-set-draft-id ":story.x/edited"))]
-    (is (= :story.x/edited (:draft-id s)))))
-
-(deftest parse-and-set-draft-id-keeps-raw-on-failure
-  (let [s (-> rf.story.review-dialog/initial-state
-              (rf.story.review-dialog/open :story.x/y nil 0 "saved")
-              (rf.story.review-dialog/parse-and-set-draft-id "foo/"))]
-    (is (= "foo/" (:draft-id s)))))
 
 ;; ---- renderer: closed state ----------------------------------------------
 
@@ -155,14 +123,6 @@
                      (is (false? ok?)
                          "no navigator.clipboard on node → not copied")))
             (.finally done))))))
-
-;; ---- indent-after (snippet-format helper) --------------------------------
-
-(deftest indent-after-matches-prefix-width
-  (testing "indent-after returns \\n + N spaces equal to the prefix length"
-    (is (= "\n" (rf.story.predicates/indent-after "")))
-    (is (= "\n          " (rf.story.predicates/indent-after "   :name {")))
-    (is (= "\n          " (rf.story.predicates/indent-after "   :args {")))))
 
 ;; ---- ARIA: modal a11y posture --------------------------------------------
 ;;
