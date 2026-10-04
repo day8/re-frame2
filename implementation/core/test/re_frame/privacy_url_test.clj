@@ -50,52 +50,22 @@
       ;; leak: an empty query keeps its bare `?`, and an empty fragment
       ;; still redacts to the sentinel.
       "/x?"                                      "/x?"
-      "/x#"                                      (str "/x#" sentinel-str))))
-
-;; ===========================================================================
-;; ADVERSARIAL-INPUT battery for redact-url-carriers.
-;;
-;; The table above ends with the two cosmetic edges; these pin the
-;; wrong-SHAPED edge inputs a refactor could turn LEAKY — refactor-fragility
-;; guards, where a parsing-order regression COULD expose a value:
-;;   - trailing `&`: the empty trailing pair must not resurrect a raw value;
-;;   - fragment-before-query ordering (`#a=1?b=2`): the `?` lives INSIDE the
-;;     fragment, so the whole fragment must redact wholesale — the query-split
-;;     must NOT reach across the `#` boundary and treat `b=2` as a live query.
-;; ===========================================================================
-
-(deftest redact-url-carriers-trailing-ampersand-drops-empty-pair
-  (testing "`/x?a=1&` (trailing &) redacts the real pair and drops
-            the empty trailing pair — no raw value survives the split/rejoin"
-    (let [out (rf.privacy.url/redact-url-carriers "/x?a=1&")]
-      (is (= (str "/x?a=" sentinel-str) out)
-          "the real value redacts; the empty trailing pair is dropped (no `&` tail)")
-      (is (not (re-find #"=1" out))
-          "GUARD: the raw value `1` never survives the trailing-& split")
-      ;; Two trailing ampersands collapse the same way — still no raw value.
-      (is (not (re-find #"=1" (rf.privacy.url/redact-url-carriers "/x?a=1&&")))
-          "GUARD: doubled trailing `&` still drops the raw value"))))
-
-(deftest redact-url-carriers-question-mark-inside-fragment-redacts-whole
-  (testing "`/p#a=1?b=2` — the `?` lives INSIDE the fragment, so the
-            WHOLE fragment redacts and the query-split never crosses the `#`"
-    (let [out (rf.privacy.url/redact-url-carriers "/p#a=1?b=2")]
-      (is (= (str "/p#" sentinel-str) out)
-          "the fragment (incl. its embedded `?b=2`) redacts wholesale; no live query")
-      ;; The crucial ordering guard: a parsing-order regression that split on
-      ;; `?` BEFORE `#` would treat `b=2` as a live query and could expose a
-      ;; fragment value as a raw query value.
-      (is (not (re-find #"=2" out))
-          "GUARD: the fragment-internal `?b=2` value never escapes as a raw query")
-      (is (not (re-find #"a=1" out))
-          "GUARD: the fragment-internal `a=1` never escapes raw")))
-  (testing "a REAL query BEFORE a `?`-bearing fragment scrubs both
-            sides correctly (the `#` split precedes the `?` split)"
-    (let [out (rf.privacy.url/redact-url-carriers "/p?q=secret#frag?x=y")]
-      (is (= (str "/p?q=" sentinel-str "#" sentinel-str) out)
-          "the real query value redacts; the whole fragment (with its `?x=y`) redacts")
-      (is (not (re-find #"secret" out)) "GUARD: the real query secret never rides raw")
-      (is (not (re-find #"x=y" out)) "GUARD: the fragment-internal query never escapes"))))
+      "/x#"                                      (str "/x#" sentinel-str)
+      ;; Edges a parsing-order refactor could turn LEAKY: a trailing `&`
+      ;; must not resurrect a raw value, and a `?` INSIDE the fragment must
+      ;; not start a live query, so the whole fragment redacts.
+      "/x?a=1&"                                  (str "/x?a=" sentinel-str)
+      "/x?a=1&&"                                 (str "/x?a=" sentinel-str)
+      "/p#a=1?b=2"                               (str "/p#" sentinel-str)
+      "/p?q=secret#frag?x=y"                     (str "/p?q=" sentinel-str "#" sentinel-str)
+      ;; The policy's deliberate limit: it is a carrier DENY-list over the
+      ;; app's own URL space, not a fail-closed projection of a foreign URL.
+      ;; Nothing left of the first `?` or `#` is touched, so userinfo, a
+      ;; path-borne token and a script URL ride verbatim. A record that ships
+      ;; an attacker-authored URL off-box needs the closed allow-list
+      ;; (`re-frame.ssr.egress/safe-redirect-record-slots`) instead.
+      "https://alice:pw@host/reset/tok-abc"      "https://alice:pw@host/reset/tok-abc"
+      "javascript:alert(1)"                      "javascript:alert(1)")))
 
 ;; ===========================================================================
 ;; The tag-slot arity. ONE arity, and the slot is REQUIRED.
@@ -127,32 +97,3 @@
             — the scrub is total, so the parse-failure arm cannot throw on it"
     (is (= {:location nil} (rf.privacy.url/redact-url-tag {:location nil} :location)))
     (is (= {:location 42} (rf.privacy.url/redact-url-tag {:location 42} :location)))))
-
-;; ===========================================================================
-;; The policy's DELIBERATE limits, so nobody mistakes it for a
-;; projection.
-;;
-;; This is a carrier DENY-list: redact the query values and the fragment, keep
-;; everything else. That is right over the app's OWN URL space — the path is a
-;; route the app authored, the host is the app's own, and a query KEY names the
-;; shape rather than the secret. It is NOT a fail-closed projection of an
-;; arbitrary FOREIGN URL, and the assertions below pin exactly what it leaves
-;; standing so a reader cannot reach for it on the wrong path. A record that
-;; ships an attacker-authored URL off-box needs the closed ALLOW-list instead
-;; (`re-frame.ssr.egress/safe-redirect-record-slots`, built FROM its slot set
-;; rather than filtered down to it).
-;; ===========================================================================
-
-(deftest the-carrier-policy-does-not-reach-left-of-the-first-question-mark
-  (testing "userinfo, the path and the host all ride VERBATIM — string surgery
-            starts at the first `?` or `#` and this fn makes no claim about
-            what is left of it"
-    (is (= "https://alice:pw@host/reset/tok-abc"
-           (rf.privacy.url/redact-url-carriers "https://alice:pw@host/reset/tok-abc"))
-        "credentials in userinfo and a path-borne reset token both survive —
-         which is precisely why the always-on safe-redirect record is an
-         allow-list over parsed components and not this scrub")
-    (is (= "javascript:alert(1)"
-           (rf.privacy.url/redact-url-carriers "javascript:alert(1)"))
-        "the attack string survives intact when it carries no query / fragment
-         — the common case, and the one a responder needs to see")))
