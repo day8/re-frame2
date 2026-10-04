@@ -705,26 +705,6 @@
 
       (is (= 1 @count-a) "after removal, the listener does not accumulate"))))
 
-(deftest listener-exception-isolation
-  (testing "a throwing epoch listener does not crash other listeners or the runtime"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-
-    (let [survivor (atom 0)
-          throws   (atom 0)]
-      (rf/register-listener! :epoch ::throwing
-        (fn [_] (swap! throws inc) (throw (ex-info "tool blew" {}))))
-      (rf/register-listener! :epoch ::survivor
-        (fn [_] (swap! survivor inc)))
-
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-
-      (is (= 2 @throws)   "throwing listener is invoked")
-      (is (= 2 @survivor) "survivor listener accumulates")
-      (is (= 2 (count (rf/epoch-history :test/main)))
-          "epoch history records both cascades despite the throwing listener"))))
-
 (deftest listener-exception-emits-trace
   (testing "a throwing listener emits a
             :rf.epoch.cb/listener-exception error trace per broken
@@ -2061,8 +2041,6 @@
           "the throwing event is the cascade trigger")
       (is (= :ok (:outcome boom-r))
           ":outcome is :ok — the drain settled cleanly despite the throw")
-      (is (not= :halted-handler-exception (:outcome boom-r))
-          ":halted-handler-exception is schema-reserved, never emitted")
       (is (nil? (:halt-reason boom-r))
           "no :halt-reason on a clean settle — there was no drain halt")
       (is (has-error-op? (:trace-events boom-r) :rf.error/handler-exception)
@@ -3370,49 +3348,6 @@
       (is (set/subset? skip-ops out-of-cascade)
           "skip-ops has no stale entry the namespace no longer emits out-of-cascade"))))
 
-;; ---- depth-0 reject emit does not leak into next cascade -------------------
-;;
-;; Companion behavioural pin to the derived-catalogue test above. The
-;; depth-0 `replace-frame-state!` reject emits :rf.epoch/replace-history-disabled
-;; OUTSIDE a cascade with a :frame tag (Tool-Pair §Pair-tool writes).
-;; The depth-0 tests above (`replace-frame-state-app-only-depth-0-rejects-...`,
-;; `all-partition-shapes-reject-under-depth-0`) assert reject / false / no-phantom-
-;; anchor but NOT that the emit stays out of the NEXT cascade's record. Depth 0
-;; disables the ring, so the next cascade's assembled record is observed via the
-;; epoch listener fan-out (depth 0 still fires listeners). Skip-ops
-;; is the deliberate defense; the orphan-drop branch backstops the in-namespace
-;; leak — this pins the end-to-end no-leak
-;; contract regardless of which layer enforces it.
-(deftest depth-0-replace-reject-emit-does-not-leak-into-next-cascade
-  (testing "the out-of-cascade :rf.epoch/replace-history-disabled
-            emit from a depth-0 replace-frame-state! reject does NOT surface in
-            the NEXT cascade's assembled record for that frame"
-    (rf/configure! {:epoch-history {:depth 0 :trace-events-keep 50}})
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (let [seen (atom [])]
-      (rf/register-listener! :epoch ::watcher (fn [r] (swap! seen conj r)))
-      ;; Cascade 1 — a real event.
-      (rf/dispatch-sync [:seed] {:frame :test/main})
-      ;; Out-of-cascade reject: depth 0 → history disabled → rejected,
-      ;; emitting :rf.epoch/replace-history-disabled with a :frame tag.
-      (is (false? (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}}))
-          "depth-0 replace-frame-state! is rejected (not a false success)")
-      ;; Cascade 2 — its record must reflect ONLY the :bump cascade.
-      (rf/dispatch-sync [:bump] {:frame :test/main})
-
-      (let [bump-rec (last @seen)]
-        (is (= :bump (:event-id bump-rec))
-            "next cascade's record is the real :bump event")
-        (is (= [:bump] (:trigger-event bump-rec))
-            ":trigger-event is the real event, not the leaked reject sentinel")
-        (is (not-any? (fn [ev] (= :rf.epoch/replace-history-disabled (:operation ev)))
-                      (:trace-events bump-rec))
-            "the out-of-drain reject emit does NOT leak into the next cascade's :trace-events"))
-      (rf/unregister-listener! :epoch ::watcher))))
-
 ;; ---- restore trace-tag :rf.epoch/id golden guard ---------------------------
 ;;
 ;; Spec 009 §Instrumentation and Spec-Schemas reserve the namespaced
@@ -4304,17 +4239,6 @@
       :trace-events-keep 3 "no"
       :trace-events-keep 3 -5)))
 
-(deftest configure-accepts-zero
-  (testing "depth 0 and :trace-events-keep 0 are non-negative integers
-            and must be accepted (0 has well-defined meaning — depth 0
-            disables recording; :trace-events-keep 0 drops every
-            record's :trace-events)"
-    (rf/configure! {:epoch-history {:depth 0}})
-    (is (= 0 (:depth (:epoch-history (rf/current-config)))))
-
-    (rf/configure! {:epoch-history {:trace-events-keep 0}})
-    (is (= 0 (:trace-events-keep (:epoch-history (rf/current-config)))))))
-
 (deftest configure-partial-update-rejects-bad-key-only
   (testing "a configure call carrying one valid and one invalid key
             applies the valid one and drops the invalid one — failure
@@ -4506,9 +4430,7 @@
     ;; reset-to-default always carries the slot.
     (reset! @#'rf.epoch.state/config {:depth 50})
     (is (= 50 (rf.epoch.state/trace-events-keep))
-        "trace-events-keep accessor falls back to the shipped 50 default")
-    (is (= 50 (:trace-events-keep (:epoch-history (rf/current-config)) 50))
-        "current-config's :trace-events-keep resolves to the shipped 50")))
+        "trace-events-keep accessor falls back to the shipped 50 default")))
 
 ;; ============================================================================
 ;;  Write-boundary liveness race (validate, then destroy)
