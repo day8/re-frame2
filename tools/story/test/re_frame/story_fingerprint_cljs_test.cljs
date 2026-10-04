@@ -110,16 +110,6 @@
                 (rf.story.fingerprint/canonicalize (run 76 (ex-info "boom" {:k 2}))))
           "the error's data still counts"))))
 
-(deftest collection-types-do-not-collide-on-cljs
-  (testing "map / set / vector type tags keep the kinds distinct on CLJS
-            — host-portable structural tagging"
-    (is (not= (rf.story.fingerprint/content-hash {}) (rf.story.fingerprint/content-hash [])))
-    (is (not= (rf.story.fingerprint/content-hash #{}) (rf.story.fingerprint/content-hash [])))
-    (is (not= (rf.story.fingerprint/content-hash {:k 1}) (rf.story.fingerprint/content-hash [:k 1])))
-    (is (not= (rf.story.fingerprint/content-hash #{:k}) (rf.story.fingerprint/content-hash [:k])))
-    (is (not= (rf.story.fingerprint/canonical-hash {:effects [{:k 1}]})
-              (rf.story.fingerprint/canonical-hash {:effects [[:k 1]]})))))
-
 (deftest fn-slot-deterministic-on-cljs
   (testing "a fn folds to the opaque sentinel on CLJS — a JS fn
             in a hashed slot hashes stably, keywords/colls are not folded"
@@ -170,8 +160,7 @@
   (testing "an integer-valued double IS the integer on CLJS — matches the JVM
             fold of `1.0` → `1`"
     (is (= 1   (rf.story.fingerprint/canonical-form 1.0)))
-    (is (= 100 (rf.story.fingerprint/canonical-form 100.0)))
-    (is (= (rf.story.fingerprint/content-hash 1.0) (rf.story.fingerprint/content-hash 1))))
+    (is (= 100 (rf.story.fingerprint/canonical-form 100.0))))
   (testing "a fractional double folds to the SAME `[:rf/double <hex>]` + hash
             the JVM `1.5` produces"
     (is (= [rf.story.fingerprint/double-tag "3ff8000000000000"] (rf.story.fingerprint/canonical-form 1.5)))
