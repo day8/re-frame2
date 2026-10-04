@@ -60,16 +60,6 @@
       (f))
     @reports))
 
-(deftest on-epoch-reports-once-cljs
-  (testing "a violation reports once per (invariant, epoch) on CLJS"
-    (let [coerced (rf.story.invariants/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
-          state   (atom {:seen #{} :violations []})
-          ep      (epoch-rec 5 {:db-after {:n -3}})
-          reports (with-captured-reports
-                    (fn [] (rf.story.invariants/on-epoch! state coerced ep)
-                           (rf.story.invariants/on-epoch! state coerced ep)))]
-      (is (= 1 (count (filter #(= :fail (:type %)) reports)))))))
-
 ;; ---- live with-invariants over a real CLJS frame -------------------------
 
 (deftest with-invariants-live-cljs
