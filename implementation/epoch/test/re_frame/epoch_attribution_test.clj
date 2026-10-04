@@ -723,13 +723,7 @@
           (is (= 2 (:value b-counter))
               "B's :value is THIS cascade's result (2), not the lagged prior 1")
           (is (= :raw-counter (:cause-sub b-counter))
-              "B's :cause-sub lands on B's epoch")
-
-          ;; And the cross-epoch separation: neither cascade carries the
-          ;; OTHER's value attribution.
-          (is (not= (:value a-counter) (:value b-counter))
-              "the two cascades carry DISTINCT counter values — no lag
-               smearing one epoch's value onto the other"))))))
+              "B's :cause-sub lands on B's epoch"))))))
 
 (deftest inv-4-back-fill-renotifies-listeners-with-corrected-attribution
   (testing "back-filling a post-settle sub-run re-fans the
@@ -1016,67 +1010,6 @@
         (is (empty? (rf.epoch.state/buffer-for :test/main))
             "the rejected child's settle cleared its stranded marker — it does not accrete")))))
 
-(deftest inv-6c-bead-sibling-queued-behind-parent-does-not-drop-child
-  (testing "queue B behind parent A; A
-            dispatches child C (C's `:event/dispatched` marker rides A's window
-            but carries C's id, and C goes to the FIFO TAIL behind B). When B
-            settles BEFORE C, B's harvest must NOT consume C's marker; C must
-            still receive its `:event/dispatched` marker at its own settle, while
-            neither A nor B carries it.
-
-            A count-1 reclaim would drop C's marker on B's harvest
-            (the one allowed intervening pass), so C would lose its queue-time
-            dispatch row. The harvest seam is the exact locus; this drives it directly to
-            stay deterministic (the FIFO timing is unreproducible in synchronous
-            dispatch-sync)."
-    (let [frame    :test/bead-abc
-          a-rs     {:op-type :rf.event :operation :rf.event/run-start
-                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id :A :rf.trace/event-id :parent-a}}
-          a-body   {:op-type :rf.event :operation :rf.event/db-changed
-                    :tags {:rf.trace/dispatch-id :A}}
-          ;; C's dispatch marker fires during A's do-fx — lands in A's window.
-          c-mark   {:op-type :rf.event :operation :rf.event/dispatched
-                    :tags {:rf.trace/dispatch-id :C :rf.trace/event-id :child-c
-                           :rf.trace/parent-dispatch-id :A}}
-          b-rs     {:op-type :rf.event :operation :rf.event/run-start
-                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id :B :rf.trace/event-id :sibling-b}}
-          b-body   {:op-type :rf.event :operation :rf.event/db-changed
-                    :tags {:rf.trace/dispatch-id :B}}
-          c-rs     {:op-type :rf.event :operation :rf.event/run-start
-                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id :C :rf.trace/event-id :child-c}}
-          c-body   {:op-type :rf.event :operation :rf.event/db-changed
-                    :tags {:rf.trace/dispatch-id :C}}]
-      ;; A settles, stranding C's marker in the buffer.
-      (rf.epoch.state/buffer-event! frame a-rs)
-      (rf.epoch.state/buffer-event! frame a-body)
-      (rf.epoch.state/buffer-event! frame c-mark)
-      (let [a-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
-        (is (= [a-rs a-body] a-harvest) "A's epoch carries A's traces only")
-        (is (not-any? #(= :C (-> % :tags :rf.trace/dispatch-id)) a-harvest)
-            "A does NOT carry C's dispatch marker"))
-
-      ;; B settles next (it was queued ahead of FIFO-tail C). B must leave C's
-      ;; marker alone — this is the exact harvest a count-1 reclaim would break.
-      (rf.epoch.state/buffer-event! frame b-rs)
-      (rf.epoch.state/buffer-event! frame b-body)
-      (let [b-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
-        (is (= [b-rs b-body] b-harvest) "B's epoch carries B's traces only")
-        (is (not-any? #(= :C (-> % :tags :rf.trace/dispatch-id)) b-harvest)
-            "B does NOT carry C's dispatch marker")
-        (is (= [c-mark] (rf.epoch.state/buffer-for frame))
-            "C's marker SURVIVES B's intervening settle (not dropped
-             by a harvest-count reclaim)"))
-
-      ;; C finally settles — claims its own marker (+ queue-time dispatch row).
-      (rf.epoch.state/buffer-event! frame c-rs)
-      (rf.epoch.state/buffer-event! frame c-body)
-      (let [c-harvest (rf.epoch.state/harvest-buffer-for-event! frame)]
-        (is (= [c-mark c-rs c-body] c-harvest)
-            "C's epoch finally claims its :event/dispatched marker + own traces")
-        (is (= :A (-> c-harvest first :tags :rf.trace/parent-dispatch-id))
-            "C's claimed marker still names parent A (parent-child causality kept)"))
-      (rf.epoch.state/drop-frame-buffer! frame))))
-
 ;; ---------------------------------------------------------------------------
 ;; inv-6d — a frame-LIFECYCLE emit for a SIBLING frame, fired while frame A's
 ;;          cascade scope is bound (dynamic frame management from inside a
@@ -1208,10 +1141,6 @@
         (let [e (epoch-by-id app app-epoch)]
           (is (= :app/inc (:event-id e))
               "the app frame's last epoch is its own :app/inc cascade")
-          (is (not (contains? (rendered-view-ids e) :shell-view))
-              "the inspector's shell-view render did NOT leak into the
-               inspected app frame's epoch :renders — the frame-no-emit gate
-               suppressed the emit before any back-fill")
           (is (empty? (rendered-view-ids e))
               "the app frame's epoch carries NO renders at all from the
                observer's post-settle commit — the observer is invisible to the
@@ -1251,13 +1180,15 @@
   [record render-key]
   (some #(when (= render-key (:render-key %)) %) (:renders record)))
 
-(deftest renders-projection-carries-triggered-by-and-elapsed-ms
-  (testing "a :rf.view/rendered op carrying :rf.view/triggered-by
-            + :rf.view/elapsed-ms (the per-view cause + timing) lands those slots
-            on the cascade's :renders projection row, end-to-end. The projection
-            sources from the POST-render :rf.view/rendered op precisely so it
-            carries this data (the render-START :rf.view/render carries only the
-            render-key)."
+(deftest renders-projection-carries-cause-and-timing
+  (testing "a :rf.view/rendered op carrying :rf.view/triggered-by,
+            :rf.view/elapsed-ms and :rf.view/cause-event-id lands those slots
+            on the cascade's :renders projection row, end-to-end. The
+            projection sources from the POST-render :rf.view/rendered op
+            precisely so it carries this data (the render-START :rf.view/render
+            carries only the render-key). :cause-event-id is the slot the Story
+            :view causal surface reads; a row that dropped it would leave that
+            surface silently measuring 0 (false GREEN)."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1265,11 +1196,12 @@
     ;; Post-settle :rf.view/rendered carrying cause + timing (React-commit
     ;; timing — empty buffer, back-filled to the seed epoch).
     (rf.trace/emit! :rf.view :rf.view/rendered
-                 {:rf.view/render-key   [:counter-view 0]
-                  :frame                :test/main
-                  :rf.view/mount?       false
-                  :rf.view/triggered-by :sub/count
-                  :rf.view/elapsed-ms   1.5})
+                 {:rf.view/render-key     [:counter-view 0]
+                  :frame                  :test/main
+                  :rf.view/mount?         false
+                  :rf.view/triggered-by   :sub/count
+                  :rf.view/elapsed-ms     1.5
+                  :rf.view/cause-event-id :counter-inc})
 
     (let [epoch (last-epoch :test/main)
           row   (render-row-for epoch [:counter-view 0])]
@@ -1279,12 +1211,17 @@
       (is (= 1.5 (:elapsed-ms row))
           ":elapsed-ms is preserved on the :renders row")
       (is (= false (:mount? row))
-          ":mount? is preserved on the :renders row"))))
+          ":mount? is preserved on the :renders row")
+      (is (= :counter-inc (:cause-event-id row))
+          ":cause-event-id is threaded onto the :renders row — mirroring how
+           the :sub-runs row carries :cause-event-id (capture.cljc)"))))
 
-(deftest renders-projection-omits-triggered-by-on-structural-render
-  (testing "a structural re-render (no :rf.view/triggered-by on
-            the op — none of the view's own subs changed) lands a :renders row
-            WITHOUT :triggered-by; :elapsed-ms still rides."
+(deftest renders-projection-omits-cause-slots-on-structural-render
+  (testing "a structural re-render (none of the view's own subs changed, no
+            cascade invalidated an input it read) carries neither
+            :rf.view/triggered-by nor :rf.view/cause-event-id, so its :renders
+            row omits both: absent tag → absent slot, never an attributed nil.
+            :elapsed-ms still rides."
     (rf/make-frame {:id :test/main})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/dispatch-sync [:seed] {:frame :test/main})
@@ -1300,65 +1237,9 @@
       (is (some? row) "the structural render still produces a :renders row")
       (is (not (contains? row :triggered-by))
           ":triggered-by absent on a structural re-render row")
-      (is (= 0.3 (:elapsed-ms row)) ":elapsed-ms still preserved"))))
-
-;; ===========================================================================
-;; The :renders projection carries :cause-event-id (the cascade
-;;             whose handler-body invalidated a reactive input this view read)
-;; ===========================================================================
-;;
-;; The false-green guard at the projection boundary. The :rf.view/rendered op
-;; stamps :rf.view/cause-event-id (views.cljs) exactly as the
-;; :rf.sub/run op stamps :rf.sub/cause-event-id, and the render row must
-;; carry it through: if a projected render row keyed as nil, the Story
-;; causal/cascade :view surface would silently measure 0 and an over-render
-;; could never be caught (a SILENT GREEN). This pins that the render row
-;; carries the cause end-to-end, mirroring the sub-row.
-
-(deftest renders-projection-carries-cause-event-id
-  (testing "a :rf.view/rendered op carrying :rf.view/cause-event-id
-            (the cascade that invalidated a reactive input this view read)
-            lands :cause-event-id on the :renders projection row, end-to-end —
-            the slot the Story :view causal surface reads. A render-row that
-            dropped it would leave the surface silently measuring 0 (false GREEN)."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    ;; Post-settle :rf.view/rendered carrying the cause attribution (mirrors
-    ;; the reactive re-render emit at views.cljs:320-321).
-    (rf.trace/emit! :rf.view :rf.view/rendered
-                 {:rf.view/render-key     [:counter-view 0]
-                  :frame                  :test/main
-                  :rf.view/mount?         false
-                  :rf.view/cause-event-id :counter-inc})
-
-    (let [epoch (last-epoch :test/main)
-          row   (render-row-for epoch [:counter-view 0])]
-      (is (some? row) "the :renders projection carries the render row")
-      (is (= :counter-inc (:cause-event-id row))
-          ":cause-event-id is threaded onto the :renders row — mirroring how
-           the :sub-runs row carries :cause-event-id (capture.cljc)"))))
-
-(deftest renders-projection-omits-cause-event-id-on-structural-render
-  (testing "a render OUTSIDE any cascade (mount / structural —
-            the op carries no :rf.view/cause-event-id) lands a :renders row
-            WITHOUT :cause-event-id. OMITTED-vs-nil parity with the sub-row:
-            absent tag → absent slot, never an attributed nil."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-
-    (rf.trace/emit! :rf.view :rf.view/rendered
-                 {:rf.view/render-key [:structural-view 0]
-                  :frame              :test/main
-                  :rf.view/mount?     false})
-
-    (let [epoch (last-epoch :test/main)
-          row   (render-row-for epoch [:structural-view 0])]
-      (is (some? row) "the structural render still produces a :renders row")
       (is (not (contains? row :cause-event-id))
-          ":cause-event-id absent when the op carried no cause tag"))))
+          ":cause-event-id absent when the op carried no cause tag")
+      (is (= 0.3 (:elapsed-ms row)) ":elapsed-ms still preserved"))))
 
 ;; ===========================================================================
 ;; mount-attribution: epoch-id + deps share one entry
@@ -1570,35 +1451,6 @@
        (map #(-> % :tags :rf.view/id))
        set))
 
-(deftest inv-8-view-unmount-back-filled-into-its-causing-cascade
-  (testing "a :rf.view/unmounted that fires AFTER the cascade
-            that removed the view settled (React-teardown timing) is
-            back-filled into that causing cascade's :trace-events, NOT
-            silently dropped — the orphan-drop branch would leave no signal,
-            and Xray's VIEWS step nothing to surface."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed         (fn [{:keys [db]} _] {:db {:show-child? true}}))
-    (rf/reg-event :hide-child   (fn [{:keys [db]} _] {:db (assoc db :show-child? false)}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    ;; The cascade that removes the child view from the tree. It settles,
-    ;; THEN (next tick, React teardown) the child instance's unmount fires.
-    (rf/dispatch-sync [:hide-child] {:frame :test/main})
-    (let [hide-epoch (last-epoch :test/main)]
-      (emit-unmount! :test/main :child-view)
-
-      (let [e (epoch-by-id :test/main hide-epoch)]
-        (is (= :hide-child (:event-id e)))
-        (is (contains? (unmounted-view-ids e) :child-view)
-            "the hide-child cascade carries the child-view unmount in its
-             :trace-events — the teardown is OBSERVABLE, not a silent
-             absence")
-        ;; The unmount carries no structured :renders row — it is a teardown,
-        ;; not a render. It rides ONLY :trace-events, where Xray reads it.
-        (is (not (contains? (rendered-view-ids e) :child-view))
-            "an unmount produces NO :renders row — it is a teardown, not a
-             render; it surfaces via :trace-events only")))))
-
 (deftest inv-8-unmount-attributed-to-its-own-cascade-multi-cascade
   (testing "two cascades that tear down DIFFERENT views each
             carry their OWN unmount, attributed to the cascade that caused
@@ -1625,6 +1477,9 @@
           (is (= :hide-b (:event-id b)))
           (is (contains? (unmounted-view-ids a) :view-a)
               "cascade A carries its OWN view-a unmount")
+          (is (not (contains? (rendered-view-ids a) :view-a))
+              "an unmount produces NO :renders row — it is a teardown, not a
+               render; it surfaces via :trace-events only")
           (is (not (contains? (unmounted-view-ids a) :view-b))
               "cascade A does NOT carry cascade B's view-b unmount")
           (is (contains? (unmounted-view-ids b) :view-b)

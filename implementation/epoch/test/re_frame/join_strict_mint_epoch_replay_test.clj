@@ -278,7 +278,6 @@
             recorded  (:rf.cofx rec)
             stripped  (dissoc recorded :strictmint/roll)]
         (is (= 6 (:strictmint/roll recorded)) "the recorded token carried the fact")
-        (is (nil? (:strictmint/roll stripped)) "the stripped token lacks the fact")
 
         ;; --- STRICT with the recorded fact REMOVED → canonical missing-required.
         (is (true? (rf/restore-epoch! :rf/default pre-epoch-id))
