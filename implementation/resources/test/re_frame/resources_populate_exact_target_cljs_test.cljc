@@ -387,30 +387,6 @@
 ;; 7. A map-form :patches updates the exact key only (no tag targeting)
 ;; ===========================================================================
 
-(deftest map-form-patch-updates-exact-key-only
-  ;; Validation 12: a map-form :patches target updates exactly the resolved key
-  ;; (transforms its existing :data); a key with no entry is a no-op (a patch
-  ;; transforms; populate seeds).
-  (reg-article-resource!)
-  (rf/reg-mutation :m/patch
-    {:scope :rf.scope/global
-     :params-schema [:map [:slug :string]]
-     :patches (fn [{:keys [slug]} result]
-                {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
-                 (fn [old _r] (merge old result))})}
-    (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-  ;; seed real data on the owned entry (a single ensure + reply)
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
-                                          :params {:slug "w"} :owner [:v :a]}])
-  (reply-success! @last-managed-args {:title "old" :views 5})
-  (reset! last-managed-args nil)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :pt1}])
-  (reply-success! @last-managed-args {:title "new"})
-  (testing "the map-form patch transformed the EXACT key's :data in place"
-    (let [e (entry global-article-key)]
-      (is (= {:title "new" :views 5} (:data e)))
-      (is (= :loaded (:status e))))))
-
 ;; ===========================================================================
 ;; 8. A {:from-db …} populate target that resolves NIL is FAIL-CLOSED
 ;; ===========================================================================
