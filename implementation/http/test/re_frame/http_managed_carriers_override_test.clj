@@ -79,7 +79,7 @@
 
 (def ^:private this-ns (str (ns-name *ns*)))
 
-;; ---- 2. the Spec 014 spelling: rf/reg-fx with :carriers -------------------
+;; ---- 1. the Spec 014 spelling: rf/reg-fx with :carriers -------------------
 
 (deftest the-spec-014-carriers-spelling-overrides-the-framework-registration
   (testing "an application re-registering `:rf.http/managed` with a `:carriers`
@@ -125,7 +125,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 3. two application namespaces ----------------------------------------
+;; ---- 2. two application namespaces ----------------------------------------
 
 (deftest two-application-registrations-still-collide
   (testing "the override is not a winner rule: two APPLICATION namespaces each

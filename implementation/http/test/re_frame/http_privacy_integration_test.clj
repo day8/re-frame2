@@ -65,6 +65,13 @@
   (rf.test-support/poll-until pred {:timeout-ms timeout-ms
                                  :label "http-privacy wait-for"}))
 
+(defn- await-trace!
+  "Wait for a trace row with `operation` to land in `captured`; return the
+  first such row."
+  [captured operation]
+  (wait-for! (fn [] (some #(when (= operation (:operation %)) %) @captured))
+             3000))
+
 (defn- find-header
   "Case-insensitive lookup against a possibly mixed-case header map. The
   JDK normalises header casing differently from what the server set, so
@@ -76,13 +83,11 @@
               v))
           headers-map)))
 
-;; ---- 1. there is no handler-meta :sensitive? annotation -------------------
+;; ---- 1. Per-call :sensitive? on the request --------------------------------
 ;;
 ;; Handler registration metadata does not carry sensitivity to HTTP trace
-;; events: sensitivity comes from path-marked classification + per-call
-;; `:sensitive?` on the args map (the latter is covered by the test below).
-
-;; ---- 2. Per-call :sensitive? on the request --------------------------------
+;; events: sensitivity comes from path-marked classification and the per-call
+;; `:sensitive?` on the args map.
 
 (deftest per-call-sensitive-flag-takes-effect
   (testing "per-call :sensitive? on the args map redacts even when the
@@ -107,18 +112,14 @@
 
         (rf/dispatch-sync [:api/fetch])
 
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))]
+        (let [ev (await-trace! captured :rf.http/http-5xx)]
           (is (true? (:sensitive? ev))
               "the per-call flag reaches the event's top-level :sensitive?")
           (is (= :rf/redacted (get-in ev [:tags :body]))))
         (finally
           (stop-server! srv))))))
 
-;; ---- 4. Headers in the failure tags are always denylist-redacted -----------
+;; ---- 2. Headers in the failure tags are always denylist-redacted -----------
 
 (deftest sensitive-headers-redacted-in-failure-tags
   (testing "headers in the failure tags are denylist-redacted regardless
@@ -143,11 +144,7 @@
 
         (rf/dispatch-sync [:api/fetch])
 
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
+        (let [ev      (await-trace! captured :rf.http/http-5xx)
               headers (get-in ev [:tags :headers])]
           (is (= :rf/redacted (find-header headers "Set-Cookie"))
               "Set-Cookie was denylist-redacted (case-insensitive lookup)")
@@ -156,7 +153,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 6. URL query-string denylist applies on failure trace events -----------
+;; ---- 3. URL query-string denylist applies on failure trace events -----------
 
 (deftest sensitive-query-param-redacted-in-failure-url
   (testing "a denylisted query-string param (api_key) has its value redacted
@@ -180,11 +177,7 @@
 
         (rf/dispatch-sync [:api/fetch])
 
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
+        (let [ev  (await-trace! captured :rf.http/http-5xx)
               url (get-in ev [:tags :url])]
           (is (string? url))
           (is (str/includes? url "api_key=:rf/redacted")
@@ -196,7 +189,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 7. Per-call sensitive request scrubs ALL URL query params -------------
+;; ---- 4. Per-call sensitive request scrubs ALL URL query params -------------
 
 (deftest sensitive-request-redacts-all-url-query-params
   (testing "when the request is per-call :sensitive?, ALL query-string
@@ -222,11 +215,7 @@
 
         (rf/dispatch-sync [:auth/login])
 
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
+        (let [ev  (await-trace! captured :rf.http/http-5xx)
               url (get-in ev [:tags :url])]
           (is (string? url))
           (is (str/includes? url "user_id=:rf/redacted")
@@ -236,7 +225,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 8. Managed-HTTP query-param carrier applies on failure URL (EP-0025) ----
+;; ---- 5. Managed-HTTP query-param carrier applies on failure URL (EP-0025) ----
 
 (deftest managed-carrier-query-param-redacts-failure-url
   (testing "a :rf.http/managed :carriers {:query-params [..]} carrier
@@ -263,11 +252,7 @@
 
         (rf/dispatch-sync [:api/fetch])
 
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
+        (let [ev  (await-trace! captured :rf.http/http-5xx)
               url (get-in ev [:tags :url])]
           (is (string? url))
           (is (str/includes? url "shop_token=:rf/redacted")
@@ -277,12 +262,14 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 9. Response-body classification via the :decode schema (EP-0015 §8) ---
+;; ---- 6. Response-body classification via the :decode schema (EP-0015 §8) ---
 
 (deftest response-body-decode-schema-sensitive-slot-redacted-in-replied-trace
   (testing "a 2xx response body's :decode-schema-marked sensitive
             slot is redacted in the :rf.http/replied trace value EVEN when the
-            request is NOT declared per-call :sensitive? (the login/token case)"
+            request is NOT declared per-call :sensitive? (the login/token case),
+            and the SCHEMA body is stamped :rf.http/off-box-body :classify, so
+            it rides the per-slot classified projection off-box"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 200 "application/json"
@@ -307,16 +294,15 @@
 
         (rf/dispatch-sync [:auth/login])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))
+        (let [ev (await-trace! captured :rf.http/replied)
               v  (get-in ev [:tags :value])]
           (is (some? v) "the replied trace carries the decoded value")
           (is (= :rf/redacted (:token v))
               "schema-:sensitive? body slot redacted (no per-call flag needed)")
           (is (= 42 (:user-id v))
-              "non-sensitive body slot rides verbatim"))
+              "non-sensitive body slot rides verbatim")
+          (is (= :classify (get-in ev [:tags :rf.http/off-box-body]))
+              "schema body stamped :classify for the off-box projector"))
         (finally
           (stop-server! srv))))))
 
@@ -342,10 +328,7 @@
 
         (rf/dispatch-sync [:auth/refresh])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))
+        (let [ev (await-trace! captured :rf.http/replied)
               v  (get-in ev [:tags :value])]
           (is (= :rf/redacted v) "whole opaque-token body redacted"))
         (finally
@@ -378,10 +361,7 @@
 
         (rf/dispatch-sync [:api/big])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))
+        (let [ev (await-trace! captured :rf.http/replied)
               v  (get-in ev [:tags :value])]
           (is (contains? (:blob v) :rf.size/large-elided)
               "schema-:large? body slot elided to the size marker")
@@ -390,7 +370,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 10. Off-box disposition stamp on the replied trace -------------------
+;; ---- 7. Off-box disposition stamp on the replied trace --------------------
 
 (deftest replied-trace-stamps-off-box-omit-for-unschematized-body
   (testing "an UNSCHEMATIZED (:auto) :decode stamps
@@ -417,50 +397,12 @@
 
         (rf/dispatch-sync [:api/opaque])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))]
+        (let [ev (await-trace! captured :rf.http/replied)]
           (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
               "unschematized body stamped :omit for the off-box projector")
           (is (some? (get-in ev [:tags :value]))
               "the on-box :value still rides raw — the local operator sees
                their own process; the omission is the off-box boundary"))
-        (finally
-          (stop-server! srv))))))
-
-(deftest replied-trace-stamps-off-box-classify-for-schema-body
-  (testing "a SCHEMA :decode stamps :rf.http/off-box-body
-            :classify (the body rides the per-slot classified projection
-            off-box)"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 200 "application/json"
-                                   "{\"token\":\"bearer-secret\",\"user-id\":42}")))
-          port (:port srv)
-          captured (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! :test/capture
-                                  (fn [ev] (swap! captured conj ev)))
-        (rf/reg-event :api/login
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:method :get
-                              :url    (str "http://127.0.0.1:" port "/login")}
-                    :decode  [:map
-                              [:token {:sensitive? true} :string]
-                              [:user-id :int]]
-                    :on-success [:api/ok]}]]}))
-        (rf/reg-event :api/ok (fn [_ _] {}))
-
-        (rf/dispatch-sync [:api/login])
-
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/replied (:operation %)) @captured))]
-          (is (= :classify (get-in ev [:tags :rf.http/off-box-body]))
-              "schema body stamped :classify for the off-box projector"))
         (finally
           (stop-server! srv))))))
 
@@ -474,7 +416,7 @@
 ;; the fail-closed stamp under test. The schema-VECTOR `:classify` and
 ;; unschematized `:omit` end-to-end stamps are covered above.
 
-;; ---- 11. Off-box disposition stamp on RAW error-response bodies -----------
+;; ---- 8. Off-box disposition stamp on RAW error-response bodies ------------
 ;;
 ;; EP-0015 disposition 5: a raw 4xx/5xx response body
 ;; (`:body`) and a decode-failure raw text (`:body-text`) would egress raw
@@ -512,10 +454,7 @@
 
         (rf/dispatch-sync [:api/fetch])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))]
+        (let [ev (await-trace! captured :rf.http/http-5xx)]
           (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
               "raw 5xx body stamped :omit for the off-box projector (fail-closed)")
           (is (= "error: token=bearer-abc123 rejected" (get-in ev [:tags :body]))
@@ -547,10 +486,7 @@
 
         (rf/dispatch-sync [:api/fetch])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/http-4xx (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/http-4xx (:operation %)) @captured))]
+        (let [ev (await-trace! captured :rf.http/http-4xx)]
           (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
               "raw 4xx body stamped :omit for the off-box projector")
           (is (= "forbidden: secret-ctx" (get-in ev [:tags :body]))
@@ -584,10 +520,7 @@
 
         (rf/dispatch-sync [:api/fetch])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/decode-failure (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/decode-failure (:operation %)) @captured))]
+        (let [ev (await-trace! captured :rf.http/decode-failure)]
           (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
               "raw decode-failure body-text stamped :omit for the off-box projector")
           (is (= "not-json: leaked-token=xyz" (get-in ev [:tags :body-text]))
@@ -595,7 +528,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 12. :accept {:failure ...} emits the accept-failure category trace ----
+;; ---- 9. :accept {:failure ...} emits the accept-failure category trace -----
 ;;   + applies decoded-body privacy / off-box disposition
 ;;
 ;; A successful 2xx decode whose `:accept` projects the decoded value to
@@ -645,10 +578,7 @@
 
         (rf/dispatch-sync [:api/login])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/accept-failure (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/accept-failure (:operation %)) @captured))]
+        (let [ev (await-trace! captured :rf.http/accept-failure)]
           ;; The failure-category trace MUST be emitted.
           (is (some? ev)
               "the :rf.http/accept-failure failure-category trace is emitted")
@@ -692,10 +622,7 @@
 
         (rf/dispatch-sync [:api/login])
 
-        (let [_  (wait-for!
-                   (fn [] (some #(= :rf.http/accept-failure (:operation %)) @captured))
-                   3000)
-              ev (first (filter #(= :rf.http/accept-failure (:operation %)) @captured))]
+        (let [ev (await-trace! captured :rf.http/accept-failure)]
           (is (some? ev)
               "the :rf.http/accept-failure failure-category trace is emitted")
           (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
@@ -704,7 +631,7 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- successful-response :meta headers at the trace boundary --------------
+;; ---- 10. successful-response :meta headers at the trace boundary ----------
 ;;
 ;; A successful completion's canonical reply carries the response wire facts
 ;; under `:meta` (`{:status :status-text :headers}`). The reply DELIVERED to
@@ -724,12 +651,8 @@
   (let [db (wait-for!
              (fn [] (let [d (rf/app-db-value :rf/default)]
                       (when (some? (:reply d)) d)))
-             3000)
-        _  (wait-for!
-             (fn [] (some #(= :rf.http/replied (:operation %)) @captured))
-             3000)
-        ev (first (filter #(= :rf.http/replied (:operation %)) @captured))]
-    [db ev]))
+             3000)]
+    [db (await-trace! captured :rf.http/replied)]))
 
 (deftest replied-trace-redacts-denylisted-headers-in-the-failure-error-slot
   (testing "a FAILED request's :rf.http/replied row seats the

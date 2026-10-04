@@ -276,26 +276,24 @@
       (is (identical? follow-client (jvm-http-client-for :follow))
           "clients are memoised per policy — connection pool is preserved"))))
 
-;; ---- JVM timeout failure carries :limit-ms -------------------------------
+;; ---- classify-jvm-error: failure kinds and their tags ---------------------
+
+;; `classify-jvm-error` is a public seam of the JVM adapter; alias it here.
+(def ^:private classify-jvm-error
+  re-frame.http.transport-jvm/classify-jvm-error)
 
 (deftest jvm-timeout-failure-carries-limit-ms
   (testing "a JVM `:rf.http/timeout` failure carries the
   configured `:limit-ms` and the `:elapsed-ms` the transport measured
   (Spec 014 §Failure categories types `:rf.http/timeout` with
   `:elapsed-ms` / `:limit-ms`)."
-    (let [classify re-frame.http.transport-jvm/classify-jvm-error
-          t   (java.net.http.HttpTimeoutException. "request timed out")
-          out (classify t 5000 5012)]
+    (let [t   (java.net.http.HttpTimeoutException. "request timed out")
+          out (classify-jvm-error t 5000 5012)]
       (is (= :rf.http/timeout (:kind out)))
       (is (= 5000 (:limit-ms out)) ":limit-ms is threaded from the configured timeout-ms")
       (is (= 5012 (:elapsed-ms out)) ":elapsed-ms is threaded from the transport's measurement"))))
 
-;; ---- classify-jvm-error matches exception types, never message text ----
-
-;; `classify-jvm-error` is a public seam of the JVM adapter; alias it here.
-(def ^:private classify-jvm-error
-  re-frame.http.transport-jvm/classify-jvm-error)
-
+;; Classification matches exception types, never message text.
 (deftest classify-jvm-error-uses-instance-checks-only
   (testing "HttpTimeoutException → :rf.http/timeout (instance match)"
     (let [t (java.net.http.HttpTimeoutException. "request timed out after 30s")
