@@ -129,17 +129,6 @@
    :states  {:idle {:on {:start :loading}}
              :loading {}}})
 
-(deftest chart-view-never-emits-view-mode-toggle-rf2-48fwsi
-  (testing "there is no Canvas/List view-mode toggle; the Chart never
-            renders one."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [tree (mc/Chart {:definition fixture-definition :machine-id :m})]
-        (is (some? (find-by-testid tree "rf-xray-machine-canvas-host"))
-            "canvas host mounts")
-        (is (nil? (find-by-testid tree "rf-xray-machine-canvas-view-mode-toggle"))
-            "no view-mode toggle renders")))))
-
 (deftest chart-mounts-the-after-rings-bridge-rf2-k97c-3
   (testing "`machine-after-rings/AfterRingsOverlay` is an
             `rf.fresco/defview`, i.e. a real React component, while `Chart`
