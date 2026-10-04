@@ -254,33 +254,41 @@
 (deftest reg-flow-vs-destroy-high-contention-never-leaves-a-ghost
   (testing "many concurrent (reg-flow || destroy) races leave no ghost row and never deadlock"
     (rf/reg-event :fc/set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (dotimes [i 250]
-      (let [fid (keyword "fc" (str "race-" i))]
-        (rf/make-frame {:id fid :doc "contention frame"})
-        (let [start   (CountDownLatch. 1)
-              reg     (future
-                        (.await start 5 TimeUnit/SECONDS)
-                        (reg-flow-error-id
-                          #(rf/reg-flow :contended
-                                        {:frame fid :inputs [[:n]] :output-path [:out]}
-                                        (fn [n] (* 2 (or n 0))))))
-              destroy (future
-                        (.await start 5 TimeUnit/SECONDS)
-                        (rf.frame/destroy-frame! fid))]
-          (.countDown start)
-          (let [reg-result     (deref reg 30000 ::timeout)
-                destroy-result (deref destroy 30000 ::timeout)]
-            (is (not= ::timeout reg-result)
-                (str "reg-flow completed (no deadlock) on iteration " i))
-            (is (not= ::timeout destroy-result)
-                (str "destroy completed (no deadlock) on iteration " i))
-            (is (contains? #{::no-throw :rf.error/flow-frame-not-live} reg-result)
-                (str "reg-flow either registered or cleanly refused on iteration "
-                     i " (got " reg-result ")"))))
-        ;; The load-bearing invariant: whoever won, the destroyed frame carries
-        ;; NO flow row (registration refused, or registered-then-torn-down).
-        (is (not (contains? (rf.flows/flows-snapshot) fid))
-            (str "no ghost flow row for the destroyed frame on iteration " i))))))
+    ;; Each row is [i reg-result destroy-result ghost?]. The read reports every
+    ;; row where either side timed out (a deadlock), reg-flow neither
+    ;; registered nor cleanly refused, or the destroyed frame kept a flow row.
+    (let [rows (mapv (fn [i]
+                       (let [fid (keyword "fc" (str "race-" i))]
+                         (rf/make-frame {:id fid :doc "contention frame"})
+                         (let [start   (CountDownLatch. 1)
+                               reg     (future
+                                         (.await start 5 TimeUnit/SECONDS)
+                                         (reg-flow-error-id
+                                           #(rf/reg-flow :contended
+                                                         {:frame fid :inputs [[:n]] :output-path [:out]}
+                                                         (fn [n] (* 2 (or n 0))))))
+                               destroy (future
+                                         (.await start 5 TimeUnit/SECONDS)
+                                         (rf.frame/destroy-frame! fid))]
+                           (.countDown start)
+                           (let [reg-result     (deref reg 30000 ::timeout)
+                                 destroy-result (deref destroy 30000 ::timeout)]
+                             ;; The load-bearing invariant: whoever won, the
+                             ;; destroyed frame carries NO flow row (registration
+                             ;; refused, or registered-then-torn-down).
+                             [i reg-result destroy-result
+                              (contains? (rf.flows/flows-snapshot) fid)]))))
+                     (range 250))]
+      (is (= [] (filterv (fn [[_ reg-result destroy-result ghost?]]
+                           (or (= ::timeout reg-result)
+                               (= ::timeout destroy-result)
+                               (not (contains? #{::no-throw :rf.error/flow-frame-not-live}
+                                               reg-result))
+                               ghost?))
+                         rows))
+          (str "every (reg-flow || destroy) race completed with no deadlock, "
+               "reg-flow either registered or cleanly refused, and the destroyed "
+               "frame kept no ghost flow row")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Reentrancy: `destroy-frame!` invoked from INSIDE a cold

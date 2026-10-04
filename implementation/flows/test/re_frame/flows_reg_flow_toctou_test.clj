@@ -93,7 +93,10 @@
           ;; Surfaces the FIRST observed cyclic-commit so a failure
           ;; report names the offending round + committed map rather
           ;; than just "topo-sort threw".
-          first-bad   (atom nil)]
+          first-bad   (atom nil)
+          ;; Rounds whose reg-flow pair did not both finish within 30s,
+          ;; read once after the last round.
+          timed-out   (atom [])]
       (rf/make-frame {:id frame-id :doc "shared frame for the reg-flow TOCTOU repro"})
       (dotimes [round rounds]
         (let [a-id    (keyword "qxwib.toctou" (str "a-" round))
@@ -123,9 +126,8 @@
           ;; surface as a visible failure, not a stuck CI run.
           (let [va (deref fa 30000 ::timeout)
                 vb (deref fb 30000 ::timeout)]
-            (is (and (not= ::timeout va) (not= ::timeout vb))
-                (str "round " round ": both reg-flow threads completed "
-                     "within 30s")))
+            (when-not (and (not= ::timeout va) (not= ::timeout vb))
+              (swap! timed-out conj round)))
           ;; THE load-bearing assertion: the committed registry for the
           ;; shared frame is acyclic. topo-sort throws :rf.error/flow-cycle
           ;; iff a cycle was admitted.
@@ -143,6 +145,10 @@
           ;; that was rejected / never committed.
           (rf/clear :flow a-id {:frame frame-id})
           (rf/clear :flow b-id {:frame frame-id})))
+
+      ;; --- Every round's reg-flow pair completed (no hang). -----------
+      (is (= [] @timed-out)
+          "both reg-flow threads completed within 30s in every round (a failure lists the rounds that hung)")
 
       ;; --- Invariant 1: no round ever admitted a cycle. ---------------
       (is (nil? @first-bad)
