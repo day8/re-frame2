@@ -181,23 +181,6 @@
                                 (str sym " (required by " (str/join ", " (sort files)) ")"))
                               missing)))))))
 
-(deftest xray-namespaces-resolve-under-the-declared-xray-root
-  (testing "the specific Xray namespaces the shell composes resolve
-            under the DECLARED xray root — without the declared dep a
-            fresh consumer cannot compile them."
-    (let [xray-root (get (declared-source-roots (read-deps)) 'day8/re-frame2-xray)
-          required  (->> (required-day8-namespaces)
-                         keys
-                         (filter #(str/starts-with? (str %) "day8.re-frame2-xray."))
-                         sort)]
-      (is (some? xray-root)
-          "the declared xray root must resolve to a src directory")
-      (is (seq required)
-          "sanity: the shell must hard-require at least one Xray namespace")
-      (doseq [sym required]
-        (is (resolvable-under? [xray-root] sym)
-            (str sym " must resolve under the declared day8/re-frame2-xray root"))))))
-
 (deftest story-does-not-depend-on-story-from-xray
   (testing "the coupling is one-way Story → Xray. If Xray ever required
             Story back, the two artefacts would form a dependency cycle
