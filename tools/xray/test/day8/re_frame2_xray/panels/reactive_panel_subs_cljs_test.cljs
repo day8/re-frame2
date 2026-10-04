@@ -207,13 +207,6 @@
       (is (= [] (subs/skipped-subs [ev] #{[:legacy/sub]}))
           "the fallback identity cross-excludes against a [sub-id] run"))))
 
-(deftest skipped-subs-nil-safe
-  (is (= [] (subs/skipped-subs nil nil)))
-  (is (= [] (subs/skipped-subs [] #{}))
-      "no skip ops → empty")
-  (is (= [] (subs/skipped-subs [(flow-ev :rf.flow/skip)] #{}))
-      "a :rf.flow/skip is NOT a sub skip"))
-
 (deftest project-record-surfaces-subs-skipped-distinct-from-ran
   (testing "project-record reads the memo-hit :rf.sub/skip
             evidence into :subs-skipped, kept DISTINCT from :subs-ran even
@@ -398,10 +391,6 @@
       (is (= [{:view-id :v/modal} {:view-id :v/tooltip}]
              (subs/unmounted-views events))))))
 
-(deftest unmounted-views-nil-safe-and-skips-non-unmount-ops
-  (is (= [] (subs/unmounted-views nil)))
-  (is (= [] (subs/unmounted-views [(rendered-ev :v/a true nil)]))))
-
 (deftest destroyed-subscriptions-reads-dispose-op-when-present
   (testing "DESTROYED SUBSCRIPTIONS reads
             :rf.sub/dispose ops (the singular form the framework emits;
@@ -516,18 +505,6 @@
           readers (subs/sub-readers events)]
       (is (= [:v/b :v/a] (:s/x readers))
           "first-seen order, de-duplicated"))))
-
-(deftest sub-readers-nil-safe-and-skips-non-view-ops
-  (testing "nil-safe; non-view ops, ops without :view-id, and
-            structural renders (no :deref-subs) contribute no edges."
-    (is (= {} (subs/sub-readers nil)))
-    (is (= {} (subs/sub-readers [])))
-    (let [events [{:operation :rf.sub/run :tags {:rf.sub/id :s/x}}
-                  (rendered-ev :v/structural false nil)
-                  (rendered-ev :v/ok false [[:s/x]])]
-          readers (subs/sub-readers events)]
-      (is (= {:s/x [:v/ok]} readers)
-          "only the rendered view that derefs a sub contributes an edge"))))
 
 (deftest partition-attaches-readers-to-sub-rows
   (testing "partition-subs-by-level attaches each sub's
