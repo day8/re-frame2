@@ -1,6 +1,9 @@
 (ns re-frame.cross-spec-dom-cljs-test
-  "Cross-Spec interaction edge cases. One deftest per documented case in
-  spec/Cross-Spec-Interactions.md.
+  "Cross-Spec interaction edge cases, one section per documented case in
+  spec/Cross-Spec-Interactions.md. A case whose path never touches the
+  adapter (#1, #4, #7, #12-#16, #19, #20) is pinned by its
+  `re-frame.adapter.react-shared-suite` `assert-xspec-*` row, which the UIx
+  entry runs on :node-test, and its section here is a pointer.
 
   Each deftest's docstring carries the section anchor from the doc.
 
@@ -12,14 +15,11 @@
   both `-cljs-test` and `-dom-cljs-test`). Browser-only branches gate on
   `(browser?)` and exit early under :node-test.
 
-  Coverage: every interaction pins its cross-spec contract live —
-  including #4 (`:after` no-op via the trace channel), #8 (frame-
-  destroy-during-render), #10 (plain-fn warning under non-default
-  frame), and #16 (server error projection → :rf/response stamp).
-  Interactions whose deeper machinery is exercised end-to-end in a
-  sister test cite that test in their docstring rather than carrying
-  a redundant copy here (#9 → re-frame.runtime-cljs-test, #16 →
-  re-frame.ssr-end-to-end-test).
+  Coverage: every remaining interaction pins its cross-spec contract
+  live — including #8 (frame-destroy-during-render) and #10 (plain-fn
+  warning under non-default frame). #9 is a pointer to
+  re-frame.runtime-cljs-test, which exercises its deeper machinery on
+  this adapter.
 
   ns ends in -cljs-test so shadow-cljs ':node-test' picks it up."
   (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
@@ -31,8 +31,8 @@
             [re-frame.trace.tooling :as rf.trace.tooling]
             ;; Routing ships in day8/re-frame2-routing.
             ;; Required here so its load-time hook + reg-sub
-            ;; registrations fire before this ns's reg-route calls.
-            [re-frame.routing :as rf.routing]
+            ;; registrations fire before the tests below run.
+            [re-frame.routing]
             ;; The `:browser-test` build selects only
             ;; `-dom-cljs-test$`, so the implementation/test corpus does
             ;; not fan `re-frame.machines` / `re-frame.flows` /
@@ -43,8 +43,7 @@
             [re-frame.machines]
             [re-frame.flows]
             [re-frame.epoch]
-            [re-frame.ssr :as rf.ssr]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.ssr]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
@@ -136,34 +135,8 @@
 ;; spec/Cross-Spec-Interactions.md#1-frame-disposal-with-active-machine-instances
 ;; ---------------------------------------------------------------------------
 
-(deftest frame-destroy-with-active-machines
-  "#1 Frame disposal with active machine instances —
-   destroy-frame! emits one :rf.machine.lifecycle/destroyed per active
-   machine, carrying :reason :parent-frame-destroyed."
-  (rf/make-frame {:id :tenant-x :doc "tenant frame with two machines"})
-  ;; EP-0001: machine snapshots are durable runtime-db state.
-  (rf/reg-event :seed
-    (fn [{rt :rf.db/runtime} _]
-      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
-                                {:flow/login    {:state :authed   :data {}}
-                                 :flow/checkout {:state :pending  :data {}}})}))
-  (rf/dispatch-sync [:seed] {:frame :tenant-x})
-  (with-trace-recorder! [traces]
-    (rf/destroy-frame! :tenant-x)
-    (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
-                                      (:operation %))
-                                 @traces)]
-      (is (= 2 (count machine-traces))
-          "one trace per active machine snapshot at frame destroy")
-      (is (every? #(= :tenant-x (:frame (:tags %))) machine-traces)
-          "each trace carries the destroyed frame's id")
-      (is (= #{:authed :pending}
-             (set (map #(:last-state (:tags %)) machine-traces)))
-          "each trace records the machine's last state")
-      (is (every? #(= :parent-frame-destroyed (:reason (:tags %))) machine-traces)
-          "each trace carries :reason :parent-frame-destroyed")
-      (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
-          ":rf.frame/destroyed fires after the per-machine traces"))))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-frame-destroy-with-active-machines`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 2 — Sub-cache hit inside a machine microstep
@@ -237,50 +210,8 @@
 ;; spec/Cross-Spec-Interactions.md#4-machines-under-ssr-allowed-subset
 ;; ---------------------------------------------------------------------------
 
-(deftest after-noop-shape-under-ssr-server-preset
-  "#4 Machines under SSR (allowed-subset) —
-   the frame is tagged :platform :server, which
-   is the channel through which `:after` is suppressed. The
-   `:after`-no-op end-to-end check fires through the trace channel
-   (`:rf.machine.timer/skipped-on-server`) — no real timer harness is
-   needed because the gate emits a synchronous, observable trace at
-   schedule time. See machines.cljc §`:after`-scheduling, where the
-   `:server` branch emits `:rf.machine.timer/skipped-on-server` in
-   place of `:rf.machine.timer/scheduled`."
-  (rf/make-frame {:id :req :platform :server})
-  (let [meta (rf/frame-meta :req)]
-    (is (= :server (:platform meta))
-        "the frame tag lands as :platform :server on the frame metadata"))
-  ;; Register a machine whose `:loading` state declares an `:after` table.
-  ;; The transition `:idle → :loading` enters an `:after`-bearing state;
-  ;; on a non-SSR frame this would emit `:rf.machine.timer/scheduled`. On
-  ;; the `:platform :server` frame it must emit
-  ;; `:rf.machine.timer/skipped-on-server` and NOT schedule a real timer
-  ;; (per Cross-Spec-Interactions §4 and Spec 005 §SSR mode). The trace
-  ;; channel is the observable end-to-end signal — no timer harness is
-  ;; required because the gate fires synchronously at schedule time.
-  (rf/reg-machine :ssr/timed
-    {:initial :idle
-     :data    {}
-     :states  {:idle    {:on {:fetch {:target :loading}}}
-               :loading {:after {500 :awake}}
-               :awake   {}}})
-  (with-trace-recorder! [traces]
-    (rf/dispatch-sync [:ssr/timed [:fetch]] {:frame :req})
-    (let [skipped   (filter #(= :rf.machine.timer/skipped-on-server
-                                (:operation %))
-                            @traces)
-          scheduled (filter #(= :rf.machine.timer/scheduled
-                                (:operation %))
-                            @traces)]
-      (is (seq skipped)
-          ":after on a :platform :server frame emits :rf.machine.timer/skipped-on-server")
-      (is (some #(= :server (get-in % [:tags :platform])) skipped)
-          "the skipped-on-server trace records :platform :server")
-      (is (some #(= 500 (get-in % [:tags :delay])) skipped)
-          "the trace carries the declared :after delay")
-      (is (empty? scheduled)
-          "no :rf.machine.timer/scheduled trace fires on a :platform :server frame — :after is a true no-op, not a deferred schedule"))))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-after-noop-shape-under-ssr-server-preset`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 5 — Hydration with machine snapshots
@@ -340,21 +271,8 @@
 ;; spec/Cross-Spec-Interactions.md#7-route-not-found-under-ssr
 ;; ---------------------------------------------------------------------------
 
-(deftest route-not-found-ssr-status
-  "#7 Route-not-found under SSR —
-   match-url returns nil-id for an unmatched URL; route-not-found is
-   normal control flow, not an :rf.error trace."
-  (rf/reg-route :user/show {} "/users/:id")
-  (let [m (rf.routing/match-url "/no-such-thing")]
-    (is (nil? (:route-id m))
-        "match-url surfaces no route-id for an unmatched URL"))
-  ;; The error-projector contract is the user-side concern; here we
-  ;; confirm that match-url itself does not emit :rf.error traces for
-  ;; an unmatched URL — i.e., a missing route is signal, not an error.
-  (with-trace-recorder! [traces]
-    (rf.routing/match-url "/no-such-thing")
-    (is (empty? (filter #(= :error (:op-type %)) @traces))
-        "match-url is pure: route-not-found does not emit error traces")))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-route-not-found-ssr-status`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 8 — Frame disposal during render
@@ -1101,180 +1019,40 @@
 ;; spec/Cross-Spec-Interactions.md#12-effect-handler-throws-inside-a-machine-actions-fx
 ;; ---------------------------------------------------------------------------
 
-(deftest machine-fx-handler-throws
-  "#12 Effect handler throws inside a machine action's :fx —
-   the snapshot commit precedes :fx; if a fx handler throws the walk
-   continues to subsequent :fx entries (rule: ordering ≠ dependency)."
-  (let [seen (atom [])]
-    (rf/reg-fx :throwy (fn [_ _] (throw (ex-info "fx-bang" {}))))
-    (rf/reg-fx :record  (fn [_ args] (swap! seen conj args)))
-    (let [machine {:initial :idle
-                   :data    {}
-                   :states  {:idle {:on {:go {:target :done :action :emit-fx}}}
-                             :done {}}
-                   :actions {:emit-fx
-                             (fn [_]
-                               {:fx [[:throwy :a]
-                                     [:record :b]]})}}]
-      (rf/reg-machine :test/m machine)
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:test/m [:go]])
-        (is (some #(and (= :rf.error/fx-handler-exception (:operation %))
-                        (= :throwy (get-in % [:tags :rf.fx/id])))
-                  @traces)
-            "the throwing fx surfaces as :rf.error/fx-handler-exception")
-        (is (= [:b] @seen)
-            ":fx walk continued past the throwing fx — :record still ran")
-        (is (= :done
-               (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :state]))
-            "the machine snapshot committed even though a downstream :fx threw")))))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-machine-fx-handler-throws`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 13 — Hot-reload of a machine action while instance is running
 ;; spec/Cross-Spec-Interactions.md#13-hot-reload-of-a-machine-action-while-instance-is-running
 ;; ---------------------------------------------------------------------------
 
-(deftest hot-reload-machine-action
-  "#13 Hot-reload of a machine action —
-   re-registering the machine handler picks up the new action body for
-   the next dispatched event; in-flight events complete against the
-   handler resolved at the start of the drain cycle."
-  (let [machine-v1 {:initial :idle
-                    :data    {}
-                    :states  {:idle    {:on {:go {:target :working
-                                                  :action :tag}}}
-                              :working {:on {:go {:target :idle
-                                                  :action :tag}}}}
-                    :actions {:tag (fn [{data :data}]
-                                     {:data (assoc data :who :v1)})}}
-        machine-v2 (assoc-in machine-v1 [:actions :tag]
-                             (fn [{data :data}] {:data (assoc data :who :v2)}))]
-    (rf/reg-machine :test/m machine-v1)
-    (rf/dispatch-sync [:test/m [:go]])
-    (is (= :v1 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                       [:rf.runtime/machines :snapshots :test/m :data :who]))
-        "v1 action ran on the first dispatch")
-    ;; Hot-reload — re-register with v2 spec.
-    (rf/reg-machine :test/m machine-v2)
-    (rf/dispatch-sync [:test/m [:go]])
-    (is (= :v2 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                       [:rf.runtime/machines :snapshots :test/m :data :who]))
-        "the next dispatched event resolves to the new action body")))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-hot-reload-machine-action`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 14 — Re-entrant dispatch from inside a render
 ;; spec/Cross-Spec-Interactions.md#14-re-entrant-dispatch-from-inside-a-render
 ;; ---------------------------------------------------------------------------
 
-(deftest dispatch-sync-from-handler-raises
-  "#14 Re-entrant dispatch from inside a render —
-   dispatch-sync from inside a running drain raises
-   :rf.error/dispatch-sync-in-handler. (The render-time variant of this
-   is identical at the runtime layer.)"
-  (with-trace-recorder! [traces]
-    (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
-    (rf/reg-event :nested
-      (fn [_ _]
-        (rf/dispatch-sync [:outer])
-        {}))
-    (rf/dispatch-sync [:nested])
-    (is (some (fn [ev]
-                (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
-                     (= :error (:op-type ev))))
-              @traces)
-        "a nested dispatch-sync emits :rf.error/dispatch-sync-in-handler")))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-dispatch-sync-from-handler-raises`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 15 — Re-spawning a machine instance via Tool-Pair
 ;; spec/Cross-Spec-Interactions.md#15-re-spawning-a-machine-instance-via-tool-pair
 ;; ---------------------------------------------------------------------------
 
-(deftest time-travel-revert
-  "#15 Re-spawning a machine instance via Tool-Pair —
-   replace-container! reverts app-db (including the [:rf.runtime/machines :snapshots ...]
-   slice); the machine handler is still in the registrar so the next
-   dispatch resolves it and reads the restored snapshot."
-  (let [machine {:initial :idle
-                 :data    {}
-                 :states  {:idle    {:on {:go {:target :working}}}
-                           :working {:on {:go {:target :idle}}}}}]
-    (rf/reg-machine :test/m machine)
-    ;; Drive the machine to :working.
-    (rf/dispatch-sync [:test/m [:go]])
-    (let [post-go-rt (:rf.db/runtime (rf/frame-state-value :rf/default))]
-      (is (= :working (get-in post-go-rt [:rf.runtime/machines :snapshots :test/m :state]))
-          "machine reached :working")
-      ;; Tool-Pair-style revert: write the RUNTIME-DB PARTITION to a snapshot
-      ;; where the machine is in :idle (EP-0001 — machine snapshots
-      ;; are durable runtime-db state, so revert via swap-runtime-db!).
-      (rf.frame/swap-runtime-db! :rf/default
-        (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :test/m :state] :idle)))
-      (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/machines :snapshots :test/m :state]))
-          "after replace-container! the snapshot reads back as :idle")
-      ;; Re-dispatch — the existing handler resolves and reads the
-      ;; restored snapshot, transitioning :idle → :working again.
-      (rf/dispatch-sync [:test/m [:go]])
-      (is (= :working (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                              [:rf.runtime/machines :snapshots :test/m :state]))
-          "re-dispatch after revert advances from the restored state"))))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-time-travel-revert`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 16 — Error projection on the server
 ;; spec/Cross-Spec-Interactions.md#16-error-projection-on-the-server
 ;; ---------------------------------------------------------------------------
 
-(deftest server-error-projection-shape
-  "#16 Error projection on the server —
-   when a handler throws on a :platform :server frame, :rf.error/handler-
-   exception fires; the user-supplied projector consumes the trace and
-   stamps the public-error's :status onto the [:rf/response]
-   accumulator (per Spec 011 §Server error projection — \"runtime sets
-   :rf.server/set-status to the public-error's :status\").
-
-   This test pins both halves of the cross-spec contract:
-     1. the trace channel — :rf.error/handler-exception fires under
-        :platform :server, tagged with the request frame's id; and
-     2. the projection seam — apply-error-projection! resolves the
-        active projector, projects the captured trace, and stamps
-        :status onto :rf/response.
-
-   `apply-error-projection!` is the documented host-driver surface
-   (Spec 011 §Server error projection); the per-process auto-listener
-   that buffers traces and applies projection at get-response time is
-   re-frame.ssr's convenience layer over the same seam. The reset-
-   runtime fixture deregisters all trace listeners between tests, so
-   we exercise the host-driver surface directly here. The full JVM
-   request-lifecycle shape (drain → get-response → :status on the
-   response map, including listener-driven buffering) is covered by
-   re-frame.ssr-end-to-end-test/ssr-default-error-projector-handler-
-   exception."
-  (rf/make-frame {:id :req :platform :server})
-  (rf/reg-event :handler-throws
-    (fn [_ _] (throw (ex-info "boom" {}))))
-  (with-trace-recorder! [traces]
-    (rf/dispatch-sync [:handler-throws] {:frame :req})
-    (let [errs (filter #(= :rf.error/handler-exception (:operation %)) @traces)]
-      (is (seq errs)
-          ":rf.error/handler-exception fires on the server frame for a thrown handler")
-      (is (some #(= :req (get-in % [:tags :frame])) errs)
-          "the trace records the request frame's id")
-      ;; Cross-spec: the captured trace projects to a public-error map
-      ;; (the locked four-key shape per Spec 011 §Public error shape)
-      ;; AND the resolved response carries that projection's :status.
-      ;; This is the seam an SSR host uses to build the wire response.
-      (let [err          (first errs)
-            public-error (rf.ssr/apply-error-projection! :req err)]
-        (is (= 500 (:status public-error))
-            "default projector maps :rf.error/handler-exception → :status 500")
-        (is (= :internal-error (:code public-error))
-            "default projector's :code is :internal-error")
-        (is (false? (:retryable? public-error))
-            "default projector's :retryable? is false (handler exception is not retryable)")
-        (is (string? (:message public-error))
-            "default projector emits a one-sentence human :message")
-        (is (= 500 (:status (rf.ssr/get-response :req)))
-            "the projector's :status is stamped onto the [:rf/response] accumulator")))))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-server-error-projection-shape`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 17 — Machine error inside SSR
@@ -1340,43 +1118,13 @@
 ;; spec/Cross-Spec-Interactions.md#19-story-decorators-that-override-fx
 ;; ---------------------------------------------------------------------------
 
-(deftest portable-story-fx-override
-  "#19 Story decorators that override fx —
-   id-valued fx-overrides on the frame redirect calls to the override
-   target; the same map is portable across stories and tests."
-  (let [seen (atom [])]
-    (rf/reg-fx :http             (fn [_ args] (swap! seen conj [:real-http args])))
-    (rf/reg-fx :rf.test/http-stub (fn [_ args] (swap! seen conj [:stub args])))
-    ;; Frame with an id-valued override: :http is rerouted to :rf.test/http-stub.
-    (rf/make-frame {:id :story-frame :fx-overrides {:http :rf.test/http-stub}})
-    (rf/reg-event :go (fn [_ _] {:fx [[:http {:url "/x"}]]}))
-    (rf/dispatch-sync [:go] {:frame :story-frame})
-    (is (= [[:stub {:url "/x"}]] @seen)
-        "the id-valued override redirected :http → :rf.test/http-stub")))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-portable-story-fx-override`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 20 — Adapter swap mid-process is forbidden
 ;; spec/Cross-Spec-Interactions.md#20-adapter-swap-mid-process-is-forbidden
 ;; ---------------------------------------------------------------------------
 
-(deftest adapter-already-installed
-  "#20 Adapter swap mid-process is forbidden —
-   a second install-adapter! call without an intervening dispose throws
-   :rf.error/adapter-already-installed."
-  ;; reset-runtime has already installed the Reagent adapter; calling
-  ;; install-adapter! again should throw.
-  (let [thrown? (try
-                  (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
-                  false
-                  (catch :default e
-                    ;; Branch on the canonical :rf.error/id
-                    ;; discriminator, never on the (human-sentence) message.
-                    (= :rf.error/adapter-already-installed
-                       (:rf.error/id (ex-data e)))))]
-    (is thrown?
-        "second install-adapter! raises :rf.error/adapter-already-installed"))
-  ;; Sanity-check the destroy-then-install path remains valid.
-  (rf/destroy-adapter!)
-  (rf.substrate.adapter/install-adapter! rf.adapter.reagent/adapter)
-  (is (some? (rf.substrate.adapter/current-adapter))
-      "after destroy, install succeeds again — clean swap path"))
+;; Pinned by `re-frame.adapter.react-shared-suite/assert-xspec-adapter-already-installed`,
+;; which the UIx entry runs on :node-test; the path never touches the adapter.
