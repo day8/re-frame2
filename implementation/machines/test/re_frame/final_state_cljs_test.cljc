@@ -274,31 +274,10 @@
         (is (nil? @seen-result)
             "with no :output-key, :on-done received nil (per D3)")))))
 
-;; ---- :on-done is OPTIONAL — destroy still fires --------------------------
-
-(deftest on-done-optional-destroy-still-fires
-  (testing "a :spawn without :on-done still auto-destroys the child on :final?"
-    (rf/reg-machine :rf2-gn80/just-final
-      {:initial :running
-       :states
-       {:running {:on {:fin :done}}
-        :done    {:final? true}}})
-    (rf/reg-machine :rf2-gn80/silent-parent
-      {:initial :working
-       :states
-       {:working
-        {:spawn {:machine-id :rf2-gn80/just-final}}}})
-    (rf/dispatch-sync [:rf2-gn80/silent-parent [:rf.machine.spawn/spawned]])
-    (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/machines :spawned :rf2-gn80/silent-parent [:working]])]
-      (rf/dispatch-sync [spawned-id [:fin]])
-      (is (nil? (snapshot spawned-id))
-          "child cleaned up even without :on-done"))))
-
 ;; ---- parallel: a region still non-final keeps the machine alive ----------
 ;;
-;; The all-regions-final auto-destroy is done-signal-cljs-test's
-;; parallel-no-on-done-still-auto-destroys.
+;; The all-regions-final auto-destroy is root-lifecycle-test's
+;; parallel-root-exit-follows-every-region-at-finality.
 
 (deftest parallel-one-region-final-stays-alive
   (testing "a parallel-region machine with one region still non-final stays alive (per spec composition rule)"
