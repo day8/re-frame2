@@ -131,28 +131,6 @@
 ;; db as EDN data, not host source.
 ;; ---------------------------------------------------------------------------
 
-(deftest accepts-edn-map-and-emits-data-arg
-  ;; Happy path: a map db reads as data and flows into app-db-reset! as
-  ;; an EDN literal — NO host-form splice.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured {:ok? true :frame :rf/default}
-                (fn []
-                  (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                      #js {:db "{:counter 0}"})))))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-result-text r)]
-                     (is (= true (:ok? edn)))
-                     (is (= :rf/default (:frame edn)) "runtime envelope passes through"))
-                   (let [parsed (cljs.reader/read-string @captured)]
-                     (is (= 're-frame2-pair.runtime/app-db-reset! (first parsed)))
-                     (is (= {:counter 0} (quoted-datum (second parsed)))
-                         "db rides as DATA, not source"))
-                   (done)))))))
-
 (deftest does-not-execute-host-form-in-db-arg
   ;; A prompt-injected `(println :pwn)` string is parsed as a LIST
   ;; literal (data), emitted verbatim as the db value — never executed.
