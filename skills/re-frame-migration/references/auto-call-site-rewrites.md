@@ -91,10 +91,12 @@ rg -n '\[\s*(re-frame\.[A-Za-z0-9_.-]+)' . --only-matching --multiline --replace
 (subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)
 (re-frame.core/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default) ; public v1 no-arg name
 (reg/get-handler kind id) → (rf/handler-meta {:source :store :kind kind :id id}) ; INTROSPECTING call sites only; returns the registration metadata map (no raw handler fn is exposed publicly in v2) — a site that CALLS the result is Type B, see the caveat below
-(re-frame.utils/map-vals f m) → (clojure.core/update-vals m f) ; Clojure 1.11+ (note arg order: update-vals takes the map first)
+(re-frame.utils/map-vals f m) → (into {} (map (fn [[k v]] [k (f v)])) m) ; v1's own body, so behaviour is unchanged; update-vals only per the note below
 ```
 
 **Note (M-1 `get-handler` rewrite)**: the rewrite above targets `rf/handler-meta`, which is the actual public registrar-query surface in `re-frame.core`. The MIGRATION.md M-1 row was corrected to match — there is no `rf/get-handler` in v2.
+
+**Note (M-1 `map-vals` rewrite)**: the default replacement is v1's own body, so values, metadata and accepted inputs stay as they were. The shorter `(update-vals m f)` (Clojure 1.11+, map first) differs twice. It keeps `m`'s metadata, where `map-vals` dropped it, and values still compare equal, so `=` cannot see the change. It also expects a map, where `map-vals` took any sequence of `[k v]` pairs: an entry sequence such as `[[:a 1]]` throws or comes back reshaped. Use `update-vals` only where the source shows that `m` is always a map and that nothing reads the result's metadata.
 
 **Caveat (M-1 `get-handler` → `handler-meta` is NOT verbatim where the result is CALLED — silent wrong value):** the corpus row carries a condition the one-line rewrite above cannot — *"For call sites that introspected the registration this is the right surface; a call site that actually **invoked** the returned handler fn needs a rethink (flag for review)"* ([`MIGRATION.md` §M-1](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md#m-1-private-namespace-access--re-framedb-re-framerouter-re-framesubs-re-frameevents-re-frameregistrar--public-clear-subscription-cache-rename)). `handler-meta` returns the registration **metadata map**, not the handler fn — and the dominant v1 use of `re-frame.registrar/get-handler` is a test suite invoking the handler directly, `((reg/get-handler :event :foo) cofx [:foo 1])`.
 
