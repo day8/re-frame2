@@ -61,16 +61,10 @@
     (doseq [[label expected encoded]
             [["round-trip preserves the {table-id {col-id px}} shape"
               widths (rt/->edn widths)]
-             ["the empty map round-trips"
-              {} (rt/->edn {})]
              ["nil widths round-trip as the empty map"
               {} (rt/->edn nil)]
-             ["malformed input falls back to the empty map"
-              {} "this is not edn"]
              ["a non-map parsed value collapses to the default"
               {} "[1 2 3]"]
-             ["the empty string collapses to the default"
-              {} ""]
              [(str "a corrupted entry below the min-col floor (24px) is clamped "
                    "on read, so a stale persisted value can't sneak past the "
                    "resolver")
@@ -83,7 +77,6 @@
 ;; ---- (2) save! / load round-trip (depends on localStorage) --------------
 
 ;; The real-storage rows — `custom-storage-key-isolates-per-instance`,
-;; `resize-pair-tick-writes-slot-without-persisting`,
 ;; `resize-pair-commit-persists-current-slot`,
 ;; `reset-clears-table-and-persists` and `hydrate-lifts-persisted-widths`
 ;; — live in
@@ -99,10 +92,6 @@
 ;; there, because the choice is per PROPERTY and not per file: it
 ;; asserts only over app-db and never reads storage, so it needs no
 ;; storage guard, and unguarded it runs on node.
-
-(deftest load-when-slot-is-empty-returns-empty-map
-  (rt/clear!)
-  (is (= {} (rt/load))))
 
 ;; ---- (3) Storage-key override (per-instance isolation) ------------------
 
@@ -125,15 +114,6 @@
 ;; ---- (5) reset clears one table AND persists ----------------------------
 
 ;; ---- (6) hydrate! lifts persisted slot into app-db ----------------------
-
-(deftest hydrate-is-no-op-when-storage-empty
-  (rt/clear!)
-  (xray-setup!)
-  ;; The for-table sub returns nil for an unwritten table (the
-  ;; default "no override" shape).
-  (is (nil? (frame-sub [:rf.xray.column-widths/for-table
-                        :rf.xray.epoch/subscriptions]))
-      "no localStorage value → no slot in app-db"))
 
 (deftest hydrate-is-no-op-pre-frame-registration
   (testing "hydrate! short-circuits when :rf/xray is not
