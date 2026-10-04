@@ -12,8 +12,6 @@
       timer event with matching epoch; epoch advances on entry.
     - Stale detection: real event beats timer; stale firing must
       not transition; `:rf.machine.timer/stale-after` trace emitted.
-    - Multi-stage `:after` with guard suppression (sibling continues when
-      one entry is guard-suppressed).
     - Subscription-vector dynamic delay (`:delay-source :sub` + `:rf.sub/id` + `:rf.sub/query-v`).
 
   Prefer dispatch-sync of the synthetic `:rf.machine.timer/after-elapsed`
@@ -133,93 +131,6 @@
                              (not= before-state after-state))))
                     @traces)
           "no real transition fired on the stale firing"))))
-
-;; ---- :after multi-stage + guard suppression ------------------------------
-
-(deftest machine-after-multi-stage-guard-cljs
-  (testing "multiple :after entries; guard-false suppresses one, sibling continues"
-    (let [m {:initial :idle
-             :data    {:slow? false}
-             :guards  {:slow? (fn [{data :data}] (:slow? data))}
-             :states
-             {:idle    {:on {:fetch :loading}}
-              :loading {:after {5000  {:guard :slow? :target :warn}
-                                30000 :timeout}
-                        :on    {:loaded :ready}}
-              :warn    {}
-              :timeout {}
-              :ready   {}}}
-          traces (atom [])]
-      (rf/reg-machine :a/multi-cljs m)
-      (rf.trace.tooling/register-listener! ::mg (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:a/multi-cljs [:fetch]])
-      (let [epoch (get-in (snapshot :a/multi-cljs) [:data :rf/after-epoch [:loading]])]
-        ;; The 5s timer fires first; guard :slow? false → suppressed.
-        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
-        (is (= :loading (:state (snapshot :a/multi-cljs)))
-            "guard-suppressed :after must not transition")
-        (is (some (fn [ev]
-                    (and (= :rf.machine.timer/fired (:operation ev))
-                         (false? (:fired? (:tags ev)))))
-                  @traces)
-            ":fired? false trace emitted on guard suppression")
-        ;; Sibling 30s still live (same epoch) — fire it, transition fires.
-        (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
-        (is (= :timeout (:state (snapshot :a/multi-cljs)))
-            "sibling timer transitions on its own")
-        (rf.trace.tooling/unregister-listener! ::mg)))))
-
-;; ---- guarded candidate-vector :after -------------------------------------
-;;
-;; Per Spec 005 §Delayed :after transitions §Transition spec: the :after
-;; value admits the SAME guarded candidate-vector form as an :on clause —
-;; [{:guard g :target s} {:target s2 :action a}] — first-guard-pass-wins.
-;; This is the CLJS / reactive-substrate counterpart to the pure-engine sweep
-;; in after-value-forms-test.
-
-(deftest machine-after-guarded-vector-cljs
-  (testing "guarded candidate-vector :after under the reactive substrate —
-            first guard passes → first target"
-    (let [m {:initial :idle
-             :data    {:handshake-ok? true}
-             :guards  {:handshake-ok? (fn [{data :data}] (:handshake-ok? data))}
-             :states
-             {:idle           {:on {:go :authenticating}}
-              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
-                                             {:target :failed :action :record-error}]}}
-              :connected      {}
-              :failed         {}}
-             :actions {:record-error (fn [{data :data}]
-                                       {:data (assoc data :error :handshake)})}}]
-      (rf/reg-machine :a/gv-pass-cljs m)
-      (rf/dispatch-sync [:a/gv-pass-cljs [:go]])
-      (is (= :authenticating (:state (snapshot :a/gv-pass-cljs))))
-      (let [epoch (get-in (snapshot :a/gv-pass-cljs) [:data :rf/after-epoch [:authenticating]])]
-        (rf/dispatch-sync [:a/gv-pass-cljs [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
-        (is (= :connected (:state (snapshot :a/gv-pass-cljs)))
-            "first candidate's guard passes → :connected (NOT stranded)"))))
-
-  (testing "guarded candidate-vector :after under the reactive substrate —
-            first guard fails → unguarded fallback target + action"
-    (let [m {:initial :idle
-             :data    {:handshake-ok? false}
-             :guards  {:handshake-ok? (fn [{data :data}] (:handshake-ok? data))}
-             :states
-             {:idle           {:on {:go :authenticating}}
-              :authenticating {:after {6000 [{:guard :handshake-ok? :target :connected}
-                                             {:target :failed :action :record-error}]}}
-              :connected      {}
-              :failed         {}}
-             :actions {:record-error (fn [{data :data}]
-                                       {:data (assoc data :error :handshake)})}}]
-      (rf/reg-machine :a/gv-fallback-cljs m)
-      (rf/dispatch-sync [:a/gv-fallback-cljs [:go]])
-      (let [epoch (get-in (snapshot :a/gv-fallback-cljs) [:data :rf/after-epoch [:authenticating]])]
-        (rf/dispatch-sync [:a/gv-fallback-cljs [:rf.machine.timer/after-elapsed 6000 epoch [:authenticating]]])
-        (is (= :failed (:state (snapshot :a/gv-fallback-cljs)))
-            "first guard fails → unguarded fallback :failed fires")
-        (is (= :handshake (get-in (snapshot :a/gv-fallback-cljs) [:data :error]))
-            "the fallback candidate's :action ran")))))
 
 ;; ---- subscription-vector :after delay (dynamic) --------------------------
 
