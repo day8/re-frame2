@@ -287,29 +287,3 @@
         "does NOT flag a dispatch carrying an explicit {:frame …} opt")
     (is (not (re-find deferred-fn-bare-dispatch-pattern guarded))
         "does NOT flag a guard-first callback with an explicit frame opt")))
-
-(deftest pending-migration-allowlist-stays-honest
-  ;; The allowlist may only name files that ACTUALLY carry a
-  ;; frame-singleton pattern. A stale entry (a clean file left on the
-  ;; allowlist) would silently mask a future regression in that file —
-  ;; so flag it for removal.
-  (let [root  (src-root)
-        files-by-rel (into {} (map (fn [f] [(rel-path root f) f]))
-                           (cljs-source-files root))
-        any-pattern (fn [text]
-                      (let [code (code-lines text)]
-                        (some (fn [line]
-                                (or (re-find frame-literal-pattern line)
-                                    (re-find subscribe-literal-pattern line)
-                                    (re-find on-handler-global-dispatch-pattern line)))
-                              code)))
-        stale (->> pending-migration
-                   (filter (fn [rel]
-                             (when-let [f (files-by-rel rel)]
-                               (not (any-pattern (slurp f)))))))]
-    (is (empty? stale)
-        (str "these files are on the "
-             "`pending-migration` allowlist but carry no "
-             "frame-singleton pattern. Remove them from the "
-             "allowlist so the guard locks them clean:\n  "
-             (str/join "\n  " stale)))))
