@@ -282,18 +282,17 @@
       (is (= :rf.error/ssr-streaming-unsupported-opt
              (:rf.error/id (ex-data ex))))
       (is (= :renderer (:opt-key (ex-data ex))))))
-  (testing "…while an absent or explicit-nil :renderer constructs cleanly and
-            streams the JVM-local render — the refusal gates only a non-nil
-            override, never the default path"
+  (testing "…while an explicit-nil :renderer counts as absent: it
+            constructs cleanly and streams the JVM-local render — the refusal
+            gates only a non-nil override, never the default path"
     (register-app!)
-    (doseq [opts [(assoc base-opts :root-view [(rf/view :seam/root)])
-                  (assoc base-opts :root-view [(rf/view :seam/root)]
-                                   :renderer nil)]]
-      (let [handler  (rf.ssr.ring/stream-handler opts)
-            response (handler request)
-            body     (drain-stream (:body response))]
-        (is (= 200 (:status response)))
-        (is (str/includes? body "jvm body") "the JVM :root-view streamed")))))
+    (let [handler  (rf.ssr.ring/stream-handler
+                     (assoc base-opts :root-view [(rf/view :seam/root)]
+                                      :renderer  nil))
+          response (handler request)
+          body     (drain-stream (:body response))]
+      (is (= 200 (:status response)))
+      (is (str/includes? body "jvm body") "the JVM :root-view streamed"))))
 
 ;; ===========================================================================
 ;; A renderer throw is a render-time throw

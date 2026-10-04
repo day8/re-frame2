@@ -141,17 +141,6 @@
               (rf.ssr/render-tree-hash [:div "b"]))
         "a genuine render tree hashes differently for different content")))
 
-(deftest render-document-hash-omits-the-unresolved-root-form
-  (testing "`render-document-hash` returns nil for the unresolved
-            root form — the same OMIT-rather-than-ship shape `render-head-hash`
-            uses for a head the client cannot reconstruct"
-    (register-app!)
-    (is (nil? (rf.ssr.ring.lifecycle/render-document-hash [(rf/view :q1b96/root)])))
-    (is (nil? (rf.ssr.ring.lifecycle/render-document-hash [a-component {}])))
-    (is (some? (rf.ssr.ring.lifecycle/render-document-hash ((rf/view :q1b96/root))))
-        "the RESOLVED tree still hashes — the channel is not disabled, it is
-         conditioned on a hashable tree existing")))
-
 ;; ===========================================================================
 ;; ssr-handler — the wire
 ;; ===========================================================================

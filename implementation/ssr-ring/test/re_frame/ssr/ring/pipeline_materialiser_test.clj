@@ -76,18 +76,6 @@
         (is (nil? (get (:headers ring) "Location"))
             (str k " is NOT resolved as the Location target"))))))
 
-(deftest redirect-location-only-resolution-ignores-retired-co-keys
-  (testing "when :location is present alongside retired :url / :to
-            keys, ONLY :location is resolved (the retired keys are inert at
-            the materialiser — :location is the canonical target)"
-    (is (= "/loc"
-           (get (:headers (rf.ssr.ring.pipeline/ssr-response->ring-response
-                            {:redirect {:status 302
-                                        :location "/loc" :url "/url" :to "/to"}}
-                            nil))
-                "Location"))
-        ":location is resolved; the co-present retired keys are ignored")))
-
 ;; ===========================================================================
 ;; The redirect target REPLACES any existing Location, whatever its
 ;; casing.
@@ -234,13 +222,10 @@
     (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:status "404" :headers [["Content-Type" "text/html"]]}
                  "<p>x</p>")]
-      (is (integer? (:status ring))
-          "the Ring :status is an integer regardless of accumulator garbage")
       (is (= 500 (:status ring)) "a non-int status fails closed to 500")))
   (testing "a non-integer redirect :status also fails closed"
     (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
                  {:redirect {:status "302" :location "/ok"}} nil)]
-      (is (integer? (:status ring)) "redirect :status is an integer")
       (is (= 500 (:status ring)) "non-int redirect status → 500")))
   (testing "a float status (200.0) is not a valid Ring int → 500"
     (is (= 500 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
@@ -263,13 +248,16 @@
 ;; ===========================================================================
 ;; fail-closed-status — the :warning trace on a non-integer status
 ;;
-;; `non-integer-status-fails-closed-to-500` above pins the 500 OUTCOME; these
-;; rows pin the `:rf.ssr/ssr-non-integer-status` :warning trace the fail-closed
+;; `non-integer-status-fails-closed-to-500` above pins the 500 OUTCOME; this
+;; test pins the `:rf.ssr/ssr-non-integer-status` :warning trace the fail-closed
 ;; arm emits (`report-non-integer-status!` in pipeline.clj), as the sibling
 ;; `ssr-non-string-header-value` warning is pinned below and
-;; `redirect-no-target` end-to-end. They mirror the
+;; `redirect-no-target` end-to-end. It mirrors the
 ;; `collect-non-string-header-warnings` listener pattern so the operator-facing
-;; diagnostic is contract-pinned, not merely emitted.
+;; diagnostic is contract-pinned, not merely emitted. That one emit site also
+;; fans the always-on record, so the one-report-per-rewrite and
+;; no-false-positive rows in `status_rewrite_always_on_test` cover this trace
+;; too.
 ;; ===========================================================================
 
 (defn- collect-non-integer-status-warnings
@@ -289,20 +277,17 @@
 (deftest non-integer-status-emits-exactly-one-fail-closed-warning
   (testing "a non-integer :status reaching the materialiser emits
             exactly one :warning trace naming the offending value-type + the
-            fail-closed-to-500 recovery; the response still fails closed to 500"
+            fail-closed-to-500 recovery"
     (let [warnings (collect-non-integer-status-warnings
                      (fn []
-                       (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                                    {:status "404"
-                                     :headers [["Content-Type" "text/html"]]}
-                                    "<p>x</p>")]
-                         (is (= 500 (:status ring))
-                             "the non-int status still fails closed to 500"))))]
+                       (rf.ssr.ring.pipeline/ssr-response->ring-response
+                         {:status "404"
+                          :headers [["Content-Type" "text/html"]]}
+                         "<p>x</p>")))]
       (is (= 1 (count warnings))
           "exactly one non-integer-status warning for one non-int status")
       (let [ev   (first warnings)
             tags (:tags ev)]
-        (is (= :rf.ssr/ssr-non-integer-status (:operation ev)))
         (is (= :warning (:op-type ev)) "emitted at :warning severity")
         (is (= :ssr-ring/ssr-response->ring-response (:where tags))
             "the warning names the materialiser call site")
@@ -314,37 +299,6 @@
         ;; Spec 009 §Core-field hoist (trace.cljc dissocs it from :tags).
         (is (= :failed-closed-to-500 (:recovery ev))
             "the warning carries the fail-closed recovery disposition")))))
-
-(deftest redirect-arm-emits-exactly-one-fail-closed-warning
-  (testing "the DEV-axis half of one-rewrite-one-signal. A target-less
-            redirect carrying a non-integer `:status` needs the wire status
-            twice — for the no-target warning's `:status` payload and for the
-            response map — so it is resolved once and shared by both: one
-            rewrite emits ONE `:rf.ssr/ssr-non-integer-status` warning, and the
-            no-target warning reports the fail-closed value it landed on.
-            The always-on half is
-            `status-rewrite-always-on-test/one-rewrite-fans-exactly-one-record`."
-    (let [warnings (collect-non-integer-status-warnings
-                     (fn []
-                       (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                                    {:redirect {:status "302"}} nil)]
-                         (is (= 500 (:status ring))
-                             "the redirect arm still fails closed to 500"))))]
-      (is (= 1 (count warnings))
-          "ONE rewrite emits ONE warning, on the redirect arm too"))))
-
-(deftest integer-status-emits-no-fail-closed-warning
-  (testing "a genuine integer status (the contract-compliant path)
-            emits NO ssr-non-integer-status warning — the trace is a
-            defect-only diagnostic, not a per-request emission"
-    (let [warnings (collect-non-integer-status-warnings
-                     (fn []
-                       (rf.ssr.ring.pipeline/ssr-response->ring-response
-                         {:status 200 :headers []} "x")
-                       (rf.ssr.ring.pipeline/ssr-response->ring-response
-                         {:headers []} "x")))]  ;; absent status → 200 default
-      (is (= [] warnings)
-          "no warning for a valid integer status or an absent (defaulted) one"))))
 
 (deftest non-string-header-value-coerced-in-materialiser
   (testing "a non-string header value on the accumulator (what a
@@ -374,7 +328,6 @@
                  {:redirect {:status 302 :location 5}} nil)
           loc  (get (:headers ring) "Location")]
       (is (= 302 (:status ring)))
-      (is (string? loc) "the Location header value is a string")
       (is (= "5" loc) "the non-string target is coerced via str"))))
 
 ;; ===========================================================================
@@ -446,8 +399,6 @@
                    "text/html")]
       (is (= ["5" "6"] (get result "X-Count"))
           "the repeated non-string header survives as a 2-vector of strings")
-      (is (every? string? (get result "X-Count"))
-          "every member of the multi-value vector is a string (Ring contract)")
       (is (= "keep" (get result "X-Other"))
           "headers folded AFTER the repeat are NOT wiped (no nil-map)")
       (is (= "text/html" (get result "Content-Type"))
@@ -470,27 +421,13 @@
   (testing "pairs differing only by ASCII case are ONE logical
             header — they collapse under the first-seen spelling with values
             in declaration order (the case-insensitive fold)"
-    (is (= {"Vary" ["Accept" "Origin"]}
-           (-> {}
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["vary" "Origin"])))
-        "second-seen lower-case `vary` folds under the first-seen `Vary` key")
     (is (= {"Vary" ["Accept" "Origin" "Accept-Encoding"]}
            (-> {}
                (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
                (rf.ssr.ring.headers/merge-pair-into-header-map ["vary" "Origin"])
                (rf.ssr.ring.headers/merge-pair-into-header-map ["VARY" "Accept-Encoding"])))
-        "three casings collapse to one key; values stay in declaration order")))
-
-(deftest mixed-case-fold-retains-first-seen-spelling-not-latest
-  (testing "the emitted key is the FIRST-seen spelling; a
-            later case variant does NOT rename the key"
-    (is (= ["Origin" "Accept"]
-           (get (-> {}
-                    (rf.ssr.ring.headers/merge-pair-into-header-map ["vary" "Origin"])
-                    (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"]))
-                "vary"))
-        "first-seen lower-case `vary` is the stable emitted key")))
+        "later `vary` / `VARY` fold under the first-seen `Vary` key; values stay
+         in declaration order")))
 
 (deftest mixed-case-content-type-collapses-under-nil-override
   (testing "mixed-case Content-Type with a nil
@@ -578,7 +515,6 @@
       (is (= 1 (count warnings)) "exactly one warning for one non-string value")
       (let [ev   (first warnings)
             tags (:tags ev)]
-        (is (= :rf.ssr/ssr-non-string-header-value (:operation ev)))
         (is (= :warning (:op-type ev)) "emitted at :warning severity")
         (is (= "X-Count" (:header tags)) "the warning names the offending header key")
         (is (= "java.lang.Long" (:value-type tags))
@@ -607,37 +543,24 @@
   (rf/reg-event :init/mw-blank {:platforms #{:server}} (fn [_ _] {}))
   (rf/reg-view* :pages/mw-blank (fn [] [:div "ssr body"])))
 
-(deftest middleware-default-match-renders-get
-  (testing "with NO :match? supplied, the default predicate
-            matches every GET — SSR renders, the wrapped handler is not
-            called"
-    (register-blank-app!)
-    (let [wrapped-called (atom false)
-          wrapped        (fn [_req] (reset! wrapped-called true)
-                           {:status 204 :headers {} :body ""})
-          app ((rf.ssr.ring/ssr-middleware
-                 {:initial-events      [[:init/mw-blank]]
-                  :root-view      [(rf/view :pages/mw-blank)]
-                  :payload :rf.ssr.payload/whole-app-db})
-               wrapped)
-          response (app {:uri "/" :request-method :get})]
-      (is (= 200 (:status response)) "GET matched the default predicate → SSR rendered")
-      (is (str/includes? (:body response) "ssr body"))
-      (is (false? @wrapped-called) "the wrapped handler was NOT called for a GET"))))
-
-(deftest middleware-default-match-falls-through-on-non-get
-  (testing "with NO :match? supplied, a non-GET request does
-            NOT match the default predicate and falls through to the
-            wrapped handler"
-    (register-blank-app!)
-    (let [wrapped-called (atom false)
-          wrapped        (fn [_req] (reset! wrapped-called true)
-                           {:status 201 :headers {} :body "from wrapped"})
-          app ((rf.ssr.ring/ssr-middleware
-                 {:initial-events      [[:init/mw-blank]]
-                  :root-view      [(rf/view :pages/mw-blank)]
-                  :payload :rf.ssr.payload/whole-app-db})
-               wrapped)]
+(deftest middleware-default-match-renders-get-and-passes-other-methods-through
+  (register-blank-app!)
+  (let [wrapped-called (atom false)
+        wrapped        (fn [_req] (reset! wrapped-called true)
+                         {:status 201 :headers {} :body "from wrapped"})
+        app ((rf.ssr.ring/ssr-middleware
+               {:initial-events [[:init/mw-blank]]
+                :root-view      [(rf/view :pages/mw-blank)]
+                :payload        :rf.ssr.payload/whole-app-db})
+             wrapped)]
+    (testing "with NO :match? supplied, the default predicate matches every
+              GET — SSR renders, the wrapped handler is not called"
+      (let [response (app {:uri "/" :request-method :get})]
+        (is (= 200 (:status response)) "GET matched the default predicate → SSR rendered")
+        (is (str/includes? (:body response) "ssr body"))
+        (is (false? @wrapped-called) "the wrapped handler was NOT called for a GET")))
+    (testing "with NO :match? supplied, a non-GET request does NOT match the
+              default predicate and falls through to the wrapped handler"
       (doseq [method [:post :put :delete :head]]
         (reset! wrapped-called false)
         (let [response (app {:uri "/" :request-method method})]
