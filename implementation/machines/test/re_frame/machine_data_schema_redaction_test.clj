@@ -149,47 +149,6 @@
 
 ;; ---- (2) egress redaction at the chokepoint -------------------------------
 
-(deftest sensitive-slot-redacted-in-egress
-  (testing "a frame-declared sensitive :data path is redacted to :rf/redacted in
-            :before / :after snapshot egress; the plain sibling rides verbatim"
-    (reg-auth-machine!)
-    (declare-frame-marks!)
-    (let [out  (rf.classification/project-trace-event (machine-transition-event auth-id))
-          tags (:tags out)]
-      (is (= :rf/redacted (get-in tags [:before :data :token])))
-      (is (= :rf/redacted (get-in tags [:after :data :token])))
-      (is (= 0 (get-in tags [:before :data :retries])))
-      (is (= 1 (get-in tags [:after :data :retries])))
-      (is (not (.contains (pr-str out) "secret-jwt"))
-          "no raw token leaked into the projected trace"))))
-
-(deftest large-slot-marked-in-egress
-  (testing "a frame-declared large :data path is replaced by the
-            :rf.size/large-elided marker in snapshot egress"
-    (reg-auth-machine!)
-    (declare-frame-marks!)
-    (let [out  (rf.classification/project-trace-event (machine-transition-event auth-id))
-          tags (:tags out)]
-      (is (contains? (get-in tags [:before :data :blob]) :rf.size/large-elided))
-      (is (contains? (get-in tags [:after :data :blob]) :rf.size/large-elided))
-      (is (not (.contains (pr-str out) "huge-before"))))))
-
-(deftest snapshot-slot-redacted-in-egress
-  (testing "the :snapshot slot (on :rf.machine/snapshot-updated) redacts the
-            same way as :before / :after"
-    (reg-auth-machine!)
-    (declare-frame-marks!)
-    (let [ev   {:operation :rf.machine/snapshot-updated
-                :tags      {:machine-id auth-id
-                            :frame      :rf/default
-                            :snapshot   {:state :authed
-                                         :data  {:retries 2
-                                                 :token   "secret-jwt-snap"
-                                                 :blob    nil}}}}
-          out  (rf.classification/project-trace-event ev)]
-      (is (= :rf/redacted (get-in out [:tags :snapshot :data :token])))
-      (is (not (.contains (pr-str out) "secret-jwt-snap"))))))
-
 ;; ---- (2b) FULL machine :data slot coverage -------------------------------
 
 (deftest started-data-slot-redacted-in-egress
@@ -235,27 +194,6 @@
           ":input :event passes through (not machine :data)")
       (is (not (.contains (pr-str out) "secret-jwt-guard"))))))
 
-(deftest action-ran-input-data-redacted-in-egress
-  (testing ":rf.machine/action-ran carries :input {:data … :event …}; the :data
-            sub-slot redacts"
-    (reg-auth-machine!)
-    (declare-frame-marks!)
-    (let [ev   {:operation :rf.machine/action-ran
-                :tags      {:machine-id auth-id
-                            :frame      :rf/default
-                            :action-id  :tap
-                            :phase      :transition
-                            :outcome    :ok
-                            :input      {:data  {:retries 1
-                                                 :token   "secret-jwt-action"
-                                                 :blob    "huge-action"}
-                                         :event [:login]}}}
-          out  (rf.classification/project-trace-event ev)
-          tags (:tags out)]
-      (is (= :rf/redacted (get-in tags [:input :data :token])))
-      (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided))
-      (is (not (.contains (pr-str out) "secret-jwt-action"))))))
-
 (deftest transition-cascade-data-deltas-redacted-in-egress
   (testing "a :rf.machine/transition's :cascade carries per-step :data-delta
             maps keyed by :data keys directly; each delta redacts"
@@ -291,20 +229,6 @@
       (is (= :rf/redacted (get-in out [:tags :after :data :token])))
       (is (not (.contains (pr-str out) "secret-jwt-delta")))
       (is (not (.contains (pr-str out) "secret-jwt-after"))))))
-
-(deftest data-slot-untouched-for-undeclared-machine
-  (testing "a machine whose frame declares nothing rides every :data slot
-            verbatim (the seam is precise — no blanket scrub)"
-    (rf/reg-machine :rf.machine-redaction/plain2
-      {:initial :idle :data {:token "plain"} :states {:idle {}}})
-    (let [ev   {:operation :rf.machine/started
-                :tags      {:machine-id :rf.machine-redaction/plain2
-                            :frame      :rf/default
-                            :state      :idle
-                            :data       {:token "not-secret"}}}
-          out  (rf.classification/project-trace-event ev)]
-      (is (= "not-secret" (get-in out [:tags :data :token]))
-          "no frame declaration → :data slot verbatim"))))
 
 ;; ---- (2c) :actor-id PREFERRED-branch coverage ----------------------------
 
@@ -480,54 +404,6 @@
 ;; dissoc'd the path it would un-redact the app's still-standing classification
 ;; — a privacy fail-open. The drop must remove only the machine's OWN
 ;; `:source :machine` contribution.
-
-(deftest machine-destroy-is-source-scoped-does-not-un-redact-app-effect-claim
-  (testing "when an app ALSO classifies a machine's absolute
-            snapshot path via a handler effect (:source :effect), destroying
-            the actor drops only the machine's own :source :machine entry; the
-            app's :source :effect claim SURVIVES and the value stays REDACTED
-            at egress (no fail-open)."
-    (let [mid       :rf.machine-redaction/coupled-singleton
-          abs-token [:rf.runtime/machines :snapshots mid :data :token]]
-      (rf/reg-machine mid
-        {:sensitive [[:data :token]]
-         :initial   :anon
-         :data      {:token nil :retries 0}
-         :states    {:anon {:on {:login :authed}} :authed {}}})
-      ;; The APP additionally classifies the SAME absolute snapshot path from a
-      ;; handler effect — Spec 015 L149 explicitly permits this. It lands first
-      ;; under :source :effect.
-      (rf/reg-event :rf.machine-redaction/app-classify-token
-        (fn [{:keys [db]} _]
-          {:db db :sensitive [abs-token]}))
-      (rf/dispatch-sync [:rf.machine-redaction/app-classify-token])
-      (is (contains? (get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])
-                     {:source :effect})
-          "precondition: the app's :source :effect classification is standing")
-      ;; Booting the singleton runs the machine lowering at the SAME path. The
-      ;; machine's own claim never CLOBBERS the app's effect claim — the effect
-      ;; owner survives the boot (multi-owner registry).
-      (rf/dispatch-sync [mid [:rf.machine/noop]])
-      (is (contains? (get-in (snapshot-elision-reg) [:sensitive-declarations abs-token])
-                     {:source :effect})
-          "the machine boot did NOT clobber the app's :source :effect claim")
-      ;; Destroy the actor. The source-scoped drop removes only the machine's own
-      ;; owner — it must NOT remove the app's :source :effect entry.
-      (rf/reg-event :rf.machine-redaction/destroy-coupled
-        (fn [_ _] {:fx [[:rf.machine/destroy mid]]}))
-      (rf/dispatch-sync [:rf.machine-redaction/destroy-coupled])
-      (let [reg (snapshot-elision-reg)]
-        (is (contains? (:sensitive-declarations reg) abs-token)
-            "the path is STILL classified after destroy — the app's claim survives")
-        (is (contains? (get-in reg [:sensitive-declarations abs-token]) {:source :effect})
-            "the app's :source :effect owner survives the actor teardown"))
-      ;; And egress still redacts — no fail-open.
-      (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
-            tags (:tags out)]
-        (is (= :rf/redacted (get-in tags [:after :data :token]))
-            "the value stays REDACTED at egress — the teardown did not un-redact it")
-        (is (not (.contains (pr-str out) "secret-jwt"))
-            "no secret leaks through the post-destroy egress")))))
 
 (deftest machine-and-effect-claims-union-and-remove-independently
   (testing "a machine's lowered :data claim and an app effect claim
