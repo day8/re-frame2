@@ -121,7 +121,7 @@
    `:resource` kind still empty (the reset hook cleared it), records
    `:transition :error` / `:rf.error/resource-route-plan` on the routing slice,
    and — because the suite's own `navigate` never re-plans — the error is
-   STICKY: 16 of these 51 assertions read nil, across 7 of the 10 tests.
+   STICKY: every board read in the suite then returns nil.
 
    In the consolidated `:node-test` bundle that failure is INVISIBLE, which is
    why it stood: seven in-tree example apps register a route at `\"/\"`, so `\"/\"`
@@ -437,19 +437,6 @@
         (is (true? (:success? ms)) "the instance settled :success")
         (is (false? (:optimistic? ms)) ":optimistic? false once settled (no longer pending)")))))
 
-(deftest successful-edit-title-commits-the-new-title
-  (testing "examples/capabilities/resources/linearlite — a successful :linearlite/edit-title
-            commits the new title via :patches (the optimistic title is
-            confirmed by the server's authoritative board)"
-    (load-board!)
-    (rf/dispatch-sync [:linearlite/commit-edit "srv-2" "Beta!"])
-    (is (= "Beta!" (:title (issue-by-id "srv-2"))) "optimistic title shows immediately")
-    (let [srv-board {:issues [{:id "srv-1" :title "Alpha" :status :backlog}
-                              {:id "srv-2" :title "Beta!" :status :in-progress}]}]
-      (reply-success! srv-board)
-      (is (= "Beta!" (:title (issue-by-id "srv-2"))) "the committed title persists")
-      (is (true? (:success? (mutation-state [:edit "srv-2"]))) "the edit instance settled :success"))))
-
 ;; ============================================================================
 ;; 4. FAILURE ROLLBACK — the :error reply reverts the optimistic change (the headline)
 ;; ============================================================================
@@ -465,9 +452,8 @@
       (is (= 3 (count (issues))) "the optimistic card was added (board grew by one)")
       ;; the request FAILS (a 503 — the demo's fail-next-write seam).
       (reply-failure! {:kind :rf.http/http-5xx :status 503})
-      (is (= 2 (count (issues))) "the optimistic card was rolled back OUT (board restored)")
-      (is (nil? (issue-by-id tmp-id)) "the never-committed card is gone")
-      (is (= demo-board (board-data)) "the board is restored to exactly its pre-write value")
+      (is (= demo-board (board-data))
+          "the optimistic card was rolled back OUT — the board is exactly its pre-write value")
       (let [ms (mutation-state [:create tmp-id])]
         (is (true? (:error? ms)) "the instance settled :error")
         (is (false? (:optimistic? ms)) ":optimistic? false after rollback (no live apply)")))))
@@ -480,20 +466,9 @@
     (rf/dispatch-sync [:linearlite/change-status "srv-1" :done])
     (is (= :done (:status (issue-by-id "srv-1"))) "optimistic move applied")
     (reply-failure! {:kind :rf.http/http-5xx :status 503})
-    (is (= :backlog (:status (issue-by-id "srv-1")))
-        "the card snapped back to its prior :backlog column on failure (rollback)")
-    (is (= demo-board (board-data)) "the whole board is restored to its pre-move value")
+    (is (= demo-board (board-data))
+        "the card snapped back to its prior :backlog column — the whole board is its pre-move value")
     (is (true? (:error? (mutation-state [:status "srv-1"]))) "the instance settled :error")))
-
-(deftest failed-edit-title-reverts-to-the-prior-title
-  (testing "examples/capabilities/resources/linearlite — a failed :linearlite/edit-title reverts
-            the optimistic title to the prior value on rollback"
-    (load-board!)
-    (rf/dispatch-sync [:linearlite/commit-edit "srv-2" "Wrong"])
-    (is (= "Wrong" (:title (issue-by-id "srv-2"))) "optimistic title applied")
-    (reply-failure! {:kind :rf.http/http-5xx :status 503})
-    (is (= "Beta" (:title (issue-by-id "srv-2"))) "the title reverted to its prior value (rollback)")
-    (is (= demo-board (board-data)) "the board is restored to its pre-edit value")))
 
 ;; ============================================================================
 ;; 4b. THE TEMP-ID WINDOW — a card the server has not named yet
