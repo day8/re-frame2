@@ -22,8 +22,8 @@
       violates the schema emits the same trace with `:phase :spawn`
       and the install is skipped — the actor never enters the runtime.
 
-   4. **No schema → no validation.** Machines without `[:schemas :data]` run
-      no machine-data validation.
+  That a machine without `[:schemas :data]` runs no machine-data validation is
+  pinned in `update_snapshot_schema_test`.
 
   That `reg-machine` accepts `[:schemas :data]` and round-trips it through
   the `:rf/machine` projection is pinned in `machine_schemas_grammar_test`.
@@ -256,30 +256,10 @@
                             :rf.machine-schema/spawned))
             "rejected spawn: the actor does NOT appear under the :rf/machine? filter")))))
 
-;; ---- (4) no schema → no validation (control) ------------------------------
-
-(deftest no-schema-no-validation
-  (testing "a machine without [:schemas :data] runs without any :where :machine-data trace"
-    (let [spec {:initial :idle
-                :data    {:n "anything goes"}
-                :actions {:set-x (fn [_] {:data {:n 42}})}
-                :states  {:idle {:on {:go {:target :idle :action :set-x}}}}}]
-      (rf/reg-machine :rf.machine-schema/no-schema spec)
-      (let [traces (collect-traces!
-                     (fn []
-                       (rf/dispatch-sync [:rf.machine-schema/no-schema [:noop]])
-                       (rf/dispatch-sync [:rf.machine-schema/no-schema [:go]])))]
-        (is (empty? traces)
-            "no :where :machine-data trace for a no-schema machine")
-        ;; Sanity: the action ran and updated :data.
-        (is (= 42 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                          [:rf.runtime/machines :snapshots :rf.machine-schema/no-schema :data :n]))
-            "the no-schema machine's :data updates normally")))))
-
-;; ---- (5) declaration presence is KEY-presence -----------------------------
+;; ---- (4) declaration presence is KEY-presence -----------------------------
 ;;
 ;; A schema value is OPAQUE to re-frame (Spec 010): an ABSENT [:schemas :data]
-;; key means "no declaration" (case 4 above), while a PRESENT key must hand
+;; key means "no declaration", while a PRESENT key must hand
 ;; its exact value — nil included — to the registered validator. Seams that
 ;; tested the value for truthiness (if-let / `(and (continue?) schema)`)
 ;; would let `{:schemas {:data nil}}` silently validate nothing.
