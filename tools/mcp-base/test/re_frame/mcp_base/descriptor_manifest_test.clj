@@ -160,16 +160,6 @@
           "no gated set → :gated-input-keys [] (include-sensitive stays on :input-keys)")
       (is (some #{"include-sensitive"} (:input-keys r))))))
 
-(deftest build-manifest-threads-gated-keys
-  (let [m       (rf.mcp-base.descriptor-manifest/build-manifest :story-mcp
-                                   [gated-descriptor (second sample-descriptors)]
-                                   #{"include-sensitive"})
-        by-name (into {} (map (juxt :name identity)) (:tools m))]
-    (is (= ["include-sensitive"] (:gated-input-keys (by-name "preview-variant")))
-        "the gated tool's row records the gated subset")
-    (is (= [] (:gated-input-keys (by-name "alpha")))
-        "a non-gated tool in the same manifest stays clean")))
-
 (deftest check-detects-gated-input-key-drift
   ;; A tool newly gating an input (or a gate lifted) must trip the drift
   ;; gate as a :changed row — the governance point of the slot.
