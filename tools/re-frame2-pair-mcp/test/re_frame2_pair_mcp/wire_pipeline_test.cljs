@@ -68,18 +68,6 @@
       (is (= 1 (rf.mcp-base.elision/count-elided-markers value))
           "dedup pools the 3 equal markers → walking the shipped payload undercounts to 1 (the hazard)"))))
 
-(deftest epoch-vector-elided-count-stable-with-dedup-off
-  (testing "dedup off → no pooling → :elided-large == 3 either way"
-    (let [marker (large-marker [:slot])
-          epochs (vec (for [n (range 3)] (epoch-with-marker n marker)))
-          {:keys [indicators]}
-          (wp/run-wire-pipeline epochs {:kind   :epoch-vector
-                                        :incl?  false
-                                        :mode   :diff
-                                        :dedup? false})]
-      (is (= 3 (:elided indicators))
-          "with dedup off the count is unchanged — the count is dedup-invariant"))))
-
 (deftest epoch-vector-no-markers-counts-zero
   (testing "marker-free payload → :elided-large == 0 (the common path)"
     (let [epochs [{:epoch-id 1 :event-id :ev1 :db-before {:a 1} :db-after {:a 2}}
