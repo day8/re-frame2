@@ -48,11 +48,11 @@
     * the classified fx BODIES receive the RAW token — redaction is
       egress-only, and a suite that proved absence without proving the secret
       was ever in flight would be pinning nothing;
-    * the registration owns its `[:token]` declaration (`:sensitive` is
-      load-bearing metadata, NOT pure documentation, so it survives the strip);
     * `rf.classification/project-trace-event` — the chokepoint itself —
       redacts both fx-arg-bearing slot shapes and leaves the control fx raw,
-      driven deterministically on hand-built shapes. That is the same
+      driven deterministically on hand-built shapes against the registration's
+      own `[:token]` declaration (`:sensitive` is load-bearing metadata, NOT
+      pure documentation, so it survives the production strip). That is the same
       \"projector teeth\" pattern `fx-aggregate-classification-cljs-test` and
       `fx-redirect-classification-cljs-test` use for their section A."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -214,20 +214,6 @@
                 "shape retained — the fx-id survives")
             (is (not (contains-sentinel? (:tags ev)))
                 "the token appears nowhere raw in the error trace tags")))))))
-
-;; ---------------------------------------------------------------------------
-;; The registration owns its classification (what the projector consumes).
-;; ---------------------------------------------------------------------------
-
-(deftest classified-fx-registration-declares-its-path
-  (testing "the fx registration owns the [:token] sensitive path the projector
-            reads at egress"
-    (register!)
-    (is (= {:sensitive [[:token]]}
-           (rf.classification/registration-classification :fx :fx-args/store))
-        ":fx-args/store owns [:token]")
-    (is (nil? (rf.classification/registration-classification :fx :fx-args/audit))
-        "the control fx declares nothing — precision, not blanket redaction")))
 
 ;; ---------------------------------------------------------------------------
 ;; ALWAYS-ON projector teeth — the chokepoint itself,
