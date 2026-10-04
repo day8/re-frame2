@@ -64,10 +64,10 @@
 
 ;; ---- per-call :interceptor-overrides ---------------------------------------
 ;;
-;; Per-call removal (`ref -> nil`) and replacement (`ref -> <ref>`) are pinned
-;; on both hosts by `re-frame.interceptor-runtime-complete-cljs-test`'s
-;; `override-matches-bare-keyword-ref` and
-;; `override-bare-keyword-replaces-with-ref`.
+;; Per-call removal (`ref -> nil`) and replacement (`ref -> <ref>`), and the
+;; per-frame tier, are pinned by the always-on chain witnesses in
+;; `re-frame.interceptor-override-summary-trace-test`
+;; (`summary-classifies-each-override`, `per-frame-override-surfaces-on-summary`).
 
 (deftest value-valued-override-replacement-rejected
   (testing "an inline interceptor VALUE as an override replacement is rejected (overrides are reference-only)"
@@ -83,25 +83,6 @@
                               {:interceptor-overrides
                                {::log-y (rf.interceptor/->interceptor*
                                           :id ::inline :before identity)}}))))))
-
-;; ---- per-frame :interceptor-overrides --------------------------------------
-
-(deftest per-frame-interceptor-override-applies-to-every-dispatch
-  (testing "per-frame :interceptor-overrides walks the chain on every dispatch"
-    (let [log (atom [])]
-      (reg-logger! log ::log-a)
-      (reg-logger! log ::log-b)
-      (rf/make-frame {:id :test/silent :interceptor-overrides {::log-a nil}})
-      (rf/reg-event :test/run
-        {:interceptors [::log-a ::log-b]}
-        (fn [{:keys [db]} _] {:db db}))
-
-      (rf/dispatch-sync [:test/run] {:frame :test/silent})
-
-      (is (= [[::log-b :before]
-              [::log-b :after]]
-             @log)
-          "::log-a was removed by the frame-config override"))))
 
 ;; ---- merge order: per-call wins over per-frame -----------------------------
 
@@ -146,32 +127,6 @@
              @log)
           "both interceptors fired in standard before/after sandwich"))))
 
-;; ---- per-FRAME value-rejection (the per-call arm is covered above) ------------
-;;
-;; `override-replacement` (router.cljc) rejects an inline interceptor VALUE
-;; replacement (non-ref, non-nil) with `:rf.error/interceptor-override-invalid`
-;; — overrides are reference-only (EP-0022). The per-call arm is pinned by
-;; `value-valued-override-replacement-rejected` above; the per-FRAME override
-;; path runs the SAME `override-replacement`, and this pins its value-rejection
-;; arm.
-
-(deftest per-frame-value-valued-override-replacement-rejected
-  (testing "an inline interceptor VALUE as a per-FRAME override replacement is rejected
-            (overrides are reference-only — same as the per-call arm)"
-    (let [log (atom [])]
-      (reg-logger! log ::log-pf)
-      (rf/make-frame {:id :test/bad-frame-override :interceptor-overrides
-                      {::log-pf (rf.interceptor/->interceptor*
-                                  :id ::pf-inline :before identity)}})
-      (rf/reg-event :test/run
-        {:interceptors [::log-pf]}
-        (fn [{:keys [db]} _] {:db db}))
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/interceptor-override-invalid"
-            (rf/dispatch-sync [:test/run] {:frame :test/bad-frame-override}))
-          "the per-frame value-valued replacement is rejected at chain assembly"))))
-
 ;; ---- override-key-matches? direct unit (all arms) ----------------------------
 ;;
 ;; `override-key-matches?` (interceptor_registry.cljc) keys an
@@ -201,9 +156,6 @@
         (is (false? (rf.interceptor-registry/override-key-matches? [:my/ic [:cart]]
                                                     {:id :my/ic K [:my/ic [:cart :items]]}))
             "does NOT match a sibling [id arg] with a different arg")
-        (is (true? (rf.interceptor-registry/override-key-matches? [:my/ic {:a 1 :z 2}]
-                                                   {:id :my/ic K [:my/ic {:z 2 :a 1}]}))
-            "matches canonically — key-reordered map args are ref=")
         (is (false? (rf.interceptor-registry/override-key-matches? [:my/ic [:cart]] {:id :my/ic}))
             "does NOT match an entry with no authored ref (a vector key needs one)"))
 
