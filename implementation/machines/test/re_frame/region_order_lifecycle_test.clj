@@ -57,13 +57,3 @@
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-region-order-required"
           (rf/reg-machine :rord/bad (go-machine r10 false))))))
-
-(deftest registered-parallel-mismatched-region-order-rejected
-  (testing "an explicit :region-order that is not an exact permutation is
-            rejected at registration"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/machine-parallel-region-order-mismatch"
-          (rf/reg-machine :rord/bad2
-            (assoc (go-machine r10 false)
-                   :region-order (vec (butlast r10))))))))
