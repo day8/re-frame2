@@ -22,8 +22,10 @@
   the time the dispatch returns — without the app authoring a follow-up
   no-op event.
 
-  The first two deftests are the CONTROL for that settle: both would go red
-  against a lagging runtime."
+  Both deftests are the CONTROL for that settle, and each goes red against a
+  runtime lagging on either arm: the registering dispatch must leave the
+  flow's output materialised, and the clearing dispatch must leave that
+  output vacated and its dependents recomputed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
@@ -38,27 +40,6 @@
    {:inputs      [[:wizard :foo] [:wizard :bar]]
     :output-path [:wizard :result]}
    (fn [foo bar] (+ foo bar))])
-
-(deftest reg-flow-fx-settles-on-the-dispatching-frame
-  (testing "one event whose only lifecycle action is :rf.fx/reg-flow leaves the
-            flow's initial output MATERIALISED once that dispatch settles — no
-            app-authored follow-up event"
-    (rf/reg-event :init  (fn [_ _] {:db {:wizard {:foo 3 :bar 4}}}))
-    (rf/reg-event :enter (fn [_ _] {:fx [[:rf.fx/reg-flow sum-flow]]}))
-
-    (rf/dispatch-sync [:init])
-    (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "precondition — no flow registered yet, so :result is unset")
-
-    (rf/dispatch-sync [:enter])
-
-    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed)
-        "the registry carries the flow after the registering dispatch")
-    ;; THE CONTROL, register arm. Red under a one-event lag: the flow
-    ;; transform for :enter runs before `:fx` registers the flow, so nothing
-    ;; would compute and :result would still be nil.
-    (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "the flow's initial output (3 + 4) is present when the dispatch settles")))
 
 (deftest clear-flow-fx-settles-on-the-dispatching-frame
   (testing "one event with :rf.fx/clear-flow leaves the registry row AND the
@@ -102,6 +83,9 @@
 
       (rf/dispatch-sync [:init])
       (rf/dispatch-sync [:enter])
+      ;; THE CONTROL, register arm. Red under a one-event lag: the flow
+      ;; transform for :enter runs before `:fx` registers either flow, so
+      ;; neither would compute and :label would still be unset.
       (is (= "total=7" (get-in (rf/app-db-value :rf/default) [:wizard :label]))
           "both flows settled in topological order on the registering dispatch")
       (let [after-enter @derives]

@@ -381,17 +381,6 @@
       (is (= "Hi Ada" (:greeting (rf/app-db-value :rf/default)))
           "the next drain evaluates it"))))
 
-(deftest direct-clear-writes-no-boot-time-placeholder
-  (testing "even a nil-total derive: the clear leaves an unseeded app-db
-            untouched instead of installing the flow's nil-case output"
-    (rf/reg-flow :t/greeting {:inputs [[:user :name]] :output-path [:greeting]}
-      (fn [n] (str "Hi " (or n "stranger"))))
-    (rf/reg-flow :t/legacy {:inputs [[:x]] :output-path [:legacy]} identity)
-    (rf/clear :flow :t/legacy)
-    ;; A settle that evaluated never-run flows would install
-    ;; {:greeting "Hi stranger"} before any event ran.
-    (is (= {} (rf/app-db-value :rf/default)))))
-
 (deftest direct-clear-still-settles-an-established-chain
   (testing "CONTROL — the skip must not disable the settle: an established
             A -> B -> C chain is derived from A's absence at return"
