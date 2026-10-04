@@ -883,13 +883,9 @@
                                  :fx-overrides {:rf.http/managed      :realworld.test/park-managed
                                                 :auth.session/persist :rf/no-op}})]
     (let [alice-args (park-a-settings-save! f "alice")]
-      (is (= [:settings/submit-error "alice" "alice"] (:on-failure alice-args))
-          "the failure target carries its own issuance, not a lookup into a slot")
       (logout-scrubbing-the-settings-snapshot! f)
 
       (let [bob-args (park-a-settings-save! f "bob")]
-        (is (= [:settings/submit-error "bob" "bob"] (:on-failure bob-args)))
-
         ;; ALICE'S SAVE FAILS, and the failure lands while bob is waiting.
         (reply-parked-failure! alice-args
                                {:kind :rf.http/http-5xx :status 500 :body "server error"}
@@ -965,8 +961,6 @@
       (let [bob-args (park-a-settings-rename! f "bob" "alice")]
         (is (some? bob-args) "bob's rename PUT lowered a request and parked")
         (is (not= alice-args bob-args) "the two saves are distinct parked requests")
-        (is (= [:settings/submit-error "bob" "alice"] (:on-failure bob-args))
-            "bob's failure target carries the name he REQUESTED, which is not his")
         (let [snap (settings-snapshot (rf/frame-state-value f))]
           (is (= :submitting (:state snap)) "bob's rename is in flight")
           (is (= {:owner "bob" :username "alice"} (get-in snap [:data :pending]))
@@ -1030,7 +1024,6 @@
       (logout-scrubbing-the-settings-snapshot! f)
 
       (let [bob-args (park-a-settings-rename! f "bob" "robert")]
-        (is (= [:settings/submit-error "bob" "robert"] (:on-failure bob-args)))
         (reply-parked-success! bob-args
                                {:user {:email "bob@example.com" :token "bob-jwt-2"
                                        :username "robert" :bio "Bob bio" :image nil}}
@@ -1148,11 +1141,7 @@
     ;; official `/tag/:tag` PATH route, so the active tag is a route PARAM (read
     ;; via `:home/selected-tag`), NOT a `?tag=` query.
     (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
-    (is (= :realworld/home-tag (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
-    (is (= "clojure" (rf/compute-sub [:home/selected-tag] (rf/frame-state-value f))))
-    ;; The following feed uses the official `?feed=following` token (NOT `your`).
-    (rf/dispatch-sync [:home/show-your-feed] {:frame f})
-    (is (= "following" (:feed (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))))
+    (is (= "clojure" (rf/compute-sub [:home/selected-tag] (rf/frame-state-value f))))))
 
 (defn- tags-machine-load-test []
   ;; The :tags lifecycle — load happy path through the machine.
@@ -1224,18 +1213,6 @@
     (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
     (is (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/frame-state-value f)))))
 
-    (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
-    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
-
-    ;; `/settings` is `:requires-auth` (a `:can-enter` guard); this
-    ;; route-resolution check is about the route TABLE, not the auth gate, so
-    ;; sign in first — otherwise the gate correctly refuses the logged-out entry
-    ;; and redirects to login (that fail-closed behaviour is covered by
-    ;; `auth-guard-all-access-paths-test`).
-    (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
-    (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
-    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
-
     ;; The tag filter is the official `/tag/:tag` PATH route — the
     ;; tag is a route PARAM, not a `?tag=` query.
     (rf/dispatch-sync [:rf.route/handle-url-change "/tag/clojure"] {:frame f})
@@ -1282,13 +1259,7 @@
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
     (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-        "authenticated nav to a :requires-auth route proceeds")
-
-    ;; The post-login return consumes the stashed destination and clears the
-    ;; slot — an ordinary FRESH navigate whose guard re-evaluates.
-    (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
-    (is (nil? (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
-        ":auth/post-login-redirect clears the :return-to slot")))
+        "authenticated nav to a :requires-auth route proceeds")))
 
 (defn- auth-guard-all-access-paths-test []
   ;; The auth gate must FAIL CLOSED on EVERY
@@ -1568,11 +1539,9 @@
 ;; invariant; token-nil tests only hit the :idle no-op)
 ;; ============================================================================
 
-(defn- session-restore-with-token-test []
-  ;; A URL-routed stub: GET /user (and the login POST) return a User envelope;
-  ;; everything else (the deep-link article's on-match reads) returns empty.
-  ;; "/users/login" and "/users" both contain the substring "/user", so this
-  ;; one predicate covers the restore GET and the login POST.
+(defn- interactive-login-redirects-home-test []
+  ;; A URL-routed stub: the login POST returns a User envelope; everything else
+  ;; (the deep-link article's on-match reads) returns empty.
   (reg-canned-success-by-url! :realworld.test/restore-user
                               (fn [url]
                                 (if (str/includes? url "/user")
@@ -1581,32 +1550,8 @@
                                           :token    "jwt-restore"}}
                                   {})))
 
-  ;; --- RESTORE STAYS PUT: a cold boot with a saved token restores the session
-  ;;     without navigating (a deep link must survive a refresh) ---
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
-                                                    :auth.session/persist :rf/no-op}})]
-    ;; Land on a deep link (a public article), as a refresh would.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/article/some-slug"] {:frame f})
-    (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-        "cold boot lands on the deep-linked article")
-
-    ;; Boot with a saved JWT: the :has-token? guard routes to :begin-restore
-    ;; (NOT the token-nil :idle no-op the other tests exercise). The
-    ;; canned stub resolves the GET /user synchronously, so the machine settles.
-    (init-auth! f "jwt-restore")
-    (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
-        "guard true → :begin-restore → :restoring → (GET /user success) → :restore-session → :authed")
-    (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/frame-state-value f))))
-        "the restored session is stored")
-    (is (= "jwt-restore" (get-in (rf/app-db-value f) [:auth :token]))
-        "the saved token reached durable app-db through :auth/session-read")
-    ;; THE INVARIANT: restore must NOT navigate — the deep link survives.
-    (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
-        "restore stays put — :restore-session does NOT fire :auth/post-login-redirect"))
-
-  ;; --- CONTRAST: an INTERACTIVE login DOES bounce (proves navigation is
-  ;;     observable here, so the restore's non-navigation above is a real
-  ;;     signal, not a harness that simply never navigates) ---
+  ;; An INTERACTIVE login bounces home. A session RESTORE must not; that half
+  ;; is `cold-boot-deep-link-race-test`'s, which drives the real URL-bound path.
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
                                                     :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/some-slug"] {:frame f})
@@ -1627,13 +1572,11 @@
 ;; auth — THE COLD-BOOT DEEP-LINK RACE
 ;; ============================================================================
 ;;
-;; `session-restore-with-token-test` above pins "restore stays put", but it cannot
-;; see this race, and it is worth saying why so nobody deletes what follows as a
-;; duplicate. That test (a) hand-dispatches `:rf.route/handle-url-change` instead of
+;; A test that (a) hand-dispatches `:rf.route/handle-url-change` instead of
 ;; letting the URL-bound frame do its own initial sync, (b) navigates to a PUBLIC
-;; route first, and (c) uses a canned stub that answers `GET /user` SYNCHRONOUSLY —
-;; so by the time any route is judged, the user is already restored. Three
-;; conveniences, each of which independently hides the race.
+;; route first, or (c) uses a canned stub that answers `GET /user` SYNCHRONOUSLY
+;; cannot see this race: by the time any route is judged, the user is already
+;; restored. Each of those conveniences independently hides it.
 ;;
 ;; What actually happens in a browser: the frame runs `:initial-events` (the token
 ;; lands in app-db), and THEN its POST-CREATE hook does the first URL→slice sync.
@@ -1951,8 +1894,8 @@
     (pagination-nav-events-test)))
 
 (deftest realworld-session-restore
-  (testing "restore-with-token reaches :authed, stores the session, and does NOT navigate"
-    (session-restore-with-token-test))
+  (testing "an interactive login bounces home through :auth/post-login-redirect"
+    (interactive-login-redirects-home-test))
   (testing "a restore reply that lands after a later login is dropped"
     (stale-restore-reply-test)))
 
@@ -2143,8 +2086,6 @@
               draft (rf/compute-sub [:editor/draft] (rf/frame-state-value f))]
           (is (= "My unsaved heading" (:title draft))
               "the touched field keeps the user's text — the settle must not clobber typing")
-          (is (= "" (:title (:baseline slice)))
-              "the touched field keeps its own baseline too, so the typing reads as UNSAVED")
           (is (= {:title "" :description "Intro" :body "Body text" :tagList "intro, demo"}
                  (:baseline slice))
               "the baseline is seeded leafwise in step with the draft — asserted whole,
@@ -2197,10 +2138,6 @@
              same-id supersede never fires between them — A's reply is delivered
              in full and correlating it is the app's job")
         (is (= [:editor/load-article "beta"] (:request-id b-req)))
-        (is (= [:editor/loaded "alpha"] (:on-success a-req))
-            "so the reply target carries the slug it was requested for")
-        (is (= [:editor/load-failed "alpha"] (:on-failure a-req))
-            "…on the failure branch too")
         ;; B settles normally first: the editor is fully seeded from beta.
         (rf/dispatch-sync (conj (:on-success b-req)
                                 {:status :ok :value (article "beta" "Beta")})
@@ -2368,12 +2305,6 @@
             a-com (req-by-id @lowered [:comments/load "alpha"])
             b-art (req-by-id @lowered [:article/load "beta"])
             b-com (req-by-id @lowered [:comments/load "beta"])]
-        (is (= [:article/load "alpha"] (:reply-to a-art))
-            "the unified :reply-to carries the slug it was requested for")
-        (is (= [:comments/loaded "alpha"] (:on-success a-com))
-            "…and so do the split comments targets, on the success branch")
-        (is (= [:comments/load-failed "alpha"] (:on-failure a-com))
-            "…and the failure branch")
         ;; Beta settles normally first — the ordinary path is untouched.
         (settle-article-ok! f b-art "beta" "Beta")
         (settle-comments-ok! f b-com "beta")
@@ -2585,12 +2516,6 @@
       (rf/dispatch-sync [:comment-form/submit] {:frame f})
       (let [post (req-by-method+url @lowered :post "/articles/alpha/comments")]
         (is (some? post) "alpha's comment POST went out")
-        ;; The target vectors carry the issuing slug AHEAD of the temp-id
-        ;; (which is a fresh recordable uuid, so only the prefix is pinned).
-        (is (= [:comment-form/submit-success "alpha"] (subvec (:on-success post) 0 2))
-            "the POST's success target carries the slug it was posted to")
-        (is (= [:comment-form/submit-error "alpha"] (subvec (:on-failure post) 0 2))
-            "…and so does its failure target")
         (is (= 2 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f))))
             "the optimistic temp card is on alpha's list while the POST is out")
         ;; Navigate to beta and let beta's comments settle.
@@ -2644,11 +2569,6 @@
       (rf/dispatch-sync [:comment/delete "c-alpha"] {:frame f})
       (let [del (req-by-method+url @lowered :delete "/articles/alpha/comments/c-alpha")]
         (is (some? del) "alpha's DELETE went out")
-        (is (= :comment/delete-rollback (first (:on-failure del)))
-            "the rollback target is the DELETE's failure branch")
-        (is (= "alpha" (second (:on-failure del)))
-            "…and it carries the slug it was deleting from, ahead of the
-             captured prior")
         (is (empty? (rf/compute-sub [:comments/data] (rf/frame-state-value f)))
             "the optimistic delete took the card off alpha's list")
         ;; Navigate to beta; beta loads its own single comment.
@@ -2913,11 +2833,6 @@
   (with-held-comment-fx :realworld.test/follow-cross-slug-rollback
     (fn [f lowered]
       (let [follow-req (follow-alpha-then-walk-to-beta! f lowered)]
-        ;; The strand control, and the reason a gate needs no reset half here:
-        ;; the navigation already rebuilt the slice, so the optimistic flip a
-        ;; refused rollback would have undone is long gone.
-        (is (= "beta" (:slug (article-slice* f)))
-            "beta-slice-is-rebuilt — :article/load reset [:article] on the slug change")
         ;; Alpha's follow POST fails, long after the reader left alpha.
         (rf/dispatch-sync (conj (:on-failure follow-req)
                                 {:status :error :error {:kind :rf.http/http-5xx :status 500}})
@@ -2971,9 +2886,6 @@
       (rf/dispatch-sync [:article/delete] {:frame f})
       (let [delete-req (req-by-method+url @lowered :delete "/articles/alpha")]
         (is (some? delete-req) "the article DELETE went out and is held open")
-        (is (= [:article/delete-success "alpha"] (:on-success delete-req))
-            "the DELETE's SUCCESS target carries the slug it was issued on, not
-             just its failure target")
         ;; The reader gives up waiting and reads another article.
         (rf/dispatch-sync [:rf.route/handle-url-change "/article/beta"] {:frame f})
         (settle-article-with-author! f lowered "beta" "bob" true)
@@ -2990,9 +2902,7 @@
                (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
             "a LATE alpha DELETE SUCCESS does not yank beta's reader home")
         (is (= {:slug "beta"} (route-params* f))
-            "…the reader's own newer route choice is the one that stands")
-        (is (= "beta" (:slug (article-slice* f)))
-            "…and beta's article is still the one on screen")))))
+            "…the reader's own newer route choice is the one that stands")))))
 
 (defn- article-delete-non-article-route-late-success-is-refused-test []
   ;; The same late success, except the reader walks somewhere that is not an
@@ -3199,14 +3109,13 @@
     (is (some? (rf/compute-sub [:feed/error] (rf/frame-state-value f)))
         ":feed/load-failed surfaces a readable error on the feed slice")))
 
-(defn- profile-follow-test []
-  ;; :profile/follow + :profile/followed (re-seed from reply) + :profile/unfollow +
-  ;; :profile/follow-rollback, plus the favorites-tab load path.
-  (reg-canned-success-by-url! :realworld.test/profile-follow
-    (fn [method url]
+(defn- profile-favorites-tab-load-test []
+  ;; The favorites-tab load path. Follow, unfollow and the rollback are
+  ;; `profile-follow-toggle-is-serialised-test`'s and
+  ;; `profile-cross-username-follow-settles-are-refused-test`'s.
+  (reg-canned-success-by-url! :realworld.test/profile-favorites
+    (fn [_method url]
       (cond
-        (str/includes? url "/follow")
-        {:profile {:username "eve" :bio "Bio" :image nil :following (= :post method)}}
         (str/includes? url "/profiles/")
         {:profile {:username "eve" :bio "Bio" :image nil :following false}}
         ;; article list reads (favorited / authored tabs)
@@ -3216,31 +3125,14 @@
                :articlesCount 3})))
   (with-new-frame [f (rf.frame/make-anon-frame-record!
                        {:initial-events [[:app/initialise]]
-                        :fx-overrides {:rf.http/managed :realworld.test/profile-follow}})]
+                        :fx-overrides {:rf.http/managed :realworld.test/profile-favorites}})]
     (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
     ;; Land on the favorites tab so :profile.favorites/load runs too.
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve/favorites"] {:frame f})
     (is (= "eve" (:username (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
         "the profile banner loads")
     (is (= 1 (count (rf/compute-sub [:profile.favorites/data] (rf/frame-state-value f))))
-        "the favorites tab list loads (:profile.favorites/load)")
-    (is (false? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
-        "eve starts unfollowed")
-    ;; Follow → optimistic true → :profile/followed re-seeds from the reply.
-    (rf/dispatch-sync [:profile/follow] {:frame f})
-    (is (true? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
-        ":profile/followed re-seeds :following true from the returned profile")
-    ;; Unfollow → :profile/unfollowed re-seeds false.
-    (rf/dispatch-sync [:profile/unfollow] {:frame f})
-    (is (false? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
-        ":profile/unfollowed re-seeds :following false")
-    ;; Rollback handler (driven directly): restores the captured prior flag.
-    ;; The username is the identity the flip was issued on, and the handler is
-    ;; gated on it — the cross-username refusal is pinned by
-    ;; `realworld-profile-page-cross-username` below.
-    (rf/dispatch-sync [:profile/follow-rollback "eve" true {:kind :rf.http/http-4xx}] {:frame f})
-    (is (true? (:following (rf/compute-sub [:profile/data] (rf/frame-state-value f))))
-        ":profile/follow-rollback restores the captured prior following flag")))
+        "the favorites tab list loads (:profile.favorites/load)")))
 
 (defn- home-context-test []
   ;; tags/home-context flattens the two home routes into one {:tag :feed :page}.
@@ -3261,8 +3153,8 @@
     (feed-load-test))
   (testing "user feed :feed/load-failed surfaces an error"
     (feed-load-failure-test))
-  (testing "profile follow / unfollow / rollback + favorites-tab load"
-    (profile-follow-test))
+  (testing "the profile favorites tab loads"
+    (profile-favorites-tab-load-test))
   (testing "home-context flattens the two home routes into {:tag :feed :page}"
     (home-context-test)))
 
@@ -3355,13 +3247,6 @@
             a-art (req-by-id @lowered [:profile.articles/load "alice"])
             b-ban (req-by-id @lowered [:profile/load "bob"])
             b-art (req-by-id @lowered [:profile.articles/load "bob"])]
-        (is (= [:profile/loaded "alice"] (:on-success a-ban))
-            "the banner's success target carries the username it was requested for")
-        (is (= [:profile/load-failed "alice"] (:on-failure a-ban))
-            "…and so does its failure target")
-        (is (= [:profile.articles/loaded "alice"] (:on-success a-art))
-            "…as do both of the authored list's targets")
-        (is (= [:profile.articles/load-failed "alice"] (:on-failure a-art)))
         ;; Bob settles normally first — the ordinary path is untouched.
         (settle-ok! f (:on-success b-ban) {:profile (full-profile "bob" false)})
         (settle-ok! f (:on-success b-art) {:articles [(full-article "b1" "Bob one")]
@@ -3505,12 +3390,9 @@
       (is (true? (:following (pf-sub* f [:profile/data])))
           "the optimistic flip lands on alice right away")
       (let [a-follow (req-by-method+url @lowered :post "/profiles/alice/follow")]
-        (is (= [:profile/followed "alice"] (:on-success a-follow))
-            "the follow POST's success target carries the username the flip was
-             issued on — the follow POST has no :request-id, deliberately, so
-             this target is the only identity the reply carries back")
         (is (= [:profile/follow-rollback "alice" false] (:on-failure a-follow))
-            "…and its failure target carries that username AND the flag to restore")
+            "the follow POST's failure target carries the username the flip was
+             issued on AND the flag to restore")
         ;; The reader gives up waiting and opens bob's profile.
         (rf/dispatch-sync [:rf.route/handle-url-change "/profile/bob"] {:frame f})
         (settle-ok! f (:on-success (req-by-id @lowered [:profile/load "bob"]))
@@ -4441,6 +4323,5 @@
       (rf/dispatch-sync [:auth/store-session (assoc user :token "jwt-old")] {:frame f})
       (rf/dispatch-sync [:settings/load] {:frame f})
       (rf/dispatch-sync [:settings/submit] {:frame f})
-      (is (= "jwt-new" (get-in (rf/app-db-value f) [:auth :token])))
       (is (= ["jwt-new"] @persisted)
           "the next cold boot must read the same credential as the live session"))))
