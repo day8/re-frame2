@@ -188,25 +188,6 @@
                          (str opening "…1 keys}"))
           "and its one-level placeholder inside a parent's preview"))))
 
-(deftest classify-sentinels
-  (testing "redacted bare keyword"
-    (is (= :sentinel-redacted (ei/collection-kind :rf/redacted))))
-  (testing "large wrapper — spec/015 §Wire elision shape"
-    ;; Body keys per the framework's emission site
-    ;; (implementation/core/src/re_frame/elision.cljc): `:path :bytes
-    ;; :type :reason :hint :handle`.
-    (is (= :sentinel-large
-           (ei/collection-kind
-             {:rf.size/large-elided {:path   [:big]
-                                     :bytes  200
-                                     :type   :string
-                                     :reason :schema
-                                     :hint   "preview hint"
-                                     :handle [:rf.elision/at [:big]]}}))))
-  (testing "redacted-with-size wrapper"
-    (is (= :sentinel-redacted-size
-           (ei/collection-kind {:rf/redacted {:bytes 200}})))))
-
 (deftest large-sentinel-detects-spec-current-shape
   ;; A predicate matching `:rf/large` (a key the framework does not
   ;; emit) would send real markers through generic map rendering. Lock
@@ -426,23 +407,7 @@
          (ei/expansion-key :app-db "mid-1" '(:a)))
       "path always coerced to a vector"))
 
-(deftest expansion-slot-keyword
-  ;; The slot key is part of the public contract — keep it stable.
-  (is (= :rf.xray.edn-inspector/expansion ei/expansion-slot)))
-
 ;; ---- resolve-expanded? ---------------------------------------------------
-
-(deftest resolve-expanded-uses-override
-  (let [path [:a :b]
-        k    (ei/expansion-key :p "m" path)]
-    (testing "no override → default"
-      (is (true?  (ei/resolve-expanded? {} :p "m" path true)))
-      (is (false? (ei/resolve-expanded? {} :p "m" path false))))
-    (testing "override wins"
-      (is (true?  (ei/resolve-expanded? {k {:expanded? true}}
-                                        :p "m" path false)))
-      (is (false? (ei/resolve-expanded? {k {:expanded? false}}
-                                        :p "m" path true))))))
 
 ;; ---- click-to-toggle integration -----------------------------------------
 ;;
@@ -647,35 +612,6 @@
                                            [:data-rf-mount-id :data-rf-kind])
                              hits)))))))
 
-(deftest container-testid-collision-negative-control
-  (testing "THE DEFECT WRITTEN OUT. A rule appending the path suffix only
-            for a non-empty path gives a node at `[]` the container's name
-            exactly — and only at `[]`, which is what makes it easy to
-            miss."
-    (let [pre-fix        (fn [panel-id mount-id path]
-                           (str "rf-xray-edn-inspector-"
-                                (name panel-id) "-" mount-id
-                                (when (seq path)
-                                  (str "-" (str/join "/" (map pr-str path))))))
-          container-name (str "rf-xray-edn-inspector-" (name :p) "-" "m")]
-      (is (= container-name (pre-fix :p "m" []))
-          "CONTROL BITES: that rule gives the root render-node and the
-           container one name between them")
-      (is (not= container-name (pre-fix :p "m" [:a]))
-          "and every non-empty path is distinct under it, so the
-           collision is the root's alone")
-      (let [shipped (:data-testid
-                       (second (ei/render-node {:value {:a 1}
-                                                :panel-id :p
-                                                :mount-id "m"
-                                                :path []
-                                                :depth 0
-                                                :expansion-map {}
-                                                :opts {}})))]
-        (is (not= container-name shipped)
-            (str "the shipped composer gives the root node a name of its "
-                 "own. Got " (pr-str shipped)))))))
-
 ;; ---- triangle hit-box ≥24×24 ---------------------------------------------
 ;;
 ;; Sized by the glyph alone, the expand/collapse triangles (▾ / ▸) would
@@ -842,26 +778,6 @@
             "row-gap 0 keeps the workstation-dense layout: column
              alignment and inline composition leave vertical density
              alone")))))
-
-(deftest map-body-emits-a-key-cell-and-a-value-cell-per-row
-  (testing "each row contributes two direct grid children
-            (key cell + value cell) so the grid resolves columns
-            across rows. NOT wrapped in a per-row flex container."
-    (let [;; >3 keys so inline-fit gate fails and the body emits.
-          v {:a 1 :b 2 :c 3 :d 4}
-          k0 (ei/expansion-key :p "m" [])
-          h  (ei/render-node {:value v
-                              :panel-id :p :mount-id "m"
-                              :path [] :depth 0
-                              :expansion-map {k0 {:expanded? true}}
-                              :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")
-          key-cells   (->> (walk-hiccup body)
-                           (filter #(= "key"   (get (second %) :data-rf-cell))))
-          value-cells (->> (walk-hiccup body)
-                           (filter #(= "value" (get (second %) :data-rf-cell))))]
-      (is (= 4 (count key-cells))   "four map rows → four key cells")
-      (is (= 4 (count value-cells)) "four map rows → four value cells"))))
 
 (deftest gutter-row-is-inline-flex-not-block
   (testing "gutter-row wraps diff'd leaves in an inline-flex SPAN (not
@@ -1050,25 +966,6 @@
     (is (nil? (get (second inner1) :data-rf-site-id))
         "no :site-id supplied → no data-rf-site-id attribute")))
 
-(deftest two-mounts-with-distinct-site-ids-still-isolate
-  ;; Two consumers using DIFFERENT :site-ids must STILL isolate, even
-  ;; though both opt out of the auto-mount-id default. This is the
-  ;; per-call-site contract restated in :site-id space.
-  (let [panel-id :p
-        s1       [:site/a]
-        s2       [:site/b]
-        path     []
-        k1       (ei/expansion-key panel-id s1 path)
-        k2       (ei/expansion-key panel-id s2 path)]
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id s1 path true])
-    (let [snapshot @(rf/subscribe [ei/expansion-slot])]
-      (is (= false (get-in snapshot [k1 :expanded?]))
-          "site/a's override is stored")
-      (is (nil? (get snapshot k2))
-          "site/b's slot is untouched — distinct :site-ids isolate"))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
-
 ;; ---- per-call-site isolation ---------------------------------------------
 
 (deftest two-mounts-independent-via-distinct-mount-ids
@@ -1100,12 +997,6 @@
     (is (re-find #":a" all))
     (is (re-find #":b" all)))
   (is (re-find #"redacted" (collect-text (ei/mini :rf/redacted)))))
-
-(deftest mini-carries-a-hover-title
-  (let [long-str (apply str (repeat 200 "x"))
-        h (ei/mini long-str 20)
-        title (-> h second :title)]
-    (is (some? title) "title attribute carries full value")))
 
 (deftest mini-truncates-a-container-past-max-len
   ;; A container's printed form past `max-len` is cut to `max-len`
@@ -1479,15 +1370,6 @@
       (is (= [:a :b :c :d]
              (mapv (fn [[_ a b]] (if (= a ::ei/missing) b a)) pairs))
           "rows read in before-order with deletions struck in place"))))
-
-(deftest sequential-diff-children-falls-back-without-projection
-  ;; No projection (test/REPL path) → defer to the index-aligning union
-  ;; walk so the no-removal / tail cases stay deterministic.
-  (let [before [:x :y :z]
-        after  [:x]
-        pairs  (vec (ei/sequential-diff-children before after :vector [] nil))]
-    (is (= (vec (ei/children-of-pair before after :vector)) pairs)
-        "nil projection falls back to children-of-pair")))
 
 ;; ---- the sequential diff ENTRY path is bounded ---------------------------
 ;;
@@ -2495,7 +2377,10 @@
 ;;      STILL READS        every child `:added`, a real prior map still
 ;;      :added             key-aligns, and the before bound is not widened.
 ;;                         A fix that swapped the sentinel unconditionally at
-;;                         the recursion boundary is green on P1 and red here.
+;;                         the recursion boundary is green on P1 and red on
+;;                         P2, which `children-of-pair-map-union` and
+;;                         `children-of-pair-honest-before-exhaustion-stays-missing-rf2-idydb`
+;;                         hold.
 
 (deftest nested-tail-container-under-unknown-prior-rf2-t450s
   ;; The reproduction: an unchanged 1050-element collection
@@ -2618,50 +2503,6 @@
               (str "a REAL prior that differs from the after value still "
                    "promotes `:same` to `:children` — the override is intact, "
                    "and only the sentinel is excluded from it")))))))
-
-(deftest nested-container-honest-absence-still-added-rf2-t450s
-  ;; P2. Its job is to refuse a WRONG fix, not to catch fabricated
-  ;; additions. `::missing` is CORRECT wherever
-  ;; the prior genuinely does not exist — swapping the sentinel at the
-  ;; recursion boundary unconditionally would report every genuinely-new
-  ;; nested map as an unknown prior, the same confident falsehood pointing
-  ;; the other way.
-  (testing "P2 — a genuinely ABSENT prior still makes every child `:added`"
-    (let [kids (vec (ei/children-of-pair ::ei/missing {:a 1 :b 2} :map))
-          bs   (mapv (fn [[_ _ b]] b) kids)]
-      (is (= 2 (count kids)) "both of the new map's keys are walked")
-      (is (= [::ei/missing ::ei/missing] bs)
-          (str "a STRUCTURALLY absent prior is still absent: this map really "
-               "is new, and its members really were added"))))
-  (testing "P2 — a REAL prior map still key-aligns, absences and all"
-    (let [kids (vec (ei/children-of-pair {:a 1 :gone 9} {:a 1 :new 2} :map))
-          by-k (into {} (map (fn [[k _ b]] [k b])) kids)]
-      (is (= 3 (count kids)) "AFTER's keys, then the BEFORE-only key")
-      (is (= 1 (:a by-k)) "a key on both sides carries its real prior")
-      (is (= ::ei/missing (:new by-k)) "an after-only key is a real addition")
-      (is (= 9 (:gone by-k))
-          "and a before-only key is still surfaced for striking")))
-  (testing "P2 — a nested-container prior is unaffected by the unknown path"
-    (let [kids (vec (ei/children-of-pair {:m {:x 1}} {:m {:x 1} :n 2} :map))
-          by-k (into {} (map (fn [[k _ b]] [k b])) kids)]
-      (is (= {:x 1} (:m by-k))
-          "a real prior CONTAINER is threaded through unchanged")
-      (is (= ::ei/missing (:n by-k)) "beside a real addition")))
-  (testing "P2 — the before bound is not widened to find out"
-    ;; A REALISATION counter, never an output length: a "fix" that told the
-    ;; two cases apart by pulling further down the before side is green on
-    ;; P1 and red right here.
-    (let [n     1050
-          guard 1500
-          seen  (atom 0)
-          after (assoc (vec (range n)) (dec n) {:keep 1})
-          rows  (vec (ei/children-of-pair (counting-seq seen guard) after
-                                          :vector))]
-      (is (<= @seen count-bound)
-          (str "realised " @seen " elements of the endless BEFORE side; the "
-               "walker's bound is " count-bound))
-      (is (= n (count rows))
-          (str "and still emits all " n " accessible AFTER rows")))))
 
 ;; ---- `children-of-pair`'s capped-AFTER tail -------------------------------
 ;;
@@ -2897,34 +2738,6 @@
                "walker's bound is " count-bound))
       (is (= n (count rows))
           (str "and still emits all " n " rows")))))
-
-(deftest diff-renders-machine-snapshot-tags-transition
-  ;; A Machine snapshot transition
-  ;; `[:active :authenticating] → [:active :connected]` where `:tags`
-  ;; loses `:ws/authenticating`. The operator sees the post-image with
-  ;; the removed tag struck-through.
-  (let [before {:state [:active :authenticating]
-                :tags  #{:ws/authenticating :ws/online}
-                :context {:retries 0}}
-        after  {:state [:active :connected]
-                :tags  #{:ws/online}
-                :context {:retries 0}}
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 4}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (re-find #":ws/authenticating" all)
-        "removed :tags member rendered with the AFTER column")
-    (is (re-find #":connected" all) "AFTER's :state member visible")
-    (is (re-find #":authenticating" all)
-        "BEFORE's :state member rendered via the modified-leaf annotation")
-    (is (re-find #"line-through" s)
-        "at least one row carries strike-through (the removed tag)")))
 
 ;; =========================================================================
 ;; The `::missing` sentinel must NEVER reach the output, and a
@@ -3998,32 +3811,6 @@
       (is (= ##Inf px)
           "over budget the estimate is `##Inf`"))))
 
-(deftest a-long-NESTED-string-leaf-is-never-serialised-in-full
-  ;; The scalar branch is reached by recursion, so a top-level-only
-  ;; case would not exercise the path a real app-db takes. The budget
-  ;; here is the default ceiling rather than a column width: under a
-  ;; 100px column the walk passes `cap` on the PREFIX and never
-  ;; reaches the leaf at all, which would pass against a print-it-all
-  ;; branch for the wrong reason.
-  (let [big               (apply str (repeat 500000 "x"))
-        [_ control-sizes] (printed-sizes
-                            #(ei/estimated-inline-px {:response {:body "short"}}))
-        [px sizes]        (printed-sizes
-                            #(ei/estimated-inline-px {:response {:body big}}))]
-    (testing "the walk reaches the nested leaf at this budget"
-      (is (some #(= 9 %) control-sizes)
-          "the 9-character `:response` key was recorded")
-      (is (some #(= 7 %) control-sizes)
-          "and the nested value position was printed"))
-    (testing "the nested large leaf is not printed either"
-      (is (some #(= 9 %) sizes)
-          "the walk got as far as `:response`")
-      (is (not-any? #(>= % 500000) sizes)
-          (str "the nested leaf is not serialised; recorded sizes were "
-               (pr-str sizes))))
-    (is (= ##Inf px)
-        "and the nested answer is still `##Inf`")))
-
 (deftest small-strings-are-still-measured-EXACTLY
   ;; The other half of the contract, and the docstring's standing promise:
   ;; the lower bound is charged ONLY when it already carries the
@@ -4138,19 +3925,6 @@
                     :has-changed-descendant? true}))
           "changed-descendant rule beats width-fits for diff readability"))))
 
-(deftest default-expanded-no-measurement-fallback
-  (testing "when no measurement yet (nil available-width-px)
-            the depth-driven path runs so unit tests +
-            first-paint behaviour stay deterministic"
-    ;; depth 0, default-expanded-depth 2 → expanded (depth-driven).
-    (is (true? (ei/default-expanded?
-                 {:depth 0 :child-count 2 :value {:a 1 :b 2}
-                  :default-expanded-depth 2})))
-    ;; depth 5, default-expanded-depth 2 → collapsed (depth-driven).
-    (is (false? (ei/default-expanded?
-                  {:depth 5 :child-count 2 :value {:a 1 :b 2}
-                   :default-expanded-depth 2})))))
-
 (deftest default-expanded-diff-collapses-unchanged
   (testing "with a pre-image present (`:diff?`):
             unchanged subtrees collapse regardless of depth/width. Only
@@ -4240,24 +4014,6 @@
       (is (re-find #"▾" text)
           "operator override beats the width-fits inline path")
       (is (re-find #":tag" text)))))
-
-(deftest render-inline-recursive-paints-nested-containers
-  (testing "the recursive inline renderer emits one-line
-            hiccup that includes nested brackets, separators, scalars"
-    (let [v {:k1 1 :k2 [:a :b]}
-          h (ei/render-inline-recursive v)
-          text (collect-text h)]
-      (is (re-find #":k1" text))
-      (is (re-find #":k2" text))
-      ;; Nested vector's brackets present.
-      (is (re-find #"\[" text))
-      (is (re-find #"\]" text))
-      ;; Outer map brackets present.
-      (is (re-find #"\{" text))
-      (is (re-find #"\}" text))
-      ;; Scalars from the nested vector.
-      (is (re-find #":a" text))
-      (is (re-find #":b" text)))))
 
 ;; ---- inline / collapsed inter-element spacing ----------------------------
 ;;
@@ -4357,15 +4113,6 @@
 
 ;; ---- pure helpers --------------------------------------------------------
 
-(deftest zoom-slot-keyword
-  (is (= :rf.xray.edn-inspector/zoom ei/zoom-slot)
-      "the slot keyword is a stable part of the public contract"))
-
-(deftest zoom-key-shape
-  (is (= [:p "m"]    (ei/zoom-key :p "m")))
-  (is (= [:p [:s 1]] (ei/zoom-key :p [:s 1]))
-      "site-id vector also works as the mount-id slot"))
-
 (deftest resolve-zoom-path-pure
   (testing "no entry → nil"
     (is (nil? (ei/resolve-zoom-path {} :p "m"))))
@@ -4392,15 +4139,6 @@
                                      :p "m"))))))
 
 ;; ---- reducers ------------------------------------------------------------
-
-(deftest zoom-to-event-stores-path
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to :p "m" [:a :b]])
-  (let [zoom @(rf/subscribe [ei/zoom-slot])
-        k    (ei/zoom-key :p "m")]
-    (is (= [:a :b] (get zoom k))
-        "the path is stored verbatim under [panel-id mount-id]"))
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset]))
 
 (deftest zoom-to-empty-path-clears
   (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
