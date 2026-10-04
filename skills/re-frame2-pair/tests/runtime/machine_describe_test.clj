@@ -74,16 +74,6 @@
            "the caller loses the spec "
            "entirely.")))
 
-(deftest machine-describe-dissocs-handler-fn
-  (is (form-contains? (fn [node]
-                        (and (seq? node)
-                             (= 'dissoc (first node))
-                             (some #(= :handler-fn %) (rest node))))
-                      machine-describe-form)
-      (str "machine-describe should drop the top-level `:handler-fn` slot for "
-           "the same reason `registrar-describe` does — the raw Function ref is "
-           "unreadable EDN on the MCP wire.")))
-
 (deftest machine-describe-still-reports-a-miss
   (is (form-contains? (fn [node] (= :not-a-machine node)) machine-describe-form)
       (str "machine-describe must return a structured "

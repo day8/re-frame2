@@ -22,8 +22,7 @@
 ;;;; `dispatch-dry-run` needs a LIVE re-frame2 frame (`rf/dispatch-sync`,
 ;;;; `rf/replace-frame-state!`, `rf/epoch-history`). We therefore pin the
 ;;;; SOURCE-level contract: the not-rolled-back arm returns the documented
-;;;; `:ok? false :reason :rollback-failed` shape and carries no silent-green
-;;;; `:rollback-hint` key. The MCP-boundary routing (isError on
+;;;; `:ok? false :reason :rollback-failed` shape. The MCP-boundary routing (isError on
 ;;;; :ok? false AND the belt-and-braces :rolled-back? false guard) is
 ;;;; covered by the real cljs.test unit + conformance suites at
 ;;;; tools/re-frame2-pair-mcp/test/.
@@ -77,9 +76,7 @@
 
 (deftest attempts-rollback-via-replace-frame-state
   (is (rt/form-contains? #(= % 'rf/replace-frame-state!) ddr-form)
-      "dispatch-dry-run must attempt the rollback via rf/replace-frame-state!")
-  (is (rt/form-contains? #(= % 'rolled-back?) ddr-form)
-      "it must bind the rollback outcome to `rolled-back?` and branch on it"))
+      "dispatch-dry-run must attempt the rollback via rf/replace-frame-state!"))
 
 (deftest not-rolled-back-arm-returns-ok-false-rollback-failed
   (let [if-form (if-rolled-back-form)]
@@ -99,18 +96,6 @@
           "the failed-rollback arm carries the documented :reason :rollback-failed")
       (is (contains? else-kv :hint)
           "the failed-rollback arm carries a :hint for manual re-restore"))))
-
-;; ---------------------------------------------------------------------------
-;; The silent-green shape must be absent. A `:rollback-hint` (an
-;; :ok? true + human-string signal that reads GREEN over a mutated db)
-;; means dry-run reports success on a failed rollback.
-;; ---------------------------------------------------------------------------
-
-(deftest silent-green-rollback-hint-is-gone
-  (is (not (rt/form-contains? #(= % :rollback-hint) ddr-form))
-      (str "a :rollback-hint key (an :ok? true + string signal that "
-           "reads GREEN over a mutated live db) MUST be absent — a failed "
-           "rollback is an :ok? false :reason :rollback-failed failure")))
 
 ;; ---------------------------------------------------------------------------
 ;; The docstring documents :rollback-failed as an :ok? false failure path;

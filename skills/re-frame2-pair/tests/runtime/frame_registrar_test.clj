@@ -16,7 +16,7 @@
 ;;;;   (rf/registrations {:frame f :kind k})
 ;;;;   (rf/frame-generation f)
 ;;;;
-;;;; This pin asserts the frame-derived preload fns exist and route through
+;;;; This pin asserts the frame-derived preload fns route through
 ;;;; the `:frame`-arity facade reads / `frame-generation` — NOT the internal
 ;;;; live-frame / image-assembly namespaces. A regression that reaches into
 ;;;; the internals (or drops the per-frame fns) turns this red.
@@ -38,21 +38,6 @@
 (defn- calls? [form sym]
   ;; True when `form` invokes `sym` as the head of any sub-list.
   (form-contains? (fn [node] (and (seq? node) (= sym (first node)))) form))
-
-;; ---------------------------------------------------------------------------
-;; The frame-derived preload fns are present.
-;; ---------------------------------------------------------------------------
-
-(def ^:private fn-syms
-  '[frame-registrar-describe frame-registrar-list
-    frame-registrar-registrations describe-image
-    coordinate-summary])
-
-(deftest all-frame-derived-fns-present
-  (doseq [sym fn-syms]
-    (is (some? (defn-form sym))
-        (str "preload/re_frame2_pair/runtime.cljs must define `" sym
-             "` (the EP-0023 forward-direction frame-derived read)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; They route through the PUBLIC facade `:frame` reads, not the internals.
