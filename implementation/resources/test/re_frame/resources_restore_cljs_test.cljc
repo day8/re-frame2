@@ -288,20 +288,6 @@
   [m]
   (into {} (map (fn [[iid inst]] [(rf.resources.mutation-runtime/instance-key-id iid) inst])) m))
 
-(deftest instance-dangled-settles-pending-and-clears-current-work
-  (testing "instance-dangled: a :pending instance settles terminal :error with
-            the :dangling-on-restore envelope and CLEARS :current-work"
-    (let [inst (mutation-instance {:instance-id :inst-1
-                                   :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          out  (rf.resources.mutation-runtime/instance-dangled inst 9999)]
-      (is (= :error (:status out)) "pending → terminal :error")
-      (is (= :dangling-on-restore (:reason (:error out))))
-      (is (nil? (:current-work out)) ":current-work cleared (the suppression gate)")
-      (is (rf.resources.mutation-runtime/terminal? (:status out)) "the instance is now terminal")))
-  (testing "a TERMINAL instance rides through unchanged"
-    (let [done (mutation-instance {:instance-id :inst-2 :status :success})]
-      (is (= done (rf.resources.mutation-runtime/instance-dangled done 9999))))))
-
 (deftest dangle-pending-mutations-settles-and-returns-ids
   (testing "dangle-pending-mutations! settles every pending instance + clears
             current-work; terminal instances untouched; returns the dangled ids"
