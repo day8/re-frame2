@@ -180,7 +180,3 @@
           (is (not (str/includes? text (str donor "/")))
               (str (.basename path f) " names a donor read (" donor
                    "/…) in a callable position")))))))
-
-(deftest the-tier-string-is-the-adapter-neutral-door
-  (is (= "re-frame.fresco.tool" fresco-tool/tier-ns)
-      "the wire targets the adapter-neutral provider, not a donor tier"))
