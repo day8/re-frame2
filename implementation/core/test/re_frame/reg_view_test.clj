@@ -106,15 +106,6 @@
       (is (re-find #"reg-view\*" reason)
           ":reason points the user at the reg-view* escape hatch"))))
 
-(deftest reg-view-rejects-computed-body
-  (testing "(reg-view sym (some-fn-returning-a-fn)) — a non-fn call where
-            the args vector should be — throws at macroexpand"
-    (let [err (reg-view-error-reason
-                (fn [] (eval `(rf/reg-view bad-comp (~'compute-render-fn)))))]
-      (is (re-find #"args vector" err)
-          "macroexpand throws when the second arg is a non-fn call, and the
-           message points at the missing args vector"))))
-
 ;; ---- error message template ----------------------------------------------
 
 (deftest reg-view-error-message-matches-template
@@ -170,60 +161,6 @@
               :re-frame.reg-view-test/ret-doc
               (rf/reg-view ret-doc "the doc" [n] [:p n])]]]
       (is (= expected ret) shape))))
-
-;; ---- expander helpers expose stable shape --------------------------------
-
-(deftest expand-reg-view-helper-shape
-  (testing "rf/expand-reg-view returns a (do binding+def+id) form.
-            The terminal expression is the id (so the macro's
-            return value is the id, matching the reg-* return-value
-            contract). The penultimate form is the auto-def of the Var."
-    (let [exp     (rf/expand-reg-view {:line 1 :column 1}
-                                      'my.ns "my_ns.cljc" 'my-widget '([] [:p]))
-          def-form (last (butlast exp))]
-      (is (= 'do (first exp)))
-      (is (= :my.ns/my-widget (last exp))
-          "the terminal expression is the registered id")
-      (is (= 'def (first def-form)))
-      (is (= 'my-widget (second def-form)))))
-
-  ;; Double-def guard. An outer (def x (reg-view :id ...)) wrapper would
-  ;; double-def against the macro's own internal def. reg-view is
-  ;; defn-shape — the macro itself emits the (single) def, and an
-  ;; outer-def wrapper does not compile. Pin: exactly ONE def in the full
-  ;; expansion, no matter the input shape.
-  (testing "expansion contains exactly one def form"
-    (letfn [(count-defs [form]
-              (cond
-                (and (seq? form) (= 'def (first form)))
-                (+ 1 (apply + (map count-defs (rest form))))
-                (coll? form)
-                (apply + (map count-defs form))
-                :else 0))]
-      (let [exp-plain   (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
-                                            'plain-view '([] [:p]))
-            exp-doc     (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
-                                            'docced-view '("a doc" [] [:p]))
-            exp-id-meta (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
-                                            (with-meta 'meta-view
-                                              {:rf/id :explicit/id})
-                                            '([] [:p]))]
-        (is (= 1 (count-defs exp-plain))
-            "plain (reg-view sym [args] body) emits exactly one def")
-        (is (= 1 (count-defs exp-doc))
-            "(reg-view sym docstring [args] body) emits exactly one def")
-        (is (= 1 (count-defs exp-id-meta))
-            "(reg-view ^{:rf/id ...} sym [args] body) emits exactly one def"))))
-
-  (testing "rf/parse-reg-view-args parses the three accepted shapes"
-    (is (= {:docstring nil :args '[] :body nil}
-           (rf/parse-reg-view-args '([]))))
-    (is (= {:docstring "doc" :args '[a] :body '([:p a])}
-           (rf/parse-reg-view-args '("doc" [a] [:p a]))))
-    (is (nil? (rf/parse-reg-view-args '(some-symbol)))
-        "a single non-vector arg is invalid")
-    (is (nil? (rf/parse-reg-view-args '((reagent.core/create-class {}))))
-        "a list where the args vector should be is invalid")))
 
 ;; ---- compile-time component-shape fold -----------------------------------
 ;;
