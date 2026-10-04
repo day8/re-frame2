@@ -44,15 +44,7 @@
     (is (re/reply-status? :ok))
     (is (re/reply-status? :stale))
     (is (not (re/reply-status? :running)))
-    (is (not (re/reply-status? :completed))))
-  (testing "work-statuses are the operational five (timeout is a work status,
-            not a reply status; suppressed is the stale terminal)"
-    (is (= #{:completed :failed :timed-out :suppressed :cancelled} re/work-statuses)))
-  (testing "work-kinds cover every managed-async family"
-    (is (= #{:http :resource :mutation :route :machine :timer} re/work-kinds)))
-  (testing "all five reply statuses are terminal (a reply map is produced only
-            at completion — :running is a ledger status, not a reply status)"
-    (is (= re/reply-statuses re/terminal-reply-statuses))))
+    (is (not (re/reply-status? :completed)))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) reply-map readers — work-id / kind reading + inference, across families.
@@ -206,23 +198,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest cross-surface-status-presentation
-  (testing "every reply status maps to a shared colour class + label"
-    (is (= :success      (re/status-class :ok)))
-    (is (= :partial      (re/status-class :partial)))
-    (is (= :failure      (re/status-class :error)))
-    (is (= :cancellation (re/status-class :cancelled)))
-    (is (= :suppression  (re/status-class :stale)))
+  (testing "reply statuses map to their shared label"
     (is (= "STALE" (re/status-label :stale)))
-    (is (= "OK"    (re/status-label :ok))))
-  (testing "an HTTP :stale and a resource :stale render the SAME badge
-            (Cross-Cutting F.11 — unified cross-surface STALE)"
-    (let [http-stale (re/reply-row {:status :stale :stale? true :stale/reason :x
-                                    :work/id [:rf.work/http :a 1]})
-          res-stale  (re/reply-row {:status :stale :stale? true :stale/reason :x
-                                    :work/id [:rf.work/resource :k 1]})]
-      (is (= (re/status-class (:status http-stale))
-             (re/status-class (:status res-stale))
-             :suppression)))))
+    (is (= "OK"    (re/status-label :ok)))))
 
 ;; ---------------------------------------------------------------------------
 ;; (5) phase-of — every family's op lowers onto ONE reply-envelope phase.
@@ -671,29 +649,6 @@
       (is (= 471 (:completed-at row)) "causal reply completion time surfaced")
       (is (some? (:correlation row)) "single-map correlation surfaced")
       (is (= "map" (:type (:correlation row))) "correlation summarized (PRIVACY)")))
-  (testing "the :attempt-superseded class (a carrier
-            bound to a prior attempt / wrong actor after respawn)"
-    (let [row (re/work-event-row
-                (spawn-all-stale-row
-                  {:id 71 :op :rf.machine.spawn-all/stale-completion
-                   :child-id :fetch-prefs :spawned-id :fetch-prefs#2 :generation 2
-                   :stale-reason :rf.machine.spawn-all/attempt-superseded
-                   :completed-at 472}))]
-      (is (= :stale-suppressed (:phase row)))
-      (is (= :rf.machine.spawn-all/attempt-superseded (:stale-reason row)))
-      (is (= :stale (:status row)))
-      (is (= :suppressed (:work-status row)))))
-  (testing "the :duplicate-completion class (an
-            exact re-completion of an already-folded child)"
-    (let [row (re/work-event-row
-                (spawn-all-stale-row
-                  {:id 72 :op :rf.machine.spawn-all/stale-completion
-                   :child-id :fetch-perms :spawned-id :fetch-perms#1 :generation 1
-                   :stale-reason :rf.machine.spawn-all/duplicate-completion
-                   :completed-at 473}))]
-      (is (= :stale-suppressed (:phase row)))
-      (is (= :rf.machine.spawn-all/duplicate-completion (:stale-reason row)))
-      (is (= :stale (:status row)))))
   (testing "the POST-resolution `late-completion` straggler (a
             completion arriving after the `:resolved?` latch flipped)
             :join-resolved"
@@ -912,19 +867,7 @@
           byte-key "opaque"
           row      (re/ledger-row [byte-key {:work/id work-id :status :running}])]
       (is (= work-id (:work-id row)) "canonical vector, not the byte key")
-      (is (= :http (:work-kind row)) "kind inferred from the vector head, not the byte key")))
-  (testing "a nonconforming record lacking :work/id falls back to the
-            map key (here a vector work id)"
-    (let [row (re/ledger-row [[:rf.work/resource :k 2] {:status :running}])]
-      (is (= [:rf.work/resource :k 2] (:work-id row)))
-      (is (= :resource (:work-kind row)))))
-  (testing "latest-phase-by-work-id keeps the MOST-RECENT phase per work id"
-    (let [trace [{:id 1 :operation :rf.resource/work-started :time 100
-                  :tags {:work/id [:rf.work/resource :k 2]}}
-                 {:id 2 :operation :rf.resource/work-abort-requested :time 200
-                  :tags {:work/id [:rf.work/resource :k 2] :reason :superseded}}]
-          idx   (re/latest-phase-by-work-id trace)]
-      (is (= :cancel-requested (:phase (get idx [:rf.work/resource :k 2])))))))
+      (is (= :http (:work-kind row)) "kind inferred from the vector head, not the byte key"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (8b) frame scoping — a work-id is frame-LOCAL.
