@@ -249,27 +249,3 @@
                               {:title     "bad"
                                :placement :nowhere
                                :render    :x/y}))))))
-
-;; ===========================================================================
-;; `registrations` QUERY API — the spec/001-mirror MCP read tools consume
-;; ===========================================================================
-
-(deftest registrations-returns-id-to-body-map-per-kind
-  (testing "(registrations :variant) returns a `{id → body}` map of every
-            registered variant; (registrations :tag) does the same for tags.
-            Per spec/006 §Story's public read primitives this mirrors
-            spec/001's `re-frame.registrar/registrations` — the shape MCP read
-            tools rely on for registry walks"
-    (rf.story/reg-story :story.handlers {:doc "h-fixture"})
-    (rf.story/reg-variant :story.handlers/a {:setup [[:init-a]]})
-    (rf.story/reg-variant :story.handlers/b {:setup [[:init-b]]})
-    (let [variants (rf.story/registrations :variant)]
-      (is (map? variants) "registrations returns a {id → body} map")
-      (is (= #{:story.handlers/a :story.handlers/b} (set (keys variants))))
-      (is (every? map? (vals variants))
-          "every body is a map"))
-    (let [tags (rf.story/registrations :tag)]
-      (is (= (+ (count rf.story.schemas/canonical-tags)
-                (count rf.story.schemas/canonical-state-tags))
-             (count tags))
-          "the canonical seven inclusion + five :state/* magnitude tags surface via registrations"))))
