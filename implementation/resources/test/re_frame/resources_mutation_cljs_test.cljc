@@ -478,30 +478,6 @@
 ;; 3. Concurrency — same mutation id, different instances, no clobber
 ;; ===========================================================================
 
-(deftest concurrent-submissions-do-not-clobber
-  (rf/reg-mutation :comment/add
-                   {:params-schema [:map [:body :string]]}
-                   (fn [{:keys [body]} _] {:request {:method :post :url "/c" :body {:body body}}}))
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :comment/add :params {:body "one"} :instance :c1}])
-  (let [args1 @last-managed-args]
-    (rf/dispatch-sync [:rf.mutation/execute
-                       {:mutation :comment/add :params {:body "two"} :instance :c2}])
-    (let [args2 @last-managed-args]
-      (testing "both instances are :pending and independent"
-        (is (= :pending (:status (instance :c1))))
-        (is (= :pending (:status (instance :c2)))))
-      (testing "settling :c2 leaves :c1 untouched (EP-0003 §Mutations — keyed
-                by instance id so concurrent submissions don't clobber)"
-        (reply-success! args2 {:id 2})
-        (is (= :success (:status (instance :c2))))
-        (is (= {:id 2} (:result (instance :c2))))
-        (is (= :pending (:status (instance :c1))) "c1 still pending"))
-      (testing "then settling :c1"
-        (reply-success! args1 {:id 1})
-        (is (= :success (:status (instance :c1))))
-        (is (= {:id 1} (:result (instance :c1))))))))
-
 ;; ===========================================================================
 ;; 4. Success → patch / populate then invalidation
 ;; ===========================================================================
@@ -615,7 +591,11 @@
     (testing "the instance settles :error with :settled-at = the reply
               completion time (not now)"
       (is (= :error (:status (instance :mf1))))
-      (is (= completed-at (:settled-at (instance :mf1)))))))
+      (is (= completed-at (:settled-at (instance :mf1)))))
+    (testing "EP-0003 §Mutations — the :error carries the appended transport
+              failure envelope, and no :result"
+      (is (= {:kind :rf.http/http-5xx :status 500} (:error (instance :mf1))))
+      (is (nil? (:result (instance :mf1)))))))
 
 (deftest success-populates-resource-entry
   (rf/reg-resource :r/article
@@ -629,6 +609,7 @@
                       :populates (fn [_params result] {(art-target) result})}
                      (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     ;; no prior ensure — the populate SEEDS the entry from the mutation result
+    (reset! scheduled-timers [])
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pop1}])
     (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
     (testing "EP-0003 §Mutations — the controlled populate seeded a :loaded
@@ -636,7 +617,15 @@
       (let [e (entry rkey)]
         (is (= :loaded (:status e)))
         (is (= {:slug "w" :title "Fresh"} (:data e)))
-        (is (= #{[:article "w"]} (:tags e)))))))
+        (is (= #{[:article "w"]} (:tags e)))))
+    ;; The resource declares no :gc-after-ms: absent normalizes to 300000 at
+    ;; registration, exactly as on the read path, and stale stays unarmed.
+    (testing "no explicit GC policy still arms the DEFAULT GC timer"
+      (is (= 1 (count @scheduled-timers)))
+      (let [args (first @scheduled-timers)]
+        (is (= rkey (:resource/key args)))
+        (is (nil? (get-in args [:timers :stale])))
+        (is (= 300000 (get-in args [:timers :gc])))))))
 
 (deftest populate-lowers-sensitive-classification-without-manual-reconcile
   ;; The entry-mutating mutation handlers are wrapped in
@@ -762,70 +751,9 @@
         (is (= 60000 (get-in args [:timers :stale])))
         (is (= 300000 (get-in args [:timers :gc])))))))
 
-(deftest success-populate-no-explicit-policy-arms-default-gc-timer
-  ;; A populate of a resource declaring NO explicit
-  ;; :gc-after-ms still arms the framework's DEFAULT GC timer (absent
-  ;; normalizes to 300000 at registration, exactly as the read path); stale
-  ;; stays unarmed (its own absent-default is never-time-stale, unaffected).
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save
-                     {:params-schema [:map [:slug :string]]
-                      :populates (fn [_params result] {(art-target) result})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (reset! scheduled-timers [])
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :pnp1}])
-    (reply-success! @last-managed-args {:slug "w" :title "Fresh"})
-    (testing "no explicit GC policy still arms the DEFAULT GC timer"
-      (is (= 1 (count @scheduled-timers)))
-      (let [args (first @scheduled-timers)]
-        (is (= rkey (:resource/key args)))
-        (is (nil? (get-in args [:timers :stale])))
-        (is (= 300000 (get-in args [:timers :gc])))))))
-
 ;; ===========================================================================
 ;; 5. Failure settles :error
 ;; ===========================================================================
-
-(deftest failure-settles-instance-error
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :f1}])
-  (testing "EP-0003 §Mutations — a failed write settles the instance :error
-            with the appended transport failure envelope (no :refresh-error)"
-    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-    (let [i (instance :f1)]
-      (is (= :error (:status i)))
-      (is (= {:kind :rf.http/http-5xx :status 503} (:error i)))
-      (is (nil? (:result i))))))
-
-(deftest after-failure-invalidation-timing
-  (rf/reg-resource :r/article
-                   {:scope :rf.scope/global
-                    :params-schema [:map [:slug :string]]
-                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
-                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-failure}) save-article-request)
-    ;; ensure WITHOUT an owner so the invalidation leaves the matched entry
-    ;; stale (an ownerless entry is left stale / GC-eligible, NOT refetched —
-    ;; so the :invalidated-at fact is observed with no refetch in play at all).
-    ;; A refetch would not clear it at start-load either;
-    ;; only a SUCCESSFUL settle satisfies an invalidation. The ownerless setup
-    ;; isolates the timing fact under test.
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"}}])
-    (reply-success! @last-managed-args {:title "x"})
-    (reset! last-managed-args nil)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :af1}])
-    (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-    (testing "EP-0003 §Mutations — :after-failure timing invalidated the tag on
-              the FAILURE path (re-read authoritative state after a rejected write)"
-      (is (some? (:invalidated-at (entry rkey)))))))
 
 (deftest after-settle-invalidation-timing
   ;; :after-settle invalidates on BOTH settle paths. Each row settles its own
@@ -877,32 +805,13 @@
 ;; 7. Stale suppression — a superseded reply never overwrites a newer instance
 ;; ===========================================================================
 
-(deftest stale-mutation-reply-suppressed
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  ;; two executes under the SAME instance id mint different generations; the
-  ;; first reply is now stale against the live (gen-2) instance.
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :i}])
-  (let [gen1-args @last-managed-args]
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :i}])
-    (is (= 2 (:generation (instance :i))))
-    (testing "Spec 016 §Cancellation is opportunistic; stale suppression is
-              mandatory — the STALE gen-1 reply NEVER settles the newer instance"
-      (reply-success! gen1-args {:stale "result"})
-      (let [i (instance :i)]
-        (is (= :pending (:status i)) "still pending on the current gen")
-        (is (= 2 (:generation i)) "generation unchanged")
-        (is (nil? (:result i)) "stale reply did not write a result")))
-    (testing "the CURRENT gen-2 reply settles normally"
-      (reply-success! @last-managed-args {:fresh "result"})
-      (is (= :success (:status (instance :i))))
-      (is (= {:fresh "result"} (:result (instance :i)))))))
-
 (deftest stale-mutation-suppressed-trace-carries-canonical-reply-envelope
-  ;; The canonical :status :stale reply
-  ;; envelope rides the PRODUCTION mutation stale-suppression trace. The
-  ;; behaviour-only `stale-mutation-reply-suppressed` above would pass even if
-  ;; the production stale branch discarded the canonical reply; these
-  ;; assertions pin the envelope itself.
+  ;; Spec 016 §Cancellation is opportunistic; stale suppression is mandatory:
+  ;; the STALE gen-1 reply never settles the newer instance. The canonical
+  ;; :status :stale reply envelope rides the PRODUCTION mutation
+  ;; stale-suppression trace; the behaviour reads alone would pass even if the
+  ;; production stale branch discarded the canonical reply, so the envelope is
+  ;; pinned too.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :rv}])
   (let [gen1-args @last-managed-args]
@@ -935,7 +844,15 @@
           (let [corr (:rf.reply/correlation tags)]
             (is (= 1 (-> corr :generation :carried)) "carried gen off the stale token")
             (is (= 2 (-> corr :generation :current)) "current = the LIVE instance gen")
-            (is (= :rv (:instance/id corr)))))))))
+            (is (= :rv (:instance/id corr))))))
+      (let [i (instance :rv)]
+        (is (= :pending (:status i)) "still pending on the current gen")
+        (is (= 2 (:generation i)) "generation unchanged")
+        (is (nil? (:result i)) "stale reply did not write a result")))
+    (testing "the CURRENT gen-2 reply settles normally"
+      (reply-success! @last-managed-args {:fresh "result"})
+      (is (= :success (:status (instance :rv))))
+      (is (= {:fresh "result"} (:result (instance :rv)))))))
 
 ;; ===========================================================================
 ;; 7b. A mutation reply whose stamped :rf.frame/id does not match
@@ -1727,21 +1644,10 @@
       (is (= :m/save (:mutation reply)))
       (is (= :ec1 (:instance reply)))
       (is (= #{} (:affected-keys reply)) "a failed write touches no exact key")
-      (is (= [:mutation :m/save :ec1] (:cause reply))))))
-
-(deftest reply-to-fires-on-accepted-cancellation
-  ;; D1 delivery rule — an accepted TERMINAL cancellation (an `:rf.http/aborted`
-  ;; envelope, which the reply substrate lowers to `:status :cancelled`) is an
-  ;; accepted terminal reply, so it fires the continuation.
-  (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/save :params {:slug "w"} :instance :cc1
-                      :reply-to [:test/save-replied]}])
-  (reply-failure! @last-managed-args {:kind :rf.http/aborted :reason :user-abort})
-  (testing "the accepted terminal cancellation fired the continuation"
-    (is (= 1 (count @replied)))
-    (is (= :cancelled (:status (second (first @replied)))))))
+      (is (= [:mutation :m/save :ec1] (:cause reply)))))
+  ;; A genuine (non-abort) failure must not be swallowed into :cancelled.
+  (testing "the work-ledger row settled terminal :failed"
+    (is (= :failed (:status (mutation-record :ec1))))))
 
 (deftest accepted-abort-reply-settles-ledger-cancelled
   ;; EP-0011: an ACCEPTED mutation abort/cancel reply
@@ -1758,6 +1664,10 @@
                      {:mutation :m/save :params {:slug "w"} :instance :ac1
                       :reply-to [:test/save-replied]}])
   (reply-failure! @last-managed-args {:kind :rf.http/aborted :reason :user-abort})
+  (testing "the accepted terminal cancellation fired the continuation (D1
+            delivery rule)"
+    (is (= 1 (count @replied)))
+    (is (= :cancelled (:status (second (first @replied))))))
   (testing "the work-ledger row settled terminal :cancelled (agrees with the reply)"
     (let [rec (mutation-record :ac1)]
       (is (= :cancelled (:status rec)))
@@ -1767,19 +1677,6 @@
     (let [rec (mutation-record :ac1)]
       (is (= :aborted (:reason (:outcome rec))))
       (is (nil? (:error (:outcome rec)))))))
-
-(deftest accepted-failure-reply-still-settles-ledger-failed
-  ;; Guard: a genuine (non-abort) failure reply still settles the
-  ;; ledger row `:failed` — the abort branch must NOT swallow ordinary
-  ;; failures into `:cancelled`.
-  (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/save :params {:slug "w"} :instance :af1
-                      :reply-to [:test/save-replied]}])
-  (reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 503})
-  (testing "the work-ledger row settled terminal :failed"
-    (is (= :failed (:status (mutation-record :af1))))))
 
 (deftest stale-reply-does-not-fire-the-continuation
   ;; Validation rule 4: a STALE / superseded mutation reply fires NO
@@ -1796,9 +1693,12 @@
                        {:mutation :m/save :params {:slug "w"} :instance :i
                         :reply-to [:test/save-replied]}])
     (is (= 2 (:generation (instance :i))))
-    (testing "the STALE gen-1 reply does NOT fire the continuation"
-      (reply-success! gen1-args {:stale "result"})
-      (is (= 0 (count @replied)) "no continuation for the superseded reply"))
+    (testing "the STALE gen-1 reply does NOT fire the continuation, and emits
+              no :rf.mutation/replied row (only a stale-suppressed one)"
+      (let [traces (record-mutation-traces! #(reply-success! gen1-args {:stale "result"}))]
+        (is (= 0 (count @replied)) "no continuation for the superseded reply")
+        (is (= 0 (count (filter #(= :rf.mutation/replied (:operation %)) traces))))
+        (is (= 1 (count (filter #(= :rf.mutation/stale-suppressed (:operation %)) traces))))))
     (testing "the CURRENT gen-2 reply DOES fire the continuation exactly once"
       (reply-success! @last-managed-args {:fresh "result"})
       (is (= 1 (count @replied)))
@@ -1862,7 +1762,21 @@
           (str "expected succeeded before replied; got ops " (pr-str ops))))
     (testing "the continuation still actually fired (the row corresponds to a
               real dispatched continuation, not a phantom)"
-      (is (= 1 (count @replied))))))
+      (is (= 1 (count @replied))))
+    (testing "exactly one :rf.mutation/replied row, carrying the full
+              continuation evidence shape"
+      (let [replied-rows (filter #(= :rf.mutation/replied (:operation %)) rows)
+            row          (:tags (first replied-rows))]
+        (is (= 1 (count replied-rows)))
+        ;; :target is the normalized reply-target descriptor (the :reply-to
+        ;; vector lowered to {:event … :delivery :append} by re-frame.reply).
+        (is (= [:test/save-replied] (:event (:target row))))
+        (is (= :append (:delivery (:target row))))
+        (is (some? (:work/id row)))
+        (is (= :m/save (:mutation row)))
+        (is (= :po1 (:instance row)))
+        (is (= :ok (:status row)))
+        (is (= [:mutation :m/save :po1] (:cause row)))))))
 
 (deftest reply-to-fires-after-failure-invalidation
   ;; phase-6 ordering on the failure path: the continuation composes AFTER the
@@ -2017,57 +1931,6 @@
 ;; ===========================================================================
 ;; 17. the runtime :rf.mutation/replied trace
 ;; ===========================================================================
-
-(deftest replied-trace-emitted-on-accepted-reply-with-full-shape
-  ;; The accepted :reply-to continuation emits exactly one :rf.mutation/replied
-  ;; row carrying :target, :work/id, :mutation, :instance, :status, :cause —
-  ;; pinned via a REAL trace listener over the runtime (not a synthetic row).
-  (reg-capture-continuation!)
-  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [traces (record-mutation-traces!
-                 (fn []
-                   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-                   (rf/dispatch-sync [:rf.mutation/execute
-                                      {:mutation :m/save :params {:slug "w"} :instance :rt1
-                                       :reply-to [:test/save-replied]}])
-                   (reply-success! @last-managed-args {:ok true})))
-        replied-rows (filter #(= :rf.mutation/replied (:operation %)) traces)]
-    (testing "exactly one :rf.mutation/replied row for the accepted reply"
-      (is (= 1 (count replied-rows))))
-    (testing "the row carries the full continuation evidence shape"
-      (let [row (:tags (first replied-rows))]
-        ;; :target is the normalized reply-target descriptor (the :reply-to
-        ;; vector lowered to {:event … :delivery :append} by re-frame.reply).
-        (is (= [:test/save-replied] (:event (:target row))))
-        (is (= :append (:delivery (:target row))))
-        (is (some? (:work/id row)))
-        (is (= :m/save (:mutation row)))
-        (is (= :rt1 (:instance row)))
-        (is (= :ok (:status row)))
-        (is (= [:mutation :m/save :rt1] (:cause row)))))))
-
-(deftest replied-trace-not-emitted-for-stale-suppressed-reply
-  ;; the trace fires only for an accepted terminal reply, never for a
-  ;; stale/suppressed one (the delivery rule, pinned at the trace boundary).
-  (reg-capture-continuation!)
-  (let [traces (record-mutation-traces!
-                 (fn []
-                   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-                   ;; two executes under the SAME instance → gen-1 reply is stale
-                   (rf/dispatch-sync [:rf.mutation/execute
-                                      {:mutation :m/save :params {:slug "w"} :instance :si
-                                       :reply-to [:test/save-replied]}])
-                   (let [gen1 @last-managed-args]
-                     (rf/dispatch-sync [:rf.mutation/execute
-                                        {:mutation :m/save :params {:slug "w"} :instance :si
-                                         :reply-to [:test/save-replied]}])
-                     (reply-success! gen1 {:stale true}))))
-        replied-rows (filter #(= :rf.mutation/replied (:operation %)) traces)
-        stale-rows   (filter #(= :rf.mutation/stale-suppressed (:operation %)) traces)]
-    (testing "no :rf.mutation/replied row for the stale reply"
-      (is (= 0 (count replied-rows))))
-    (testing "the stale reply WAS recorded as stale-suppressed"
-      (is (= 1 (count stale-rows))))))
 
 ;; ===========================================================================
 ;; 18. mutation-state fails closed without an explicit frame
