@@ -56,9 +56,8 @@
   (testing "a source the fixer leaves alone would satisfy every
             preservation claim in this namespace and mean nothing"
     (is (not= lf-source (rewritten lf-source))
-        "the LF fixture must exercise a real rewrite")
-    (is (not= crlf-source (rewritten crlf-source))
-        "and so must the CRLF one")))
+        (str "the LF fixture must exercise a real rewrite; the CRLF one then must too, "
+             "or the-two-conventions-carry-the-same-rewrite goes red"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Preservation

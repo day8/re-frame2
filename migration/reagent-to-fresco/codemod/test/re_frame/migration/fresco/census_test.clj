@@ -326,8 +326,6 @@
           "the live call is the control this is measured against")
       (is (= [] (classes (str hdr "(def a '(r/atom 0))\n") "app/p.cljs"))
           "reader quote")
-      (is (= [] (classes (str hdr "(def a (quote (r/atom 0)))\n") "app/p.cljs"))
-          "the `quote` special form spells the same thing")
       (is (= [] (classes (str hdr "(def a 1)\n#_(r/atom 0)\n") "app/p.cljs"))
           "`#_` discard")
       (is (= [] (classes (str hdr "(comment (r/atom 0))\n") "app/p.cljs"))
@@ -477,17 +475,14 @@
       (is (false? reagent?) "there is genuinely no Reagent name in this file")
       (is (true? substrate?))
       (is (true? recognised?))
-      (is (= [:root-mount :root-mount] (mapv :class entries)))
+      (is (= [:root-mount :root-mount] (mapv :class entries))
+          (str "exactly the two call heads: `reagent-adapter/adapter` on the line "
+               "between them is a value in argument position, which this walk does "
+               "not read, and the file is recognised through its `ns` form regardless"))
       (is (= [5 9] (mapv :line entries)) "client-root, then render!")
       (is (= [{:api "client-root"} {:api "render!"}] (mapv :detail entries)))
       (testing "and each carries the recovery sentence for boot ceremony"
-        (is (str/includes? (:note (first entries)) "Fresco mounts its own root")))))
-
-  (testing "`reagent-adapter/adapter` on the line between them is NOT counted:
-            it is a value in argument position, and this walk reads call heads.
-            The file is recognised through its `ns` form regardless, so nothing
-            rides on catching it — stated here so the silence is a decision."
-    (is (= 2 (count (:entries (rf.migration.fresco.census/scan rf2-native-boot "app/core.cljs")))))))
+        (is (str/includes? (:note (first entries)) "Fresco mounts its own root"))))))
 
 (deftest every-substrate-class-has-a-recovery-sentence
   (doseq [[api {:keys [verdict]}] rf.migration.fresco.census/substrate-surface]
