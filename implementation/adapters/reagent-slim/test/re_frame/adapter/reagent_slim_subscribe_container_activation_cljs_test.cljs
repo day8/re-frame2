@@ -35,15 +35,15 @@
 
   Divergence from the stock twin, and it is only this: the settle step is
   `reagent2.ratom/flush!` — the rewrite's synchronous reaction-queue drain —
-  in place of `reagent.core/flush`. Same six pins, same values.
+  in place of `reagent.core/flush`. Same pins, same values.
 
   Pins:
 
-    * direct listener on a fresh derived container fires (no baseline read)
     * direct listener fires when a baseline read preceded the attach
     * a second observer over an already-active node forces no extra recompute,
       and removing one observer leaves the other live
-    * final detach releases the source watch (the node stops recomputing)
+    * a fresh derived container's listener fires with no baseline read, and
+      final detach releases the source watch (the node stops recomputing)
     * base-container listeners keep working; cancellation is idempotent
     * a multi-input derived keeps native batching (one notification per
       flush, not one per source write)"
@@ -72,18 +72,6 @@
   []
   (let [events (atom [])]
     [events (fn [prev nu] (swap! events conj [prev nu]))]))
-
-(deftest slim-direct-derived-listener-fires-without-baseline-read-cljs-test
-  (testing "attach-then-write on a never-read derived container notifies"
-    (let [s              (source 1)
-          d              (derive* [s] (fn [v] (* 10 v)))
-          [events notify] (recorder)
-          unsub          (observe d notify)]
-      (write! s 2)
-      (ratom/flush!)
-      (is (= [[10 20]] @events)
-          "observer attached to a fresh derived container hears the source change")
-      (unsub))))
 
 (deftest slim-direct-derived-listener-fires-after-baseline-read-cljs-test
   (testing "a read before the attach does not suppress the notification"
