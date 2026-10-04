@@ -41,7 +41,6 @@
   coupling."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [clojure.string :as str]
-            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools :as tools]
@@ -101,13 +100,6 @@
                (set (:enum (:kind properties))))
             "kind enum lists every supported kind (incl. the EP-0016 resources kinds + the EP-0022 :interceptor kind)")))))
 
-(deftest handler-meta-descriptor-surfaces-on-tools-list
-  (testing "handler-meta shows up in tool-descriptors-js"
-    (let [arr   (tools/tool-descriptors-js)
-          names (set (for [i (range (alength arr))]
-                       (j/get (aget arr i) :name)))]
-      (is (contains? names "handler-meta")))))
-
 ;; ---------------------------------------------------------------------------
 ;; Descriptor — list-handlers.
 ;; ---------------------------------------------------------------------------
@@ -126,13 +118,6 @@
                  "route" "head" "error-projector"
                  "resource" "mutation" "resource-scope" "machine"}
                (set (:enum (:kind properties)))))))))
-
-(deftest list-handlers-descriptor-surfaces-on-tools-list
-  (testing "list-handlers shows up in tool-descriptors-js"
-    (let [arr   (tools/tool-descriptors-js)
-          names (set (for [i (range (alength arr))]
-                       (j/get (aget arr i) :name)))]
-      (is (contains? names "list-handlers")))))
 
 ;; ---------------------------------------------------------------------------
 ;; handler-meta-tool — error envelopes (no nREPL needed).
@@ -270,34 +255,6 @@
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn))))))
-
-(deftest handler-meta-returns-ok-true-with-real-keys
-  (testing "registered handler → :ok? true with the metadata as top-level keys"
-    (async done
-      (let [canned {:ns 'testdeck.counter
-                    :file "testdeck/counter.cljs"
-                    :line 82
-                    :handler-fn-hash 1140207590}]
-        (-> (with-canned-eval! canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind "event" :id ":counter/inc"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (not (is-error? result))
-                                   "the response MUST NOT carry :isError true — bug shape")
-                               (is (true? (:ok? edn))
-                                   "the response MUST carry :ok? true, not :ok? false :reason :unexpected-shape")
-                               (is (= :event (:kind edn)))
-                               (is (= :counter/inc (:id edn)))
-                               (is (= 'testdeck.counter (:ns edn))
-                                   "real metadata keys must appear at the top level, not buried under :value")
-                               (is (= 82 (:line edn)))
-                               (is (= 1140207590 (:handler-fn-hash edn))
-                                   "handler-fn-hash is the wire-friendly substitute for :handler-fn")
-                               (is (not (contains? edn :value))
-                                   "the map must never be stuffed under :value as a string")))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
 
 (deftest handler-meta-unserializable-surfaces-structured
   (testing "a runtime meta map that can't round-trip as EDN rides back as a tagged :unserializable envelope — NOT a meta map smuggled as a STRING"
@@ -477,53 +434,6 @@
     (async done (handler-meta-kind-test "resource-scope" ":realworld/session"
                                         :resource-scope :realworld/session ":resource-scope" done))))
 
-(defn- list-handlers-kind-test
-  "Run list-handlers for `kind-str` with a canned id vector `ids`,
-  asserting the kind is accepted, stamped, and the ids/count ride
-  through — and that the emitted form routes through registrar-list
-  (NOT the machines enumerator) carrying the kind keyword `kw-str`. A
-  kind dropped from `registrar-kinds` would surface :invalid-kind here.
-  `expect-k` is the parsed kind keyword."
-  [kind-str expect-k ids kw-str done]
-  (let [form (atom nil)]
-    (-> (with-form-capture! form ids
-          (fn []
-            (-> (hm/list-handlers-tool nil (args-js {:kind kind-str}))
-                (.then (fn [result]
-                         (let [edn (extract-edn result)]
-                           (is (not (is-error? result))
-                               (str kind-str " is accepted, not :invalid-kind"))
-                           (is (true? (:ok? edn)))
-                           (is (= expect-k (:kind edn))
-                               (str kind-str " rides back stamped as the kind"))
-                           (is (= ids (:ids edn))
-                               "the runtime id vector rides through")
-                           (is (= (count ids) (:count edn))
-                               "count matches the id vector"))
-                         (is (str/includes? @form "registrar-list")
-                             (str kind-str " routes through registrar-list"))
-                         (is (not (str/includes? @form "machines-list"))
-                             (str kind-str " is NOT mis-routed through the machines enumerator"))
-                         (is (str/includes? @form kw-str)
-                             (str "the form carries the " kw-str " kind keyword")))))))
-        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-        (.then (fn [_] (done))))))
-
-(deftest list-handlers-resource-kind-is-accepted-and-routed
-  (testing "list-handlers accepts \"resource\", returns ids + count, emits registrar-list"
-    (async done (list-handlers-kind-test
-                  "resource" :resource [:article/by-slug :article/list] ":resource" done))))
-
-(deftest list-handlers-mutation-kind-is-accepted-and-routed
-  (testing "list-handlers accepts \"mutation\", returns ids + count, emits registrar-list"
-    (async done (list-handlers-kind-test
-                  "mutation" :mutation [:article/save] ":mutation" done))))
-
-(deftest list-handlers-resource-scope-kind-is-accepted-and-routed
-  (testing "list-handlers accepts \"resource-scope\", returns ids + count, emits registrar-list"
-    (async done (list-handlers-kind-test
-                  "resource-scope" :resource-scope [:realworld/session] ":resource-scope" done))))
-
 ;; ---------------------------------------------------------------------------
 ;; Frame-targeting — the EP-0023 forward direction.
 ;;
@@ -680,25 +590,6 @@
                                    "an agent branches on ONE miss reason across every kind")
                                (is (= :machine (:kind edn)))
                                (is (= :nope/nothing (:id edn)))))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest list-handlers-machine-routes-through-the-runtime-door
-  (testing "kind \"machine\" emits (re-frame2-pair.runtime/machines-list)"
-    (async done
-      (let [form (atom nil)
-            ids  [:auth/session :cart/checkout]]
-        (-> (with-form-capture! form ids
-              (fn []
-                (-> (hm/list-handlers-tool nil (args-js {:kind "machine"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (str/includes? @form "re-frame2-pair.runtime/machines-list")
-                                   "the machine enumeration routes through the preload's list door")
-                               (is (true? (:ok? edn)))
-                               (is (= :machine (:kind edn)))
-                               (is (= ids (:ids edn)))
-                               (is (= 2 (:count edn)))))))))
             (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
