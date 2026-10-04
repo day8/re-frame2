@@ -81,7 +81,12 @@
       (is (str/includes? desc ":machines")
           "snapshot must still document the :machines slice")
       (is (str/includes? desc ":rf/redacted")
-          "snapshot must say :machines egresses redacted under the off-box-tool profile"))))
+          "snapshot must say :machines egresses redacted under the off-box-tool profile")
+      (is (or (str/includes? desc "FAILS CLOSED")
+              (str/includes? desc "fails closed"))
+          "the :machines runtime-db slice's fail-closed posture is named")
+      (is (str/includes? desc "[:schemas :data]")
+          "schema-first :data classification ([:schemas :data] props) is referenced"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The size override is honoured on EVERY launch; only `include-sensitive`
