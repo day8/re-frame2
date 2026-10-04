@@ -3,6 +3,14 @@
   registry entry and the frame's `last-inputs` rows). Symmetric with the
   machines `:machines/teardown-on-frame-destroy!` hook.
 
+  The release itself (the destroyed frame's registry slot and dirty-check
+  rows dropped, a sibling frame's rows kept) is pinned by the
+  `flow-frame-destroy-teardown` conformance fixture, which
+  `re-frame.flows-conformance-test` runs. This namespace pins what that
+  fixture cannot observe: a sibling's divergent definition surviving in
+  place, the frame-owned flow-output elision marks, and the refusal of a
+  registration against a destroyed frame.
+
   SINGLE-STORE: the per-frame `flows` atom is the SOLE store —
   there is no frame-blind registrar `:flow` slot to prune / realign. Teardown
   is purely dropping the destroyed frame's per-frame entries; a surviving frame
@@ -38,57 +46,6 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---- per-frame registry slot cleared on destroy --------------------------
-
-(deftest destroy-frame-clears-per-frame-flow-registry-slot
-  (testing "destroying a frame drops its slot from re-frame.flows.registry/flows"
-    (rf/make-frame {:id :fc/scratch :doc "scratch frame for destroy teardown test"})
-    (rf/reg-flow :area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (is (contains? (rf.flows/flows-snapshot) :fc/scratch)
-        "precondition: the flow registered under the scratch frame's slot")
-    (rf.frame/destroy-frame! :fc/scratch)
-    (is (not (contains? (rf.flows/flows-snapshot) :fc/scratch))
-        "post-destroy: the destroyed frame's slot is gone")))
-
-;; ---- last-inputs rows cleared on destroy --------------------------------
-
-(deftest destroy-frame-clears-last-inputs-rows-for-destroyed-frame
-  (testing "destroying a frame removes the destroyed-frame entry from each flow's last-inputs row"
-    (rf/make-frame {:id :fc/scratch :doc "scratch frame for last-inputs teardown test"})
-    (rf/reg-event :fc/seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow :area {:frame :fc/scratch :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-    ;; Drive a drain on the scratch frame so the dirty-check populates
-    ;; `last-inputs[:area][:fc/scratch]`.
-    (rf/dispatch-sync [:fc/seed] {:frame :fc/scratch})
-    (is (= [3 4]
-           (get-in (rf.flows/last-inputs-snapshot) [:area :fc/scratch]))
-        "precondition: last-inputs recorded the scratch frame's inputs")
-    (rf.frame/destroy-frame! :fc/scratch)
-    (is (not (contains? (get (rf.flows/last-inputs-snapshot) :area) :fc/scratch))
-        "post-destroy: the destroyed frame's last-inputs entry is gone")
-    (is (not (contains? (rf.flows/last-inputs-snapshot) :area))
-        "and the whole flow-id row is dropped (no other frame still held an entry)")))
-
-;; ---- last-inputs rows from sibling frames are preserved -----------------
-
-(deftest destroy-frame-preserves-sibling-frames-last-inputs
-  (testing "destroying frame A leaves frame B's last-inputs row for the same flow id intact"
-    (rf/make-frame {:id :fc/a :doc "frame A"})
-    (rf/make-frame {:id :fc/b :doc "frame B"})
-    (rf/reg-event :fc/seed-a (fn [{:keys [db]} _] {:db {:w 2 :h 5}}))
-    (rf/reg-event :fc/seed-b (fn [{:keys [db]} _] {:db {:w 7 :h 9}}))
-    (rf/reg-flow :area {:frame :fc/a :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-    (rf/reg-flow :area {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:fc/seed-a] {:frame :fc/a})
-    (rf/dispatch-sync [:fc/seed-b] {:frame :fc/b})
-    (is (= [2 5] (get-in (rf.flows/last-inputs-snapshot) [:area :fc/a])))
-    (is (= [7 9] (get-in (rf.flows/last-inputs-snapshot) [:area :fc/b])))
-    (rf.frame/destroy-frame! :fc/a)
-    (is (not (contains? (get (rf.flows/last-inputs-snapshot) :area) :fc/a))
-        "destroyed-frame A's last-inputs row is gone")
-    (is (= [7 9] (get-in (rf.flows/last-inputs-snapshot) [:area :fc/b]))
-        "sibling frame B's last-inputs row is preserved")))
 
 ;; ---- sibling frame keeps its OWN authoritative entry on destroy ---------
 
@@ -168,9 +125,7 @@
     (is (= {} (rf.elision/sensitive-declarations :fc/scratch))
         "the reused frame inherited no sensitive flow-sourced declaration")
     (is (= {} (rf.elision/declarations :fc/scratch))
-        "the reused frame inherited no large flow-sourced declaration")
-    (is (not (contains? (rf.elision/sensitive-declarations :fc/scratch) [:auth :token]))
-        "specifically: the first incarnation's [:auth :token] mark did not survive")))
+        "the reused frame inherited no large flow-sourced declaration")))
 
 ;; ---- reg-flow must not resurrect stale flows on a dead frame -------------
 ;;
