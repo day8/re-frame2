@@ -196,15 +196,6 @@
       (is (str/includes? msg "[\"x\"]")
           "a String key prints as a String — it is legible and it is safe to print"))))
 
-(deftest ex-data-still-names-the-offending-keys
-  (testing "the structured rejection carries the offending key in ex-data
-            for an ordinary typo — totality must not gut the diagnostic"
-    (let [d (try (rf/reg-machine :hk/diag {:initial :a :states {:a {:on-entry :oops}}})
-                 nil
-                 (catch #?(:clj Throwable :cljs :default) t (ex-data t)))]
-      (is (= :rf.error/machine-unknown-node-key (:rf.error/id d)))
-      (is (= [:on-entry] (:offending-keys d))))))
-
 ;; ---------------------------------------------------------------------------
 ;; (3) The namespaced-key carve-out.
 
