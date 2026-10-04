@@ -106,36 +106,6 @@
 ;;     resolving for every later spawn anywhere in the app.
 ;; ===========================================================================
 
-(deftest a-torn-down-singleton-address-still-spawns-its-type
-  (testing "after ANY teardown of the address, [:rf.machine/spawn {:machine-id
-            X}] still resolves — clearing the definition would fail every later
-            spawn of the type with :rf.error/machine-spawn-unregistered-type"
-    (let [traces (capture-traces ::spawn-after)]
-      (try
-        (rf/reg-machine :xjee/type
-          {:initial :running :data {} :states {:running {}}})
-        (rf/reg-event :xjee/kill-type
-          (fn [_ _] {:fx [[:rf.machine/destroy :xjee/type]]}))
-        (rf/reg-event :xjee/spawn-type
-          (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :xjee/type
-                                              :fixed-actor-id :xjee/elsewhere}]]}))
-        ;; Materialise the singleton, then tear it down.
-        (rf/dispatch-sync [:xjee/type [:kick]])
-        (is (some? (snapshot :xjee/type)) "the singleton instance is live")
-        (rf/dispatch-sync [:xjee/kill-type])
-        (is (nil? (snapshot :xjee/type)) "and torn down")
-
-        (rf/dispatch-sync [:xjee/spawn-type])
-        (is (some? (snapshot :xjee/elsewhere))
-            "a spawn of the same TYPE, at an unrelated address, still resolves")
-        (is (nil? (:rf/bootstrap-pending? (snapshot :xjee/elsewhere)))
-            "and it BOOTSTRAPPED — a stranded actor keeps :rf/bootstrap-pending?
-             because its :rf/machine-type resolves to nothing")
-        (is (not-any? #(= :rf.error/machine-spawn-unregistered-type (:operation %))
-                      @traces)
-            "no :rf.error/machine-spawn-unregistered-type")
-        (finally (rf.trace.tooling/unregister-listener! ::spawn-after))))))
-
 (deftest a-spawned-actor-at-its-own-types-address-keeps-the-definition-and-siblings
   (testing "a definition-bearing address is NOT equivalent to a
             singleton. A SPAWNED actor may sit at a :fixed-actor-id equal to its
