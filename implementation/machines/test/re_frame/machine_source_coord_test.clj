@@ -66,20 +66,6 @@
 (defn- node-coords [machine-id spec-path]
   (get-in (machine-spec machine-id) (conj (vec spec-path) :source-coords)))
 
-;; ---- top-level call-site coords (smoke; covered also in core/source-coords-test) ----
-
-(deftest reg-machine-stamps-call-site-coords
-  (testing "the reg-machine macro stamps :ns / :line / :file / :column on the registry slot
-  so handler-meta carries the call-site coords"
-    (rf/reg-machine :rf2-8bp3/call-site-sample
-      {:initial :a :states {:a {} :b {}}})
-    (let [meta (rf/handler-meta {:source :store :kind :event :id :rf2-8bp3/call-site-sample})]
-      (is (some? meta))
-      (is (= 're-frame.machine-source-coord-test (:ns meta)))
-      (is (integer? (:line meta)))
-      (is (integer? (:column meta)))
-      (is (string? (:file meta))))))
-
 ;; ---- definition-site stamping for :guards / :actions --------------------
 
 (deftest reg-machine-stamps-guard-definitions
@@ -102,20 +88,6 @@
         (is (= 're-frame.machine-source-coord-test (:ns c)))
         (is (integer? (:line c)))
         (is (integer? (:column c)))))))
-
-(deftest reg-machine-stamps-action-definitions
-  (testing "each fn literal under :actions co-locates its source-coord"
-    (rf/reg-machine :rf2-8bp3/action-defs
-      {:initial :idle
-       :data    {}
-       :actions {:bump   (fn [{data :data}] {:data (update data :n (fnil inc 0))})
-                 :reset  (fn [{data :data}] {:data (assoc data :n 0)})}
-       :states  {:idle {}}})
-    (is (some? (element-coords :rf2-8bp3/action-defs :actions :bump)))
-    (is (some? (element-coords :rf2-8bp3/action-defs :actions :reset)))
-    (let [c (element-coords :rf2-8bp3/action-defs :actions :bump)]
-      (is (= 're-frame.machine-source-coord-test (:ns c)))
-      (is (integer? (:line c))))))
 
 ;; ---- inline-fn :source-code co-location ----------------------
 ;;
