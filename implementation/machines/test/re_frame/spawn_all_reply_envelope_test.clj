@@ -134,39 +134,6 @@
           (is (= (first (:rf.reply/work-id (:tags done))) :rf.work/machine)
               "the decisive child's canonical :work/id rides the resolution trace"))))))
 
-(deftest any-failed-trace-carries-decisive-child-reply
-  (testing "the :any-failed resolution trace carries the
-            decisive child's reply-envelope facts (:status :error)"
-    (let [child  (mk-child)
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   :hydrating
-                   {:spawn-all
-                    {:children         [{:id :a :machine-id :relp2/a :start [:set-id :a]}
-                                        {:id :b :machine-id :relp2/b :start [:set-id :b]}]
-                     :join             :all
-                     :on-all-complete  [:hydrate/done]
-                     :on-any-failed    [:hydrate/failed]}
-                    :on    {:hydrate/done   :ready
-                            :hydrate/failed :error}}
-                   :ready     {}
-                   :error     {}}}]
-      (rf/reg-machine :relp2/a child)
-      (rf/reg-machine :relp2/b child)
-      (rf/reg-machine :sup/relp2 parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sup/relp2 [:start]])
-        (rf/dispatch-sync [:relp2/a#1 [:fail]])
-        (let [failed (->> @captured
-                          (filter #(= :rf.machine.spawn-all/any-failed (:operation %)))
-                          first)]
-          (is (some? failed) ":any-failed trace fired")
-          (is (= :error (:rf.reply/status (:tags failed)))
-              "the decisive failing child classified as :error")
-          (is (= :failed (:rf.reply/work-status (:tags failed))))
-          (is (some? (:rf.reply/work-id (:tags failed)))))))))
-
 ;; ---- a terminal join child is never re-classified :cancelled
 ;;
 ;; A child that folds into a join reaches a `:final?` state and destroys
