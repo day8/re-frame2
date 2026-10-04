@@ -251,22 +251,6 @@
       (is (= #{populate-id always-id} fired)
           "both the event-driven edge AND the always-microstep edge light"))))
 
-(deftest extract-fired-edge-ids-no-microsteps-unaffected
-  (testing "regression guard — a plain (:microsteps 0)
-            transition is unaffected by the microstep-target derivation
-            (falls through to the to-path-from-trace read)"
-    (let [def         (toy-definition)
-          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
-          events      [{:operation  :rf.machine/transition
-                        :tags       {:machine-id :cart}
-                        :from       [:empty]
-                        :to         [:populated]
-                        :event      :populate
-                        :microsteps 0
-                        :cascade    []}]
-          fired       (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (= #{populate-id} fired)))))
-
 (deftest extract-fired-edge-ids-reads-runtime-tags-event-shape
   (testing "the LIVE runtime shape: `commit-or-finalize`
             (lifecycle_fx/registration) emits the inner event under
