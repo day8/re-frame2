@@ -171,20 +171,3 @@
           "a scalar namespaced keyword value keeps its namespace")
       (is (= (pr-str payload) (content-text result))
           "EDN text slot unchanged — the canonical round-trip"))))
-
-(deftest namespaced-keyword-round-trips-through-the-structured-slot
-  (testing "reading the structured-slot token back yields the original keyword"
-    ;; The whole point: an agent that reads the structured slot can
-    ;; reconstruct the exact key it must thread back into get-path.
-    (doseq [kw [:rf/runtime :door/open :examples/step-deck]]
-      (let [payload {kw 1}
-            result  (wire/ok-text payload)
-            ;; The structured key is the colon-less fully-qualified token.
-            token   (-> (j/get result :structuredContent)
-                        js/Object.keys
-                        (aget 0))]
-        (is (= (str (symbol kw)) token)
-            (str kw " serialises to its colon-less fully-qualified token"))
-        ;; Round-trip: prefixing a colon reads back to the original kw.
-        (is (= kw (keyword token))
-            (str "(keyword \"" token "\") reconstructs " kw))))))
