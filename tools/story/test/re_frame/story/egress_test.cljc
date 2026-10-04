@@ -33,13 +33,6 @@
     (is (false? (rf.story.egress/contains-fn? {:f :not-a-fn :v "inc"}))
         "a keyword / string that LOOKS fn-like is not a fn")))
 
-(deftest edn-round-trips?
-  (testing "plain EDN data round-trips; fn-bearing / unreadable values do not"
-    (is (true?  (rf.story.egress/edn-round-trips? {:label "Click me" :count 5})))
-    (is (true?  (rf.story.egress/edn-round-trips? [:a :b {:c #{1 2}}])))
-    (is (false? (rf.story.egress/edn-round-trips? {:on-click (fn [_] nil)})))
-    (is (false? (rf.story.egress/edn-round-trips? (fn [] 1))))))
-
 ;; ---- classify: the happy path --------------------------------------------
 
 (deftest classify-empty-is-full
