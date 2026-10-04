@@ -776,12 +776,8 @@
       (let [literal    (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key)
             emit-files (get rf.mcp-conformance.wire-vocab.source-pins/emit-source-files server)
             doc-files  (get rf.mcp-conformance.wire-vocab.source-pins/doc-source-files server)]
-        ;; A server with zero emit-sources AND zero doc-sources is a
-        ;; gap — a missing catalogue entry the reviewer must add.
-        (is (or (seq emit-files) (seq doc-files))
-            (str "No emit-sources or doc-sources registered for "
-                 server " — extend `emit-source-files` or "
-                 "`doc-source-files`."))
+        ;; A server with neither emit-sources nor doc-sources falls to the
+        ;; doc-source branch and fails there, naming the missing entry.
         (cond
           ;; impl-landed path: emit-sources MUST carry the literal as
           ;; data after comment/string stripping.
@@ -806,7 +802,9 @@
               (str "Literal " literal " missing from " server
                    " DOC-sources " doc-files
                    ". (No emit-sources registered; spec-text coverage "
-                   "is the impl-not-landed stand-in.)")))))))
+                   "is the impl-not-landed stand-in. A server with neither "
+                   "is a gap: extend `emit-source-files` or "
+                   "`doc-source-files`.)")))))))
 
 (deftest marker-literal-appears-in-re-frame2-pair-mcp-doc-sources
   ;; Defence-in-depth: re-frame2-pair-mcp's spec/descriptor docs SHOULD also
