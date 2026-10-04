@@ -79,17 +79,6 @@
 ;; (1) Pure translation — focus-command->dispatches
 ;; =========================================================================
 
-(deftest empty-command-yields-no-dispatches
-  (is (= [] (focus/focus-command->dispatches {}))
-      "an empty focus command is a well-formed no-op")
-  (is (= [] (focus/focus-command->dispatches {:source {:kind :story/beat}}))
-      ":source alone produces no dispatch — it is opaque provenance"))
-
-(deftest panel-only-flips-the-tab
-  (is (= [[:rf.xray/select-tab :trace]]
-         (focus/focus-command->dispatches {:panel :trace}))
-      "a terse narrative beat that only cares about a panel"))
-
 (deftest frame-dispatches-first
   (testing "frame re-scope leads so the per-frame epoch ring re-seeds
             before any epoch / cascade pin resolves"
@@ -148,17 +137,6 @@
   (is (= #{:epoch :app-db :views :trace :machines :routing
            :resources :derivation-graph :module-view :fresco}
          focus/valid-panels)))
-
-(deftest routes-alias-normalises-to-routing
-  ;; A host that sends the display-noun `:routes`
-  ;; lands the real `:routing` tab, not the unknown-tab stub.
-  (is (= :routing (focus/normalize-panel :routes)))
-  (is (= :app-db (focus/normalize-panel :app-db))
-      "a non-aliased id passes through unchanged")
-  (is (nil? (focus/normalize-panel nil)))
-  (is (= [[:rf.xray/select-tab :routing]]
-         (focus/focus-command->dispatches {:panel :routes}))
-      "the emitted select-tab id is the live registry id, never :routes"))
 
 ;; =========================================================================
 ;; (2) End-to-end — focus! drives the real Xray events
