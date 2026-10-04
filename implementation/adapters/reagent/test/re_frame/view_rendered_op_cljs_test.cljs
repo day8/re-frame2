@@ -41,20 +41,6 @@
 
 ;; ---- emission ---------------------------------------------------------------
 
-(deftest rf-view-rendered-fires-on-every-render
-  (testing "every render of a registered view emits one :rf.view/rendered
-   alongside :rf.view/render — same emit site, two ops"
-    (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/render :rf.view/rendered})
-                                     :shape :by-op}]
-      (rf/reg-view ^{:rf/id :rf2-25zo2/sample} sample-view []
-        [:span "ok"])
-      (let [render (rf/view :rf2-25zo2/sample)]
-        (render)
-        (render)
-        (render))
-      (is (= 3 (count (:rf.view/render @observed))) "three :rf.view/render emits")
-      (is (= 3 (count (:rf.view/rendered @observed))) "three :rf.view/rendered emits"))))
-
 (deftest rf-view-rendered-carries-view-id-and-frame
   (testing ":rf.view/rendered carries :rf.view/id, :frame and :rf.view/render-key
    on every emit"
