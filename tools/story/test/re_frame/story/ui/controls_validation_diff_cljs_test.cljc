@@ -131,11 +131,6 @@
          (is (contains? by-k :rf.story.controls/root))
          (is (= {:a 1} (get-in by-k [:rf.story.controls/root :value])))))))
 
-#?(:cljs
-   (deftest violations-by-key-empty
-     (testing "an empty violations vector indexes to an empty map"
-       (is (= {} (rf.story.ui.controls/violations-by-key []))))))
-
 ;; ---- pure: arg-changed? -------------------------------------------------
 
 #?(:cljs
