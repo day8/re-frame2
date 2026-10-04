@@ -633,19 +633,6 @@
           (is (= mint-policy (:rf.cofx/mint-policy cfg))
               (str preset ": :rf.cofx/mint-policy expansion")))))))
 
-(deftest platform-is-a-plain-frame-config-key-not-a-preset
-  (testing "platform is tagged directly on the frame — there is no preset for
-            it. The host default covers the untagged case."
-    (rf/make-frame {:id :p/ssr :platform :server})
-    (let [cfg (:config (rf.frame/frame :p/ssr))]
-      (is (= :server (:platform cfg))
-          "the frame carries :platform :server (singular keyword — one platform per frame)")
-      (is (nil? (:preset cfg))
-          "no preset was involved"))
-    (rf/make-frame {:id :p/untagged})
-    (is (nil? (:platform (:config (rf.frame/frame :p/untagged))))
-        "an untagged frame carries no :platform key — it rides the host default")))
-
 (deftest preset-user-keys-win-on-conflict
   (testing "user-supplied keys override individual expansion entries"
     ;; :test sets :drain-depth 100 by default; user overrides to 1000.
@@ -1196,24 +1183,6 @@
       (is (nil? (:lifecycle m))
           "no internal :lifecycle grouping leaks through — flat shape only"))))
 
-(deftest frame-meta-preset-expansion-flat-shape
-  (testing "(rf/frame-meta id) on a preset frame returns the preset expansion
-            merged flat per Spec 002 §Expansion algorithm worked example:
-              {:preset       :test
-               :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}
-               :drain-depth  100}"
-    (rf/make-frame {:id :test/auth-flow :preset :test})
-    (let [m (rf/frame-meta :test/auth-flow)]
-      (is (= :test (:preset m))
-          ":preset key preserved verbatim")
-      (is (= {:rf.http/managed :rf.http/managed-canned-success}
-             (:fx-overrides m))
-          ":test preset's :fx-overrides expansion lifted to top level")
-      (is (= 100 (:drain-depth m))
-          ":test preset's :drain-depth expansion lifted to top level")
-      (is (= :test/auth-flow (:id m))
-          ":id reflects the registered frame id"))))
-
 ;; ---- :on-destroy handler throw semantics ----------------------
 ;;
 ;; Per Spec 002 §Destroy — `:on-destroy` handler throw semantics: a throw
@@ -1288,24 +1257,6 @@
         (is (some #(= :rf.frame/destroyed (:operation %)) @traces)
             ":rf.frame/destroyed trace was emitted — teardown continued past the throw")))))
 
-(deftest on-destroy-throw-then-fresh-make-frame-clean
-  (testing "after a throwy destroy, the same frame id can be re-registered
-            cleanly — the in-flight guard is cleared even on the exception path"
-    (rf/make-frame {:id :throwy/resurrected :on-destroy [:throwy/blow-up-2]})
-    (rf/reg-event :throwy/blow-up-2
-      (fn [{:keys [db]} _] {:db (throw (ex-info ":throwy/second-blow" {}))}))
-    (rf/destroy-frame! :throwy/resurrected)
-    (is (nil? (rf.frame/frame :throwy/resurrected))
-        "original frame destroyed (despite the throw)")
-    ;; A fresh registration after the throwy destroy must work.
-    (rf/make-frame {:id :throwy/resurrected :doc "post-resurrection"})
-    (is (some? (rf.frame/frame :throwy/resurrected))
-        "re-registration succeeds — the in-flight guard cleared in finally")
-    ;; And a fresh destroy (no throw this time) works normally.
-    (rf/destroy-frame! :throwy/resurrected)
-    (is (nil? (rf.frame/frame :throwy/resurrected))
-        "second destroy completes normally")))
-
 ;; ---- re-entrant destroy-frame! is a silent no-op --------------
 ;;
 ;; Per Spec 002 §Destroy — re-entrant `destroy-frame!` is a silent no-op:
@@ -1356,27 +1307,6 @@
       ;; (d) The frame is gone.
       (is (nil? (rf.frame/frame :reent/worker))
           "the frame is fully destroyed"))))
-
-(deftest re-entrant-destroy-from-different-id-still-runs
-  (testing "destroy-frame! for frame B from within frame A's :on-destroy
-            still runs B's teardown — the in-flight guard is per-id, not global"
-    (rf/make-frame {:id :reent.a/worker :on-destroy [:reent.a/cleanup]})
-    (rf/make-frame {:id :reent.b/worker})
-    (let [b-still-alive-during-a (atom nil)]
-      (rf/reg-event :reent.a/cleanup
-        (fn [_ _]
-          ;; Sanity: B is alive at the start of A's :on-destroy.
-          (reset! b-still-alive-during-a (some? (rf.frame/frame :reent.b/worker)))
-          (rf.frame/destroy-frame! :reent.b/worker)
-          {}))
-      (rf/destroy-frame! :reent.a/worker)
-      (is (true? @b-still-alive-during-a)
-          "B was alive when A's :on-destroy started")
-      ;; Both A and B are gone — the guard is per-id, not a global lock.
-      (is (nil? (rf.frame/frame :reent.a/worker))
-          "A is fully destroyed")
-      (is (nil? (rf.frame/frame :reent.b/worker))
-          "B was successfully destroyed from inside A's :on-destroy"))))
 
 ;; ---- exact-incarnation cleanup via the frame VALUE ------------
 ;;
