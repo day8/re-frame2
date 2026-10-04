@@ -791,6 +791,15 @@
                       props "__proto__"))
           "no own '__proto__' slot on the props object"))))
 
+(deftest constructor-key-dropped-from-props-rf2-dwds9
+  (testing "{:constructor \"x\"} prop is dropped (does not
+            override the prototype's constructor or leak as own property)"
+    (let [^js el (template/as-element [:div {:constructor "leaked"}])
+          props  (.-props el)]
+      (is (not (.call (.. js/Object -prototype -hasOwnProperty)
+                      props "constructor"))
+          "no own 'constructor' slot on the props object"))))
+
 (deftest convert-prop-value-reserved-keys-dropped-rf2-dwds9
   (testing "convert-prop-value at the map? branch drops
             reserved keys before `aset` — no prototype mutation, no
