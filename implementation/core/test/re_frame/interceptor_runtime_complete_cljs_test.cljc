@@ -7,22 +7,23 @@
        focused slice widens back to the ORIGINAL full app-db OBJECT, so the
        frame-commit `identical?` no-op survives end-to-end
        through a real dispatch + commit. Plus rule 3 (no-`:db` → no synthetic
-       `:db`), rule 5 (changed slice widens), nested paths, root path `[]`,
-       and `:rf.error/path-interceptor-bad-path` on a non-vector arg.
+       `:db`), root path `[]`, and `:rf.error/path-interceptor-bad-path` on a
+       non-vector arg. Rule 5 (a changed slice widens) and nested paths are
+       pinned by `re-frame.interceptor-test`.
 
     2. `:interceptor-overrides` EXACT-reference matching (Spec 002
-       §`:interceptor-overrides`): a bare-keyword override matches a bare ref;
-       a parameterized `[id arg]` override matches ONLY the exact reference and
-       NOT a sibling `[id other-arg]`; canonical-arg identity; remove + replace;
-       and `:rf.error/interceptor-override-invalid` on a malformed key.
+       §`:interceptor-overrides`): a parameterized `[id arg]` override matches
+       ONLY the exact reference and NOT a sibling `[id other-arg]`, a standard
+       path ref is removable by its exact reference, and
+       `:rf.error/interceptor-override-invalid` fires on a malformed key.
+       Bare-keyword remove + replace are pinned by
+       `re-frame.interceptor-override-summary-trace-test`.
 
-    3. `re-frame.interceptor/->interceptor*` is the internal lowering
-       constructor — NOT public authoring (the public form is
-       `reg-interceptor`), and off the `re-frame.core` facade —
-       but the constructor produces a working executable interceptor.
-
-    4. The interceptor-registry resolution seams: `resolve-chain`,
+    3. The interceptor-registry resolution seams: `resolve-chain`,
        `chain-needs-resolution?` and `resolve-factory`, called directly.
+       `re-frame.interceptor/->interceptor*` is the internal lowering
+       constructor (public authoring is `reg-interceptor`); its output
+       registering and running by ref is pinned by `re-frame.interceptor-test`.
 
   Dual-runtime (.cljc): runs on JVM (`clojure -M:test`) and CLJS
   (`npm run test:cljs`)."
@@ -74,39 +75,6 @@
               "the frame-commit identical? no-op held: nothing was written, so the
                commit boundary skipped the container write"))))))
 
-(deftest path-changed-slice-widens-and-allocates
-  (testing "RULE 5: a CHANGED focused slice widens back into app-db at the path"
-    (rf/reg-event :cart/seed
-      (fn [{:keys [db]} _] {:db (assoc db :cart {:items []})}))
-    (rf/reg-event :cart/add
-      {:interceptors [[:rf.interceptor/path [:cart]]]}
-      (fn [{:keys [db]} [_ sku]]
-        ;; `db` is the focused [:cart] slice — mutate it.
-        {:db (update db :items conj sku)}))
-
-    (rf/dispatch-sync [:cart/seed])
-    (rf/dispatch-sync [:cart/add :milk])
-    (is (= [:milk] (get-in (rf/app-db-value :rf/default) [:cart :items]))
-        "the changed slice was spliced back into full app-db at [:cart]")))
-
-(deftest path-nested-interceptors-compose
-  (testing "nested path interceptors stack + unwind correctly"
-    (rf/reg-event :nest/seed
-      (fn [{:keys [db]} _] {:db (assoc-in db [:a :b] {:n 0})}))
-    ;; Outer focuses [:a], inner focuses [:b] (relative to the outer slice).
-    (rf/reg-event :nest/inc
-      {:interceptors [[:rf.interceptor/path [:a]]
-                      [:rf.interceptor/path [:b]]]}
-      (fn [{:keys [db]} _]
-        ;; `db` is the value at [:a :b].
-        {:db (update db :n inc)}))
-
-    (rf/dispatch-sync [:nest/seed])
-    (rf/dispatch-sync [:nest/inc])
-    (rf/dispatch-sync [:nest/inc])
-    (is (= 2 (get-in (rf/app-db-value :rf/default) [:a :b :n]))
-        "both path interceptors composed; the inner slice spliced through the outer")))
-
 (deftest path-root-path-focuses-whole-db
   (testing "the root path [] focuses the whole app-db"
     (rf/reg-event :root/seed
@@ -136,34 +104,6 @@
 ;; PIECE 2 — :interceptor-overrides exact-reference matching
 ;; ===========================================================================
 
-(deftest override-matches-bare-keyword-ref
-  (testing "a bare-keyword override removes the matching bare ref"
-    (let [log (atom [])]
-      (rf/reg-interceptor :ov/auth
-        {:before (fn [ctx] (swap! log conj :auth) ctx)})
-      (rf/reg-interceptor :ov/audit
-        {:before (fn [ctx] (swap! log conj :audit) ctx)})
-      (rf/reg-event :ov/run
-        {:interceptors [:ov/auth :ov/audit]}
-        (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:ov/run] {:interceptor-overrides {:ov/auth nil}})
-      (is (= [:audit] @log)
-          ":ov/auth removed by the bare-keyword override; :ov/audit still ran"))))
-
-(deftest override-bare-keyword-replaces-with-ref
-  (testing "a bare-keyword override REPLACES with another ref"
-    (let [log (atom [])]
-      (rf/reg-interceptor :ov/real
-        {:before (fn [ctx] (swap! log conj :real) ctx)})
-      (rf/reg-interceptor :ov/stub
-        {:before (fn [ctx] (swap! log conj :stub) ctx)})
-      (rf/reg-event :ov/run
-        {:interceptors [:ov/real]}
-        (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:ov/run] {:interceptor-overrides {:ov/real :ov/stub}})
-      (is (= [:stub] @log)
-          "the :ov/stub ref ran in place of :ov/real"))))
-
 (deftest override-matches-exact-parameterized-ref-not-a-sibling
   (testing "a parameterized [id arg] override matches ONLY the exact reference"
     ;; A logging factory keyed by its arg so we can observe which instances ran.
@@ -182,20 +122,6 @@
     (let [seen (::seen (rf/app-db-value :rf/default))]
       (is (= [:b] seen)
           "the exact [:ov/tag :a] reference was removed; the sibling [:ov/tag :b] survived"))))
-
-(deftest override-parameterized-canonical-arg-identity
-  (testing "exact-ref matching is by CANONICAL arg identity (map-key order ignored)"
-    (rf/reg-interceptor :ov/cfg
-      {:factory (fn [_cfg]
-                  {:before (fn [ctx] (assoc-in ctx [:coeffects :db ::cfg-ran?] true))})})
-    (rf/reg-event :ov/runc
-      {:interceptors [[:ov/cfg {:role :admin :redirect [:login]}]]}
-      (fn [{:keys [db]} _] {:db db}))
-    ;; Same map, different key insertion order — canonically identical.
-    (rf/dispatch-sync [:ov/runc]
-                      {:interceptor-overrides {[:ov/cfg {:redirect [:login] :role :admin}] nil}})
-    (is (not (::cfg-ran? (rf/app-db-value :rf/default)))
-        "the canonically-equal [id arg] override matched + removed the interceptor")))
 
 (deftest override-malformed-key-is-structured-error
   (testing ":rf.error/interceptor-override-invalid for a malformed override key"
@@ -231,36 +157,13 @@
       (is (= {:items []} (:cart db))
           "the [:cart] slice was NOT focused/spliced — the exact-ref override removed the path interceptor"))))
 
-;; ===========================================================================
-;; PIECE 3 — ->interceptor* is internal lowering only (not public authoring)
-;; ===========================================================================
-
-(deftest interceptor-lowering-constructor-still-works
-  (testing "->interceptor* lowers a descriptor into a working executable interceptor"
-    (let [icpt (rf.interceptor/->interceptor*
-                 :id     :lower/test
-                 :before (fn [ctx] (assoc-in ctx [:coeffects :db ::lowered?] true)))]
-      (is (= :lower/test (:id icpt)))
-      ;; Chains are reference-only (EP-0022): the lowered value is NOT a
-      ;; legal chain entry. Register the lowered value at
-      ;; the reg-interceptor boundary (the authoring input accepts a value),
-      ;; then reference it by id. The lowering constructor produces a
-      ;; chain-executable value that reaches the chain via a ref.
-      (rf/reg-interceptor :lower/test icpt)
-      (rf/reg-event :lower/run
-        {:interceptors [:lower/test]}
-        (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:lower/run])
-      (is (::lowered? (rf/app-db-value :rf/default))
-          "the lowered interceptor ran in the chain (via a registered ref)"))))
-
 ;; Public authoring is `reg-interceptor` — its return id and registered
 ;; handler-meta are pinned by `re-frame.reg-interceptor-cljs-test`'s
 ;; `reg-interceptor-each-descriptor-form` — and the facade's lack of
 ;; `->interceptor*` by `re-frame.facade-internal-constructors-cljs-test`.
 
 ;; ===========================================================================
-;; PIECE 4 — interceptor-registry resolution seams
+;; PIECE 3 — interceptor-registry resolution seams
 ;; ===========================================================================
 
 ;; ---------------------------------------------------------------------------
@@ -316,11 +219,13 @@
 ;; all-default chains. Three branches:
 ;;   (a) false for a chain that is ONLY the framework default-wrapper (the
 ;;       common no-authored-chain shape — the hot-path skip);
-;;   (b) true when a REFERENCE is present (resolve-chain must resolve it);
+;;   (b) true when a REFERENCE is present (resolve-chain must resolve it) —
+;;       every dispatch through a registered ref exercises this, since an
+;;       unresolved ref never runs;
 ;;   (c) true when a non-framework-default inline VALUE is present (resolve-chain
 ;;       must walk it to reject it loudly).
 ;; A miswired predicate (e.g. one that skipped a chain with a stale inline value)
-;; would silently bypass the loud-fail — so all three are pinned.
+;; would silently bypass the loud-fail — so (a) and (c) are pinned here.
 ;; ---------------------------------------------------------------------------
 
 (deftest chain-needs-resolution-predicate-branches
@@ -333,13 +238,6 @@
           "the all-default chain skips the walk")
       (is (false? (rf.interceptor-registry/chain-needs-resolution? []))
           "an empty chain also needs no resolution"))
-
-    (testing "(b) true — a bare-keyword reference forces the walk"
-      (is (true? (rf.interceptor-registry/chain-needs-resolution? [:some/ref])))
-      (is (true? (rf.interceptor-registry/chain-needs-resolution? [[:some/factory :arg]]))
-          "an [id arg] reference also forces the walk")
-      (is (true? (rf.interceptor-registry/chain-needs-resolution? [default :some/ref]))
-          "a ref alongside the framework default still forces the walk"))
 
     (testing "(c) true — a non-default inline VALUE forces the walk (so resolve-chain rejects it loudly)"
       (is (true? (rf.interceptor-registry/chain-needs-resolution? [inline]))
