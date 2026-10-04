@@ -108,7 +108,7 @@ Emit a single table — one row per inventoried add-on and per app feature — w
 3. **Rule(s)** — the governing `M-N` / `O-N` id(s), or the named principle (off-contract-ns / console-gate / classpath-collision / floor-gate) where no `M-N` applies.
 4. **Forced vs optional** — does the project **compile** with the item unchanged? A `console`-referencing add-on or an off-contract require is **forced** (compile-blocker). An opt-in modernisation (O-16 conversion path) is **optional**. The forced/optional split is the one most worth getting right — it's what separates "must do before compile" from "do at leisure."
 5. **Disposition** — **CONVERT** (to a v2-native effect/machine — e.g. http-fx → `:rf.http/managed`, async-flow-fx → `reg-machine`), **PATCH** (mechanical M-rule fix to a kept lib — e.g. swap the off-contract require, drop the `console` `:refer`), **DROP** (the feature is unused — remove the add-on), **REPLACE/REWRITE** (no drop-in successor — re-implement against a v2 surface), **UPSTREAM** (PR the add-on to a v2-compatible release), or **FIX-IN-PLACE** (the app's own source).
-6. **Replacement target** — the v2 surface the disposition lands on (`:rf.http/managed`, `reg-machine`, `clojure.core/update-vals`, Xray, …).
+6. **Replacement target** — the v2 surface the disposition lands on (`:rf.http/managed`, `reg-machine`, an [M-1](auto-call-site-rewrites.md#m-1--off-contract-re-frame-namespace-requires) per-namespace replacement, Xray, …).
 
 Then state the **recommended ordering** — which removals/exclusions unblock the compile (they go first), so the post-M-0 compile gate is actually reachable. A `console`-referencing add-on and a classpath-colliding transitive both must clear before the compile can surface real application-code breakage.
 
