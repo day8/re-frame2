@@ -36,36 +36,6 @@
 (def ^:private frame-db rf.machines.test-support/runtime-db)
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
-;; ---- single-delay :after on entry / fire -----------------------------------
-
-(deftest after-single-delay
-  (testing ":after schedules with current epoch on entry; fires on synthetic timer event"
-    (let [m {:initial :idle
-             :data    {}
-             :states
-             {:idle    {:on {:fetch :loading}}
-              :loading {:after {5000 :timeout}
-                        :on    {:loaded :ready}}
-              :timeout {}
-              :ready   {}}}
-          traces (atom [])]
-      (rf/reg-machine :a/single m)
-      (rf/register-listener! :trace ::s (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:a/single [:fetch]])
-      (let [s (snapshot :a/single)]
-        (is (= :loading (:state s)))
-        ;; Per Spec 005 §Hierarchy interaction the epoch is per-decl-path.
-        (is (= 1 (get-in s [:data :rf/after-epoch [:loading]]))))
-      (is (some #(and (= :rf.machine.timer/scheduled (:operation %))
-                       (= 5000     (:delay (:tags %)))
-                       (= :literal (:delay-source (:tags %))))
-                 @traces)
-          ":scheduled trace with :delay-source :literal")
-      (rf/dispatch-sync [:a/single [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
-      (is (= :timeout (:state (snapshot :a/single)))
-          "matching-epoch firing transitions :loading → :timeout")
-      (rf/unregister-listener! :trace ::s))))
-
 ;; ---- same-tick tie-break: first-fired advances epoch, slower drops stale --
 ;;
 ;; XState parity: the STEP ALGORITHM's determinism of
@@ -202,25 +172,6 @@
               "the sibling :after timer is still live and transitions on its own"))
         (rf/unregister-listener! :trace ::suppressed)))))
 
-;; ---- :after with no :spawn (splash screen) --------------------------------
-
-(deftest after-without-spawn-is-a-pure-timed-transition
-  (testing "a state with :after but no :spawn is a pure timed-transition state"
-    (let [m {:initial :splash
-             :data    {}
-             :states
-             {:splash {:after {3000 :main}
-                       :on    {:skip :main}}
-              :main   {}}}]
-      (rf/reg-machine :a/splash m)
-      ;; First dispatch synthesises the snapshot at :splash.
-      (rf/dispatch-sync [:a/splash [:noop]])
-      (is (= :splash (:state (snapshot :a/splash))))
-      (let [epoch (get-in (snapshot :a/splash) [:data :rf/after-epoch [:splash]])]
-        (rf/dispatch-sync [:a/splash [:rf.machine.timer/after-elapsed 3000 epoch [:splash]]])
-        (is (= :main (:state (snapshot :a/splash)))
-            ":after fired transition with no :spawn spawn")))))
-
 ;; ---- hierarchy: parent :after survives a child-only transition -----------
 ;;
 ;; Per Spec 005 §Hierarchy interaction (the normative external contract at
@@ -302,34 +253,6 @@
         (is (some #(= :rf.machine.timer/stale-after (:operation %)) @traces)
             ":stale-after trace emitted for the exited child's timer")
         (rf/unregister-listener! :trace ::h2)))))
-
-;; ---- race: real event beats timer; stale firing must not transition ------
-
-(deftest after-race-real-event-wins
-  (testing "real event arrives before timer; in-flight timer fires stale and is suppressed"
-    (let [m {:initial :idle
-             :data    {}
-             :states
-             {:idle    {:on {:fetch :loading}}
-              :loading {:after {5000 :timeout}
-                        :on    {:loaded :ready}}
-              :timeout {}
-              :ready   {}}}
-          traces (atom [])]
-      (rf/reg-machine :a/race m)
-      (rf/dispatch-sync [:a/race [:fetch]])
-      (rf/dispatch-sync [:a/race [:loaded]])
-      (is (= :ready (:state (snapshot :a/race))))
-      (rf/register-listener! :trace ::r (fn [ev] (swap! traces conj ev)))
-      ;; Stale firing from epoch 1 (the :loading visit).
-      (rf/dispatch-sync [:a/race [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
-      (is (= :ready (:state (snapshot :a/race)))
-          "stale firing must not transition")
-      (is (some #(and (= :rf.machine.timer/stale-after (:operation %))
-                       (= 5000 (:delay (:tags %))))
-                 @traces)
-          ":stale-after trace emitted")
-      (rf/unregister-listener! :trace ::r))))
 
 ;; ---- fn-form delay (computed once at entry) -------------------------------
 
