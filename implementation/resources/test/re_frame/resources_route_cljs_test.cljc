@@ -1477,8 +1477,6 @@
       (is (= 2 (count (blocking-error-traces traces)))
           "two distinct transitions INTO :error are two traces"))))
 
-;; ---- 1. activation commit reads the facts AT COMMIT ------------------------
-
 ;; ---- 3. previous data does not complete a newly-keyed first load -----------
 
 (deftest keep-previous-projection-does-not-complete-the-new-first-load
