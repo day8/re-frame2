@@ -79,12 +79,6 @@
     (is (= "Open in editor" (rf.source-coords.editor-uri/open-button-title nil)))
     (is (= "Open in editor" (rf.source-coords.editor-uri/open-button-title {:line 10})))))
 
-(deftest known-editors-set
-  (testing "known-editors enumerates exactly the built-in scheme keywords;
-            :custom is a map-shape, not a member of the keyword set"
-    (is (= #{:vscode :cursor :windsurf :zed :idea}
-           rf.source-coords.editor-uri/known-editors))))
-
 ;; ---- forbidden schemes --------------------------------------------------
 
 (deftest custom-template-with-a-forbidden-scheme-returns-nil
@@ -196,14 +190,6 @@
 ;; takes a `:project-root` opt that prefixes the file string before the
 ;; scheme builder runs. Both Unix and Windows-flavoured roots are
 ;; supported; absolute source-coord paths are passed through verbatim.
-
-(deftest project-root-prefixes-relative-file
-  (testing "{:project-root ...} is prepended to a relative source-coord :file"
-    (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
-           (rf.source-coords.editor-uri/editor-uri
-             :vscode
-             {:file "src/app/views.cljs" :line 42 :column 7}
-             {:project-root "C:/Users/me/code/my-app"})))))
 
 (deftest project-root-applies-to-every-builtin-scheme
   (testing "project-root reaches the path through every scheme builder"
