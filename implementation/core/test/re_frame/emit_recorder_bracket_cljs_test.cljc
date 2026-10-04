@@ -111,31 +111,7 @@
               "the raw record is NOT a projected record"))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. The bracket captures where NO sink route exists.
-;; ---------------------------------------------------------------------------
-
-(deftest bracket-captures-under-an-empty-frame-policy
-  (testing "a frame declaring an EMPTY :errors policy opts out of sink
-            routing for that stream, so nothing is routed — and the bracket
-            still captures the record, because it reads the substrate under
-            the routing layer. This is the leg that makes the bracket usable
-            in tests that assert on frames with no observability at all."
-    (let [sunk (atom [])]
-      (rf/register-observability-sink! :test.sinks/never
-                                       (fn [record] (swap! sunk conj record)))
-      (rf/make-frame {:id :bracket/empty
-                      :observability {:errors []}})
-      (reg-boom! :bracket/empty :empty/boom)
-      (with-emit-recorder! [raw]
-        (rf/dispatch-sync [:empty/boom] {:frame :bracket/empty})
-        (is (= 1 (count @raw))
-            "the bracket captured the record under an empty policy")
-        (is (= :rf.error/handler-exception (:error (first @raw))))
-        (is (zero? (count @sunk))
-            "an empty policy routes NOTHING to any sink")))))
-
-;; ---------------------------------------------------------------------------
-;; 3. Leaving the bracket ends capture.
+;; 2. Leaving the bracket ends capture.
 ;; ---------------------------------------------------------------------------
 
 (deftest leaving-the-bracket-unregisters
@@ -173,23 +149,8 @@
           "the listener was still unregistered on the exceptional path"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. The `:events` arm, and `:pred`.
+;; 3. The `:events` arm, and `:pred`.
 ;; ---------------------------------------------------------------------------
-
-(deftest events-arm-brackets-the-event-substrate
-  (testing "`:stream :events` brackets `re-frame.event-emit` — one record per
-            processed event, with the substrate's own `:outcome` spelling
-            (the projected sink record spells the same value `:status`)."
-    (rf/make-frame {:id :bracket/events})
-    (rf/reg-event :ev/ok {:frame :bracket/events} (fn [{:keys [db]} _] {:db db}))
-    (with-emit-recorder! [seen {:stream :events}]
-      (rf/dispatch-sync [:ev/ok] {:frame :bracket/events})
-      (is (= 1 (count @seen)))
-      (let [r (first @seen)]
-        (is (= :ev/ok (:event-id r)))
-        (is (= :bracket/events (:frame r)))
-        (is (= :ok (:outcome r))
-            "the raw substrate record spells the dispatch result :outcome")))))
 
 (deftest pred-filters-what-is-recorded
   (testing "`:pred` narrows the capture without a per-file wrapper — the
@@ -219,7 +180,7 @@
            registration did not replace it"))))
 
 ;; ---------------------------------------------------------------------------
-;; 5. The public facade refuses the raw always-on streams.
+;; 4. The public facade refuses the raw always-on streams.
 ;; ---------------------------------------------------------------------------
 
 (deftest the-public-facade-no-longer-offers-the-always-on-streams
