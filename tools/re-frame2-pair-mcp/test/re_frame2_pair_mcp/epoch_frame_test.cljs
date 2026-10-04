@@ -386,35 +386,6 @@
                                       "so does the advisory's history count — one resolution, one truth")
                                   (done)))))))))))
 
-;; ---------------------------------------------------------------------------
-;; Controls — the tiers that must keep working, and the genuine empties
-;; the refusal must NOT swallow.
-;; ---------------------------------------------------------------------------
-
-(deftest a-cursors-sticky-frame-outranks-the-session-pin
-  ;; The care these two need that get-path did not: the frame a paginated
-  ;; call is ALREADY iterating rides in the cursor, and page 2 must stay
-  ;; on it even when the session was pinned elsewhere in between.
-  (async done
-    ;; Epoch 1 is live in BOTH rings, so the watermark resolves either
-    ;; way and the count is what discriminates: one epoch follows it in
-    ;; `:stories`, two in `:rf/default`. A cursor that fell through to
-    ;; the pin would answer 2.
-    (let [c (cursor/encode-cursor {:v 1 :after-id 1 :ms 60000
-                                   :until-ms (+ (js/Date.now) 1000)
-                                   :frame :stories})]
-      (stub-runtime! nil {:operation  :trace-window
-                          :app-frames two-frames
-                          :pin        :rf/default
-                          :rings      {:rf/default [(epoch 1) (epoch 2) (epoch 3)]
-                                       :stories    [(epoch 1) (epoch 7)]}})
-      (-> (tw/trace-window-tool nil (tu/args->js {:cursor c}))
-          (.then (fn [r]
-                   (let [edn (read-edn r)]
-                     (is (not (err? r)))
-                     (is (= 1 (:count edn))
-                         "page 2 stayed on the cursor's frame, not the session pin"))
-                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; ## Cursor frame ownership — the residual the refusal does not reach.
@@ -426,10 +397,9 @@
 ;; So the cursor has to CARRY the resolved id, and page 1 is the only call
 ;; that can put it there.
 ;;
-;; `a-cursors-sticky-frame-outranks-the-session-pin` above proves a cursor
-;; that ALREADY owns a frame is honoured, but it hand-builds that cursor, so
-;; it never exercised CREATION — the half where the id has to come back out
-;; of the eval. Every cursor below is one the tool itself returned.
+;; Every cursor below is one the tool itself returned, so these cover
+;; CREATION — the half where the id has to come back out of the eval — as
+;; well as honouring that id on page 2 once the session has moved on.
 
 (defn- cursor-payload
   "The `:next-cursor` a tool returned, decoded back to its payload map."
