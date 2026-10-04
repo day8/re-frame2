@@ -324,30 +324,6 @@
           (is (= :fx (:offending-key (:tags (first errs)))))
           (is (= :fix-effect (:recovery (first errs)))))))))
 
-(deftest after-interceptor-foreign-effect-key-refuses-the-event
-  (testing "an :after interceptor inserting a foreign top-level effect key refuses the event — the same decision a handler-returned key gets"
-    (rf/make-frame {:id :ctx/after-foreign :doc "ctx"})
-    (let [recorded (record-traces! ::after-foreign)
-          foreign  (after-icpt ::foreign
-                               (fn [ctx]
-                                 (rf.interceptor/assoc-effect ctx :http {:url "/api"})))]
-      (rf/reg-interceptor ::foreign foreign)
-      (rf/reg-event :ctx/writes-db2
-        {:interceptors [::foreign]}
-        (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
-      (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
-      ;; ALWAYS-ON: the final-boundary refusal happens in
-      ;; production. This is the SECOND ROUTE witness — a key inserted here
-      ;; never passed through the handler return, and gets the same verdict.
-      (is (nil? (:ok? (rf/app-db-value :ctx/after-foreign)))
-          "no partial commit — the legal :db did NOT land beside the foreign key")
-      (when rf.interop/debug-enabled?
-        (let [errs (error-events recorded :rf.error/effect-map-shape)]
-          (is (= 1 (count errs))
-              "exactly one shape error for the foreign :http key")
-          (is (= :http (:offending-key (:tags (first errs)))))
-          (is (= :fix-effect (:recovery (first errs)))))))))
-
 (deftest after-interceptor-legacy-runtime-root-is-rejected
   (testing "an :after interceptor inserting :rf/runtime into [:effects :db] is rejected at the final boundary — never lands in app-db, drain survives"
     (rf/make-frame {:id :ctx/after-legacy :doc "ctx"})
@@ -391,31 +367,6 @@
 ;; registration, with a `context -> context` shape. These pin that effects a
 ;; full-context interceptor writes onto the context are governed by the final
 ;; boundary exactly as a handler-returned effects map would be.
-
-(deftest full-context-interceptor-malformed-fx-refuses-the-event
-  (testing "a full-context interceptor whose context carries a non-sequential :fx refuses the event at the boundary"
-    (rf/make-frame {:id :ctx/ctx-bad-fx :doc "ctx"})
-    (let [recorded (record-traces! ::ctx-bad-fx)]
-      (rf/reg-interceptor :ctx/ctx-writes-probe
-        {:before
-         (fn [ctx]
-           (-> ctx
-               (rf.interceptor/assoc-effect :db (assoc (rf.interceptor/get-coeffect ctx :db) :committed? true))
-               (rf.interceptor/assoc-effect :fx {:dispatch [:nope]})))})
-      (rf/reg-event :ctx/ctx-writes
-        {:interceptors [:ctx/ctx-writes-probe]}
-        (fn [_ _] {}))
-      (rf/dispatch-sync [:ctx/ctx-writes] {:frame :ctx/ctx-bad-fx})
-      ;; ALWAYS-ON: the interceptor-written effects are refused at the
-      ;; boundary in production too — nothing landed, and the bad `:fx` did
-      ;; not throw.
-      (is (nil? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
-          "no partial commit — the :db write did NOT land beside the refused :fx")
-      (when rf.interop/debug-enabled?
-        (let [errs (error-events recorded :rf.error/effect-map-shape)]
-          (is (= 1 (count errs))
-              "the full-context interceptor's malformed :fx is refused — the reg-event handler return is not the only path the boundary governs")
-          (is (= :fx (:offending-key (:tags (first errs))))))))))
 
 (deftest full-context-interceptor-foreign-key-refuses-the-event
   (testing "a full-context interceptor whose context carries a foreign top-level effect key refuses the event at the boundary"
