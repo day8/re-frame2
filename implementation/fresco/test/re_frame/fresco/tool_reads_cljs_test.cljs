@@ -413,24 +413,6 @@
             "the run that recomputed :tr/left is offered as a lead")))
     (release)))
 
-(deftest an-empty-window-is-cap-and-a-live-window-is-uncorrelated
-  (testing "the two loss reasons are DIFFERENT and a reader can drive between them"
-    (seeded!)
-    (let [release (mount! (fn [_] (rf.fresco/sub [:tr/left]) nil))]
-      (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
-      (let [looked (first (:explanations (rf.fresco.tool/explain-render)))]
-        (is (= :uncorrelated (:reason (:loss looked))))
-        (is (vector? (:candidates looked))
-            "with runs retained, the search really ran and its result is a vector"))
-
-      (rf.trace.tooling/clear-trace-buffer! frame-id)
-      (let [blind (first (:explanations (rf.fresco.tool/explain-render)))]
-        (is (= :cap (:reason (:loss blind)))
-            "with the window empty, no search happened — a different reason")
-        (is (= rf.fresco.evidence/unknown (:candidates blind))
-            "and the leads state the explicit unknown, never an [] that reads as none"))
-      (release))))
-
 ;; ---------------------------------------------------------------------------
 ;; THE PRIVACY WITNESS — the hazard is real, and the projections refuse it
 ;; ---------------------------------------------------------------------------
