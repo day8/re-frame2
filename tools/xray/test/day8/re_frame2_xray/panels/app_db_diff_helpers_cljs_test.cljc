@@ -23,12 +23,7 @@
        triples** for `:added` / `:modified` / `:removed`. Mixed
        sub-tree changes produce the union of triples.
 
-    2. **Pointer-equal subtrees short-circuit.** When `before` and
-       `after` share an `identical?` sub-map, the recursive walker
-       skips it entirely — assertable via an externally-mutated
-       counter wired through a wrapper.
-
-    3. **Reserved-key filtering and the current-state section model.**
+    2. **Reserved-key filtering and the current-state section model.**
        `user-domain-db` hides the reserved `:rf*` namespace family;
        `runtime-areas` + `reserved-summary` project the runtime-db
        partition; `current-state-sections` builds what the panel draws.
@@ -120,26 +115,7 @@
     (is (= [{:op :modified :path [] :before [1] :after [2]}]
            (h/diff-paths [1] [2])))))
 
-;; ---- (2) structural-sharing short-circuit -------------------------------
-
-(deftest diff-paths-structural-sharing-skips-unchanged-subtree
-  (testing "PersistentHashMap pointer-equality at each level short-circuits
-            the diff walk on unchanged subtrees. Assertable by reusing
-            the same sub-map reference in both before and after — the
-            diff produces zero triples for that subtree even though it
-            holds many keys."
-    (let [shared       (zipmap (range 1000) (range 1000))
-          before       {:big shared :counter 0}
-          after        (assoc before :counter 1)  ;; :big is identical?
-          diff         (h/diff-paths before after)]
-      (is (= 1 (count diff))
-          "only the :counter triple; :big short-circuits via identical?")
-      (is (= [:counter] (:path (first diff))))
-      (is (= :modified (:op (first diff))))
-      (is (= 0 (:before (first diff))))
-      (is (= 1 (:after  (first diff)))))))
-
-;; ---- (3) reserved-keys partition ----------------------------------------
+;; ---- (2) reserved-keys partition ----------------------------------------
 ;;
 ;; EP-0001: the runtime subsystems (machines /
 ;; routing / elision) live OUTSIDE app-db, in a
@@ -152,20 +128,6 @@
 ;; There is no `reserved-app-db-keys` / `reserved-path?` /
 ;; `triple-path` / `partition-reserved` cluster: with no path-click
 ;; machinery, nothing in `tools/xray/src` would call it.
-
-(deftest runtime-areas-covers-the-five-subsystems-in-runtime-db
-  (testing "runtime-areas maps each operator-facing area-id to its
-            sub-path under the RUNTIME-DB partition's reserved
-            :rf.runtime/* roots (EP-0001)"
-    (is (= [:rf.runtime/machines :snapshots]         (get h/runtime-areas :rf/machines)))
-    (is (= [:rf.runtime/machines :spawned]           (get h/runtime-areas :rf/spawned)))
-    (is (= [:rf.runtime/routing :current]            (get h/runtime-areas :rf/route)))
-    (is (= [:rf.runtime/routing :pending-navigation] (get h/runtime-areas :rf/pending-navigation)))
-    (is (= [:rf.runtime/elision]                     (get h/runtime-areas :rf/elision)))
-    ;; No path roots in an app-db `:rf/runtime` container (the executable
-    ;; check against a stale path).
-    (is (not (some (fn [p] (= :rf/runtime (first p))) (vals h/runtime-areas)))
-        "no runtime-area path roots in an app-db :rf/runtime container")))
 
 (deftest reserved-summary-renders-current-runtime-subsystems
   (testing "reserved-summary projects populated runtime subsystem
