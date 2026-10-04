@@ -416,7 +416,7 @@ This is why a test frame's missing-cofx failure surfaces as a loud `:rf.error/mi
 
 Matching is by the canonical (CEDN-1) reference, so a parameterized override must spell the exact `[id arg]` it targets; a replacement value is itself a registered reference resolved through the same registrar. Per-call overrides (in the `dispatch-sync` opts map) win over per-frame on key conflict (per [002 §`:interceptor-overrides`](002-Frames.md#interceptor-overrides--replace-or-remove-interceptors-by-exact-reference)).
 
-### Recording dispatched events without firing handlers
+### Recording dispatched events
 
 ```clojure
 (def recorded (atom []))
@@ -430,7 +430,7 @@ Matching is by the canonical (CEDN-1) reference, so a parameterized override mus
                 :interceptors [:test/event-recorder]})
 ```
 
-After running a test sequence, `@recorded` contains the events that fired, in order. Useful for verifying control flow without checking every state transition.
+After running a test sequence, `@recorded` contains the events that fired, in order. The recorder returns `ctx` unchanged, so every handler still runs. Useful for verifying control flow without checking every state transition.
 
 ## Headless evaluation
 

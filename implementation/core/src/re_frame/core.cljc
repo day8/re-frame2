@@ -197,10 +197,13 @@
 ;; `dispatch` / `dispatch-sync` / `subscribe` macro's expansion AND a frame
 ;; api's ops (`re-frame.capture-frame/make-capture-frame`, published to it
 ;; below) both call through, so a SINGLE
-;; `with-redefs` on one of these (or the CLJS value-alias, which aliases the
-;; SAME var) intercepts every real dispatch, macro-driven or reg-view-
-;; injected alike. There is no PUBLIC `dispatch*` / `dispatch-sync*` /
-;; `subscribe*` facade twin; these aliases are the non-public seam.
+;; `with-redefs` on one of these intercepts every macro-driven or
+;; reg-view-injected call. The CLJS value-alias is not part of that seam: it
+;; COPIES the var's value at load time, so a redef of the value-alias reaches
+;; only its value-position callers, and a redef of one of these misses them.
+;; The JVM has no value-alias: there `dispatch` is the macro alone. There is
+;; no PUBLIC `dispatch*` / `dispatch-sync*` / `subscribe*` facade twin; these
+;; aliases are the non-public seam.
 ;;
 ;; The alias-`def` is DELIBERATE: a
 ;; direct `defn` here would let the CLJS compiler attach inline fixed-arity
