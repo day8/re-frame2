@@ -4,20 +4,20 @@
   so the spawned child's initial data can be derived from the parent's
   post-action snapshot + the triggering event.
 
-  The four invariants under test:
+  The invariants under test:
 
-   1. **Literal-map `:data`.** A literal map is passed through verbatim.
+   1. **fn-form `:data` is materialised from the triggering event.** When
+      `:data` is a fn, the runtime invokes it with the inbound event and
+      passes the resulting map (NOT the fn itself) to the spawned child. A
+      literal map passing through verbatim is pinned by the
+      spawn-on-entry-destroy-on-exit conformance fixture.
 
-   2. **fn-form `:data` is materialised.** When `:data` is a fn, the
-      runtime invokes `(data snap event)` and passes the resulting
-      map (NOT the fn itself) to the spawned child.
-
-   3. **fn-form sees the post-action snapshot.** A transition's
+   2. **fn-form sees the post-action snapshot.** A transition's
       `:action` writes to `:data`; the fn-form sees those writes.
       Per Spec 005 line 1511 — pinned, for one spawn and for two in one
       cascade, in `spawn_ordering_ep0029_cljs_test`.
 
-   4. **fn-form throw routes to :rf.error/machine-action-exception.**
+   3. **fn-form throw routes to :rf.error/machine-action-exception.**
       Per Spec 005 §Errors line 1597 — same category as any
       user-supplied fn that throws during a machine action.
 
@@ -31,59 +31,11 @@
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; runtime-db / snapshot lookup via the shared machines test-support
+;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
-(def ^:private frame-db rf.machines.test-support/runtime-db)
 
-;; ---- (1) literal-map :data — passes through verbatim ----------------------
-
-(deftest literal-map-data-passes-through
-  (testing "literal-map `:data` arrives at the spawned child verbatim"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :worker/proc
-                                      :data       {:url "/api/foo" :method :get}}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/literal parent)
-      (rf/dispatch-sync [:sup/literal [:start]])
-      (let [child-data (:data (snapshot :worker/proc#1))]
-        (is (= "/api/foo" (:url child-data))
-            "the literal map's :url survived the spawn")
-        (is (= :get (:method child-data))
-            "the literal map's :method survived the spawn")))))
-
-;; ---- (2) fn-form :data — materialised at spawn ----------------------------
-
-(deftest fn-form-data-is-materialised
-  (testing "fn-form `:data` is invoked; the spawned child receives the resulting map, NOT the fn"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :data    {:endpoint "/api/login"}
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :worker/proc
-                                      :data       (fn [{snap :snapshot}]
-                                                    {:url    (-> snap :data :endpoint)
-                                                     :method :post})}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/fn-form parent)
-      (rf/dispatch-sync [:sup/fn-form [:start]])
-      (let [child-data (:data (snapshot :worker/proc#1))]
-        (is (map? child-data)
-            "the spawned child's :data is a literal map, not the fn")
-        (is (= "/api/login" (:url child-data))
-            "the fn-form derived :url from the parent's :data.:endpoint")
-        (is (= :post (:method child-data))
-            "the fn-form-derived :method survived the spawn")
-        ;; Runtime stamps :rf/self-id etc. into :data — the
-        ;; materialised map is the BASE the runtime then augments.
-        (is (= :worker/proc#1 (:rf/self-id child-data))
-            "the runtime stamped :rf/self-id over the materialised map")))))
-
-;; ---- (3b) fn-form sees the triggering event -------------------------------
+;; ---- (1) fn-form sees the triggering event --------------------------------
 
 (deftest fn-form-data-sees-triggering-event
   (testing "fn-form `:data` receives the inbound event vector as its second arg"
@@ -101,7 +53,7 @@
              (:from-event (:data (snapshot :worker/proc#1))))
           "fn-form's second arg was the triggering event"))))
 
-;; ---- (4) fn-form throw routes to :rf.error/machine-action-exception ------
+;; ---- (3) fn-form throw routes to :rf.error/machine-action-exception ------
 
 (deftest fn-form-data-throw-routes-to-machine-action-exception
   (testing "fn-form `:data` throw halts the cascade and emits :rf.error/machine-action-exception (Spec 005:1597)"
@@ -134,7 +86,7 @@
                   @traces)
             "an :rf.error/machine-action-exception trace was emitted")))))
 
-;; ---- (5) :spawn-all child :data fn-form is materialised ------------------
+;; ---- :spawn-all child :data fn-form is materialised ----------------------
 
 (deftest spawn-all-child-data-fn-form-is-materialised
   (testing "each :spawn-all child's `:data` admits the same fn-form per Spec 005:1818"
