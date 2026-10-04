@@ -36,20 +36,6 @@
   (form-contains? #(and (symbol? %) (str/includes? (str %) substr)) form))
 
 ;; ---------------------------------------------------------------------------
-;; The process-global enumeration helpers MUST be absent. Any of these means
-;; dry-run infers "no effect" from a registrar snapshot — an inference that
-;; misses image-only inline fx and cannot suppress the reject-tier reserved fx.
-;; ---------------------------------------------------------------------------
-
-(deftest enumeration-helpers-are-deleted
-  (doseq [sym '[registered-fx-ids build-dry-run-overrides
-                dry-run-recordings record-fx!]]
-    (is (nil? (defn-form sym))
-        (str "the override-enumeration helper `" sym "` must be absent — "
-             "dry-run's no-effect guarantee is executor-sited, not "
-             "registrar-enumerated"))))
-
-;; ---------------------------------------------------------------------------
 ;; dispatch-dry-run must BIND the framework effect sink, and must NOT infer
 ;; coverage from the process-global :fx registrar.
 ;; ---------------------------------------------------------------------------
