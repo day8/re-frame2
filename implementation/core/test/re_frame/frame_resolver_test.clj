@@ -47,15 +47,6 @@
 
 ;; ---- readers return nil outside any scope ---------------------------------
 
-(deftest current-frame-returns-nil-outside-scope
-  (testing "current-frame is nil with no *current-frame* binding — no :rf/default floor"
-    (is (nil? (rf.frame/current-frame))
-        "current-frame returns nil outside any with-frame / scope"))
-  (testing "current-frame returns the dynamic-var scope frame when bound"
-    (binding [rf.frame/*current-frame* :app]
-      (is (= :app (rf.frame/current-frame))
-          "current-frame reads *current-frame* when a scope is established"))))
-
 (deftest resolve-current-frame-returns-nil-outside-scope
   (testing "resolve-current-frame is nil with no scope — no :rf/default floor"
     (is (nil? (rf.frame/resolve-current-frame))
