@@ -1,87 +1,18 @@
 (ns re-frame.machine-raise-fifo-test
-  "`:raise` drains FIFO (XState v5 / SCXML internal-event queue), NOT
-  depth-first.
+  "A `:raise` depth-limit abort discards the WHOLE macrostep.
 
-  XState v5 / SCXML: `raise` / `<raise>` enqueues on the
-  machine's ONE internal event queue, drained breadth-first within the
-  macrostep. A transition that raises `[B]` then `[C]`, where B's handler
-  itself raises `[D]`, processes them `B, C, D` — D goes to the BACK of the
-  queue, BEHIND the still-pending sibling C (a depth-first drain would give
-  `B, D, C`). That exact case is `scxml-irp-test144-internal-raise-fifo`'s, on
-  both hosts; the two-nester case below adds a second nested raise.
-
-  These are pure-engine tests — they call `machine-transition` directly and
-  read processing order off the post-macrostep snapshot's `:data` log (the
-  pure, deterministic record of the order actions fired). A linear chain
-  (each step raises exactly one event) settles identically under FIFO and
-  depth-first, so the discriminating fixtures all raise ≥2 siblings where an
-  earlier one transitively raises more.
+  `:raise` drains FIFO on the machine's one internal event queue (XState v5 /
+  SCXML); that order is pinned on both hosts by
+  `scxml-irp-test144-internal-raise-fifo`. This namespace pins what happens
+  when the drain trips `:raise-depth-limit`: a pure-engine test that calls
+  `machine-transition` directly and reads the failed Result.
 
   Pairs with the flat-machine drain in
   `re-frame.machines.transition/drain-raises`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines :as rf.machines]))
 
-(defn- log-action
-  "Build an action that appends `label` to `:data :log` and optionally
-  emits the given `raise-events` (a seq of event-vectors) as `:fx`
-  `[:raise …]` entries, in order."
-  [label & raise-events]
-  (fn [{:keys [data]}]
-    (cond-> {:data (update data :log (fnil conj []) label)}
-      (seq raise-events)
-      (assoc :fx (mapv (fn [ev] [:raise ev]) raise-events)))))
-
-;; ---- 1. deeper interleave — two nesters -----------------------------------
-
-(deftest fifo-two-nesting-siblings-interleave-breadth-first
-  (testing "A raises [B] [C]; B raises [D]; C raises [E] ⇒ B, C, D, E"
-    ;; Breadth-first discriminates sharply here: FIFO yields B,C,D,E
-    ;; (both nested raises behind BOTH siblings); depth-first would yield
-    ;; B,D,C,E (each nested raise jumps ahead of its sibling).
-    (let [spec {:initial :hub
-                :data    {}
-                :actions {:go (log-action :go [:b] [:c])
-                          :b  (log-action :b [:d])
-                          :c  (log-action :c [:e])
-                          :d  (log-action :d)
-                          :e  (log-action :e)}
-                :states  {:hub {:on {:go {:action :go}
-                                     :b  {:action :b}
-                                     :c  {:action :c}
-                                     :d  {:action :d}
-                                     :e  {:action :e}}}}}
-          {snap :snapshot} (rf.machines/machine-transition
-                                 spec {:state :hub :data {}} [:go])]
-      (is (= [:go :b :c :d :e] (:log (:data snap)))
-          "both first-level siblings (B, C) drain before either's nested
-           raise (D, E) — breadth-first, the XState/SCXML internal queue"))))
-
-;; ---- 2. linear chain — FIFO and depth-first agree -------------------------
-
-(deftest fifo-linear-chain-unchanged
-  (testing "a linear self-chain (one raise per step) reaches the terminal
-   state in one macrostep — order discipline is irrelevant when no step
-   raises ≥2 siblings"
-    (let [mk (fn [label next-ev]
-               (log-action label next-ev))
-          spec {:initial :s0
-                :data    {}
-                :actions {:a1 (mk :a1 [:e2])
-                          :a2 (mk :a2 [:e3])
-                          :a3 (log-action :a3)}
-                :states  {:s0 {:on {:e1 {:target :s1 :action :a1}}}
-                          :s1 {:on {:e2 {:target :s2 :action :a2}}}
-                          :s2 {:on {:e3 {:target :s3 :action :a3}}}
-                          :s3 {}}}
-          {snap :snapshot} (rf.machines/machine-transition
-                                 spec {:state :s0 :data {}} [:e1])]
-      (is (= :s3 (:state snap))
-          "linear chain settles to the terminal state")
-      (is (= [:a1 :a2 :a3] (:log (:data snap)))
-          "linear chain order is identical under FIFO and depth-first"))))
-
-;; ---- 3. depth-bound rollback is TRULY atomic ------------------------------
+;; ---- depth-bound rollback is TRULY atomic ---------------------------------
 ;;
 ;; Raises that neither mutate :data nor emit non-raise fx (identical `[:noop]`
 ;; self-loops) leave the partially-advanced snapshot EQUAL to the original even
