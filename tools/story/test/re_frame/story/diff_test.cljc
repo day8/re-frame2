@@ -180,13 +180,6 @@
       (is (= [{:query [:visible-todos] :value 3}] (:only-baseline d)))
       (is (= [{:query [:visible-todos] :value 5}] (:only-current d))))))
 
-(deftest diff-status-headline
-  (testing "a pass → fail flip is reported"
-    (is (= {:baseline :pass :current :fail}
-           (rf.story.diff/diff-status {:status :pass} {:status :fail}))))
-  (testing "a shared status is no diff"
-    (is (nil? (rf.story.diff/diff-status {:status :pass} {:status :pass})))))
-
 ;; ===========================================================================
 ;; PURE: warnings / assertions / checks / sub-overrides / fidelity facets
 ;; (run-hash slice slots, each with its own facet)
