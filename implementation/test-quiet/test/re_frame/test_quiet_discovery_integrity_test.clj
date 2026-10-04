@@ -143,12 +143,19 @@
         (is (not (.exists (io/file dir "probe/elsewhere_test.clj")))
             "and nothing lives there"))
 
-      (testing "THE GUARD: named, with the path its declaration resolves to"
+      (testing "THE GUARD: named, with the path its declaration resolves to.
+                Nothing on the classpath answers to that path, so `require`
+                would throw, and the complaint must say THAT rather than claim
+                some other file exists"
         (let [defects (rf.test-quiet.runner/discovery-defects [(.getPath dir)])]
           (is (= ["mislabelled_test.clj"] (defect-paths defects)))
           (is (str/includes? (complaint-for defects "mislabelled_test.clj")
                              "probe/elsewhere_test.clj")
-              "the complaint names the file discovery will look for"))))))
+              "the complaint names the file discovery will look for")
+          (is (str/includes? (complaint-for defects "mislabelled_test.clj")
+                             "nothing on this run's classpath")
+              (str "the complaint must describe the actual mismatch; got: "
+                   (complaint-for defects "mislabelled_test.clj"))))))))
 
 (deftest two-files-declaring-one-namespace-are-not-two-suites
   (with-tree {"probe/good_test.clj"   well-formed
@@ -316,22 +323,3 @@
                 (str "naming that file, because the operator cannot act on"
                      " `a different file` without knowing which; got: "
                      complaint))))))))
-
-(deftest a-namespace-nothing-on-the-classpath-answers-says-so
-  (testing "the third outcome: the declaration resolves to a path no
-            classpath root carries, so `require` would throw. The complaint
-            must say THAT, not claim some other file exists"
-    (with-tree {"stray.clj" (str "(ns probe.nothing-answers-this-test\n"
-                                 "  (:require [clojure.test"
-                                 " :refer [deftest is]]))\n"
-                                 "(deftest g (is (= 1 1)))\n")}
-      (fn [dir]
-        ;; The file's own path relative to `-d` is `stray.clj`; its
-        ;; declaration resolves to `probe/nothing_answers_this_test.clj`,
-        ;; which neither matches nor exists anywhere on the classpath.
-        (let [complaint (-> (rf.test-quiet.runner/discovery-defects [(.getPath dir)])
-                            (complaint-for "stray.clj"))]
-          (is (some? complaint) "the file must still be named")
-          (is (str/includes? complaint "nothing on this run's classpath")
-              (str "the complaint must describe the actual mismatch; got: "
-                   complaint)))))))
