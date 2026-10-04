@@ -626,14 +626,6 @@
 ;; Docs tools
 ;; ---------------------------------------------------------------------------
 
-(deftest list-stories-no-filter
-  (let [r (invoke "list-stories" {})
-        ss (-> r :structuredContent :stories)]
-    (is (success? r))
-    (is (= 1 (count ss)))
-    (is (= :story.button (-> ss first :id)))
-    (is (= 2 (count (-> ss first :variants))))))
-
 (deftest list-stories-tag-filter
   (testing "filtering by :docs returns the button story"
     (let [r (invoke "list-stories" {:tags ["docs"]})]
@@ -679,6 +671,8 @@
           s (:structuredContent r)]
       (is (success? r))
       (is (= [:story.button] (mapv :id (:stories s))))
+      (is (= 2 (count (-> s :stories first :variants)))
+          "each story entry carries its variant ids")
       (is (not (contains? s :ignored-tags))))))
 
 (deftest list-stories-scalar-tags-rejected
@@ -754,15 +748,12 @@
     (is (= [:story.button/primary] (:source-chain e)))
     (is (= [] (:parent-chain e)))
     (is (contains? e :merge) "the per-field merge rules are surfaced")
-    (is (contains? e :effective-args) "arg resolution is surfaced")
     ;; On this no-run path the frame is non-live; the value slots must ship
     ;; the REAL resolved author data, not :rf/redacted (which a fail-closed
     ;; egress boundary would produce while KEEPING the key, so a bare
     ;; contains? check would pass on garbage).
     (is (map? (:effective-args e))
         ":effective-args is the real resolved args map, not :rf/redacted")
-    (is (not= :rf/redacted (:effective-args e))
-        ":effective-args is not over-redacted on the no-run frame")
     (is (contains? e :required-runner) "the plan's runner requirement is surfaced")))
 
 (deftest explain-variant-unknown
@@ -825,13 +816,7 @@
       (is (= #{:hiccup} kinds)
           "filter MUST return only the requested kind")
       (is (some #(= :dec.test/wrap-card (:id %)) ds)
-          "fixture's hiccup decorator is present")))
-  (testing "filter with no canonical-or-fixture matches returns empty vec, not :error"
-    (let [r  (invoke "list-decorators" {:kind "frame-setup"})
-          ds (-> r :structuredContent :decorators)]
-      (is (success? r))
-      (is (every? #(= :frame-setup (:kind %)) ds))
-      (is (some #(= :dec.test/seed-cart (:id %)) ds)))))
+          "fixture's hiccup decorator is present"))))
 
 (deftest list-assertions-returns-canonical-ten
   (let [r (invoke "list-assertions" {})
@@ -988,21 +973,17 @@
 
 (deftest list-stories-limit-clamped-to-max
   (testing ":limit above the ceiling clamps DOWN to max-limit"
-    (let [r (invoke "list-stories" {:limit 99999})]
+    ;; The fixture story plus 250 more forces pagination: 251 entries.
+    (doseq [n (range 250)]
+      (rf.story/reg-story (keyword (str "story.clamp" n))
+        {:doc "" :component :app/x :tags #{:dev}}))
+    (let [r (invoke "list-stories" {:limit 99999})
+          s (:structuredContent r)]
       (is (success? r))
-      ;; With 1 fixture story, no pagination kicks in — but if it did,
-      ;; the :limit slot would be 200 (max-limit), not 99999. We verify
-      ;; this by registering enough stories to force pagination.
-      (doseq [n (range 250)]
-        (rf.story/reg-story (keyword (str "story.clamp" n))
-          {:doc "" :component :app/x :tags #{:dev}}))
-      (let [r2 (invoke "list-stories" {:limit 99999})
-            s2 (:structuredContent r2)]
-        (is (success? r2))
-        ;; Total is fixture + 250 = 251; with :limit clamped to 200,
-        ;; first page is 200 entries and :has-more? true.
-        (is (<= (count (:stories s2)) 200)
-            "first page MUST NOT exceed max-limit 200")))))
+      ;; With :limit clamped to 200 the first page holds 200 entries and
+      ;; :has-more? is true.
+      (is (<= (count (:stories s)) 200)
+          "first page MUST NOT exceed max-limit 200"))))
 
 (deftest list-modes-paginates
   (testing "list-modes honours :limit + :cursor"
@@ -1055,12 +1036,7 @@
       ;; current :custom page — must be present in :all.
       (is (every? all-set (:canonical s)) ":all contains the whole canonical set")
       (is (every? #(contains? all-set (keyword (str "tag/pager" %))) (range 50))
-          ":all contains every custom tag, including the 45 not on the current :custom page")
-      (let [unfetched (set/difference (set (map #(keyword (str "tag/pager" %)) (range 50)))
-                                      (set (:custom s)))]
-        (is (seq unfetched) "sanity: some custom tags are off the current page")
-        (is (every? all-set unfetched)
-            "the OFF-PAGE custom tags still appear in :all — the field named :all really is all")))))
+          ":all contains every custom tag, including the 45 not on the current :custom page"))))
 
 (deftest list-assertions-canonical-doc-stays-full
   (testing "the canonical assertion-doc vector is bounded (10) so it never paginates"

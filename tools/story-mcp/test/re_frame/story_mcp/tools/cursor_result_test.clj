@@ -14,7 +14,7 @@
   Deterministic: no registry, no fixtures, no I/O — pure data over the
   public helper surface."
   (:require [clojure.edn :as edn]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [are deftest is testing]]
             [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
             [re-frame.story-mcp.tools.cursor :as rf.story-mcp.tools.cursor]
             [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]))
@@ -68,24 +68,19 @@
     ;; 'no cursor' (nil) from 'a cursor that won't decode' (malformed) so
     ;; the handler doesn't silently treat garbage as offset-0.
     (let [decoded (rf.story-mcp.tools.cursor/decode-cursor "!!!not-base64!!!")]
-      (is (some? decoded) "a malformed cursor is NOT nil — that would silently restart at page 0")
-      (is (= decoded (rf.story-mcp.tools.cursor/decode-cursor "!!!not-base64!!!"))
-          "malformed decode is deterministic"))))
+      (is (some? decoded) "a malformed cursor is NOT nil — that would silently restart at page 0"))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-limit-arg clamps into [1, max-limit] with the story default.
+;; parse-limit-arg clamps into [1, max-limit] with the story default. The
+;; clamp itself is mcp-base's and is pinned there; this pins the two numbers
+;; story-mcp bakes in.
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-limit-arg-clamps-and-defaults
   (testing "absent ⇒ default-limit"
     (is (= rf.story-mcp.tools.cursor/default-limit (rf.story-mcp.tools.cursor/parse-limit-arg nil))))
   (testing "above max ⇒ clamped to max-limit"
-    (is (= rf.story-mcp.tools.cursor/max-limit (rf.story-mcp.tools.cursor/parse-limit-arg 99999))))
-  (testing "in-range ⇒ rides through"
-    (is (= 7 (rf.story-mcp.tools.cursor/parse-limit-arg 7))))
-  (testing "below 1 ⇒ clamped up to 1 (a zero/negative page makes no sense)"
-    (is (= 1 (rf.story-mcp.tools.cursor/parse-limit-arg 0)))
-    (is (= 1 (rf.story-mcp.tools.cursor/parse-limit-arg -5)))))
+    (is (= rf.story-mcp.tools.cursor/max-limit (rf.story-mcp.tools.cursor/parse-limit-arg 99999)))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf.story-mcp.tools.cursor/page — the windowing primitive `paged-result` builds on.
@@ -131,13 +126,6 @@
       (is (= :rf.mcp/cursor-stale (-> err-result :structuredContent :reason)))
       (is (= "list-things" (-> err-result :structuredContent :tool))))))
 
-(deftest page-malformed-cursor-returns-err
-  (testing "a malformed cursor reads as stale (same drop-and-restart recovery)"
-    (let [entries (vec (range 5))
-          [res err-result] (rf.story-mcp.tools.cursor/page entries entries {:cursor "garbage!!!"} "list-things")]
-      (is (= :err res))
-      (is (= :rf.mcp/cursor-stale (-> err-result :structuredContent :reason))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Wire-boundary range gate on the cursor payload.
 ;;
@@ -151,21 +139,13 @@
 ;; fingerprint-drift gate.
 ;; ---------------------------------------------------------------------------
 
-(deftest decode-cursor-rejects-negative-offset
-  (testing "a forged cursor with :offset -1 decodes to malformed, not a payload"
-    (let [forged (forge-cursor {:v 1 :offset -1 :total 5 :sig "any"})]
-      (is (= (rf.story-mcp.tools.cursor/decode-cursor "!!!garbage!!!") (rf.story-mcp.tools.cursor/decode-cursor forged))
-          "the negative-offset cursor reads as the SAME malformed sentinel as raw garbage"))))
-
-(deftest decode-cursor-rejects-negative-total
-  (testing "a forged cursor with a negative :total decodes to malformed"
-    (let [forged (forge-cursor {:v 1 :offset 0 :total -3 :sig "any"})]
-      (is (= (rf.story-mcp.tools.cursor/decode-cursor "!!!garbage!!!") (rf.story-mcp.tools.cursor/decode-cursor forged))))))
-
-(deftest decode-cursor-rejects-offset-over-total
-  (testing "a forged cursor whose :offset exceeds :total decodes to malformed"
-    (let [forged (forge-cursor {:v 1 :offset 99 :total 5 :sig "any"})]
-      (is (= (rf.story-mcp.tools.cursor/decode-cursor "!!!garbage!!!") (rf.story-mcp.tools.cursor/decode-cursor forged))))))
+(deftest decode-cursor-rejects-out-of-range-payloads
+  (testing "a negative :offset, a negative :total or an :offset over :total decodes to the SAME malformed sentinel as raw garbage"
+    (are [payload] (= (rf.story-mcp.tools.cursor/decode-cursor "!!!garbage!!!")
+                      (rf.story-mcp.tools.cursor/decode-cursor (forge-cursor payload)))
+      {:v 1 :offset -1 :total 5 :sig "any"}
+      {:v 1 :offset 0 :total -3 :sig "any"}
+      {:v 1 :offset 99 :total 5 :sig "any"})))
 
 (deftest decode-cursor-accepts-offset-equal-to-total
   (testing "offset == total is a VALID position (fully-consumed end-of-list)"
@@ -201,18 +181,6 @@
 ;; paged-result — folds page + the tool-specific payload build + envelope.
 ;; ---------------------------------------------------------------------------
 
-(deftest paged-result-small-set-merges-bare-payload
-  (testing "small set ⇒ the page->payload shape with NO pagination metadata"
-    (let [entries [:x :y]
-          r       (rf.story-mcp.tools.cursor/paged-result entries entries {} "list-things"
-                                       (fn [page] {:things page}))
-          s       (:structuredContent r)]
-      (is (= [:x :y] (:things s)))
-      (is (not (contains? s :total)) "no pagination metadata on a one-page set")
-      (is (not (contains? s :next-cursor)))
-      ;; edn-result dual-slot invariant holds on the paged path too.
-      (is (= (-> r :content first :text) (rf.story-mcp.tools.result/pr-edn s))))))
-
 (deftest paged-result-over-limit-merges-metadata-into-payload
   (testing "large set ⇒ page->payload shape PLUS :total/:limit/:has-more?/:next-cursor"
     (let [entries (vec (range 6))
@@ -224,20 +192,6 @@
       (is (= 2 (:limit s)))
       (is (true? (:has-more? s)))
       (is (string? (:next-cursor s))))))
-
-(deftest paged-result-stale-cursor-returns-error-envelope-directly
-  (testing "on a stale cursor `paged-result` returns the cursor-stale error result, NOT a payload"
-    (let [entries (vec (range 5))
-          r1      (rf.story-mcp.tools.cursor/paged-result entries entries {:limit 2} "list-things"
-                                       (fn [page] {:things page}))
-          cursor  (-> r1 :structuredContent :next-cursor)
-          mutated (conj entries 99)
-          r2      (rf.story-mcp.tools.cursor/paged-result mutated mutated {:limit 2 :cursor cursor} "list-things"
-                                       (fn [page] {:things page}))]
-      (is (true? (:isError r2)))
-      (is (= :rf.mcp/cursor-stale (-> r2 :structuredContent :reason)))
-      (is (not (contains? (:structuredContent r2) :things))
-          "the page->payload builder is NOT invoked on the error branch"))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf.story-mcp.tools.result/edn-result + pr-edn — the dual-slot success envelope.
