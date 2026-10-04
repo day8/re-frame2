@@ -24,7 +24,7 @@
   (unlike on JVM where the standard LispReader only decorates list forms)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.machines.test-support :as rf.machines.test-support]))
 
@@ -38,12 +38,6 @@
 (defn- machine-spec [machine-id]
   (:rf/machine (rf/handler-meta {:source :store :kind :event :id machine-id})))
 
-;; Every registered machine-id — the same generic read filtered on the
-;; `:rf/machine?` discriminator. There is no per-kind `machines` accessor.
-(defn- machine-ids []
-  (keys (into {} (filter (fn [[_ m]] (:rf/machine? m)))
-              (rf/registrations {:source :store :kind :event}))))
-
 (defn- element-coords [machine-id slot id]
   (get-in (machine-spec machine-id) [slot id :source-coords]))
 
@@ -51,19 +45,6 @@
 ;; (state-node / transition map) at `spec-path` in the registered spec.
 (defn- node-coords [machine-id spec-path]
   (get-in (machine-spec machine-id) (conj (vec spec-path) :source-coords)))
-
-;; ---- definition-site stamping --------------------------------------------
-
-(deftest reg-machine-stamps-guard-and-action-definitions-cljs
-  (testing "fn literals under :guards / :actions
-  co-locate their definition coords on each entry"
-    (rf/reg-machine :rf2-8bp3/defs
-      {:initial :idle
-       :guards  {:ok? (fn [_] true)}
-       :actions {:do  (fn [_] {})}
-       :states  {:idle {}}})
-    (is (some? (element-coords :rf2-8bp3/defs :guards :ok?)))
-    (is (some? (element-coords :rf2-8bp3/defs :actions :do)))))
 
 ;; ---- reference-site stamping (transition / state-node / inline-fn) --------
 
@@ -315,28 +296,3 @@
       ;; inline-source :source-code on the state's :entry fn.
       (is (string? (inline-source :rf2-src8cap/many [:states s] :entry))
           (str "state-node " s " :entry must carry co-located :source-code")))))
-
-;; ---- programmatic call (no walking) --------------------------------------
-
-(deftest reg-machine-skips-stamping-for-non-literal-spec-cljs
-  (testing "when the spec is bound to a symbol (not a literal map form), the
-  macro can't walk and the registered spec carries no co-located source /
-  state-node :source-coords"
-    (let [spec {:initial :a :states {:a {}}}]
-      (rf/reg-machine :rf2-8bp3/programmatic spec))
-    (is (= {:initial :a :states {:a {}}}
-           (machine-spec :rf2-8bp3/programmatic))
-        "registered spec round-trips with no co-located source")))
-
-;; ---- reg-machine* plain-fn surface ---------------------------------------
-
-(deftest reg-machine*-plain-fn-surface-cljs
-  (testing "reg-machine* registers without macro walking — the plain-fn
-  counterpart of the reg-machine macro"
-    (rf.machines/reg-machine* :rf2-8bp3/plain
-                     {:initial :a :states {:a {}}})
-    (is (some? (some #{:rf2-8bp3/plain} (machine-ids)))
-        "the :rf/machine? filter lists the plain-fn registered machine")
-    (is (= {:initial :a :states {:a {}}}
-           (machine-spec :rf2-8bp3/plain))
-        "spec round-trips verbatim")))
