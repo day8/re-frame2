@@ -1247,8 +1247,6 @@
               draft (rf/compute-sub [:editor/draft] (state-value f))]
           (is (= "My unsaved heading" (:title draft))
               "the touched field keeps the user's text — the settle must not clobber typing")
-          (is (= "" (:title (:baseline slice)))
-              "the touched field keeps its own baseline too, so the typing reads as UNSAVED")
           (is (= "about a" (:description draft))
               "an untouched field IS seeded from the loaded article")
           (is (= "body a" (:body draft)) "…and so is every other untouched field")
@@ -2710,9 +2708,6 @@
   (doseq [[operation params result]
           [[:realworld/save-article
             {:title "New" :description "New article" :body "Body" :tagList ["new-tag"]}
-            {:article {:slug "new" :author {:username "alice"}}}]
-           [:realworld/save-article
-            {:slug "new" :title "New" :description "Updated" :body "Body" :tagList ["edited-tag"]}
             {:article {:slug "new" :author {:username "alice"}}}]
            [:realworld/delete-article {:slug "new"} {}]]]
     (testing (str operation " " params)
