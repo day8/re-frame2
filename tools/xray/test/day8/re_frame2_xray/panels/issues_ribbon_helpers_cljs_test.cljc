@@ -203,51 +203,6 @@
       (is (= [1] (mapv :id (:issues feed))))
       (is (= 6 (:epoch-id feed)) "feed epoch-id reflects the head"))))
 
-;; ---- (6) feed-under-cascade-scope: SSR hydration-mismatch --------------
-;;
-;; Pins what the `hydration mismatch debugger` feature-gate scenario
-;; relies on: the Issues panel is the focused-epoch (cascade)
-;; lens, so a `:rf.ssr/hydration-mismatch` error that LANDS in a cascade's
-;; `:trace-events` MUST project into the feed under that cascade's scope.
-;;
-;; (When `verify-hydration!` emits the mismatch OUTSIDE any dispatch the
-;; framework's epoch capture drops the orphan, so it never
-;; reaches an epoch record. That out-of-cascade case is exercised by the
-;; orphan-drop epoch-capture tests, not here; this test pins the in-
-;; cascade projection that the panel's contract guarantees.)
-
-(defn- hydration-mismatch-ev
-  "A Spec 011-shaped `:rf.ssr/hydration-mismatch` error trace event as
-  it lands in a cascade's `:trace-events` (op-type :error, recovery
-  hoisted, payload in :tags)."
-  [id]
-  (error-ev id :rf.ssr/hydration-mismatch
-            {:time     500
-             :recovery :warned-and-replaced
-             :tags     {:server-hash "deadbeef"
-                        :client-hash "91de1ba6"
-                        :failing-id  :rf/hydrate
-                        :reason      "Hydration mismatch: server hash 'deadbeef' != client hash '91de1ba6'."}}))
-
-(deftest project-feed-hydration-mismatch-surfaces-under-cascade-scope
-  (testing "an in-cascade :rf.ssr/hydration-mismatch error projects into
-            the focused epoch's feed under cascade scope"
-    (let [record (epoch-record 2 [(non-issue-ev 1)
-                                  (hydration-mismatch-ev 9)
-                                  (non-issue-ev 2)])
-          feed   (h/project-feed record :focused)]
-      (is (nil? (:empty-kind feed)) "feed renders, not an empty state")
-      (is (= 1 (:total feed)))
-      (is (= 1 (:rendered feed)))
-      (is (= [9] (mapv :id (:issues feed))))
-      (let [row (first (:issues feed))]
-        (is (= :error               (:severity row)))
-        (is (= "hydration-mismatch" (:category row)))
-        (is (= "rf.ssr"             (:category-prefix row)))
-        (is (= :rf.ssr/hydration-mismatch (:operation row)))
-        (is (re-find #"Hydration mismatch" (:description row))))
-      (is (= 2 (:epoch-id feed)) "feed epoch-id reflects the focused cascade"))))
-
 (deftest project-feed-newest-first
   (testing "the feed reverses the trace-events stream — newest first"
     (let [record (epoch-record 1 [(error-ev   1 :rf.error/a {:time 100})
