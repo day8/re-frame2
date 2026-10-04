@@ -56,6 +56,17 @@ ns form refers, so renaming a bare head also makes the ns form bind
 A source with no ns form, such as a REPL fragment, has nothing to bind
 through and keeps the plain rename.
 
+### Reader-discarded forms
+
+A `#_` form is not code: the reader keeps nothing of it. So the codemod
+neither scans nor rewrites one, at any depth and stacked `#_ #_` included:
+findings count only the registrations the reader keeps, a file whose only
+registrations are discarded is reported unchanged, and every byte inside a
+discard survives a write. A discard inside a live registration, such as a
+`#_` middle slot or handler form, is invisible to that site's analysis too.
+There is no separate report of discarded registrations and no opt-in to
+rewrite them; remove the `#_` first to migrate one.
+
 ### Interceptor chains — the M-70 × M-73 composition
 
 v2 chains are **reference-only** (EP-0022): a chain entry is a bare keyword id
@@ -193,7 +204,8 @@ flagged as unresolved M-70 Type B, the `reg-event` invalid-survivor rescan,
 `some->` / literal `nil`), complex `-db` (var / multi-arity / destructured db
 param), alias-agnostic detection, bare-head binding (every bare call in the
 output resolves through the emitted ns form, or its site flags `:binding`),
-shape non-corruption (untouched code
+reader-discarded `#_` forms (no finding, bytes kept, filesystem counts
+unaffected), shape non-corruption (untouched code
 round-trips byte-for-byte), comment/whitespace preservation, idempotence, and the
 filesystem entry points.
 

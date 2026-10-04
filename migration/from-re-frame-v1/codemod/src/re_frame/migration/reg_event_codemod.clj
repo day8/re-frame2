@@ -110,6 +110,11 @@
       FLAGS the site (`:flag :binding`, source unchanged) whenever it cannot
       prove that binding. Decision table at `bare-rename-binding` below.
 
+  * `#_` DISCARDS are not code. The reader keeps nothing of a discarded form,
+      so it is neither scanned nor rewritten: findings count only the
+      registrations the reader keeps, and every byte inside a discard
+      survives a rewrite. There is no opt-in to rewrite discarded source.
+
   ---------------------------------------------------------------------------
   PROGRAMMATIC API (the atomic-flip slice calls these corpus-wide)
   ---------------------------------------------------------------------------
@@ -182,10 +187,11 @@
 ;; (flag) — the safe direction for D7.
 
 (defn- sig-children
-  "Non-whitespace, non-comment child nodes of a node."
+  "The child nodes of a node the reader keeps: no whitespace, no comments, no
+  `#_` discards."
   [node]
   (->> (n/children node)
-       (filter (complement n/whitespace-or-comment?))))
+       (remove #(or (n/whitespace-or-comment? %) (= :uneval (n/tag %))))))
 
 (def ^:private nil-safe-heads
   "Head symbols whose return is a guaranteed-non-nil value when given a
@@ -1561,10 +1567,19 @@
       (when (and head (= :token (z/tag head)))
         (registrar-of (try (z/sexpr head) (catch Exception _ nil)))))))
 
+(defn- past-subtree
+  "The location `z/next` reaches after the whole subtree at `zloc`, having
+  visited nothing inside it."
+  [zloc]
+  (z/next (loop [z zloc]
+            (if-let [d (z/down z)] (recur (z/rightmost d)) z))))
+
 (defn- walk
   "Walk every node of the zipper rooted at `zroot` (the value-stripping zipper
   positioned at its first form), collecting findings and — when `rewrite?` —
-  applying the codemod in place. Returns {:zip <last-zloc> :findings v
+  applying the codemod in place. A `#_` discarded subtree is skipped whole:
+  the reader keeps nothing of it, so it holds no registration to count or
+  rewrite, and its bytes come back untouched. Returns {:zip <last-zloc> :findings v
   :append-refer <head-name>|nil}, the last naming a bare head whose accepted
   rename needs `reg-event` added to the ns form (`append-reg-event-refer`)."
   [zroot {:keys [rewrite?] :as opts}]
@@ -1581,7 +1596,7 @@
                          [z* (conj! findings (:finding analysis))])
                        [zloc findings])
           append' (or append (:append-refer analysis))
-          nxt (z/next zloc')]
+          nxt (if (= :uneval (z/tag zloc')) (past-subtree zloc') (z/next zloc'))]
       (if (z/end? nxt)
         {:zip nxt :findings (persistent! fs) :append-refer append'}
         (recur nxt fs append')))))
