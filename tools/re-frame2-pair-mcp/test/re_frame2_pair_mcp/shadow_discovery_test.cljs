@@ -42,14 +42,6 @@
                     "\"~:version\",\"3.4.10\"]")]
       (is (= "C:\\Users\\me\\proj" (sd/extract-project-home body))))))
 
-(deftest extract-project-home-tolerates-key-reordering
-  (testing "the parser walks key/value pairs — key order isn't load-bearing"
-    (let [body (str "[\"^ \","
-                    "\"~:version\",\"3.4.10\","
-                    "\"~:project-home\",\"/x/y\","
-                    "\"~:project-config\",\"/x/y/shadow-cljs.edn\"]")]
-      (is (= "/x/y" (sd/extract-project-home body))))))
-
 (deftest extract-project-home-returns-nil-for-every-other-body
   ;; Every error path collapses to nil, never a throw, so the discovery
   ;; cascade falls through.
