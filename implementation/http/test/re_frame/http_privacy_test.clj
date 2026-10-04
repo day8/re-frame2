@@ -51,33 +51,32 @@
     (is (contains? rf.http.privacy-headers/default-header-denylist "x-csrf-token"))
     (is (contains? rf.http.privacy-headers/default-header-denylist "proxy-authorization"))))
 
-(deftest sensitive-header-is-case-insensitive
-  (testing "header-name match ignores case"
-    (is (rf.http.privacy-headers/sensitive-header? "Authorization"))
-    (is (rf.http.privacy-headers/sensitive-header? "AUTHORIZATION"))
-    (is (rf.http.privacy-headers/sensitive-header? "authorization"))
-    (is (rf.http.privacy-headers/sensitive-header? "Cookie"))
-    (is (rf.http.privacy-headers/sensitive-header? "X-API-Key"))))
-
-(deftest non-sensitive-headers-pass
-  (testing "ordinary headers are not in the denylist"
-    (is (not (rf.http.privacy-headers/sensitive-header? "Content-Type")))
-    (is (not (rf.http.privacy-headers/sensitive-header? "Accept")))
-    (is (not (rf.http.privacy-headers/sensitive-header? "User-Agent")))
-    (is (not (rf.http.privacy-headers/sensitive-header? "X-Request-Id")))))
+(deftest sensitive-header-matches-built-in-names-ignoring-case
+  (testing "a header name matches the built-in denylist whatever its case;
+            ordinary headers and nil / non-string names do not match"
+    (are [header-name expected]
+         (= expected (rf.http.privacy-headers/sensitive-header? header-name))
+      "Authorization" true
+      "AUTHORIZATION" true
+      "authorization" true
+      "Cookie"        true
+      "X-API-Key"     true
+      "Content-Type"  false
+      "Accept"        false
+      "User-Agent"    false
+      "X-Request-Id"  false
+      nil             false
+      :keyword        false
+      42              false)))
 
 (deftest carrier-extras-extend-header-denylist
   (testing "app-declared header carriers compose with defaults"
     (let [extras #{"x-honeycomb-team"}]
       (is (rf.http.privacy-headers/sensitive-header? "X-Honeycomb-Team" extras))
       (is (rf.http.privacy-headers/sensitive-header? "x-honeycomb-team" extras))
-      ;; defaults still apply with extras present
-      (is (rf.http.privacy-headers/sensitive-header? "Authorization" extras))
       ;; absent extras → only the built-in defaults apply
       (is (not (rf.http.privacy-headers/sensitive-header? "X-Honeycomb-Team")))
-      (is (not (rf.http.privacy-headers/sensitive-header? "X-Honeycomb-Team" nil)))
-      ;; defaults are immutable — they apply regardless of extras
-      (is (rf.http.privacy-headers/sensitive-header? "Authorization")))))
+      (is (not (rf.http.privacy-headers/sensitive-header? "X-Honeycomb-Team" nil))))))
 
 (deftest carrier-cannot-remove-a-built-in-header-default
   (testing "EP-0025 — the built-in header denylist is IMMUTABLE: an app's
@@ -109,12 +108,6 @@
         (is (= :rf/redacted (get r "Authorization")) "built-in default still redacted")
         (is (= :rf/redacted (get r "X-Honeycomb-Team")) "carrier extra also redacted (extend)")
         (is (= "json" (get r "Accept")) "an unlisted header rides verbatim")))))
-
-(deftest sensitive-header-tolerates-non-string
-  (testing "nil / non-string is not sensitive"
-    (is (not (rf.http.privacy-headers/sensitive-header? nil)))
-    (is (not (rf.http.privacy-headers/sensitive-header? :keyword)))
-    (is (not (rf.http.privacy-headers/sensitive-header? 42)))))
 
 ;; ---- 2. redact-headers ----------------------------------------------------
 
@@ -186,43 +179,46 @@
       (is (= :rf/redacted (get-in r [:headers "Authorization"])))
       (is (= "application/json" (get-in r [:headers "Content-Type"]))))))
 
-(deftest redact-request-tags-redacts-body-when-sensitive
-  (testing "body redacted when sensitive? is true"
-    (let [tags {:url "/x" :body "{user: ada}"}
-          r    (rf.http.privacy/redact-request-tags tags true)]
-      (is (= :rf/redacted (:body r))))
-    (testing "body preserved when sensitive? is false"
-      (let [tags {:url "/x" :body "regular payload"}
-            r    (rf.http.privacy/redact-request-tags tags false)]
-        (is (= "regular payload" (:body r)))))))
-
-(deftest redact-request-tags-redacts-params-when-sensitive
-  (testing "query-string params redacted when sensitive? is true"
-    (let [tags {:url "/x" :params {:token "abc123"}}
-          r    (rf.http.privacy/redact-request-tags tags true)]
-      (is (= :rf/redacted (:params r))))))
+(deftest redact-request-tags-redacts-the-payload-when-sensitive
+  (testing "a sensitive request's :body and :params become the sentinel and
+            EVERY :url query value is scrubbed; a request that is not
+            sensitive keeps its :body"
+    (are [tags sensitive? slot expected]
+         (= expected (slot (rf.http.privacy/redact-request-tags tags sensitive?)))
+      {:url "/x" :body "{user: ada}"}       true  :body   :rf/redacted
+      {:url "/x" :body "regular payload"}   false :body   "regular payload"
+      {:url "/x" :params {:token "abc123"}} true  :params :rf/redacted
+      {:url "https://api.example.com/x?user_id=42&page=2"}
+      true :url "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted")))
 
 ;; ---- 5. redact-failure ---------------------------------------------------
 
-(deftest redact-failure-redacts-response-body-when-sensitive
-  (let [f {:kind :rf.http/http-4xx :status 401 :body "{password: shhh}"}
-        r (rf.http.privacy/redact-failure f true)]
-    (is (= :rf/redacted (:body r)))))
+;; An interceptor-failure trace carries the interceptor's
+;; thrown message at :cause; it is author-controlled free text and can
+;; echo a secret the interceptor was handling. It must ride the same
+;; sensitive redaction as the response-side slots.
+(deftest redact-failure-redacts-payload-slots-only-when-sensitive
+  (testing "on a sensitive request each payload slot becomes the sentinel:
+            a 4xx :body, a decode-failure :body-text, an accept-failure
+            :detail and an interceptor's free-text :cause"
+    (are [failure slot]
+         (= :rf/redacted (slot (rf.http.privacy/redact-failure failure true)))
+      {:kind :rf.http/http-4xx :status 401 :body "{password: shhh}"}        :body
+      {:kind :rf.http/decode-failure :body-text "raw secret"}               :body-text
+      {:kind :rf.http/accept-failure :detail {:user-id 1 :pii "..."}}       :detail
+      {:kind           :rf.error/http-interceptor-failed
+       :interceptor-id :auth/check
+       :cause          "token validation failed for Bearer sk-live-abc123"} :cause))
+  (testing "on a request that is not sensitive the same slots ride verbatim"
+    (are [failure slot expected]
+         (= expected (slot (rf.http.privacy/redact-failure failure false)))
+      {:kind :rf.http/http-4xx :status 401 :body "{password: shhh}"}
+      :body "{password: shhh}"
 
-(deftest redact-failure-redacts-decode-failure-body-text
-  (let [f {:kind :rf.http/decode-failure :body-text "raw secret"}
-        r (rf.http.privacy/redact-failure f true)]
-    (is (= :rf/redacted (:body-text r)))))
-
-(deftest redact-failure-redacts-accept-failure-detail
-  (let [f {:kind :rf.http/accept-failure :detail {:user-id 1 :pii "..."}}
-        r (rf.http.privacy/redact-failure f true)]
-    (is (= :rf/redacted (:detail r)))))
-
-(deftest redact-failure-preserves-when-not-sensitive
-  (let [f {:kind :rf.http/http-4xx :status 401 :body "{password: shhh}"}
-        r (rf.http.privacy/redact-failure f false)]
-    (is (= "{password: shhh}" (:body r)))))
+      {:kind           :rf.error/http-interceptor-failed
+       :interceptor-id :auth/check
+       :cause          "interceptor :auth/check :before threw"}
+      :cause "interceptor :auth/check :before threw")))
 
 (deftest redact-failure-always-redacts-headers
   (testing "denylisted headers redacted even when not sensitive"
@@ -237,27 +233,6 @@
 (deftest redact-failure-tolerates-nil
   (is (nil? (rf.http.privacy/redact-failure nil true))))
 
-;; An interceptor-failure trace carries the interceptor's
-;; thrown message at :cause; it is author-controlled free text and can
-;; echo a secret the interceptor was handling. It must ride the same
-;; sensitive redaction as the response-side slots.
-(deftest redact-failure-redacts-string-cause-when-sensitive
-  (testing "free-text :cause (interceptor throw message) redacted when sensitive"
-    (let [f {:kind :rf.error/http-interceptor-failed
-             :interceptor-id :auth/check
-             :cause "token validation failed for Bearer sk-live-abc123"}
-          r (rf.http.privacy/redact-failure f true)]
-      (is (= :rf/redacted (:cause r))
-          "the interceptor's thrown message must not ride the trace surface verbatim"))))
-
-(deftest redact-failure-preserves-string-cause-when-not-sensitive
-  (testing "free-text :cause preserved when the request is not sensitive"
-    (let [f {:kind :rf.error/http-interceptor-failed
-             :interceptor-id :auth/check
-             :cause "interceptor :auth/check :before threw"}
-          r (rf.http.privacy/redact-failure f false)]
-      (is (= "interceptor :auth/check :before threw" (:cause r))))))
-
 (deftest redact-failure-preserves-keyword-cause-discriminator
   (testing "a keyword :cause (e.g. decode-failure's :too-many-keys) is a
             security-relevant signal, NOT secret payload — preserved even
@@ -269,31 +244,7 @@
       (is (= :rf/redacted (:body-text r))
           "the response body still redacts when sensitive"))))
 
-;; ---- 7. prepare-emit-tags / prepare-emit-failure -------------------------
-
-(deftest prepare-emit-tags-composes-correctly
-  (testing "redaction + sensitivity stamp compose"
-    (let [tags {:request-id :r/x
-                :url "/x"
-                :headers {"Authorization" "Bearer t"}
-                :failure {:kind :rf.http/http-5xx
-                          :body "secret"}}
-          r    (rf.http.privacy/prepare-emit-tags tags true)]
-      (is (= :rf/redacted (get-in r [:headers "Authorization"])))
-      (is (= :rf/redacted (get-in r [:failure :body])))
-      (is (true? (:sensitive? r))))))
-
-(deftest prepare-emit-failure-composes-correctly
-  (let [failure {:kind :rf.http/http-5xx
-                 :status 500
-                 :body "internal user data"
-                 :headers {"Set-Cookie" "id=42"}}
-        r       (rf.http.privacy/prepare-emit-failure failure true)]
-    (is (= :rf/redacted (:body r)))
-    (is (= :rf/redacted (get-in r [:headers "Set-Cookie"])))
-    (is (true? (:sensitive? r)))))
-
-;; ---- 7b. project-managed-fx-args ------------------------------------------
+;; ---- 6. project-managed-fx-args -------------------------------------------
 ;;
 ;; The fx-args projection core consults through the
 ;; `:http/project-managed-fx-args` late-bind hook — the DYNAMIC per-call
@@ -450,7 +401,7 @@
     (is (= :not-a-map (rf.http.privacy/project-managed-fx-args :not-a-map)))
     (is (nil? (rf.http.privacy/project-managed-fx-args nil)))))
 
-;; ---- 8. query-param denylist ----------------------------------------------
+;; ---- 7. query-param denylist ----------------------------------------------
 
 (deftest default-query-param-denylist-covers-canonical-set
   (testing "the default denylist contains the canonical query-string-auth surface"
@@ -464,21 +415,21 @@
     (is (contains? rf.http.url/default-query-param-denylist "signature"))
     (is (contains? rf.http.url/default-query-param-denylist "session"))))
 
-(deftest sensitive-query-param-is-case-insensitive
-  (testing "param-name match ignores case"
-    (is (rf.http.url/sensitive-query-param? "api_key"))
-    (is (rf.http.url/sensitive-query-param? "API_KEY"))
-    (is (rf.http.url/sensitive-query-param? "Api_Key"))
-    (is (rf.http.url/sensitive-query-param? "access_token"))
-    (is (rf.http.url/sensitive-query-param? "ACCESS_TOKEN"))))
-
-(deftest non-sensitive-query-params-pass
-  (testing "ordinary query params are not in the denylist"
-    (is (not (rf.http.url/sensitive-query-param? "page")))
-    (is (not (rf.http.url/sensitive-query-param? "limit")))
-    (is (not (rf.http.url/sensitive-query-param? "q")))
-    (is (not (rf.http.url/sensitive-query-param? "id")))
-    (is (not (rf.http.url/sensitive-query-param? "user_id")))))
+(deftest sensitive-query-param-matches-built-in-names-ignoring-case
+  (testing "a query-param name matches the built-in denylist whatever its
+            case; ordinary params do not match"
+    (are [param-name expected]
+         (= expected (rf.http.url/sensitive-query-param? param-name))
+      "api_key"      true
+      "API_KEY"      true
+      "Api_Key"      true
+      "access_token" true
+      "ACCESS_TOKEN" true
+      "page"         false
+      "limit"        false
+      "q"            false
+      "id"           false
+      "user_id"      false)))
 
 (deftest carrier-extras-extend-query-param-denylist
   (testing "app-declared query-param carriers (EP-0025) compose with defaults"
@@ -489,45 +440,33 @@
       (is (rf.http.url/sensitive-query-param? "api_key" extras))
       ;; absent extras → only the built-in defaults apply
       (is (not (rf.http.url/sensitive-query-param? "shop_token")))
-      (is (not (rf.http.url/sensitive-query-param? "shop_token" nil)))
-      ;; defaults are immutable — they apply regardless of extras
-      (is (rf.http.url/sensitive-query-param? "api_key")))))
+      (is (not (rf.http.url/sensitive-query-param? "shop_token" nil))))))
 
 ;; Query-param policy MAP {:include :except}: an app can SUBTRACT a
 ;; built-in default (relaxing its OWN dev-trace friction over a harmless
 ;; routing/pagination key) while still extending with :include. The effective
 ;; policy is (defaults − except) ∪ include; :include wins over :except.
 
-(deftest query-param-policy-except-subtracts-a-default
-  (testing ":except removes a built-in default for this app"
-    (let [policy {:except #{"token"}}]
-      ;; the excepted default is no longer sensitive
-      (is (not (rf.http.url/sensitive-query-param? "token" policy)))
-      (is (not (rf.http.url/sensitive-query-param? "TOKEN" policy)))
-      ;; other defaults still apply
-      (is (rf.http.url/sensitive-query-param? "api_key" policy))
-      (is (rf.http.url/sensitive-query-param? "signature" policy))
-      ;; without the policy the default still redacts (subtraction is app-local)
-      (is (rf.http.url/sensitive-query-param? "token")))))
-
-(deftest query-param-policy-include-and-except-compose
-  (testing ":include extends defaults; :except subtracts; both compose"
-    (let [policy {:include #{"shop_token"} :except #{"token"}}]
-      (is (rf.http.url/sensitive-query-param? "shop_token" policy)) ; included extension
-      (is (not (rf.http.url/sensitive-query-param? "token" policy))) ; excepted default
-      (is (rf.http.url/sensitive-query-param? "api_key" policy))     ; untouched default
-      (is (not (rf.http.url/sensitive-query-param? "page" policy)))))) ; never sensitive
-
-(deftest query-param-policy-include-wins-over-except
-  (testing "a name in BOTH :include and :except stays sensitive"
-    (let [policy {:include #{"token"} :except #{"token"}}]
-      (is (rf.http.url/sensitive-query-param? "token" policy)
-          "declaring a name sensitive is never undone by also excepting it"))))
-
-(deftest query-param-policy-empty-map-is-defaults-only
-  (testing "an empty policy map behaves like defaults-only"
-    (is (rf.http.url/sensitive-query-param? "api_key" {}))
-    (is (not (rf.http.url/sensitive-query-param? "page" {})))))
+(deftest query-param-policy-is-defaults-minus-except-plus-include
+  (testing ":except removes a built-in default for this app only (without the
+            policy the default still matches), :include extends the
+            defaults, a name in BOTH stays sensitive (declaring a name
+            sensitive is never undone by also excepting it), and an empty
+            policy map is defaults-only"
+    (are [policy param-name expected]
+         (= expected (rf.http.url/sensitive-query-param? param-name policy))
+      {:except #{"token"}}                          "token"      false
+      {:except #{"token"}}                          "TOKEN"      false
+      {:except #{"token"}}                          "api_key"    true
+      {:except #{"token"}}                          "signature"  true
+      nil                                           "token"      true
+      {:include #{"shop_token"} :except #{"token"}} "shop_token" true
+      {:include #{"shop_token"} :except #{"token"}} "token"      false
+      {:include #{"shop_token"} :except #{"token"}} "api_key"    true
+      {:include #{"shop_token"} :except #{"token"}} "page"       false
+      {:include #{"token"} :except #{"token"}}      "token"      true
+      {}                                            "api_key"    true
+      {}                                            "page"       false)))
 
 (deftest redact-url-policy-except-leaves-default-param-visible
   (testing "end-to-end: :except keeps a default param's value
@@ -546,7 +485,7 @@
                       true policy)]
         (is (= "https://api.example.com/list?token=:rf/redacted&page=:rf/redacted" url))))))
 
-;; ---- 9. redact-url-query-string -------------------------------------------
+;; ---- 8. redact-url-query-string -------------------------------------------
 
 (deftest redact-url-denylist-replaces-sensitive-values
   (testing "denylisted query-param values become :rf/redacted; non-denylisted preserved"
@@ -565,19 +504,17 @@
              url))
       (is (true? any?)))))
 
-(deftest redact-url-no-query-string-unchanged
-  (testing "URL with no query string returns unchanged"
-    (let [[url any?] (rf.http.url/redact-url-query-string
-                       "https://api.example.com/users/42" false)]
-      (is (= "https://api.example.com/users/42" url))
-      (is (false? any?)))))
-
-(deftest redact-url-no-denylist-hit-unchanged
-  (testing "URL with no denylisted params returns unchanged when not sensitive"
-    (let [[url any?] (rf.http.url/redact-url-query-string
-                       "https://api.example.com/users?page=2&limit=10" false)]
-      (is (= "https://api.example.com/users?page=2&limit=10" url))
-      (is (false? any?)))))
+(deftest redact-url-with-nothing-to-redact-is-unchanged
+  (testing "with nothing to redact — no query string, no denylisted name, a
+            fragment but no query, a bare `?`, or a nil / non-string value —
+            the URL comes back unchanged and the any-redacted? flag is false"
+    (are [url] (= [url false] (rf.http.url/redact-url-query-string url false))
+      "https://api.example.com/users/42"
+      "https://api.example.com/users?page=2&limit=10"
+      "https://api.example.com/x#section-3"
+      "https://api.example.com/x?"
+      nil
+      42)))
 
 (deftest redact-url-handles-url-encoded-values
   (testing "URL-encoded special chars in values are replaced wholesale, not parsed"
@@ -593,21 +530,6 @@
              url))
       (is (true? any?)))))
 
-(deftest redact-url-carrier-extras-denylist
-  (testing "app-declared query-param carriers (EP-0025) apply on URL redaction"
-    (let [extras #{"shop_token"}
-          [url _] (rf.http.url/redact-url-query-string
-                    "https://api.example.com/x?shop_token=abc&page=2" false extras)]
-      (is (= "https://api.example.com/x?shop_token=:rf/redacted&page=2" url)))
-    ;; absent extras → only the built-in defaults redact
-    (let [[url _] (rf.http.url/redact-url-query-string
-                    "https://api.example.com/x?shop_token=abc&page=2" false)]
-      (is (= "https://api.example.com/x?shop_token=abc&page=2" url)))))
-
-(deftest redact-url-tolerates-non-string
-  (is (= [nil false] (rf.http.url/redact-url-query-string nil false)))
-  (is (= [42 false] (rf.http.url/redact-url-query-string 42 false))))
-
 (deftest redact-url-handles-malformed-pair
   (testing "param without `=` is not crashed on"
     (let [[url _] (rf.http.url/redact-url-query-string
@@ -615,26 +537,13 @@
       ;; The orphan is not in the denylist and is preserved; api_key is redacted.
       (is (= "https://api.example.com/x?orphan&api_key=:rf/redacted" url)))))
 
-;; ---- 9b. redact-url-query-string — parser edge cases ----------------------
+;; ---- 8b. redact-url-query-string — parser edge cases ----------------------
 ;;
-;; Hand-written split/walk parser territory: fragment-only URLs (no
-;; query), empty `?`-only query string, fragments alongside denylisted
-;; params, and sensitive-true with a fragment present. These cases are
+;; Hand-written split/walk parser territory: a denylisted param with an empty
+;; value, and fragments beside a query, with sensitive-true and with `=` / `&`
+;; inside the fragment. Fragment-only and bare-`?` URLs are rows of
+;; `redact-url-with-nothing-to-redact-is-unchanged`. These cases are
 ;; precisely where coverage matters most for a hand-rolled splitter.
-
-(deftest redact-url-fragment-only-no-query
-  (testing "URL with a fragment but no query string is returned unchanged"
-    (let [[url any?] (rf.http.url/redact-url-query-string
-                       "https://api.example.com/x#section-3" false)]
-      (is (= "https://api.example.com/x#section-3" url))
-      (is (false? any?)))))
-
-(deftest redact-url-empty-query-string
-  (testing "URL with `?` but no params is returned unchanged"
-    (let [[url any?] (rf.http.url/redact-url-query-string
-                       "https://api.example.com/x?" false)]
-      (is (= "https://api.example.com/x?" url))
-      (is (false? any?)))))
 
 (deftest redact-url-empty-value-denylisted-param
   (testing "denylisted param with empty value still has value slot replaced"
@@ -659,15 +568,32 @@
                     "https://api.example.com/x?token=abc#k=v&also=x" false)]
       (is (= "https://api.example.com/x?token=:rf/redacted#k=v&also=x" url)))))
 
-;; ---- 10. redact-request-tags integrates URL redaction --------------------
+;; ---- 9. prepare-emit-tags / prepare-emit-failure --------------------------
+;;
+;; The composers redact and stamp `:sensitive?` together; a denylisted
+;; query-param name alone (no per-call `:sensitive?`) is enough to stamp.
 
-(deftest redact-request-tags-redacts-all-params-when-sensitive
-  (testing "URL gets ALL params redacted when sensitive? is true"
-    (let [tags {:url "https://api.example.com/x?user_id=42&page=2"}
-          r    (rf.http.privacy/redact-request-tags tags true)]
-      (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted" (:url r))))))
+(deftest prepare-emit-tags-composes-correctly
+  (testing "redaction + sensitivity stamp compose"
+    (let [tags {:request-id :r/x
+                :url "/x"
+                :headers {"Authorization" "Bearer t"}
+                :failure {:kind :rf.http/http-5xx
+                          :body "secret"}}
+          r    (rf.http.privacy/prepare-emit-tags tags true)]
+      (is (= :rf/redacted (get-in r [:headers "Authorization"])))
+      (is (= :rf/redacted (get-in r [:failure :body])))
+      (is (true? (:sensitive? r))))))
 
-;; ---- 12. prepare-emit-* stamps :sensitive? on denylist-only hit ----------
+(deftest prepare-emit-failure-composes-correctly
+  (let [failure {:kind :rf.http/http-5xx
+                 :status 500
+                 :body "internal user data"
+                 :headers {"Set-Cookie" "id=42"}}
+        r       (rf.http.privacy/prepare-emit-failure failure true)]
+    (is (= :rf/redacted (:body r)))
+    (is (= :rf/redacted (get-in r [:headers "Set-Cookie"])))
+    (is (true? (:sensitive? r)))))
 
 (deftest prepare-emit-tags-stamps-sensitive-on-denylist-hit
   (testing "denylisted query-param alone (no per-call :sensitive?) stamps :sensitive?"
