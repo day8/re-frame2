@@ -18,8 +18,10 @@
     orient {}                -> targets the resolved build, not :app
     read-dom {selector ...}  -> targets the resolved build, not :app
 
-  These tests prove the build STICKS across the `invoke` boundary so the
-  follow-up no-`build` calls target the resolved build."
+  The plain discover-then-call case is pinned by `build_id_cache_test`'s
+  `port-discover-no-pre-probe-sticks-through-invoke`; this suite pins
+  what rides on top of it — a later explicit `:build` re-sticking the
+  default, and a typed suffix sticking as the canonical id."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
@@ -45,90 +47,6 @@
            :build-alias {} :socket #js {} :closed? false)
     conn))
 
-(defn- captured-build-from-second-call
-  "Drive `discover-app` with `discover-args`, then a no-`build` `get-path`
-  through `tools/invoke` on the SAME conn. Returns a Promise of the
-  build-id the second call's body resolved via `wire/arg-build`. The
-  build that should stick is `running-build` (the one running in the
-  workspace). All round-trips are stubbed so the test is hermetic:
-
-    - `probe/running-builds`      → [running-build] (canonicalize-build-step
-                                     maps the sticky default to itself).
-    - `probe/resolve-build-by-port` → running-build (the :port resolver).
-    - `nrepl/cljs-eval-value`     → healthy-health (discover-app's probe +
-                                     health read; the freshness JVM-half
-                                     uses jvm-eval, stubbed to nil below).
-    - `nrepl/jvm-eval`            → blank (freshness degrades to :unknown,
-                                     harmless here)."
-  [discover-args running-build]
-  (let [conn          (fresh-conn)
-        captured      (atom :NOT-CALLED)
-        orig-running  probe/running-builds
-        orig-port     probe/resolve-build-by-port
-        orig-eval     nrepl/cljs-eval-value
-        orig-jvm      nrepl/jvm-eval
-        orig-get-path get-path/get-path-tool
-        eval-stub     (fn ([_c _b _f] (js/Promise.resolve healthy-health))
-                        ([_c _b _f _o] (js/Promise.resolve healthy-health)))
-        jvm-stub      (fn [& _] (js/Promise.resolve {:value ""}))]
-    ;; Pre-probe so runtime-preloaded? short-circuits without a round-trip.
-    (swap! conn update :probed-builds conj running-build)
-    (set! probe/running-builds (fn [_] (js/Promise.resolve [running-build])))
-    (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve running-build)))
-    (set! nrepl/cljs-eval-value eval-stub)
-    (set! nrepl/jvm-eval jvm-stub)
-    ;; The probe of the second call: capture what build the no-`build`
-    ;; get-path resolved. (get-path's real body reads wire/arg-build conn
-    ;; raw-args — we read it the same way the body would.)
-    (set! get-path/get-path-tool
-          (fn [c args]
-            (reset! captured (wire/arg-build c args))
-            (js/Promise.resolve
-              #js {:content #js [#js {:type "text" :text "{:ok? true}"}]})))
-    (-> (discover-app/discover-app conn discover-args)
-        (.then (fn [_disc]
-                 ;; second tool call: NO build arg, through the invoke egress.
-                 (tools/invoke conn "get-path" (tu/args->js {:path "[:k]"}) nil)))
-        (.then (fn [_] @captured))
-        (.finally (fn []
-                    (set! probe/running-builds orig-running)
-                    (set! probe/resolve-build-by-port orig-port)
-                    (tu/restore-eval! eval-stub orig-eval)
-                    (tu/restore-jvm-eval! jvm-stub orig-jvm)
-                    (set! get-path/get-path-tool orig-get-path))))))
-
-;; ---------------------------------------------------------------------------
-;; Case 1 — multi-build, :port. discover-app {port 8033} then a
-;; no-build call lands on the resolved build, NOT :app.
-;; ---------------------------------------------------------------------------
-
-(deftest port-discover-sticks-build-through-invoke
-  (async done
-    (-> (captured-build-from-second-call
-          (tu/args->js {:port 8033}) :examples/machine-epochs)
-        (.then
-          (fn [resolved]
-            (is (= :examples/machine-epochs resolved)
-                "post-discover-app{port}, a no-build tool call THROUGH invoke targets the resolved build")
-            (is (not= :app resolved)
-                "it must NOT fall back to the :app env default")
-            (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Case 2 — multi-build, explicit. discover-app {build ...} then a
-;; no-build call lands on the resolved build, NOT :app.
-;; ---------------------------------------------------------------------------
-
-(deftest explicit-discover-sticks-build-through-invoke
-  (async done
-    (-> (captured-build-from-second-call
-          (tu/args->js {:build "examples/machine-epochs"}) :examples/machine-epochs)
-        (.then
-          (fn [resolved]
-            (is (= :examples/machine-epochs resolved)
-                "post-discover-app{build}, a no-build tool call THROUGH invoke targets the resolved build")
-            (is (not= :app resolved))
-            (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A later EXPLICIT :build overrides AND updates the sticky default,
