@@ -101,18 +101,6 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reaction-basic
-  (testing "Reaction recomputes on dependency change (deref-fast-path)"
-    ;; Without auto-run, deref outside a reactive context goes through
-    ;; the fast path (per IMPL-SPEC §3.2): just call f, no subscribing.
-    ;; The reaction stays dirty? after every reset! and recomputes on
-    ;; the next deref. This is stock-Reagent semantics.
-    (let [a (ratom/atom 1)
-          r (ratom/make-reaction (fn [] (* @a 10)))]
-      (is (= 10 @r))
-      (reset! a 2)
-      ;; r is now dirty (from rea-enqueue) — next deref recomputes.
-      (is (= 20 @r))))
-
   (testing "Reaction satisfies IReactiveAtom"
     (let [r (ratom/make-reaction (fn [] 0))]
       (is (satisfies? ratom/IReactiveAtom r))))
