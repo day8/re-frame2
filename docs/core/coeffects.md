@@ -220,6 +220,54 @@ A new todo needs an id. An id ends up in app-db, so like the clock it can't come
 3. **A recordable coeffect**, only for values internal to event processing that the
    dispatch site shouldn't know about.
 
+### When the number of ids depends on state
+
+Sometimes one event needs a fresh id for each of several items, and only state knows
+how many. Duplicating a list is the usual case: the copy needs one new id per row, and
+events still waiting in the queue can add, remove or replace rows before this one
+runs. If the ids only need to be unique within app-db, derive them from state as
+above. If they must be unique beyond it, because a server or another device sees
+them, record one fresh id and derive the rest from it:
+
+```clojure
+(rf/reg-cofx :list/copy-id
+  {:doc         "A fresh id for one list copy. The handler derives each row id from it."
+   :recordable? true
+   :schema      :uuid}
+  (fn [] (random-uuid)))
+
+(rf/reg-event :list/duplicate
+  {:rf.cofx/requires [:list/copy-id]}
+  (fn [{:keys [db list/copy-id]} [_ {:keys [list-id]}]]
+    (let [rows (get-in db [:lists list-id :rows])]   ;; the rows as this event finds them
+      {:db (assoc-in db [:lists copy-id]
+                     {:rows (into [] (map-indexed (fn [i row] (assoc row :id [copy-id i])))
+                                  rows)})})))
+```
+
+The handler counts the rows in the `db` it receives, which already reflects every
+earlier event, so the copy matches the list at this event's place in the queue and
+lands in a single step. One fact is recorded however many rows there are. Replay
+supplies the same `copy-id`, so the handler derives the same row ids without
+generating anything, and a test pins every id by supplying
+`{:rf.cofx {:list/copy-id #uuid "…"}}`.
+
+Record the id itself, not a seed for a random generator: a generator's output can
+differ between hosts and versions, while `[copy-id i]` is plain data. If the row ids
+must be UUIDs, derive them with a function that gives the same result on the JVM and
+in JavaScript, which rules out `hash`.
+
+The tempting alternatives each break something:
+
+- **Ids minted at the dispatch site** are counted when the event is queued, so an
+  earlier queued edit leaves too few or too many.
+- **Rows put in the event** are copied as they were when it was queued, not as they
+  are when it runs.
+- **A second event that does the copy** runs behind every event already waiting.
+- **A fixed batch of ids, or one per entity,** records facts this event never uses.
+- **Ids minted in an interceptor or the handler body** are not on the recorded event,
+  so replay mints different ones.
+
 ## The ledger
 
 App-db is the result of applying every event since the frame started, in order, like
