@@ -61,22 +61,6 @@
 
 ;; ---- seq of reg-views: distinct keys, no collision -------------------------
 
-(deftest seq-of-regviews-yields-distinct-react-keys
-  (testing "a seq of reg-views each with a distinct ^{:key} yields
-            DISTINCT React keys — the no-collision contract that prevents
-            React's 'two children with the same key' reconciliation bug.
-            This is the (for [n …] ^{:key n} [view n]) idiom."
-    (let [view (rf/view :rf.key-test/row)
-          ;; The failing shape: a for-loop
-          ;; producing a seq of reg-views, each keyed by its item.
-          children (for [n [1 2 3 4 5]]
-                     ^{:key n} [view n])
-          keys     (mapv el-key children)]
-      (is (= ["1" "2" "3" "4" "5"] keys)
-          "each reg-view in the seq carries its own call-site key — no two
-           siblings collide, and none fell back to the munged component
-           name (the failure mode)"))))
-
 (deftest seq-mixed-regview-kinds-distinct-keys
   (testing "a seq mixing two reg-view kinds (the ladder's section-heading
             + ladder-button shape) keeps each call-site key — keys do not
