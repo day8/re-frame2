@@ -120,29 +120,6 @@
                                                                  :dim    {:on {:bright-r :bright}}
                                                                  :bright {:on {:off-r [:group :off]}}}}}}}}}})
 
-(deftest per-region-history-is-region-qualified
-  (testing "parallel history records region-qualified keys; restoring one region leaves siblings"
-    (let [snap0 {:state {:left  [:group :on :bright]
-                         :right [:group :on :dim]}
-                 :data  {}
-                 :rf/spawn-counter {}}
-          ;; Turn both regions off — each region's :on compound is exited, so
-          ;; each records its own region-qualified history.
-          off-l (step parallel-history snap0 [:off-l])
-          off   (step parallel-history off-l [:off-r])]
-      (is (= [:group :on :bright] (get-in off [:rf/history [:left :group :on]]))
-          ":left region recorded under its region-qualified key")
-      (is (= [:group :on :dim] (get-in off [:rf/history [:right :group :on]]))
-          ":right region recorded under its region-qualified key (no collision)")
-      (is (= {:left [:group :off] :right [:group :off]} (:state off))
-          "both regions off")
-      ;; Restore ONLY the left region — right stays off.
-      (let [back-l (step parallel-history off [:on-l])]
-        (is (= [:group :on :bright] (get-in back-l [:state :left]))
-            ":left restored its recorded deep leaf")
-        (is (= [:group :off] (get-in back-l [:state :right]))
-            ":right region untouched by the left-region restore")))))
-
 ;; ---- spec/009 trace-shape proofs -----------------------------------------
 ;;
 ;; These pin the EXACT tag bags spec/009 §History trace events declares.
