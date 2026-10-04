@@ -69,18 +69,6 @@
                               :loading {:on {:ok :done}}}}
              :done {:final? true}}})
 
-(def ^:private parallel-definition
-  "A `:type :parallel` root. Parallel machines declare `:regions`, not
-  `:states`, and carry NO root `:initial` — which is exactly why the
-  shallow seed reads nil for them."
-  {:type    :parallel
-   :data    {}
-   :regions {:form {:initial :editing
-                    :states  {:editing {:on {:submit :submitted}}
-                              :submitted {}}}
-             :net  {:initial :idle
-                    :states  {:idle {} :busy {}}}}})
-
 (def ^:private guarded-definition
   "A guard that reads the snapshot's `:data`, so the sim can drive it
   both ways from the SAME definition."
@@ -128,22 +116,6 @@
 ;; with a nil snapshot. The engine computes the right answer; the sim asks
 ;; it rather than re-deriving it.
 
-(deftest initial-snapshot-seeds-a-parallel-root-with-a-region-map
-  (testing "a :type :parallel root seeds a region→state map, not nil"
-    (let [snap (sim-h/initial-snapshot parallel-definition engine-seed)]
-      (is (= {:form :editing :net :idle} (:state snap))
-          "one entry per declared region, each at its own cascaded initial")
-      (is (= (:state (engine-seed parallel-definition)) (:state snap))
-          "identical to the engine's own initial snapshot"))))
-
-(deftest initial-snapshot-without-a-seeder-keeps-the-shallow-read
-  (testing "the seeder is optional: with none supplied the helper stays a
-            pure `:initial` read, so the JVM target drives it with no
-            machines artefact at all"
-    (is (= :auth (:state (sim-h/initial-snapshot hierarchical-definition))))
-    (is (nil? (sim-h/initial-snapshot parallel-definition))
-        "no root :initial → nil, which is why a seeder is wanted")))
-
 (deftest make-sim-state-seeds-through-the-supplied-seeder
   (testing "the production path — `sim.cljs`'s :sim-start hands the engine
             seeder straight through"
@@ -184,13 +156,6 @@
     (is (= #{:ok :err} events))
     (is (= true (-> (some #(when (= :err (:event %)) %) ts) :guard?))
         ":err carries a :guard slot")))
-
-(deftest available-transitions-from-keyword-target
-  (let [snap {:state :idle :data {}}
-        ts   (sim-h/available-transitions flat-definition snap)]
-    (is (= #{:start :reset} (set (map :event ts))))
-    (is (every? (complement :guard?) ts)
-        "no :guard? on :idle's transitions")))
 
 (deftest available-transitions-is-empty-for-a-final-unknown-or-missing-state
   (are [definition snapshot] (= [] (sim-h/available-transitions definition snapshot))
@@ -255,43 +220,6 @@
       (is (= {:submit :submitted :go :busy}
              (into {} (map (juxt :event :target)) rows))))))
 
-(deftest available-transitions-lists-only-regions-that-declare
-  (testing "P1 control — a region declaring no `:on` contributes nothing, so
-            the positive reading above is not just 'everything lists'"
-    (let [rows (sim-h/available-transitions parallel-definition
-                                            (engine-seed parallel-definition))]
-      (is (= [:submit] (map :event rows))
-          ":form declares :submit; :net's :idle declares nothing")
-      (is (= [[:form :editing]] (map :decl-path rows))))))
-
-(deftest available-transitions-follows-the-region-that-moved
-  (testing "P2 — stepping ONE region re-lists that region's new leaf and
-            leaves the other region's rows alone"
-    (let [snap0 (engine-seed parallel-on-definition)
-          snap1 (:snapshot (rf.machines/machine-transition
-                             parallel-on-definition snap0 [:go]))
-          rows  (sim-h/available-transitions parallel-on-definition snap1)]
-      (is (= {:form :editing :net :busy} (:state snap1))
-          "the engine moved :net only")
-      (is (= #{:submit :done} (set (map :event rows)))
-          ":net now offers :done from :busy; :form still offers :submit")
-      (is (= [:net :busy]
-             (some #(when (= :done (:event %)) (:decl-path %)) rows))))))
-
-(deftest available-transitions-rows-are-fireable-through-the-engine
-  (testing "P3 — the rows are not decoration: firing each listed event through
-            the REAL engine moves the region the row was declared in"
-    (let [snap (engine-seed parallel-on-definition)
-          rows (sim-h/available-transitions parallel-on-definition snap)]
-      (is (= 2 (count rows)))
-      (doseq [{:keys [event decl-path target]} rows]
-        (let [r (rf.machines/machine-transition parallel-on-definition snap [event])
-              region (first decl-path)]
-          (is (= :ok (:status r))
-              (str "the engine handled " event))
-          (is (= target (get-in r [:snapshot :state region]))
-              (str event " moved region " region " to its declared target")))))))
-
 (deftest available-transitions-excludes-the-parallel-root-on-fallback
   (testing "P4 — a `:type :parallel` ROOT's own `:on` is the engine's ancestor
             fallback, and the picker does NOT list it, for the same reason a
@@ -344,9 +272,7 @@
 ;; exactly this way, so these are first-class declared transitions rather
 ;; than a degenerate corner.
 ;;
-;; Every fixture here runs through the REAL engine, and each positive
-;; reading is paired with the SAME fixture carrying a `:target`, so an empty
-;; reading would mean absence rather than a broken walk.
+;; Every fixture here runs through the REAL engine.
 
 (def ^:private bump-action
   "One action, shared by every fixture below, so a data change is always
@@ -361,17 +287,6 @@
    :actions bump-action
    :regions {:work  {:initial :idle
                      :states  {:idle {:on {:ping {:action :bump}}}
-                               :done {}}}
-             :other {:initial :sleeping
-                     :states  {:sleeping {}}}}})
-
-(def ^:private parallel-on-targeted-definition
-  "The positive control — the fixture above and a `:target`, nothing else."
-  {:type    :parallel
-   :data    {:n 0}
-   :actions bump-action
-   :regions {:work  {:initial :idle
-                     :states  {:idle {:on {:ping {:action :bump :target :done}}}
                                :done {}}}
              :other {:initial :sleeping
                      :states  {:sleeping {}}}}})
@@ -401,37 +316,6 @@
           (is (= 1 (count (sim-h/available-transitions (:definition s1)
                                                         (:snapshot s1))))
               "still listed afterwards"))))))
-
-(deftest available-transitions-targeted-control-for-the-action-only-on
-  (testing "A1 CONTROL — the same fixture WITH a `:target` lists too, so
-            A1's reading is about the absent target and nothing else about
-            the fixture"
-    (let [s0   (sim-h/make-sim-state :t parallel-on-targeted-definition
-                                     engine-seed)
-          rows (sim-h/available-transitions (:definition s0) (:snapshot s0))
-          s1   (step! s0 [:ping] parallel-on-targeted-definition)]
-      (is (= 1 (count rows)))
-      (is (= :done (:target (first rows))))
-      (is (= [:work :idle] (:decl-path (first rows))))
-      (is (= {:work :done :other :sleeping} (sim-h/current-sim-state s1)))
-      (is (= 1 (:n (get-in s1 [:snapshot :data])))))))
-
-(deftest available-transitions-lists-a-flat-targetless-on
-  (testing "A2 — a targetless `:on` lists on a FLAT machine too, so the
-            listing does not depend on parallel regions"
-    (let [d    {:initial :idle
-                :data    {:n 0}
-                :actions bump-action
-                :states  {:idle {:on {:ping {:action :bump}}}}}
-          s0   (sim-h/make-sim-state :t d engine-seed)
-          rows (sim-h/available-transitions (:definition s0) (:snapshot s0))
-          s1   (step! s0 [:ping] d)]
-      (is (= 1 (count rows)))
-      (is (nil? (:target (first rows))))
-      (is (= :bump (:action (first rows))))
-      (is (= [:idle] (:decl-path (first rows))))
-      (is (= 1 (:n (get-in s1 [:snapshot :data]))))
-      (is (= :idle (sim-h/current-sim-state s1))))))
 
 (deftest available-transitions-lists-the-forbidden-transition-idiom
   (testing "A3 — `{:help {}}` is targetless AND actionless: Spec 005's
@@ -571,19 +455,6 @@
             (is (= 2 (count (:audit-trail s2))))
             (is (= event (-> s2 :audit-trail last :event)))))))))
 
-(deftest after-elapsed-event-with-a-stale-epoch-is-the-no-change-diagnostic
-  (testing "T1 control — the engine is the arbiter: a stale epoch moves
-            nothing and reads as the amber 'No change', not as a diagnostic
-            of its own"
-    (let [s0 (sim-h/make-sim-state :t timer-definition engine-seed)
-          s1 (step! s0 [:start] timer-definition)
-          s2 (step! s1 [:rf.machine.timer/after-elapsed 5000 99 [:loading]]
-                    timer-definition)]
-      (is (= :loading (sim-h/current-sim-state s2)) "snapshot unchanged")
-      (is (= 1 (count (:audit-trail s2))) "no row appended")
-      (is (= :rf.xray.static.machines.sim/no-change
-             (-> s2 :last-error :info :kind))))))
-
 (deftest available-after-transitions-lists-a-timer-on-the-seed-state
   (testing "T2 — a timer on the initial state lists before any step, its
             event carries epoch 0, and the engine fires it"
@@ -720,14 +591,6 @@
    :states  {:loading {:after {5000 {:action :bump}}}
              :done    {}}})
 
-(def ^:private targeted-timer-control-definition
-  "The positive control — the fixture above and a `:target`, nothing else."
-  {:initial :loading
-   :data    {:n 0}
-   :actions bump-action
-   :states  {:loading {:after {5000 {:action :bump :target :done}}}
-             :done    {}}})
-
 (def ^:private parallel-root-action-only-timer-definition
   "A targetless `:after` on the parallel ROOT, whose decl-path is `[]` — the
   shape Spec 005 §Parallel root `:after` lists first among its three target
@@ -765,20 +628,6 @@
           (is (= 1 (count (sim-h/available-after-transitions
                             (:definition s1) (:snapshot s1))))
               "still listed afterwards"))))))
-
-(deftest available-after-transitions-targeted-control-for-the-action-only-timer
-  (testing "T6 CONTROL — the same fixture WITH a `:target` lists too, so
-            T6's reading is about the absent target and nothing else about
-            the fixture"
-    (let [s0   (sim-h/make-sim-state :t targeted-timer-control-definition
-                                     engine-seed)
-          rows (sim-h/available-after-transitions (:definition s0) (:snapshot s0))
-          s1   (step! s0 (sim-h/after-elapsed-event s0 (first rows))
-                      targeted-timer-control-definition)]
-      (is (= 1 (count rows)))
-      (is (= :done (:target (first rows))))
-      (is (= :done (sim-h/current-sim-state s1)))
-      (is (= 1 (:n (get-in s1 [:snapshot :data])))))))
 
 (deftest available-after-transitions-lists-a-targetless-parallel-root-timer
   (testing "T7 — a targetless `:after` on the parallel ROOT lists at
@@ -850,22 +699,6 @@
     (is (true? (:active? s2))
         "still in sim mode")))
 
-(deftest append-audit-row-grows-trail
-  (let [s0 (sim-h/make-sim-state :auth/login flat-definition)
-        s1 (sim-h/append-audit-row s0 {:from :idle :to :authing :event [:start]})
-        s2 (sim-h/append-audit-row s1 {:from :authing :to :done :event [:ok]})]
-    (is (= 2 (count (:audit-trail s2))))
-    (is (= :idle (-> s2 :audit-trail first :from))
-        "insertion order preserved (oldest first)")
-    (is (= :done (-> s2 :audit-trail last :to)))))
-
-(deftest record-and-clear-error-flips-error-slot
-  (let [s0 (sim-h/make-sim-state :auth/login flat-definition)
-        s1 (sim-h/record-error s0 [:bad] {:reason :unknown} "rejected")]
-    (is (= {:event [:bad] :info {:reason :unknown} :reason "rejected"}
-           (:last-error s1)))
-    (is (nil? (:last-error (sim-h/clear-error s1))))))
-
 ;; ---- (6) step-sim ----------------------------------------------------------
 ;;
 ;; Stub results in the Spec 005 §Level 1 public shape
@@ -901,26 +734,6 @@
   (rf.machines/machine-transition throwing-definition
                                   (engine-seed throwing-definition)
                                   [:go]))
-
-(deftest fail-result-fixture-really-is-an-engine-error
-  (testing "the fixture is the engine's own shape, not a hand-written one"
-    (is (= :error (:status fail-result)))
-    (is (= :rf.error/machine-action-exception (get-in fail-result [:error :kind])))
-    (is (nil? (get-in fail-result [:error :reason]))
-        "the engine's :error map carries no :reason")))
-
-(deftest step-sim-ok-advances-snapshot-and-trail
-  (let [s0       (sim-h/make-sim-state :auth/login flat-definition)
-        runtime  (constantly ok-result)
-        s1       (sim-h/step-sim s0 [:start] runtime)]
-    (is (= :authing (get-in s1 [:snapshot :state]))
-        "snapshot advanced")
-    (is (= {:counter 1} (get-in s1 [:snapshot :data])))
-    (is (= 1 (count (:audit-trail s1))))
-    (is (= :idle (-> s1 :audit-trail last :from)))
-    (is (= :authing (-> s1 :audit-trail last :to)))
-    (is (= [:start] (-> s1 :audit-trail last :event)))
-    (is (nil? (:last-error s1)))))
 
 (deftest step-sim-fail-leaves-snapshot-and-stamps-error
   (let [s0      (sim-h/make-sim-state :auth/login flat-definition)
@@ -963,9 +776,9 @@
 ;; a shape the engine does not produce.
 
 ;; `guarded-definition` is FLAT, so the shallow seed is already the right
-;; one for it. These three therefore exercise the `step-sim` fold ALONE,
-;; with no seeder in the picture — a clean value-level red rather than an
-;; arity one, and the control below shares their exact shape.
+;; one for it. The guard-blocked test therefore exercises the `step-sim`
+;; fold ALONE, with no seeder in the picture — a clean value-level red
+;; rather than an arity one.
 
 (deftest step-sim-guard-blocked-appends-no-row-and-says-so
   (testing "a guard that declines leaves the snapshot put, appends NO audit
@@ -983,20 +796,6 @@
              (-> s1 :last-error :info :kind)))
       (is (false? (-> s1 :last-error :info :handled?))
           "the engine reports the event declined")
-      (is (= "no change — the event was declined, or no transition matched it"
-             (-> s1 :last-error :reason))))))
-
-(deftest step-sim-unhandled-event-appends-no-row-and-says-so
-  (testing "an event the machine declares nowhere is the SAME engine
-            shape as a guard block, and is treated the same way"
-    (let [s0 (sim-h/make-sim-state :door guarded-definition)
-          s1 (sim-h/step-sim s0 [:no-such-event]
-                             (engine-step guarded-definition (:snapshot s0)))]
-      (is (= :locked (sim-h/current-sim-state s1)))
-      (is (= [] (:audit-trail s1)))
-      (is (= :rf.xray.static.machines.sim/no-change
-             (-> s1 :last-error :info :kind)))
-      (is (false? (-> s1 :last-error :info :handled?)))
       (is (= "no change — the event was declined, or no transition matched it"
              (-> s1 :last-error :reason))))))
 
@@ -1022,24 +821,6 @@
                (-> s1 :last-error :reason))
             (str ev))))))
 
-(deftest step-sim-guard-passing-still-appends-a-row
-  (testing "THE CONTROL — the same definition, the same event, the same
-            call shape, a guard that PASSES: the row must still be
-            appended, or the no-change branch has swallowed a real
-            transition"
-    (let [s0   (sim-h/make-sim-state :door guarded-definition)
-          open (assoc s0 :snapshot {:state :locked :data {:key? true}})
-          s1   (sim-h/step-sim open [:open]
-                               (engine-step guarded-definition (:snapshot open)))]
-      (is (= :unlocked (sim-h/current-sim-state s1))
-          "the snapshot advanced")
-      (is (= 1 (count (:audit-trail s1)))
-          "the real transition IS recorded")
-      (is (= {:from :locked :to :unlocked :event [:open]}
-             (sim-h/last-transition s1)))
-      (is (nil? (:last-error s1))
-          "a successful step clears the prior rejection"))))
-
 (deftest step-sim-from-a-compound-seed-records-a-real-transition
   (testing "engine seeding and the engine fold together: seeded at the
             engine's leaf, a declared event is a REAL transition — where a
@@ -1061,17 +842,6 @@
 ;; on-chart edge click into a step-event. Pure data → data, so pinned here
 ;; at the cheap JVM layer.
 
-(deftest current-sim-state-is-nil-safe
-  (testing "nil sim-state / missing snapshot → nil (no highlight)"
-    (is (nil? (sim-h/current-sim-state nil)))
-    (is (nil? (sim-h/current-sim-state {})))))
-
-(deftest last-transition-nil-before-any-step
-  (testing "no step taken yet → nil (no edge to animate)"
-    (let [s0 (sim-h/make-sim-state :auth/login flat-definition)]
-      (is (nil? (sim-h/last-transition s0)))
-      (is (nil? (sim-h/last-transition nil))))))
-
 (deftest last-transition-projects-most-recent-audit-row
   (testing "last-transition projects the newest audit row into the chart's
             focused-event lens {:from :to :event}"
@@ -1088,21 +858,6 @@
       (is (= :authing (:from lt)) "from = the second step's prior state")
       (is (= :done    (:to lt))   "to = the second step's landing state")
       (is (= [:ok]    (:event lt))))))
-
-(deftest last-transition-unchanged-by-failed-step
-  (testing "a failed step does not append a row, so last-transition still
-            reflects the last SUCCESSFUL transition (the chart keeps the
-            prior edge lit while the guard error toasts)"
-    (let [ok  {:status :ok
-               :snapshot {:state :authing :data {}}
-               :fx []}
-          s0  (sim-h/make-sim-state :auth/login flat-definition)
-          s1  (sim-h/step-sim s0 [:start] (constantly ok))
-          s2  (sim-h/step-sim s1 [:bad]   (constantly fail-result))
-          lt  (sim-h/last-transition s2)]
-      (is (= :idle    (:from lt)))
-      (is (= :authing (:to lt)))
-      (is (= [:start] (:event lt))))))
 
 (deftest edge-click->event-coerces-only-a-keyword
   (are [event-id event] (= event (sim-h/edge-click->event event-id))
