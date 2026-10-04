@@ -10,8 +10,9 @@
     - `probe/resolve-build-by-port` reads the :dev-http map JVM-side and
       returns the build whose :output-dir is served on that port.
     - discover-app accepts `:port` and probes the resolved build; an
-      explicit `:build` arg wins; an unmappable port fails loud with
-      `:port-unresolved` rather than silently defaulting to :app."
+      explicit `:build` arg wins. An unmappable port fails loud with
+      `:port-unresolved` rather than silently defaulting to :app —
+      pinned by the `:discover-app/port-unresolved` conformance fixture."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.discover-app :as discover-app]
@@ -136,30 +137,6 @@
                 (is (not (contains? edn :auto-selected-build)))
                 (is (= :examples/step-deck (:resolved-build-id @conn))
                     "resolved build cached for follow-up calls"))
-              (done)))))))
-
-(deftest discover-app-port-unresolved-fails-loud
-  ;; A port that maps to no build → :port-unresolved, NOT a silent :app.
-  (async done
-    (let [conn (fresh-conn)]
-      (-> (with-port-resolution! nil healthy-health
-            (fn [] (discover-app/discover-app conn (tu/args->js {:port 9999}))))
-          (.then
-            (fn [result]
-              ;; The payload carries :ok? false and rides the err-text
-              ;; envelope (isError: true) — the universal
-              ;; "every :ok? false is isError" rule, matching the OTHER
-              ;; discover-app precondition failures (unhealthy runtime /
-              ;; :debug-disabled / :no-frames-registered all err-text).
-              (is (tu/error? result)
-                  "an unmapped port rides isError, not a success envelope")
-              (let [edn (tu/extract-edn result)]
-                (is (false? (:ok? edn)))
-                (is (= :port-unresolved (:reason edn)))
-                (is (= 9999 (:port edn)))
-                (is (string? (:hint edn)))
-                (is (nil? (:resolved-build-id @conn))
-                    "an unresolved port must not cache anything"))
               (done)))))))
 
 (deftest discover-app-explicit-build-wins-over-port
