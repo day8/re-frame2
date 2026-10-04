@@ -13,7 +13,7 @@ listener-namespace rename would send the author to MIGRATION.md's M-66, History
 states, and a rename filed under no id at all leaves nothing to grep for; either
 way the report is un-auditable.
 
-This guard makes that class of drift a build failure. Three checks:
+This guard makes that class of drift a build failure. Four checks:
 
   * PHANTOM-CITE — the skill cites an `M-NN` (or `M-NNa` sub-rule) that has no
     matching heading in MIGRATION.md. Always a failure: the cite points at
@@ -37,6 +37,16 @@ This guard makes that class of drift a build failure. Three checks:
     equality, because the skill legitimately splits hybrid A/B rules across both
     at-a-glance lines and MIGRATION.md's Type-B summary is the authority for what
     MUST be flagged.
+
+  * INDEX-COVERAGE — every rule MIGRATION.md defines, `M-` and `O-` alike,
+    MUST appear in the Rule column of one of the skill's two trigger tables
+    (`## Required (M-rules) by trigger surface`, `## Opt-in modernisations
+    (O-rules) by trigger surface`) or of its `## Rules outside the trigger
+    index` table, which names each excluded rule with its reason. The skill's
+    per-rule completeness gate (`inventory-and-plan.md` Step 5) walks exactly
+    that set as the closed list, so a rule in neither place is a rule the gate
+    silently never asks about. Only the Rule column counts: an id mentioned in
+    another row's summary (M-16a inside M-16's row) does not give it a row.
 
 MIGRATION.md "defines" an id when it carries an `### M-NN.` (H3, top-level rule)
 or `#### M-NNa.` (H4, sub-rule like M-31a/M-31b) heading. The skill "cites" an
@@ -98,6 +108,19 @@ SKILL_TYPE_B_MARKER = "**Type B — ask before applying.**"
 # (### M-26.), H4 for sub-rules (#### M-31a.). The trailing `.` is required so
 # we don't treat an in-prose mention like "see M-26" as a definition.
 HEADING_RE = re.compile(r"^#{3,4}\s+(M-\d+[a-z]?)\.\s", re.MULTILINE)
+
+# The same, for the opt-in O-rules (`### O-16.`). Used by INDEX-COVERAGE only:
+# the cite checks above concern M-ids.
+O_HEADING_RE = re.compile(r"^#{3,4}\s+(O-\d+)\.\s", re.MULTILINE)
+
+# INDEX-COVERAGE anchors: the two trigger tables and the exclusion table in
+# breaking-changes.md, each read through its `Rule` column.
+SKILL_INDEX_HEADINGS = (
+    "## Required (M-rules) by trigger surface",
+    "## Opt-in modernisations (O-rules) by trigger surface",
+)
+SKILL_OUTSIDE_INDEX_HEADING = "## Rules outside the trigger index"
+RULE_ID_RE = re.compile(r"\b[MO]-\d+[a-z]?\b")
 
 # Any mention of an id, in skill prose or tables. Word-boundaried so M-6 does
 # not match inside M-66. The optional trailing letter captures sub-rules.
@@ -267,6 +290,69 @@ def find_type_drift(migration_text: str, breaking_changes_text: str) -> list[str
     return problems
 
 
+def _rule_column_ids(text: str, section_heading: str) -> set[str] | None:
+    """Ids in the `Rule` column of the first table under `section_heading`
+    (searched up to the next `## ` H2). None when the section, or a table with a
+    `Rule` header cell, is absent — the caller reports that as a setup failure
+    rather than as an empty, all-missing index."""
+    in_section = False
+    rule_col: int | None = None
+    ids: set[str] = set()
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if in_section:
+                break
+            in_section = line.strip() == section_heading
+            continue
+        if not in_section:
+            continue
+        if not line.lstrip().startswith("|"):
+            if rule_col is not None:
+                break  # the table ended
+            continue
+        cells = [c.strip() for c in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+        if rule_col is None:
+            if "Rule" in cells:
+                rule_col = cells.index("Rule")
+            continue
+        if all(re.fullmatch(r":?-+:?", c) for c in cells):
+            continue  # the header separator row
+        if rule_col < len(cells):
+            ids.update(RULE_ID_RE.findall(cells[rule_col]))
+    return ids if rule_col is not None else None
+
+
+def find_index_coverage(migration_text: str, breaking_changes_text: str) -> list[str]:
+    """INDEX-COVERAGE: every MIGRATION.md rule has a trigger row or an explicit
+    line in the exclusion table. Returns drift messages."""
+    rel = SKILL_BREAKING_CHANGES.relative_to(REPO_ROOT)
+    corpus = set(defined_ids(migration_text)) | set(O_HEADING_RE.findall(migration_text))
+
+    accounted: set[str] = set()
+    problems: list[str] = []
+    for heading in SKILL_INDEX_HEADINGS + (SKILL_OUTSIDE_INDEX_HEADING,):
+        ids = _rule_column_ids(breaking_changes_text, heading)
+        if ids is None:
+            problems.append(
+                f"INDEX-COVERAGE setup: could not locate a table with a `Rule` "
+                f"column under '{heading}' in {rel}. The anchor moved — update "
+                "the guard or the skill."
+            )
+        else:
+            accounted |= ids
+    if problems:
+        return problems
+
+    for rid in sorted(corpus - accounted, key=_id_sort_key):
+        problems.append(
+            f"INDEX-COVERAGE: MIGRATION.md defines {rid}, but {rel} gives it "
+            f"neither a trigger-table row nor a line under "
+            f"'{SKILL_OUTSIDE_INDEX_HEADING}' — the per-rule completeness gate "
+            f"would never ask about it. Add a row, or list it with its reason."
+        )
+    return problems
+
+
 def run(*, verbose: bool, ci: bool) -> int:
     if not MIGRATION_MD.is_file():
         sys.stderr.write(f"error: MIGRATION.md not found at {MIGRATION_MD}\n")
@@ -286,7 +372,9 @@ def run(*, verbose: bool, ci: bool) -> int:
     cites = skill_cites(SKILL_REFERENCES_DIR)
     defined = defined_ids(migration_text)
     problems = find_drift(migration_text, cites)
-    problems += find_type_drift(migration_text, _slurp(SKILL_BREAKING_CHANGES))
+    breaking_changes_text = _slurp(SKILL_BREAKING_CHANGES)
+    problems += find_type_drift(migration_text, breaking_changes_text)
+    problems += find_index_coverage(migration_text, breaking_changes_text)
 
     if verbose:
         distinct = sorted({c[2] for c in cites}, key=_id_sort_key)
@@ -294,6 +382,12 @@ def run(*, verbose: bool, ci: bool) -> int:
             f"MIGRATION.md defines {len(defined)} rule ids; "
             f"skill references cite {len(distinct)} distinct ids "
             f"across {len(cites)} mentions."
+        )
+        o_count = len(set(O_HEADING_RE.findall(migration_text)))
+        print(
+            f"trigger index: {len(defined) + o_count} MIGRATION.md rules "
+            f"({len(defined)} M, {o_count} O) checked against the trigger "
+            "tables and the outside-the-index list."
         )
 
     if not problems:
@@ -418,6 +512,76 @@ def _self_test() -> int:
     # into the authoritative Type-B set (section scoping).
     if any("M-99" in p for p in find_type_drift(type_migration, skill_clean)):
         print("SELF-TEST FAIL (H type scope): M-99 leaked across the section boundary")
+        failures += 1
+
+    # INDEX-COVERAGE fixtures.
+    index_migration = (
+        "### M-1. Private namespaces\n\n### M-16. flush-dom\n\n"
+        "#### M-16a. In an effect map\n\n### M-76. re-frame.http helpers\n\n"
+        "### O-1. Metadata\n\n### O-14. Retired\n"
+    )
+
+    def index_skill(*, m_rows: str, o_rows: str, outside: str) -> str:
+        return (
+            "## Required (M-rules) by trigger surface\n\n"
+            "| Trigger in v1 code | Rule | Type | One-line summary |\n"
+            "|---|---|---|---|\n" + m_rows + "\nprose naming M-1 and O-14\n\n"
+            "## Opt-in modernisations (O-rules) by trigger surface\n\n"
+            "| Trigger / motivation | Rule | One-line summary |\n"
+            "|---|---|---|\n" + o_rows + "\n"
+            "## Rules outside the trigger index\n\n"
+            "| Rule | Why it has no trigger row |\n|---|---|\n" + outside
+        )
+
+    m1 = "| `re-frame.db` | **M-1** | A | Off-contract require. |\n"
+    m16 = "| `^:flush-dom` | **M-16** | A / B | Sub-cases **M-16a** / M-16b. |\n"
+    o1 = "| Metadata | **O-1** | Optional enrichment. |\n"
+    outside_all = "| M-16a | Sub-case of M-16. |\n| M-76, O-14 | Pre-rename / retired. |\n"
+
+    # Case I — clean: every rule has a Rule-column row or an outside-index line.
+    probs = find_index_coverage(
+        index_migration, index_skill(m_rows=m1 + m16, o_rows=o1, outside=outside_all)
+    )
+    if probs:
+        print(f"SELF-TEST FAIL (I index clean): unexpected {probs}")
+        failures += 1
+
+    # Case J — an actionable rule's trigger row is deleted: M-1 goes red, even
+    # though prose elsewhere in the section still names it.
+    probs = find_index_coverage(
+        index_migration, index_skill(m_rows=m16, o_rows=o1, outside=outside_all)
+    )
+    if len(probs) != 1 or "defines M-1," not in probs[0]:
+        print(f"SELF-TEST FAIL (J index omission): expected M-1 only, got {probs}")
+        failures += 1
+
+    # Case K — column scoping: M-16a named only in M-16's summary cell is NOT a row.
+    probs = find_index_coverage(
+        index_migration,
+        index_skill(m_rows=m1 + m16, o_rows=o1, outside="| M-76, O-14 | x |\n"),
+    )
+    if not any("defines M-16a," in p for p in probs):
+        print(f"SELF-TEST FAIL (K index column): expected M-16a missing, got {probs}")
+        failures += 1
+
+    # Case L — an O-rule is checked too.
+    probs = find_index_coverage(
+        index_migration,
+        index_skill(m_rows=m1 + m16, o_rows=o1, outside="| M-16a, M-76 | x |\n"),
+    )
+    if not any("defines O-14," in p for p in probs):
+        print(f"SELF-TEST FAIL (L index O-rule): expected O-14 missing, got {probs}")
+        failures += 1
+
+    # Case M — a missing anchor is a setup failure, not a silent pass.
+    probs = find_index_coverage(
+        index_migration,
+        index_skill(m_rows=m1 + m16, o_rows=o1, outside=outside_all).replace(
+            "## Rules outside the trigger index", "## Renamed"
+        ),
+    )
+    if not any("INDEX-COVERAGE setup" in p for p in probs):
+        print(f"SELF-TEST FAIL (M index setup): expected setup failure, got {probs}")
         failures += 1
 
     if failures:
