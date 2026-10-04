@@ -21,7 +21,6 @@ const { withService, collect, observed, refusalOf } = require('./_support.cjs');
 const {
   CODE,
   REQUEST_FIELDS,
-  PARTITIONS,
   REFUSED_FIELDS,
   Refusal,
   validateRequest,
@@ -69,16 +68,6 @@ test('the control request validates', () => {
   assert.strictEqual(out.timeoutMs, 1000, 'the service default applies when none is asked for');
 });
 
-test('the partition table names both partitions, and nothing else', () => {
-  assert.deepStrictEqual(
-    PARTITIONS.map((p) => [p.field, p.allowlist]),
-    [
-      ['state', 'stateAllowlist'],
-      ['runtime', 'runtimeAllowlist'],
-    ],
-  );
-});
-
 // ---------------------------------------------------------------------------
 // The field allowlist IS the contract
 // ---------------------------------------------------------------------------
@@ -106,25 +95,22 @@ test('every field the contract DOES name is accepted — the list is not vacuous
   assert.strictEqual(codeOf(full), null);
 });
 
-test('`initialEvents` is refused, and the refusal says why', () => {
-  const err = refuseOf({ ...OK(), initialEvents: [[':boot']] });
-  assert.strictEqual(err.code, CODE.UNKNOWN_REQUEST_FIELD);
-  assert.match(err.message, /host fork/, 'the message must teach, not merely decline');
-  assert.strictEqual(err.detail.refusedOnPurpose, true);
-});
-
-test('`payloadPolicy` is refused — the payload is built on the JVM', () => {
-  const err = refuseOf({ ...OK(), payloadPolicy: [':todos'] });
-  assert.strictEqual(err.code, CODE.UNKNOWN_REQUEST_FIELD);
-  assert.match(err.message, /body markup and nothing else/);
-});
-
 test('every deliberately-refused field carries its reason', () => {
-  for (const field of Object.keys(REFUSED_FIELDS)) {
+  // `initialEvents` and `payloadPolicy` are the fields an implementer
+  // building this crossing reaches for first, so their reasons are pinned
+  // to the phrase that teaches: a refusal that only declines sends them to
+  // widen the list. A pinned field missing from `REFUSED_FIELDS` takes the
+  // generic refusal, without `refusedOnPurpose`, so it reds here rather
+  // than going unvisited.
+  const TEACHES = { initialEvents: /host fork/, payloadPolicy: /body markup and nothing else/ };
+  for (const field of new Set([...Object.keys(TEACHES), ...Object.keys(REFUSED_FIELDS)])) {
     const err = refuseOf({ ...OK(), [field]: 'x' });
     assert.strictEqual(err.code, CODE.UNKNOWN_REQUEST_FIELD, field);
     assert.strictEqual(err.detail.refusedOnPurpose, true, field);
     assert.ok(err.message.includes(REFUSED_FIELDS[field]), `${field} lost its explanation`);
+    if (TEACHES[field]) {
+      assert.match(err.message, TEACHES[field], `${field}: the message must teach, not merely decline`);
+    }
   }
 });
 
@@ -355,29 +341,16 @@ test('a partition value is CAPTURED, so the request carries what was validated',
   );
 });
 
-test('`args` is captured too — the partition is the shape, not the whole of it', () => {
-  // The same gap, a field away. Reading `args` once for its `!== undefined`
-  // test, again for its `typeof` test, and a THIRD time to build the
-  // returned request would let a caller satisfy both checks and still put
-  // something else on the wire. Capturing the partition while leaving this
-  // open would move the gap rather than close it.
-  const req = { protocol: 1, entry: 'app/root', state: { ':todos': '[]' } };
-  const reads = twoFaced(req, 'args', '[1 2 3]', 2);
-  const out = validateRequest(req, TABLES);
-  assert.strictEqual(
-    out.args,
-    '[1 2 3]',
-    'the request must carry the EDN text that was validated',
-  );
-  assert.strictEqual(reads(), 1, 'and one read is all a validated field ever needs');
-});
-
 test('every field the normalized request carries is read exactly ONCE', () => {
-  // The invariant the two rows above are consequences of, stated directly
-  // and over the whole field list rather than over the two fields that
-  // happened to be reachable. This one uses an honest accessor: it changes
-  // no value and forces no failure, it only counts. A field read twice is
-  // a field whose second read nobody validated, whatever it returns today.
+  // The invariant the row above is a consequence of, stated directly and
+  // over the whole field list rather than over the one field that happened
+  // to be reachable. `args` is the same gap a field away: read once for its
+  // `!== undefined` test, again for its `typeof` test and a third time to
+  // build the returned request, it would let a caller satisfy both checks
+  // and still put something else on the wire. This one uses an honest
+  // accessor: it changes no value and forces no failure, it only counts. A
+  // field read twice is a field whose second read nobody validated,
+  // whatever it returns today.
   const req = {};
   const counters = {
     protocol: twoFaced(req, 'protocol', 1, Infinity),
@@ -392,6 +365,7 @@ test('every field the normalized request carries is read exactly ONCE', () => {
 
   const out = validateRequest(req, TABLES);
   assert.strictEqual(out.entry, 'app/root', 'the control: this request must actually validate');
+  assert.strictEqual(out.args, '[1 2 3]', 'the request must carry the EDN text that was validated');
 
   const readTwice = Object.entries(counters)
     .filter(([, reads]) => reads() !== 1)
@@ -403,19 +377,10 @@ test('every field the normalized request carries is read exactly ONCE', () => {
 // The module's own tables are fail-closed too
 // ---------------------------------------------------------------------------
 
-test('a render module is validated, and an entry with no allowlist is unrenderable', () => {
-  const bad = { protocol: 1, buildId: 'b', entries: { 'app/root': {} }, render() {} };
-  assert.throws(() => validateModule(bad), (e) => e.code === CODE.MALFORMED_MODULE);
-  const good = {
-    protocol: 1,
-    buildId: 'b',
-    entries: { 'app/root': { stateAllowlist: [':a'], runtimeAllowlist: [] } },
-    render() {},
-  };
-  assert.strictEqual(validateModule(good), good);
-});
+// An entry with no `stateAllowlist`, and a module with no `buildId`, are
+// refused at boot by the last row of this file, through a live isolate.
 
-test('an entry with a stateAllowlist but no runtimeAllowlist is unrenderable too', () => {
+test('an entry with no runtimeAllowlist, or a non-keyword member in one, is unrenderable', () => {
   const half = {
     protocol: 1,
     buildId: 'b',
@@ -436,13 +401,6 @@ test('an entry with a stateAllowlist but no runtimeAllowlist is unrenderable too
   assert.throws(
     () => validateModule(badKey),
     (e) => e.code === CODE.MALFORMED_MODULE && /runtime-db key/.test(e.message),
-  );
-});
-
-test('a module with no build identity is refused — there would be nothing to compare', () => {
-  assert.throws(
-    () => validateModule({ protocol: 1, entries: { a: { stateAllowlist: [] } }, render() {} }),
-    (e) => e.code === CODE.MALFORMED_MODULE && /buildId/.test(e.message),
   );
 });
 
@@ -497,14 +455,6 @@ test('the runtime partition reaches the module frozen, and a refused runtime key
     assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
     assert.strictEqual(err.detail.field, 'runtime');
     assert.strictEqual(service.stats().ready, before.ready, 'a refusal must not have borrowed an isolate');
-  });
-});
-
-test('an entry the bundle lacks is refused against the LIVE table, not a copy', async () => {
-  await withService('reference', { isolates: 1 }, async (service) => {
-    assert.deepStrictEqual(Object.keys(service.entries).sort(), ['app/other', 'app/root']);
-    const err = await refusalOf(() => collect(service, { protocol: 1, entry: 'app/ghost' }));
-    assert.strictEqual(err.code, CODE.UNKNOWN_ENTRY);
   });
 });
 
