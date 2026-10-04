@@ -31,6 +31,13 @@ clojure -Srepro \
 `--rewrite` makes that a dry run of the fixer, `--rewrite --write` applies it,
 and `--report out.edn` chooses where the report goes.
 
+A consumer that already works from a checkout of this repository can swap the
+git coordinate for `{:local/root "<checkout>/migration/reagent-to-fresco/codemod"}`
+and keep the rest of the command: the same entry point, flags and report. That
+is the consumer selecting this artefact locally. The manifest's warning against
+`:local/root` is about something else, its own path to the shared Fresco source,
+which stays as it is. The skill's `SKILL.md` carries the recipe.
+
 **That coordinate is how the tool is delivered, and it is not a stopgap.**
 `implementation/fresco/deps.edn`'s `:src-dirs` are `["src" "resources"
 "test_kit/src"]`, which excludes this tree, so no published Fresco jar ever
