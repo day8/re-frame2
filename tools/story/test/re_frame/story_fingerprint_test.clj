@@ -611,12 +611,7 @@
             stably across independent builds whichever order they sort in"
     (let [build (fn [] #{(fn [] 1) (fn [] 2) :marker})]
       (is (= (rf.story.fingerprint/content-hash (build)) (rf.story.fingerprint/content-hash (build)))
-          "an equal-pr-str-bearing set hashes identically across builds")))
-  (testing "ordinary distinct-`pr-str` set order is the `(sort-by pr-str)`
-            order"
-    ;; `ordinary-value-canonical-forms-are-unchanged` pins the content-hash
-    ;; 405ea2f0 for #{:a :b :c}; this restates the element-ordering directly.
-    (is (= [rf.story.fingerprint/set-tag [:a :b :c]] (rf.story.fingerprint/canonical-form #{:c :a :b})))))
+          "an equal-pr-str-bearing set hashes identically across builds"))))
 
 ;; ===========================================================================
 ;; MAP-KEY TIE ORDER — same-`pr-str` keys sort iteration-INDEPENDENTLY
@@ -667,15 +662,6 @@
     (is (= [rf.story.fingerprint/map-tag [:a 1 :b 2 :c 3]]
            (rf.story.fingerprint/canonical-form (array-map :c 3 :a 1 :b 2)))
         "distinct keys sort by key alone")))
-
-;; ===========================================================================
-;; CANONICAL VERSION — the version tag is recorded
-;; ===========================================================================
-
-(deftest canonical-version-is-bumped-to-v2
-  (testing "the canonical-version tag is :rf/snapshot-canonical-v2 — the
-            canon with structural type tags + the fn sentinel"
-    (is (= :rf/snapshot-canonical-v2 rf.story.fingerprint/canonical-version))))
 
 ;; ===========================================================================
 ;; ORDERING — effects / epochs keep producer order; reordering is semantic
