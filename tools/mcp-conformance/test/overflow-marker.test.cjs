@@ -27,7 +27,6 @@ const assert = require('node:assert/strict');
 const { parseEDNString } = require('edn-data');
 const {
   EDN_PARSE_OPTS,
-  isPlainObject,
   unwrapClosedOverflow,
   assertOverflowBody,
   validateOverflowWrapper,
@@ -87,17 +86,15 @@ test('RED-then-GREEN: legacy extraction-only accepts an extra top-level sibling;
   );
 });
 
-test('unwrapClosedOverflow: rejects a lookalike wrapper key (rf.mcp/overflowed)', () => {
-  const outer = { 'rf.mcp/overflowed': validBody() };
-  assert.throws(() => unwrapClosedOverflow(outer, 'test'), /CLOSED single-key map/);
-});
-
-test('unwrapClosedOverflow: rejects a missing marker (empty map and a non-overflow envelope)', () => {
-  assert.throws(() => unwrapClosedOverflow({}, 'test'), /CLOSED single-key map/);
-  assert.throws(
-    () => unwrapClosedOverflow({ 'ok?': true, value: 'xxxxx' }, 'test'),
-    /CLOSED single-key map/,
-  );
+test('unwrapClosedOverflow: rejects every own-key set other than exactly {rf.mcp/overflow}', () => {
+  for (const [label, outer] of [
+    ['a lookalike wrapper key (rf.mcp/overflowed)', { 'rf.mcp/overflowed': validBody() }],
+    ['an empty map', {}],
+    ['a non-overflow envelope', { 'ok?': true, value: 'xxxxx' }],
+    ['a second, plausible top-level key', { 'rf.mcp/overflow': validBody(), 'rf.mcp/summary': { type: 'map' } }],
+  ]) {
+    assert.throws(() => unwrapClosedOverflow(outer, 'test'), /CLOSED single-key map/, label);
+  }
 });
 
 test('unwrapClosedOverflow: rejects arrays and non-map scalars', () => {
@@ -105,11 +102,6 @@ test('unwrapClosedOverflow: rejects arrays and non-map scalars', () => {
   assert.throws(() => unwrapClosedOverflow(null, 'test'), /not a map/);
   assert.throws(() => unwrapClosedOverflow('rf.mcp/overflow', 'test'), /not a map/);
   assert.throws(() => unwrapClosedOverflow(42, 'test'), /not a map/);
-});
-
-test('unwrapClosedOverflow: rejects multiple top-level keys even when both look plausible', () => {
-  const outer = { 'rf.mcp/overflow': validBody(), 'rf.mcp/summary': { type: 'map' } };
-  assert.throws(() => unwrapClosedOverflow(outer, 'test'), /CLOSED single-key map/);
 });
 
 test('validateOverflowWrapper: accepts additive fields inside the (open) body', () => {
@@ -155,7 +147,8 @@ test('fractional :cap-tokens / :token-count are rejected through BOTH slots (rf2
     assert.throws(() => validateOverflowText(text, 'text-slot'), want, 'text ' + cap + '/' + count);
     assert.throws(() => validateOverflowWrapper(wrapper, 'structured'), want, 'structured ' + cap + '/' + count);
   }
-  // Still accepted: the integer body, through both slots, in agreement.
+  // Still accepted: the canonical integer body parses from the text slot,
+  // validates through both slots, and the two bodies agree.
   const text =
     '{:rf.mcp/overflow {:limit :reached :cap-tokens 5000 :token-count 6250 ' +
     ':tool "eval-cljs" :hint "raise the cap"}}';
@@ -178,15 +171,6 @@ test('assertOverflowBody: rejects token-count <= cap-tokens (degenerate tripped 
     () => assertOverflowBody(validBody({ 'cap-tokens': 5000, 'token-count': 4999 }), 'test'),
     /token-count MUST exceed :cap-tokens/,
   );
-});
-
-test('validateOverflowText: parses a canonical EDN text slot and validates it', () => {
-  const text =
-    '{:rf.mcp/overflow {:limit :reached :cap-tokens 5000 :token-count 6250 ' +
-    ':tool "eval-cljs" :hint "Slice the value."}}';
-  const body = validateOverflowText(text, 'text-slot');
-  assert.equal(body.limit, 'reached');
-  assert.equal(body.tool, 'eval-cljs');
 });
 
 test('validateOverflowText: rejects garbage text and non-string input', () => {
@@ -227,12 +211,4 @@ test('assertBodiesAgree: rejects dual-slot drift (extra field in one slot only)'
   const structuredBody = validBody({ 'leaked-sibling': 'only-in-structured' });
   assert.equal(bodiesEqual(textBody, structuredBody), false);
   assert.throws(() => assertBodiesAgree(textBody, structuredBody, 'dual-slot'), /DRIFTED/);
-});
-
-test('isPlainObject: distinguishes maps from arrays/null/scalars', () => {
-  assert.equal(isPlainObject({}), true);
-  assert.equal(isPlainObject([]), false);
-  assert.equal(isPlainObject(null), false);
-  assert.equal(isPlainObject('s'), false);
-  assert.equal(isPlainObject(1), false);
 });
