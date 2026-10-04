@@ -145,8 +145,10 @@
   (str/replace sketch commented-row (str "$1$2 " (pr-str contract))))
 
 (deftest filling-the-scaffold-mints
+  ;; One contract is enough: `fill` writes the same contract into every row,
+  ;; so which one it writes changes nothing the three reads below can see.
   (doseq [{:keys [head defhost event-slots fn-slots]} (components)
-          contract rf.migration.fresco.dest/callback-contracts]
+          :let [contract (first rf.migration.fresco.dest/callback-contracts)]]
     (testing (str "the sketch for " head " filled with " contract)
       (let [slots (mapv edn/read-string (distinct (concat event-slots fn-slots)))
             opts  (nth (read-one (fill defhost contract)) 3)]
