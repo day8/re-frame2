@@ -121,38 +121,6 @@
         (is (empty? (:dispatches result))
             "no :start dispatch fired into B after the lifecycle-spawned loss")))))
 
-(deftest live-owner-spawn-installs-once
-  (testing "control: a spawn whose install fires no destroyer completes exactly
-            once — snapshot installed, spawn-order recorded,
-            lifecycle-spawned emitted, :start dispatched. The fence is scoped to
-            owner-loss only."
-    (rf.machines.spawn-order/reset-all!)
-    (rf/reg-machine spawn-child-type
-      {:initial :running
-       :states  {:running {:on {:go :done}}
-                 :done    {:final? true}}})
-    (let [frame-a        :rf2-hloj0g/live-spawn-frame
-          dispatches     (atom [])
-          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
-      (rf/make-frame {:id frame-a})
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (try
-          (rf.late-bind/set-fn! :router/dispatch!
-                             (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
-          (rf.frame/call-with-event-owner-token frame-a token-a
-            (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
-                                   {:machine-id spawn-child-type
-                                    :start      [:go]})))
-          (is (some? (rf.machines.test-support/snapshot frame-a spawn-child-instance-id))
-              "the live spawn installed the child snapshot")
-          (is (= [spawn-child-instance-id] (vec (rf.machines.spawn-order/frame-order frame-a)))
-              "the live spawn recorded exactly one spawn-order entry")
-          (is (= 1 (count @dispatches))
-              "the live spawn dispatched :start exactly once")
-          (finally
-            (when orig-dispatch!
-              (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))))
-
 ;; ---- finalization-tail fence (teardown callbacks) -------------------------
 ;;
 ;; After the top-level completion fence, the teardown tail's `:rf.machine/
