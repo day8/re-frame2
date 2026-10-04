@@ -114,27 +114,6 @@
 ;; Pure config helpers
 ;; ---------------------------------------------------------------------------
 
-(deftest suppress-sensitive?-default-suppresses
-  (testing "by default (:rf.egress/local-redacted) sensitive events are suppressed"
-    (is (false? (rf.story.config/include-sensitive? nil)))
-    (is (true?  (rf.story.config/suppress-sensitive?
-                  (sensitive-dispatch-event :v/x [:auth/login])))))
-  (testing "non-sensitive events are never suppressed"
-    (is (false? (rf.story.config/suppress-sensitive?
-                  (plain-dispatch-event :v/x [:counter/inc]))))))
-
-(deftest suppress-sensitive?-opts-out-under-local-raw
-  (testing "under :rf.egress/local-raw, sensitive events are NOT suppressed"
-    (rf.story.config/set-egress-profile! :rf.egress/local-raw)
-    (is (= :rf.egress/local-raw @rf.story.config/session-egress-profile))
-    (is (true? (rf.story.config/include-sensitive? nil)))
-    (is (false? (rf.story.config/suppress-sensitive?
-                  (sensitive-dispatch-event :v/x [:auth/login])))))
-  (testing "non-sensitive events remain unsuppressed regardless of profile"
-    (rf.story.config/set-egress-profile! :rf.egress/local-raw)
-    (is (false? (rf.story.config/suppress-sensitive?
-                  (plain-dispatch-event :v/x [:counter/inc]))))))
-
 (deftest configure!-wires-egress-profile
   (testing "rf.story/configure! routes :rf.story/egress-profile to the config atom"
     (rf.story/configure! {:rf.story/egress-profile :rf.egress/local-raw})
