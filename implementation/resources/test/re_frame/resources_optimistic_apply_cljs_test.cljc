@@ -51,7 +51,6 @@
    [re-frame.http.managed]
    [re-frame.schemas]
    [re-frame.test-support :as rf.test-support]
-   [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
@@ -100,17 +99,6 @@
   (rf/dispatch-sync [:rf.resource/ensure payload])
   (reply-success! @last-managed-args value)
   (reset! last-managed-args nil))
-
-(defn- applied-trace
-  "Run `body-fn`; return the LAST `:rf.mutation/optimistic-applied` trace
-  event's top-level data map (facets ride under `:tags`)."
-  [body-fn]
-  (let [seen (atom [])
-        k    ::applied-recorder]
-    (rf.trace.tooling/register-listener!
-      k (fn [ev] (when (= :rf.mutation/optimistic-applied (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
-    (:tags (last @seen))))
 
 ;; ===========================================================================
 ;; 1 + 2. Optimistic apply lands in the cache at execute time (phase 1.5),
