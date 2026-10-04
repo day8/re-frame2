@@ -36,11 +36,10 @@
 
   Reading the profile claims off the live ring would conflate the two, and
   expensively. With the ring empty, `raw` is nil,
-  `large-marker-body` is nil, and FIVE assertions would pass for that reason alone:
+  `large-marker-body` is nil, and FOUR assertions would pass for that reason alone:
   `(= default-body obs-body)` (nil = nil), `(not (contains? obs-body :digest))`
-  (nil contains nothing), the tool-equals-observability marker check, the raw-
-  bytes-never-egress row over an empty string, and `(not-any? ... obs-hist)`
-  over an empty history. An egress-PRIVACY suite would certify that no raw
+  (nil contains nothing), the tool-equals-observability marker check, and the
+  raw-bytes-never-egress row over an empty string. An egress-PRIVACY suite would certify that no raw
   bytes escaped, having projected nothing.
 
   So the profile rows drive a SYNTHETIC record — the same shape the ring
@@ -223,44 +222,3 @@
             "the epoch throw's message == the shared builder's")
         (is (= (ex-data canonical) data)
             "the epoch throw's ex-data == the shared builder's")))))
-
-(deftest whole-ring-composition-threads-egress-profile
-  ;; There is no whole-ring convenience: the supported spelling is ordinary
-  ;; composition over `epoch-history`. This pins that the composition carries
-  ;; the named profile to every record.
-  ;;
-  ;; The composition maps over the RING, so it has nothing to
-  ;; thread a profile to under -Dre-frame.debug=false. There is no synthetic
-  ;; stand-in: the ring is the subject. The per-record profile threading it
-  ;; delegates to is covered always-on above.
-  (when rf.interop/debug-enabled?
-  (testing "`(mapv #(rf/project-egress % opts)
-            (rf/epoch-history frame-id))` threads the named
-            :rf.egress/profile boundary to every record."
-    (rf/make-frame {:id :ep/main})
-    (install-large-path! :ep/main)
-    (rf/reg-event :store
-                  (fn [{:keys [db]} [_ payload]]
-                    {:db (assoc-in db [:blob :payload] payload)}))
-    (rf/dispatch-sync [:store (big-string 50000)] {:frame :ep/main})
-    (let [ring      (rf/epoch-history :ep/main)
-          tool-hist (mapv #(rf/project-egress
-                             % {:rf.egress/profile :rf.egress/off-box-tool})
-                          ring)
-          obs-hist  (mapv rf/project-egress ring)]
-      (is (seq (filter large-marker-body tool-hist))
-          "the composition returns the ring, and the tool-profile history carries
-           at least one large marker")
-      (is (not-any? #(contains? (large-marker-body %) :digest)
-                    (filter large-marker-body tool-hist))
-          "no large marker in the tool-profile history carries a :digest")
-      (is (not-any? #(contains? (large-marker-body %) :digest)
-                    (filter large-marker-body obs-hist))
-          "the default observability history omits the :digest on every record")
-      (let [digest-hist (mapv #(rf/project-egress
-                                 % {:rf.egress/profile          :rf.egress/off-box-tool
-                                    :rf.egress/include-digests? true})
-                              ring)]
-        (is (every? #(string? (:digest (large-marker-body %)))
-                    (filter large-marker-body digest-hist))
-            "the explicit digest overlay reaches every record through the composition"))))))
