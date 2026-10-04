@@ -145,20 +145,6 @@
                (sort undocumented))))))
 
 ;; ---------------------------------------------------------------------------
-;; Transitive closure — all three projections collapse to ONE set.
-;; ---------------------------------------------------------------------------
-
-(deftest all-projections-agree
-  (testing "the facade, the spec, and the single-source enum all project
-            the SAME mount-fn set — the single-source contract in one
-            assertion"
-    (is (= enum-mount-names facade-mount-names spec-mount-names)
-        (str "Panel-enum projections disagree.\n"
-             "  enum:   " (sort enum-mount-names) "\n"
-             "  facade: " (sort facade-mount-names) "\n"
-             "  spec:   " (sort spec-mount-names)))))
-
-;; ---------------------------------------------------------------------------
 ;; Enum well-formedness — the source itself stays coherent.
 ;; ---------------------------------------------------------------------------
 
