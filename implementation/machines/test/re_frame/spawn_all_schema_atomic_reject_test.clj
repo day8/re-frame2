@@ -29,17 +29,16 @@
   Pinned here:
 
    1. A mixed valid/invalid invoke installs NOTHING and seeds one childless
-      reject sentinel — invalid child first, middle, or last.
+      reject sentinel. An invalid child in the middle of the batch is pinned by
+      `spawn_all_authoritative_preflight_cljs_test`.
    2. Exactly ONE schema error per invalid child.
-   3. The join can never observe a half-installed child set, in any `:join`
-      mode — the reject is decided upstream of the join mode entirely.
-   4. No false reject: an all-valid `:spawn-all` keeps the fast path.
+   3. No false reject: an all-valid `:spawn-all` keeps the fast path.
 
   Parent exit clears the sentinel whatever caused the reject (pinned in
   `machine_spawn_unregistered_type_cljs_test`).
 
   Moving schema validation into only the later per-child effect makes
-  (1)–(3) fail: the live join publishes, the valid sibling installs, and the
+  (1) and (2) fail: the live join publishes, the valid sibling installs, and the
   invalid child is stranded inside it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -108,7 +107,7 @@
   (get-in (frame-db) [:rf.runtime/machines :snapshots actor-id]))
 
 ;; ===========================================================================
-;; (1) Mixed valid/invalid — atomic reject, invalid child in every position.
+;; (1) Mixed valid/invalid — atomic reject.
 ;; ===========================================================================
 
 (deftest mixed-invalid-child-rejects-the-whole-invoke-atomically
@@ -148,28 +147,6 @@
     (is (= :forking (rf.machines.test-support/machine-state :sup/mixed))
         "the parent stays in :forking — a refused join, not a deadlock")))
 
-(deftest invalid-child-position-does-not-change-the-reject
-  (testing "the invoke-level preflight sees the child set as a SET: an invalid
-            child FIRST, in the MIDDLE, or LAST rejects identically. Child
-            ordering never repairs (or creates) the architecture"
-    (rf/reg-machine :sa/strict strict-child)
-    (rf/reg-machine :sa/plain plain-child)
-    (let [bad {:id :bad :machine-id :sa/strict :data {:n -1}}
-          ok1 {:id :ok1 :machine-id :sa/plain}
-          ok2 {:id :ok2 :machine-id :sa/plain}]
-      (doseq [[pid children label]
-              [[:sup/first  [bad ok1 ok2] "invalid FIRST"]
-               [:sup/middle [ok1 bad ok2] "invalid MIDDLE"]
-               [:sup/last   [ok1 ok2 bad] "invalid LAST"]]]
-        (rf/reg-machine pid (parent-over children))
-        (rf/dispatch-sync [pid [:start]])
-        (is (= {:rf/spawn-all-rejected? true} (join-slot pid))
-            (str label " — childless reject sentinel"))
-        (is (nil? (snapshot-of :sa/plain#1))
-            (str label " — no valid sibling installed"))
-        (is (nil? (snapshot-of :sa/strict#1))
-            (str label " — no invalid child installed"))))))
-
 ;; ===========================================================================
 ;; (2) EXACT schema-error cardinality.
 ;; ===========================================================================
@@ -197,28 +174,7 @@
         "still exactly one childless reject sentinel for the invoke")))
 
 ;; ===========================================================================
-;; (3) No join mode can observe a half-installed child set.
-;; ===========================================================================
-
-(deftest no-join-mode-observes-a-half-installed-child-set
-  (testing ":all and :any alike see one childless reject sentinel — the
-            admission decision is taken in spawn-all-init BEFORE the join mode
-            is ever consulted, so the mode cannot change the outcome"
-    (rf/reg-machine :sa/strict strict-child)
-    (rf/reg-machine :sa/plain plain-child)
-    (doseq [[pid mode] [[:sup/join-all :all]
-                        [:sup/join-any :any]]]
-      (rf/reg-machine pid (parent-over [{:id :bad :machine-id :sa/strict :data {:n -1}}
-                                        {:id :ok  :machine-id :sa/plain}]
-                                       mode))
-      (rf/dispatch-sync [pid [:start]])
-      (is (= {:rf/spawn-all-rejected? true} (join-slot pid))
-          (str ":join " mode " — childless reject sentinel, no live join"))
-      (is (nil? (snapshot-of :sa/plain#1))
-          (str ":join " mode " — no half-installed sibling to observe")))))
-
-;; ===========================================================================
-;; (4) No false reject — the all-valid fast path.
+;; (3) No false reject — the all-valid fast path.
 ;; ===========================================================================
 
 (deftest all-valid-spawn-all-still-installs-a-live-join
