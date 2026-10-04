@@ -85,19 +85,25 @@
 ;; RFC 6265 §4.1.1 token grammar (no CTLs, whitespace, separators).
 ;; ===========================================================================
 
+(defn- rejected-with?
+  "True when `cookie->set-cookie-header` throws an ex-info whose message
+  carries `id-re` for `cookie` — the check `thrown-with-msg?` makes."
+  [id-re cookie]
+  (try (rf.ssr.ring/cookie->set-cookie-header cookie)
+       false
+       (catch clojure.lang.ExceptionInfo e
+         (boolean (re-find id-re (ex-message e))))))
+
 (deftest cookie-attribute-crlf-injection-rejected
   (testing "CR / LF / NUL in :domain throws
             :rf.error/cookie-invalid-attribute"
-    (doseq [hostile ["evil.com\r\nSet-Cookie: admin=1; Path=/"
-                     "evil.com\rinjected"
-                     "evil.com\ninjected"
-                     (str "evil.com" (char 0) "nul")]]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/cookie-invalid-attribute"
-            (rf.ssr.ring/cookie->set-cookie-header
-              {:name "session" :value "abc" :domain hostile}))
-          (str "hostile :domain " (pr-str hostile) " must be rejected"))))
+    (is (= [] (remove #(rejected-with? #":rf\.error/cookie-invalid-attribute"
+                                       {:name "session" :value "abc" :domain %})
+                      ["evil.com\r\nSet-Cookie: admin=1; Path=/"
+                       "evil.com\rinjected"
+                       "evil.com\ninjected"
+                       (str "evil.com" (char 0) "nul")]))
+        "every hostile :domain is rejected (lists any that serialised)"))
 
   (testing "CR / LF / NUL in :path throws"
     (is (thrown-with-msg?
@@ -252,63 +258,55 @@
               {:name "session id" :value "abc"}))))
 
     (testing "name with separator chars throws"
-      (doseq [bad ["session;extra" "session=x" "session,x" "session/x"
-                   "session\"x" "session(x" "session)x"]]
-        (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo
-              #":rf\.error/cookie-invalid-name"
-              (rf.ssr.ring/cookie->set-cookie-header
-                {:name bad :value "abc"}))
-            (str "separator-bearing name " (pr-str bad) " must be rejected"))))
+      (is (= [] (remove #(rejected-with? #":rf\.error/cookie-invalid-name"
+                                         {:name % :value "abc"})
+                        ["session;extra" "session=x" "session,x" "session/x"
+                         "session\"x" "session(x" "session)x"]))
+          "every separator-bearing name is rejected (lists any that serialised)"))
 
     (testing "name with CR / LF / NUL throws"
-      (doseq [bad ["session\r" "session\n" (str "session" (char 0))]]
-        (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo
-              #":rf\.error/cookie-invalid-name"
-              (rf.ssr.ring/cookie->set-cookie-header
-                {:name bad :value "abc"}))
-            (str "control-char name " (pr-str bad) " must be rejected"))))
+      (is (= [] (remove #(rejected-with? #":rf\.error/cookie-invalid-name"
+                                         {:name % :value "abc"})
+                        ["session\r" "session\n" (str "session" (char 0))]))
+          "every control-char name is rejected (lists any that serialised)"))
 
     (testing "valid token-grammar names pass through"
-      (doseq [ok ["session" "_csrf" "X-CSRF-TOKEN" "data-1.2.3" "a"]]
-        (is (str/starts-with?
-              (rf.ssr.ring/cookie->set-cookie-header {:name ok :value "v"})
-              (str ok "="))
-            (str "valid name " (pr-str ok) " should serialise"))))
+      (is (= [] (remove #(str/starts-with?
+                           (rf.ssr.ring/cookie->set-cookie-header {:name % :value "v"})
+                           (str % "="))
+                        ["session" "_csrf" "X-CSRF-TOKEN" "data-1.2.3" "a"]))
+          "every valid name serialises under its own name (lists any that did not)"))
 
     (testing "keyword / symbol names are coerced via clojure.core/name"
-      (doseq [named [:session 'session :data-1.2.3]]
-        (is (str/starts-with?
-              (rf.ssr.ring/cookie->set-cookie-header {:name named :value "v"})
-              (str (clojure.core/name named) "="))
-            (str "Named cookie name " (pr-str named) " should serialise"))))
+      (is (= [] (remove #(str/starts-with?
+                           (rf.ssr.ring/cookie->set-cookie-header {:name % :value "v"})
+                           (str (clojure.core/name %) "="))
+                        [:session 'session :data-1.2.3]))
+          "every Named cookie name serialises under its name (lists any that did not)"))
 
     (testing "non-string / non-Named :name throws a STRUCTURED
               :rf.error/cookie-invalid-name (not a raw ClassCastException)"
-      (doseq [bad [42 3.14 [] [1 2 3] {} {:k 1} #{1 2} true]]
-        ;; The broad `catch Throwable` is DELIBERATE: the failure under guard
-        ;; is a raw `ClassCastException` (a `Throwable`, NOT an `ExceptionInfo`),
-        ;; which a bare `(clojure.core/name n)` would throw. We must catch the broad
-        ;; type to OBSERVE which throwable surfaces, then assert it is the
-        ;; structured ex-info — a narrow `catch ExceptionInfo` would let that
-        ;; raw exception escape the test and obscure the failure.
-        (let [t (try
-                  (rf.ssr.ring/cookie->set-cookie-header {:name bad :value "v"})
-                  ::no-throw
-                  (catch clojure.lang.ExceptionInfo e e)
-                  (catch Throwable e e))]
-          (is (instance? clojure.lang.ExceptionInfo t)
-              (str "non-Named name " (pr-str bad)
-                   " must throw an ex-info, not a raw host exception; got "
-                   (if (instance? Throwable t) (class t) t)))
-          (when (instance? clojure.lang.ExceptionInfo t)
-            (is (= :rf.error/cookie-invalid-name
-                   (:rf.error/id (ex-data t)))
-                (str "non-Named name " (pr-str bad)
-                     " must surface :rf.error/cookie-invalid-name"))
-            (is (= bad (:name (ex-data t)))
-                "ex-data must carry the offending :name value")))))))
+      ;; The broad `catch Throwable` is DELIBERATE: the failure under guard
+      ;; is a raw `ClassCastException` (a `Throwable`, NOT an `ExceptionInfo`),
+      ;; which a bare `(clojure.core/name n)` would throw. We must catch the broad
+      ;; type to OBSERVE which throwable surfaces, then assert it is the
+      ;; structured ex-info — a narrow `catch ExceptionInfo` would let that
+      ;; raw exception escape the test and obscure the failure.
+      (is (= []
+             (for [bad [42 3.14 [] [1 2 3] {} {:k 1} #{1 2} true]
+                   :let [t (try
+                             (rf.ssr.ring/cookie->set-cookie-header {:name bad :value "v"})
+                             ::no-throw
+                             (catch clojure.lang.ExceptionInfo e e)
+                             (catch Throwable e e))]
+                   :when (not (and (instance? clojure.lang.ExceptionInfo t)
+                                   (= :rf.error/cookie-invalid-name
+                                      (:rf.error/id (ex-data t)))
+                                   (= bad (:name (ex-data t)))))]
+               [bad (if (instance? Throwable t) (class t) t)]))
+          "every non-Named name throws an ex-info (not a raw host exception)
+           surfacing :rf.error/cookie-invalid-name with the offending :name in
+           its ex-data (lists any that did not, with what it got)"))))
 
 ;; ===========================================================================
 ;; ssr-handler — happy path (Ring-level smoke)
@@ -1334,22 +1332,32 @@
     ;; Every non-vector, non-fn shape hits the :else arm and throws the
     ;; canonical :rf.error/invalid-root-view — pinned across scalar shapes so
     ;; the fail-closed branch (not accidental happy-path fallthrough) fires.
-    (doseq [bad ["a-string" :a-keyword {:a :map} 42 nil]]
-      (let [ex (try (rf.ssr.ring.lifecycle/resolve-root-view bad)
-                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (instance? clojure.lang.ExceptionInfo ex)
-            (str "resolve-root-view must throw for " (pr-str bad)))
-        (is (= :rf.error/invalid-root-view (:rf.error/id (ex-data ex)))
-            (str "canonical :rf.error/id for " (pr-str bad)))
-        (is (= 'rf.ssr/ssr-handler (:where (ex-data ex)))
-            "the where-symbol names the public ssr-handler entry point")
-        (is (= :supply-a-hiccup-vector-or-0-arity-fn (:recovery (ex-data ex)))
-            "the recovery disposition is carried through")
-        (is (= bad (:received (ex-data ex)))
-            "ex-data carries the offending :received value")
-        (is (re-find #"root-view must be a hiccup vector or a 0-arity fn"
-                     (ex-message ex))
-            "the human message names the public concept + expected fix")))))
+    (let [bads     ["a-string" :a-keyword {:a :map} 42 nil]
+          throw-of (fn [bad]
+                     (let [ex (try (rf.ssr.ring.lifecycle/resolve-root-view bad)
+                                   ::no-throw
+                                   (catch clojure.lang.ExceptionInfo e e))
+                           d  (ex-data ex)]
+                       (if (instance? clojure.lang.ExceptionInfo ex)
+                         {:rf.error/id (:rf.error/id d)
+                          :where       (:where d)
+                          :recovery    (:recovery d)
+                          :received    (:received d)
+                          :message?    (boolean
+                                         (re-find #"root-view must be a hiccup vector or a 0-arity fn"
+                                                  (ex-message ex)))}
+                         ex)))]
+      (is (= (for [bad bads]
+               {:rf.error/id :rf.error/invalid-root-view
+                :where       'rf.ssr/ssr-handler
+                :recovery    :supply-a-hiccup-vector-or-0-arity-fn
+                :received    bad
+                :message?    true})
+             (map throw-of bads))
+          "every shape throws the canonical :rf.error/invalid-root-view whose
+           where-symbol names the public ssr-handler entry point, carrying the
+           recovery disposition and the offending :received value, with a human
+           message naming the public concept + expected fix"))))
 
 ;; ===========================================================================
 ;; ssr-handler — :ssr opt reaches the per-request frame's :ssr metadata
@@ -2266,21 +2274,22 @@
             OVERRIDE value — no duplicate, no casing survivor"
     (let [fold (requiring-resolve
                  're-frame.ssr.ring.headers/headers->ring-map+content-type-override)]
-      (doseq [casing ["content-type"
-                      "Content-Type"
-                      "CONTENT-TYPE"
-                      "CoNtEnT-TyPe"
-                      "content-Type"]]
-        (let [pairs   [[casing "application/json"]]
-              result  (fold pairs "text/html; charset=utf-8")
-              ct-keys (filter (fn [k] (= "content-type" (str/lower-case (str k))))
-                              (keys result))]
-          (is (= 1 (count ct-keys))
-              (str "casing " (pr-str casing)
-                   " — exactly one content-type key after the override, no duplicate"))
-          (is (= "text/html; charset=utf-8" (get result (first ct-keys)))
-              (str "casing " (pr-str casing)
-                   " — the override value wins over the accumulator's pair")))))))
+      (is (= []
+             (for [casing  ["content-type"
+                            "Content-Type"
+                            "CONTENT-TYPE"
+                            "CoNtEnT-TyPe"
+                            "content-Type"]
+                   :let [result  (fold [[casing "application/json"]]
+                                       "text/html; charset=utf-8")
+                         ct-vals (keep (fn [[k v]]
+                                         (when (= "content-type" (str/lower-case (str k))) v))
+                                       result)]
+                   :when (not= ["text/html; charset=utf-8"] ct-vals)]
+               [casing ct-vals]))
+          "every casing leaves exactly one content-type key, carrying the
+           override value rather than the accumulator's pair (lists any casing
+           that did not, with its content-type values)"))))
 
 ;; ===========================================================================
 ;; The handler :content-type opt is honored on the wire

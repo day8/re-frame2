@@ -243,15 +243,17 @@
           "throw on write 3 → :phase :final-payload")
       (is (= :suffix (-> suffix-ev :tags :phase))
           "throw on write 4 → :phase :suffix")
-      ;; Every writer phase runs post-head-commit.
-      (doseq [ev [prefix-ev final-ev suffix-ev]]
-        (is (true? (-> ev :tags :committed?))
+      ;; Every writer phase runs post-head-commit, and carries no
+      ;; :boundary-id outside a continuation drain. One read per property
+      ;; over the three phases, in prefix / final-payload / suffix order.
+      (let [evs [prefix-ev final-ev suffix-ev]]
+        (is (= [true true true] (mapv #(-> % :tags :committed?) evs))
             ":committed? true on every writer phase (post-head-commit)")
-        (is (= :truncate-and-close (:recovery ev))
-            ":recovery hoisted to top-level as :truncate-and-close on every phase"))
-      ;; No :boundary-id outside a continuation drain.
-      (doseq [ev [prefix-ev final-ev suffix-ev]]
-        (is (not (contains? (:tags ev) :boundary-id))
+        (is (= [:truncate-and-close :truncate-and-close :truncate-and-close]
+               (mapv :recovery evs))
+            ":recovery hoisted to top-level as :truncate-and-close on every phase")
+        (is (= [false false false]
+               (mapv #(contains? (:tags %) :boundary-id) evs))
             "no :boundary-id tag outside a continuation phase")))))
 
 (deftest writer-failed-trace-carries-boundary-id-on-continuation-phase
