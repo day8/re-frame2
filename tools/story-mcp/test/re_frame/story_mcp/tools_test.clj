@@ -1536,15 +1536,27 @@
 ;; Write surface (gating)
 ;; ---------------------------------------------------------------------------
 
-(deftest register-variant-gated-by-default
-  (testing "default config rejects register-variant"
-    (is (false? (rf.story-mcp.config/writes-allowed?)))
+(deftest write-tools-gated-by-default-name-the-caller
+  ;; With the gate at its default (closed), both write tools refuse through
+  ;; `assert-writes-allowed`, which must stamp the gated-error payload with
+  ;; the ACTUAL invoking tool name. Hardcoding `:tool "register-variant"`
+  ;; would make the other caller (`unregister-variant`) return a gated error
+  ;; whose `:structuredContent :tool` slot LIES about its origin. This test
+  ;; pins the refusal and the slot at each callsite, and the shared message
+  ;; once.
+  (testing "gated error's :structuredContent :tool matches the invoking tool"
+    (is (false? (rf.story-mcp.config/writes-allowed?))
+        "fixture must leave the gate closed for this test")
     (let [r (invoke "register-variant" {:variant-id "story.button/danger"
-                                        :body {:doc "Danger button."
-                                               :args {:label "Delete"}}})]
+                                        :body {:doc "x"}})]
       (is (error? r))
       (is (re-find #"Write surface disabled" (-> r :content first :text)))
-      (is (true? (-> r :structuredContent :gated))))))
+      (is (true? (-> r :structuredContent :gated)))
+      (is (= "register-variant" (-> r :structuredContent :tool))))
+    (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
+      (is (error? r))
+      (is (true? (-> r :structuredContent :gated)))
+      (is (= "unregister-variant" (-> r :structuredContent :tool))))))
 
 ;; ---------------------------------------------------------------------------
 ;; EDN reader hardening on register-variant :body
@@ -1637,12 +1649,8 @@
       (let [body (edn-doc-body ch n)]
         (is (= code-units (count body))
             (str what ": the fixture is genuinely UNDER the cap in code units"))
-        (is (< (count body) (* 64 1024))
-            (str what ": so a code-unit ruler would have ADMITTED it"))
         (is (= bytes (utf8-byte-len body))
             (str what ": and genuinely OVER it in UTF-8 bytes"))
-        (is (> (utf8-byte-len body) (* 64 1024))
-            (str what ": so a byte ruler must REFUSE it"))
         (let [r (invoke "register-variant"
                         {:variant-id "story.button/oversize-multibyte"
                          :body       body})]
@@ -1661,8 +1669,6 @@
           r    (invoke "register-variant"
                        {:variant-id "story.button/ascii-under-cap"
                         :body       body})]
-      (is (= (count body) (utf8-byte-len body))
-          "on ASCII the two rulers agree exactly -- which is the blind spot")
       (is (not (re-find #"(?i)must be a map or a valid EDN string"
                         (-> r :content first :text)))
           "the size gate does not fire on an under-cap ASCII body"))))
@@ -1764,6 +1770,22 @@
         (is (nil? (rf.story/variant->edn :story.button/wide))
             "the too-wide body never reaches the registrar")))))
 
+(deftest register-variant-object-body-rejects-overdeep
+  (testing "an object-form :body past the depth cap is rejected, not interned"
+    (rf.story-mcp.config/set-allow-writes! true)
+    ;; Build a string-keyed map nested far past max-edn-depth (64). The
+    ;; depth check in coerce-body must reject it BEFORE keywordize-body-keys
+    ;; walks (and interns) any of the pathological keys.
+    (let [probe (str "rf2-3luf3-deep-" (System/nanoTime))
+          deep  (reduce (fn [acc i] {(str probe "-" i) acc})
+                        {(str probe "-leaf") 1}
+                        (range 70))
+          r     (invoke "register-variant"
+                        {:variant-id "story.button/wire-deep" :body deep})]
+      (is (error? r) "an over-deep object body is rejected")
+      (is (nil? (find-keyword (str probe "-leaf")))
+          "a rejected over-deep body MUST NOT have interned its keys"))))
+
 (deftest register-variant-narrow-object-body-still-registers
   (testing "a normal object-form body (string keys, under the width cap) still registers (regression guard)"
     (rf.story-mcp.config/set-allow-writes! true)
@@ -1774,7 +1796,9 @@
       (is (some? (rf.story/variant->edn :story.button/objform))
           "the variant reached the registry")
       (is (= "object-form body" (:doc (rf.story/variant->edn :story.button/objform)))
-          "string keys were keywordised into the registered body"))))
+          "string keys were keywordised into the registered body")
+      (is (= "Go" (-> (rf.story/variant->edn :story.button/objform) :args :label))
+          "nested object-body keys were keywordised recursively"))))
 
 (deftest unregister-variant-happy-when-allowed
   (rf.story-mcp.config/set-allow-writes! true)
@@ -1798,33 +1822,7 @@
       (is (error? r))
       (is (re-find #"not found" (-> r :content first :text)))
       (is (not (contains? (:structuredContent r) :unregistered?))
-          "no :unregistered? slot on the not-found path — it's an error, not a success envelope")))
-  (testing "the success path always reports :unregistered? true"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "unregister-variant" {:variant-id "story.button/secondary"})]
-      (is (success? r))
-      (is (true? (-> r :structuredContent :unregistered?))
-          "a resolved (hence registered) variant is always actually removed"))))
-
-(deftest gated-error-tool-slot-pins-caller
-  ;; `assert-writes-allowed` must stamp the gated-error payload with the
-  ;; ACTUAL invoking tool name. Hardcoding `:tool "register-variant"` would
-  ;; make the other caller (`unregister-variant`)
-  ;; return a gated error whose `:structuredContent :tool` slot LIES about
-  ;; its origin. This test pins the slot to the actual tool name at each
-  ;; callsite.
-  (testing "gated error's :structuredContent :tool matches the invoking tool"
-    (is (false? (rf.story-mcp.config/writes-allowed?))
-        "fixture must leave the gate closed for this test")
-    (let [r (invoke "register-variant" {:variant-id "story.button/danger"
-                                        :body {:doc "x"}})]
-      (is (error? r))
-      (is (true? (-> r :structuredContent :gated)))
-      (is (= "register-variant" (-> r :structuredContent :tool))))
-    (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
-      (is (error? r))
-      (is (true? (-> r :structuredContent :gated)))
-      (is (= "unregister-variant" (-> r :structuredContent :tool))))))
+          "no :unregistered? slot on the not-found path — it's an error, not a success envelope"))))
 
 ;; ---------------------------------------------------------------------------
 ;; record-as-variant — not a tool
@@ -4291,10 +4289,12 @@
 ;; (no-intern via `find-keyword`); nested data-bearing maps keep string
 ;; keys and are routed through each surface's own bounded keyword policy.
 ;;
-;; These tests drive the FULL stdio path (`rf.story-mcp.server/run-loop!` /
-;; `rf.story-mcp.protocol/read-frame` over a real JSON frame) — the gap the
-;; direct-`invoke` no-intern tests above leave open, since those
-;; bypass `parse-json` / `read-frame`.
+;; The `ingress-*` tests drive the FULL stdio path
+;; (`rf.story-mcp.server/run-loop!` / `rf.story-mcp.protocol/read-frame`
+;; over a real JSON frame) — the gap the direct-`invoke` no-intern tests
+;; above leave open, since those bypass `parse-json` / `read-frame`. The
+;; `read-run-opts-*` tests call `read-run-opts` directly with the
+;; string-keyed shape `parse-json` produces.
 ;; ---------------------------------------------------------------------------
 
 (defn- run-frames!
@@ -4628,42 +4628,6 @@
           "the variant-id arg keywordised + resolved through the allowlist")
       (is (= "Primary button." (-> result :structuredContent :body :doc))
           "the variant body came back, confirming a real dispatch"))))
-
-(deftest register-variant-object-body-over-wire-keywordises-under-gate
-  (testing "an object-form :body sent as JSON registers with keyword slots on the write path"
-    ;; Post no-intern ingress the object-form body arrives string-keyed;
-    ;; `coerce-body` re-keywordises it under the (operator-gated) write
-    ;; path. This proves the spec's documented "object body (preferred)"
-    ;; form keeps working over the real wire — its keys become keywords.
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/wire-obj"
-                     ;; Simulate the post-parse-json wire shape: a
-                     ;; STRING-keyed object body.
-                     :body {"doc"  "Object body over wire."
-                            "args" {"label" "OK"}}})]
-      (is (success? r) "object-form body registers under the write gate")
-      (let [edn (rf.story/variant->edn :story.button/wire-obj)]
-        (is (= "Object body over wire." (:doc edn))
-            "the body's top-level string keys were keywordised")
-        (is (= "OK" (-> edn :args :label))
-            "nested object-body keys were keywordised recursively")))))
-
-(deftest register-variant-object-body-rejects-overdeep
-  (testing "an object-form :body past the depth cap is rejected, not interned"
-    (rf.story-mcp.config/set-allow-writes! true)
-    ;; Build a string-keyed map nested far past max-edn-depth (64). The
-    ;; depth check in coerce-body must reject it BEFORE keywordize-body-keys
-    ;; walks (and interns) any of the pathological keys.
-    (let [probe (str "rf2-3luf3-deep-" (System/nanoTime))
-          deep  (reduce (fn [acc i] {(str probe "-" i) acc})
-                        {(str probe "-leaf") 1}
-                        (range 70))
-          r     (invoke "register-variant"
-                        {:variant-id "story.button/wire-deep" :body deep})]
-      (is (error? r) "an over-deep object body is rejected")
-      (is (nil? (find-keyword (str probe "-leaf")))
-          "a rejected over-deep body MUST NOT have interned its keys"))))
 
 (deftest normalize-frame-drops-unknown-arg-keys-but-keeps-known
   (testing "normalize-frame keeps allowlisted arg keys (keyword), drops + DIAGNOSES the rest"
