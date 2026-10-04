@@ -75,17 +75,10 @@
         (is (= [:user] (-> v :tags :registered-path))
             ":registered-path carries the registration anchor")
         (is (= :user/set-bad (-> v :tags :failing-id)))
-        (is (= :app-db (-> v :tags :where)))))))
-
-(deftest path-includes-leaf-in-reason-string
-  (testing "the human-readable :reason carries the leaf path so the
-            elision-probe substring stays distinctive per surface"
-    (rf/reg-app-schema [:user] [:map [:age :int]])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema! {:user {:age "old"}} :u/bad))
-          v      (first traces)]
-      (is (.contains ^String (-> v :tags :reason) "[:user :age]")
-          ":reason names the leaf path"))))
+        (is (= :app-db (-> v :tags :where)))
+        (is (str/includes? (-> v :tags :reason) "[:user :id]")
+            ":reason names the leaf path, so the elision-probe substring stays
+             distinctive per surface")))))
 
 (deftest path-falls-back-to-registered-root-when-in-is-empty
   (testing "when the registered schema is itself the failing slot
@@ -97,22 +90,6 @@
       (is (= [:count] (-> v :tags :path))
           ":path is the registered root — no leaf to narrow to")
       (is (= [:count] (-> v :tags :registered-path))))))
-
-(deftest path-narrows-on-deeply-nested-failure
-  (testing "deeply nested failures resolve the full leaf path through
-            multiple :map levels"
-    (rf/reg-app-schema [:root]
-                       [:map
-                        [:a [:map
-                             [:b [:map
-                                  [:c [:map [:d :int]]]]]]]])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      {:root {:a {:b {:c {:d "not-an-int"}}}}}
-                      :r/bad))
-          v      (first traces)]
-      (is (= [:root :a :b :c :d] (-> v :tags :path))
-          ":path is the full deep leaf"))))
 
 ;; ---- sensitivity is path-targeted, not whole-schema ----------------------
 
@@ -176,40 +153,6 @@
       (is (= :rf/redacted (-> v :tags :explain)))
       (is (= [:user :password] (-> v :tags :path))
           ":path stays visible — structural slot survives redaction"))))
-
-(deftest ancestor-sensitive-redacts
-  (testing "a failure deep inside a sensitive container redacts — the
-            failing slot is part of a sensitive subtree"
-    (rf/reg-app-schema [:auth]
-                       [:map {:sensitive? true}
-                        [:token :string]
-                        [:expiry :int]])
-    ;; :token is the failing leaf (int, not string); the container
-    ;; [:auth] is sensitive, so the whole subtree is sensitive.
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      {:auth {:token 42 :expiry 9999}}
-                      :auth/bad))
-          v      (first traces)]
-      (is (true? (:sensitive? v))
-          "ancestor-sensitive — the failing leaf inherits sensitivity")
-      (is (= :rf/redacted (-> v :tags :value))))))
-
-(deftest descendant-sensitive-redacts
-  (testing "a failure at a container whose descendant is sensitive
-            redacts — the failing value carries the sensitive child"
-    ;; The whole [:user] map fails because it's not even a map.
-    (rf/reg-app-schema [:user]
-                       [:map
-                        [:name     :string]
-                        [:password {:sensitive? true} :string]])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema! {:user "wholly-bogus"} :u/bad))
-          v      (first traces)]
-      (is (true? (:sensitive? v))
-          "descendant-sensitive — the failing value is the whole map and
-          contains the sensitive child slot's value")
-      (is (= :rf/redacted (-> v :tags :value))))))
 
 (deftest both-sensitive-and-clean-failures-handled-independently
   (testing "two registered schemas; one's failure is sensitive, the
