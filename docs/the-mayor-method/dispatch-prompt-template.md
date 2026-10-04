@@ -550,10 +550,25 @@ is that you do not write. Treat every tracked path as READ-ONLY. A slip here doe
 not land in a private tree somebody can discard; it lands in the tree every other
 worker is reading.
 
-Before you report done, ask version control whether <MAYOR_CHECKOUT> is clean and
-say so. If anything is modified, STOP and report it — do not repair, revert,
-commit or stash. A change you did not make is somebody else's, and a stash is
-repository-global: it surfaces in every other worker's worktree.
+Before you start, ask version control for the status of <MAYOR_CHECKOUT>,
+untracked paths included, and for the revision it has checked out, and keep
+both answers with their exit codes: that is your BASELINE. It may already list
+untracked paths that belong to somebody else; they are not yours to explain or
+to clean up.
+
+Before you report done, ask both again, quote the before and after reads with
+their exit codes, and say which you found. The baseline unchanged, untracked
+paths and all, is preserved: say so and finish. A tracked modification, or any
+difference from the baseline you cannot explain: STOP and report it. A query
+that exited non-zero, at either read: STOP and report it — that is "I could
+not look", not "clean". Whatever you find, do not repair, delete, revert,
+commit or stash anything to make the check pass. A change you did not make is
+somebody else's, and a stash is repository-global: it surfaces in every other
+worker's worktree.
+
+A revision that moved between the two reads because the coordinator committed
+an authorised checkpoint in <MAYOR_CHECKOUT> is not your change and not a STOP:
+report the revision before and after, and continue.
 
 Your output goes to the item, and while you work, to the version-ignored working
 tree. Commit nothing, open no change, and never link an ignored file from a
