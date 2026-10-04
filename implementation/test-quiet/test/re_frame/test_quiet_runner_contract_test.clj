@@ -32,8 +32,7 @@
      stdout.
    - DISCOVERY: a file whose `(ns ...)` form the reader cannot read
      refuses the run (exit 1, named on stderr) instead of leaving it
-     silently short a suite — and the same fixture is green the moment
-     before that file arrives. Likewise a selected `.cljc` that `require`
+     silently short a suite. Likewise a selected `.cljc` that `require`
      would never load, because a `.clj` of its namespace answers from
      another classpath root.
    - FIXTURES: a namespace whose `use-fixtures` entry is DATA rather
@@ -1495,9 +1494,10 @@
 ;; The rule itself is pinned against the discovery library in
 ;; `re-frame.test-quiet-discovery-integrity-test`. What is pinned HERE is
 ;; the only part that needs a real process: that `-main` applies it, refuses
-;; before a test runs, and says which file — and that the SAME fixture is
-;; green the moment before the broken file arrives, which is what makes the
-;; red attributable to the file rather than to the guard.
+;; before a test runs, and says which file. The passing fixture beside the
+;; broken file is the one-test body `green-runner-exact-shape` already runs
+;; green through the same invocation, so naming the broken file is what
+;; attributes the red to it rather than to the guard.
 
 (deftest an-undiscoverable-file-refuses-the-run
   (testing "a file whose `(ns ...)` form the reader cannot read reds the
@@ -1506,11 +1506,6 @@
       (fn [dir]
         (write-fixture! dir "discovery_fixture_test" "discovery-fixture-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "BEFORE: the fixture alone is green, so the red below"
-                   " belongs to the broken file and not to the guard; got "
-                   exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))
 
         ;; One unescaped `"` inside the ns docstring. The reader consumes
         ;; the rest of the file as a string and hits EOF, so the form never
@@ -1524,7 +1519,7 @@
 
         (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (= 1 exit)
-              (str "AFTER: an undiscoverable file must red the run; exit 0"
+              (str "an undiscoverable file must red the run; exit 0"
                    " here is the bug — the suite would report `0 failures`"
                    " over a file it never loaded. Got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
