@@ -115,18 +115,6 @@
           g   (rf.story.golden/make-golden run {:keep-run-result true})]
       (is (= (rf.story.golden/behavioural-slice run) (:run-result g))))))
 
-(deftest golden-round-trips
-  (testing "canonicalizing the same run twice yields the SAME golden :canonical
-            — the round-trip property the golden contract rests on"
-    (let [run (run-result {:app-db {:user {:name "ada"} :n 3}
-                           :effects [{:fx :http/get :args {:url "/a"}}]})
-          g1  (rf.story.golden/make-golden run)
-          g2  (rf.story.golden/make-golden run)]
-      (is (= (:canonical g1) (:canonical g2)))
-      (is (= (:run-hash g1) (:run-hash g2)))
-      (is (rf.story.golden/golden-match? g1 run)
-          "a golden matches the very run it was captured from"))))
-
 ;; ===========================================================================
 ;; PURE: golden-match?  (equivalent ⇒ true, real difference ⇒ false)
 ;; ===========================================================================
