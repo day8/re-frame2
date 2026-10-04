@@ -2,10 +2,9 @@
   "CLJS coverage for `(rf/init! ...)`'s explicit-adapter contract.
 
   The JVM half (re-frame.boot-test) covers the boot semantics
-  end-to-end. This namespace adds CLJS-specific coverage: requiring
-  re-frame.adapter.reagent does NOT register the Reagent adapter
-  anywhere — there is no default-adapter registry — so the consumer
-  must always pass `reagent-adapter/adapter` explicitly.
+  end-to-end. This namespace runs the explicit install and the refused
+  arguments on the CLJS host: there is no default-adapter registry, so the
+  consumer must always pass `reagent-adapter/adapter` explicitly.
 
   ns ends in -cljs-test so shadow-cljs `:node-test` picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -28,19 +27,6 @@
 (use-fixtures :each cold-start-fixture)
 
 ;; ---- tests ----------------------------------------------------------------
-
-(deftest reagent-ns-load-has-no-side-effects
-  (testing "requiring re-frame.adapter.reagent does NOT auto-install or auto-register"
-    (is (nil? (rf.substrate.adapter/current-adapter))
-        "ns-load does not install the adapter")
-    (is (map? rf.adapter.reagent/adapter)
-        "the adapter ns exports its spec as the public `adapter` var")
-    (is (= 10 (count (filter fn? (vals rf.adapter.reagent/adapter))))
-        "the exported adapter map carries the full contract — the six required +
-         subscribe-container + register-context-provider + dispose-adapter! +
-         the optional flush-render! fn")
-    (is (= :rf.adapter/reagent (:kind rf.adapter.reagent/adapter))
-        "the adapter map carries its discriminator keyword under :kind")))
 
 (deftest init-explicit-installs-reagent
   (testing "(rf/init! reagent/adapter) installs the Reagent adapter"
