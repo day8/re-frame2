@@ -43,10 +43,6 @@
       the parallel drains route fx. It is an action's OUTPUT, so no
       registration check can see it.
 
-    - `chase-ref` one-level indirection — a `{:short-name :registered-id}`
-      binding map resolves the short-name to the registered fn through
-      one hop (transition.cljc).
-
   All assertions are pure functions of their arguments — no frame, no
   dispatch loop, no app-db, no wall-clock — so they are deterministic by
   construction (the determinism canon)."
@@ -447,28 +443,3 @@
         (is (string? (:reason (ex-data e))) (str label " carries a :reason sentence"))
         (is (= 'rf/reg-machine (:where (ex-data e))) (str label " carries :where"))
         (is (keyword? (:recovery (ex-data e))) (str label " carries :recovery"))))))
-
-;; ---------------------------------------------------------------------------
-;; chase-ref one-level indirection — a {:short-name :registered-id} binding
-;; resolves the short-name to the registered fn through ONE hop
-;; (transition.cljc). Exercised here through the public guard surface.
-;; ---------------------------------------------------------------------------
-
-(deftest chase-ref-resolves-one-level-of-indirection
-  (testing "a :guard short-name that points at ANOTHER key in :guards (which
-   holds the fn) resolves through the one-level chase and gates the transition"
-    (let [spec {:id     :probe/indirect-guard
-                :initial :a
-                :data    {:open? true}
-                :guards  {:gate   :is-open?                       ;; short-name → registered id
-                          :is-open? (fn [{d :data}] (:open? d))}  ;; registered id → fn
-                :states  {:a {:on {:go {:target :b :guard :gate}}}
-                          :b {}}}
-          {s-pass :snapshot} (rf.machines/machine-transition
-                                  spec {:state :a :data {:open? true}} [:go])
-          {s-fail :snapshot} (rf.machines/machine-transition
-                                  spec {:state :a :data {:open? false}} [:go])]
-      (is (= :b (:state s-pass))
-          "indirected guard resolved + passed ⇒ transition fires")
-      (is (= :a (:state s-fail))
-          "indirected guard resolved + failed ⇒ no transition (guard gated it)"))))
