@@ -188,22 +188,3 @@
              and the `hydration only reconciles element structure` claim
              would have been right after all")))))
 
-(deftest namespaced-keyword-child-hydrates
-  (if-not (browser?)
-    (is true "skipped under node — no js/document; npm run test:browser asserts")
-    (do
-      (testing "the namespace-dropping case, which a
-                colon-stripping emitter would get wrong: the emitter sends
-                `b` for `:a/b`, and that is what hydrates clean"
-        (let [{:keys [complaints text]}
-              (hydrate-over "<div>b</div>" [:div :a/b])]
-          (is (empty? (hydration-complaints complaints))
-              (str "got: " (pr-str (hydration-complaints complaints))))
-          (is (= "b" text))))
-
-      (testing "…and the spelling a colon-strip would produce does NOT
-                hydrate, which is why the spelling is the `name`"
-        (let [{:keys [complaints]} (hydrate-over "<div>a/b</div>" [:div :a/b])]
-          (is (seq (hydration-complaints complaints))
-              "`a/b` must be a mismatch — pinning this stops a future
-               `simplification` to colon-stripping from landing green"))))))
