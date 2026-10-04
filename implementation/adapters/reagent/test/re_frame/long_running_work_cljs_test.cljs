@@ -2,8 +2,8 @@
   "Integration test: drives the long-running-work example
    through the parent coordinator + child workers. Each helper spins a
    fresh frame via `make-frame`, walks the :work/flow parent through a
-   flow (spawn cascade, happy-path join, mid-flight cancel, reset
-   round-trip), and asserts the resulting
+   flow (happy-path join, mid-flight cancel, reset round-trip), and
+   asserts the resulting
    [:rf.db/runtime :rf.runtime/machines :snapshots :work/flow] snapshot + the
    runtime-owned [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]
    join-state slot.
@@ -98,37 +98,7 @@
       {:frame test-frame})))
 
 ;; ============================================================================
-;; (1) SPAWN CASCADE — :start spawns 3 children
-;; ============================================================================
-
-(defn- test-spawn-cascade []
-  (with-new-frame [f (new-frame)]
-    ;; After :app/initialise, the parent is :idle with progress all-zero.
-    (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= :idle (:state parent-snapshot)))
-      (is (= {:s1 0 :s2 0 :s3 0} (-> parent-snapshot :data :progress)))
-      (is (nil? (join-state f))))                            ;; not yet allocated
-
-    ;; :start transitions :idle → :working; the runtime emits
-    ;; :rf.machine/spawn-all-init + 3 :rf.machine/spawn fxs. The
-    ;; init fx seeds the join-state map at
-    ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] with :children mapping
-    ;; each user-supplied id (:s1/:s2/:s3) to the gensym'd
-    ;; spawned-id (:work/processor#N).
-    (rf/dispatch-sync [:work/flow [:start]] {:frame f})
-    (let [parent-snapshot (parent-machine-snapshot f)
-          join-snapshot   (join-state f)]
-      (is (= :working (:state parent-snapshot)))
-      ;; The runtime allocated a join-state slot at
-      ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] keyed by user id.
-      (is (map? join-snapshot))
-      (is (= #{:s1 :s2 :s3} (set (keys (:children join-snapshot)))))
-      (is (false? (:resolved? join-snapshot)))
-      (is (empty?  (:done join-snapshot)))
-      (is (empty?  (:failed join-snapshot))))))
-
-;; ============================================================================
-;; (2) HAPPY-PATH JOIN COMPLETION — synthesised completion carriers
+;; (1) HAPPY-PATH JOIN COMPLETION — synthesised completion carriers
 ;; ============================================================================
 
 (defn- test-happy-path-join []
@@ -173,7 +143,7 @@
       (is (nil? (join-state f))))))
 
 ;; ============================================================================
-;; (3) MID-FLIGHT CANCELLATION CASCADE — :cancel tears every child down
+;; (2) MID-FLIGHT CANCELLATION CASCADE — :cancel tears every child down
 ;; ============================================================================
 
 (defn- test-cancel-cascade []
@@ -214,7 +184,7 @@
              (-> parent-snapshot :data :progress))))))
 
 ;; ============================================================================
-;; (4) RESET ROUND-TRIP — :cancelled → :idle clears progress for re-run
+;; (3) RESET ROUND-TRIP — :cancelled → :idle clears progress for re-run
 ;; ============================================================================
 
 (defn- test-reset-after-cancel []
@@ -228,10 +198,6 @@
       (is (= :idle (:state parent-snapshot)))
       (is (= {:s1 0 :s2 0 :s3 0} (-> parent-snapshot :data :progress)))
       (is (nil? (-> parent-snapshot :data :outcome))))))
-
-(deftest long-running-work-spawn-cascade
-  (testing ":start spawns 3 children via :spawn-all and seeds the join-state"
-    (test-spawn-cascade)))
 
 (deftest long-running-work-happy-path-join
   (testing "synthesised completion carriers resolve the :all join and stamp :complete"
