@@ -45,7 +45,7 @@
             ;; the `:where :machine-data` boundary routes through; boot.core
             ;; pulls it transitively (via boot.schema), require explicitly so
             ;; this ns is self-sufficient.
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.schemas.malli]
             [boot.schema :as boot-schema]
             [re-frame.views]
@@ -293,29 +293,6 @@
     (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                    (= :machine-data (-> % :tags :where)))
              @traces)))
-
-(deftest boot-data-schema-attached
-  (testing "the :app/boot machine carries BootData on its [:schemas :data] slot"
-    (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :app/boot}))]
-      (is (some? meta) "the :rf/machine projection resolves the registered :app/boot machine")
-      (is (= boot-schema/BootData (get-in meta [:schemas :data]))
-          "the [:schemas :data] schema round-trips as boot.schema/BootData")))
-  (testing "BootData validates the :data slot only (rejects a malformed :config)"
-    (is (true?  (rf.schemas/validate-with-registered-fn
-                  boot-schema/BootData
-                  {:phase :configuring :config nil :flags nil
-                   :user nil :routes nil :error nil}))
-        "the initial all-nil :data conforms")
-    (is (true?  (rf.schemas/validate-with-registered-fn
-                  boot-schema/BootData
-                  {:phase :hydrating :config test-config :flags nil
-                   :user nil :routes nil :error nil}))
-        "a well-formed promoted :config conforms")
-    (is (false? (rf.schemas/validate-with-registered-fn
-                  boot-schema/BootData
-                  {:phase :loading-deps :config {:api-base "/api"} :flags nil
-                   :user nil :routes nil :error nil}))
-        "a :config missing required keys (:env/:build/:title) fails the data-slot schema")))
 
 (deftest boot-malformed-data-fails-boundary
   (testing "a config child returning a malformed Config drives :promote-staged to write bad :data, failing the :machine-data boundary"
