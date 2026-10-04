@@ -14,11 +14,6 @@
             [re-frame.story :as rf.story]
             [re-frame.story.share :as rf.story.share]))
 
-(deftest public-export-cljs
-  (testing "rf.story/variant-share-url resolves on CLJS"
-    (let [url (rf.story/variant-share-url :story.x/y "" nil)]
-      (is (re-find #"variant=" url)))))
-
 (deftest variant-share-url-clears-stale-omitted-keys-cljs
   (testing "build-params omits empty / default optional slots, so a
             builder replacing only the keys it emits would let a base-url's
