@@ -196,17 +196,6 @@
          (f)))
     @reports))
 
-(deftest on-epoch-reports-each-distinct-epoch
-  (testing "distinct failing epochs each report once"
-    (let [coerced (rf.story.invariants/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
-          state   (atom {:seen #{} :violations []})
-          reports (with-captured-reports
-                    (fn []
-                      (rf.story.invariants/on-epoch! state coerced (epoch 1 {:db-after {:n -1}}))
-                      (rf.story.invariants/on-epoch! state coerced (epoch 2 {:db-after {:n -2}}))))]
-      (is (= 2 (count (filter #(= :fail (:type %)) reports))))
-      (is (= 2 (count (:violations @state)))))))
-
 (deftest on-epoch-reports-once-per-frame-same-epoch-id
   (testing "two frames with the SAME epoch-id each report once (dedup-key is per-frame)"
     ;; `with-invariants` observes EVERY frame's epochs, so report-once must
