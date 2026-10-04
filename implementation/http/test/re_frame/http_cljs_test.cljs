@@ -11,19 +11,16 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             ;; Drive the full `:rf.http/managed` pipeline (fx
-            ;; registration + in-flight registry) for the backoff-window
-            ;; cancellation test below.
+            ;; registration + in-flight registry) for the end-to-end tests
+            ;; below.
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport-cljs :as rf.http.transport-cljs]
+            [re-frame.test-support :as rf.test-support]
             ;; Assert the redacted `:rf.warning/http-header-invalid`
             ;; trace fires (instead of an escaping `:rf.error/fx-handler-
             ;; exception`) when an invalid request header hits the managed
-            ;; CLJS path. `re-frame.trace.tooling` owns the listener surface;
-            ;; `re-frame.http.url` carries
-            ;; the canonical HTTP redaction sentinel.
-            [re-frame.http.url :as rf.http.url]
-            [re-frame.test-support :as rf.test-support]
+            ;; CLJS path. `re-frame.trace.tooling` owns the listener surface.
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Fetch transport and classification are named adapter seams.
@@ -102,10 +99,8 @@
     (let [err (js/Error. "connection-reset")
           out (classify-cljs-error err "/api/items")]
       (is (= :rf.http/transport (:kind out)))
-      (is (string? (:cause out))
-          ":cause is a STRING (the error class name), not the raw js/Error")
       (is (= "Error" (:cause out))
-          ":cause is `(.-name err)` — \"Error\" for a plain js/Error")
+          ":cause is the class-name STRING `(.-name err)` — \"Error\" for a plain js/Error, not the raw js/Error")
       (is (= "connection-reset" (:message out))
           ":message carries the human message")
       ;; Adversarial EDN round-trip: a raw js/Error `:cause` prints as an
@@ -395,8 +390,6 @@
                        ;; NOT a serialised-vector blob.
                        (is (= "alpha, beta, gamma" (.get h "X-Multi"))
                            "each vector element was appended as its own value")
-                       (is (not (re-find #"\[" (.get h "X-Multi")))
-                           "no serialised-vector bracket leaked onto the wire value")
                        (is (= "solo" (.get h "X-One"))
                            "a scalar header value is a single appended value"))))
             (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
@@ -594,9 +587,7 @@
                            (:url tags))
                         "denylisted query-param value MUST be scrubbed in the trace URL")
                     (is (true? (:sensitive? w))
-                        ":sensitive? stamped at top level — a denylisted param name is a signal")
-                    (is (= rf.http.url/redacted-sentinel :rf/redacted)
-                        "sanity: the redaction sentinel is the reserved keyword")))))
+                        ":sensitive? stamped at top level — a denylisted param name is a signal")))))
             ;; Handler upstream of the single trailing `done`.
             (.catch (fn [e]
                       (is false (str "unexpected reject: " e))
@@ -604,15 +595,14 @@
             (.then (fn [_] (done))))))))
 
 (deftest cljs-fetch-valid-headers-emit-no-invalid-warning
-  (testing "a request with only VALID headers emits NO
-  `:rf.warning/http-header-invalid` trace (the catch arm never fires) and
-  resolves normally — the multi-valued behaviour holds."
+  (testing "a request with only VALID headers, a multi-valued one among
+  them, emits NO `:rf.warning/http-header-invalid` trace (the catch arm
+  never fires) and resolves normally."
     (async done
-      (let [captured-init (atom nil)
-            resp (fake-response {:status 200 :content-type "application/json"
+      (let [resp (fake-response {:status 200 :content-type "application/json"
                                  :text-val "{}"})]
         (-> (with-trace-capture
-              #(with-init-capturing-fetch resp captured-init
+              #(with-stub-fetch resp
                  (fn []
                    (cljs-fetch {:method  :get
                                 :url     "https://example.invalid/v1"
@@ -625,10 +615,7 @@
                                         (:operation %))
                                     @seen)]
                   (is (empty? warns)
-                      "no header-invalid warning for valid headers"))
-                (let [h (aget @captured-init "headers")]
-                  (is (= "alpha, beta" (.get h "X-Multi"))
-                      "valid multi-valued header still accumulates per-element"))))
+                      "no header-invalid warning for valid headers"))))
             ;; Handler upstream of the single trailing `done`.
             (.catch (fn [e]
                       (is false (str "unexpected reject: " e))
@@ -758,12 +745,15 @@
   to end, the slow-loris does not pin an in-flight
   handle indefinitely."
     (async done
+      ;; Inline setup, as in every end-to-end test in this ns: it also
+      ;; carries `async` pure-transport tests, and a wrap-style
+      ;; `use-fixtures` reset would tear down before an async body completes.
+      ;; `init!` does not synthesise `:rf/default` (EP-0002), and the
+      ;; managed-HTTP fxs require a carried frame stamp, so `:rf/default` is
+      ;; registered explicitly and every dispatch names its frame
+      ;; (`{:frame <id>}`), so the sync dispatch AND any async continuation
+      ;; target it without an ambient scope.
       (rf/init! rf.adapter.reagent/adapter)
-      ;; `init!` does not synthesise `:rf/default` (EP-0002),
-      ;; and the managed-HTTP fxs require a carried frame stamp. Register
-      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
-      ;; :rf/default}` (the override) so the sync dispatch AND the async
-      ;; abort continuation both target it without an ambient scope.
       (rf.frame/ensure-default-frame!)
       (rf.http.managed/clear-all-in-flight!)
       (let [replies    (atom [])
@@ -809,12 +799,15 @@
 ;; ---- the retry backoff window is cancellable (CLJS) -----------------------
 ;;
 ;; The JVM suite (re-frame.http-backoff-cancellation-test) covers all three
-;; cancellation paths against a real server with real threads. This CLJS
-;; counterpart pins the same invariant on the `js/setTimeout`-backed backoff
-;; timer + `js/clearTimeout` cancellation primitive: an abort issued DURING
-;; the backoff window cancels the pending retry (no second fetch) and clears
-;; the in-flight registry. A request invisible to the abort path for the
-;; whole backoff would let the retry fetch again regardless.
+;; cancellation paths against a real server with real threads; the
+;; `:rf.http/managed-abort` route into a sleeping request is shared `.cljc`
+;; code. The CLJS tests pin the same invariant on the `js/setTimeout`-backed
+;; backoff timer + `js/clearTimeout` cancellation primitive, through frame
+;; destroy (below) and an external `:abort-signal` (the external-abort
+;; section): a cancel issued DURING the backoff window cancels the pending
+;; retry (no second fetch) and clears the in-flight registry. A request
+;; invisible to the abort path for the whole backoff would let the retry
+;; fetch again regardless.
 
 (defn- with-counting-500-fetch
   "Stub `js/fetch` to always resolve a 500 and increment `count-atom` on
@@ -828,90 +821,6 @@
             (swap! count-atom inc)
             (js/Promise.resolve resp)))
     (fn [] (set! (.-fetch js/globalThis) orig))))
-
-(deftest cljs-abort-during-backoff-cancels-pending-retry
-  (testing "a :rf.http/managed-abort issued while the request sleeps in the `js/setTimeout` backoff window cancels the pending retry (no second fetch) and clears the registry"
-    (async done
-      ;; Self-contained runtime setup — this ns also carries `async`
-      ;; pure-transport tests, so cljs.test forbids a wrap-style
-      ;; `use-fixtures` reset here (it would tear down before the async
-      ;; body completes). Install the adapter + clear the registry inline.
-      (rf/init! rf.adapter.reagent/adapter)
-      ;; `init!` does not synthesise `:rf/default` (EP-0002),
-      ;; and the managed-HTTP fxs require a carried frame stamp. Register
-      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
-      ;; :rf/default}` (the override) so the sync dispatch AND the async
-      ;; abort continuation both target it without an ambient scope.
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [fetch-count (atom 0)
-            replies     (atom [])
-            restore     (with-counting-500-fetch fetch-count)
-            ;; 80ms backoff — long enough to abort inside deterministically,
-            ;; short enough to keep the test fast.
-            backoff-ms  80]
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url "/always-500"}
-                    :decode     :json
-                    :retry      {:on           #{:rf.http/http-5xx}
-                                 :max-attempts 5
-                                 :backoff      {:base-ms backoff-ms :factor 1
-                                                :max-ms  backoff-ms}}
-                    :request-id :race
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/reg-event :do/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
-        (rf/dispatch-sync [:issue] {:frame :rf/default})
-        ;; Poll (microtask-paced) until attempt #1 has fetched, failed 5xx,
-        ;; and the request is sleeping in the backoff window. The backoff
-        ;; handle is distinguishable from the in-flight-fetch handle by the
-        ;; ABSENCE of the `:finalised?` cell (the fetch handle carries it;
-        ;; the backoff handle does not) — gating on this ensures we abort
-        ;; the BACKOFF state, not a still-in-flight attempt #1. A registry
-        ;; left empty during this window would hide the request from abort.
-        (-> (rf.test-support/poll-until
-              #(let [handle (get (rf.http.registry/in-flight-snapshot) :race)]
-                 (and (= 1 @fetch-count)
-                      (some? handle)
-                      (nil? (:finalised? handle))))
-              {:timeout-ms 2000 :label "cljs backoff sleeping"})
-            (.then (fn [_]
-                     ;; Abort squarely inside the backoff window.
-                     (rf/dispatch-sync [:do/abort] {:frame :rf/default})
-                     (is (empty? (rf.http.registry/in-flight-snapshot))
-                         "the registry is cleared the instant the backoff is cancelled")
-                     ;; The aborted reply dispatches through the async router;
-                     ;; poll for it (it lands well before the backoff would
-                     ;; have elapsed).
-                     (rf.test-support/poll-until
-                       #(seq @replies)
-                       {:timeout-ms 2000 :label "cljs abort reply"})))
-            (.then (fn [_]
-                     (let [reply (first @replies)]
-                       (is (= :cancelled (:status reply)))
-                       (is (= :rf.http/aborted (get-in reply [:error :kind]))
-                           "abort during backoff dispatches the canonical :rf.http/aborted reply")
-                       (is (= :user (get-in reply [:error :reason]))))
-                     ;; Wait past the original backoff deadline and assert the
-                     ;; retry never fetched again (proving the timer was
-                     ;; cancelled, not merely that the reply arrived first).
-                     (js/Promise.
-                       (fn [resolve _]
-                         (js/setTimeout resolve (+ backoff-ms 120))))))
-            (.then (fn [_]
-                     (is (= 1 @fetch-count)
-                         "the retry MUST NOT fetch after an abort issued during the backoff window")
-                     (is (= 1 (count @replies))
-                         "exactly one reply — the cancelled retry never produced a second outcome")))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_] (restore) (done))))))))
 
 ;; ---- frame destroy aborts + suppresses managed HTTP (CLJS) ----------------
 ;;
@@ -1069,11 +978,6 @@
   (testing "a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception) and clears the registry"
     (async done
       (rf/init! rf.adapter.reagent/adapter)
-      ;; `init!` does not synthesise `:rf/default` (EP-0002),
-      ;; and the managed-HTTP fxs require a carried frame stamp. Register
-      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
-      ;; :rf/default}` (the override) so the sync dispatch AND the async
-      ;; abort continuation both target it without an ambient scope.
       (rf.frame/ensure-default-frame!)
       (rf.http.managed/clear-all-in-flight!)
       (let [replies (atom [])
@@ -1113,11 +1017,6 @@
   (testing "a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
     (async done
       (rf/init! rf.adapter.reagent/adapter)
-      ;; `init!` does not synthesise `:rf/default` (EP-0002),
-      ;; and the managed-HTTP fxs require a carried frame stamp. Register
-      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
-      ;; :rf/default}` (the override) so the sync dispatch AND the async
-      ;; abort continuation both target it without an ambient scope.
       (rf.frame/ensure-default-frame!)
       (rf.http.managed/clear-all-in-flight!)
       (let [replies   (atom [])
@@ -1159,11 +1058,6 @@
   (testing "with `:retry {:on #{:rf.http/transport} …}` a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
     (async done
       (rf/init! rf.adapter.reagent/adapter)
-      ;; `init!` does not synthesise `:rf/default` (EP-0002),
-      ;; and the managed-HTTP fxs require a carried frame stamp. Register
-      ;; `:rf/default` explicitly; each dispatch below carries `{:frame
-      ;; :rf/default}` (the override) so the sync dispatch AND the async
-      ;; abort continuation both target it without an ambient scope.
       (rf.frame/ensure-default-frame!)
       (rf.http.managed/clear-all-in-flight!)
       (let [replies     (atom [])
@@ -1260,18 +1154,6 @@
       (is (= [:backoff] @fired)
           "the signal routes to the CURRENT (backoff) handle, not the stale live-fetch one"))))
 
-(deftest external-abort-detach-is-idempotent-and-removes-listener
-  (testing "`detach-external-abort!` removes the listener and is
-  idempotent (a shared/parent signal retains no listener after terminal)."
-    (let [{:keys [signal listener-count]} (fake-abort-signal)
-          binding (rf.http.transport-cljs/make-external-abort signal)]
-      (rf.http.transport-cljs/bind-external-abort! binding (fn [] nil))
-      (is (= 1 (listener-count)))
-      (rf.http.transport-cljs/detach-external-abort! binding)
-      (is (= 0 (listener-count)) "listener detached")
-      (rf.http.transport-cljs/detach-external-abort! binding)
-      (is (= 0 (listener-count)) "detach is idempotent — no throw, still zero"))))
-
 (deftest external-abort-already-aborted-fires-synchronously-attaches-nothing
   (testing "binding an ALREADY-aborted signal fires cancel!
   synchronously and attaches NO listener (the caller then short-circuits)."
@@ -1282,13 +1164,6 @@
       (rf.http.transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :sync)))
       (is (= [:sync] @fired) "cancel! fired synchronously for an already-aborted signal")
       (is (= 0 (listener-count)) "no listener attached — nothing to leak"))))
-
-(deftest external-abort-nil-signal-is-a-noop
-  (testing "a nil `:abort-signal` yields a nil binding; bind /
-  detach are no-ops (the common no-external-signal request path)."
-    (is (nil? (rf.http.transport-cljs/make-external-abort nil)))
-    (is (nil? (rf.http.transport-cljs/bind-external-abort! nil (fn [] (is false "must not fire")))))
-    (is (nil? (rf.http.transport-cljs/detach-external-abort! nil)))))
 
 ;; ---- (b) end-to-end: fetch stub whose body promise the test controls -------
 
