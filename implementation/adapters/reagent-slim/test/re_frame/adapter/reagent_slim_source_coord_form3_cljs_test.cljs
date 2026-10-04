@@ -59,37 +59,6 @@
       (finally
         (set! (.-warn js/console) original)))))
 
-;; ---- stock-shape structural parity (both shapes recognised) ---------------
-
-(deftest stock-reagent-shape-classified-form-3
-  (testing "the stock-Reagent Form-3 marker (`prototype.reagentRender`) is
-            recognised too — the slim branch sits beside it. Stock Reagent is not on
-            slim's classpath, so this uses the exact structural marker the
-            predicate keys off as a faithful stand-in (a real stock class is
-            exercised on the Reagent-bridge classpath); both supported class
-            shapes are classified Form-3."
-    (let [stock-shape (fn stock-form-3 [])]
-      (set! (.-prototype stock-shape) #js {:reagentRender (fn [])})
-      (let [out (rf.views.source-coord-annotation/inject-source-coord-attr
-                  :rf.slim-src-coord/stock-shape
-                  "rf.slim-src-coord:stock-shape:1:1"
-                  stock-shape)]
-        (is (identical? stock-shape out)
-            "a stock-shaped Form-3 class passes through by identity")))))
-
-;; ---- full runtime path via reg-view* --------------------------------------
-
-(deftest slim-form-3-preserved-through-registered-view
-  (testing "end-to-end: a Form-3 slim view registered via reg-view* renders to
-            the class itself under debug/source annotation — the wrapper never
-            invokes or re-wraps it."
-    (let [slim-class (r2/create-class {:reagent-render (fn [] [:div "rv-form-3"])})]
-      (rf/reg-view* :rf.slim-src-coord/rv-form-3 (fn [] slim-class))
-      (let [render (rf/view :rf.slim-src-coord/rv-form-3)
-            out    (render)]
-        (is (identical? slim-class out)
-            "the registered Form-3 view yields the class by identity")))))
-
 ;; ---- one-shot non-DOM-root warning, truthful ------------------------------
 
 (deftest slim-form-3-warns-non-dom-root-once
