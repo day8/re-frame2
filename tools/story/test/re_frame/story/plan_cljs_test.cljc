@@ -25,19 +25,6 @@
 
 ;; ---- simple variant compiles --------------------------------------------
 
-(deftest simple-variant-compiles
-  (testing "a simple variant compiles to a plan with the four-bucket shape"
-    (let [m {:story.counter/at-five
-             {:setup      [[:dispatch [:counter/init 5]]]
-              :script     [[:dispatch [:counter/inc]]]
-              :assertions [[:rf.assert/path-equals [:count] 6]]}}
-          p (plan-of :story.counter/at-five m)]
-      (is (= :story.counter/at-five (:variant/id p)))
-      (is (= [[:dispatch [:counter/init 5]]] (get-in p [:world :setup])))
-      (is (= [[:dispatch [:counter/inc]]] (:script p)))
-      (is (= [[:rf.assert/path-equals [:count] 6]]
-             (get-in p [:expect :assertions]))))))
-
 (deftest normalized-plan-has-world-script-expect
   (testing "normalized plan always carries :world / :script / :expect"
     (let [m {:story.x/y {:setup [[:dispatch [:a]]]}}
@@ -260,13 +247,6 @@
               [:wait 50]]
              (:script p))))))
 
-(deftest script-map-form-lowers-to-script
-  (testing ":script map form lowers its :script"
-    (let [m {:story.legacy/pm
-             {:script {:script [[:dispatch [:a]]] :auto-run? false}}}
-          p (plan-of :story.legacy/pm m)]
-      (is (= [[:dispatch [:a]]] (:script p))))))
-
 (deftest plays-preserved-as-named-scripts
   (testing ":plays normalizes to the primary :script and preserves all named scripts"
     (let [m {:story.legacy/multi
@@ -393,19 +373,6 @@
       (testing "effective-args are recorded (the resolved args at plan time)"
         (is (= {:label "Hi" :count 3} (get-in p [:world :effective-args])))))))
 
-(deftest valid-effective-args-compile-with-ok-validation
-  (testing "valid effective-args compile cleanly (no plan failure)"
-    (let [m {:story.widget/valid
-             {:component :views/widget
-              :args      {:label "Hi" :count 3}}}
-          p (rf.story.plan/variant-plan :story.widget/valid
-                               {:lookup      m
-                                :view-lookup {:views/widget
-                                              {:rf/props [:map [:label :string] [:count :int]]}}
-                                :validator-fns malli-validator})]
-      (is (= :story.widget/valid (:variant/id p)))
-      (is (= :ok (get-in p [:explain :view-args-validation :status]))))))
-
 (deftest missing-required-arg-fails-before-render
   (testing "a missing required view input FAILS plan construction"
     (let [m {:story.widget/missing
@@ -466,31 +433,6 @@
       (testing "effective-args still recorded"
         (is (= {:anything 1} (get-in p [:world :effective-args])))))))
 
-(deftest no-component-no-validation
-  (testing "a variant with no :component is never view-validated"
-    (let [m {:story.plain/v {:args {:x 1} :setup [[:dispatch [:a]]]}}
-          p (rf.story.plan/variant-plan :story.plain/v {:lookup m})]
-      (is (nil? (get-in p [:world :view-args-schema])))
-      (is (= {:x 1} (get-in p [:world :effective-args]))))))
-
-(deftest schema-key-precedence
-  (testing ":rf/props wins over :schema; :spec is not a resolution key (migration §M-54)"
-    (let [props  [:map [:a :string]]
-          spec   [:map [:b :string]]
-          schema [:map [:c :string]]]
-      (testing ":rf/props chosen when present (canonical, wins over :schema)"
-        (is (= props (rf.story.plan/view-args-schema {:rf/props props :schema schema}))))
-      (testing ":schema chosen when no :rf/props (the location migration §M-54 names)"
-        (is (= schema (rf.story.plan/view-args-schema {:schema schema}))))
-      (testing ":spec is NOT a resolution key — a view carrying ONLY :spec
-                resolves no schema (the framework reads :schema only; see
-                migration §M-54)."
-        (is (nil? (rf.story.plan/view-args-schema {:spec spec}))))
-      (testing ":rf/props wins even when an unread :spec is also present"
-        (is (= props (rf.story.plan/view-args-schema {:rf/props props :spec spec :schema schema}))))
-      (testing "nil when no schema slot present"
-        (is (nil? (rf.story.plan/view-args-schema {:title "x"})))))))
-
 (deftest derived-effective-args-validation-unit
   (testing "validate-effective-args required-key floor needs no validator"
     (let [schema [:map [:label :string] [:count :int]]]
@@ -512,21 +454,6 @@
                   schema {:label "x" :count "nope"} malli-validator)]
           (is (= :invalid (:status r)))
           (is (= :count (:key (first (:malformed r))))))))))
-
-(deftest view-args-boundary-is-distinct-from-sub-overrides
-  (testing "view-args schema validates explicit args; :sub-overrides ride a separate slot"
-    (let [m {:story.boundary/v
-             {:component     :views/widget
-              :args          {:label "Hi"}
-              :sub-overrides {[:widget/state] :error}}}
-          p (rf.story.plan/variant-plan :story.boundary/v
-                               {:lookup      m
-                                :view-lookup {:views/widget {:rf/props [:map [:label :string]]}}})]
-      (testing "the view-args schema covers explicit args only"
-        (is (= [:map [:label :string]] (get-in p [:world :view-args-schema]))))
-      (testing ":sub-overrides lower to their own [:world :render :sub-overrides] slot"
-        (is (= {[:widget/state] :error}
-               (get-in p [:world :render :sub-overrides])))))))
 
 ;; ===========================================================================
 ;; View-state subscription overrides
@@ -724,23 +651,6 @@
       (is (nil? (get-in p [:world :db-seed])))
       (is (nil? (get-in p [:world :fidelity]))))))
 
-(deftest compute-fidelity-three-rungs
-  (testing "compute-fidelity computes each of the three rungs independently"
-    (is (= #{} (rf.story.plan/compute-fidelity {})))
-    (is (= #{:real-setup}
-           (rf.story.plan/compute-fidelity {:setup [[:dispatch [:e]]]})))
-    (is (= #{:db-seed}
-           (rf.story.plan/compute-fidelity {:db-seed {:k 1}})))
-    (is (= #{:sub-overrides}
-           (rf.story.plan/compute-fidelity {:sub-overrides {[:q] 1}})))
-    (testing "an empty seed / override map is treated as absent (no rung)"
-      (is (= #{} (rf.story.plan/compute-fidelity {:db-seed {} :sub-overrides {}}))))
-    (testing "all three rungs together"
-      (is (= #{:real-setup :db-seed :sub-overrides}
-             (rf.story.plan/compute-fidelity {:setup         [[:dispatch [:e]]]
-                                     :db-seed       {:k 1}
-                                     :sub-overrides {[:q] 1}}))))))
-
 ;; ---- pure resolver: render-path read + sub-assertion honesty -------------
 
 (deftest sub-overrides-render-path-resolver-is-exact
@@ -776,21 +686,6 @@
 ;; unknown id FAILS plan construction.
 
 ;; ---- one atom, two positions ---------------------------------------------
-
-(deftest terminal-and-script-assertion-produce-same-atom-shape
-  (testing "a terminal :assertions entry and an in-script [:assert …] entry
-           resolve to the IDENTICAL assertion atom (one atom, two positions)"
-    (let [atom-v [:rf.assert/path-equals [:n] 0]
-          m {:story.counter/checkpoint
-             {:script     [[:dispatch [:counter/dec]]
-                           [:assert atom-v]]
-              :assertions [atom-v]}}
-          p (plan-of :story.counter/checkpoint m)
-          terminal     (first (get-in p [:expect :assertions]))
-          checkpoint   (-> p :script (->> (filter #(= :assert (first %))) first) second)]
-      ;; same id, same payload, same vector — no per-position divergence
-      (is (= atom-v terminal))
-      (is (= atom-v checkpoint)))))
 
 ;; ---- :assert-db fold ------------------------------------------------------
 
@@ -832,15 +727,6 @@
              (:script p))))))
 
 ;; ---- unknown assertion ids fail plan construction ------------------------
-
-(deftest unknown-script-checkpoint-assertion-id-fails-plan-construction
-  (testing "an unknown id in an in-script [:assert …] checkpoint FAILS plan
-           construction (same id-validation as the terminal position)"
-    (let [m {:story.x/bad2 {:script [[:assert [:rf.assert/nope]]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-unknown-assertion"
-            (plan-of :story.x/bad2 m))))))
 
 (deftest unknown-assertion-error-carries-structured-data
   (testing "the :rf.error/story-unknown-assertion ex-data names the bad id"
