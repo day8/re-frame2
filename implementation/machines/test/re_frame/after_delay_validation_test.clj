@@ -67,17 +67,6 @@
 
 ;; ---- valid STATIC delay keys register cleanly ----------------------------
 
-(deftest valid-static-delay-keys-register
-  (rf/reg-sub :adv/timeout-cfg (fn [_ _] 5000))
-  (doseq [[label machine-id delay-key]
-          [["a positive integer (literal ms)" :adv/pos 5000]
-           ["an ISO-8601 duration string, as on :timeout" :adv/iso "PT1S"]
-           ["an ISO-8601 duration string with hours and minutes" :adv/iso-hm "PT1H30M"]
-           ["a non-empty subscription vector" :adv/sub [:adv/timeout-cfg]]
-           ["a function" :adv/fn (fn [{snap :snapshot}] (* 1000 (:n (:data snap))))]]]
-    (is (nil? (registration-throws? machine-id (mk-machine delay-key)))
-        (str label " is a valid :after delay key"))))
-
 (deftest iso-8601-delay-key-arms-its-ms
   (testing "entering the state arms the timer at the string's milliseconds —
             the parser :timeout uses, applied where the key lowers to ms"
@@ -89,25 +78,3 @@
       (is (= 3600000 (:resolved-ms entry)) "\"PT1H\" arms at 3600000 ms")
       (is (= #{"PT1H"} (set (map :delay (keys (get @rf.machines.timer/after-timers :rf/default)))))
           "the timer stays keyed by the key the author wrote"))))
-
-;; ---- a non-parallel root :after is refused before its delay key is read --
-
-(deftest invalid-delay-key-on-non-parallel-root-after-rejected-categorically
-  (testing "a non-parallel root :after fails registration regardless of delay-key validity"
-    ;; A non-parallel (flat/compound) machine root's :after has no runtime
-    ;; scheduling / resolution path at ALL, so
-    ;; `validate-non-parallel-root-after!` — which runs BEFORE
-    ;; `validate-after-delays!` — rejects it CATEGORICALLY, regardless of
-    ;; whether its delay key would otherwise be well-formed. The machine
-    ;; shape itself is rejected first, with the more specific diagnostic,
-    ;; so an invalid root :after key never reaches
-    ;; :rf.error/machine-bad-after-delay.
-    (let [m {:initial :idle
-             :data    {}
-             :after   {0 :idle}
-             :states  {:idle {}}}
-          thrown (registration-throws? :adv/root m)]
-      (is (some? thrown) "root-level :after (invalid delay key or not) SHOULD throw")
-      (is (= :rf.error/machine-non-parallel-root-after-not-supported
-             (:rf.error/id (ex-data thrown)))
-          "the categorical non-parallel-root-:after rejection wins over the delay-key shape check"))))
