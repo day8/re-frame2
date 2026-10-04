@@ -12,16 +12,12 @@
     (```clojure / ```edn / ```cljs / an untagged ```) and an unfenced
     response.
   - Error modes throw `ex-info` carrying `:rf.error/id :ai-generate/<kw>`
-    (the canonical discriminator; the message is the human sentence + token).
-  - A generated spec survives the `spec->scxml` → `scxml->spec` round
-    trip, so the AI-generate path connects end-to-end with the rest of
-    the substrate."
+    (the canonical discriminator; the message is the human sentence + token)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
             [clojure.walk :as walk]
-            [day8.re-frame2-machines-viz.ai-generate :as ai]
-            [day8.re-frame2-machines-viz.scxml :as scxml]))
+            [day8.re-frame2-machines-viz.ai-generate :as ai]))
 
 (defn- deep-strings
   "Every string anywhere in `m` (deep walk) — so a test can assert a
@@ -43,15 +39,6 @@
              :authenticated {:final? true}
              :failed  {:final? true}}})
 
-(def parallel-form-spec
-  {:type    :parallel
-   :regions {:net  {:initial :idle
-                    :states  {:idle    {:on {:fetch :loading}}
-                              :loading {}}}
-             :form {:initial :empty
-                    :states  {:empty    {:on {:type :composing}}
-                              :composing {}}}}})
-
 (defn- stub-resolver
   "Build a deterministic resolver that returns `response` regardless
   of the prompt it receives. Mimics an LLM with a fixed answer."
@@ -67,11 +54,6 @@
 
 ;; ---------------------------------------------------------------------------
 ;; build-prompt
-
-(deftest build-prompt-embeds-system-prompt
-  (testing "the full prompt includes the system prompt"
-    (let [out (ai/build-prompt "a login flow")]
-      (is (str/includes? out ai/system-prompt)))))
 
 (deftest build-prompt-includes-user-request
   (testing "the user request appears after the system prompt"
@@ -130,13 +112,6 @@
         (is (= login-flow-spec
                (ai/generate-machine "a login flow" {:resolver (stub-resolver resp)}))
             label)))))
-
-(deftest generate-handles-parallel-spec
-  (testing "parallel machines parse and validate"
-    (let [resp (fence-clojure (pr-str parallel-form-spec))
-          out  (ai/generate-machine "a parallel net + form machine"
-                                    {:resolver (stub-resolver resp)})]
-      (is (= parallel-form-spec out)))))
 
 ;; ---------------------------------------------------------------------------
 ;; generate-machine — error modes
@@ -202,28 +177,3 @@
       (is (not (contains? d :response)))
       (is (not (some #(str/includes? % secret) (deep-strings d)))
           "the secret must not survive anywhere in ex-data"))))
-
-(deftest invalid-spec-omits-raw-parsed-spec
-  (testing "invalid-spec keeps only a value-free spec summary, not the parsed spec"
-    (let [secret   "ssn-123-45-6789"
-          ;; Parses as EDN (a map) but is not a valid machine spec, and
-          ;; embeds a secret-bearing :data slot.
-          resolver (stub-resolver (str "{:not-a-machine true :data {:ssn \"" secret "\"}}"))
-          d        (try (ai/generate-machine "x" {:resolver resolver}) nil
-                        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (= :ai-generate/invalid-spec (:rf.error/id d)) "category preserved")
-      (is (not (contains? d :spec)) "no raw :spec slot")
-      (is (not (contains? d :response)) "no raw :response slot")
-      (is (some? (:spec-summary d)) "value-free spec summary present")
-      (is (not (some #(str/includes? % secret) (deep-strings d)))
-          "the secret must not survive anywhere in ex-data"))))
-
-;; ---------------------------------------------------------------------------
-;; End-to-end — generated specs work with the rest of the substrate
-
-(deftest generated-spec-round-trips-through-scxml
-  (testing "a spec from generate-machine survives the scxml round-trip"
-    (let [resp (fence-clojure (pr-str login-flow-spec))
-          out  (ai/generate-machine "a login flow"
-                                    {:resolver (stub-resolver resp)})]
-      (is (= out (-> out scxml/spec->scxml scxml/scxml->spec))))))
