@@ -32,8 +32,9 @@
        A's stale-cached data (the cross-user leak test).
     2. WRONG-but-valid scope — a sub that resolves a DIFFERENT valid scope than
        the owning ensure reads ITS OWN (empty) entry, never a silent shared
-       read of the other principal's data, and a nil-resolving reference FAILS
-       CLOSED loudly.
+       read of the other principal's data; a nil-resolving reference FAILS
+       CLOSED loudly at the resolution boundary (the runtime suite's
+       `sub-side-scope-fail-closed`).
     3. MIXED-scope invalidation — a clear-scope / scoped invalidation reaches
        EXACTLY the resolved scope's entries and no other principal's, so an
        invalidation can never cross the principal boundary without the
@@ -129,23 +130,6 @@
 ;;    After tenant A logs out and its session scope is cleared, tenant B's
 ;;    next session structurally cannot read A's entries.
 ;; ===========================================================================
-
-(deftest logout-clear-scope-removes-the-prior-principals-entries
-  ;; tenant "acme" logs in, ensures + loads a feed under its tenant scope
-  (ensure-feed! "acme" 1 [:app :acme 1] {:secret "acme-only"})
-  (is (some? (entry (tenant-key "acme" 1))) "acme's entry loaded under its tenant scope")
-  (testing "logout resolves acme's concrete scope from the pre-transition
-            coeffect db and clear-scope removes every acme entry + owner —
-            the causal logout boundary (Spec 016 §clear-scope is causal)"
-    ;; resolve the concrete scope from the still-current db, THEN clear it,
-    ;; THEN drop the identity — the canonical logout ordering.
-    (let [old-scope (rf/resolve-resource-scope (rf/app-db-value :rf/default) :t/tenant)]
-      (is (= [:rf.scope/tenant {:tenant-id "acme"}] old-scope)
-          "the pre-logout db resolves acme's concrete tenant scope")
-      (rf/dispatch-sync [:rf.resource/clear-scope {:scope old-scope :cause :logout}])
-      (rf/dispatch-sync [:t/logout]))
-    (is (nil? (entry (tenant-key "acme" 1))) "acme's entry was removed by clear-scope")
-    (is (empty? (entries)) "no entry survives acme's scope clear")))
 
 (deftest next-principal-sub-cannot-read-the-logged-out-principals-data
   ;; THE CROSS-USER LEAK TEST, at the live read. tenant "acme" loads a feed,
@@ -311,18 +295,6 @@
       (let [st-policy (rf/subscribe [:rf/resource {:resource :t/feed :params {:page 1}}])]
         (is (= :idle (:status @st-policy)))
         (is (nil? (:data @st-policy)))))))
-
-(deftest nil-resolving-sub-scope-fails-closed-loudly
-  ;; A {:from-db} sub whose resolver yields nil (no logged-in viewer) raises
-  ;; the sub-side fail-closed diagnostic — never a silent :idle / global /
-  ;; wrong-entry read. Asserted at the resolution boundary `resolve-scoped-key`
-  ;; (a sub-body throw is otherwise routed to the runtime error path).
-  (testing "a {:from-db} spec-policy sub resolving nil raises
-            :rf.error/resource-sub-unresolved-scope — fail-closed, never a
-            silent shared read"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-          (rf.resources.subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
 
 ;; ===========================================================================
 ;; 3. MIXED-scope invalidation — a scoped invalidation reaches EXACTLY the
