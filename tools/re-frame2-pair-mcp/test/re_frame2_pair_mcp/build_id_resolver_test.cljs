@@ -17,7 +17,7 @@
        valid set in a form the operator can paste straight back.
     3. Colon-prepend is idempotent (`:examples/…` stays `:examples/…`,
        never `::examples/…`). Carried by `fresh-keyword`'s
-       colon-tolerance; the round-trip test feeds both forms back.
+       colon-tolerance, pinned in build_id_cache_test.
     4. The selected build sticks — a discover-app'd build transfers to
        the next read op via the sticky `:resolved-build-id`; pinned by
        dx-papercuts-test and sticky-build-invoke-test.
@@ -147,21 +147,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Property 2 — round-trippable running-build guidance.
 ;; ---------------------------------------------------------------------------
-
-(deftest running-build-arg-forms-are-round-trippable
-  ;; Each rendered form, fed back as a :build arg, resolves to the same
-  ;; keyword — the copy-paste-from-error contract.
-  (let [conn    (fresh-conn)
-        running [:examples/machine-epochs :testbeds/panel-gallery]
-        forms   (probe/running-build-arg-forms running)]
-    (is (= [":examples/machine-epochs" ":testbeds/panel-gallery"] forms)
-        "rendered in the EDN keyword form (colon-tolerant, paste-ready)")
-    (doseq [[kw form] (map vector running forms)]
-      (is (= kw (wire/arg-build conn (tu/args->js {:build form})))
-          (str form " round-trips back to " kw))
-      ;; And the colon-stripped form an agent might serialise also works.
-      (is (= kw (wire/arg-build conn (tu/args->js {:build (subs form 1)})))
-          (str "the bare form of " form " round-trips too")))))
 
 (deftest build-not-running-error-list-is-round-trippable
   ;; End-to-end through the diagnostic ladder: the :build-not-running
