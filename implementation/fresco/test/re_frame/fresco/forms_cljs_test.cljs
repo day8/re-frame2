@@ -118,7 +118,7 @@
          eligibility rule must not catch."}
   (fn [{:keys [db]} [_ id title]] {:db (assoc-in db [:todo id :title] title)}))
 
-;; The comparison arms §5 needs, and nothing else reads them.
+;; The comparison arm §5 needs, and nothing else reads it.
 
 (rf/reg-sub ::title (fn [db _] (get-in db [:todo 7 :title])))
 
@@ -131,13 +131,6 @@
   element."
   [_]
   [:input {:type "text" :value (rf.fresco/sub [::title]) :on-input [::typed ::rf.fresco/value]}])
-
-(rf.fresco/defview uncontrolled-field
-  "The same boundary and the same read over an UNCONTROLLED element, so
-  §5's third hook can be shown to belong to the controlled element rather
-  than to the shell."
-  [_]
-  [:input {:type "text" :placeholder (rf.fresco/sub [::title])}])
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -633,15 +626,14 @@
 ;; read collection, the codec's emission — through React's own dispatcher,
 ;; and it runs in the node lane, which is in the fast-PR spine.
 ;;
-;; The reading is taken as a THREE-ARM comparison, because the number on
-;; its own does not answer the question. A controlled field spends a
-;; shadow `useState` of its own — the codec installs a component for it,
-;; and that is true of every controlled field on any page — so the field
-;; measures THREE and the interesting fact is whose the third is. The
-;; uncontrolled arm shows the shell alone at two; the hand-written
-;; controlled arm shows the same three the module's field costs. What
-;; `buffered-field` adds is the difference between those two arms, and it
-;; is nothing.
+;; The reading is taken as a COMPARISON, because the number on its own
+;; does not answer the question. A controlled field spends a shadow
+;; `useState` of its own — the codec installs a component for it, and that
+;; is true of every controlled field on any page — so the field measures
+;; THREE and the interesting fact is whose the third is. The shell alone is
+;; two (`hook_budget_cljs_test`); the hand-written controlled arm shows the
+;; same three the module's field costs. What `buffered-field` adds is the
+;; difference between those two, and it is nothing.
 
 (def ^:private frame-id ::forms-hooks)
 
@@ -660,23 +652,6 @@
                              (rf.fresco.impl.mount/provider frame-id
                                              (rf.fresco.impl.codec/root-element frame-id hiccup))))))]
     {:html @!html :hooks hooks}))
-
-(deftest the-third-hook-belongs-to-the-controlled-element-not-to-the-shell
-  ;; The two control arms, so the module's reading below is a comparison
-  ;; rather than a number. Neither of these has anything to do with forms.
-  (let [bare       (server-render! [uncontrolled-field {}])
-        controlled (server-render! [hand-written-field {}])]
-    (testing "the premise: both bodies really rendered an input"
-      (is (some? (re-find #"<input" (:html bare))))
-      (is (some? (re-find #"<input" (:html controlled)))))
-    (testing "an uncontrolled element costs the shell's two and nothing"
-      (is (= ["useContext" "useSyncExternalStore"] (:hooks bare)))
-      (is (= (count rf.fresco.test.runtime/shell-hook-ledger) (count (:hooks bare)))))
-    (testing "a HAND-WRITTEN controlled field costs a third — the shadow
-              `useState` the codec's controlled component holds, which
-              every controlled field on any page pays and which I9 does
-              not charge to the shell"
-      (is (= ["useContext" "useSyncExternalStore" "useState"] (:hooks controlled))))))
 
 (deftest the-field-costs-what-a-hand-written-controlled-field-costs
   (let [{:keys [html hooks]} (server-render!
