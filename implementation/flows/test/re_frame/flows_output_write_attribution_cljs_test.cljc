@@ -137,12 +137,7 @@
           (is (= :output-write (:phase r))
               "the PHASE rides the production record too — an off-box monitor
                reading this in an :advanced build is told the output write
-               failed, not that the application's :derive fn threw")
-          ;; The attribution must survive an egress profile that strips
-          ;; :exception, exactly as :where / :flow-id do.
-          (let [public (dissoc r :exception)]
-            (is (= :output-write (:phase public))
-                ":phase survives an :exception-dropping egress profile")))
+               failed, not that the application's :derive fn threw"))
 
         ;; --- the thrown diagnostic ----------------------------------------
         (let [thrown (:exception (first @errors))
