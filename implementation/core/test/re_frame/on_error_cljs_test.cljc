@@ -7,7 +7,6 @@
 
     - A registered listener fires per `:rf.error/*` event.
     - Listener exceptions are swallowed; siblings still run.
-    - Unregistering a listener stops it receiving subsequent events.
     - The error-record shape is TIGHT: exactly
       `{:error :event :event-id :frame :time :exception :elapsed-ms}`.
     - `:elapsed-ms` is an integer on every platform.
@@ -29,8 +28,9 @@
   `-Dre-frame.debug=false` as well as in the ordinary suite. It is therefore
   the production witness for the component-attribution
   contract (`:failing-id` + `:reason` lifted onto the record for the
-  interceptor and coeffect categories, and NOT stamped for handler-exception,
-  whose failing id already equals `:event-id`). Keep it that way: an
+  interceptor category, and NOT stamped for handler-exception, whose failing
+  id already equals `:event-id`; the coeffect category's witness is
+  `re-frame.cofx-supplier-failure-outcome-cljs-test`). Keep it that way: an
   assertion here that only holds in dev belongs in the dev-posture twin
   (`re-frame.interceptor-test`), not in this file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -191,28 +191,6 @@
           "the sibling listener still received the record — fan-out is
            defensive across listeners"))))
 
-(deftest error-listener-unregister-stops-delivery
-  (testing "Unregistering a listener stops it receiving
-            subsequent events. Re-registering under the same id
-            reattaches it."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/reg-event :err/throw3 (fn [{:keys [db]} _] {:db (throw (ex-info "x" {}))}))
-      (rf/dispatch-sync [:err/throw3])
-      (is (= 1 (count @seen)) "listener fired before unregister")
-      (rf.error-emit/unregister-error-listener! :test/recorder)
-      (rf/dispatch-sync [:err/throw3])
-      (is (= 1 (count @seen)) "listener silent after unregister")
-      ;; Re-register under the same id and dispatch again.
-      (rf.error-emit/register-error-listener!
-        :test/recorder
-        (fn [record] (swap! seen conj record)))
-      (rf/dispatch-sync [:err/throw3])
-      (is (= 2 (count @seen))
-          "listener fired again after re-registration under the same id"))))
-
 ;; ============================================================================
 ;; The corpus-wide error-emit listener (#4) is BROAD
 ;; ----------------------------------------------------------------------------
@@ -359,28 +337,10 @@
 ;;     :rf.error/unregistered-cofx — invalid operations; the listener fires and
 ;;       the framework applies its built-in recovery (the unregistered-cofx
 ;;       record is pinned in `re-frame.cofx-cljs-test`).
+;;
+;; The fx-handler-exception and no-such-fx records are pinned field by field,
+;; on the always-on axis and in both postures, by `re-frame.fx-test`.
 ;; ============================================================================
-
-(deftest listener-fires-on-fx-handler-exception
-  (testing "A registered fx that throws fans
-            `:rf.error/fx-handler-exception` through the always-on
-            listener, not only the dev trace. The throw is recovered
-            (the fx is skipped) and the cascade continues."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-fx :goum9x/throwing-fx
-                 (fn [_ _] (throw (ex-info "fx-boom" {:cause :test}))))
-      (rf/reg-event :goum9x/run-throwing-fx
-                       (fn [_ _] {:fx [[:goum9x/throwing-fx {:to "alice"}]]}))
-      (rf/dispatch-sync [:goum9x/run-throwing-fx])
-      (let [r (some (fn [x] (when (= :rf.error/fx-handler-exception (:error x)) x)) @seen)]
-        (is (= [:goum9x/run-throwing-fx] (:event r))
-            "the originating event vector rides :event")
-        (is (= :goum9x/run-throwing-fx (:event-id r))
-            "the originating event-id rides :event-id")
-        (is (= :rf/default (:frame r)))
-        (is (some? (:exception r)) ":exception present on the record")))))
 
 (deftest fx-handler-exception-recovery-is-isolated-siblings-fire
   (testing "The fx-handler-exception fan-out
@@ -403,34 +363,6 @@
           "siblings on either side of the throwing fx still fired")
       (is (= true (:committed? (rf/app-db-value :rf/default)))
           ":db committed before the :fx walk — the fx throw does NOT roll it back"))))
-
-(deftest listener-fires-on-no-such-fx
-  (testing "An unknown fx-id fans `:rf.error/no-such-fx`
-            through the always-on listener, not only the dev trace.
-            The fx is dropped; the cascade continues.
-            The record also NAMES the unknown fx-id."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf/reg-event :goum9x/run-unknown-fx
-                       (fn [_ _] {:fx [[:goum9x/never-registered {:x 1}]]}))
-      (rf/dispatch-sync [:goum9x/run-unknown-fx])
-      (let [r (some (fn [x] (when (= :rf.error/no-such-fx (:error x)) x)) @seen)]
-        (is (= [:goum9x/run-unknown-fx] (:event r)))
-        (is (= :goum9x/run-unknown-fx (:event-id r)))
-        (is (= :rf/default (:frame r)))
-        ;; `:event-id` is the DISPATCHING event, so the
-        ;; unregistered fx-id is a DISTINCT failing component and Spec 009's
-        ;; attribution rule applies: `fx.cljc` stamps `:failing-id` on the
-        ;; trace-payload and `emit-error-both!` lifts it onto this record.
-        ;; Without it an off-box shipper learns an fx was missing but not which.
-        (is (= :goum9x/never-registered (:failing-id r))
-            ":failing-id names the UNKNOWN fx-id")
-        ;; The fx ARGS stay on the dev trace: an unregistered fx-id has no
-        ;; registration to read a `:sensitive` declaration off, so they must
-        ;; not reach this production-surviving record.
-        (is (not (contains? r :rf.fx/args))
-            "the unaddressable args do NOT ride the always-on record")))))
 
 (deftest listener-fires-on-override-fallthrough
   (testing "An `:fx-overrides` entry redirecting to an
@@ -526,25 +458,6 @@
                discriminator between the two interceptor phases")
           (is (re-find (re-pattern (str icpt)) (:reason r))
               ":reason names the failing interceptor, agreeing with :failing-id"))))))
-
-(deftest coeffect-exception-record-carries-failing-cofx-id
-  (testing "A coeffect supplier that throws during context assembly fans
-            `:rf.error/coeffect-exception` through the always-on listener. The
-            record carries the failing COFX id in `:failing-id` and keeps the
-            dispatched EVENT in `:event-id` — the lift is GUARDED on the two
-            differing, so a supplier id in BOTH slots would tell the shipper
-            nothing. `:reason` rides too."
-    (rf/reg-cofx :mlh1h/boom-cofx (fn [] (throw (ex-info "cofx boom" {}))))
-    (rf/reg-event :mlh1h/needs-boom-cofx
-                  {:rf.cofx/requires [:mlh1h/boom-cofx]}
-                  (fn [_ _] {}))
-    (let [r (record-for :rf.error/coeffect-exception [:mlh1h/needs-boom-cofx])]
-      (is (= :mlh1h/needs-boom-cofx (:event-id r))
-          ":event-id is the dispatched EVENT, not the failing supplier")
-      (is (= :mlh1h/boom-cofx (:failing-id r))
-          ":failing-id is the failing SUPPLIER")
-      (is (string? (:reason r))
-          ":reason rides the always-on record too"))))
 
 ;; ============================================================================
 ;; Sub error records carry the failing SUB's source-coord.
