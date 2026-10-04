@@ -832,13 +832,12 @@
   ;; co-exists alongside the canonical — across BOTH emit-sources AND
   ;; doc-sources (drift in either is a vocabulary-drift bug).
   (doseq [{:keys [key]} canonical-markers
-          [server files] rf.mcp-conformance.wire-vocab.source-pins/all-source-files
           variant       (rf.mcp-conformance.wire-vocab.source-pins/near-miss-variants key)
-          rel           files]
-    (testing (str server " — " rel " — near-miss " variant)
+          rel           rf.mcp-conformance.wire-vocab.source-pins/all-source-files]
+    (testing (str rel " — near-miss " variant)
       (is (not (str/includes? (rf.mcp-conformance.fixtures/read-source rel) variant))
           (str "Found near-miss variant " variant " for " key
-               " in " server "/" rel
+               " in " rel
                " — this is a vocabulary-drift bug. The canonical "
                "form is " (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key))))))
 
