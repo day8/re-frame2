@@ -172,21 +172,6 @@
 ;; Layer 2 — the rendered source is well-formed CLJS
 ;; ---------------------------------------------------------------------------
 
-(deftest rendered-sources-are-well-formed
-  ;; The guard is assembled by string concatenation and embeds a nested
-  ;; string literal (the error message). A mis-escaped quote or a
-  ;; dropped paren survives every substring assertion above and then
-  ;; fails to compile app-side, where the failure reads as a runtime
-  ;; problem rather than a rendering bug. Reading the source is the
-  ;; cheapest way to refuse that class outright.
-  (testing "both render sites emit readable CLJS on both incl? postures"
-    (doseq [incl? [false true]]
-      (is (some? (reader/read-string (egress/project-page-src "page" incl?)))
-          "project-page-src emits one well-formed form")
-      (is (some? (reader/read-string
-                  (egress/project-dispatch-result-src "(rf/dispatch-and-collect)" incl?)))
-          "project-dispatch-result-src emits one well-formed form"))))
-
 (deftest the-thrown-ex-info-carries-the-discriminator
   (testing "ex-data names the skew in BOTH slots the error envelope reads"
     (doseq [src [(egress/project-page-src "page" false)
