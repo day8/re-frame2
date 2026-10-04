@@ -13,17 +13,17 @@
 
   Coverage mirrors the bridge's shape where it applies to slim:
 
-    - DOM-keyword root with no attrs map: attrs map spliced in, its value
-      matching `<ns>:<sym>:<line>:<col>`.
     - User-supplied data-rf2-source-coord wins (don't overwrite).
     - React Fragment root (`:<>`): root is exempt; no attribute injected.
     - Programmatic reg-view* without source-coords: degrades to
       `<ns>:<sym>:?:?`.
 
-  A root WITH an existing attrs map, and the inner render of a Form-2
-  render-fn, get both attributes from the same splice;
+  A DOM-keyword root with or without an attrs map, and the inner render of
+  a Form-2 render-fn, get both attributes from the same splice;
   `re-frame.adapter.reagent-slim-view-id-attr-cljs-test` pins those cases
-  for both of them.
+  for both of them. The `<ns>:<sym>:<line>:<col>` value comes from the
+  `reg-view` macro and the shared formatter, which the Reagent bridge's
+  `annotates-dom-root-without-attrs` pins.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -45,23 +45,6 @@
   (and (vector? hiccup)
        (map? (second hiccup))
        (:data-rf2-source-coord (second hiccup))))
-
-;; ---- DOM-keyword root, no existing attrs map ------------------------------
-
-(deftest annotates-dom-root-without-attrs
-  (testing "a reg-view'd component with [:tag children…] gets a spliced
-            attrs map carrying :data-rf2-source-coord under slim"
-    (rf/reg-view ^{:rf/id :rf.slim-src-coord/no-attrs} no-attrs-view []
-      [:span "hi"])
-    (let [render (rf/view :rf.slim-src-coord/no-attrs)
-          out    (render)
-          attr   (root-attr out)]
-      (is (vector? out))
-      (is (= :span (first out)) "root tag preserved")
-      (is (string? attr) ":data-rf2-source-coord present")
-      (is (re-find #"^rf\.slim-src-coord:no-attrs:\d+:\d+$" attr)
-          (str ":data-rf2-source-coord matches <ns>:<sym>:<line>:<col>; got "
-               (pr-str attr))))))
 
 ;; ---- user-supplied coord wins ---------------------------------------------
 
