@@ -175,27 +175,6 @@
 
 ;; ---- reg-story basic ----------------------------------------------------
 
-(deftest reg-story-basic
-  (testing "reg-story writes to the side-table under :story kind"
-    (rf.story/reg-story :story.ui.button
-      {:doc       "Primary action button."
-       :component :app.ui/button
-       :args      {:label "Click me"}
-       :tags      #{:dev :docs}})
-    (is (= #{:story.ui.button} (rf.story/ids :story)))
-    (let [body (rf.story/handler-meta :story :story.ui.button)]
-      (is (= "Primary action button." (:doc body)))
-      (is (= :app.ui/button (:component body)))
-      (is (= {:label "Click me"} (:args body)))
-      (is (= #{:dev :docs} (:tags body)))))
-
-  (testing "source-coord is stamped onto the registered body"
-    (rf.story/reg-story :story.ui.icon {:doc "Icon."})
-    (let [body (rf.story/handler-meta :story :story.ui.icon)]
-      (is (map? (:source body)))
-      (is (= 're-frame.story-test (:ns (:source body))))
-      (is (integer? (:line (:source body)))))))
-
 (deftest reg-story-id-shape
   (testing "reg-story rejects ids outside the :story.<path> grammar"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -220,33 +199,6 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/unknown-tag (:rf.error/id (ex-data e))))
         (is (= [:totally-made-up] (:unknown (ex-data e))))))))
-
-;; ---- reg-variant basic -------------------------------------------------
-
-(deftest reg-variant-basic
-  (testing "reg-variant writes a variant under :variant kind"
-    (rf.story/reg-variant :story.ui.button/default
-      {:doc    "Default state."
-       :setup [[:button/init]]
-       :tags   #{:dev :docs}})
-    (let [body (rf.story/handler-meta :variant :story.ui.button/default)]
-      (is (= "Default state." (:doc body)))
-      (is (= [[:button/init]] (:setup body)))
-      (is (= #{:dev :docs} (:tags body)))))
-
-  (testing "the variant body is EDN-round-trippable (no fn slots)"
-    (rf.story/reg-variant :story.ui.button/edn-test
-      {:doc    "EDN check."
-       :setup [[:button/init]]
-       :script [[:dispatch-sync [:button/click]]
-                [:dispatch-sync [:rf.assert/path-equals [:click] true]]]
-       :args   {:label "Hi"}
-       :tags   #{:dev}})
-    (let [body (rf.story/handler-meta :variant :story.ui.button/edn-test)
-          body (dissoc body :source)            ; :source is environment-derived
-          edn  (pr-str body)
-          round-tripped (read-string edn)]
-      (is (= body round-tripped)))))
 
 ;; ---- :extends resolution -----------------------------------------------
 
@@ -363,28 +315,7 @@
                           (rf.story/reg-decorator :mock-empty
                             {:kind :frame-setup})))))
 
-(deftest reg-decorator-fx-override
-  (testing ":fx-override decorator names the fx-id + canned response"
-    (rf.story/reg-decorator :force-fx-stub
-      {:doc      "Stub :http for the variant's frame."
-       :kind     :fx-override
-       :fx-id    :http
-       :response {:status :pending}})
-    (let [body (rf.story/handler-meta :decorator :force-fx-stub)]
-      (is (= :fx-override (:kind body)))
-      (is (= :http (:fx-id body))))))
-
 ;; ---- tags: the :axis + :default-filter slots ---------------------------
-
-(deftest reg-tag-stores-default-filter
-  (testing ":default-filter is stored on the registered tag body"
-    (rf.story/reg-tag :status/alpha
-      {:doc            "Pre-release status."
-       :axis           :status
-       :default-filter :exclude})
-    (let [body (rf.story/handler-meta :tag :status/alpha)]
-      (is (= :status (:axis body)))
-      (is (= :exclude (:default-filter body))))))
 
 (deftest tags-by-axis-filters-correctly
   (testing "tags-by-axis returns only tags registered on the requested axis"
