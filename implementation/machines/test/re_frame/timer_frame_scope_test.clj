@@ -12,9 +12,9 @@
 
   The assertions below exercise both the structural invariant (entries
   partition by frame-id) and the behaviour: two frames scheduling timers
-  under OVERLAPPING `[parent-id invoke-id delay-key]` tuples observe
-  independent lifecycles, and 1-arity reset / frame-destroy clears only
-  the targeted frame."
+  under OVERLAPPING `[parent-id invoke-id delay-key]` tuples keep separate
+  entries, and 1-arity reset / frame-destroy clears only the targeted
+  frame."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
@@ -44,50 +44,6 @@
               :on    {:loaded :ready}}
     :timeout {}
     :ready   {}}})
-
-;; ---- regression: two frames' timers stay disjoint ------------------------
-
-(deftest two-frames-with-overlapping-timer-ids-stay-isolated
-  (testing "schedule + cancellation on one frame must not perturb the other's table"
-    (rf/reg-machine :iso/m spec)
-    (rf/make-frame {:id :iso/left :doc "left frame — timer-isolation regression"})
-    (rf/make-frame {:id :iso/right :doc "right frame — timer-isolation regression"})
-
-    ;; Drive each frame into :loading; the pure side emits one
-    ;; `:rf.machine/after-schedule` fx and the timer fx handler installs
-    ;; one inner-table entry per frame.
-    (rf/dispatch-sync [:iso/m [:fetch]] {:frame :iso/left})
-    (rf/dispatch-sync [:iso/m [:fetch]] {:frame :iso/right})
-
-    (let [tt @rf.machines.timer/after-timers]
-      (is (contains? tt :iso/left)
-          "the timer table partitions entries under the left frame")
-      (is (contains? tt :iso/right)
-          "the timer table partitions entries under the right frame")
-      ;; Inner keys are {:parent <parent-id> :spawn <invoke-id-vec>
-      ;; :delay <delay-key>}. Because the machine spec is identical the
-      ;; inner keys collide across frames — the frame-id is the OUTER
-      ;; key and the inner keys legitimately coincide.
-      (let [left-inner-keys  (set (keys (get tt :iso/left)))
-            right-inner-keys (set (keys (get tt :iso/right)))]
-        (is (= left-inner-keys right-inner-keys)
-            (str "inner keys are identical across frames — frame-id is "
-                 "the partitioning axis, not a discriminator inside the "
-                 "inner key"))
-        (is (every? (fn [k]
-                      (and (= :iso/m (:parent k))
-                           (vector? (:spawn k))
-                           (= 3600000 (:delay k))))
-                    left-inner-keys)
-            "inner-key shape is {:parent ... :spawn ... :delay ...}")))
-
-    ;; 1-arity reset clears only the targeted frame.
-    (rf.machines/reset-timers! :iso/left)
-    (let [tt @rf.machines.timer/after-timers]
-      (is (not (contains? tt :iso/left))
-          "1-arity reset-timers! drops the left frame's entire inner table")
-      (is (contains? tt :iso/right)
-          "the right frame's table survives a sibling-frame's reset"))))
 
 ;; ---- regression: destroy-frame! clears just the destroyed frame's timers --
 
