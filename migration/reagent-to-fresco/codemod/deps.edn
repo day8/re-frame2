@@ -65,8 +65,10 @@
   ;; answer that outlives Freehand's retirement, and it outlives the harness's
   ;; relocation for free.
   ;; THE DEPRECATION WARNING THIS PRINTS IS EXPECTED, AND A `:local/root` IS
-  ;; NOT THE FIX. `clojure` warns on every `:paths` entry outside the project
-  ;; ("Use of :paths external to the project has been deprecated"), which a
+  ;; NOT THE FIX. `clojure` warns on every `:paths` entry outside the project —
+  ;; "Deprecated use of path … external to project …" when this artefact is a
+  ;; dependency, as in the documented command, and "Use of :paths external to
+  ;; the project has been deprecated" when it is the project itself — which a
   ;; migrator running the documented command sees and reasonably wonders about
   ;; (rf2-mckf). The sanctioned spelling would be a `:local/root` on
   ;; `implementation/fresco`, and taking it would drag that artefact's own
