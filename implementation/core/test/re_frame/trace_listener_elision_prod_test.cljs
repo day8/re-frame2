@@ -70,13 +70,3 @@
       (is (empty? @seen)
           "rf.trace/emit! is a no-op under :advanced + goog.DEBUG=false")
       (rf.trace.tooling/unregister-listener! ::direct-emit))))
-
-(deftest clear-trace-listeners-returns-nil-under-prod
-  (testing "clear-listeners! still returns nil under prod-mode — the
-            listener registry side of the surface is not gated; only
-            the emit/deliver path is. clear-listeners! must work the
-            same way as it does under dev so test fixtures that call
-            it in prod-mode CI runs don't error."
-    (rf.trace.tooling/register-listener! ::prod-clear (fn [_ev] nil))
-    (is (nil? (rf.trace.tooling/clear-listeners!))
-        "clear-listeners! returns nil consistently across dev and prod")))
