@@ -73,12 +73,18 @@
   `getHostAddress`-based Ring adapter sends — and defaults to loopback because
   every honest testbed caller is one. shadow-http's own `SocketAddress`
   rendering is built from real objects by `socket-peer`. Pass `:peer` to model a
-  remote caller; pass `:peer :absent` to model an adapter that supplied none."
-  [{:keys [method host origin file peer]
-    :or   {method :post host "localhost:8031" peer "127.0.0.1"}}]
+  remote caller; pass `:peer :absent` to model an adapter that supplied none.
+
+  `:file` is shorthand for the query `file=<file>&line=10`; `:query` sets the
+  raw query string instead, nil included."
+  [{:keys [method host origin file peer query]
+    :or   {method :post host "localhost:8031" peer "127.0.0.1"}
+    :as   opts}]
   (cond-> {:uri            rf.testbed.open-in-editor-server/endpoint-path
            :request-method method
-           :query-string   (when file (str "file=" file "&line=10"))
+           :query-string   (if (contains? opts :query)
+                             query
+                             (when file (str "file=" file "&line=10")))
            :headers        (cond-> {}
                              host   (assoc "host" host)
                              origin (assoc "origin" origin))}
@@ -460,8 +466,7 @@
                  [405 "an OPTIONS"
                   (req {:method :options :origin "http://localhost:8042"})]
                  [422 "a coordinate for a position-blind editor"
-                  (assoc (req {})
-                         :query-string "file=fake_ns/core.cljs&line=3&editor=windsurf")]]]
+                  (req {:query "file=fake_ns/core.cljs&line=3&editor=windsurf"})]]]
           (let [resp (rf.testbed.open-in-editor-server/handle r)]
             (is (= status (:status resp)) (str label " answers " status))
             (is (= [] (cors-headers resp))
@@ -487,33 +492,17 @@
 ;; URI decoding failures must become JSON 400 responses at the Ring boundary.
 
 (deftest malformed-query-returns-clean-400
-  (testing "a lone `%` in the query string (an incomplete percent-escape)
-            answers a clean 400, not an uncaught IllegalArgumentException"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                      :request-method :post
-                      :query-string   "file=%"
-                      :remote-addr    "127.0.0.1"
-                      :headers        {"host" "localhost:8031"}})]
-          (is (= 400 (:status resp)) "malformed query is a clean 400, not a throw")
-          (is (re-find #"\"ok\":false" (:body resp)))
-          (is (re-find #"\"error\":\"malformed-query\"" (:body resp)))
-          (is (zero? (count @calls)) "launch! was never called")))))
-  (testing "a `%` not followed by two hex digits (e.g. `%zz`) also answers
-            a clean 400"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                      :request-method :post
-                      :query-string   "file=abc%zz"
-                      :remote-addr    "127.0.0.1"
-                      :headers        {"host" "localhost:8031"}})]
-          (is (= 400 (:status resp)))
-          (is (re-find #"\"error\":\"malformed-query\"" (:body resp)))
-          (is (zero? (count @calls))))))))
+  (testing "an incomplete percent-escape — a lone `%`, or a `%` not followed
+            by two hex digits — answers a clean 400, not an uncaught
+            IllegalArgumentException"
+    (doseq [qs ["file=%" "file=abc%zz"]]
+      (let [calls (atom [])]
+        (with-launch-spy calls
+          (let [resp (rf.testbed.open-in-editor-server/handle (req {:query qs}))]
+            (is (= 400 (:status resp)) (str qs " is a clean 400, not a throw"))
+            (is (re-find #"\"ok\":false,\"error\":\"malformed-query\"" (:body resp))
+                (str qs " names malformed-query"))
+            (is (zero? (count @calls)) (str qs " never reaches launch!"))))))))
 
 ;; Query parsing uses URI semantics so a literal `+` in a path stays intact.
 
@@ -533,11 +522,7 @@
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (rf.testbed.open-in-editor-server/handle
-                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                      :request-method :post
-                      :query-string   "file=deep/re-frame2+wip/core.cljs&line=7"
-                      :remote-addr    "127.0.0.1"
-                      :headers        {"host" "localhost:8031"}})]
+                     (req {:query "file=deep/re-frame2+wip/core.cljs&line=7"}))]
           (is (= 200 (:status resp)) "the launch path is reached")
           (is (= 1 (count @calls)) "launch! invoked once")
           (is (str/includes? (first (first @calls)) "re-frame2+wip")
@@ -670,11 +655,7 @@
       (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& args] (swap! calls conj (vec args))
                                    {:ok true})]
         (let [resp (rf.testbed.open-in-editor-server/handle
-                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                      :request-method :post
-                      :query-string   "file=fake_ns/core.cljs&column=7"
-                      :remote-addr    "127.0.0.1"
-                      :headers        {"host" "localhost:8031"}})]
+                     (req {:query "file=fake_ns/core.cljs&column=7"}))]
           (is (= 200 (:status resp)))
           (is (= 1 (count @calls)))
           (let [[_abs-path line column _cmd] (first @calls)]
@@ -861,11 +842,7 @@
             falls back to the editor:// URI"
     (let [missing (str "oies_missing_" (System/nanoTime) "/nope.cljs")
           resp    (rf.testbed.open-in-editor-server/handle
-                    {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                     :request-method :post
-                     :query-string   (str "file=" missing "&line=10&column=3")
-                     :remote-addr    "127.0.0.1"
-                     :headers        {"host" "localhost:8031"}})]
+                    (req {:query (str "file=" missing "&line=10&column=3")}))]
       (is (= 422 (:status resp)) "missing file is a non-2xx, not a false 200")
       (is (re-find #"\"ok\":false" (:body resp)))
       (is (re-find #"\"error\":\"file-not-found\"" (:body resp))
@@ -877,34 +854,13 @@
   (testing "a blank or absent file parameter returns 400 before launch"
     (let [calls (atom [])]
       (with-launch-spy calls
-        (testing "no `file` param in the query string"
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                        :request-method :post
-                        :query-string   "line=10&column=3"
-                        :remote-addr    "127.0.0.1"
-                        :headers        {"host" "localhost:8031"}})]
-            (is (= 400 (:status resp)))
-            (is (re-find #"\"ok\":false" (:body resp)))
-            (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
-        (testing "an empty `file=` value"
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                        :request-method :post
-                        :query-string   "file=&line=10"
-                        :remote-addr    "127.0.0.1"
-                        :headers        {"host" "localhost:8031"}})]
-            (is (= 400 (:status resp)))
-            (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
-        (testing "no query string at all"
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                        :request-method :post
-                        :query-string   nil
-                        :remote-addr    "127.0.0.1"
-                        :headers        {"host" "localhost:8031"}})]
-            (is (= 400 (:status resp)))
-            (is (re-find #"\"error\":\"missing-file\"" (:body resp)))))
+        (doseq [[label qs] [["no `file` param in the query string" "line=10&column=3"]
+                            ["an empty `file=` value"               "file=&line=10"]
+                            ["no query string at all"               nil]]]
+          (let [resp (rf.testbed.open-in-editor-server/handle (req {:query qs}))]
+            (is (= 400 (:status resp)) label)
+            (is (re-find #"\"ok\":false,\"error\":\"missing-file\"" (:body resp))
+                label)))
         (is (zero? (count @calls))
             "launch! was never called on any missing-file path")))))
 
@@ -930,22 +886,14 @@
     (let [calls (atom [])]
       (with-launch-spy calls
         (rf.testbed.open-in-editor-server/handle
-          {:uri            rf.testbed.open-in-editor-server/endpoint-path
-           :request-method :post
-           :query-string   "file=fake_ns/core.cljs&editor=emacs"
-           :remote-addr    "127.0.0.1"
-           :headers        {"host" "localhost:8031"}})
+          (req {:query "file=fake_ns/core.cljs&editor=emacs"}))
         (is (nil? (nth (first @calls) 3))
             "unknown editor → nil hint"))))
   (testing "no `editor` param → nil command hint (baseline)"
     (let [calls (atom [])]
       (with-launch-spy calls
         (rf.testbed.open-in-editor-server/handle
-          {:uri            rf.testbed.open-in-editor-server/endpoint-path
-           :request-method :post
-           :query-string   "file=fake_ns/core.cljs"
-           :remote-addr    "127.0.0.1"
-           :headers        {"host" "localhost:8031"}})
+          (req {:query "file=fake_ns/core.cljs"}))
         (is (nil? (nth (first @calls) 3))
             "no editor param → nil hint")))))
 
@@ -999,11 +947,7 @@
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (rf.testbed.open-in-editor-server/handle
-                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                      :request-method :post
-                      :query-string   "file=fake_ns/core.cljs&line=27&column=9&editor=windsurf"
-                      :remote-addr    "127.0.0.1"
-                      :headers        {"host" "localhost:8031"}})]
+                     (req {:query "file=fake_ns/core.cljs&line=27&column=9&editor=windsurf"}))]
           (is (= 422 (:status resp))
               "a 200 here would be a false claim that 27:9 reached the editor;
                non-2xx is the whole contract with the client: `fetch-launcher!`
@@ -1019,11 +963,7 @@
     (let [calls (atom [])]
       (with-launch-spy calls
         (let [resp (rf.testbed.open-in-editor-server/handle
-                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                      :request-method :post
-                      :query-string   "file=fake_ns/core.cljs&editor=windsurf"
-                      :remote-addr    "127.0.0.1"
-                      :headers        {"host" "localhost:8031"}})]
+                     (req {:query "file=fake_ns/core.cljs&editor=windsurf"}))]
           (is (= 200 (:status resp)))
           (is (= 1 (count @calls)))
           (is (= "windsurf" (nth (first @calls) 3))
@@ -1043,11 +983,7 @@
         (let [calls (atom [])]
           (with-launch-spy calls
             (let [resp (rf.testbed.open-in-editor-server/handle
-                         {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                          :request-method :post
-                          :query-string   (str "file=fake_ns/core.cljs&line=27&column=9&editor=" editor)
-                          :remote-addr    "127.0.0.1"
-                          :headers        {"host" "localhost:8031"}})]
+                         (req {:query (str "file=fake_ns/core.cljs&line=27&column=9&editor=" editor)}))]
               (is (<= 200 (:status resp) 299)
                   "the endpoint is still preferred for this editor")
               (is (= 1 (count @calls)) "launch! was invoked")
@@ -1192,11 +1128,7 @@
                 calls    (atom [])]
             (with-launch-spy calls
               (let [resp (rf.testbed.open-in-editor-server/handle
-                           {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                            :request-method :post
-                            :query-string   (str "file=" file "&line=12&column=3")
-                            :remote-addr    "127.0.0.1"
-                            :headers        {"host" "localhost:8042"}})]
+                           (req {:host "localhost:8042" :query (str "file=" file "&line=12&column=3")}))]
                 (is (= 200 (:status resp))
                     (str tool " relative coordinate was accepted"))
                 (is (= 1 (count @calls))
@@ -1635,11 +1567,7 @@
                                  {:ok false
                                   :message rf.testbed.open-in-editor-server/position-unsupported-error})]
       (let [resp (rf.testbed.open-in-editor-server/handle
-                   {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                    :request-method :post
-                    :query-string   "file=fake_ns/core.cljs&line=27&column=9"
-                    :remote-addr    "127.0.0.1"
-                    :headers        {"host" "localhost:8031"}})]
+                   (req {:query "file=fake_ns/core.cljs&line=27&column=9"}))]
         (is (= 422 (:status resp))
             "a 200 here would claim 27:9 reached an editor that never got it;
              non-2xx is what runs the client's coordinate-preserving fallback")
