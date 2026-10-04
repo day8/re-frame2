@@ -2850,9 +2850,12 @@ If the source site has no metadata map, create one. If it already has metadata, 
 This is a **slot-shape** scan, not an interceptor-name scan. Do not anchor on `unwrap`; flag custom interceptors, `mw/*`, framework interceptors, and inline interceptor constructors equally.
 
 ```bash
-# Surface every event registration; inspect the forms after the id by shape.
-rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
+# Candidate event registrations, from the project root (a source root outside
+# it goes beside `.`); inspect the forms after the id by shape.
+rg -n -U -t clojure '\(\s*(\S+/)?reg-event-(db|fx|ctx)\s+\S+' .
 ```
+
+The search finds candidates, not the set: accept each hit as step 1 of [`auto-call-site-rewrites.md` §Effect-map consolidation (M-8)](../../skills/re-frame-migration/references/auto-call-site-rewrites.md#effect-map-consolidation-m-8) does — a head that resolves to `re-frame.core` through the file's `ns` form, in live code — then read its slots by shape.
 
 **What to do.** Register each interceptor value, then reference it by id in the metadata `:interceptors` (the registrar lands on `reg-event` per M-73). The standard `path` interceptor is the one exception — it has no `reg-interceptor` step; its chain entry is the ref `[:rf.interceptor/path <path-vector>]`:
 
