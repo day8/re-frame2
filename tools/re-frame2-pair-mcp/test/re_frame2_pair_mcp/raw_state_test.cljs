@@ -6,19 +6,13 @@
   keyword, `raw-state-allowed?` predicate) use the `raw-state` naming;
   the operator-facing CLI flag is `--allow-sensitive-reads`.
 
-  Pins the three behaviours the gate guarantees:
-
-    1. Default state — `allow-raw-state-enabled?` and `raw-state-allowed?`
-       both return false; per-tool branches force redact + elide
-       regardless of per-call args.
-    2. Opt-in state — flipping the gate flips the predicate so the
-       per-call args win again.
-    3. `parse-launch-flags` parses `--allow-sensitive-reads` and rides
-       alongside `--no-eval` without interference.
-
-  End-to-end MCP-wire shape coverage lives in
-  `re-frame2-pair-mcp.conformance-test` (the corpus has dedicated
-  fixtures pinning the gated default and the opt-in path)."
+  The gate's two states — off by default, so per-tool branches force
+  redact regardless of per-call args; on, so the per-call args win —
+  are pinned end-to-end by `re-frame2-pair-mcp.conformance-test`, whose
+  corpus carries dedicated fixtures for the gated default and the opt-in
+  path. This file pins `parse-launch-flags` (`--allow-sensitive-reads`
+  riding alongside `--no-eval` and the valued flags), the launch
+  diagnostics, and the runtime signal."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame2-pair-mcp.server :as server]
             [re-frame2-pair-mcp.nrepl :as nrepl]
@@ -38,31 +32,6 @@
             (raw-state/reset-runtime-signal-cache!)
             (raw-state/set-allow-raw-state! false))})
 
-;; ---------------------------------------------------------------------------
-;; Default-OFF posture.
-;; ---------------------------------------------------------------------------
-
-(deftest default-gate-is-off
-  ;; Pre-boot / freshly-loaded ns: the raw-state gate is OFF (default).
-  ;; The sibling eval-cljs gate defaults ON; this test asserts only the
-  ;; raw-state surface.
-  (raw-state/set-allow-raw-state! false)
-  (is (false? (raw-state/allow-raw-state-enabled?)))
-  (is (false? (raw-state/raw-state-allowed?))
-      "Gate OFF ⇒ raw-state-allowed? false; per-tool branches force redact (the :elision size override is not gated)"))
-
-;; ---------------------------------------------------------------------------
-;; Opt-in (--allow-sensitive-reads) posture.
-;; ---------------------------------------------------------------------------
-
-(deftest opt-in-flips-predicate
-  ;; --allow-sensitive-reads ⇒ per-call args win.
-  (raw-state/set-allow-raw-state! true)
-  (is (true?  (raw-state/allow-raw-state-enabled?)))
-  (is (true?  (raw-state/raw-state-allowed?))
-      "Gate ON ⇒ raw-state-allowed? true; caller's :include-sensitive arg wins")
-  ;; Restore for downstream tests.
-  (raw-state/set-allow-raw-state! false))
 
 ;; ---------------------------------------------------------------------------
 ;; raw-state-allowed? predicate semantics.
@@ -190,17 +159,6 @@
 ;; --port-file launch flag — explicit, cwd-independent port file.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-launch-flags-port-file-space-form
-  (testing "--port-file <path> reads the value from the next argv element"
-    (let [flags (server/parse-launch-flags ["--port-file" "/abs/path/nrepl.port"])]
-      (is (= "/abs/path/nrepl.port" (:port-file flags)))
-      (is (true? (:eval-allowed? flags)) "other flags stay at defaults (eval-allowed? defaults true)"))))
-
-(deftest parse-launch-flags-port-file-equals-form
-  (testing "--port-file=<path> reads the inline value"
-    (let [flags (server/parse-launch-flags ["--port-file=/abs/path/nrepl.port"])]
-      (is (= "/abs/path/nrepl.port" (:port-file flags))))))
-
 (deftest parse-launch-flags-valued-flags-ride-with-other-flags
   (let [flags (server/parse-launch-flags
                 ["--no-eval" "--http-port" "9702" "--port-file" "/p/nrepl.port"
@@ -225,21 +183,10 @@
 
 ;; ---------------------------------------------------------------------------
 ;; --http-port. Same parsing shape as --port-file (one shared
-;; `parse-string-value-flag` helper underneath); these tests pin the
-;; cross-cutting accept-shape (space + equals + missing-value + numeric
-;; coercion) for the flag.
+;; `parse-string-value-flag` helper underneath), so its space and equals
+;; forms and its integer coercion ride the --port-file and valued-flags
+;; tests above; what is --http-port's own is the non-numeric fallback.
 ;; ---------------------------------------------------------------------------
-
-(deftest parse-launch-flags-http-port-space-form
-  (testing "--http-port <n> coerces to int"
-    (let [flags (server/parse-launch-flags ["--http-port" "9700"])]
-      (is (= 9700 (:http-port flags))
-          "numeric string is parsed to int"))))
-
-(deftest parse-launch-flags-http-port-equals-form
-  (testing "--http-port=<n> reads the inline value"
-    (let [flags (server/parse-launch-flags ["--http-port=9701"])]
-      (is (= 9701 (:http-port flags))))))
 
 (deftest parse-launch-flags-http-port-non-numeric-is-nil
   (testing "garbage at --http-port collapses to nil; cascade uses the 9630 default"
