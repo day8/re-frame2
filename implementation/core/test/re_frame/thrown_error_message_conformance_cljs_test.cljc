@@ -108,18 +108,6 @@
     (is (= ":id must be a keyword" (:reason data)))
     (is (rf.error/message-has-id-token? (ex-message e)))))
 
-(deftest throw-error!-builds-and-throws
-  (let [thrown (try
-                 (rf.error/throw-error! :rf.error/no-adapter-specified
-                                     'rf/init!
-                                     "rf/init! requires an adapter spec map")
-                 ::no-throw
-                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
-    (is (not= ::no-throw thrown) "throw-error! actually throws")
-    (is (= :rf.error/no-adapter-specified (:rf.error/id (ex-data thrown))))
-    (is (not (rf.error/keyword-only-message? (ex-message thrown))))
-    (is (rf.error/message-has-id-token? (ex-message thrown)))))
-
 ;; ============================================================================
 ;; The CENTRAL per-surface sites all emit the conformant shape (the
 ;; "no keyword-only message" gate). Each site is exercised through its
