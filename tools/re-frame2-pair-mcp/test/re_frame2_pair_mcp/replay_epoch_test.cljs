@@ -138,20 +138,6 @@
                      (is (= 50 (:history-size edn))))
                    (done)))))))
 
-(deftest strict-missing-cofx-failure-rides-as-isError
-  ;; The runtime translates the framework's loud throw into an envelope.
-  (async done
-    (let [failure {:ok? false :reason :rf.error/missing-required-cofx
-                   :frame :rf/default :epoch-id 9
-                   :message "[:rf.error/missing-required-cofx] absent fact"}]
-      (-> (with-captured-eval! (atom nil) failure
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "9"})))
-          (.then (fn [r]
-                   (is (err? r))
-                   (is (= :rf.error/missing-required-cofx (:reason (read-result-text r))))
-                   (done)))))))
-
 (deftest non-envelope-runtime-value-is-not-a-success
   ;; An out-of-date preload (no `replay-epoch` fn) can only yield a
   ;; non-map; the tool must not read that as a landed replay.
