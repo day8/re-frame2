@@ -43,22 +43,14 @@
 ;; They route through the PUBLIC facade `:frame` reads, not the internals.
 ;; ---------------------------------------------------------------------------
 
-(deftest frame-registrar-describe-uses-facade-frame-read
-  (let [f (defn-form 'frame-registrar-describe)]
-    (is (calls? f 'rf/handler-meta)
-        "frame-registrar-describe MUST route through (rf/handler-meta {:frame …}) — the public facade read.")
-    (is (form-contains? (fn [n] (= :frame n)) f)
-        "frame-registrar-describe MUST pass a :frame-keyed query map (the frame-targeted arity).")))
-
-(deftest frame-registrar-list-uses-facade-frame-read
-  (let [f (defn-form 'frame-registrar-list)]
-    (is (calls? f 'rf/registrations)
-        "frame-registrar-list MUST route through (rf/registrations {:frame …}) — the public facade read.")))
-
-(deftest frame-registrar-registrations-uses-facade-frame-read
-  (let [f (defn-form 'frame-registrar-registrations)]
-    (is (calls? f 'rf/registrations)
-        "frame-registrar-registrations MUST route through (rf/registrations {:frame …}) — the public facade read.")))
+(deftest frame-registrar-fns-route-through-the-facade-frame-reads
+  (doseq [[sym facade] '[[frame-registrar-describe      rf/handler-meta]
+                         [frame-registrar-list          rf/registrations]
+                         [frame-registrar-registrations rf/registrations]]]
+    (is (calls? (defn-form sym) facade)
+        (str sym " MUST route through (" facade " {:frame …}) — the public facade read.")))
+  (is (form-contains? (fn [n] (= :frame n)) (defn-form 'frame-registrar-describe))
+      "frame-registrar-describe MUST pass a :frame-keyed query map (the frame-targeted arity)."))
 
 (deftest describe-image-uses-public-frame-generation
   (let [f (defn-form 'describe-image)]
