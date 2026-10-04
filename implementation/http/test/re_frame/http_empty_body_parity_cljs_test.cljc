@@ -113,29 +113,22 @@
 
 (deftest schema-rejects-non-json-content-type-cross-host
   (testing "a schema `:decode` over a response that declares
-            a NON-JSON Content-Type (e.g. application/edn) is rejected with
+            a NON-JSON Content-Type is rejected with
             `:rf.error/http-schema-non-json-content-type` on both hosts,
-            rather than silently JSON-parsing the EDN body and surfacing a
+            rather than silently JSON-parsing the body and surfacing a
             confusing schema-validation failure. The schema path is
-            JSON-only (it wires Malli's json-transformer)."
-    (is (= :rf.error/http-schema-non-json-content-type
-           (thrown-id
-             #(rf.http.decode/decode-response-body
-                {:body-text        "{:a 1}"            ;; valid EDN, NOT JSON
-                 :headers          {"content-type" "application/edn"}
-                 :decode           [:map [:a :int]]})))
-        "non-JSON declared MIME under a schema must throw the tagged error")))
-
-(deftest schema-rejects-text-plain-content-type-cross-host
-  (testing "`text/plain` under a schema `:decode` is also a
-            non-JSON MIME and is rejected up-front on both hosts."
-    (is (= :rf.error/http-schema-non-json-content-type
-           (thrown-id
-             #(rf.http.decode/decode-response-body
-                {:body-text        "hello"
-                 :headers          {"content-type" "text/plain"}
-                 :decode           [:map [:a :int]]})))
-        "text/plain under a schema must throw the tagged error")))
+            JSON-only (it wires Malli's json-transformer), so the declared
+            MIME decides even when the body is JSON the schema would accept."
+    (doseq [[ct body] [["application/edn" "{:a 1}"]       ;; valid EDN, NOT JSON
+                       ["text/plain"      "hello"]
+                       ["application/xml" "{\"a\":1}"]]] ;; valid JSON
+      (is (= :rf.error/http-schema-non-json-content-type
+             (thrown-id
+               #(rf.http.decode/decode-response-body
+                  {:body-text        body
+                   :headers          {"content-type" ct}
+                   :decode           [:map [:a :int]]})))
+          (str "non-JSON declared MIME " ct " under a schema must throw the tagged error")))))
 
 (deftest schema-tolerates-absent-content-type-cross-host
   (testing "a MISSING/absent Content-Type stays JSON-eligible

@@ -32,9 +32,7 @@
         "attempt slot discriminates retries within one issuance")
     (testing "issuance slot discriminates re-issuances across supersessions"
       (is (= [:rf.work/http :article/by-id 2 1]
-             (rf.http.reply/work-id (assoc ctx :issuance 2))))
-      (is (not= (rf.http.reply/work-id ctx)
-                (rf.http.reply/work-id (assoc ctx :issuance 2)))))))
+             (rf.http.reply/work-id (assoc ctx :issuance 2)))))))
 
 (deftest suppress-builds-canonical-stale-reply
   (testing "http-reply/suppress produces a :status :stale / :rf.reply/work-status :suppressed reply with carried/current work-id correlation, joined to :work/id"
@@ -81,8 +79,12 @@
     (let [r (rf.http.reply/success-reply ctx {:title "Welcome"})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :ok (:status r)))
+      (is (= {:title "Welcome"} (:value r)))
       (is (= :completed (:rf.reply/work-status r)))
       (is (= :http (:rf.reply/work-kind r)))
+      (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id r)))
+      (is (= :app/main (:rf.frame/id r)))
+      (is (= 1781078400456 (:completed-at r)))
       (is (= {:request-id :article/by-id} (:correlation r)))
       (is (not (contains? r :request-id))
           ":request-id is correlation metadata, not a second stale key")))
@@ -90,7 +92,9 @@
     (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/http-5xx :status 503})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :error (:status r)))
-      (is (= :failed (:rf.reply/work-status r)))))
+      (is (= :failed (:rf.reply/work-status r)))
+      (is (= {:kind :rf.http/http-5xx :status 503} (:error r))
+          "the classified failure map rides verbatim under :error")))
   (testing "timeout → :status :error + :rf.reply/work-status :timed-out (not a top-level status)"
     (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
       (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))

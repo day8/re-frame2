@@ -20,94 +20,56 @@
    - jitter (when true): ±25% offset uniformly distributed,
      floor of zero (never negative)"
   (:require [clojure.string]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [are deftest is testing]]
             [re-frame.http.encoding :as rf.http.encoding]
             [re-frame.http.json :as rf.http.json]))
 
 ;; ---- attempt → delay (deterministic, jitter off) -------------------------
 
-(deftest compute-backoff-ms-defaults-exponential-curve
-  (testing "default config (base-ms 250, factor 2,
-            max-ms 5000) produces the documented exponential curve:
-            250, 500, 1000, 2000, 4000, then clamped to 5000."
-    (is (= 250  (rf.http.encoding/compute-backoff-ms {} 1))
-        "attempt 1 = base-ms × factor^0 = 250 × 1 = 250")
-    (is (= 500  (rf.http.encoding/compute-backoff-ms {} 2))
-        "attempt 2 = 250 × 2 = 500")
-    (is (= 1000 (rf.http.encoding/compute-backoff-ms {} 3))
-        "attempt 3 = 250 × 4 = 1000")
-    (is (= 2000 (rf.http.encoding/compute-backoff-ms {} 4))
-        "attempt 4 = 250 × 8 = 2000")
-    (is (= 4000 (rf.http.encoding/compute-backoff-ms {} 5))
-        "attempt 5 = 250 × 16 = 4000")
-    (is (= 5000 (rf.http.encoding/compute-backoff-ms {} 6))
-        "attempt 6 = 250 × 32 = 8000, clamped to max-ms 5000")
-    (is (= 5000 (rf.http.encoding/compute-backoff-ms {} 10))
-        "attempt 10 = 250 × 512 = 128000, clamped to max-ms 5000")
-    (is (= 5000 (rf.http.encoding/compute-backoff-ms {} 20))
-        "attempt 20 = very large, clamped to max-ms 5000")))
-
-(deftest default-backoff-is-the-single-source-of-truth
-  (testing "`default-backoff` names the exponential-backoff
-            defaults Spec 014 §Retry and backoff documents (base-ms 250,
-            factor 2, max-ms 5000), and `compute-backoff-ms` draws its `:or`
-            defaults from it so the two can't drift"
-    (is (= {:base-ms 250 :factor 2 :max-ms 5000} rf.http.encoding/default-backoff)
-        "the named def matches the spec-documented defaults")
-    ;; An empty config must produce exactly the curve the named defaults imply.
-    (is (= 250 (rf.http.encoding/compute-backoff-ms {} 1)))
-    (is (= 500 (rf.http.encoding/compute-backoff-ms {} 2)))
-    (is (= (:max-ms rf.http.encoding/default-backoff)
-           (rf.http.encoding/compute-backoff-ms {} 20))
-        "deep-attempt delay clamps to default-backoff's :max-ms")))
-
-(deftest compute-backoff-ms-custom-base-and-factor
-  (testing "caller-supplied :base-ms and :factor override
-            the defaults"
-    (is (= 100 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 1))
-        "attempt 1 with base=100, factor=3 → 100 × 3^0 = 100")
-    (is (= 300 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 2))
-        "attempt 2 with base=100, factor=3 → 100 × 3 = 300")
-    (is (= 900 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 3))
-        "attempt 3 with base=100, factor=3 → 100 × 9 = 900")
-    (is (= 2700 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 4))
-        "attempt 4 with base=100, factor=3 → 100 × 27 = 2700")))
-
-(deftest compute-backoff-ms-linear-when-factor-is-one
-  (testing ":factor 1 produces a LINEAR (constant) backoff:
-            every attempt waits :base-ms. Spec 014 §Retry config
-            allows :factor 1 as the linear escape hatch."
-    (let [cfg {:base-ms 500 :factor 1 :max-ms 10000}]
-      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 1)))
-      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 2)))
-      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 5)))
-      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 100))
-          "factor=1 produces a constant base-ms delay regardless of
-           attempt number — never grows, never clamps"))))
-
-(deftest compute-backoff-ms-max-ms-clamp
-  (testing ":max-ms is the upper clamp on the per-attempt
-            delay; once raw exceeds :max-ms the result is exactly
-            :max-ms (not bigger, not jittered)"
-    (let [cfg {:base-ms 1000 :factor 2 :max-ms 3000}]
-      (is (= 1000 (rf.http.encoding/compute-backoff-ms cfg 1)))
-      (is (= 2000 (rf.http.encoding/compute-backoff-ms cfg 2)))
-      (is (= 3000 (rf.http.encoding/compute-backoff-ms cfg 3))
-          "raw 4000 clamped to max 3000")
-      (is (= 3000 (rf.http.encoding/compute-backoff-ms cfg 4))
-          "raw 8000 clamped to max 3000")
-      (is (= 3000 (rf.http.encoding/compute-backoff-ms cfg 50))
-          "raw 1000 × 2^49 clamped to max 3000"))))
-
-(deftest compute-backoff-ms-handles-low-attempt-numbers
-  (testing "attempt 0 / negative is guarded by `(max 0
-            (dec attempt))` in the exponent so it does not produce a
-            negative exponent / fractional delay"
-    (is (= 250 (rf.http.encoding/compute-backoff-ms {} 0))
-        "attempt 0 → exponent (max 0 -1) = 0 → 250 × 1 = 250
-         (same as attempt 1; the floor is documented in the source)")
-    (is (= 250 (rf.http.encoding/compute-backoff-ms {} -5))
-        "negative attempt → same floor at 250")))
+(deftest compute-backoff-ms-without-jitter
+  (testing "`default-backoff` holds the Spec 014 §Retry and backoff defaults
+            (base-ms 250, factor 2, max-ms 5000) that `compute-backoff-ms`
+            draws its `:or` defaults from"
+    (is (= {:base-ms 250 :factor 2 :max-ms 5000} rf.http.encoding/default-backoff)))
+  (testing "the default curve: base-ms × factor^(attempt-1) = 250, 500, 1000,
+            2000, 4000, then clamped to max-ms 5000"
+    (are [attempt ms] (= ms (rf.http.encoding/compute-backoff-ms {} attempt))
+      1  250
+      2  500
+      3  1000
+      4  2000
+      5  4000
+      6  5000
+      10 5000
+      20 5000))
+  (testing "a caller's :base-ms and :factor override the defaults
+            (100 × 3^(attempt-1))"
+    (are [attempt ms] (= ms (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} attempt))
+      1 100
+      2 300
+      3 900
+      4 2700))
+  (testing ":factor 1 is the linear escape hatch Spec 014 §Retry config
+            allows: every attempt waits :base-ms, never growing and never
+            clamping"
+    (are [attempt] (= 500 (rf.http.encoding/compute-backoff-ms {:base-ms 500 :factor 1 :max-ms 10000} attempt))
+      1
+      2
+      5
+      100))
+  (testing "a caller's :max-ms clamps the delay to exactly :max-ms once the
+            raw delay exceeds it"
+    (are [attempt ms] (= ms (rf.http.encoding/compute-backoff-ms {:base-ms 1000 :factor 2 :max-ms 3000} attempt))
+      1  1000
+      2  2000
+      3  3000
+      4  3000
+      50 3000))
+  (testing "attempt 0 or below floors the exponent at 0 (`(max 0 (dec
+            attempt))`), so the delay is base-ms, never a fractional one"
+    (are [attempt] (= 250 (rf.http.encoding/compute-backoff-ms {} attempt))
+      0
+      -5)))
 
 ;; ---- jitter — bounded range probe ----------------------------------------
 ;;
@@ -205,10 +167,6 @@
     (is (nil? (rf.http.encoding/build-reply-event
                 {:origin-event  [:items/load {:page 1}]
                  :explicit-on   {:supplied? false :value nil}
-                 :reply-payload reply-payload})))
-    (is (nil? (rf.http.encoding/build-reply-event
-                {:origin-event  [:items/load]
-                 :explicit-on   {:supplied? false :value nil}
                  :reply-payload reply-payload})))))
 
 (deftest build-reply-event-non-vector-explicit-throws
@@ -234,14 +192,7 @@
           (rf.http.encoding/build-reply-event
             {:origin-event  [:items/load]
              :explicit-on   {:supplied? true :value {:dispatch :items/loaded}}
-             :reply-payload reply-payload})))
-    (testing "the malformed value is NOT silently re-routed to the originator"
-      (is (not= [:items/load {:page 1 :rf/reply reply-payload}]
-                (try (rf.http.encoding/build-reply-event
-                       {:origin-event  [:items/load {:page 1}]
-                        :explicit-on   {:supplied? true :value :items/loaded}
-                        :reply-payload reply-payload})
-                     (catch clojure.lang.ExceptionInfo _ ::threw)))))))
+             :reply-payload reply-payload})))))
 
 ;; ===========================================================================
 ;; Request-side encoding pipeline + default `run-accept`
@@ -359,11 +310,7 @@
     (is (= "/items?sort=asc&page=2#frag"
            (rf.http.encoding/merge-params "/items?sort=asc#frag" {:page 2}))
         "existing `?` in the pre-fragment part → join with `&`, fragment
-         stays at the very end")
-    (testing "the broken `#frag?page=2` shape is NOT produced"
-      (is (not= "/items#frag?page=2"
-                (rf.http.encoding/merge-params "/items#frag" {:page 2}))
-          "params MUST NOT land after the `#` where they'd be dropped on the wire"))))
+         stays at the very end")))
 
 (deftest merge-params-no-encoded-pairs-leaves-url-unchanged
   (testing "when the params map encodes to NO query pairs (e.g.
@@ -496,9 +443,7 @@
         (is (contains? result :ok)
             (str "default accept yields {:ok ...} for " (pr-str decoded)))
         (is (not (contains? result :failure))
-            "default accept NEVER yields a :failure")
-        (is (not= :http-status (get-in result [:failure :kind]))
-            "there is no off-taxonomy :kind :http-status default branch")))))
+            "default accept NEVER yields a :failure, so never an off-taxonomy :kind :http-status")))))
 
 (deftest run-accept-user-fn-overrides-default
   (testing "a supplied :accept fn is invoked with the decoded
