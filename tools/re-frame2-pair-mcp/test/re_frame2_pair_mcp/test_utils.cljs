@@ -37,19 +37,17 @@
 
   ## Test-only base re-exports
 
-  `token-estimate`, `overflow-hint-fallback`, and `truncate-preview`
-  are test-only handles on the cross-MCP token rule, the
-  overflow-fallback hint, and the preview cap. Production code calls
-  `base-overflow` / `base-cap` directly; hosting these here (the
-  test-only home) keeps the production surface lean while still pinning
-  the cross-MCP token rule + overflow-fallback contract + preview cap in
-  one shared test-side place."
+  `token-estimate` and `overflow-hint-fallback` are test-only handles
+  on the cross-MCP token rule and the overflow-fallback hint.
+  Production code calls `base-overflow` / `base-cap` directly; hosting
+  these here (the test-only home) keeps the production surface lean
+  while still pinning the cross-MCP token rule + overflow-fallback
+  contract in one shared test-side place."
   (:require [applied-science.js-interop :as j]
             [cljs.reader :as edn]
             [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.freshness :as freshness]
-            [re-frame2-pair-mcp.tools.result-envelope :as renv]
             [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]))
 
@@ -218,14 +216,3 @@
   `re-frame.mcp-base.overflow/overflow-hint-fallback`. Test-only handle
   on the overflow-fallback contract."
   rf.mcp-base.overflow/overflow-hint-fallback)
-
-(defn truncate-preview
-  "Truncate `text` to `result-envelope/preview-cap` chars with a
-  char-count suffix — the same shape the runtime wrap emits. Test-only
-  handle on the preview contract, pinned against the single-sourced
-  production cap."
-  [text]
-  (let [n (count text)]
-    (if (> n renv/preview-cap)
-      (str (subs text 0 renv/preview-cap) " …(" n " chars)")
-      text)))
