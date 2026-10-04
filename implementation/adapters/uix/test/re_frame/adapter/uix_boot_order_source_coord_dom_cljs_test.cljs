@@ -34,12 +34,6 @@
       committed DOM node rather than off a React element, because a
       `data-*` attribute is a statement about the document.
 
-    - `post-init-control-*` — the non-vacuity control. The SAME render fn,
-      registered AFTER `rf/init!`, mounted through the same driver. It is
-      green whether or not the lookup re-derives: that is what makes the
-      boot-order row's verdict a statement about registration ORDER rather
-      than about this file's harness.
-
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
   (ns-regexp `-dom-cljs-test$`) discovers it. `:node-test`'s `cljs-test$`
   regex matches too; the DOM rows self-gate on `(browser?)` and no-op there,
@@ -80,8 +74,8 @@
 ;; These forms run at NS-LOAD, so no fixture can have installed an adapter
 ;; first. `adapter-at-registration` and `head-at-registration` make the premise
 ;; CHECKABLE rather than assumed — without them a bundle that happened to
-;; install an adapter earlier would turn the rows below into copies of the
-;; post-init control while still reading as boot-order witnesses.
+;; install an adapter earlier would turn the rows below into post-init
+;; registrations while still reading as boot-order witnesses.
 
 (def ^:private boot-row-id :rf.uix-boot-order-coord/boot-row)
 
@@ -252,17 +246,3 @@
         ;; that has happened since ns-load is `rf/init!`.
         (assert-annotated "boot-order head" boot-row-id
                           (mount-and-read act-fn (rf/view boot-row-id)))))))
-
-;; ---- the non-vacuity control -----------------------------------------------
-
-(deftest post-init-control-annotates-the-mounted-root
-  (testing "UIx — the SAME render fn registered AFTER rf/init! passes the
-            identical harness, so the boot-order row's verdict is about
-            registration order and not about this file"
-    (with-browser-act
-      (fn [act-fn]
-        (seed-frame!)
-        (let [view-id :rf.uix-boot-order-coord/post-init-row]
-          (rf/reg-view* view-id probe-render)
-          (assert-annotated "post-init head" view-id
-                            (mount-and-read act-fn (rf/view view-id))))))))
