@@ -136,37 +136,6 @@
 ;; (a) Per-stream precedence + exactly-one-source.
 ;; ===========================================================================
 
-(deftest frame-without-policy-inherits-the-process-default
-  (testing "an error on a frame declaring NO :observability
-            reaches the process-default sink ONCE, projected under THAT
-            frame's classification (the frame is the governing frame even
-            when the ENTRIES came from the default)."
-    (let [seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/sentry
-                                       (fn [r] (swap! seen conj r)))
-      (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
-      (rf/make-frame {:id :obs.default/plain})
-      (rf.error-emit/dispatch-error-record!
-        (payload-record :rf.error/test-union :obs.default/plain))
-      (is (= 1 (count @seen))
-          "delivered exactly once from the process default")
-      (let [r (first @seen)]
-        (is (= :rf.observe/error (:kind r)))
-        (is (= :obs.default/plain (:frame r))
-            "the record's own id rides the summary (a diagnostic, not a
-             witness of which frame governs — see the witness note above)")
-        (is (= :rf.error/test-union (:error r)))
-        ;; The discriminating half. Under a LIVE governing frame the tree slot
-        ;; is walked against that frame's registry; this frame declares
-        ;; nothing, so the payload rides raw. Were the governing frame nil the
-        ;; whole slot would fail closed to `:rf/redacted` — so this assertion,
-        ;; and not the summary slots above, is what witnesses that inheritance
-        ;; moved the SINK LIST without moving the redaction authority.
-        (is (= {:auth {:token "secret" :user "ann"}} (:tags r))
-            "a live owner governs, so the tree slot is WALKED, not failed closed;
-             this frame declares no classification, so its payload rides raw
-             — inheritance moved the entries, never the authority")))))
-
 (deftest inheriting-frames-own-classification-governs-the-projection
   (testing "the strong form: a frame inheriting the process
             default's entries is projected under ITS OWN classification, and
@@ -195,7 +164,7 @@
         (is (= "ann" (get-in classified [:tags :auth :user]))
             "an undeclared sibling in the same tree still rides raw, so this is
              not a redact-everything result")
-        (is (= "secret" (get-in unclassified [:tags :auth :token]))
+        (is (= {:auth {:token "secret" :user "ann"}} (:tags unclassified))
             "the OTHER inheriting frame declares nothing, so the identical
              payload rides raw — the two differ only by WHICH frame governs")))))
 
