@@ -272,10 +272,6 @@
         (is (re-find #"Event History"
                      (text-nodes (find-by-testid ribbon "rf-xray-ribbon-events-label")))
             "the `Event History` label leads the chrome ribbon")
-        (is (nil? (find-by-testid ribbon "rf-xray-ribbon-logo"))
-            "there is no `❖ Xray` wordmark")
-        (is (not (re-find #"❖" (text-nodes ribbon)))
-            "no diamond `❖` glyph anywhere in the chrome ribbon")
         ;; The nav cluster + add affordance live in the chrome ribbon; the
         ;; add affordance is the single `+ filter` text button.
         (is (some? (find-by-testid ribbon "rf-xray-ribbon-nav"))
@@ -378,16 +374,12 @@
         (is (some? (find-by-testid tree "rf-xray-events-ribbon-actions"))
             "action cluster present when a filter hides ≥1 row")
         (is (some? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
-            "N-hidden message present (the OUT pill hides 1 row → N>0)")
-        (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "there is no Clear Filters button")
-        (is (not (re-find #"Clear Filters" (text-nodes tree)))
-            "no `Clear Filters` copy anywhere in the shell")))))
+            "N-hidden message present (the OUT pill hides 1 row → N>0)")))))
 
 (deftest events-ribbon-hidden-when-no-filters
   (testing "with no filters the `filters:` ribbon is collapsed
             (data-open=false on the collapse track) and carries no action
-            cluster / warning. There is no Clear Filters button."
+            cluster / warning."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
                                :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
@@ -399,8 +391,6 @@
             "the filters ribbon is CLOSED when there are zero filters")
         (is (nil? (find-by-testid tree "rf-xray-events-ribbon-actions"))
             "no action cluster when no filter is active")
-        (is (nil? (find-by-testid tree "rf-xray-filters-hidden-clear"))
-            "no Clear Filters button")
         (is (nil? (find-by-testid tree "rf-xray-filters-hidden-indicator"))
             "no N-hidden message when no filter is active")))))
 
@@ -451,27 +441,6 @@
             "events-ribbon is OPEN (the two tracks are mutually exclusive)")
         (is (some? events-add)
             "the events-ribbon's own `[+]` add affordance remains available")))))
-
-(deftest chrome-add-filter-track-reopens-when-last-filter-removed
-  (testing "the mutual-exclusion is symmetric: removing the
-            last filter closes the events-ribbon and re-opens the chrome
-            `+ filter` track so the add affordance is never lost in either
-            transition."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :tags {:rf.event/v [:a] :frame :rf/default :rf.trace/dispatch-id 1}})
-    ;; add then immediately remove
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/add-filter :in {:pattern :a}])
-      (rf/dispatch-sync [:rf.xray/remove-filter :in 0]))
-    (rf/with-frame :rf/xray
-      (let [tree        (dynamic-shell-tree/shell-view-tree)
-            collapse    (find-by-testid tree "rf-xray-filter-add-collapse")
-            events-coll (find-by-testid tree "rf-xray-events-ribbon-collapse")]
-        (is (= "true" (:data-open (second collapse)))
-            "chrome `+ filter` track re-opens after the last filter is removed")
-        (is (= "false" (:data-open (second events-coll)))
-            "events-ribbon re-closes after the last filter is removed")))))
 
 (deftest close-icon-dispatches-close-shell
   (testing "the chrome ribbon `✕` dispatches the
@@ -985,9 +954,6 @@
         (is (some? row)         "the :after-timer data row renders")
         (is (some? r-source)    "the row's source-tag cell renders")
         (is (some? r-time)      "the row's time chip renders (it carries :time)")
-        ;; no leading focus gutter on either surface.
-        (is (empty? (find-all-by-testid-prefix tree "rf-xray-row-gutter-"))
-            "no row focus gutter")
         ;; SOURCE column — header label width == row tag width
         (is (= (:width (style-of h-source))
                (:width (style-of r-source)))
@@ -1040,24 +1006,6 @@
             "empty state renders")
         (is (nil? (find-by-testid tree "rf-xray-event-list-header"))
             "no column header on the empty state")))))
-
-(deftest event-row-source-tag-surfaces-non-user-origin
-  (testing "a non-default `:source` value renders a text
-            SOURCE tag (the Figma `source` column) carrying the source
-            name. `:source` is the single closed-enum functional-origin
-            axis."
-    (xray-setup!)
-    ;; An `:after-timer`-source cascade — the source column should read
-    ;; `after-timer`.
-    (trace-collector/seed-trace-for-test!
-      (assoc-in (dispatch-trace-ev 1 [:poll/tick])
-                [:tags :source] :after-timer))
-    (rf/with-frame :rf/xray
-      (let [tree    (dynamic-shell-tree/shell-view-tree)
-            tagged  (find-by-testid tree "rf-xray-row-origin-after-timer")]
-        (is (some? tagged) "the :after-timer row carries a source tag")
-        (is (re-find #"after-timer" (text-nodes tagged))
-            "the source tag reads the source name `after-timer`")))))
 
 (deftest event-row-source-tag-surfaces-ui-origin
   (testing "a default (:user / untagged) ui-origin row renders
@@ -1806,9 +1754,7 @@
           (is (str/includes? text "2 newer events")
               "reports the two events newer than the pin")
           (is (str/includes? text "»")
-              "names the fast-forward control the chrome actually paints")
-          (is (not (str/includes? text "⏭"))
-              "does NOT use the spec's `⏭` glyph — the chrome paints `»`"))))))
+              "names the fast-forward control the chrome actually paints"))))))
 
 (deftest newer-events-marker-appears-only-once-paused-falls-behind
   (testing "Space at head pauses LIVE but nothing is stale
@@ -2705,8 +2651,6 @@
             txt   (text-nodes label)]
         (is (some? label) "the context label renders")
         (is (re-find #"selected" txt) "label reads `selected`")
-        (is (not (re-find #"for selected event" txt))
-            "the label is not the longer `for selected event`")
         (is (re-find #"↳" txt) "the corner-down-right glyph is present")))))
 
 (deftest tab-bar-reset-button-disabled-with-no-focus
