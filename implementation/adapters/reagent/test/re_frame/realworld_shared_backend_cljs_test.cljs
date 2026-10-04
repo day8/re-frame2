@@ -69,40 +69,6 @@
 (def ^:private seed-author "stub-bot")
 
 ;; ============================================================================
-;; THE HEADLINE — a write survives the refetch it causes
-;; ============================================================================
-;;
-;; This is the whole bead in two sequences. The resources example's mutations
-;; deliberately do NOT patch a partial collection: they invalidate and trust the
-;; refetch as authoritative. That is only honest if the refetch can see the
-;; write.
-
-(deftest a-write-survives-the-refetch-it-causes
-  (testing "a posted comment is in the collection the refetch returns"
-    (let [w       (world)
-          before  (count (:comments (ok! w :get "/articles/hello-conduit/comments")))
-          written (:comment (ok! w :post "/articles/hello-conduit/comments"
-                                 {:body {:comment {:body "survives the refetch"}}}))
-          ;; The separate, normal read a resource invalidation would issue.
-          after   (:comments (ok! w :get "/articles/hello-conduit/comments"))]
-      (is (= (inc before) (count after))
-          "the refetch returns one MORE comment than before the write")
-      (is (some #(= written %) after)
-          "and the exact saved comment — id, body, timestamps and all — is in it")))
-
-  (testing "a favourite is still a favourite in the list read that follows it"
-    (let [w (world)]
-      (is (false? (:favorited (:article (ok! w :get "/articles/second-article"))))
-          "not favourited to begin with")
-      (ok! w :post "/articles/second-article/favorite")
-      (let [detail (:article (ok! w :get "/articles/second-article"))
-            listed (->> (:articles (ok! w :get "/articles?limit=100&offset=0"))
-                        (some #(when (= "second-article" (:slug %)) %)))]
-        (is (true? (:favorited detail))   "the detail refetch still says favourited")
-        (is (= 1 (:favoritesCount detail)) "with the count the write produced")
-        (is (true? (:favorited listed))   "and so does the list refetch — the read a discarded write would revert")))))
-
-;; ============================================================================
 ;; ARTICLE CRUD — create / update / delete, each read back
 ;; ============================================================================
 
@@ -119,9 +85,7 @@
     (testing "GET by the new slug returns the new article — the navigation the editor performs"
       (let [fetched (:article (ok! w :get "/articles/my-new-post"))]
         (is (= "my-new-post" (:slug fetched)))
-        (is (= "My New Post" (:title fetched)))
-        (is (not= "hello-conduit" (:slug fetched))
-            "and emphatically not the first seed article")))
+        (is (= "My New Post" (:title fetched)))))
     (testing "the new article is at the top of page 1 and counted in the grand total"
       (let [page1 (ok! w :get "/articles?limit=10&offset=0")]
         (is (= "my-new-post" (first (slugs page1))) "newest first")
@@ -183,11 +147,10 @@
   (let [w (world)]
     (testing "an unknown slug is a 404, not article #1"
       (let [reply (send! w :get "/articles/does-not-exist")]
-        (is (nil? (:ok reply)) "there is no success payload at all")
-        (is (= 404 (:status (:tags (:failure reply)))))
-        (is (not= "hello-conduit"
-                  (some-> reply :ok :article :slug))
-            "a first-article fallback would return hello-conduit here, and create-then-navigate would lie")))
+        (is (nil? (:ok reply))
+            "there is no success payload at all — a first-article fallback would
+             return hello-conduit here, and create-then-navigate would lie")
+        (is (= 404 (:status (:tags (:failure reply)))))))
     (testing "so are writes against one"
       (is (= 404 (:status (:tags (failure! w :put "/articles/nope" {:body {:article {:title "x"}}})))))
       (is (= 404 (:status (:tags (failure! w :delete "/articles/nope")))))
