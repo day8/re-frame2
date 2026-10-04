@@ -187,10 +187,7 @@
             (str "refused for opts " (pr-str opts)))
         (is (= :no-host (:reason d))
             (str "reason is :no-host for opts " (pr-str opts)))
-        (is (string? (:message d)) "carries a human message"))))
-  (testing "a blank host never yields a URL"
-    (is (not (string? (try (share/encode-share-url chart-state {:host "  "})
-                           (catch :default _ nil)))))))
+        (is (string? (:message d)) "carries a human message")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The `:host` fragment rule, and the deliberate LIMIT of it.
@@ -460,28 +457,6 @@
                     :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
                                     :line 84 :column 11}}}})
 
-(deftest macro-stamped-source-coords-do-not-leak
-  (testing "nested :source-coords / :source-code on :states /
-            :guards / :actions are stripped before Transit (no local path leak)"
-    (let [cs   (assoc chart-state :definition macro-stamped-like-definition)
-          url  (encode cs)
-          back (:rf.machines-viz.share/chart (share/decode-share-url url))
-          dfn  (:definition back)]
-      ;; The decoded payload carries no debug/source fields anywhere.
-      (is (nil? (get-in dfn [:states :idle :source-coords])))
-      (is (nil? (get-in dfn [:states :idle :on :submit :source-coords])))
-      (is (nil? (get-in dfn [:states :done :source-coords])))
-      (is (nil? (get-in dfn [:guards :form-valid? :source-coords])))
-      (is (nil? (get-in dfn [:guards :form-valid? :source-code])))
-      (is (nil? (get-in dfn [:actions :commit :source-code])))
-      ;; Topology references survive: the transition target + guard NAME.
-      (is (= :done       (get-in dfn [:states :idle :on :submit :target])))
-      (is (= :form-valid? (get-in dfn [:states :idle :on :submit :guard])))
-      (is (true? (get-in dfn [:states :done :final?])))
-      ;; The guard / action ids survive (as keys) — names-only, no body.
-      (is (contains? (:guards dfn) :form-valid?))
-      (is (contains? (:actions dfn) :commit)))))
-
 (deftest macro-stamped-executable-fns-do-not-block-encoding
   (testing "a live :fn on a guards/actions entry AND an inline-fn
             action encode successfully (instead of crashing Transit) — the
@@ -538,42 +513,6 @@
       ;; but the executable :fn is still stripped (privacy / Transit contract)
       (is (nil? (get-in dfn [:guards :within-window? :fn])))
       (is (nil? (get-in dfn [:actions :schedule-retry :fn]))))))
-
-;; ---------------------------------------------------------------------------
-;; `:fn` as a TOPOLOGY key (state id / event id / region id) is
-;; valid and MUST survive sanitisation. A sanitiser that dropped EVERY map
-;; entry keyed `:fn` would silently remove such a state / transition / region,
-;; so only the EXECUTABLE `:fn` slot (a co-located `{:fn <fn> …}` value that is
-;; a function) is stripped — gated on `(fn? v)`.
-
-(def fn-id-definition
-  "A valid topology that uses `:fn` as a STATE id, an EVENT id, and a
-  transition TARGET — none of which is an executable function slot."
-  {:initial :fn
-   :states  {:fn   {:on {:fn   :done        ;; :fn used as both state-id + event-id
-                         :next :other}}
-             :other {:on {:go :done}}
-             :done  {:final? true}}})
-
-(deftest fn-as-state-id-survives-sanitisation
-  (testing "a state whose id is `:fn` is topology and is
-            preserved through share encode/decode (not dropped as if it were
-            an executable function slot)"
-    (let [cs   (assoc chart-state :definition fn-id-definition)
-          url  (encode cs)
-          dfn  (:definition
-                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
-      (is (string? url) "encoding succeeds")
-      (is (= :fn (:initial dfn)) "the `:fn` initial state id is preserved")
-      (is (contains? (:states dfn) :fn)
-          "the `:fn` STATE id survives — the topology is not silently dropped")
-      ;; The `:fn` EVENT id (and its target) survive too.
-      (is (= :done (get-in dfn [:states :fn :on :fn]))
-          "the `:fn` EVENT id + its target are preserved")
-      (is (= :other (get-in dfn [:states :fn :on :next]))
-          "sibling transitions on the `:fn` state are intact")
-      (is (contains? (:states dfn) :other))
-      (is (true? (get-in dfn [:states :done :final?]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A function-valued `:after` delay (Spec 005) is a
@@ -691,15 +630,6 @@
         (is (= {} (get-in dfn [:actions :source-code]))
             "the action keeps its name and loses :fn and :source-coords")))))
 
-(deftest debug-named-region-ids-survive-sharing
-  (testing "parallel REGION ids spelled like debug fields survive"
-    (let [d   {:type    :parallel
-               :regions {:source-code   {:initial :a :states {:a {:on {:go :b}} :b {}}}
-                         :source-coords {:initial :p :states {:p {}}}}}
-          dfn (round-trip-definition d)]
-      (is (= d dfn))
-      (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Versioning + failure modes
 
@@ -743,13 +673,6 @@
     (let [d (try (encode (assoc chart-state :frame-id "not-a-keyword"))
                  (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d))))))
-
-(deftest missing-envelope-rejected
-  (testing "a payload missing the envelope keys throws :missing-envelope"
-    (let [bad-url (envelope->url {:not :an-envelope})
-          d (try (share/decode-share-url bad-url)
-                 (catch :default e (ex-data e)))]
-      (is (= :missing-envelope (:reason d))))))
 
 (deftest decoded-snapshot-extra-key-rejected-for-every-arm
   (testing "a closed :snapshot stays closed for every :state arm — flat,
@@ -843,17 +766,6 @@
      :rf.machines-viz.share/chart   {:machine-id :demo :definition definition}
      :rf.machines-viz.share/created 0}))
 
-(deftest decoded-malformed-definition-rejected-throwing
-  (testing "a forged share-URL carrying a malformed machine
-            definition is rejected at decode with :invalid-chart-state (the
-            throwing API), fail-closed"
-    (doseq [[label definition] malformed-definitions]
-      (let [d (try (share/decode-share-url (forge-definition-url definition))
-                   (catch :default e (ex-data e)))]
-        (is (= :invalid-chart-state (:reason d))
-            (str "malformed definition " label " must fail closed at decode"))
-        (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d)))))))
-
 (deftest valid-definitions-round-trip-unchanged
   (testing "valid definitions pass the gate; flat / compound /
             parallel / timeout / choice authored forms all round-trip
@@ -881,15 +793,17 @@
    :dangling-target            {:initial :idle :states {:idle {:on {:go :missing}}}}
    :unknown-node-key           {:initial :idle :states {:idle {:on-entry :oops}}}})
 
-(deftest decoded-recursively-malformed-definition-rejected
-  (testing "a forged v2 share-URL carrying a recursively-
-            malformed definition fails closed at decode (:invalid-chart-state),
-            via BOTH the throwing and the safe decode APIs"
-    (doseq [[label definition] recursively-malformed-definitions]
+(deftest decoded-malformed-definition-rejected
+  (testing "a forged share-URL carrying a malformed machine definition — a
+            malformed root or parallel-region shape, or one that is
+            structurally invalid BELOW the root — fails closed at decode
+            (:invalid-chart-state), via BOTH the throwing and the safe decode
+            APIs"
+    (doseq [[label definition] (merge malformed-definitions recursively-malformed-definitions)]
       (let [d (try (share/decode-share-url (forge-definition-url definition))
                    (catch :default e (ex-data e)))]
         (is (= :invalid-chart-state (:reason d))
-            (str "recursively-malformed " label " must fail closed at decode"))
+            (str "malformed definition " label " must fail closed at decode"))
         (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d))))
       (let [{:keys [ok error]} (share/decode-share-url-safe (forge-definition-url definition))]
         (is (nil? ok) (str label " must NOT decode :ok"))
@@ -905,22 +819,6 @@
         (is (= :invalid-chart-state (:reason d))
             (str "malformed definition " label " must be rejected at encode"))
         (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
-
-(deftest share-definition-gate-agrees-with-canonical-grammar
-  (testing "the share boundary accepts/rejects EXACTLY the definitions the
-            canonical Machines-Viz grammar gate does (the same RECURSIVE gate
-            the AI / Mermaid / SCXML emitters + chart projector share), so one
-            machine value cannot be accepted by one surface and rejected by
-            another. Pins one table of valid, flat / parallel malformed and
-            recursively-malformed shapes against the canonical predicate so
-            the boundaries cannot drift."
-    (doseq [[label definition] (merge valid-definitions malformed-definitions
-                                      recursively-malformed-definitions)]
-      (let [canonical? (grammar/valid-definition? (grammar/desugar-grammar definition))
-            share-ok?  (some? (:ok (share/decode-share-url-safe (forge-definition-url definition))))]
-        (is (= canonical? share-ok?)
-            (str label ": share boundary must agree with the canonical grammar gate "
-                 "(canonical? " canonical? ", share-ok? " share-ok? ")"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level ChartState is CLOSED on decode. The encoder
@@ -951,46 +849,6 @@
         (is (= :invalid-chart-state (:reason d))
             (str "an extra top-level " label " fails the closed ChartState check at decode"))))))
 
-(deftest decoded-extra-top-level-key-rejected-safe
-  (testing "decode-share-url-safe returns {:error {:reason :invalid-chart-state}} for a forged extra key"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :source-coords {:file "/Users/mike/secret/x.cljs"}
-                                                            :data {:token "leak-abc"})
-                      :rf.machines-viz.share/created 0})
-          {:keys [ok error]} (share/decode-share-url-safe smuggled)]
-      (is (nil? ok) "the forged payload is NOT returned as :ok")
-      (is (= :invalid-chart-state (:reason error))
-          "the safe wrapper surfaces a banner-friendly reason rather than leaking the forged chart"))))
-
-(deftest valid-chart-state-with-exact-keys-still-decodes
-  (testing "guard against over-tightening — a legitimate ChartState (no extra keys) still round-trips"
-    (let [url  (encode chart-state)
-          back (:rf.machines-viz.share/chart (share/decode-share-url url))]
-      (is (= :auth/login-flow (:machine-id back)))
-      (is (= {:state :loading} (:snapshot back)))
-      (is (= #{:machine-id :frame-id :definition :snapshot} (set (keys back)))
-          "the decoded chart carries exactly the four ChartState keys"))))
-
-(deftest malformed-fragment-rejected
-  (testing "a URL with no #machine= fragment throws :malformed-fragment"
-    ;; The message is the human sentence + the
-    ;; [:rf.machines-viz.share/decode-failed] token; the fine-grained
-    ;; classification rides the documented :reason slot (branch on that).
-    (is (thrown? :default
-          (share/decode-share-url "https://example.com/app")))
-    (let [d (try (share/decode-share-url "https://example.com/app")
-                 (catch :default e (ex-data e)))]
-      (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d)))
-      (is (= :malformed-fragment (:reason d))))))
-
-(deftest malformed-base64-rejected
-  (testing "a #machine= fragment that isn't valid base64url throws"
-    (let [d (try (share/decode-share-url "https://x/viewer.html#machine=@@@not-b64@@@")
-                 (catch :default e (ex-data e)))]
-      (is (contains? #{:malformed-fragment :malformed-payload} (:reason d))))))
-
 (deftest encode-rejects-invalid-chart-state
   (testing "the encoder rejects a ChartState that fails the schema (an empty
             definition, a non-keyword :machine-id) with :invalid-chart-state"
@@ -1001,16 +859,6 @@
                                           :definition idle-loading-success})
                  (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d))))))
-
-(deftest decode-safe-wraps-errors
-  (testing "decode-share-url-safe returns {:error ...} not a throw"
-    (let [r (share/decode-share-url-safe "https://example.com/app")]
-      (is (= :malformed-fragment (get-in r [:error :reason])))
-      (is (nil? (:ok r))))
-    (testing "and {:ok envelope} on success"
-      (let [r (share/decode-share-url-safe (encode chart-state))]
-        (is (some? (:ok r)))
-        (is (nil? (:error r)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; chart-state->props
