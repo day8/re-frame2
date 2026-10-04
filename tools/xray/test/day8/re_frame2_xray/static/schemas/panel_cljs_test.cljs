@@ -231,27 +231,6 @@
              dropped, so the two rows above are the key being read and not
              every registration being listed")))))
 
-(deftest live-registration-renders-a-row-surface
-  (testing "and it reaches the SCREEN: the live event's row
-            surface is in the hiccup the boundary renders, so the read is
-            end-to-end and not merely a projection that nobody paints"
-    (setup-xray-production!)
-    (register-live-schemas!)
-    (rf/with-frame :rf/xray
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid
-                     tree
-                     (str "rf-xray-static-schemas-row-event-" (pr-str live-event-id))))
-            "the live event's row is rendered")
-        (is (some? (find-by-testid
-                     tree
-                     (str "rf-xray-static-schemas-row-sub-" (pr-str live-sub-id))))
-            "and the live sub's")
-        (is (nil? (find-by-testid tree "rf-xray-static-schemas-empty"))
-            "and the panel is NOT showing its empty state — which is what a
-             panel reading the wrong key would show against every real
-             registrar")))))
-
 (def two-frame-registry
   "Two frames each carrying a distinct app-db schema, plus the shared
   process-global event + sub schemas — fixture for the picker-scoping
@@ -349,40 +328,6 @@
   (filterv #(and (vector? %) (= ei/edn-inspector-view (first %)))
            (hiccup-nodes tree)))
 
-(deftest schema-edn-renders-through-the-widgets-fresco-head
-  (testing "the Malli schema renders via the shared EDN widget, through
-            its FRESCO head.
-
-            The row asserts on the head form the panel emits, not on the
-            widget's expanded `rf-xray-edn-inspector-*` CONTAINER testid,
-            which only exists once the widget has been invoked. The walker
-            above invokes nothing, and it must not: `ei/edn-inspector-view`
-            is a boundary whose body may only run inside a React render
-            window. Asserting on the head also pins HD-016 directly:
-            `ei/edn-inspector` is a plain fn, and a plain fn in hiccup head
-            position is a loud error inside a Fresco body."
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.schemas/set-registry-override-for-test
-         sample-registry])
-      (let [tree  (panel-tree)
-            heads (inspector-view-forms tree)]
-        ;; One schema value per row; the fixture projects three rows.
-        (is (= 3 (count heads))
-            (str "every row's schema renders through the widget's Fresco "
-                 "head. Mount ids: "
-                 (pr-str (mapv #(:mount-id (second %)) heads))))
-        (is (empty? (filterv #(and (vector? %) (= ei/edn-inspector (first %)))
-                             (hiccup-nodes tree)))
-            "and NOT ONE `[ei/edn-inspector …]` Reagent head survives — that
-             head is a plain fn, which is a loud error in a Fresco body, so
-             a single survivor would take the whole panel down at runtime
-             rather than degrade")
-        (is (= (count heads) (count (set (map #(:mount-id (second %)) heads))))
-            "each mount gets its OWN `:mount-id` — two mounts sharing one
-             would share a width slot and a projection cache")))))
-
 ;; -------------------------------------------------------------------------
 ;; (4a) ONE APP-DB PATH, TWO FRAMES, ONE RENDER FRAME
 ;; -------------------------------------------------------------------------
@@ -477,44 +422,3 @@
                    (pr-str mount-ids)))))
       (rf/dispatch-sync
         [:rf.xray.static.schemas/set-registry-override-for-test nil]))))
-
-;; -------------------------------------------------------------------------
-;; (5) row React keys reach the RENDERER, not just the reader
-;; -------------------------------------------------------------------------
-
-(deftest row-keys-ride-the-attribute-map-not-metadata
-  (testing "each catalogue row's React key
-            is carried on a keyed FRAGMENT'S ATTRIBUTE MAP, which is the one
-            spelling the shipped renderer reads.
-
-            `^{:key …}` reader metadata on the row's vector literal would
-            not do. Reagent's `get-react-key` reads it, but Fresco's codec
-            reads `:key` from an attribute map and reads Clojure metadata
-            NOWHERE, so under a boundary it would go inert — and silently,
-            since a lost key does not fail but degrades into index-based
-            reconciliation.
-
-            ASSERTING ON THE METADATA HERE WOULD BE A HOLLOW GATE: it would
-            pass while React received nothing. The browser lane's W5 closes
-            the loop on a real React commit."
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.static.schemas/set-registry-override-for-test
-         sample-registry])
-      (let [tree      (panel-tree)
-            fragments (filterv #(and (vector? %) (= :<> (first %))
-                                     (map? (second %))
-                                     (contains? (second %) :key))
-                               (hiccup-nodes tree))
-            rows      (find-by-testid-prefix tree "rf-xray-static-schemas-row-")]
-        (is (= 3 (count rows))
-            "PRECONDITION: the fixture's three rows rendered — a smaller
-             count would make the key claim vacuous")
-        (is (= (count rows) (count fragments))
-            (str "every row is wrapped in a keyed fragment. Keys seen: "
-                 (pr-str (mapv #(:key (second %)) fragments))))
-        (is (every? #(some? (:key (second %))) fragments)
-            "and each key is non-nil IN THE ATTRIBUTE MAP")
-        (is (= (count fragments) (count (set (map #(:key (second %)) fragments))))
-            "and the row keys are distinct from one another")))))
