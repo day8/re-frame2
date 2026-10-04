@@ -39,10 +39,12 @@
   DIRECTLY under a bound event owner (A's dequeue-time token) with a destroyer
   that publishes same-id B on the callback's / hook's own stack, and assert B
   stays byte-identical — the deterministic, single-threaded shape the other
-  incarnation-fence fixtures use. Each loss fixture pairs with a LIVE-OWNER control
-  that must still tear down / release exactly once (the mutation tooth against an
-  over-eager fence), plus an EVENTLESS frame-destroy control that retains full
-  authority."
+  incarnation-fence fixtures use. An over-eager fence — one that also blocked a
+  LIVE owner's teardown — is caught by the ordinary destroy suites
+  (`destroy_silent_idempotent_cljs_test`, `frame_destroy_cascade_test`,
+  `destroy_closed_grammar_cljs_test`) and, for an eventless frame destroy, by
+  `machine_exit_cascade_incarnation_fence_cljs_test`; the subscription-vector
+  timer seam keeps its own live-owner control."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -219,55 +221,6 @@
       (is (true? (:fired? result)) "the :rf.machine/destroyed listener ran (fence exercised)")
       (assert-b-inert result))))
 
-;; ---- live-owner control (full teardown once) ------------------------------
-
-(deftest live-owner-destroy-tears-down-once
-  (testing "control: an ordinary `:rf.machine/destroy` whose tail fires no
-            destroyer tears the actor down FULLY — snapshot dissoc'd,
-            spawn-order forgotten, classification dropped, destroyed
-            trace fired exactly once. The fence is scoped to owner-loss only."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a   :rf2-i4aj9c/live-destroy-frame
-          destroyed (atom [])]
-      (rf/make-frame {:id frame-a})
-      (seed-live-actor! frame-a nil)
-      (rf.trace.tooling/register-listener!
-        ::live-destroy
-        (fn [ev] (when (= :rf.machine/destroyed (:operation ev))
-                   (swap! destroyed conj ev))))
-      (try
-        (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-          (rf.frame/call-with-event-owner-token frame-a token-a
-            (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))
-        (is (nil? (snapshot frame-a actor-id))
-            "the live destroy dissoc'd the actor's snapshot")
-        (is (empty? (rf.machines.spawn-order/frame-order frame-a))
-            "the live destroy forgot the actor from spawn-order")
-        (is (empty? (or (elision-slot frame-a) {}))
-            "the live destroy dropped the actor's classification claim")
-        (is (= 1 (count @destroyed))
-            "exactly one :rf.machine/destroyed trace fired")
-        (finally
-          (rf.trace.tooling/unregister-listener! ::live-destroy))))))
-
-;; ---- eventless frame-destroy control (retains authority) ------------------
-
-(deftest eventless-frame-destroy-tears-down-fully
-  (testing "control: `destroy-single-actor!` reached with NO event owner (the
-            frame-destroy cascade) uses the inert eventless fence — it tears the
-            actor down fully regardless of any ambient ownership. A wrongly-eager
-            fence would strand the actor on frame teardown."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a :rf2-i4aj9c/eventless-frame]
-      (rf/make-frame {:id frame-a})
-      (seed-live-actor! frame-a nil)
-      ;; No `call-with-event-owner-token` — genuinely eventless.
-      (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-a actor-id)
-      (is (nil? (snapshot frame-a actor-id))
-          "the eventless teardown dissoc'd the snapshot")
-      (is (empty? (rf.machines.spawn-order/frame-order frame-a))
-          "the eventless teardown forgot the actor from spawn-order"))))
-
 ;; ===========================================================================
 ;; SUBSCRIPTION-VECTOR TIMER seam — release fence (rf.subs/unsubscribe)
 ;; ===========================================================================
@@ -422,24 +375,6 @@
             "B's runtime-db is byte-identical to its birth (no A-derived iteration / clear landed)")
         (finally
           (rf.trace.tooling/unregister-listener! ::spawn-all-fence))))))
-
-(deftest spawn-all-live-owner-tears-down-all-children
-  (testing "control: a `:spawn-all` teardown whose per-child destroyed traces fire
-            no destroyer tears down EVERY child and clears the join slot. The
-            fence must not suppress the live path."
-    (rf.machines.spawn-order/reset-all!)
-    (let [frame-a :rf2-i4aj9c/spawn-all-live-frame]
-      (rf/make-frame {:id frame-a})
-      (seed-spawn-all! frame-a)
-      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
-        (rf.frame/call-with-event-owner-token frame-a token-a
-          (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx
-                   {:frame frame-a}
-                   {:rf/spawn-all true :rf/parent-id sa-parent :rf/invoke-id sa-invoke}))))
-      (is (nil? (snapshot frame-a sa-child-a)) "child A torn down")
-      (is (nil? (snapshot frame-a sa-child-b)) "child B torn down")
-      (is (nil? (get-in (runtime-db frame-a) [:rf.runtime/machines :spawned sa-parent sa-invoke]))
-          "the join slot was cleared once every child settled"))))
 
 ;; ===========================================================================
 ;; CLASSIFICATION exact-write seam — mid-write container-watch loss (removal)
