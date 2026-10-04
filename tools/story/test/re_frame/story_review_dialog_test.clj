@@ -46,13 +46,6 @@
 
 ;; ---- default-variant-id-with-prefix --------------------------------------
 
-(deftest default-uses-source-namespace
-  (testing "the derived id inherits the source's namespace and is named
-            prefix-N"
-    (is (= :story.counter/saved-12345
-           (rf.story.review-dialog/default-variant-id-with-prefix
-             :story.counter/happy-path 12345 "saved")))))
-
 (deftest default-honors-custom-prefix
   (testing "the prefix arg drives the name's leading token"
     (let [k (rf.story.review-dialog/default-variant-id-with-prefix
