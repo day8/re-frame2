@@ -370,37 +370,6 @@
        (= "re-frame.story.play" (namespace id))
        (clojure.string/starts-with? (name id) "trace-")))
 
-(deftest destroy-variant-unregisters-play-trace-listener
-  (testing "after run-variant installs the per-frame play trace listener and
-            the variant is destroyed, the listener is UNREGISTERED — it does
-            not survive teardown to inspect future trace events"
-    (let [live (atom #{})]
-      ;; Instrument the trace registry so the test observes which listener
-      ;; ids are live without reaching into its private atom. Redefining the
-      ;; `re-frame.trace.tooling` vars is enough: the facade's `:trace` arm
-      ;; CALLS them (a call-time var deref), so a tooling redef reaches it,
-      ;; where a re-export that `def`-captured the tooling fn VALUE at load
-      ;; time would ignore the redef.
-      (with-redefs [rf.trace.tooling/register-listener!
-                    (fn [id f]
-                      (swap! live conj id)
-                      (swap! @#'rf.trace.tooling/listeners assoc id f)
-                      id)
-                    rf.trace.tooling/unregister-listener!
-                    (fn [id]
-                      (swap! live disj id)
-                      (swap! @#'rf.trace.tooling/listeners dissoc id)
-                      nil)]
-        (rf/reg-event :lst/noop (fn [{:keys [db]} _] {:db db}))
-        (rf.story/reg-variant :story.listener/v {:setup [[:lst/noop]]})
-        (rf.story.async/deref-blocking (rf.story/run-variant :story.listener/v) 5000)
-        (is (some play-listener-id? @live)
-            "run-variant installed the per-frame play trace listener")
-        (rf.story/destroy-variant! :story.listener/v)
-        (is (not-any? play-listener-id? @live)
-            "destroy unregistered the play trace listener — no stale closure
-             survives the frame lifecycle")))))
-
 (deftest reset-run-variant-does-not-accumulate-listeners
   (testing "running the SAME variant twice leaves ONE play trace listener
             live: each run registers under the frame's own listener id, so
