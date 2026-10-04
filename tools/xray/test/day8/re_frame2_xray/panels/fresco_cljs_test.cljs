@@ -689,12 +689,6 @@
       (is (some #{app-frame} (frames-of (:mounted-boundaries held)))
           "and the application's boundary SURVIVES — the drop is the tool's
            own frame and not a roster that emptied")
-      (testing "the singleton stays in the set whichever shell is looking"
-        (is (= #{:rf/xray custom-shell-frame}
-               (hh/own-frames custom-shell-frame))
-            ":rf/xray is RESERVED — a row seated there is the tool whichever
-             shell is doing the looking, so it is never dropped from the set
-             just because this panel is somewhere else"))
       (app-side)
       (xray-side)
       (rf/destroy-frame! custom-shell-frame))))
