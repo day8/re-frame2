@@ -35,9 +35,11 @@
   dequeue-time token) with a destroyer that publishes same-id B on the callback's
   own stack, and assert B stays byte-identical — the same deterministic,
   single-threaded shape the sibling fence fixtures use (the destroyer runs INSIDE
-  the callback / watch, so no latch coordination is needed). Each seam pairs its
-  loss fixture with a LIVE-OWNER control that must still tear down / dispatch /
-  install exactly once — the mutation tooth against an over-eager fence."
+  the callback / watch, so no latch coordination is needed). The timer-cancel and
+  spawn-install seams pair their loss fixture with a LIVE-OWNER control that must
+  still tear down / install exactly once — the mutation tooth against an
+  over-eager fence; the registrar-clear seam's live side is pinned by
+  `spawn_failure_routing_cljs_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -261,11 +263,10 @@
   the parent having a live INSTANCE (`spawn-error/parent-instance-live?`): a
   definition alone resolves the `:spawn` map and its `:on-error` but answers
   nobody home, so a definition-only parent makes the `:on-error` dispatch
-  STALE-suppressed before this fence is ever consulted. That would break
-  both tests below in opposite directions — the live-owner control asserts the
-  dispatch DOES fire, and the loss test's mutation tooth depends on the
-  dispatch being one the fence, and only the fence, prevents. Seeding the
-  parent's snapshot gives each fence its subject."
+  STALE-suppressed before this fence is ever consulted. That would make the
+  loss test below vacuous: its mutation tooth depends on the dispatch being one
+  the fence, and only the fence, prevents. Seeding the parent's snapshot gives
+  the fence its subject."
   [frame-a parent-id child-id on-cleared]
   (rf.machines.spawn-order/reset-all!)
   (let [invoke-id [:waiting]]
@@ -330,28 +331,6 @@
             "no spawn-error / :on-error dispatch routed into B after the loss")
         (is (= [] (:fx ret)) "finalize published no A-derived fx after the loss")
         (is (contains? ret :rf.db/runtime) "finalize returns a runtime-db effect")))))
-
-(deftest registrar-clear-live-owner-dispatches-on-error-once
-  (testing "control: when the handler-cleared callback does NOT destroy A, the
-            child's error leaf routes the `:on-error` (spawn-error) dispatch into
-            the parent EXACTLY once — the fence must not suppress the live path."
-    (let [frame-a    :rf2-4ipqe4/registrar-live-frame
-          parent-id  :rf2-4ipqe4/registrar-live-parent
-          child-id   :rf2-4ipqe4/registrar-live-child]
-      (let [{:keys [dispatches]}
-            (run-erroring-finalize frame-a parent-id child-id (fn [_ev] nil))]
-        (let [spawn-errors (filter (fn [[ev _]]
-                                     (and (vector? ev)
-                                          (= :rf.machine.spawn/error
-                                             (first (second ev)))))
-                                   dispatches)]
-          (is (= 1 (count spawn-errors))
-              "the live-owner error leaf dispatched the spawn-error into the parent exactly once")
-          (let [[[ev opts] _] [(first spawn-errors)]]
-            (is (= parent-id (first ev)) "the dispatch targeted the parent")
-            (is (= [:rf.machine.spawn/error [:waiting] "boom"] (second ev))
-                "the spawn-error carried the child's invoke-id + error payload")
-            (is (= frame-a (:frame opts)) "the dispatch was stamped with the frame")))))))
 
 ;; ===========================================================================
 ;; SPAWN-WRITE seam — install through swap-runtime-db-exact! (container watch)
