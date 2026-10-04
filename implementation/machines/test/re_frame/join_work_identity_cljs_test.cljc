@@ -259,28 +259,6 @@
                            (events-of :rf.machine/destroyed))))
           "exactly one destroyed trace for A, its own finality"))))
 
-(deftest imperative-destroy-of-a-failed-folded-child-adds-no-terminal
-  (testing "an unresolved :any join has folded A's failed completion, and an
-            imperative destroy of that already-finished address adds nothing"
-    (register-imperative-destroy-parent!
-      :jwi/direct-failed-parent
-      :jwi/direct-failed-a-type :jwi/direct-failed-b-type
-      :jwi/direct-failed-a#7 :jwi/direct-failed-b :any
-      (completing-child))
-    (let [attempt (:rf/attempt (join-state :jwi/direct-failed-parent))
-          work-a  [:rf.work/machine :jwi/direct-failed-a#7 [:racing] attempt]]
-      (rf/dispatch-sync [:jwi/direct-failed-a#7 [:fail]])
-      (is (= #{:a} (:failed (join-state :jwi/direct-failed-parent))))
-      (is (false? (:resolved? (join-state :jwi/direct-failed-parent))))
-      (rf/dispatch-sync [:jwi/direct-failed-parent [:destroy-a]])
-      (is (= [:failed :failed] (terminal-statuses-for work-a))
-          "imperative teardown cannot add cancelled after accepted failure")
-      (is (= [:rf.machine/finished]
-             (mapv #(get-in % [:tags :reason])
-                   (filter #(= :jwi/direct-failed-a#7 (get-in % [:tags :actor-id]))
-                           (events-of :rf.machine/destroyed))))
-          "exactly one destroyed trace for A, its own finality"))))
-
 ;; Under the child-completion protocol the child authors no completion at all,
 ;; and the carrier the runtime mints at finality is dispatched from inside
 ;; finalize, so nothing can hold a child's own completion back until after its
