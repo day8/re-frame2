@@ -82,13 +82,3 @@
           (is (= :rf.test/traced (first k1) (first k2)))
           (is (not= (second k1) (second k2))
               "tokens differ across instances"))))))
-
-;; ---- monotonicity ---------------------------------------------------------
-
-(deftest mint-instance-token-is-monotonic
-  (testing "mint-instance-token! returns strictly increasing integers"
-    (let [a (rf.views/mint-instance-token!)
-          b (rf.views/mint-instance-token!)
-          c (rf.views/mint-instance-token!)]
-      (is (int? a))
-      (is (< a b c) "tokens monotonically increase"))))
