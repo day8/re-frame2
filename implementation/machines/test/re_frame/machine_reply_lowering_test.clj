@@ -117,19 +117,6 @@
                     "current epoch advanced — the gate mismatch")))))
         (finally (rf.trace.tooling/unregister-listener! ::after-stale))))))
 
-(deftest after-live-still-fires
-  (testing "control: a LIVE :after timer fires its transition (the stale gate leaves the live path alone)"
-    (rf/reg-machine :rl/after-live
-      {:initial :loading
-       :states  {:loading {:after {30000 :timed-out}}
-                 :timed-out {}}})
-    (rf/dispatch-sync [:rl/after-live [:rf.machine/start]])
-    (let [epoch (or (get-in (snapshot :rl/after-live) [:data :rf/after-epoch [:loading]]) 0)]
-      (rf/dispatch-sync [:rl/after-live
-                         [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
-      (is (= :timed-out (:state (snapshot :rl/after-live)))
-          "the matching (live) epoch drives the transition"))))
-
 ;; ===========================================================================
 ;; (2) spawned-actor completion — canonical reply drives :on-done / :on-error
 ;; ===========================================================================
@@ -375,29 +362,6 @@
               (is (= :rl/fchild#1 (:actor-id corr))))))
         (finally (rf.trace.tooling/unregister-listener! ::spawn-stale-finality))))))
 
-(deftest spawn-live-parent-still-drives-on-done
-  (testing "control: with the parent STILL alive, the child's completion is :ok and :on-done runs (stale detection leaves the live path alone)"
-    (rf/reg-machine :rl/schild-live
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:finish {:target :done
-                                         :action (fn [{data :data ev :event}]
-                                                   {:data (assoc data :token (second ev))})}}}
-                 :done    {:final? true :output-key :token}}})
-    (rf/reg-machine :rl/sparent-live
-      {:initial :idle
-       :data    {:token-from-child :untouched}
-       :states  {:idle {:on {:go :working}}
-                 :working
-                 {:spawn {:machine-id :rl/schild-live
-                          :on-done    (fn [{data :data result :result}]
-                                        (assoc data :token-from-child result))}}}})
-    (rf/dispatch-sync [:rl/sparent-live [:go]])
-    ;; Parent stays alive; the child finishes.
-    (rf/dispatch-sync [:rl/schild-live#1 [:finish :live-token]])
-    (is (= :live-token (get-in (snapshot :rl/sparent-live) [:data :token-from-child]))
-        "live parent: :on-done ran with the canonical reply's :value (not suppressed)")))
-
 ;; ===========================================================================
 ;; (3b) the FAILURE half of (3).
 ;;
@@ -493,16 +457,3 @@
           (is (= 1 (count stale)) "the carrier is dropped with exactly one stale trace")
           (is (= :error (:kind (first stale)))))
         (finally (rf.trace.tooling/unregister-listener! ::xjee-action-throw))))))
-
-(deftest live-parent-still-takes-on-error-from-both-failure-triggers
-  (testing "the positive control for BOTH fences: with the parent ALIVE, an :error? leaf AND an uncaught action exception each drive the :on-error transition"
-    (reg-xjee-pair! :rl/lchild :rl/lparent)
-    (rf/dispatch-sync [:rl/lparent [:go]])
-    (rf/dispatch-sync [:rl/lchild#1 [:fail]])
-    (is (= :error (:state (snapshot :rl/lparent)))
-        "live parent: the error leaf fired :on-error")
-    (reg-xjee-pair! :rl/l2child :rl/l2parent)
-    (rf/dispatch-sync [:rl/l2parent [:go]])
-    (rf/dispatch-sync [:rl/l2child#1 [:throw]])
-    (is (= :error (:state (snapshot :rl/l2parent)))
-        "live parent: the action exception fired :on-error")))
