@@ -157,7 +157,6 @@
 
         ;; -- deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]
-          (is (map? deps) "deps.edn parses as a map")
           (is (= ["src"] (:paths deps)) "deps.edn :paths is [\"src\"]")
           (is (contains? (:deps deps) 'day8/re-frame2)
               "deps.edn names day8/re-frame2")
@@ -426,10 +425,10 @@
   (second (re-find #"\"name\":\s*\"([^\"]*)\"" (slurp (io/file root "package.json")))))
 
 (deftest npm-name-test
+  ;; `acme/my-app` → `my-app` is read on both substrates by the contract above.
   (testing "the emitted package.json name is npm-valid, derived from the
-            artefact segment, for qualified, dotted, bare and mixed-case names"
-    (doseq [[project-name expected] [["acme/my-app"          "my-app"]
-                                     ["com.acme/my-cool-app" "my-cool-app"]
+            artefact segment, for dotted, bare and mixed-case names"
+    (doseq [[project-name expected] [["com.acme/my-cool-app" "my-cool-app"]
                                      ["my-app"               "my-app"]
                                      ["Acme/MyApp"           "myapp"]]]
       (let [tmp (tmp-dir "rf2-template-npm-name-")]
@@ -437,9 +436,7 @@
           (let [root (run-template! tmp project-name :reagent)
                 nm   (emitted-npm-name root)]
             (is (= expected nm) (str project-name " → " expected))
-            (is (re-matches npm-name-re nm) (str nm " is npm-valid"))
-            (when (string/includes? project-name "/")
-              (is (not= project-name nm) "a qualified Clojure name is never copied verbatim")))
+            (is (re-matches npm-name-re nm) (str nm " is npm-valid")))
           (finally
             (delete-recursively tmp))))))
   (testing "the qualified Clojure name copied verbatim is what the rule rejects"
