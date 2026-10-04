@@ -149,13 +149,10 @@
         ;; --- the intended POST-FAILURE state -----------------------------
         (is (not (registered? :rf/default :probe/a))
             "the clear STANDS — its flow is deregistered, not rolled back")
-        (is (not (contains? observed :a))
-            "and its output leaf stays vacated")
-        (is (= 2 (:b observed))
-            "the settle candidate is unwritten: the dependent's slot keeps its
-             pre-clear value rather than a partial result")
         (is (= {:x 2 :b 2} observed)
-            "nothing else moved"))
+            "its output leaf stays vacated and the settle candidate is
+             unwritten: the dependent's slot keeps its pre-clear value rather
+             than a partial result, and nothing else moved"))
 
       ;; --- the dependent RETRIES later --------------------------------
       ;; The dirty-check rollback inside `run-flows-on-db` is what makes the
