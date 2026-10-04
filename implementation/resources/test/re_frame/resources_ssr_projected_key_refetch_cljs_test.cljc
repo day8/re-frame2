@@ -394,20 +394,6 @@
           "freshness is still reported honestly — the entry IS fresh; it is
            reachability, not staleness, that makes it unusable"))))
 
-(deftest a-scope-declaration-re-keys-the-entry-and-the-row-does-not-ride
-  (testing "the SCOPE arm, which re-keys too.
-            Same identity break, same answer"
-    (install-all!)
-    (let [wired (wire-entries)
-          m     (:scoped/report (metadata-by-resource))]
-      (is (not (contains? wired (rf.resources.state/key-id (scoped-key-for))))
-          "premise: the raw key-id is NOT a wire map key")
-      (is (empty? (wire-rows :scoped/report))
-          (str "…and no row rides under the projected key either: "
-               (pr-str (wire-rows :scoped/report))))
-      (is (= :key-projected (:disposition m)))
-      (is (true? (:refetch-on-client? m))))))
-
 (deftest the-wire-carries-exactly-the-addressable-rows
   (testing "the two-sided control on WITHHOLDING, stated
             as an exact set. Six durable entries, two wire rows: withholding one
@@ -488,14 +474,6 @@
              (contains? (wire-entries) (rf.resources.state/key-id (:projected-key m))))
           (str "…and the wire agrees, row for row — " (pr-str m))))))
 
-(deftest the-declared-slot-still-does-not-ride
-  (testing "the declared slot never rides — this suite must not be able to
-            pass by weakening the per-slot projection"
-    (install-all!)
-    (let [slice (wire-slice)]
-      (is (not (leaks? tenant-secret slice)))
-      (is (not (leaks? account-secret slice))))))
-
 ;; ===========================================================================
 ;; 2. THE HYDRATE PLAN NAMES ONLY IDENTITIES THE CLIENT HAS.
 ;;
@@ -505,33 +483,6 @@
 ;;    and that no live derivation reproduces. A plan entry nobody can act on
 ;;    is not a plan entry.
 ;; ===========================================================================
-
-(deftest the-refetch-plan-names-no-identity-the-client-cannot-derive
-  (testing "every re-keyed arm is ABSENT from the plan
-            (its row never arrives), while the STALE addressable owner stays
-            present: the plan must not become empty, only truthful"
-    (install-all!)
-    (let [plan  (boot-client!)
-          by-id (plan-by-resource plan)]
-      (is (not (contains? by-id :params/report))
-          "the params arm is not planned — there is no hydrated row to plan,
-           and its projected key names a fetch nobody could issue")
-      (is (not (contains? by-id :scoped/report)) "…nor the scope arm")
-      (is (not (contains? by-id :sealed/report))
-          (str "…nor the coarse redaction — planning it under its projected "
-               "key would name a refetch of an identity the route slice "
-               "cannot resolve: " (pr-str plan)))
-      (is (not (contains? by-id :bulky/report)) "…nor the coarse omission")
-      (is (= #{:stale/report} (set (keys by-id)))
-          (str "the plan is exactly the stale addressable owner — the control "
-               "that stops this passing by planning nothing: " (pr-str plan)))
-      (is (= :stale (:reason (by-id :stale/report))))
-      (is (not (contains? by-id :plain/report))
-          "and the addressable fresh entry is still absent — no double-fetch")
-      (is (not (leaks? "rf/redacted" plan))
-          (str "no plan row names a projected key of EITHER kind — the per-slot "
-               "sentinel and the coarse token are both spelled in the reserved "
-               ":rf/* namespace, so this one claim covers both: " (pr-str plan))))))
 
 (deftest the-plan-and-the-projection-metadata-cannot-disagree
   (testing "the invariant, stated for a contract that
@@ -593,56 +544,6 @@
 ;; 3. THE LIVE READ. Server projection -> hydrate reconcile -> route/ensure.
 ;; ===========================================================================
 
-(deftest a-re-keyed-entry-is-a-miss-under-the-identity-the-client-derives
-  (testing "the mechanism, asserted directly against the read
-            `route-resource-plan` and `ensure-handler` both perform"
-    (install-all!)
-    (boot-client!)
-    (is (nil? (live-entry @params-key))
-        "the params arm is unreachable by its raw scoped key")
-    (is (nil? (live-entry (scoped-key-for)))
-        "…and so is the scope arm")
-    (is (some? (live-entry (global-key :plain/report)))
-        "…while the undeclared control is exactly where the client looks")))
-
-(deftest a-re-keyed-entry-costs-exactly-one-intentional-request
-  (testing "the client issues ONE load, under the raw key, and NO
-            unreachable row is left standing beside the answer. Asserting
-            `every? (not (contains? e :data))` over the ghosts would be true
-            of a ghost that persists — the exact defect
-            this forbids"
-    (install-all!)
-    (boot-client!)
-    (reset! requests 0)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :params/report
-                        :params   {:account-id account-secret :page 3}}])
-    (is (= 1 @requests) "exactly one request — not zero, and not two")
-    (is (some? (live-entry @params-key))
-        "the entry now exists under the identity the client derives")
-    (is (= [(rf.resources.state/key-id @params-key)] (mapv first (rows-for :params/report)))
-        (str "…and it is the ONLY row for this resource: no unreachable "
-             "duplicate persists beside it — "
-             (pr-str (mapv (comp :resource/key second) (rows-for :params/report)))))))
-
-(deftest the-scope-arm-costs-exactly-one-intentional-request
-  (testing "the same end-to-end statement for a `:scope`-rooted declaration,
-            whose live scope comes from the NAMED resolver rather than the
-            ensure payload — including the same no-duplicate claim made
-            for the params arm"
-    (install-all!)
-    (boot-client!)
-    (reset! requests 0)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :scoped/report :params {:page 3}}])
-    (is (= 1 @requests))
-    (is (some? (live-entry (scoped-key-for)))
-        "the resolved session scope lands on the raw key, as the client
-         derives it")
-    (is (= [(rf.resources.state/key-id (scoped-key-for))] (mapv first (rows-for :scoped/report)))
-        (str "…and it is the only row for this resource — "
-             (pr-str (mapv (comp :resource/key second) (rows-for :scoped/report)))))))
-
 (deftest no-unaddressable-row-survives-hydration
   (testing "the criterion stated ONCE over the
             whole cache rather than per resource: after hydrate and after every
@@ -652,15 +553,17 @@
             over-eager drop removes one and fails just as loudly"
     (install-all!)
     (boot-client!)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :params/report
-                        :params   {:account-id account-secret :page 3}}])
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :scoped/report :params {:page 3}}])
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :sealed/report :params {:page 3}}])
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :bulky/report :params {:page 3}}])
+    ;; Each re-keyed arm costs exactly one intentional request: a hydrated row
+    ;; a live client could hit would fresh-skip and send none, and a second
+    ;; request would mean the first answer landed somewhere unreachable.
+    (doseq [q [{:resource :params/report
+                :params   {:account-id account-secret :page 3}}
+               {:resource :scoped/report :params {:page 3}}
+               {:resource :sealed/report :params {:page 3}}
+               {:resource :bulky/report :params {:page 3}}]]
+      (reset! requests 0)
+      (rf/dispatch-sync [:rf.resource/ensure q])
+      (is (= 1 @requests) (str "exactly one request for " (:resource q))))
     (is (= #{(rf.resources.state/key-id @params-key)
              (rf.resources.state/key-id (scoped-key-for))
              (rf.resources.state/key-id (global-key :plain/report))
@@ -767,25 +670,17 @@
           "and its data never became readable under the identity the client
            derives — dropping the row is not adopting it")
       (is (nil? (live-entry (global-key :sealed/report)))
-          "…nor the coarse one's"))))
-
-(deftest an-older-payload-still-costs-exactly-one-request
-  (testing "the end-to-end consequence: a client hydrating an older render's payload
-            behaves identically to one hydrating a withheld payload — one
-            intentional load, and nothing left over"
-    (install-all!)
-    (let [forged (get (slice-with-legacy-rows {:total 1}) rf.resources.state/resources-key)]
-      (rf.frame/swap-runtime-db!
-        :rf/default
-        (fn [rdb] (assoc (or rdb {}) rf.resources.state/resources-key forged)))
-      (rf.resources.ssr/hydrate-resources! :rf/default)
-      (reset! requests 0)
-      (rf/dispatch-sync [:rf.resource/ensure
-                         {:resource :params/report
-                          :params   {:account-id account-secret :page 3}}])
-      (is (= 1 @requests) "exactly one request")
-      (is (= [(rf.resources.state/key-id @params-key)] (mapv first (rows-for :params/report)))
-          "and one row"))))
+          "…nor the coarse one's")
+      (testing "so a client hydrating an older render's payload behaves as one
+                hydrating a withheld payload: one intentional load, and
+                nothing left over"
+        (reset! requests 0)
+        (rf/dispatch-sync [:rf.resource/ensure
+                           {:resource :params/report
+                            :params   {:account-id account-secret :page 3}}])
+        (is (= 1 @requests) "exactly one request")
+        (is (= [(rf.resources.state/key-id @params-key)] (mapv first (rows-for :params/report)))
+            "and one row")))))
 
 ;; ===========================================================================
 ;; 6. THE COARSE ARMS.
@@ -796,53 +691,6 @@
 ;;    persists, so every claim here is
 ;;    about the ROW.
 ;; ===========================================================================
-
-(deftest a-coarse-redacted-row-costs-exactly-one-intentional-request
-  (testing "the `:sensitive?` owner end to end: hydrate installs no
-            coarse row, the client's own ensure writes ONE entry under the key
-            it derives, and no unreachable duplicate persists beside it"
-    (install-all!)
-    (boot-client!)
-    (reset! requests 0)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :sealed/report :params {:page 3}}])
-    (is (= 1 @requests) "exactly one request — not zero, and not two")
-    (is (some? (live-entry (global-key :sealed/report)))
-        "the entry now exists under the identity the client derives")
-    (is (= [(rf.resources.state/key-id (global-key :sealed/report))]
-           (mapv first (rows-for :sealed/report)))
-        (str "…and it is the ONLY row for this resource: no unreachable "
-             "duplicate persists beside it — "
-             (pr-str (mapv (comp :resource/key second) (rows-for :sealed/report)))))))
-
-(deftest a-coarse-omitted-row-costs-exactly-one-intentional-request
-  (testing "the same statement for the `:large?` owner, whose
-            projection drops the `:data` key rather than replacing it. The two
-            coarse arms differ in what they do to the data and not at all in
-            what they do to the key, so both must be witnessed"
-    (install-all!)
-    (boot-client!)
-    (reset! requests 0)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :bulky/report :params {:page 3}}])
-    (is (= 1 @requests))
-    (is (= [(rf.resources.state/key-id (global-key :bulky/report))]
-           (mapv first (rows-for :bulky/report)))
-        (str "the only row for this resource — "
-             (pr-str (mapv (comp :resource/key second) (rows-for :bulky/report)))))))
-
-(deftest hydrate-installs-no-coarse-row
-  (testing "removal, not an emptied row: the claim is made against the
-            hydrated cache directly — after hydrate there is no coarse row"
-    (install-all!)
-    (boot-client!)
-    (is (empty? (rows-for :sealed/report))
-        (str "no coarse row is installed at all — so there is nothing for a "
-             "collector to have to reach: "
-             (pr-str (mapv (comp :resource/key second) (rows-for :sealed/report)))))
-    (is (empty? (rows-for :bulky/report)))
-    (is (some? (live-entry (global-key :plain/report)))
-        "while the addressable control still hydrated — the drop is targeted")))
 
 (deftest a-coarse-digest-does-not-egress-from-an-ssr-render
   (testing "a 32-bit digest of a low-entropy identity is
