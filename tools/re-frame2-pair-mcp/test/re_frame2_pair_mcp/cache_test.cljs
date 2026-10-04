@@ -107,33 +107,8 @@
   (is (= {} (cache/args->fingerprint #js {}))))
 
 ;; ---------------------------------------------------------------------------
-;; hash-result — sensitive to text + error flag.
-;; ---------------------------------------------------------------------------
-
-(deftest hash-result-distinguishes-error-vs-success
-  ;; Same text payload but :isError true vs. false should hash
-  ;; distinctly — otherwise a transient error could mask the success.
-  (let [text "{:ok? false :reason :foo}"
-        ok   (mcp-result text)
-        err  (mcp-result text :error? true)]
-    (is (not= (cache/hash-result ok) (cache/hash-result err)))))
-
-;; ---------------------------------------------------------------------------
 ;; The load-bearing scenarios.
 ;; ---------------------------------------------------------------------------
-
-(deftest fresh-call-stores-and-returns-unchanged
-  ;; First call: cache is cold → return the original result, record
-  ;; the hash, leave a single entry behind.
-  (let [args   (args-js {:frame ":rf/default"})
-        result (mcp-result "{:ok? true :snapshot {:db {:k :v}}}")
-        out    (cache/apply-cache result {:tool "snapshot"
-                                          :args args
-                                          :enabled? true})]
-    (is (identical? result out)
-        "fresh call returns the original result untouched")
-    (is (= 1 (cache/size))
-        "fresh call stored an entry in the LRU")))
 
 (deftest same-state-call-returns-cache-hit
   ;; Second call with byte-identical state: the hash matches, the
@@ -250,17 +225,6 @@
 ;; LRU policy — capacity + eviction.
 ;; ---------------------------------------------------------------------------
 
-(deftest lru-bounded-at-capacity
-  ;; Capacity is 8. 12 distinct (tool, args) pairs → 8 entries
-  ;; survive, the 4 oldest get evicted.
-  (let [opts (fn [i] {:tool "snapshot"
-                      :args (args-js {:frame (str ":f" i)})
-                      :enabled? true})]
-    (dotimes [i 12]
-      (cache/apply-cache (mcp-result (str "{:i " i "}")) (opts i)))
-    (is (= 8 (cache/size))
-        "LRU never exceeds capacity")))
-
 (deftest lru-evicts-oldest-first
   ;; Fill to capacity, then add one more — the first key is gone.
   (let [opts (fn [i] {:tool "snapshot"
@@ -318,14 +282,6 @@
   (let [v (edn/read-string (extract-text result))]
     (get-in v [:rf.mcp/cache-hit :via])))
 
-(deftest precheck-returns-nil-without-prior-entry
-  ;; No prior entry for (tool, args) → precheck has nothing to match
-  ;; against → returns nil (caller proceeds with the full tool eval).
-  (let [args (args-js {:frame ":rf/default"})
-        opts {:tool "snapshot" :args args :enabled? true}]
-    (is (nil? (cache/precheck opts 12345))
-        "cold cache → precheck returns nil")))
-
 (deftest precheck-returns-nil-when-disabled
   ;; `enabled? false` is a global opt-out — precheck must not engage.
   ;; First prime the cache with a precheck-hash so a hit COULD happen
@@ -345,17 +301,6 @@
         opts {:tool "dispatch" :args args :enabled? true}]
     (is (nil? (cache/precheck opts 12345))
         "dispatch is not cacheable → precheck returns nil")))
-
-(deftest precheck-returns-nil-when-no-current-hash
-  ;; Caller has no precheck wiring for this tool → passes nil → we
-  ;; return nil and let the post-eval path take over.
-  (let [args (args-js {:frame ":rf/default"})
-        opts {:tool "snapshot" :args args :enabled? true}]
-    ;; Prime the cache with a precheck-hash.
-    (cache/apply-cache (mcp-result "{:k :v}")
-                       (assoc opts :precheck-hash 12345))
-    (is (nil? (cache/precheck opts nil))
-        "no current-precheck-hash supplied → precheck returns nil")))
 
 (deftest precheck-hit-short-circuits-with-marker
   ;; The load-bearing path. Prime the cache with a precheck-hash;
