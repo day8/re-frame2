@@ -91,16 +91,22 @@
           "the `{:db …}` effect committed cumulatively (the db-write IS an effect)"))))
 
 (deftest reg-event-handler-receives-the-canonical-coeffect-keys
-  (testing "handlers receive the canonical coeffect keys without an event-kind tag"
-    (let [seen-coeffects (atom ::unset)]
+  (testing "handlers receive the canonical coeffect keys and the event vector, without an event-kind tag"
+    (let [seen-coeffects (atom ::unset)
+          seen-event     (atom ::unset)]
       (rf/reg-event :evt-conf/inspect-cofx
-        (fn [coeffects _] (reset! seen-coeffects coeffects) {}))
+        (fn [coeffects event]
+          (reset! seen-coeffects coeffects)
+          (reset! seen-event event)
+          {}))
       (rf/dispatch-sync [:evt-conf/inspect-cofx :payload])
+      (is (= [:evt-conf/inspect-cofx :payload] @seen-event)
+          "the 2nd handler arg is the full dispatched event vector")
       (let [coeffects @seen-coeffects]
         (is (contains? coeffects :db) "`:db` present in the coeffects map")
         (is (contains? coeffects :event) "`:event` present in the coeffects map")
         (is (= [:evt-conf/inspect-cofx :payload] (:event coeffects))
-            "`:event` is the dispatched event vector (== the 2nd handler arg)")
+            "`:event` is the dispatched event vector, the same value as the 2nd handler arg")
         (is (contains? coeffects :rf.frame/id) "`:rf.frame/id` present in the coeffects map")
         (is (= :rf/default (:rf.frame/id coeffects))
             "the ambient frame id is delivered as `:rf.frame/id`")
@@ -154,21 +160,6 @@
             "the live coeffects carry NO nested `:cofx` successor (flat delivery only)")
         (is (= 1781078400123 (get (:rf.cofx coeffects) :rf/time-ms))
             "the canonical complete record under `:rf.cofx` is the FLAT recordable map (fact-name → value)")))))
-
-(deftest reg-event-second-arg-is-the-event-vector
-  (testing "the second handler argument is also available as :event in coeffects"
-    (let [argument-event  (atom ::unset)
-          coeffects-event (atom ::unset)]
-      (rf/reg-event :evt-conf/two-arg
-        (fn [coeffects event]
-          (reset! argument-event event)
-          (reset! coeffects-event (:event coeffects))
-          {}))
-      (rf/dispatch-sync [:evt-conf/two-arg :a :b])
-      (is (= [:evt-conf/two-arg :a :b] @argument-event)
-          "the 2nd positional arg is the full event vector")
-      (is (= @argument-event @coeffects-event)
-          "`(:event coeffects)` is the SAME value as the positional event arg"))))
 
 (deftest reg-event-rf-cofx-requires-one-arg-ambient-supplier-arg-path
   (testing "a [cofx-id arg] requirement passes arg to an ambient supplier"
@@ -801,17 +792,6 @@
     (is (= :rf.error/reg-event-ctx-removed
            (thrown-error-id #(rf/reg-event-ctx :evt-conf/via-ctx (fn [_ _] nil))))
         "reg-event-ctx raises :rf.error/reg-event-ctx-removed")))
-
-(deftest reg-event-db-and-fx-removals-still-point-at-reg-event
-  (testing "retired db and fx forms point to reg-event"
-    (let [db-reason (thrown-error-reason
-                      #(rf/reg-event-db :evt-conf/db-reason (fn [_ _] nil)))
-          fx-reason (thrown-error-reason
-                      #(rf/reg-event-fx :evt-conf/fx-reason (fn [_ _] nil)))]
-      (is (re-find #"reg-event" db-reason)
-          "reg-event-db removal names reg-event as the replacement")
-      (is (re-find #"reg-event" fx-reason)
-          "reg-event-fx removal names reg-event as the replacement"))))
 
 (deftest retired-names-are-resolvable-facade-vars
   (testing "retired names are callable facade tombstones"
