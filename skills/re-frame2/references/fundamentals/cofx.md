@@ -89,6 +89,25 @@ The framework ships exactly **one** registration: `:rf/time-ms` — recordable, 
 2. **Ride the event payload** where the dispatch site owns the fact's meaning (an optimistic-create id the view must render now).
 3. **Recorded coeffect** — for genuinely fold-internal facts the app owns but cannot pin at the call site. The *last* rung of this ladder; which registration to reach for is the decision tree below.
 
+### Several fresh ids whose count only the fold knows
+
+When one event needs a fresh id per item and the count comes from the processing-start `db` (duplicate a list: one id per current row, where earlier queued events may have changed the rows), and the ids must be unique beyond app-db (else rung 1), record **one** fresh id and derive the rest in the handler. A `[id arg]` arg is a literal, so it cannot carry the count.
+
+```clojure
+(rf/reg-cofx :list/copy-id
+  {:recordable? true :schema :uuid :doc "Fresh id for one list copy; row ids derive from it."}
+  (fn [] (random-uuid)))
+
+(rf/reg-event :list/duplicate
+  {:rf.cofx/requires [:list/copy-id]}
+  (fn [{:keys [db list/copy-id]} [_ {:keys [list-id]}]]
+    (let [rows (get-in db [:lists list-id :rows])]
+      {:db (assoc-in db [:lists copy-id]
+                     {:rows (into [] (map-indexed (fn [i row] (assoc row :id [copy-id i]))) rows)})})))
+```
+
+One recorded fact whatever the count; the event keeps its FIFO position and folds in one step; strict replay re-presents `copy-id` and re-derives identical row ids with no generation; a test's supplied `{:rf.cofx {:list/copy-id …}}` pins them all. Record the id, not a PRNG seed (EP-0017 records values, never seeds), and derive with plain data, never `hash` (it differs between JVM and JS). Rejected shapes: ids minted at the dispatch site (the count goes stale behind earlier queued edits), rows carried in the event (copies stale rows), the copy done by a follow-up dispatch (loses the FIFO position), a fixed oversized batch or one id per entity (records unused facts), ids minted in an interceptor or the handler body (not on the recorded token, so replay re-mints).
+
 ## Canonical mini-example — an app-owned recordable generator
 
 A boot localStorage read fills durable app-db, so it is an **app-owned world-read that feeds durable state** — supplied as a **`reg-cofx` recordable generator**, so epoch-restore and SSR hydration re-fold the *captured* snapshot rather than a live re-read of whatever localStorage holds now.
