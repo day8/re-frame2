@@ -15,25 +15,22 @@
   — the tree-walking tool emit sites (`snapshot`, `get-path`,
   `trace-window`, `watch-epochs`, `read-sub`, `dispatch-dry-run`) route
   their envelope-tail through it. The MUST-level contract lives in one
-  `cond->` form; this conformance suite pins that contract so a
-  regression at the choke-point — or at a pinned caller that bypasses
-  it — fails loudly.
+  `cond->` form; this suite pins that every pinned caller routes
+  through it, so a caller that bypasses it fails loudly.
 
   ## What's pinned
 
-  - **The choke-point**: `wire/with-indicators` emits each slot when
-    its count is non-zero, omits the other when that count is zero,
-    and never confuses the two slots. The primitive it delegates to
-    (`re-frame.mcp-base.envelope/with-indicators`, including nil-as-zero)
-    is pinned by mcp-base's own suite on both hosts.
+  - **The choke-point** is a pure passthrough to
+    `re-frame.mcp-base.envelope/with-indicators`, whose emit-when-non-zero,
+    omit-when-zero and nil-as-zero rule mcp-base's own suite pins on both
+    hosts.
   - **The pinned emit sites**: each of the four tool source files
     named below (`snapshot`, `get_path`, `trace_window`,
     `watch_epochs`) references `with-indicators`, so a bypass in
     any of them is a build failure. A NEW tool that walks a payload
     needs its own row here, or only hand-review would catch a
     bypass."
-  (:require [cljs.test :refer-macros [deftest is]]
-            [re-frame2-pair-mcp.tools.wire :as wire]))
+  (:require [cljs.test :refer-macros [deftest is]]))
 
 (def ^:private fs (js/require "fs"))
 (def ^:private path (js/require "path"))
@@ -62,24 +59,6 @@
         full (.join path root rel-path)]
     (.toString (.readFileSync fs full))))
 
-;; ---------------------------------------------------------------------------
-;; The choke-point itself.
-;; ---------------------------------------------------------------------------
-
-(deftest with-indicators-emits-each-slot-independently-when-non-zero
-  ;; Dropped only.
-  (let [out (wire/with-indicators {:foo :bar} {:dropped 3 :elided 0})]
-    (is (= 3 (:dropped-sensitive out)))
-    (is (not (contains? out :elided-large))))
-  ;; Elided only.
-  (let [out (wire/with-indicators {:foo :bar} {:dropped 0 :elided 5})]
-    (is (= 5 (:elided-large out)))
-    (is (not (contains? out :dropped-sensitive))))
-  ;; Both — the common shape on a real tool response.
-  (let [out (wire/with-indicators {:foo :bar} {:dropped 3 :elided 5})]
-    (is (= 3 (:dropped-sensitive out)))
-    (is (= 5 (:elided-large out)))
-    (is (= :bar (:foo out)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-emit-site choke-point check.
