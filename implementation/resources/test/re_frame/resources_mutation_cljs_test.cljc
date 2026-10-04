@@ -475,10 +475,6 @@
       (is (= :pending (:status (val (first insts))))))))
 
 ;; ===========================================================================
-;; 3. Concurrency — same mutation id, different instances, no clobber
-;; ===========================================================================
-
-;; ===========================================================================
 ;; 4. Success → patch / populate then invalidation
 ;; ===========================================================================
 
@@ -1927,10 +1923,6 @@
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/del-missing :params {:slug "gone"} :instance :dm1}])
       (reply-success! @last-managed-args {:deleted true})
       (is (= [] (:removed (:patch-summary (instance :dm1))))))))
-
-;; ===========================================================================
-;; 17. the runtime :rf.mutation/replied trace
-;; ===========================================================================
 
 ;; ===========================================================================
 ;; 18. mutation-state fails closed without an explicit frame
