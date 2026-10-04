@@ -137,19 +137,6 @@
         (is (= :one (:b (:state snap)))
             "and the sibling region is untouched")))))
 
-(deftest root-region-qualified-target-is-the-sanctioned-cross-region-spelling
-  (testing "the spelling the rejection message points at keeps working"
-    (let [m {:type    :parallel
-             :data    {}
-             :on      {:go {:target [:b :two]}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {} :two {}}}}}]
-      (is (fn? (rf.machines/make-machine-handler m)))
-      (let [{snap :snapshot} (rf.machines/machine-transition
-                               m {:state {:a :one :b :one} :data {}} [:go])]
-        (is (= {:a :one :b :two} (:state snap))
-            "the root :on ancestor fallback moves the named region")))))
-
 ;; ---- 4. THE THREE SANCTIONED SPELLINGS — and the limit that separates them
 ;;
 ;; A region-sourced cross-region `:target` is REJECTED, and Spec 005
@@ -170,8 +157,8 @@
 ;;       paired here with its no-raise control.
 ;;
 ;; The third spelling, (c) the root's atomic region-qualified fallback, is
-;; pinned by `root-region-qualified-target-is-the-sanctioned-cross-region-spelling`
-;; above; its own limit (atomic suppression the moment any region competes) is
+;; pinned by the `parallel-root-on-single-region-target` conformance fixture;
+;; its own limit (atomic suppression the moment any region competes) is
 ;; pinned in `final_region_sourcing_test.clj`.
 
 (def ^:private wizard-helper
