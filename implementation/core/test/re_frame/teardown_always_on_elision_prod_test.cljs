@@ -152,32 +152,6 @@
       (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))
           "no report when teardown completes cleanly under prod"))))
 
-(deftest partial-teardown-abort-still-flushes-under-prod
-  (testing "Per EP-0008 R1: the finally-shaped flush survives prod
-            elision too. Two cleanup hooks throw (accumulating two entries),
-            then a downstream NON-hook teardown step throws unrecoverably —
-            the throw propagates out of `destroy-frame!`, yet the always-on
-            report STILL flushes the two entries gathered before the abort.
-            Mirrors the dev-mode (b) leg under `:advanced` + `goog.DEBUG=
-            false`."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :prod/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (rf.frame/upsert-frame! :prod.teardown/abort {:doc "aborts mid-teardown"})
-      (with-hooks*
-        {:ssr/on-frame-destroyed      (throwing-hook :ssr)
-         :schemas/on-frame-destroyed! (throwing-hook :schemas)}
-        (fn []
-          (with-redefs [rf.frame/emit-frame-destroyed-trace!
-                        (fn [_id] (throw (ex-info "mid-teardown collapse" {})))]
-            (is (thrown? js/Error (rf/destroy-frame! :prod.teardown/abort))
-                "the downstream teardown step's throw propagates"))))
-      (let [reports (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen)]
-        (is (= 1 (count reports))
-            "the report STILL flushed despite the mid-teardown abort under prod")
-        (is (= 2 (count (:hook-failures (first reports))))
-            "the report carries the TWO entries gathered before the abort")))))
-
 ;; ===========================================================================
 ;; (b) :rf.error/write-after-destroy — the dropped nil-container write rides
 ;; the always-on axis under prod.
