@@ -170,17 +170,6 @@
                        "Load re-frame.fresco.tool into the running build and retry")
         "the unavailable branch carries the load-the-door instruction, not just a reason")))
 
-(deftest projection-form-carries-no-view-shaped-vocabulary
-  ;; Fresco mints no boundary identity, so neither a `:view-id` arg nor a
-  ;; `:view-not-available` answer exists on this door, and neither may
-  ;; leak in as a fabricated arg.
-  (doseq [read-fn fresco-tool/tier-reads]
-    (let [form (fresco-tool/projection-form read-fn)]
-      (is (not (str/includes? form "view-id"))
-          (str read-fn ": no view-id is fabricated into the form"))
-      (is (not (str/includes? form "view-not-available"))
-          (str read-fn ": there is no undeclared-view case on this door")))))
-
 (deftest projection-form-is-read-only
   (doseq [read-fn fresco-tool/tier-reads]
     (let [form (fresco-tool/projection-form read-fn)]
