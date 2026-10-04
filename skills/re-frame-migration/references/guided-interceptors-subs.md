@@ -1,6 +1,6 @@
 # guided-interceptors-subs
 
-Type B walkthroughs covering global interceptors, `reg-sub-raw`, the v1 signal-function `reg-sub` form (→ v2 `input-fn`s), opt-in map-payload migration, the surviving v1 interceptors (`on-changes` / `enrich` / `after`), the `:re-frame/lifecycle` annotation, and post-event callbacks. Each section gives the **identification**, the **risk explanation**, and the **decision shape**. The agent identifies and explains; the author decides; the agent then applies.
+Type B walkthroughs covering global interceptors, `reg-sub-raw`, the v1 signal-function `reg-sub` form (→ v2 `input-fn`s, classified per site — its Type A cases are set out in [*Classify each site*](#classify-each-site--the-case-decides-the-type)), opt-in map-payload migration, the surviving v1 interceptors (`on-changes` / `enrich` / `after`), the `:re-frame/lifecycle` annotation, and post-event callbacks. Each section gives the **identification**, the **risk explanation**, and the **decision shape**. The agent identifies and explains; the author decides; the agent then applies.
 
 For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md); for the M-11 view conversion, see [`guided-views-m11.md`](guided-views-m11.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 
