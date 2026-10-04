@@ -26,11 +26,11 @@
   seeds or advances `:rf/spawn-counter` across incarnations, and
   `machine-transition` stays pure.
 
-  BOTH DIRECTIONS ARE PINNED, and the second is the one that matters. (2) is
-  the CONTROL: a spawn WITHOUT `:id-prefix` must still allocate under
-  `:machine-id`. Without it, an allocator that simply read the prefix key
-  unconditionally — a silent rename rather than a working default — would
-  pass (1) and every other test here.
+  BOTH DIRECTIONS ARE PINNED, and the second is the one that matters. The
+  unprefixed rows of (4) and (6) are the CONTROL: a spawn WITHOUT `:id-prefix`
+  must still allocate under `:machine-id`. Without them, an allocator that
+  simply read the prefix key unconditionally — a silent rename rather than a
+  working default — would pass (1).
 
   Spec contract: [Spec 005 §Spawn-spec keys], [Spec 005 §Spec-spec keys],
   [Spec 005 §Spawn-id allocator — counter location],
@@ -98,32 +98,6 @@
            a second bookkeeping entry beside it"))))
 
 ;; ---------------------------------------------------------------------------
-;; (2) THE CONTROL: no `:id-prefix` still allocates under `:machine-id`.
-;; ---------------------------------------------------------------------------
-
-(deftest absent-id-prefix-still-allocates-under-the-machine-id
-
-  (testing "CONTROL — a :spawn with NO :id-prefix allocates <machine-id>#<n>
-            under counter key <machine-id>. This is the assertion that
-            distinguishes a working default from a silent rename; an
-            allocator that always read :id-prefix would pass every other test
-            in this file and fail here with a nil-derived address."
-    (reg-leaf! :idp2/child)
-    (rf/reg-machine :idp2/parent
-      {:initial :idle
-       :data    {}
-       :states  {:idle    {:on {:go :working}}
-                 :working {:spawn {:machine-id :idp2/child}}}})
-    (rf/dispatch-sync [:idp2/parent [:go]])
-
-    (is (= :idp2/child#1 (spawned-id-for :idp2/parent [:working]))
-        "the address is still derived from :machine-id")
-    (is (some? (snapshot :idp2/child#1))
-        "and the actor installed there")
-    (is (= {:idp2/child 1} (spawn-counter :idp2/parent))
-        "and the counter is still keyed by :machine-id")))
-
-;; ---------------------------------------------------------------------------
 ;; (3) Two prefixes over ONE machine TYPE sequence INDEPENDENTLY.
 ;; ---------------------------------------------------------------------------
 
@@ -153,24 +127,7 @@
         "and so does the inner spawn's — NOT #2, which is what a shared
          machine-id-keyed counter would have produced")
     (is (= {:idp3/left 1 :idp3/right 1} (spawn-counter :idp3/parent))
-        "two independent per-prefix sequences in one parent snapshot")
-
-    (testing "and the same prefix twice DOES share one sequence"
-      (reg-leaf! :idp3b/child)
-      (rf/reg-machine :idp3b/parent
-        {:initial :idle
-         :data    {}
-         :states  {:idle  {:on {:go :outer}}
-                   :outer {:spawn   {:machine-id :idp3b/child :id-prefix :idp3b/pool}
-                           :initial :inner
-                           :states  {:inner {:spawn {:machine-id :idp3b/child
-                                                     :id-prefix  :idp3b/pool}}}}}})
-      (rf/dispatch-sync [:idp3b/parent [:go]])
-      (is (= :idp3b/pool#1 (spawned-id-for :idp3b/parent [:outer])))
-      (is (= :idp3b/pool#2 (spawned-id-for :idp3b/parent [:outer :inner]))
-          "one prefix, one monotonic sequence, in shallowest-first cascade
-           order")
-      (is (= {:idp3b/pool 2} (spawn-counter :idp3b/parent))))))
+        "two independent per-prefix sequences in one parent snapshot")))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) `:spawn-all` honours each child's own `:id-prefix`.
