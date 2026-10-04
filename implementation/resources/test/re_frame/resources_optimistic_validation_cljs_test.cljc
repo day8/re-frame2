@@ -34,7 +34,6 @@
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
-   [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.registrar :as rf.registrar]
    [re-frame.resources.test-support]
