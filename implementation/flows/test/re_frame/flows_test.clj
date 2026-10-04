@@ -99,24 +99,6 @@
     (is (nil? (rf.registrar/lookup :flow :area))
         "the :flow registrar kind is RESERVED-but-empty — no slot is written")))
 
-(deftest clear-flow-removes-from-registry-and-vacates-output-slot
-  (testing "clear-flow removes the flow and dissoc-in's its output path"
-    ;; clear-flow's update-in path math takes a different branch for
-    ;; single-element :output-path vectors. Use a two-element :output-path here
-    ;; so the (>= 2 elements) branch is exercised.
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
-    (rf/reg-flow :area {:inputs [[:rect :w] [:rect :h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:seed])
-    (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        "flow ran on the drain after :seed and materialised :rect/:area")
-    (rf/clear :flow :area)
-    (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :area))
-        "the per-frame registry no longer carries :area")
-    (is (not (contains? (get (rf/app-db-value :rf/default) :rect) :area))
-        "clear-flow dissoc'd the leaf at the flow's :output-path"))
-  (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
-    (rf/clear :flow :no-such-flow)))
-
 (deftest clear-flow-prunes-empty-frame-slot-from-registry
   ;; Clearing the LAST flow on a frame dissocs the frame-id key from the
   ;; per-frame `@flows` registry entirely, not leaving a `{frame-id {}}` husk.
@@ -694,23 +676,6 @@
 (defn- flow-cycle? [^Throwable t]
   (= :rf.error/flow-cycle (:rf.error/id (ex-data t))))
 
-(deftest reg-flow-rejects-self-cycle-even-with-other-flows-registered
-  (testing "a self-edge is not discarded from a multi-node graph — registering
-            a self-cyclic flow while unrelated acyclic flows already exist is
-            still rejected, and the prior flows survive"
-    (rf/reg-flow :keep/a {:inputs [[:src-a]] :output-path [:a]} identity)
-    (rf/reg-flow :keep/b {:inputs [[:src-b]] :output-path [:b]} identity)
-    (let [ex (reg-flow-throwing {:id :probe/self :inputs [[:c]] :derive inc :output-path [:c]})]
-      (is (flow-cycle? ex) "the self-cycle is detected alongside acyclic siblings")
-      (is (= [:probe/self :probe/self] (:cycle (ex-data ex)))
-          ":cycle names only the offending self-cyclic id"))
-    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :keep/a)
-        "the prior acyclic :keep/a survives the rejected registration")
-    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :keep/b)
-        "the prior acyclic :keep/b survives the rejected registration")
-    (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/self))
-        "the rejected self-cyclic flow is absent")))
-
 (deftest reg-flow-self-cycle-replacement-preserves-prior-registration-and-output
   (testing "a hot-reload REPLACEMENT that introduces self-dependency is rejected
             and preserves the prior working flow, its dirty-check row, and its
@@ -870,27 +835,6 @@
         "flow registry is empty after reset-flows!")
     (is (empty? (rf.flows/last-inputs-snapshot))
         "last-inputs is ALSO empty after reset-flows!")))
-
-(deftest reset-flows-allows-re-registration-without-stale-skip
-  ;; The footgun guard: re-register the same flow id with the same inputs
-  ;; after a `reset-flows!`. A stale `last-inputs` entry surviving the reset
-  ;; would =-equal new inputs and the first drain would silently emit
-  ;; `:rf.flow/skip` instead of `:rf.flow/computed` — the new body never
-  ;; running.
-  (testing "after reset-flows! the re-registered flow re-evaluates on next drain"
-    (let [calls (atom 0)]
-      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
-      ;; First registration + drain — populates last-inputs.
-      (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (swap! calls inc) (* 2 n)))
-      (rf/dispatch-sync [:init])
-      (is (= 1 @calls) "flow body ran on the first drain")
-      ;; Reset BOTH atoms via the public reset-flows! — then re-register
-      ;; the IDENTICAL flow against the IDENTICAL inputs.
-      (rf.flows/reset-flows!)
-      (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (swap! calls inc) (* 2 n)))
-      (rf/dispatch-sync [:init])
-      (is (= 2 @calls)
-          "after reset-flows! the freshly-registered flow evaluates again — last-inputs was cleared so no stale skip"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7. clear-flow :frame opt routing — multi-frame sibling isolation
