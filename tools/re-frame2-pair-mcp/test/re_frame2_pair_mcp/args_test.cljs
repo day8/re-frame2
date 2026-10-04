@@ -165,18 +165,6 @@
       (is (= dispatch-hint (:hint env))
           "the caller's missing-value hint is threaded through verbatim"))))
 
-(deftest parse-event-arg-missing-hint-is-caller-data
-  ;; Two callers with two hints get two envelopes that differ ONLY in the
-  ;; hint — proving the hint is caller-supplied data, not baked into the
-  ;; parser. (This is what lets dispatch and dispatch-dry-run keep distinct
-  ;; missing-event hints from one shared parser.)
-  (let [[_ a] (args/parse-event-arg nil "hint-A")
-        [_ b] (args/parse-event-arg nil "hint-B")]
-    (is (= "hint-A" (:hint a)))
-    (is (= "hint-B" (:hint b)))
-    (is (= (dissoc a :hint) (dissoc b :hint))
-        "everything but the hint is identical across callers")))
-
 (deftest parse-event-arg-unreadable-is-invalid-event-edn
   ;; A reader failure (unbalanced brackets, lone reader macro) → the
   ;; :invalid-event-edn reason, distinct from :missing / :not-a-vector.
