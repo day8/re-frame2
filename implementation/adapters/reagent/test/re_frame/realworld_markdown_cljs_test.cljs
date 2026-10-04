@@ -191,13 +191,7 @@
         (is (empty? (filter #(or (str/includes? (str %) "javascript:")
                                  (str/includes? (str %) "data:"))
                             (attr-values tree :src)))
-            (str "no live :src for unsafe scheme: " src)))))
-
-  (testing "a safe image src IS preserved on an :img"
-    (let [tree (md/render "![cat](https://example.com/cat.png)")
-          imgs (filter #(href-tag-keyword? (first %) :img) (elements tree))]
-      (is (some (fn [i] (= "https://example.com/cat.png" (:src (second i)))) imgs)
-          "safe image src preserved"))))
+            (str "no live :src for unsafe scheme: " src))))))
 
 ;; ===========================================================================
 ;; 2. CommonMark FIDELITY (tables, nested lists, images)
@@ -235,9 +229,8 @@
   (testing "an image renders as a real :img with src + alt"
     (let [tree (md/render "![a kitten](https://example.com/kitten.png)")
           imgs (filter #(= :img (first %)) (elements tree))]
-      (is (seq imgs) "an :img element is emitted")
       (is (some (fn [i] (= "https://example.com/kitten.png" (:src (second i)))) imgs)
-          "the image :src is preserved")
+          "an :img is emitted and a safe :src is preserved")
       (is (some (fn [i] (= "a kitten" (:alt (second i)))) imgs)
           "the image :alt is preserved"))))
 
