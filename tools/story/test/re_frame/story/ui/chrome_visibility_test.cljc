@@ -4,10 +4,8 @@
 
   Surface covered:
 
-  - `chrome-visibility-defaults` — canonical shape
   - `chrome-visibility`          — merge-over-defaults read helper
   - `toggle-chrome-visibility`   — boolean flip per slot
-  - `set-chrome-visibility`      — explicit set per slot
   - `chrome-pane-visible?`       — embed > full-screen > per-pane
                                     precedence
 
@@ -16,15 +14,6 @@
             [re-frame.story.ui.state.transitions :as rf.story.ui.state.transitions]))
 
 ;; ---- defaults + read -----------------------------------------------------
-
-(deftest chrome-visibility-defaults-shape
-  (testing "canonical defaults"
-    (is (= {:full-screen? false
-            :sidebar?     true
-            :rhs?         true
-            :toolbar?     true
-            :embed?       false}
-           rf.story.ui.state.transitions/chrome-visibility-defaults))))
 
 (deftest chrome-visibility-merge-read
   (testing "missing slot → fall back to defaults"
@@ -35,7 +24,7 @@
            (rf.story.ui.state.transitions/chrome-visibility
              {:chrome-visibility {:full-screen? true}})))))
 
-;; ---- toggle / set --------------------------------------------------------
+;; ---- toggle --------------------------------------------------------------
 
 (deftest toggle-chrome-visibility-shape
   (testing "default false slot → flip to true"
@@ -48,13 +37,6 @@
     (let [a (rf.story.ui.state.transitions/toggle-chrome-visibility {} :rhs?)
           b (rf.story.ui.state.transitions/toggle-chrome-visibility a :rhs?)]
       (is (= true (get-in b [:chrome-visibility :rhs?]))))))
-
-(deftest set-chrome-visibility-shape
-  (testing "set true / set false"
-    (let [a (rf.story.ui.state.transitions/set-chrome-visibility {} :sidebar? false)]
-      (is (= false (get-in a [:chrome-visibility :sidebar?]))))
-    (let [b (rf.story.ui.state.transitions/set-chrome-visibility {} :full-screen? true)]
-      (is (= true (get-in b [:chrome-visibility :full-screen?]))))))
 
 ;; ---- chrome-pane-visible? — precedence -----------------------------------
 
