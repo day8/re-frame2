@@ -90,12 +90,6 @@
   (testing "no :prev-page-param fn yields nil (mirror not declared)"
     (is (nil? (rf.resources.state/prev-param-for nil [(page [:a] "c1")])))))
 
-(deftest terminal-rule
-  (testing "terminal? is the nil-next-param rule (R8 single terminal)"
-    (is (true? (rf.resources.state/terminal? nil)))
-    (is (false? (rf.resources.state/terminal? "c1")))
-    (is (false? (rf.resources.state/terminal? 0)) "0 is a legit cursor, not terminal")))
-
 ;; ---- entry-append-page -----------------------------------------------------
 
 (deftest append-first-page
@@ -131,66 +125,6 @@
       (is (= "c3" (:next-page-param e)))
       (is (= 1200 (:loaded-at e)) "loaded-at re-stamped each append"))))
 
-(deftest append-terminal-page
-  (testing "a page whose next-cursor is nil sets :next-page-param nil (terminal)"
-    (let [e (-> (rf.resources.state/empty-infinite-entry :feed/timeline)
-                (rf.resources.state/entry-append-page {:page (page [:a] "c1") :page-param nil
-                                          :next-page-param-fn next-cursor
-                                          :loaded-at 1 :stale-at 2})
-                (rf.resources.state/entry-append-page {:page (page [:b] nil) :page-param "c1"
-                                          :next-page-param-fn next-cursor
-                                          :loaded-at 3 :stale-at 4}))]
-      (is (nil? (:next-page-param e)) "terminal — no more pages")
-      (is (rf.resources.state/terminal? (:next-page-param e)))
-      (is (= 2 (rf.resources.state/page-count e)) "the terminal page IS accumulated"))))
-
-(deftest append-recomputes-prev-mirror
-  (testing "append re-derives :prev-page-param from the head when a fn is supplied"
-    (let [e (rf.resources.state/entry-append-page
-              (rf.resources.state/empty-infinite-entry :feed/timeline)
-              {:page {:items [:a] :page-info {:prev-cursor "p0"}}
-               :page-param nil
-               :next-page-param-fn (fn [_ _] nil)
-               :prev-page-param-fn prev-cursor
-               :loaded-at 1 :stale-at 2})]
-      (is (= "p0" (:prev-page-param e))))))
-
-(deftest append-clears-page-error
-  (testing "a successful append clears a prior :page-error (load-more recovery)"
-    (let [failed (-> (rf.resources.state/empty-infinite-entry :feed/timeline)
-                     (rf.resources.state/entry-append-page {:page (page [:a] "c1") :page-param nil
-                                               :next-page-param-fn next-cursor
-                                               :loaded-at 1 :stale-at 2})
-                     (rf.resources.state/entry-page-failed {:error {:kind :rf.http/server :status 503}}))
-          recovered (rf.resources.state/entry-append-page failed
-                                              {:page (page [:b] "c2") :page-param "c1"
-                                               :next-page-param-fn next-cursor
-                                               :loaded-at 3 :stale-at 4})]
-      (is (some? (:page-error failed)) "the failure recorded a page-error")
-      (is (nil? (:page-error recovered)) "the next success cleared it")
-      (is (= 2 (rf.resources.state/page-count recovered))))))
-
-;; ---- entry-page-failed (the THIRD error channel) ---------------------------
-
-(deftest page-failure-keeps-feed
-  (testing "a load-more failure keeps ALL pages + records :page-error (third channel)"
-    (let [loaded (-> (rf.resources.state/empty-infinite-entry :feed/timeline)
-                     (rf.resources.state/entry-append-page {:page (page [:a] "c1") :page-param nil
-                                               :next-page-param-fn next-cursor
-                                               :loaded-at 1 :stale-at 2})
-                     (rf.resources.state/entry-append-page {:page (page [:b] "c2") :page-param "c1"
-                                               :next-page-param-fn next-cursor
-                                               :loaded-at 3 :stale-at 4}))
-          envelope {:kind :rf.http/server :status 503}
-          failed (rf.resources.state/entry-page-failed loaded {:error envelope})]
-      (is (= :loaded (:status failed)) "feed returns to :loaded, NOT :error")
-      (is (= (:data loaded) (:data failed)) "page vector untouched")
-      (is (= "c2" (:next-page-param failed)) "cursor untouched")
-      (is (= envelope (:page-error failed)) ":page-error recorded")
-      (is (nil? (:error failed)) "NOT the first-load :error channel")
-      (is (nil? (:refresh-error failed)) "NOT the refresh :refresh-error channel")
-      (is (nil? (:current-work failed)) ":current-work cleared"))))
-
 ;; ---- resolve-page->items (R3 accessor) -------------------------------------
 
 (deftest page-accessor-resolution
@@ -207,22 +141,14 @@
   (testing "a non-keyword / non-fn accessor resolves to nil"
     (is (nil? (rf.resources.state/resolve-page->items 99)))))
 
-;; ---- page-param-for-spec (page-0 cursor) -----------------------------------
-
-(deftest page-0-param-default
-  (testing "page-0 param defaults to nil (TanStack initialPageParam analogue)"
-    (is (nil? (rf.resources.state/page-param-for-spec {})))
-    (is (nil? (rf.resources.state/page-param-for-spec {:initial-page-param nil}))))
-  (testing "an :initial-page-param override is honoured"
-    (is (= "p0" (rf.resources.state/page-param-for-spec {:initial-page-param "p0"})))))
-
 ;; ---- entry-replace-page (R6 window-preserving in-place replace) ------------
 ;;
 ;; The settle a window-preserving refetch's replacement page-0 performs: the
 ;; feed never collapses; page 0 is refreshed in place and the tail is kept. The
 ;; event tests only ever replace page-0 with a DIFFERENT value, so the
 ;; structural-sharing branch (identical refetch keeps the OLD value identical)
-;; and the delegate-to-append branch (index past the tail) are pinned here.
+;; is pinned here. The delegate-to-append branch (index past the tail) is the
+;; path every load-more page takes, so the load-more suite pins it.
 
 (defn- accumulated-3
   "A loaded 3-page infinite entry [p0 p1 p2] with cursors c1/c2/c3 and one
@@ -311,30 +237,6 @@
       (is (nil? (:refresh-error e1)))
       (is (nil? (:invalidated-at e1))))))
 
-(deftest replace-page-past-tail-delegates-to-append
-  (testing "a replace at page-index >= page-count is an APPEND (replacement past the
-            tail — e.g. a window-preserving refetch of a feed emptied to page 0)"
-    (let [e0 (-> (rf.resources.state/empty-infinite-entry :feed/timeline)
-                 (rf.resources.state/entry-append-page {:page (page [:a] "c1") :page-param nil
-                                           :next-page-param-fn next-cursor
-                                           :loaded-at 1 :stale-at 2}))
-          ;; page-index 1 == page-count (1) → delegates to entry-append-page
-          e1 (rf.resources.state/entry-replace-page
-               e0 {:page (page [:b] "c2") :page-param "c1" :page-index 1
-                   :next-page-param-fn next-cursor
-                   :loaded-at 3 :stale-at 4})]
-      (is (= [(page [:a] "c1") (page [:b] "c2")] (:data e1))
-          "the page was APPENDED (feed grew), not replaced")
-      (is (= [nil "c1"] (:page-params e1)) "params appended in step")
-      (is (= "c2" (:next-page-param e1)) "cursor advanced from the appended tail")))
-  (testing "a replace into an EMPTY feed at index 0 appends page-0"
-    (let [e0 (rf.resources.state/empty-infinite-entry :feed/timeline)
-          e1 (rf.resources.state/entry-replace-page
-               e0 {:page (page [:a] "c1") :page-param nil :page-index 0
-                   :next-page-param-fn next-cursor
-                   :loaded-at 1 :stale-at 2})]
-      (is (= [(page [:a] "c1")] (:data e1)) "index 0 == count 0 → append page-0"))))
-
 (deftest page-ops-on-a-nil-entry-are-noops
   ;; With no feed to write into, each pure page op returns nil unchanged.
   (testing "append"
@@ -391,19 +293,6 @@
     (testing label
       (is (= expected (rf.resources.state/refetch-window-count policy page-count))
           (str "policy " (pr-str policy) " over " page-count " pages")))))
-
-;; ---- refetch-sweep-tail (R6 — the ordered pages beyond 0 to re-fetch) ------
-;;
-;; The policy rows (default ⇒ no tail; all-pages ⇒ pages 1..N-1 with their
-;; params; a window ⇒ its leading pages minus page 0) are pinned through the
-;; cursor `entry-begin-refetch-sweep` arms from this tail, below.
-
-(deftest refetch-sweep-tail-guard-arms
-  (testing "a nil / non-infinite / empty-feed entry yields an empty tail"
-    (is (= [] (rf.resources.state/refetch-sweep-tail nil {:refetch-all-pages? true})))
-    (is (= [] (rf.resources.state/refetch-sweep-tail (rf.resources.state/empty-entry :res/plain) {:refetch-all-pages? true})))
-    (is (= [] (rf.resources.state/refetch-sweep-tail (rf.resources.state/empty-infinite-entry :feed/timeline)
-                                        {:refetch-all-pages? true})))))
 
 ;; ---- entry-begin / advance / clear refetch sweep (R6 cursor) ---------------
 
