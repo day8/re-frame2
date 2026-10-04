@@ -12,7 +12,8 @@
     - a rollback whose baseline came from an abandoned attempt restores the
       pre-paint snapshot, marks the key STALE, and refetches it when owned —
       the abandoned write may still have reached the server. An ordinary
-      single-attempt rollback stays exact.
+      single-attempt rollback stays exact (pinned by the settle suite's
+      `failure-rolls-back-to-the-recorded-before-verbatim`).
 
   This is recovery, not write ordering: a re-execute does not abort the
   earlier request."
@@ -223,15 +224,6 @@
 ;; ===========================================================================
 ;; Controls
 ;; ===========================================================================
-
-(deftest c2-a-single-attempt-rollback-stays-exact
-  (setup!)
-  (let [click-1      (click! :sp/favorite)
-        before-reads (reads)]
-    (fail! click-1)
-    (is (= {:favorited false :favoritesCount 5} (article)))
-    (is (not (stale?)) "an ordinary reply-driven rollback is exact, not staled")
-    (is (= 0 (- (reads) before-reads)))))
 
 (deftest c3-a-successful-successor-commits-without-a-stale-mark
   (setup!)
