@@ -472,11 +472,22 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 
 **Procedure** (sweep first, then per-handler rewrite):
 
-1. **Enumerate the app's OWN `reg-fx` ids first — this is what makes the sweep complete.** `rg "\(rf/reg-fx\s+:" src/` (the skill's only shell verb is `rg` — see SKILL.md `allowed-tools`) and collect the full custom fx-id set — `:datadog/log`, a toast fx, an analytics ping, an rAF helper like `::dispatch-after-paint`, anything the app ever returned as a top-level effect. These project-specific ids are the easy-to-miss half of the rule: M-8 folds **every** top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large`), not just the framework keys.
+1. **Enumerate the app's OWN `reg-fx` ids first — this is what makes the sweep complete.** Collect the full custom fx-id set — `:datadog/log`, a toast fx, an analytics ping, an rAF helper like `::dispatch-after-paint`, anything the app ever returned as a top-level effect. These project-specific ids are the easy-to-miss half of the rule: M-8 folds **every** top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large`), not just the framework keys. The set takes two passes — a text search that finds **candidates**, then a read that **accepts** them. The search alone is not the set.
+   - **Candidates.** Run from the project root (the skill's shell search verb is `rg` — see SKILL.md `allowed-tools`):
+
+     ```bash
+     rg -n -U -t clojure '\(\s*(\S+/)?reg-fx\s+\S+' .
+     ```
+
+     `-U` lets `\s+` cross a newline, so a call whose id sits on the line after `reg-fx` still matches. `(\S+/)?` admits any alias (`rf/`, `events/`), the fully qualified `re-frame.core/`, and a bare `:refer`red head. The `.` path reaches every committed source root (`src/`, `dev/`, `test/`, …) under the same `.gitignore` rule as [inventory Step 3](inventory-and-plan.md#step-3--inventory-the-apps-own-v1-re-frame-features); a source root the build config puts outside the project directory — `:paths` / `:extra-paths` / `:source-paths`, in whichever file [setup.md §`shadow-cljs.edn`](setup.md#shadow-cljsedn) says the build reads — goes on the command line beside `.`. A literal `rf/` prefix, a one-line pattern or a `src/` path each drops real registrations.
+   - **Accept.** For each candidate, read its file's `ns` form and the call itself:
+     - The head must name `re-frame.core/reg-fx` in that namespace — an `:as` alias of `re-frame.core`, `re-frame.core/` itself, or a bare `reg-fx` only where the `ns` form `:refer`s it from `re-frame.core`. A bare `reg-fx` that resolves to the file's own `defn` of that name is not a registration. A `:rename` of `reg-fx` is the one binding the search cannot see, so search the new name too.
+     - The call must be live code: not on a `;` comment line, not inside a string, not under `#_`, not in a `(comment …)` block.
+     - Resolve the id against the **registering** namespace: `::x` is `:<that-ns>/x`, and `::a/x` is `x` under whatever namespace the alias `a` names in that `ns` form. A non-keyword id (a symbol, a `doseq` over a map) is a data-driven registration — follow it to the literal ids.
 2. Add the built-ins to that set: `:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects.
 3. For each `reg-event-fx` body, walk the returned effect map literal.
 4. For each top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` stay where they are — folding one of those into `:fx` is itself a break):
-   - In the discovered set → rewrite per the rules above.
+   - In the discovered set → rewrite per the rules above. Compare resolved ids: a `::` key in the returned map resolves against the returning namespace, the same way step 1 resolves the registration.
    - Not in the set → **flag** (might be a destructure key, not an effect).
 5. If `:fx` already exists, concatenate: existing `:fx` first, new entries after.
 
