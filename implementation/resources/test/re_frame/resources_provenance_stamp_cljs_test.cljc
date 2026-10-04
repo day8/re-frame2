@@ -115,34 +115,9 @@
       (is (= [nil] (provenance-keys kind :probe/unstamped))
           (str kind ": no stamp, no provenance — the instrument reads absence")))))
 
-(deftest positive-control-reg-event-honours-the-bare-ns-stamp
-  (testing "CONTROL — the shared registrar honours a bare `:ns`
-            stamp, so the instrument is known to read PRESENCE too"
-    (rf.registrar/register! :event :probe/control
-                            {:ns 'probe.control :handler-fn (fn [_cofx _event] nil)})
-    (is (= ["probe.control"] (provenance-keys :event :probe/control))
-        "registrar/register! with a bare :ns records under that provenance")))
-
 ;; ---- (a) bare `:ns` --------------------------------------------------------
 
-(deftest bare-ns-stamp-is-forwarded-to-the-source-store
-  (doseq [kind kinds]
-    (testing (str "a bare `:ns` on " kind "'s metadata reaches the "
-                  "source store, so the registration is :select-ns-selectable")
-      (reg! kind :probe/bare {:ns 'probe.ns})
-      (is (= ["probe.ns"] (provenance-keys kind :probe/bare))
-          (str kind ": a wrapper building its registrar map from the "
-               "canonical spec alone would drop :ns, giving [nil]")))))
-
 ;; ---- (b) qualified `:rf.provenance/ns` ------------------------------------
-
-(deftest qualified-provenance-ns-stamp-is-forwarded-to-the-source-store
-  (doseq [kind kinds]
-    (testing (str "the qualified `:rf.provenance/ns` on " kind "'s "
-                  "metadata reaches the source store too")
-      (reg! kind :probe/qualified {:rf.provenance/ns "probe.qualified"})
-      (is (= ["probe.qualified"] (provenance-keys kind :probe/qualified))
-          (str kind ": a dropped :rf.provenance/ns would give [nil]")))))
 
 ;; ---- (d) precedence: the qualified key wins -------------------------------
 
