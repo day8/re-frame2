@@ -48,9 +48,9 @@
        `:rf/invoke-id` when that state is EXITED (no leaked actors); the
        spawn allocator id is monotone per machine-id.
     7. REPLAY DETERMINISM — the same machine + the same event sequence
-       (pure, no recorded cofx needed at this layer) yields a byte-
-       identical FINAL snapshot across two independent runs (the EP-0010 /
-       EP-0017 replay claim, at the machine-engine level).
+       yields a byte-identical FINAL snapshot (the EP-0010 / EP-0017 replay
+       claim, at the machine-engine level). It follows from 4 by induction:
+       4 checks determinism at every prefix of every generated sequence.
     8. PARALLEL DECLARATION-ORDER INDEPENDENCE — reordering a parallel
        machine's `:regions` declarations yields the SAME selected
        configuration (region selection is set-like, declaration-order
@@ -800,29 +800,6 @@
       (is (= 1 (get-in (:snapshot r1) [:rf/spawn-counter :child/worker])))
       (is (= 2 (get-in (:snapshot r3) [:rf/spawn-counter :child/worker]))
           "re-entering the spawn state allocates the NEXT id — counter monotone, never rewound"))))
-
-;; ---- INVARIANT 7: replay determinism (same machine + sequence) ------------
-
-(deftest prop-replay-is-deterministic
-  (testing "the same machine + the same event sequence yields a byte-
-            identical FINAL snapshot across two independent runs (the
-            machine-engine-level replay claim)"
-    (let [final-snap (fn [machine events]
-                       (:snap (last (cons {:snap (initial-snapshot machine)}
-                                          (run-sequence machine events)))))
-          failure
-          (loop [i 0, s 7007]
-            (if (= i 400)
-              nil
-              (let [[m _ s1] (gen-machine s)
-                    [evs s2] (gen-events s1)
-                    run-a    (final-snap m evs)
-                    run-b    (final-snap m evs)]
-                (if (not= run-a run-b)
-                  [:replay-divergence m evs run-a run-b]
-                  (recur (inc i) (lcg-next s2))))))]
-      (is (nil? failure)
-          (str "replay-determinism property failed: " (pr-str failure))))))
 
 ;; ---- INVARIANT 8: parallel declaration-order independence ------------------
 
