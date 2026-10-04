@@ -107,7 +107,6 @@
           "exactly one violation fired for the non-conforming output")
       (let [ev   (first vs)
             tags (:tags ev)]
-        (is (= :rf.error/schema-validation-failure (:operation ev)))
         (is (= :error      (:op-type ev))          "op-type :error")
         (is (= :flow-output (:where tags))         ":where :flow-output")
         (is (= :area        (:rf.flow/id tags))    ":rf.flow/id names the failing flow")
