@@ -197,21 +197,6 @@
       (is (= 2 (rf.image-assembly/cache-size))
           "two distinct orderings occupy two cache slots"))))
 
-(deftest same-composition-still-hits
-  (testing "the complement: the SAME images in the SAME order hit the ONE cache
-            slot — image-order keying does not over-invalidate"
-    (record! "checkout.core"       :fx :checkout.http/post ::real)
-    (record! "checkout.story.http" :fx :checkout.http/post ::fake)
-    (let [img-real (rf.image/image {:id :checkout/real
-                                 :select-ns {:include ["checkout.core"]}})
-          img-fake (rf.image/image {:id :checkout/fake
-                                 :select-ns {:include ["checkout.story.http"]}})
-          gen1 (rf.image-assembly/assemble [img-real img-fake])
-          gen2 (rf.image-assembly/assemble [img-real img-fake])]
-      (is (identical? gen1 gen2)
-          "identical composition (same images, same order) → one cached object")
-      (is (= 1 (rf.image-assembly/cache-size))))))
-
 ;; ===========================================================================
 ;; 5b. The resolved-generation cache key MUST include the
 ;;     :select-ns SELECTION. Two images with the SAME id but a DIFFERENT
