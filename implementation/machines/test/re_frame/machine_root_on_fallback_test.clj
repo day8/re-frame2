@@ -5,11 +5,12 @@
   its refs checked at registration, its targets resolved at runtime, and the
   benign no-op emitted when even the root misses.
 
-    - Runtime resolution: keyword targets resolve root-relative, vector
-      targets are absolute from root, `:*` fires for an otherwise-unhandled
-      event, a state-level handler for the same event id shadows the root
+    - Runtime resolution: `:*` fires for an otherwise-unhandled event. That
+      keyword targets resolve root-relative, vector targets are absolute from
+      root, a state-level handler for the same event id shadows the root
       (deepest wins), and a false guard on the root transition means NO level
-      matched.
+      matched is pinned by the `machine-root-on-fallback` conformance fixture,
+      which `machines_conformance_test` runs.
     - `:rf.machine.event/unhandled-no-op` (xstate-v5 parity) is emitted when
       no level matches an unknown USER event — op-type `:rf.machine`, NOT an
       error, and no `:rf.error/machine-unhandled-event` advisory. Reserved
@@ -42,31 +43,6 @@
 
 ;; ---- runtime: the root `:on` fallback is consulted last -------------------
 
-(deftest root-on-keyword-target-fires-from-state-without-handler
-  (testing "a root `:on` keyword target fires from a leaf lacking its own
-   handler; the keyword resolves root-relative"
-    (rf/reg-machine :rem/root-kw
-      {:initial :authenticated
-       :on      {:logout :idle}                 ;; root fallback
-       :states  {:idle {}
-                 :authenticated
-                 {:initial :dashboard
-                  :states  {:dashboard {}}}}})  ;; no :logout anywhere on the path
-    (rf/dispatch-sync [:rem/root-kw [:logout]])
-    (is (= [:idle] (snap-of :rem/root-kw))
-        "root :on :logout drove [:authenticated :dashboard] → [:idle]")))
-
-(deftest root-on-vector-target-is-absolute
-  (testing "a root `:on` vector target is an absolute path from root"
-    (rf/reg-machine :rem/root-vec
-      {:initial :authenticated
-       :on      {:goto [:authenticated :settings]}
-       :states  {:authenticated
-                 {:initial :dashboard
-                  :states  {:dashboard {} :settings {}}}}})
-    (rf/dispatch-sync [:rem/root-vec [:goto]])
-    (is (= [:authenticated :settings] (snap-of :rem/root-vec)))))
-
 (deftest root-on-wildcard-fires-for-unhandled-event
   (testing "root `:on` `:*` wildcard fires for an otherwise-unhandled event"
     (let [hits (atom 0)]
@@ -78,31 +54,6 @@
       (rf/dispatch-sync [:rem/root-wild [:anything]])
       (is (= 1 @hits) "root :* fired for the unhandled event")
       (is (= :a (snap-of :rem/root-wild)) "internal — state unchanged"))))
-
-(deftest state-level-handler-overrides-root-on
-  (testing "deepest-wins — a leaf handler shadows the root `:on` for the
-   same event id (the root fallback is consulted only on a miss)"
-    (let [leaf (atom 0) root (atom 0)]
-      (rf/reg-machine :rem/override
-        {:initial :on-page
-         :actions {:leaf (fn [_] (swap! leaf inc) nil)
-                   :root (fn [_] (swap! root inc) nil)}
-         :on      {:ev {:action :root}}
-         :states  {:on-page {:on {:ev {:action :leaf}}}}})
-      (rf/dispatch-sync [:rem/override [:ev]])
-      (is (= 1 @leaf) "leaf handler ran")
-      (is (= 0 @root) "root fallback shadowed — did NOT run"))))
-
-(deftest root-on-guard-gates-the-fallback
-  (testing "a false guard on a root `:on` transition means no level matched"
-    (rf/reg-machine :rem/root-guard
-      {:initial :a
-       :data    {:ok? false}
-       :guards  {:ok? (fn [{d :data}] (:ok? d))}
-       :on      {:go {:target :b :guard :ok?}}
-       :states  {:a {} :b {}}})
-    (rf/dispatch-sync [:rem/root-guard [:go]])
-    (is (= :a (snap-of :rem/root-guard)) "guard false → unhandled, no transition")))
 
 ;; ---- runtime: the benign no-op when no level matched ----------------------
 
