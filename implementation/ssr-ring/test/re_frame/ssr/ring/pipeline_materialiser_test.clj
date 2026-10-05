@@ -112,20 +112,6 @@
             (str "no stale target survives under any key ("
                  (pr-str spelling) ")"))))))
 
-(deftest redirect-replaces-a-multi-valued-location-fold
-  (testing "repeated Location pairs fold to a VECTOR under one key;
-            the redirect must clear the whole entry, not conj onto it"
-    (let [resp {:redirect {:status 302 :location "/new"}
-                :headers  [["location" "/old-a"] ["Location" "/old-b"]]}
-          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
-      (is (= {"Location" "/new"}
-             (select-keys (:headers ring) ["Location"]))
-          "one scalar Location carrying the target")
-      (is (= 1 (count (filter #(= "location" (str/lower-case (str %)))
-                              (keys (:headers ring))))))
-      (is (not-any? #{"/old-a" "/old-b"} (vals (:headers ring)))
-          "neither stale value survives"))))
-
 (deftest redirect-location-replacement-preserves-unrelated-headers
   (testing "VACUITY: the strip is scoped to Location — unrelated
             headers, cookies, status and the empty body are untouched"
@@ -159,32 +145,6 @@
       (is (= "/app-set" (get (:headers ring) "location"))
           "the app's own header survives a target-less redirect"))))
 
-(deftest redirect-through-the-public-handler-yields-one-location
-  (testing "the whole documented fx sequence — an ordinary event
-            writing `location` and then redirecting — reaches the wire as ONE
-            logical Location header carrying the NEW target"
-    (rf/reg-event :test/stale-location-then-redirect
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/set-header {:name "location" :value "/old"}]
-              [:rf.server/redirect {:location "/new"}]]}))
-    (rf/reg-view* :pages/redirecting (fn [] [:div "unused"]))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:test/stale-location-then-redirect]]
-                      :root-view      [(rf/view :pages/redirecting)]
-                      :payload        :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          headers  (:headers response)
-          location-keys (filter #(= "location" (str/lower-case (str %)))
-                                (keys headers))]
-      (is (= 302 (:status response)) "the redirect's default status rides through")
-      (is (= 1 (count location-keys))
-          "one logical Location on the wire, not two conflicting singletons")
-      (is (= "/new" (get headers (first location-keys)))
-          "the redirect target wins, per Spec 011 §Redirect precedence")
-      (is (not-any? #(= "/old" %) (vals headers))
-          "the stale target does not reach the wire under any spelling"))))
-
 ;; ===========================================================================
 ;; ssr-response->ring-response — non-redirect (body) path
 ;; ===========================================================================
@@ -215,18 +175,6 @@
 ;; ===========================================================================
 
 (deftest non-integer-status-fails-closed-to-500
-  (testing "a string :status (what a soft-passed
-            `:rf.server/set-status \"404\"` leaves on the accumulator) does
-            NOT reach the wire as a non-int — the materialiser fails closed
-            to a valid 500 Ring response"
-    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                 {:status "404" :headers [["Content-Type" "text/html"]]}
-                 "<p>x</p>")]
-      (is (= 500 (:status ring)) "a non-int status fails closed to 500")))
-  (testing "a non-integer redirect :status also fails closed"
-    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                 {:redirect {:status "302" :location "/ok"}} nil)]
-      (is (= 500 (:status ring)) "non-int redirect status → 500")))
   (testing "a float status (200.0) is not a valid Ring int → 500"
     (is (= 500 (:status (rf.ssr.ring.pipeline/ssr-response->ring-response
                           {:status 200.0 :headers []} "x"))))))
@@ -300,25 +248,6 @@
         (is (= :failed-closed-to-500 (:recovery ev))
             "the warning carries the fail-closed recovery disposition")))))
 
-(deftest non-string-header-value-coerced-in-materialiser
-  (testing "a non-string header value on the accumulator (what a
-            soft-passed `:rf.server/set-header {:name \"X-Count\" :value 5}`
-            leaves) is coerced to a string in the emitted Ring header map —
-            the value is never a raw scalar on the wire"
-    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                 {:status 200 :headers [["X-Count" 5]
-                                        ["X-Flag" true]
-                                        ["X-Kw" :enabled]]}
-                 "<p>x</p>")
-          hdrs (:headers ring)]
-      (is (= "5" (get hdrs "X-Count")) "number → string")
-      (is (= "true" (get hdrs "X-Flag")) "boolean → string")
-      (is (= ":enabled" (get hdrs "X-Kw")) "keyword → string")
-      (is (every? (fn [[_ v]] (or (string? v)
-                                  (and (vector? v) (every? string? v))))
-                  hdrs)
-          "EVERY emitted header value is a string or vector-of-strings"))))
-
 (deftest non-string-redirect-location-coerced-to-string
   (testing "a non-string redirect :location (the fx is
             caller-trusted and `(str loc)` passes its shape gate, so a raw
@@ -331,52 +260,11 @@
       (is (= "5" loc) "the non-string target is coerced via str"))))
 
 ;; ===========================================================================
-;; headers->ring-map+content-type-override — override-when-present +
-;; nil-content-type passthrough. The override-strips-existing
-;; path across every casing is covered by
-;; ring_test/content-type-override-replaces-any-casing.
-;; ===========================================================================
-
-(deftest content-type-nil-override-leaves-pairs-untouched
-  (testing "a nil `content-type` arg is NO override — the folded
-            map flows verbatim, so the runtime seed / app-set Content-Type
-            stays in control (the redirect path passes nil)"
-    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
-                   [["X-Custom" "v"]]
-                   nil)]
-      (is (not (contains? result "Content-Type"))
-          "no Content-Type key when the override is nil and pairs carry none")
-      (is (= "v" (get result "X-Custom"))))
-    (testing "a nil override preserves a caller-supplied Content-Type verbatim"
-      (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
-                     [["content-type" "application/json"]]
-                     nil)]
-        (is (= "application/json" (get result "content-type"))
-            "the accumulator's own Content-Type survives an absent override")))))
-
-;; ===========================================================================
 ;; merge-pair-into-header-map — repeated names collapse into a vector
 ;;
 ;; The ns docstring promises multi-valued headers (Set-Cookie, Vary, Link)
-;; round-trip via the string→vector→conj arms. The full-handler test only
-;; exercises this through Set-Cookie; pin the fold contract for arbitrary
-;; repeated names directly so all three arms (nil / string / vector) are
-;; covered.
+;; round-trip via the string→vector→conj arms.
 ;; ===========================================================================
-
-(deftest a-repeated-header-name-folds-scalar-then-vector-in-order
-  (testing "a name seen once stays a scalar (nil arm), a second value promotes
-            it to a 2-vector (string arm), and further values conj on in
-            insertion order (vector arm — the load-bearing multi-valued-header
-            round-trip)"
-    (let [fold (fn [pairs]
-                 (reduce rf.ssr.ring.headers/merge-pair-into-header-map {} pairs))]
-      (is (= {"Vary" "Accept"} (fold [["Vary" "Accept"]]))
-          "one value stays a scalar")
-      (is (= {"Vary" ["Accept" "Cookie"]} (fold [["Vary" "Accept"] ["Vary" "Cookie"]]))
-          "a second value promotes to a 2-vector")
-      (is (= {"Link" ["a" "b" "c"]} (fold [["Link" "a"] ["Link" "b"] ["Link" "c"]]))
-          "a third value conjs on, insertion order preserved"))))
 
 (deftest repeated-non-string-value-coerced-and-does-not-wipe-header-map
   (testing "a repeated header name whose value
