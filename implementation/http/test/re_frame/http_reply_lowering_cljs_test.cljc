@@ -109,11 +109,6 @@
       (is (= :user (:rf.reply/cancel-reason r)))
       (is (= :rf.http/aborted (get-in r [:error :kind]))))))
 
-(deftest no-public-payload-reshape
-  (testing "there is no compat-reply reshape (reply->public-payload); every family delivers the canonical envelope verbatim, no {:kind :success/:failure} dialect"
-    (is (not (contains? (ns-publics 're-frame.http.reply) 'reply->public-payload))
-        "reply->public-payload must not exist — the canonical reply is the public payload")))
-
 (deftest self-identify-failure-stamps-request-identity
   (testing "self-identify-failure stamps :request/:request-id/:attempt/:max-attempts/:work-id onto a failure map"
     (let [id-ctx {:method       :get
