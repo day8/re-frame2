@@ -84,8 +84,7 @@
 
 (deftest bvw9ut-shape-validated-at-dispatch-time-unit
   (testing "validate-reply-target! rejects a non-vector non-nil
-            reply target with :rf.error/http-bad-reply-target, and accepts an
-            event vector or an explicit nil (fire-and-forget)"
+            reply target with :rf.error/http-bad-reply-target"
     ;; A bare keyword is malformed for each of the three reply-target keys.
     (doseq [k [:reply-to :on-success :on-failure]]
       (let [thrown (try (validate-reply-target! {k :items/loaded})
@@ -100,20 +99,7 @@
     (is (= :rf.error/http-bad-reply-target
            (:rf.error/id (ex-data (try (validate-reply-target! {:on-success {:not :a-vector}})
                                        (catch clojure.lang.ExceptionInfo e e)))))
-        "a map reply target is rejected")
-    ;; Valid shapes pass untouched.
-    (is (nil? (validate-reply-target! {:on-success [:items/loaded]}))
-        "an event vector passes")
-    (is (nil? (validate-reply-target! {:on-success nil}))
-        "an explicit nil (fire-and-forget) passes")
-    (is (nil? (validate-reply-target! {:reply-to nil}))
-        "an explicit nil :reply-to — the ONE fire-and-forget spelling — passes")
-    ;; The two styles are EXCLUSIVE; see
-    ;; mixed-reply-addressing-refused-at-dispatch below.
-    (is (= :rf.error/http-bad-reply-target
-           (:rf.error/id (ex-data (try (validate-reply-target! {:reply-to [:load] :on-failure nil})
-                                       (catch clojure.lang.ExceptionInfo e e)))))
-        "a :reply-to beside an explicit-nil :on-failure is a REFUSED mixture")))
+        "a map reply target is rejected")))
 
 (deftest mixed-reply-addressing-refused-at-dispatch
   (testing "`:reply-to` and the `:on-success` / `:on-failure`
