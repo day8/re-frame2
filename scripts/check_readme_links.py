@@ -780,7 +780,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, int]] = [
         # (fixture-dir, expected-finding-count)
         ("valid_readme",                     0),  # baseline: clean README
-        ("broken_internal_link",             1),  # missing target file
         # Known base-slug gap: heading text shaped like an HTML
         # tag is the one measured divergence between the shared SLUGIFY and
         # GitHub's slugger, and no live README heading exercises it.  These
@@ -805,10 +804,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("external_link_skipped_by_default", 0),  # off without --check-external
         ("explicit_id_full_title_ok",        0),  # `{#id}` is heading TEXT
         ("explicit_id_brace_not_a_target",   1),  # ...so the brace id resolves nowhere
-        # Repo-root markdown that is NOT a README. Neither fixture
-        # contains a README.md at all, so every finding (and every non-finding)
-        # comes from the root roster and nothing else. Both directions:
-        ("root_markdown_ok",                 0),  # correct root links stay silent
+        # Repo-root markdown that is NOT a README. The fixture contains no
+        # README.md at all, so every finding comes from the root roster and
+        # nothing else. The silent direction is `root_markdown_ok`, which the
+        # untracked-scratch check below requires to read 0.
         ("root_markdown_broken_link",        2),  # broken target + broken anchor
         # This project's own published site URLs, resolved offline
         # against the source tree by the resolver in `check_doc_slugs.py`.
@@ -827,10 +826,10 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("site_url_anchor_in_root_markdown", 3),
         # The redirect table writes bare URLs after an arrow, which the shared
         # extractor does not and should not read as links — so without the
-        # bullet reader the table's rows reach no gate at all. Both
-        # directions, and the
-        # `github.com` row in each pins that a non-site URL stays external.
-        ("redirect_table_ok",                0),
+        # bullet reader the table's rows reach no gate at all. The fixture's
+        # live row, dead row and `github.com` row make its count of exactly 1
+        # pin both directions: the dead site URL is read and reported, while
+        # the live one and the non-site URL stay silent.
         ("redirect_table_broken",            1),
     ]
 
@@ -861,7 +860,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             failures += 1
 
     # The blind spot the bullet reader exists for, asserted
-    # directly rather than only through the two fixtures' counts.
+    # directly rather than only through the fixture counts.
     #
     # The shared extractor yields NOTHING for a redirect table: its rows are
     # bare URLs after an arrow, and bare URLs are not links. That is why the

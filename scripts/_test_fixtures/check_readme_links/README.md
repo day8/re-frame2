@@ -17,7 +17,7 @@ Fixtures:
 | Fixture                              | Expected | Exercises                                                                                            |
 | ------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------- |
 | `valid_readme`                       | 0        | Baseline: README with valid internal links + anchor + relative subdir target.                        |
-| `broken_internal_link`               | 1        | README links to a missing `.md` file → BROKEN TARGET.                                                |
+| `broken_internal_link`               | 1        | README links to a missing `.md` file → BROKEN TARGET. Not in the case list: the fast-PR harness runs it through `main()` (case N) to pin the exit code. |
 | `mkdocs_slug_anchor_ok`              | 0        | Anchor uses MkDocs slug rule (`<name>` stripped) — passes; was rf2-69nh9 false-positive class.       |
 | `github_slug_anchor_broken`          | 1        | Anchor uses GitHub slug rule (`<name>` kept as `name`) — flagged under MkDocs rules.                 |
 | `mustache_placeholder_ignored`       | 0        | Link destination contains `{{var}}` Mustache placeholder — skipped (template-source false-positive). |
@@ -30,12 +30,11 @@ Fixtures:
 | `external_link_skipped_by_default`   | 0        | External `https://` URL — skipped without `--check-external` (the default + `--ci` mode).            |
 | `explicit_id_full_title_ok`          | 0        | `## One {#dup}` is heading TEXT — the id is the full-title slug `one-dup`, so that link resolves.    |
 | `explicit_id_brace_not_a_target`     | 1        | Negative control: a link to the brace id `#dup` targets nothing → flagged.                           |
-| `root_markdown_ok`                   | 0        | Repo-root markdown that is not a README — correct links stay silent (rf2-znup0).                     |
+| `root_markdown_ok`                   | 0        | Repo-root markdown that is not a README — correct links stay silent. Not in the case list: the root-roster check reads its tracked files, and the untracked-scratch check requires its 0. |
 | `root_markdown_broken_link`          | 2        | The same roster, both failure modes at once: a broken target and a broken anchor.                    |
 | `site_url_in_root_markdown`          | 1        | This project's own site URLs, resolved offline against the source tree — root markdown is this gate's surface, and the repo's front page is where the class bit (rf2-dnx3r). |
 | `site_url_anchor_in_root_markdown`   | 3        | A site URL's `#fragment` in root markdown and in the redirect table's bullets, graded by the MkDocs slug model the published page renders with: 3 there, 5 under this gate's GitHub `-N` model, 0 with the fragment ungraded. |
-| `redirect_table_ok`                  | 0        | `SKILL-REDIRECT.md`'s bare-URL bullets, read by the narrow bullet reader the shared extractor cannot supply; both arrow spellings and both bold markers, with the `github.com` row left external (rf2-dnx3r). |
-| `redirect_table_broken`              | 1        | The same table carrying a dead site URL — the `[setup]` row's real failure, which no gate could see for a quarter (rf2-dnx3r). |
+| `redirect_table_broken`              | 1        | `SKILL-REDIRECT.md`'s bare-URL bullets, read by the narrow bullet reader the shared extractor cannot supply: a live site URL, a dead one and a `github.com` row left external, so only the dead row is reported. |
 
 Four further fixtures — `command_refs_ok`, `command_refs_broken`,
 `command_script_refs_ok` and `command_script_refs_broken` — served the
