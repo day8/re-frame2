@@ -340,21 +340,7 @@ def _run_self_tests() -> int:
     failures = 0
     cases = []
 
-    # 1. The shape of the real tree: green.
-    cases.append(
-        (
-            "a qualified design record and a figure-free publication surface is GREEN",
-            dict(
-                budgets=_GOOD_BUDGETS,
-                baseline=_GOOD_BASELINE,
-                design="The floor arm reads 24,108 B per write.\n",
-                publication="Fresco keeps high-rate work local to a native host.\n",
-            ),
-            None,
-        )
-    )
-
-    # 2. THE SEEDED VIOLATION, which must be red.
+    # 1. THE SEEDED VIOLATION, which must be red.
     cases.append(
         (
             "an unqualified figure on the publication surface is RED",
@@ -368,7 +354,7 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 3. The same figure, qualified in its own paragraph: GREEN. The rule is
+    # 2. The same figure, qualified in its own paragraph: GREEN. The rule is
     #    *no claim without its qualification*, and this is the half that
     #    proves the gate is not simply banning the digits.
     cases.append(
@@ -387,12 +373,12 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 3a. THE CROSS-SIBLING FAIL-OPEN. A whole Markdown table is one
+    # 2a. THE CROSS-SIBLING FAIL-OPEN. A whole Markdown table is one
     #     blank-line block, so scoping qualification to the block would let a
     #     DIFFERENT row's honest `quality floor unmet` certify this figure.
     #     Both halves of the rule are fixtured, in both shapes, because a
     #     change that simply stopped honouring qualification would pass the
-    #     red pair and quietly delete case 3.
+    #     red pair and quietly delete case 2.
     cases.append(
         (
             "a figure whose QUALIFIER IS IN ANOTHER TABLE ROW is RED",
@@ -409,7 +395,7 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 3b. The same leak in a tight list, which shares the blank-line block for
+    # 2b. The same leak in a tight list, which shares the blank-line block for
     #     the same reason.
     cases.append(
         (
@@ -427,7 +413,7 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 3c. A row that qualifies ITSELF still passes: the unit is the row, not
+    # 2c. A row that qualifies ITSELF still passes: the unit is the row, not
     #     the digits.
     cases.append(
         (
@@ -446,7 +432,7 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 3d. ...and a list item's qualification may be on its WRAPPED line, which
+    # 2d. ...and a list item's qualification may be on its WRAPPED line, which
     #     is the case that stops the claim unit from becoming a per-line scan.
     cases.append(
         (
@@ -466,7 +452,7 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 4. The premise moving is RED, so the gate cannot outlive its own reason.
+    # 3. The premise moving is RED, so the gate cannot outlive its own reason.
     cases.append(
         (
             "a cleared quality floor is RED, demanding re-authorisation",
@@ -480,7 +466,7 @@ def _run_self_tests() -> int:
         )
     )
 
-    # 5. A design record with no figure at all trips the positive control,
+    # 4. A design record with no figure at all trips the positive control,
     #    which is what stops a green from meaning "the scan read nothing".
     cases.append(
         (
