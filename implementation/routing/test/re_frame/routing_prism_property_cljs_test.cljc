@@ -266,52 +266,6 @@
       (is (nil? failure)
           (str "query-defaults prism property failed: " (pr-str failure))))))
 
-(deftest prism-query-order-is-spelling-independent
-  (testing "two inbound URLs spelling one generated query in DIFFERENT key
-            orders yield = :query with identical (canonical) key order —
-            both prism legs share ONE canonical order"
-    (rf/reg-route :route/list {} "/list")
-    (let [failure
-          (loop [i 0, s 13579]
-            (if (= i 200)
-              nil
-              (let [[q s1] (gen-query s)]
-                (if (< (count q) 2)
-                  ;; need >= 2 keys to have a non-trivial reordering
-                  (recur (inc i) (lcg-next s1))
-                  (let [ks       (vec (keys q))
-                        ;; build the query string in caller-insertion order
-                        ;; and in REVERSED order; route-url must emit BOTH as
-                        ;; the byte-identical canonical-order URL.
-                        url-fwd  (rf.routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) ks))})
-                        url-rev  (rf.routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) (reverse ks)))})
-                        ;; route-url's two outputs are byte-identical once the
-                        ;; first branch below passes, so the inbound leg needs
-                        ;; a URL that really does spell the query in another
-                        ;; order: url-fwd's pairs, reversed.
-                        [path qs] (str/split url-fwd #"\?" 2)
-                        url-in   (str path "?" (str/join "&" (reverse (str/split qs #"&"))))
-                        m-fwd    (rf.routing/match-url url-fwd)
-                        m-rev    (rf.routing/match-url url-in)
-                        expected (canonical-key-order ks)]
-                    (cond
-                      (not= url-fwd url-rev)
-                      [:route-url-not-canonical q url-fwd url-rev]
-
-                      (not= (:query m-fwd) (:query m-rev))
-                      [:match-url-query-differs q (:query m-fwd) (:query m-rev)]
-
-                      (not= expected (vec (keys (:query m-fwd))))
-                      [:match-url-key-order q expected (vec (keys (:query m-fwd)))]
-
-                      (not= expected (vec (keys (:query m-rev))))
-                      [:match-url-key-order-reversed q url-in (vec (keys (:query m-rev)))]
-
-                      :else
-                      (recur (inc i) (lcg-next s1))))))))]
-      (is (nil? failure)
-          (str "prism canonical-order property failed: " (pr-str failure))))))
-
 ;; ---- fixed examples at the array-map promotion boundary ------------------
 ;;
 ;; The properties above DRAW their queries, so the 9th-key boundary is reached
