@@ -28,11 +28,10 @@
   `malli-hook-is-wired-by-requiring-the-facade` asserts the
   `:schemas/malli-validate` hook is bound after requiring only the facade.
   Without the wiring this hook would be unbound (the adapter ns never
-  loaded), so the assertion would FAIL. The behavioural consequence — a
-  malformed write to a registered slot fires
-  `:rf.error/schema-validation-failure` under the default validator — is
-  `re-frame.schemas-test/app-db-validation-fires-when-debug-enabled`, which
-  goes red with this test when the facade stops loading the adapter.
+  loaded), so the assertion would FAIL. The behavioural consequence — the
+  default validator rejects a malformed value for a registered slot — is
+  `re-frame.schemas-test/validate-app-schema-returns-boolean`, which goes
+  red with this test when the facade stops loading the adapter.
 
   Per the public-surface contract this is a lock on the artefact's
   load-time wiring, not on any private internals."
