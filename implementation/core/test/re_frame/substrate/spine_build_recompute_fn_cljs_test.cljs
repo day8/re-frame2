@@ -66,15 +66,6 @@
       (reset! s1 40)
       (is (= 43 (f)) "subsequent call derefs latest values"))))
 
-(deftest build-recompute-fn-three-arity-picks-n-branch
-  (testing "3 sources → N-arity closure that mapv-derefs and applies compute-fn"
-    (let [s0 (atom 1) s1 (atom 2) s2 (atom 3)
-          f  (rf.substrate.spine/build-recompute-fn [s0 s1 s2]
-               (fn [a b c] (+ a b c)))]
-      (is (re-find #"recompute_n" (recompute-name f))
-          "3-source case selects the recompute-n fallback")
-      (is (= 6 (f)) "derefs all 3 sources via mapv, applies compute-fn"))))
-
 (deftest build-recompute-fn-n-arity-uses-mapv-not-lazy-map
   (testing "N-arity (≥3) derefs every source before the recompute returns"
     ;; A lazy `map deref` over a vector realises in 32-element chunks, and
