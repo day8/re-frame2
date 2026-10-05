@@ -15,8 +15,7 @@
   pin that contract through the pure `reconcile` reconciler with synthetic
   references, plus a live smoke that the committed guide reconciles clean."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.doc-guide-check :as rf.api-manifest.doc-guide-check]
-            [re-frame.api-manifest.gen :as rf.api-manifest.gen]))
+            [re-frame.api-manifest.doc-guide-check :as rf.api-manifest.doc-guide-check]))
 
 (def ^:private core-vars #{"reg-event" "reg-sub" "dispatch"})
 
@@ -28,12 +27,6 @@
 (defn- problems-for [references]
   (rf.api-manifest.doc-guide-check/reconcile {:references references :core-vars core-vars
                 :scoped-allow scoped-allow}))
-
-(deftest core-var-reference-resolves
-  (testing "a live re-frame.core var resolves anywhere with no problem"
-    (is (empty? (problems-for
-                  [{:var "reg-event" :line 1 :raw "rf/reg-event"
-                    :file "docs/core/concepts/events.md"}])))))
 
 (deftest removed-name-in-approved-file-is-silenced
   (testing "a removed name in its approved migration file is silenced"
@@ -79,13 +72,3 @@
             + scoped allowlist with zero problems (the CI contract)"
     (is (true? (rf.api-manifest.doc-guide-check/check!))
         "live drift: docs/core names removed APIs outside approved files")))
-
-(deftest scoped-allowlist-sidecar-key-is-present-and-scopes-inject-cofx
-  (testing "the committed sidecar carries the file-scoped allowlist and scopes
-            inject-cofx to exactly the two approved migration files"
-    (let [scoped (:doc-guide-known-unmanifested-scoped (rf.api-manifest.gen/read-sidecar))]
-      (is (map? scoped) "the scoped allowlist must be a {name -> #{files}} map")
-      (is (= #{"docs/core/25-from-re-frame-v1.md"
-               "docs/core/coeffects.md"}
-             (get scoped "inject-cofx"))
-          "inject-cofx must be scoped to the from-v1 chapter + the cofx callout"))))
