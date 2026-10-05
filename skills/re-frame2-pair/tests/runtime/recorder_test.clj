@@ -38,14 +38,15 @@
   (form-contains? #(= % needle) form))
 
 ;; ---------------------------------------------------------------------------
-;; The recorder fns must all exist.
+;; The recorder fns must exist. The pins below and the fail-closed pins in
+;; dom_readback_redaction_test.clj each read a recorder fn by name and fail
+;; when it is missing; `recording-info`, the registry diagnostic, is read
+;; nowhere else.
 ;; ---------------------------------------------------------------------------
 
-(deftest recorder-fns-defined
-  (doseq [sym '[sample-one-signal sample-signals start-recording!
-                read-recording stop-recording! recording-info]]
-    (is (some? (defn-form sym))
-        (str "recorder fn " sym " must be defined in runtime.cljs"))))
+(deftest recording-info-is-defined
+  (is (some? (defn-form 'recording-info))
+      "recorder fn recording-info must be defined in runtime.cljs"))
 
 ;; ---------------------------------------------------------------------------
 ;; Teardown — the stop paths cancel rAF.
