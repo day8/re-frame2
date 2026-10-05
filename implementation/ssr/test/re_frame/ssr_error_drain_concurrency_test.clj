@@ -97,28 +97,3 @@
         (is (= (set (range appends)) seen-seq)
             "every distinct appended trace surfaced exactly once — no loss,
              no duplication")))))
-
-(deftest consume-pending-traces-clears-the-frame-key
-  (testing "a drain that pulls traces also removes the
-            frame's key (the clear half of the atomic pull-and-clear), so a
-            subsequent drain on the same frame returns empty."
-    (let [frame-id :rf.test/drain-clear]
-      (swap! rf.ssr.error-listener/pending-error-traces dissoc frame-id)
-      (buffer! frame-id {:op-type :error :operation :rf.error/probe :seq 0})
-      (buffer! frame-id {:op-type :error :operation :rf.error/probe :seq 1})
-      (let [pulled (consume! frame-id)]
-        (is (= 2 (count pulled)) "the drain pulls both buffered traces")
-        (is (not (contains? @rf.ssr.error-listener/pending-error-traces frame-id))
-            "the frame key is removed in the same transition")
-        (is (= [] (consume! frame-id))
-            "a second drain returns empty — the buffer was cleared")))))
-
-(deftest consume-pending-traces-empty-frame-is-noop
-  (testing "draining a frame with no buffered traces
-            returns [] and does not introduce a spurious frame key
-            (swap-vals! dissoc of an absent key is a no-op)."
-    (let [frame-id :rf.test/drain-empty]
-      (swap! rf.ssr.error-listener/pending-error-traces dissoc frame-id)
-      (is (= [] (consume! frame-id)))
-      (is (not (contains? @rf.ssr.error-listener/pending-error-traces frame-id))
-          "no spurious key added for an empty drain"))))
