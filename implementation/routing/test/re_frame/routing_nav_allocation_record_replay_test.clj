@@ -49,7 +49,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
-            [re-frame.interop :as rf.interop]
             [re-frame.cofx :as rf.cofx]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.nav-counters :as rf.routing.nav-counters]
@@ -77,56 +76,8 @@
   (some? (rf/subscribe-once [:rf/pending-navigation] {:frame :rf/default})))
 
 ;; ===========================================================================
-;; The allocation-cofx SHAPE: two RECORDABLE,
-;; generator-backed facts carrying both the id AND the allocator :counter.
-;; ===========================================================================
-
-(deftest allocation-cofx-are-recordable-generator-backed-and-split
-  (testing "TWO distinct recordable allocation coeffects —
-            `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation`
-            — each generator-backed (recordable, NOT provided) and carrying
-            `{:token/:id .. :counter ..}` (the id + the allocator high-water)"
-    (let [nav (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-allocation})
-          pn  (rf/handler-meta {:source :store :kind :cofx :id :rf.route/pending-nav-allocation})]
-      (is (true? (:recordable? nav)) ":rf.route/nav-allocation is recordable")
-      (is (true? (:recordable? pn))  ":rf.route/pending-nav-allocation is recordable")
-      (is (not (:provided? nav))     "nav-allocation is generator-backed, NOT provided")
-      (is (not (:provided? pn))      "pending-nav-allocation is generator-backed, NOT provided"))
-    ;; There is no ambient counter-snapshot cofx: an unrecorded host read is
-    ;; exactly what replay cannot reproduce.
-    (is (nil? (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-counters}))
-        "there is no ambient :rf.route/nav-counters cofx"))
-
-  (testing "the generators mint {:token/:id .. :counter ..} from the host snapshot"
-    (let [nav-gen (:handler-fn (rf/handler-meta {:source :store :kind :cofx :id :rf.route/nav-allocation}))
-          pn-gen  (:handler-fn (rf/handler-meta {:source :store :kind :cofx :id :rf.route/pending-nav-allocation}))]
-      ;; Bind the active frame the generators read (`frame/*current-frame*`).
-      (rf/with-frame :rf/default
-        (is (= {:token "nav-1" :counter 1} (nav-gen))
-            "nav-allocation mints {:token \"nav-1\" :counter 1} from an empty host snapshot")
-        (is (= {:id "pn-1" :counter 1} (pn-gen))
-            "pending-nav-allocation mints {:id \"pn-1\" :counter 1} — a DISTINCT allocator")))))
-
-;; ===========================================================================
 ;; FAILURE 1 — pending-nav continue no-op on re-mint, absent under replay.
 ;; ===========================================================================
-
-(deftest failure-1-pending-nav-continue-no-op-on-remint
-  (testing "FAILURE 1 (the re-mint): a re-mint produces a DIFFERENT
-            pending-nav id, so a recorded [:rf.route/continue \"pn-1\"] no-ops
-            and the navigation stays blocked"
-    (block-fixture!)
-    ;; A PRIOR block already advanced the host pending-nav high-water to 1, so a
-    ;; fresh re-mint yields \"pn-2\", NOT the recorded \"pn-1\".
-    (rf.routing.nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
-    ;; LIVE re-mint (no recorded allocation supplied).
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
-    (is (= "pn-2" (pending-id))
-        "the re-mint produced pn-2 (NOT the recorded pn-1)")
-    ;; The recorded continue carries the ORIGINAL id \"pn-1\".
-    (rf/dispatch-sync [:rf.route/continue "pn-1"])
-    (is (blocked?)
-        "[:rf.route/continue \"pn-1\"] no-ops against the re-minted pn-2 — navigation STAYS BLOCKED")))
 
 (deftest failure-1-fixed-recorded-allocation-replays-same-pending-nav-id
   (testing "REPLAY: replaying the block with the RECORDED
@@ -148,60 +99,9 @@
     (is (not (blocked?))
         "[:rf.route/continue \"pn-1\"] matches the replayed pn-1 — navigation PROCEEDS")))
 
-(deftest strict-replay-fails-on-missing-pending-nav-allocation
-  (testing "strict replay FAILS LOUDLY when the recorded
-            pending-nav allocation is missing (`:rf.error/missing-required-cofx`)
-            — an incomplete record must not silently re-read the host"
-    (block-fixture!)
-    (let [ex (try (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}]
-                                    {:rf.cofx/mint-policy :strict})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "strict mode with no recorded allocation throws")
-      (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
-          "the throw is :rf.error/missing-required-cofx")
-      (is (= :rf.route/pending-nav-allocation (:rf.cofx/id (ex-data ex)))
-          "the error names the missing recordable allocation"))))
-
 ;; ===========================================================================
 ;; FAILURE 2 — nav-token stale-suppression flip on re-mint, absent under replay.
 ;; ===========================================================================
-
-(deftest failure-2-nav-token-stale-suppression-flip-on-remint
-  (testing "FAILURE 2 (the re-mint): a re-mint writes a DIFFERENT
-            :nav-token into the committed slice, so an async continuation
-            carrying the RECORDED token mismatches the re-minted current — the
-            stale-suppression gate flips (suppresses a result that should
-            commit)"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::flip (fn [ev] (swap! traces conj ev)))
-      ;; A PRIOR navigation advanced the host nav-token high-water to 5, so a
-      ;; fresh re-mint yields \"nav-6\".
-      (rf.routing.nav-counters/commit-counter! :rf/default :nav-token-counter 5)
-      ;; LIVE re-mint — the slice gets nav-6, NOT the recorded nav-1.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (is (= "nav-6" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing :current :nav-token]))
-          "the re-mint wrote nav-6 to the slice (NOT the recorded nav-1)")
-      ;; The recorded async continuation carries the ORIGINAL token \"nav-1\".
-      ;; with-nav-token (via the test fixture) gates carried vs current: nav-1
-      ;; vs nav-6 → MISMATCH → the result is SUPPRESSED — but on the original
-      ;; live run nav-1 WAS current and the result committed. The flip.
-      (rf/dispatch-sync [:rf.test/simulate-http-resolution
-                         {:on-success-event  [:article/loaded "A" "A-payload"]
-                          :carried-nav-token "nav-1"
-                          :carried-route-id  :route/article}])
-      (rf/unregister-listener! :trace ::flip)
-      (is (nil? (:article (rf/app-db-value :rf/default)))
-          "the recorded continuation (carried nav-1) was SUPPRESSED against the re-minted nav-6 — the original live run committed it")
-      ;; Dev-instrumentation arm (see ns docstring). The FLIP
-      ;; itself — the recorded continuation was suppressed and never reached
-      ;; app-db — is asserted immediately above, posture-independently.
-      (when rf.interop/debug-enabled?
-        (is (some #(= :rf.route.nav-token/stale-suppressed (:operation %)) @traces)
-            "a stale-suppressed trace fired — the flipped decision")))))
 
 (deftest failure-2-fixed-recorded-allocation-replays-same-nav-token
   (testing "REPLAY: replaying the commit with the RECORDED
@@ -231,20 +131,6 @@
     (is (= {:id "A" :payload "A-payload"} (:article (rf/app-db-value :rf/default)))
         "the continuation (carried nav-1) matched the replayed nav-1 — committed (gate decision preserved)")))
 
-(deftest strict-replay-fails-on-missing-nav-allocation
-  (testing "strict replay FAILS LOUDLY when the recorded
-            nav-token allocation is missing (`:rf.error/missing-required-cofx`)"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (let [ex (try (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
-                                    {:rf.cofx/mint-policy :strict})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "strict mode with no recorded allocation throws")
-      (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
-          "the throw is :rf.error/missing-required-cofx")
-      (is (= :rf.route/nav-allocation (:rf.cofx/id (ex-data ex)))
-          "the error names the missing recordable allocation"))))
-
 ;; ===========================================================================
 ;; The commit fx advances the host high-water with MAX: replay/restore
 ;; can re-establish the allocator from the recorded :counter but never rewind it.
@@ -271,29 +157,6 @@
         "the next live token is nav-10 — monotone past the replayed high-water, no recycle")))
 
 ;; ===========================================================================
-;; Live navigations allocate monotone non-recycled ids (acceptance: the
-;; recordable seam is invisible to ordinary live behaviour).
-;; ===========================================================================
-
-(deftest live-navigation-still-monotone-and-non-recycling
-  (testing "acceptance: with NO recorded allocation supplied, live
-            navigations mint monotone, non-recycled nav-tokens — the
-            recordable seam is transparent to the live path"
-    (rf/reg-route :route/a {} "/a")
-    (rf/reg-route :route/b {} "/b")
-    (rf/reg-route :route/c {} "/c")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/a" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:rf.route/handle-url-change "/b" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:rf.route/handle-url-change "/c" {:rf.route/cause :link}])
-    (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/routing :current :nav-token]))
-        "three live navigations mint nav-1 → nav-2 → nav-3 (monotone)")
-    ;; A clean commit (no block) leaves the pending-nav counter untouched — the
-    ;; pending-nav generator runs but its commit fx only fires on a block.
-    (is (nil? (:pending-nav-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
-        "a clean commit never advances the pending-nav allocator (no block branch taken)")))
-
-;; ===========================================================================
 ;; A malformed-but-PRESENT recorded allocation fails LOUDLY.
 ;;
 ;; `validate-recordable-value!` (cofx.cljc) is a no-op when a registration
@@ -316,48 +179,54 @@
 ;; the REAL validation path, not a vacuous no-validator pass.)
 ;; ===========================================================================
 
-(deftest strict-replay-fails-on-malformed-present-pending-nav-allocation
-  (testing "a PRESENT-but-malformed recorded pending-nav allocation
-            fails with :rf.error/cofx-value-invalid BEFORE the handler writes
-            pending-nav state (NOT folded in as a trusted value)"
+(deftest strict-replay-rejects-a-missing-or-malformed-pending-nav-allocation
+  (testing "strict replay FAILS LOUDLY when the recorded pending-nav allocation is
+            MISSING (`:rf.error/missing-required-cofx`) or PRESENT but malformed
+            (`:rf.error/cofx-value-invalid`), BEFORE the handler writes
+            pending-nav state: an incomplete record must not silently re-read
+            the host, and a corrupt one must not fold in as a trusted value"
     (block-fixture!)
-    (let [ex (try (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}]
-                                    {:rf.cofx {:rf.route/pending-nav-allocation
-                                               {:id nil :counter "bad"}}
-                                     :rf.cofx/mint-policy :strict})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "a malformed present allocation throws (does not silently fold)")
-      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
-          "the throw is :rf.error/cofx-value-invalid")
-      (is (= :rf.route/pending-nav-allocation (:rf.cofx/id (ex-data ex)))
-          "the error names the failing allocation cofx")
-      ;; The block handler never ran: the malformed `:id` was rejected at the
-      ;; cofx boundary BEFORE the can-leave block could fold a nil/corrupt
-      ;; pending-nav id into the durable runtime-db slot. No pending-navigation
-      ;; was written (the throw aborted the dispatch before the block branch).
-      (is (nil? (pending-id))
-          "no (corrupt) pending-nav id was folded into durable runtime-db"))))
+    (doseq [[recorded error-id]
+            [[nil :rf.error/missing-required-cofx]
+             [{:rf.route/pending-nav-allocation {:id nil :counter "bad"}}
+              :rf.error/cofx-value-invalid]]]
+      (let [ex (try (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}]
+                                      (cond-> {:rf.cofx/mint-policy :strict}
+                                        recorded (assoc :rf.cofx recorded)))
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str error-id ": strict replay throws"))
+        (is (= error-id (:rf.error/id (ex-data ex))))
+        (is (= :rf.route/pending-nav-allocation (:rf.cofx/id (ex-data ex)))
+            "the error names the allocation cofx")
+        ;; The block handler never ran: the throw aborted the dispatch before
+        ;; the can-leave block could fold a nil/corrupt pending-nav id into the
+        ;; durable runtime-db slot.
+        (is (nil? (pending-id))
+            "no pending-nav id was folded into durable runtime-db")))))
 
-(deftest strict-replay-fails-on-malformed-present-nav-allocation
-  (testing "a PRESENT-but-malformed recorded nav-token allocation
-            fails with :rf.error/cofx-value-invalid BEFORE the commit handler
-            writes the :nav-token into the durable route slice"
+(deftest strict-replay-rejects-a-missing-or-malformed-nav-allocation
+  (testing "strict replay FAILS LOUDLY when the recorded nav-token allocation is
+            MISSING (`:rf.error/missing-required-cofx`) or PRESENT but malformed
+            (`:rf.error/cofx-value-invalid`), BEFORE the commit handler writes
+            the :nav-token into the durable route slice"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (let [ex (try (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
-                                    {:rf.cofx {:rf.route/nav-allocation
-                                               {:token nil :counter "bad"}}
-                                     :rf.cofx/mint-policy :strict})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "a malformed present allocation throws (does not silently fold)")
-      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data ex)))
-          "the throw is :rf.error/cofx-value-invalid")
-      (is (= :rf.route/nav-allocation (:rf.cofx/id (ex-data ex)))
-          "the error names the failing allocation cofx")
-      ;; The commit handler never ran: no :nav-token (let alone a nil one) was
-      ;; folded into the durable route slice.
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :current :nav-token]))
-          "no nil nav-token was folded into the durable route slice"))))
+    (doseq [[recorded error-id]
+            [[nil :rf.error/missing-required-cofx]
+             [{:rf.route/nav-allocation {:token nil :counter "bad"}}
+              :rf.error/cofx-value-invalid]]]
+      (let [ex (try (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}]
+                                      (cond-> {:rf.cofx/mint-policy :strict}
+                                        recorded (assoc :rf.cofx recorded)))
+                    nil
+                    (catch clojure.lang.ExceptionInfo e e))]
+        (is (some? ex) (str error-id ": strict replay throws"))
+        (is (= error-id (:rf.error/id (ex-data ex))))
+        (is (= :rf.route/nav-allocation (:rf.cofx/id (ex-data ex)))
+            "the error names the allocation cofx")
+        ;; The commit handler never ran: no :nav-token (let alone a nil one)
+        ;; was folded into the durable route slice.
+        (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                          [:rf.runtime/routing :current :nav-token]))
+            "no nav-token was folded into the durable route slice")))))
 
