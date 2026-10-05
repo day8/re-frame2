@@ -18,9 +18,10 @@
 
   mcp-base does not resolve a profile — every tool-side egress NAMES one and
   `re-frame.core/project-egress` resolves it app-side — so the floors are
-  the framework's to pin, and `implementation/core` pins them. What
-  mcp-base owns, and what is pinned here, is that the mapping
-  returns a member of the closed enum."
+  the framework's to pin, and `implementation/core` pins them. The
+  mcp-conformance wire-vocab gate pins `profiles` equal to the
+  framework's set and each mapped name as one the framework accepts;
+  what is pinned here is the mapping itself."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.mcp-base.egress :as rf.mcp-base.egress]))
@@ -38,10 +39,3 @@
     (is (= :rf.egress/off-box-tool (rf.mcp-base.egress/mcp-tool-profile false))))
   (testing "trusted-local opt-in ⇒ the raw boundary"
     (is (= :rf.egress/local-raw (rf.mcp-base.egress/mcp-tool-profile true)))))
-
-(deftest mcp-tool-profile-returns-members-of-the-closed-enum
-  ;; Both values it can return MUST be members of the closed
-  ;; `:rf.egress/profile` vocabulary, so a profile rename in the shared
-  ;; table can never leave this mapping pointing at a phantom profile.
-  (is (contains? rf.mcp-base.egress/profiles (rf.mcp-base.egress/mcp-tool-profile false)))
-  (is (contains? rf.mcp-base.egress/profiles (rf.mcp-base.egress/mcp-tool-profile true))))
