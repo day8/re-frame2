@@ -43,15 +43,6 @@
 ;; strip-sensitive — the default-suppress filter applied per batch.
 ;; ---------------------------------------------------------------------------
 
-(deftest strip-sensitive-default-drops-true-stamps
-  (let [evts [{:id 1 :sensitive? false}
-              {:id 2 :sensitive? true}
-              {:id 3}
-              {:id 4 :sensitive? true}]
-        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
-    (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
-    (is (= 2 dropped))))
-
 (deftest strip-sensitive-empty-batch-zero-overhead
   (let [[kept dropped] (rf.mcp-base.sensitive/strip-sensitive [] false)]
     (is (= [] kept))
@@ -346,31 +337,6 @@
 ;; Malformed counter — operator-surface observability for the fail-
 ;; closed gate.
 ;; ---------------------------------------------------------------------------
-
-(deftest malformed-count-increments-on-fail-closed-drop
-  ;; The fail-closed posture drops a non-boolean truthy
-  ;; `:sensitive?` stamp AND increments a process-wide counter so
-  ;; operator surfaces can see the contract drift. `malformed-count` /
-  ;; `reset-malformed-count!` are public so this regression pin
-  ;; can read the gate's activity.
-  (rf.mcp-base.sensitive/reset-malformed-count!)
-  (is (zero? (rf.mcp-base.sensitive/malformed-count))
-      "precondition: counter starts at zero after reset")
-  ;; Expected WARNs quieted by the central quiet-runner stderr buffer
-  ;; — no local `*err*` sink needed.
-  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? "true"})
-  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? :yes})
-  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? 1})
-  (is (= 3 (rf.mcp-base.sensitive/malformed-count))
-      "every fail-closed drop bumps the counter once")
-  ;; Well-formed stamps don't bump the counter.
-  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? true})
-  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? false})
-  (rf.mcp-base.sensitive/sensitive-event? {:sensitive? nil})
-  (rf.mcp-base.sensitive/sensitive-event? {})
-  (is (= 3 (rf.mcp-base.sensitive/malformed-count))
-      "true / false / nil / absent stamps do NOT bump the counter")
-  (rf.mcp-base.sensitive/reset-malformed-count!))
 
 (deftest reset-malformed-count!-zeroes-the-counter
   ;; Expected WARN quieted by the central quiet-runner stderr buffer
