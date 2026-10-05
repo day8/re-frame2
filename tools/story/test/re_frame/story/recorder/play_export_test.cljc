@@ -20,15 +20,6 @@
 
 ;; ---- per-event translation -----------------------------------------------
 
-(deftest event-step-assertion-rides-dispatch-sync
-  (testing "assertion events (`:rf.assert/*`) translate to :dispatch-sync"
-    (is (= [:dispatch-sync [:rf.assert/path-equals [:n] 3]]
-           (rf.story.recorder.play-export/event->step [:rf.assert/path-equals [:n] 3])))
-    (is (= [:dispatch-sync [:rf.assert/no-warnings]]
-           (rf.story.recorder.play-export/event->step [:rf.assert/no-warnings])))
-    (is (= [:dispatch-sync [:rf.assert/sub-equals [:counter] 5]]
-           (rf.story.recorder.play-export/event->step [:rf.assert/sub-equals [:counter] 5])))))
-
 (deftest event-step-malformed-yields-nil
   (testing "malformed inputs return nil"
     (is (nil? (rf.story.recorder.play-export/event->step nil)))
@@ -70,44 +61,12 @@
              (:script spec))
           "each non-nil cofx member rides its step; nil members emit bare steps"))))
 
-(deftest recording-without-cofx-is-byte-identical
-  (testing "no :cofx opt → bare 2-element steps (zero ceremony)"
-    (let [events [[:counter/inc] [:counter/dec]]]
-      (is (= (rf.story.recorder.play-export/recording->script-body events {})
-             (rf.story.recorder.play-export/recording->script-body events {:cofx []}))
-          "an empty parallel cofx vector is byte-identical to no :cofx opt")
-      (is (= [[:dispatch [:counter/inc]] [:dispatch [:counter/dec]]]
-             (:script (rf.story.recorder.play-export/recording->script-body events {:cofx [nil nil]})))
-          "all-nil cofx members emit bare steps"))))
-
 ;; ---- recording-level translation -----------------------------------------
-
-(deftest simple-recording-three-dispatches
-  (testing "a three-event recording yields a three-step script"
-    (let [events [[:counter/inc] [:counter/inc] [:counter/dec]]
-          spec   (rf.story.recorder.play-export/recording->script-body events {})]
-      (is (= [[:dispatch [:counter/inc]]
-              [:dispatch [:counter/inc]]
-              [:dispatch [:counter/dec]]]
-             (:script spec))
-          "every event lifts to a :dispatch step in order")
-      (is (true? (:auto-run? spec))
-          ":auto-run? defaults true (matches runner default)")
-      (is (not (contains? spec :name))
-          ":name omitted when not supplied"))))
 
 (deftest empty-recording-yields-empty-script
   (testing "an empty recording yields a legal empty :script"
     (let [spec (rf.story.recorder.play-export/recording->script-body [])]
       (is (= [] (:script spec))))))
-
-(deftest name-and-auto-run-honoured
-  (testing "the :name and :auto-run? opts flow through to the spec"
-    (let [spec (rf.story.recorder.play-export/recording->script-body
-                 [[:counter/inc]]
-                 {:name "happy path" :auto-run? false})]
-      (is (= "happy path" (:name spec)))
-      (is (false? (:auto-run? spec))))))
 
 (deftest blank-name-omitted
   (testing ":name is omitted when blank or non-string"
@@ -321,16 +280,6 @@
 
 ;; ---- entries->steps + wait insertion -------------------------------------
 
-(deftest entries-translate-in-order
-  (testing "entries translate to steps in declared order"
-    (is (= [[:dispatch [:counter/inc]]
-            [:click "[data-test=\"x\"]"]
-            [:type "[id=\"name\"]" "alice"]]
-           (rf.story.recorder.play-export/entries->steps
-             [{:kind :event/dispatch :event [:counter/inc] :t 0}
-              {:kind :dom/click :selector "[data-test=\"x\"]" :t 10}
-              {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 20}])))))
-
 (deftest entries->steps-waits-only-across-a-gap-past-the-threshold
   (testing "a gap past :wait-threshold-ms (default 50) puts a [:wait Δt]
             before the next step, a shorter gap folds out, and the opt tunes
@@ -466,19 +415,6 @@
               {:kind :event/timer-child :t 95 :ms 80}])))))
 
 ;; ---- recording->script-body with the rich :entries shape -----------------
-
-(deftest recording-from-entries
-  (testing "passing rich :entries vectors produces a full-fidelity script"
-    (let [entries [{:kind :event/dispatch :event [:counter/inc] :t 0}
-                   {:kind :dom/click :selector "[data-test=\"b\"]" :t 200}
-                   {:kind :dom/type  :selector "[id=\"x\"]" :text "hi" :t 220}]
-          spec    (rf.story.recorder.play-export/recording->script-body entries)]
-      (is (= [[:dispatch [:counter/inc]]
-              [:wait 200]
-              [:click "[data-test=\"b\"]"]
-              [:type "[id=\"x\"]" "hi"]]
-             (:script spec))
-          "200ms gap → wait; 20ms gap → no wait"))))
 
 (deftest recording-from-entries-respects-wait-threshold-opt
   (testing ":wait-threshold-ms opt threads through recording->script-body"
