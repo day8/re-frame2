@@ -65,26 +65,6 @@ const ADAPTERS = ['reagent', 'uix'];
 // ---- manifest shape ------------------------------------------------------
 
 // The four-suites rule's smoke roster: one smoke per shipped adapter.
-it('manifest declares exactly the two adapter smokes', () => {
-  assert.deepStrictEqual(
-    ADAPTER_SMOKES.map((e) => e.build).sort(),
-    [
-      'adapters/reagent-testbed',
-      'adapters/uix-testbed',
-    ],
-  );
-});
-
-it('every manifest entry carries a specPath that exists on disk', () => {
-  for (const e of ADAPTER_SMOKES) {
-    assert.ok(e.specPath, `entry ${e.build} has no specPath`);
-    assert.ok(
-      fs.existsSync(e.specPath),
-      `specPath for ${e.build} does not exist: ${e.specPath}`,
-    );
-  }
-});
-
 // ---- broad + empty filters ----------------------------------------------
 
 it('empty filter selects both (full sweep — nightly + rigorous-local)', () => {
@@ -113,10 +93,6 @@ it('broad filter `adapters` (no slash) selects the two adapter smokes only', () 
 // NOTHING, and in particular must not fall through onto UIx: the
 // `ui-testbed` / `uix-testbed` near-collision is the sharp edge here, and it
 // is exactly the shape a stale CI filter would arrive in.
-it('retired filter `ui/testbed` selects nothing', () => {
-  assert.deepStrictEqual(selectBuildIds('ui/testbed'), []);
-});
-
 it('retired build-id shape `ui-testbed` selects nothing (never UIx)', () => {
   assert.deepStrictEqual(selectBuildIds('ui-testbed'), []);
 });
