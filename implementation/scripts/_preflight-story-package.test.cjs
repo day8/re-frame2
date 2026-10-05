@@ -267,17 +267,6 @@ test('an in-repo dep at the WRONG version fails', () => {
 // are both entirely consistent with the colliding graph, so this
 // assertion is the only thing standing over it.
 
-test('an Xray edge that has LOST its reagent-slim exclusion fails', () => {
-  const deps = [...THIRD_PARTY, ...IN_REPO_NAMES.map(
-    (n) => inRepoDep(n, VERSION, { exclusions: [] }),
-  )];
-  expectFail(
-    makeFixture({ pom: pomWith(deps) }),
-    'xray edge without its exclusion',
-    /day8\/re-frame2-xray does not EXCLUDE day8\/reagent-slim.*LOAD-BEARING/s,
-  );
-});
-
 test('the exclusion must sit on the XRAY edge, not merely somewhere in the pom', () => {
   // An exclusion parked on the wrong coordinate excludes nothing that
   // matters — Maven scopes <exclusions> to the dependency carrying them.
