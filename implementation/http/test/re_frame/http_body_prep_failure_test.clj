@@ -38,46 +38,6 @@
 
 ;; ---- a throwing body thunk -------------------------------------------------
 
-(deftest throwing-body-thunk-delivers-managed-transport-failure
-  (testing "a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception), and clears the registry"
-    (let [replies     (atom [])
-          traces      (atom [])
-          listener-id ::body-thunk]
-      (try
-        (rf.trace.tooling/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue/throwing-thunk
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url    "http://127.0.0.1:0/x"
-                                 :method :post
-                                 ;; The thunk is realized in the prep phase
-                                 ;; and throws — there is no live socket.
-                                 :body   (fn [] (throw (ex-info "boom-thunk" {})))}
-                    :request-id :prep-thunk
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/throwing-thunk])
-        ;; The failure is delivered synchronously on the dispatch-sync drain
-        ;; (the throw happens before any async transport handoff).
-        (is (= 1 (count @replies))
-            "exactly one reply — the prep failure is delivered once")
-        (let [reply (first @replies)]
-          (is (= :error (:status reply)))
-          (is (= :rf.http/transport (get-in reply [:error :kind]))
-              "a throwing body thunk surfaces as the managed :rf.http/transport category")
-          (is (= :request-prep (get-in reply [:error :stage]))
-              "the :stage discriminator marks this as a request-preparation failure")
-          (is (some? (get-in reply [:error :message]))
-              "the thrown message rides the failure for diagnostics"))
-        (is (not-any? #(= :rf.error/fx-handler-exception (:operation %)) @traces)
-            "NO generic :rf.error/fx-handler-exception escaped — the throw is caught in the prep phase")
-        (is (empty? (rf.http.registry/in-flight-snapshot))
-            "the in-flight registry is cleared — the failed-prep request is not pinned")
-        (finally
-          (rf.trace.tooling/unregister-listener! listener-id))))))
-
 ;; ---- a body that fails to encode -------------------------------------------
 
 (deftest unencodable-body-delivers-managed-transport-failure
@@ -161,7 +121,11 @@
         (let [reply (first @replies)]
           (is (= :error (:status reply)))
           (is (= :rf.http/transport (get-in reply [:error :kind]))
-              "the final reply carries the :rf.http/transport prep-failure category"))
+              "the final reply carries the :rf.http/transport prep-failure category")
+          (is (= :request-prep (get-in reply [:error :stage]))
+              "the :stage discriminator marks this as a request-preparation failure")
+          (is (some? (get-in reply [:error :message]))
+              "the thrown message rides the failure for diagnostics"))
         (is (empty? (rf.http.registry/in-flight-snapshot))
             "the registry is clean after the retry sequence exhausts")
         (finally
