@@ -6,9 +6,7 @@
   covers the pure ladder + refusal shape; this ns confirms the headless
   boundary actually drains the frame queue and synchronous re-dispatches
   to fixed point on the CLJS host, synchronously rather than across a
-  `setTimeout` yield. The pure ladder
-  helpers themselves also run here so a host-specific regression in the
-  ladder math would surface."
+  `setTimeout` yield."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core  :as rf]
             [re-frame.frame :as rf.frame]
@@ -28,17 +26,6 @@
   (test-fn))
 
 (use-fixtures :each reset-frame!)
-
-;; ---- pure ladder math on the CLJS host -----------------------------------
-
-(deftest ladder-and-refusal-on-cljs
-  (testing "the boundary ladder + refusal helpers behave identically on CLJS"
-    (is (= [:headless :cljs-reactive :dom :browser] rf.story.play.settled-boundary/boundary-levels))
-    (is (rf.story.play.settled-boundary/boundary>= :dom :headless))
-    (is (not (rf.story.play.settled-boundary/boundary>= :headless :dom)))
-    (is (= :headless (rf.story.play.settled-boundary/step-required-boundary [:dispatch [:e]])))
-    (is (= :dom      (rf.story.play.settled-boundary/step-required-boundary [:click "b"])))
-    (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary rf.story.play.settled-boundary/headless-flush-hooks)))))
 
 ;; ---- headless drain on the node host -------------------------------------
 
