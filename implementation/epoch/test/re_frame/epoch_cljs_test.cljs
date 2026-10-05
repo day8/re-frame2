@@ -10,9 +10,9 @@
        `:db-after`, `:effects`, `:outcome :ok`).
     2. Restore happy path — `restore-epoch!` rewinds `app-db` to a named
        earlier epoch's `:db-after`.
-    3. Ring depth cap — `(rf/configure! {:epoch-history {:depth 3}})`
-       followed by five dispatches keeps the last three; the oldest two
-       are dropped.
+    3. Ring depth — lowering `:depth` prunes the live ring at the
+       `configure!` boundary and depth 0 empties it; eviction on append
+       runs under CLJS in `re-frame.epoch-replay-cljs-test`.
     4. Per-dispatch fan-out — `register-epoch-listener!` fires once per
        event epoch with the assembled record (the contract that
        Xray's preload routes through to dispatch
@@ -31,7 +31,7 @@
        vacuous (it asserts ABSENCE of strings that only enter the
        bundle when this gate is true).
 
-  Covers one happy path, one ring-cap path, one listener path,
+  Covers one happy path, one ring-depth path, one listener path,
   one runtime-gate-on path. The JVM tests carry the conformance
   weight; this file locks the cross-substrate contract.
 
@@ -287,23 +287,7 @@
               "no :rf.epoch/db-replaced success trace")
           (rf/destroy-frame! :gj2bo/succ))))))
 
-;; ---- 3. Ring depth cap -----------------------------------------------------
-
-(deftest ring-depth-evicts-oldest-cljs
-  (testing "configure :depth 3, dispatch 5 events, oldest 2 are dropped"
-    (rf/configure! {:epoch-history {:depth 3}})
-    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (rf/dispatch-sync [:n/init])             ;; n=0, would-be record #1
-    (dotimes [_ 4] (rf/dispatch-sync [:n/inc])) ;; n=1..4, records #2..#5
-
-    (let [history (rf/epoch-history :rf/default)
-          dbs     (mapv :db-after history)]
-      (is (= 3 (count history))
-          "the ring caps at the configured depth of 3")
-      (is (= [{:n 2} {:n 3} {:n 4}] dbs)
-          "the three most-recent records are kept; oldest two are evicted FIFO"))))
+;; ---- 3. Ring depth ---------------------------------------------------------
 
 (deftest lowering-depth-prunes-the-live-ring-cljs
   ;; The cross-target half of the JVM suite's
@@ -401,7 +385,7 @@
         "the dev gate reads true under :node-test — surface is live")
     ;; The surface's actual liveness — recording, listener fan-out, the
     ;; ring buffer, restore-epoch!'s happy / failure paths — is locked
-    ;; by the four deftests above. This test is the lone gate-state
+    ;; by the deftests above. This test is the lone gate-state
     ;; assertion; pairing it with the framework-level grep gives the
     ;; cross-mode pin (`gate=true` => surface lives; `gate=false`
     ;; => bundle elided).
