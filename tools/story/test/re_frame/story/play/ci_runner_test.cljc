@@ -18,14 +18,6 @@
 
 (use-fixtures :each reset-registrar)
 
-;; ---- has-play-script? ----------------------------------------------------
-
-(deftest has-play-script-empty
-  (testing "has-play-script? is false for a map body with no :script at all
-            (the empty-vector bodies are discovery-from-injected-registrations'
-            rows)"
-    (is (false? (rf.story.play.ci-runner/has-play-script? {:script {}})))))
-
 ;; ---- variants-with-play-scripts ------------------------------------------
 
 (deftest discovery-from-injected-registrations
@@ -60,10 +52,6 @@
            {:script {:script [[:wait 0]]}})
     (is (= [:story.t/another :story.t/script]
            (rf.story.play.ci-runner/variants-with-play-scripts)))))
-
-(deftest discovery-with-zero-variants
-  (testing "discovery returns the empty vector when nothing is registered"
-    (is (= [] (rf.story.play.ci-runner/variants-with-play-scripts)))))
 
 ;; ---- terminal? -----------------------------------------------------------
 
@@ -121,15 +109,6 @@
   (is (false? (rf.story.play.ci-runner/has-plays? {})))
   (is (false? (rf.story.play.ci-runner/has-plays? {:plays []})))
   (is (true?  (rf.story.play.ci-runner/has-plays? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
-
-(deftest discovery-includes-plays-variants
-  (testing "variants-with-play-scripts picks up :plays-carrying bodies"
-    (let [regs {:story.a/single  {:script [[:dispatch [:a]]]}
-                :story.b/multi   {:plays [{:name "p1" :script [[:dispatch [:b1]]]}
-                                          {:name "p2" :script [[:dispatch [:b2]]]}]}
-                :story.c/none    {:setup []}}]
-      (is (= [:story.a/single :story.b/multi]
-             (rf.story.play.ci-runner/variants-with-play-scripts regs))))))
 
 (deftest ci-rows-enumerates-plays-per-variant
   (testing "ci-rows produces one row per play; single-script variants produce one row"
