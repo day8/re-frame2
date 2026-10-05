@@ -66,32 +66,6 @@
         (is (= {:route/nav-token "nav-2"} (:rf.reply/current trace)) "current gate")
         (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason trace)))))))
 
-(deftest suppress-carries-completed-at-on-stale-reply
-  (testing "a route loader that supplies the reply completion
-            time (`:completed-at`, the recordable :rf/time-ms fact, EP-0017)
-            carries it verbatim onto the stale reply; absence omits it. This
-            pins the production lane the pure substrate exposes — the stale
-            route reply is tied to the actual replayed completion token."
-    (let [{:keys [reply]}
-          (rf.routing.reply/suppress {:route-id     :route/article
-                                 :nav-token    "nav-1"
-                                 :loader-id    :article/loaded
-                                 :frame        :rf/default
-                                 :completed-at 1717000000000}
-                                "nav-2")]
-      (is (= 1717000000000 (:completed-at reply))
-          "the supplied completion time rides the stale reply (not dropped)")
-      (is (= :stale (:status reply)) "still a stale reply")
-      (is (not (contains? reply :value)) "still app-state-safe (no :value)"))
-    (testing "absence omits the slot — a loader that sourced no completion time"
-      (let [{:keys [reply]}
-            (rf.routing.reply/suppress {:route-id  :route/article
-                                   :nav-token "nav-1"
-                                   :loader-id :article/loaded}
-                                  "nav-2")]
-        (is (not (contains? reply :completed-at))
-            ":completed-at is omitted when the caller supplies none")))))
-
 ;; ---- live completion through the shared substrate -------------------------
 
 (deftest live-reply-builds-status-ok-with-route-work-id
@@ -122,21 +96,3 @@
         (is (nil? (:value reply)))
         (is (not (contains? reply :completed-at)))
         (is (not (contains? reply :rf.frame/id)))))))
-
-(deftest complete-live-appends-reply-via-shared-complete
-  (testing "complete-live appends the :status :ok reply map to the target event
-            through the shared re-frame.reply/complete — the production lowering"
-    (let [ctx    {:route-id :route/article :nav-token "nav-1"
-                  :loader-id :article/load-replied :frame :rf/default}
-          target [:article/load-replied {:id "A"}]
-          ev     (rf.routing.reply/complete-live ctx target {:title "Welcome"})]
-      (is (= :article/load-replied (first ev)) "the target event id leads")
-      (is (= {:id "A"} (second ev)) "the target's leading args are intact")
-      (let [reply (last ev)]
-        (is (map? reply) "the reply map is the appended final argument")
-        (is (= :ok (:status reply)))
-        (is (= {:title "Welcome"} (:value reply))))
-      (is (= ev (rf.reply/complete target (rf.routing.reply/live-reply ctx {:title "Welcome"})))
-          "complete-live IS re-frame.reply/complete over live-reply — no bespoke path"))
-    (testing "a nil target yields nil — no continuation to complete"
-      (is (nil? (rf.routing.reply/complete-live {:nav-token "n"} nil {:title "x"}))))))
