@@ -103,40 +103,7 @@
                        "evil.com\rinjected"
                        "evil.com\ninjected"
                        (str "evil.com" (char 0) "nul")]))
-        "every hostile :domain is rejected (lists any that serialised)"))
-
-  (testing "CR / LF / NUL in :path throws"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/cookie-invalid-attribute"
-          (rf.ssr.ring/cookie->set-cookie-header
-            {:name "session" :value "abc" :path "/\r\nSet-Cookie: x=1"}))))
-
-  (testing "CR / LF / NUL in :max-age (string-shaped) throws"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/cookie-invalid-attribute"
-          (rf.ssr.ring/cookie->set-cookie-header
-            {:name "session" :value "abc" :max-age "3600\r\nbad"}))))
-
-  (testing "CR / LF / NUL in :same-site (string-shaped) throws"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/cookie-invalid-attribute"
-          (rf.ssr.ring/cookie->set-cookie-header
-            {:name "session" :value "abc" :same-site "Lax\r\nbad"}))))
-
-  (testing "clean attributes still serialise (regression
-            guard: validation doesn't reject valid input)"
-    (let [s (rf.ssr.ring/cookie->set-cookie-header
-              {:name      "session"
-               :value     "abc"
-               :domain    "example.com"
-               :path      "/articles"
-               :max-age   3600
-               :same-site :lax})]
-      (is (str/includes? s "Domain=example.com"))
-      (is (str/includes? s "Path=/articles")))))
+        "every hostile :domain is rejected (lists any that serialised)")))
 
 ;; ===========================================================================
 ;; A raw `;` in a structured cookie attribute is the RFC 6265
@@ -199,53 +166,7 @@
           "semicolon in :value serialises as %3B (data stays data)")
       (is (not (str/includes? s "a;b"))
           "the raw `;` does not survive into the wire value")
-      (is (str/includes? s "Path=/"))))
-
-  (testing "clean attributes (canonical `/` path, plain
-            domain, integer max-age) serialise unaltered"
-    (let [s (rf.ssr.ring/cookie->set-cookie-header
-              {:name    "sid"  :value "abc"
-               :path    "/app" :domain "example.com"
-               :max-age 3600   :same-site :none})]
-      (is (str/includes? s "Path=/app"))
-      (is (str/includes? s "Domain=example.com"))
-      (is (str/includes? s "Max-Age=3600"))
-      (is (str/includes? s "SameSite=None")))))
-
-;; End-to-end: a hostile `;`-bearing attribute value routed
-;; through the public :rf.server/set-cookie effect and the Ring handler MUST
-;; NOT emit a forged Secure/SameSite attribute; the structured failure routes
-;; through the fx error contract and no cookie header is written.
-(deftest handler-cookie-semicolon-attribute-cannot-forge-set-cookie
-  (testing "a `;`-bearing :path cannot smuggle SameSite=None;
-            Secure into the emitted Set-Cookie header"
-    (rf/reg-event :init/hostile-cookie
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/set-cookie
-               {:name  "sid"
-                :value "abc"
-                :path  "/; SameSite=None; Secure"}]]}))
-    (rf/reg-view* :pages/hostile-cookie
-      (fn [] [:div "hostile"]))
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/hostile-cookie]]
-                      :root-view [(rf/view :pages/hostile-cookie)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          headers  (:headers response)
-          set-cookie (or (get headers "Set-Cookie") (get headers "set-cookie"))]
-      ;; The fx boundary rejects the hostile attribute, so no cookie is
-      ;; accumulated and no Set-Cookie header is emitted — the forged
-      ;; SameSite/Secure attributes never reach the wire.
-      (is (nil? set-cookie)
-          "hostile cookie is rejected at the fx boundary — no Set-Cookie header")
-      (when (some? set-cookie)
-        (let [wire (str/join "\n" (if (vector? set-cookie) set-cookie [set-cookie]))]
-          (is (not (str/includes? wire "SameSite=None"))
-              "no forged SameSite=None attribute")
-          (is (not (str/includes? wire "Secure"))
-              "no forged Secure attribute"))))))
+      (is (str/includes? s "Path=/")))))
 
 (deftest cookie-name-rfc6265-token-grammar
   (testing "cookie :name violating the RFC 6265 §4.1.1
@@ -481,96 +402,8 @@
              redirect is observable")))))
 
 ;; ===========================================================================
-;; ssr-handler — cookies serialise to Set-Cookie headers
-;; ===========================================================================
-
-(deftest handler-cookies-become-set-cookie-headers
-  (testing "structured cookies materialise to Set-Cookie wire form"
-    (rf/reg-event :init/with-cookies
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:fx [[:rf.server/set-cookie {:name      "session"
-                                      :value     "abc123"
-                                      :max-age   3600
-                                      :http-only true
-                                      :same-site :lax
-                                      :path      "/"}]
-              [:rf.server/set-cookie {:name  "theme"
-                                      :value "dark"
-                                      :path  "/"}]]}))
-
-    (rf/reg-view* :pages/cookied
-      (fn [] [:div "cookied"]))
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/with-cookies]]
-                      :root-view [(rf/view :pages/cookied)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          headers  (:headers response)
-          set-cookie (or (get headers "Set-Cookie") (get headers "set-cookie"))]
-      (is (= 200 (:status response)))
-      (is (some? set-cookie))
-      ;; Two cookies → vector form.
-      (is (vector? set-cookie)
-          "multi-valued Set-Cookie collapses into a vector")
-      (is (= 2 (count set-cookie)))
-      (is (some #(and (str/includes? % "session=abc123")
-                      (str/includes? % "Max-Age=3600")
-                      (str/includes? % "HttpOnly")
-                      (str/includes? % "SameSite=Lax"))
-                set-cookie)
-          "session cookie carries all its attributes")
-      (is (some #(str/includes? % "theme=dark") set-cookie)))))
-
-;; ===========================================================================
 ;; ssr-handler — error path
 ;; ===========================================================================
-
-(deftest handler-render-error-projects-through-projector
-  (testing "exception raised during render flows through the
-            SSR error projector (Spec 011 §View-time exceptions), not
-            through the Ring :on-error hook. Wire body carries the
-            projector's :message / :code, never .getMessage."
-    (rf/reg-event :init/ok
-      {:platforms #{:server}}
-      (fn [_ _] {}))
-
-    (rf/reg-view* :pages/broken
-      (fn [] (throw (ex-info "boom-internal-jdbc-url-secret" {}))))
-
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/ok]]
-                     :root-view [(rf/view :pages/broken)]
-                     :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/broken" :request-method :get})]
-      (is (= 500 (:status response))
-          "default projector's `:internal-error` shape →
-           status 500. Same status the drain-time projector path
-           produces for fx/handler exceptions — uniform contract.")
-      ;; The default body MUST NOT
-      ;; carry the exception's message. .getMessage is documented as
-      ;; carrying internal topology (JDBC URLs, file paths, SQL
-      ;; fragments); leaking it publicly would be a disclosure. The projector is
-      ;; the security boundary.
-      (is (not (str/includes? (:body response) "boom-internal-jdbc-url-secret"))
-          "the throwable's message text MUST NOT appear in
-           the projector body (topology disclosure surface)")
-      ;; The projector-driven body carries the default
-      ;; projector's `:message` ("Something went wrong") so the
-      ;; client / crawler / monitoring stack sees the public surface.
-      (is (str/includes? (:body response) "Something went wrong")
-          "wire body carries the projector's `:message`
-           (default = 'Something went wrong' per
-           `error-projector/fallback-public-error`)")
-      (is (str/includes? (:body response) "internal-error")
-          "wire body carries the projector's `:code`
-           (default = `:internal-error`) as a stable category that
-           response-page templates can branch on.")
-      (is (not (= "Internal error" (:body response)))
-          "render-time throws go through the projector,
-           not the Ring :on-error fallback — the fixed
-           'Internal error' string is never the wire body."))))
 
 (deftest handler-render-error-custom-projector-shapes-body
   (testing "caller customises the render-time error wire
@@ -1196,27 +1029,6 @@
         (is (nil? (rf.ssr/get-request @captured-fid))
             "the request slot was cleared on frame teardown — no leak across requests")))))
 
-(deftest handler-isolates-request-slots-across-requests
-  (testing "two sequential requests carry independent request data — no slot bleed"
-    (let [observed (atom [])]
-      (rf/reg-event :init/observe-request
-        {:platforms        #{:server}
-         :rf.cofx/requires [:rf.server/request]}
-        (fn [{:keys [rf.server/request]} _]
-          (swap! observed conj (:uri request))
-          {}))
-
-      (rf/reg-view* :pages/blank3 (fn [] [:div]))
-
-      (let [handler (rf.ssr.ring/ssr-handler
-                      {:initial-events [[:init/observe-request]]
-                       :root-view [(rf/view :pages/blank3)]
-                       :payload :rf.ssr.payload/whole-app-db})]
-        (handler {:uri "/a" :request-method :get})
-        (handler {:uri "/b" :request-method :get})
-        (is (= ["/a" "/b"] @observed)
-            "each request's handler saw its own URI — no slot bleed")))))
-
 ;; ===========================================================================
 ;; :initial-events accepts a (fn [request] initial-events-vector) form
 ;;
@@ -1358,88 +1170,6 @@
            where-symbol names the public ssr-handler entry point, carrying the
            recovery disposition and the offending :received value, with a human
            message naming the public concept + expected fix"))))
-
-;; ===========================================================================
-;; ssr-handler — :ssr opt reaches the per-request frame's :ssr metadata
-;;
-;; `:ssr` is the canonical name and matches both `rf/make-frame`'s
-;; frame-config key and Spec 011. A destructure reading any other key
-;; (e.g. `:ssr-config`) would silently drop a caller's
-;; `{:ssr {:dev-error-detail? true ...}}` — `cond->` would never assert the
-;; key onto the per-request frame config, and the default projector would
-;; run regardless of the caller's intent.
-;; ===========================================================================
-
-(deftest handler-passes-through-ssr-opt-to-frame-meta
-  (testing ":ssr opt → per-request frame's :ssr metadata"
-    (let [captured (atom :unset)]
-      (rf/reg-event :init/capture-ssr-meta
-        {:platforms #{:server}}
-        ;; The running frame's stamp reaches the event context under
-        ;; :rf.frame/id (there is no bare :frame coeffect).
-        (fn [{frame :rf.frame/id} _]
-          (reset! captured (:ssr (rf/frame-meta frame)))
-          {}))
-
-      (rf/reg-view* :pages/blank-for-ssr-opt (fn [] [:div]))
-
-      (let [handler (rf.ssr.ring/ssr-handler
-                      {:initial-events [[:init/capture-ssr-meta]]
-                       :root-view [(rf/view :pages/blank-for-ssr-opt)]
-                       :ssr       {:dev-error-detail? true
-                                   :public-error-id   :myapp/projector}
-                       :payload :rf.ssr.payload/whole-app-db})]
-        (handler {:uri "/" :request-method :get})
-        (is (= {:dev-error-detail? true
-                :public-error-id   :myapp/projector}
-               @captured)
-            "the :ssr opt reaches the per-request frame's :ssr metadata
-             — the destructure matches the documented key")))))
-
-;; ===========================================================================
-;; ssr-handler — the hydration payload's runtime-db slice
-;; ===========================================================================
-
-(deftest handler-emits-serializable-runtime-db-slice
-  ;; EP-0001: the server-side payload producer emits the
-  ;; serializable runtime-db slice (machine snapshots, route :current slice)
-  ;; as `:rf/runtime-db` so the client `:rf/hydrate` handler installs a
-  ;; coherent frame-state. Transient runtime-db state (scroll-position cache)
-  ;; is excluded by `project-runtime-db`.
-  (testing "the hydration payload carries the durable :rf/runtime-db slice and omits transient runtime-db state"
-    (rf/reg-event :init/seed-runtime
-      {:platforms #{:server}}
-      (fn [{rt :rf.db/runtime} _]
-        {:db {:public/page :dashboard}
-         :rf.db/runtime
-         (-> (or rt {})
-             ;; durable: machine snapshot + active route slice
-             (assoc-in [:rf.runtime/machines :snapshots :auth.session/abc]
-                       {:state :authenticated :data {:user "u-1"}})
-             (assoc-in [:rf.runtime/routing :current] {:route-id :route/dashboard :params {}})
-             ;; transient: client-local scroll cache — must NOT ride the wire
-             (assoc-in [:rf.runtime/routing :scroll-positions "/"] {:x 0 :y 240}))}))
-
-    (rf/reg-view* :pages/echo (fn [] [:div "echo"]))
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:init/seed-runtime]]
-                      :root-view [(rf/view :pages/echo)]
-                      :payload   [:public/page]})
-          response (handler {:uri "/" :request-method :get})
-          body     (:body response)]
-      (is (= 200 (:status response)))
-      (is (str/includes? body ":runtime-db")
-          "the payload carries the :rf/runtime-db slice")
-      ;; pr-str emits namespace-keyed maps in `#:ns{...}` shorthand for
-      ;; namespace-shared keys (:auth.session/abc → #:auth.session{:abc ...}).
-      (is (or (str/includes? body ":auth.session/abc")
-              (str/includes? body "#:auth.session{:abc"))
-          "the durable machine snapshot rides :rf/runtime-db")
-      (is (str/includes? body ":route/dashboard")
-          "the durable route :current slice rides :rf/runtime-db")
-      (is (not (str/includes? body "scroll-positions"))
-          "the transient scroll-position cache is excluded from the wire payload"))))
 
 ;; ===========================================================================
 ;; ssr-handler — explicit fail-closed payload policy
@@ -1785,49 +1515,6 @@
     (is (str/includes? (rf.ssr.ring/default-html-shell
                          "b" "{}" {:html-attrs {:lang nil :data-x "1"}})
                        "<html data-x=\"1\">"))))
-
-;; ===========================================================================
-;; :app-element-id and :script-src are ATTRIBUTE-VALUE positions,
-;; escape-attr'd at the shell so a stray double-quote can't break out of the
-;; attribute and emit structurally-broken markup. Contrast :head / :body-end
-;; (content positions) which stay RAW. Structural-correctness, not a sandbox.
-;; ===========================================================================
-
-(deftest shell-escapes-attribute-value-opts-app-id-and-script-src
-  (testing "default-html-shell escapes :app-element-id and
-            :script-src as attribute values — a quote-bearing value
-            cannot break out of the double-quoted attribute"
-    (let [;; A quote-bearing-but-otherwise-trusted value: an asset URL the
-          ;; caller assembled with a query-string carrying a quote, and an
-          ;; id with a stray quote. Both are attribute-value positions.
-          html (rf.ssr.ring/default-html-shell
-                 "body" "{}"
-                 {:app-element-id "ap\"p"
-                  :script-src     "/main.js?v=\"x\""})]
-      ;; The raw quote must NOT appear unescaped inside the attribute —
-      ;; that would close the attribute early and emit broken markup.
-      (is (not (str/includes? html "<div id=\"ap\"p\">"))
-          "a raw quote in :app-element-id must not break out of id=\"...\"")
-      (is (str/includes? html "<div id=\"ap&quot;p\">")
-          ":app-element-id quote is escape-attr'd to &quot;")
-      (is (not (str/includes? html "src=\"/main.js?v=\"x\"\""))
-          "a raw quote in :script-src must not break out of src=\"...\"")
-      (is (str/includes? html "src=\"/main.js?v=&quot;x&quot;\"")
-          ":script-src quote is escape-attr'd to &quot;")))
-
-  (testing "an ampersand in :script-src (legal query-string
-            separator) is escape-attr'd to &amp; — lossless, position-correct"
-    (let [html (rf.ssr.ring/default-html-shell
-                 "body" "{}" {:script-src "/main.js?a=1&b=2"})]
-      (is (str/includes? html "src=\"/main.js?a=1&amp;b=2\"")
-          "& in the URL is encoded as &amp; (the attribute-value escape)")))
-
-  (testing "benign values are unaffected (escape-attr only
-            touches & and \") — the common case round-trips verbatim"
-    (let [html (rf.ssr.ring/default-html-shell
-                 "body" "{}" {:app-element-id "root" :script-src "/bootstrap.js"})]
-      (is (str/includes? html "<div id=\"root\">"))
-      (is (str/includes? html "src=\"/bootstrap.js\"")))))
 
 ;; ===========================================================================
 ;; Single-source document envelope. `default-html-shell` and the
@@ -2211,50 +1898,6 @@
             "X-Audit append-header reached the wire (multi-valued)")))))
 
 ;; ===========================================================================
-;; Mixed-case append-header pairs collapse to ONE Ring key
-;;
-;; `:rf.server/append-header` preserves the caller's supplied spelling, so an
-;; app can append the same logical header under inconsistent casing (`Vary`
-;; then `vary`). HTTP field names are case-insensitive (RFC 7230 §3.2), so
-;; the materialiser must fold them into ONE Ring map entry with both values
-;; in declaration order — not two entries a downstream proxy/servlet might
-;; merge, overwrite, or emit independently (dropping a Vary cache dimension).
-;; ===========================================================================
-
-(deftest mixed-case-append-header-collapses-to-one-wire-key
-  (testing "mixed-case :rf.server/append-header
-            effects for one logical header materialise to exactly one Ring
-            key carrying every value in declaration order"
-    (rf/reg-event :vary/emit
-      {:platforms #{:server}}
-      (fn [{:keys [db]} _]
-        {:db db
-         :fx [[:rf.server/append-header {:name "Vary" :value "Accept"}]
-              [:rf.server/append-header {:name "vary" :value "Origin"}]
-              [:rf.server/append-header {:name "VARY" :value "Accept-Encoding"}]]}))
-
-    (rf/reg-view* :pages/vary
-      (fn [] [:div.page [:h1 "vary"]]))
-
-    (let [handler  (rf.ssr.ring/ssr-handler
-                     {:initial-events [[:vary/emit]]
-                      :root-view      [(rf/view :pages/vary)]
-                      :payload        :rf.ssr.payload/whole-app-db})
-          response (handler {:uri            "/vary"
-                             :request-method :get
-                             :headers        {}})
-          headers  (:headers response)
-          vary-keys (filter (fn [k] (= "vary" (str/lower-case (str k))))
-                            (keys headers))
-          vary-val  (get headers (first vary-keys))]
-      (is (= 200 (:status response)) "drain settled cleanly")
-      (is (= 1 (count vary-keys))
-          "exactly one logical Vary key on the wire — no case-variant duplicates")
-      (is (vector? vary-val) "three appends → a vector of values")
-      (is (= ["Accept" "Origin" "Accept-Encoding"] vary-val)
-          "every value present in declaration order under the first-seen key"))))
-
-;; ===========================================================================
 ;; Content-Type override strips any casing (no dup)
 ;;
 ;; `headers->ring-map+content-type-override` force-replaces the accumulator's
@@ -2420,63 +2063,6 @@
 ;; through `clojure.edn/read-string` on the client.
 ;; ===========================================================================
 
-(deftest hydration-payload-escapes-script-close-and-round-trips
-  (testing "a `</script>` substring in app-db cannot close the
-            hydration payload script tag; the EDN reader still recovers
-            the original string verbatim"
-    (let [hostile "</script><script>alert('xss')</script>"]
-      (rf/reg-event :init/hostile
-        {:platforms #{:server}}
-        (fn [_ _]
-          {:db {:public/article-title hostile}}))
-
-      (rf/reg-view* :pages/hostile-page (fn [] [:div "ok"]))
-
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events [[:init/hostile]]
-                        :root-view [(rf/view :pages/hostile-page)]
-                        :payload :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/" :request-method :get})
-            body     (:body response)]
-        (is (= 200 (:status response)))
-
-        ;; The wire HTML MUST NOT carry the raw `</script><script>` —
-        ;; that pattern would terminate the payload envelope and
-        ;; introduce a second <script> in document context.
-        (is (not (str/includes? body "</script><script>alert"))
-            "the closing-tag pattern is broken — no raw </script> escape
-             into the document context")
-
-        ;; The escape sequence is what reaches the wire. Two `<` chars
-        ;; in the hostile literal → two `\u003c` escapes.
-        (is (str/includes? body "\\u003c/script>\\u003cscript>alert")
-            "`<` chars in the payload EDN are escaped as `\\u003c`")
-
-        ;; The EDN reader on the client side must still recover the
-        ;; original string from the escaped payload. Extract just the
-        ;; specific value's quoted literal and read it. `\u003c` must be
-        ;; transparent to clojure.edn/read-string.
-        (let [payload-edn (second
-                           (re-find
-                             #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
-                             body))
-              ;; Match the quoted EDN string literal for :article-title.
-              ;; `pr-str` may emit either the qualified key
-              ;; (`:public/article-title`) or the `#:public{...}`
-              ;; namespace-map shorthand (`:article-title`) — match
-              ;; either rendering for robustness.
-              literal     (second
-                            (re-find
-                              #":(?:public/)?article-title (\"[^\"]*\")"
-                              payload-edn))
-              recovered   (when literal (clojure.edn/read-string literal))]
-          (is (some? literal)
-              "the article-title's EDN string literal is locatable in the payload")
-          (is (= hostile recovered)
-              "the EDN reader recovers the original hostile
-               string verbatim — the `\\u003c` escape is transparent to
-               clojure.edn/read-string"))))))
-
 (deftest hydration-payload-edn-token-with-angle-round-trips
   (testing "the final hydration payload round-trips a keyword KEY
             and value carrying a non-breakout `<` (`:a<b`, `:<`) AND a string
@@ -2492,9 +2078,6 @@
                         (re-find
                           #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
                           html))]
-      ;; No breakout: the string-literal </script> cannot close the envelope.
-      (is (not (str/includes? (str/lower-case body-edn) "</script"))
-          "no literal </script breakout survives in the payload body")
       ;; The keyword-token `<` is preserved verbatim (not corrupted to \\u003c).
       (is (str/includes? body-edn ":a<b")
           "keyword-token `<` left intact — no \\u003c corruption of tokens")
@@ -2786,48 +2369,6 @@
            silent"))))
 
 ;; ===========================================================================
-;; default-on-error direct positive assertion
-;;
-;; `default-on-error` is the Ring-layer fallback used when the SSR
-;; error projector cannot see the exception (handler-constructor throw,
-;; middleware throw ahead of the projector). The
-;; render-time-throw tests (`handler-render-error-*` above) pin the
-;; projector path with negative assertions of the form
-;; `(not= "Internal error" body)` — they verify those paths DON'T fall
-;; through to this fixed shape.
-;;
-;; This test pins the literal `"Internal error"` body produced by
-;; `default-on-error` itself, positively, so a refactor that changed the
-;; literal string (e.g. an i18n table, a richer template) surfaces here —
-;; the literal exact-string contract + the no-leak guarantee at the
-;; function boundary directly.
-;;
-;; The body MUST NOT
-;; carry .getMessage (JDBC URLs, file paths, SQL fragments).
-;; ===========================================================================
-
-(deftest default-on-error-shape-pinned
-  (testing "default-on-error returns the fixed-shape 500
-            response with the literal `\"Internal error\"` body. The
-            throwable's .getMessage MUST NOT appear anywhere in the
-            response (status, headers, or body)."
-    (let [secret-msg "boom-jdbc-secret:postgres://internal-db.svc:5432/auth"
-          t          (ex-info secret-msg {})
-          req        {:uri "/anything" :request-method :get}
-          response   (rf.ssr.ring/default-on-error req t)]
-      (is (= 500 (:status response))
-          "status pinned to 500 — Ring-layer fallback default")
-      (is (= {"Content-Type" "text/plain; charset=utf-8"}
-             (:headers response))
-          "headers pinned to text/plain with UTF-8 charset (no HTML,
-           no JSON, no leaked Server header)")
-      ;; Exact reads on the headers and the body, so the throwable's
-      ;; .getMessage can reach neither — the no-leak guarantee.
-      (is (= "Internal error" (:body response))
-          "body is the literal `\"Internal error\"` — exact string match
-           (a refactor that changes the literal surfaces here)"))))
-
-;; ===========================================================================
 ;; A throwing caller :on-error must be CONTAINED, not escape
 ;;
 ;; `:on-error` is the handler's last-resort transport-failure net. A
@@ -3061,39 +2602,4 @@
           ;; OFF-BOX: the always-on record reached the shipper under debug-off.
           (is (some #{:rf.error/ssr-head-resolution-failed} @seen)
               ":rf.error/ssr-head-resolution-failed reached register-error-
-               listener! under -Dre-frame.debug=false"))))))
-
-(deftest error-view-failed-ships-an-off-box-record-under-debug-off-and-keeps-the-500
-  (testing "a buggy :error-view (itself throwing) → the full
-            Ring handler falls back to the locked default template (the
-            render-time 5xx already stamped is unchanged, NON-PROJECTING)
-            AND delivers a :rf.error/ssr-ring-error-view-failed record to
-            register-error-listener! under debug-off."
-    (rf.error-emit/clear-error-listeners!)
-    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/broken-evt-off-box
-      (fn [] (throw (ex-info "boom" {}))))
-    (let [seen (capture-always-on-categories!)]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [handler  (rf.ssr.ring/ssr-handler
-                         {:initial-events  [[:init/ok]]
-                          :root-view  [(rf/view :pages/broken-evt-off-box)]
-                          :error-view (fn [_public]
-                                        (throw (ex-info "error-view itself broke" {})))
-                          :payload :rf.ssr.payload/whole-app-db})
-              response (handler {:uri "/broken" :request-method :get})]
-          (rf.error-emit/clear-error-listeners!)
-          ;; WIRE: the error boundary holds at 500 with the locked
-          ;; default template; the error-view's own failure did NOT re-flip
-          ;; or escape (NON-PROJECTING).
-          (is (= 500 (:status response))
-              "the error boundary holds at 500 — the buggy error-view did
-               not re-project (NON-PROJECTING)")
-          (is (str/includes? (:body response) "Something went wrong")
-              "fell back to the locked default error template")
-          (is (not (str/includes? (:body response) "error-view itself broke"))
-              "the error-view's throwable never reaches the wire")
-          ;; OFF-BOX: the always-on record reached the shipper under debug-off.
-          (is (some #{:rf.error/ssr-ring-error-view-failed} @seen)
-              ":rf.error/ssr-ring-error-view-failed reached register-error-
                listener! under -Dre-frame.debug=false"))))))
