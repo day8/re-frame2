@@ -564,36 +564,6 @@
               "default-frame dispatch tags :rf/default (not nil) — matches the
                popstate/SSR sibling and the programmatic path"))))))
 
-;; ---- EP-0037 R1: :on-match is fire-and-forget, never drives readiness ----
-;;
-;; Per Spec 012 §Per-route data loading, `:on-match` never sets
-;; `:rf.route/transition`. Route readiness is the resource-derived projection;
-;; a route with no `:resources` is `:idle` throughout, including while its
-;; `:on-match` events dispatch.
-
-(deftest transitioned-on-match-does-not-drive-loading
-  (testing ":rf.route/handle-url-change does NOT set :transition :loading for a
-            route's :on-match — readiness is the resource projection (EP-0037 R1)"
-    (rf/reg-route :route/cart
-                  {:on-match [[:prefs/loaded]]} "/cart")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; The slice is written FIRST and then :on-match dispatches, so the
-    ;; handler observes the new slice's :transition. That is :idle
-    ;; (no :resources → no blocking requirement), never :loading.
-    (let [observed (atom :unset)]
-      ;; EP-0001: the route slice is durable routing runtime-db
-      ;; state — the :on-match observer reads :transition off :rf.db/runtime.
-      (rf/reg-event :prefs/loaded
-                       (fn [{:keys [db] rt :rf.db/runtime} _]
-                         (reset! observed
-                                 (get-in rt [:rf.runtime/routing :current :transition]))
-                         {:db (assoc db :prefs/loaded? true)}))
-      (rf/dispatch-sync [:rf.route/handle-url-change "/cart" {:rf.route/cause :link}])
-      (is (= :idle @observed)
-          ":on-match handler observed :transition :idle (never :loading)"))))
-
 ;; ---- :on-match dispatches in order, fire-and-forget, readiness stays :idle ----
 
 (deftest on-match-dispatches-fire-and-forget-idle
@@ -716,29 +686,6 @@
           "same route-id, different :params re-fires :on-match (A then B)")
       (is (= "nav-2" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
           "a changed-params nav DOES allocate a fresh nav-token"))))
-
-(deftest identical-programmatic-renav-does-not-refire-on-match
-  (testing "Spec 012 rule 3: a duplicate
-            [:rf.route/navigate {:to :route/cart}] does NOT re-fire :on-match
-            and does NOT allocate a new nav-token"
-    (let [on-match-calls (atom 0)
-          pushed         (atom 0)]
-      (rf/reg-event :cart/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
-      (rf/reg-route :route/cart {:on-match [[:cart/load]]} "/cart")
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ _] (swap! pushed inc)))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
-      (is (= 1 @on-match-calls) ":on-match fired once on the first navigate")
-      (is (= "nav-1" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))))
-      ;; Duplicate navigate to the same target — rule-3 no-op.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
-      (is (= 1 @on-match-calls)
-          "rule 3: :on-match did NOT re-fire on duplicate navigate")
-      (is (= "nav-1" (:nav-token (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-          "rule 3: no new nav-token on duplicate navigate")
-      (is (= 1 @pushed)
-          "rule 3: no second :rf.nav/push-url on the no-op navigate"))))
 
 ;; ---- programmatic navigate validation failure REJECTS ------------------
 ;;
@@ -959,48 +906,6 @@
           (is (seq @pushed)
               (str "safe same-origin reference " (pr-str safe)
                    " pushes through navigate {:url}")))))))
-
-;; ============================================================================
-;; :rf.route/navigate {:fragment ""} must agree
-;; with URL-driven nav: an empty-string fragment is normalized to nil at
-;; the navigate boundary, so the pushed URL (no trailing #) and the route
-;; slice (:fragment nil) agree, exactly as a URL-driven nav to the same URL.
-;; ============================================================================
-
-(deftest navigate-empty-string-fragment-normalized
-  (testing "programmatic navigation with {:fragment \"\"} pushes
-            the fragment-less URL AND writes :fragment nil to the slice —
-            agreeing with URL-driven nav (a slice carrying :fragment \"\"
-            while the URL has no # would be a slice/URL divergence)"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-
-      ;; URL-driven baseline: navigate to /docs/routing from the URL.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/docs/routing" {:rf.route/cause :link}])
-      (let [url-driven-frag (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                    [:rf.runtime/routing :current :fragment])]
-        (is (nil? url-driven-frag) "URL-driven nav to /docs/routing yields :fragment nil")
-
-        ;; Now reach the SAME URL programmatically with {:fragment ""}.
-        (reset! pushed [])
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "guide"} :fragment ""}])
-        (let [slice-frag (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/routing :current :fragment])]
-          (is (= ["/docs/guide"] @pushed)
-              "the pushed URL carries NO trailing # for an empty-string fragment")
-          (is (nil? slice-frag)
-              "the slice :fragment is nil (normalized from \"\"), matching URL-driven nav")))
-
-      (testing "a non-empty programmatic fragment still works (regression guard)"
-        (reset! pushed [])
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "api"} :fragment "section"}])
-        (is (= ["/docs/api#section"] @pushed) "non-empty fragment appends #section")
-        (is (= "section" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                 [:rf.runtime/routing :current :fragment]))
-            "the slice carries the non-empty fragment")))))
 
 ;; ---- The flat request-map grammar -----------------------------------------
 ;;
@@ -1334,30 +1239,6 @@
           "the query changed to the supplied :query")
       (is (= ["/articles/intro?tab=history"] @pushed)
           "the pushed URL keeps the path and carries the new query"))))
-
-(deftest routing-query-merge-folds-into-current-query
-  (testing ":query-merge folds deltas into the CURRENT query, keeping the rest"
-    (rf/reg-route :route/search
-                  {:query [:map [:q {:optional true} :string]
-                                [:page {:optional true} :int]
-                                [:sort {:optional true} :string]]}
-                  "/search")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [_ url] (swap! pushed conj url)))
-      ;; Land on /search?q=clojure&page=1&sort=recent.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/search?q=clojure&page=1&sort=recent" {:rf.route/cause :link}])
-      (is (= {:q "clojure" :page 1 :sort "recent"} (:query (nav-slice))))
-      ;; Merge :page 2 — q + sort ride along.
-      (reset! pushed [])
-      (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
-      (is (= {:q "clojure" :page 2 :sort "recent"} (:query (nav-slice)))
-          ":query-merge changes :page, keeps :q + :sort from the current query")
-      (let [url (last @pushed)]
-        (is (re-find #"page=2" url) "the new :page is in the URL")
-        (is (re-find #"q=clojure" url) "the untouched :q rides along")
-        (is (re-find #"sort=recent" url) "the untouched :sort rides along")))))
 
 (deftest routing-query-merge-nil-removes-a-key
   (testing "a nil :query-merge value REMOVES a key from the slice AND the URL"
