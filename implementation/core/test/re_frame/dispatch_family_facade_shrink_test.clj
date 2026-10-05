@@ -35,14 +35,8 @@
 
 (deftest retired-macro-fn-twins-gone-from-facade
   (testing "dispatch* / dispatch-sync* / subscribe* / reg-interceptor* are
-            absent from re-frame.core — there is no alias"
-    (doseq [sym ['dispatch* 'dispatch-sync* 'subscribe* 'reg-interceptor*]]
+            absent from re-frame.core — there is no alias — and reg-machine*
+            is reached via re-frame.machines, never the facade"
+    (doseq [sym ['dispatch* 'dispatch-sync* 'subscribe* 'reg-interceptor* 'reg-machine*]]
       (is (nil? (ns-resolve 're-frame.core sym))
           (str "re-frame.core/" sym " must not resolve (there is no alias)")))))
-
-(deftest reg-machine-star-untouched
-  (testing "reg-machine* is not on the facade — it is reached via
-            re-frame.machines, not re-frame.core — and is pinned so it is not
-            reintroduced by accident."
-    (is (nil? (ns-resolve 're-frame.core 'reg-machine*))
-        "re-frame.core/reg-machine* stays absent")))
