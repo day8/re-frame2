@@ -20,46 +20,6 @@
 ;; widening the public surface.
 (def ^:private malli-decode @#'rf.http.decode/malli-decode)
 
-;; Sanity-pin: Malli really is resolvable on this test classpath. If a
-;; future deps change drops the schemas test-dep, every schema test below
-;; would silently degrade to the Malli-absent no-op fall-through
-;; (`malli-decode` returns the parsed value un-coerced, un-validated) and
-;; the coerce / validation-failure assertions would mislead. This guard
-;; turns that into an explicit failure.
-(deftest malli-is-on-the-test-classpath
-  (testing "the schema-decode tests below require Malli to be
-            resolvable; assert the precondition so a deps regression that
-            removes it fails loudly rather than degrading to the no-op
-            Malli-absent branch"
-    (is (some? (requiring-resolve 'malli.core/decode)))
-    (is (some? (requiring-resolve 'malli.core/validate)))
-    (is (some? (requiring-resolve 'malli.transform/json-transformer)))))
-
-;; ---- malli-decode: validation failure -------------------------------------
-
-(deftest malli-decode-throws-canonical-ex-info-on-validation-failure
-  (testing "when the coerced value still fails the schema,
-            malli-decode throws an ex-info carrying the canonical
-            discriminator `:rf.error/id :rf.error/http-schema-validation-failed`
-            (Spec 009) so the transport classifies it as
-            :rf.http/decode-failure :schema-validation-failure? true"
-    (let [ex (is (thrown-with-msg?
-                   clojure.lang.ExceptionInfo
-                   #":rf.error/http-schema-validation-failed"
-                   ;; :int schema, value is a non-coercible string — the
-                   ;; json-transformer can't turn \"notanumber\" into an int,
-                   ;; so validate fails.
-                   (malli-decode :int "notanumber")))
-          d  (ex-data ex)]
-      (is (= :rf.error/http-schema-validation-failed (:rf.error/id d))
-          "carries the canonical discriminator the transport keys on")
-      (is (= :no-recovery (:recovery d)))
-      (is (= 'rf.http/decode-response-body (:where d)))
-      (is (= :int (:schema d))
-          "the offending schema rides the ex-data for diagnosis")
-      (is (contains? d :value)
-          "the rejected (decoded) value rides the ex-data for diagnosis"))))
-
 ;; ---- decode-response-body — schema branch end-to-end ----------------------
 
 (deftest decode-response-body-schema-success-parses-then-coerces
@@ -87,42 +47,24 @@
                    (rf.http.decode/decode-response-body
                      {:body-text "{\"id\":\"not-an-int\"}"
                       :headers   {"content-type" "application/json"}
-                      :decode    [:map [:id :int]]})))]
-      (is (= :rf.error/http-schema-validation-failed
-             (:rf.error/id (ex-data ex)))))))
+                      :decode    [:map [:id :int]]})))
+          d  (ex-data ex)]
+      (is (= :rf.error/http-schema-validation-failed (:rf.error/id d))
+          "carries the canonical discriminator the transport keys on")
+      (is (= :no-recovery (:recovery d)))
+      (is (= 'rf.http/decode-response-body (:where d)))
+      (is (= [:map [:id :int]] (:schema d))
+          "the offending schema rides the ex-data for diagnosis")
+      (is (contains? d :value)
+          "the rejected (decoded) value rides the ex-data for diagnosis"))))
 
 ;; ---- keyword-cap threaded e2e through the schema branch --------------------
 ;;
 ;; The :rf.http/max-decoded-keys cap is tested at the JSON-reader layer
-;; (http_json_test.clj); these pin it end-to-end through the decoder as a
-;; thrown :too-many-keys. The schema branch is the critical path: it must
-;; RE-RAISE the cap-throw rather than swallow it behind a Malli rejection.
-
-(deftest decode-response-body-schema-branch-reraises-too-many-keys
-  (testing "the schema branch threads
-            :max-decoded-keys into json-parse and re-raises the
-            `:rf.error/malformed-json :cause :too-many-keys` cap-throw
-            rather than masking it behind a Malli rejection. This is the
-            security-relevant signal the transport classifies as
-            :rf.http/decode-failure."
-    (let [ex (is (thrown-with-msg?
-                   clojure.lang.ExceptionInfo
-                   #":rf.error/malformed-json"
-                   (rf.http.decode/decode-response-body
-                     ;; three unique object keys, cap of 2 — the JSON
-                     ;; reader throws :too-many-keys before any Malli work.
-                     {:body-text "{\"a\":1,\"b\":2,\"c\":3}"
-                      :headers   {"content-type" "application/json"}
-                      :decode    [:map-of :keyword :int]
-                      :max-decoded-keys 2})))
-          d  (ex-data ex)]
-      (is (= :rf.error/malformed-json (:rf.error/id d))
-          "the malformed-json discriminator survives — NOT remapped to a
-           schema-validation failure")
-      (is (= :too-many-keys (:cause d))
-          "the keyword-interning DoS cause is preserved end-to-end")
-      (is (= 2 (:limit d))
-          "the per-call cap is threaded through to the reader"))))
+;; (http_json_test.clj). The schema branch must RE-RAISE the cap-throw rather
+;; than swallow it behind a Malli rejection; http_managed_test pins that end
+;; to end (a schema `:decode` over too many keys is a decode failure carrying
+;; `:reason :too-many-keys`). The test below pins the plain `:json` branch.
 
 ;; ---- malformed JSON under a schema :decode must NEVER fall
 ;; back to raw body-text ------------------------------------------------
@@ -138,8 +80,7 @@
 ;; first and classify a malformed 2xx payload as a decode failure — not a
 ;; degenerate "successful" decode, and not a schema-validation failure.
 
-;; Genuinely-malformed JSON per Cheshire/Jackson (see
-;; `cheshire-rejects-malformed-input-cleanly` in http_json_test.clj):
+;; Genuinely-malformed JSON per Cheshire/Jackson:
 ;; Jackson is tolerant of some shapes by design (trailing commas,
 ;; missing close-braces fall through to its end-of-stream handler
 ;; rather than throwing), so these pick inputs definitively rejected —
@@ -165,23 +106,6 @@
           "the throw must be the raw JSON-parse failure, not a (masking)
            schema-validation-failed — there is no valid value to fail
            validation against"))))
-
-(deftest decode-response-body-schema-branch-malformed-json-throws-not-schema-validation-failure
-  (testing "a :map schema over malformed JSON must surface as
-            a plain decode failure (an unparseable body), NOT get
-            misclassified as :schema-validation-failure? true (which would
-            wrongly imply a well-formed-but-wrong-shaped payload)"
-    (let [thrown (try (rf.http.decode/decode-response-body
-                         {:body-text "{\"id\":nul}" ; misspelt `null`
-                          :headers   {"content-type" "application/json"}
-                          :decode    [:map [:id :int]]})
-                       ::no-throw
-                       (catch Exception e e))]
-      (is (not= ::no-throw thrown)
-          "malformed JSON under a :map schema must throw")
-      (is (not= :rf.error/http-schema-validation-failed (:rf.error/id (ex-data thrown)))
-          "must not be misclassified as a schema-validation failure — the
-           body never parsed to a value in the first place"))))
 
 (deftest decode-response-body-json-branch-also-reraises-too-many-keys
   (testing "the plain :json branch likewise threads the cap
@@ -273,8 +197,8 @@
 ;; fires it per response, flooding the trace surface) fails.
 ;;
 ;; The Malli resolve vars are `defonce`d delays already realised WITH Malli
-;; present on this test classpath (`malli-is-on-the-test-classpath` above
-;; pins that), so the absent path can't be reached through the live
+;; present on this test classpath (the schema-coercion test above goes
+;; red without it), so the absent path can't be reached through the live
 ;; `decode-response-body` here. We exercise the contract at its source: reach
 ;; the three resolve delays + the one-shot latch via `#'`, rebind the delays
 ;; to `(delay nil)` (the classpath-absent shape) under `with-redefs`, reset
@@ -314,7 +238,7 @@
       (fn []
         ;; :int schema + a string value: with Malli present this throws
         ;; :rf.error/http-schema-validation-failed (see
-        ;; malli-decode-throws-canonical-ex-info-on-validation-failure).
+        ;; decode-response-body-schema-validation-failure-throws-canonical).
         ;; With Malli ABSENT the value must pass through verbatim.
         (is (= "notanumber" (malli-decode :int "notanumber"))
             "schema-violating value passes through untouched when Malli is absent")
