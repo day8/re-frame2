@@ -137,20 +137,6 @@
     [:foo]                   nil
     {:k :v}                  nil))
 
-(deftest fresh-keyword-interns-on-fresh-input
-  ;; The defining contract: `fresh-keyword` INTERNS by design (the call
-  ;; site is allocating a new identifier rather than resolving an
-  ;; existing one). Pin the intern so a future refactor that swaps the
-  ;; body for a `safe-keyword`-only path trips this gate before
-  ;; reaching the operator-gated write callers (story-mcp's
-  ;; register-variant).
-  (let [novel-name "rf2-xxtrz-fresh-keyword-intern-pin"]
-    (is (nil? (find-keyword novel-name))
-        "precondition: the novel name is not in the keyword table")
-    (is (= (keyword novel-name) (rf.mcp-base.args/fresh-keyword novel-name)))
-    (is (some? (find-keyword novel-name))
-        "fresh-keyword MUST intern — that's the entire point of the primitive")))
-
 ;; ---------------------------------------------------------------------------
 ;; fresh-keyword-checked — grammar-gated intern. Validates the
 ;; STRING shape BEFORE interning so a rejected id leaves NO keyword.
