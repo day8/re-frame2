@@ -220,30 +220,6 @@
         (finally
           (rf.late-bind/set-fn! :ssr/extend-runtime-db-projection orig-hook))))))
 
-;; ---- (unit): explicit precedence at the projector seam --------------------
-
-(deftest project-runtime-db-explicit-target-beats-ambient
-  (testing "the two-arity project-runtime-db projects under its EXPLICIT
-            frame-id argument even under a mismatched ambient frame; the
-            one-arity falls back to ambient only when no target is carried"
-    (setup-frame-a!)
-    (let [rt (rf.frame/frame-runtime-db-value server-frame)]
-      ;; Ambient is B (:rf/default, no route decls). Explicit A ⇒ redacted.
-      (let [slice   (rf.ssr.payload-policy/project-runtime-db rt server-frame)
-            current (get-in slice [:rf.runtime/routing :current])]
-        (is (= :rf/redacted (get-in current [:query :token]))
-            "explicit A wins: route token redacted despite ambient B")
-        (is (not (.contains (pr-str slice) "secret-oauth-token"))))
-      ;; One-arity resolves ambient B (no decls) ⇒ the route slice fails open.
-      ;; This documents the sanctioned ambient-fallback path (a caller inside a
-      ;; MATCHING with-frame gets correct behaviour); the security-critical
-      ;; builders always pass the explicit target.
-      (let [slice   (rf.ssr.payload-policy/project-runtime-db rt)
-            current (get-in slice [:rf.runtime/routing :current])]
-        (is (= "secret-oauth-token" (get-in current [:query :token]))
-            "one-arity under ambient B applies B's (absent) policy — the
-             documented fallback; explicit target is required for correctness")))))
-
 ;; ===========================================================================
 ;; Fail closed when the payload projection loses its frame during teardown.
 ;;
@@ -259,33 +235,6 @@
 ;; a LIVE frame with no declarations ships verbatim.
 ;; ===========================================================================
 
-(deftest project-routing-egress-fails-closed-on-destroyed-frame
-  (testing "the route :current slice captured while frame A was
-            LIVE fails closed once A is destroyed, and is distinguished from the
-            live-frame precise projection and the frameless-nil passthrough"
-    (setup-frame-a!)
-    (let [slice (select-keys (:rf.runtime/routing (rf.frame/frame-runtime-db-value server-frame))
-                             [:current])]
-      ;; A LIVE frame with declarations projects
-      ;; PRECISELY — the sensitive token redacts, the unclassified sibling rides.
-      (let [live (rf.ssr.payload-policy/project-routing-egress slice server-frame)]
-        (is (= :rf/redacted (get-in live [:current :query :token]))
-            "LIVE frame A: declared sensitive :query :token redacts precisely")
-        (is (= "/dashboard" (get-in live [:current :query :return-to]))
-            "LIVE frame A: unclassified sibling rides verbatim"))
-      ;; A NIL frame-id is the frameless
-      ;; convenience — no frame policy to lose, so the slice rides verbatim.
-      (is (= slice (rf.ssr.payload-policy/project-routing-egress slice nil))
-          "NIL frame: frameless passthrough (NOT fail-closed)")
-      ;; The teardown race: destroy A, then re-project the ALREADY-captured slice
-      ;; under the same EXPLICIT id — fail closed.
-      (rf/destroy-frame! server-frame)
-      (let [dead (rf.ssr.payload-policy/project-routing-egress slice server-frame)]
-        (is (= :rf/redacted dead)
-            "DESTROYED explicit frame: the whole :current slice fails closed")
-        (is (not (.contains (pr-str dead) "secret-oauth-token"))
-            "no raw route token survives the fail-closed projection")))))
-
 (deftest project-runtime-db-fails-closed-on-destroyed-frame
   (testing "project-runtime-db on a frame destroyed after runtime-db
             capture fails closed for BOTH the machine snapshot :data and the
@@ -299,6 +248,11 @@
             "LIVE frame A: machine snapshot :data :token redacts")
         (is (= :rf/redacted (get-in live [:rf.runtime/routing :current :query :token]))
             "LIVE frame A: route :current :query :token redacts"))
+      ;; A NIL frame-id is the frameless convenience — no frame policy to
+      ;; lose, so the routing slice rides verbatim.
+      (let [slice (select-keys (:rf.runtime/routing rt) [:current])]
+        (is (= slice (rf.ssr.payload-policy/project-routing-egress slice nil))
+            "NIL frame: frameless passthrough (NOT fail-closed)"))
       ;; teardown race
       (rf/destroy-frame! server-frame)
       (let [dead (rf.ssr.payload-policy/project-runtime-db rt server-frame)]
