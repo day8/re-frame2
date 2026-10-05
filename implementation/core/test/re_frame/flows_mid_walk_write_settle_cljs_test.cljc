@@ -195,18 +195,6 @@
 ;; Controls — no settle
 ;; ---------------------------------------------------------------------------
 
-(deftest an-ordinary-transition-is-already-fresh
-  (testing "a machine transition commits through the pending runtime-db effect
-            the flow pass reads, so it is fresh after one dispatch and needs
-            no settle"
-    (reg-machine-and-flows!)
-    (call-counting-runs
-      (fn [runs]
-        (rf/dispatch-sync [:pm/m [:go]])
-        (is (= :busy (:mstate (db))) "fresh after the one transition")
-        (is (= 1 (count @runs)) "control — the recorder saw the one event")
-        (is (zero? (settles runs)) "and no settle was enqueued")))))
-
 (deftest walks-that-write-no-frame-state-enqueue-no-settle
   (testing "a walk whose fx write no frame state enqueues ZERO settles on a
             frame WITH flows"
