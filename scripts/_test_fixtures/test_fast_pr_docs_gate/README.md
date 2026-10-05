@@ -18,9 +18,10 @@ The harness covers:
 * **Git-state cases (A–D)** — committed docs diff vs `origin/main`, staged code,
   unstaged docs, untracked docs — the four states the change-set gathering must
   handle deterministically.
-* **Tiering cases (E–H)** — an unknown surface falls back to the full runtime
-  run; a clean tree runs static checks only; a missing `origin/main` base falls
-  back conservatively; a mixed docs+code diff runs both tiers.
+* **Tiering cases (F–H)** — a clean tree runs static checks only; a missing
+  `origin/main` base falls back conservatively; a mixed docs+code diff runs both
+  tiers. The unknown-surface fallback to the full runtime run is pinned by AB,
+  whose script the classifier does not recognise.
 * **Override cases (I–L)** — `--all` and `RF2_FAST_PR_ALL=1` run the complete
   spine regardless of classification; `--with-docs` / `--no-docs` force the
   documentation tier on/off.
@@ -31,12 +32,13 @@ The harness covers:
   `#trace-events_1` underscore-N disambiguation) and #2233 (anchor missing the
   `-rf2-XXX` suffix the heading actually carries). Both must trip
   `check_doc_slugs.py`.
-* **Coverage-honesty + per-artefact JVM selection (Q–V)** — `--plan` states what
-  the JVM tier actually contains and points at the full sweep; a diff under an
-  artefact's tree adds that artefact's suite and a diff elsewhere does not.
-* **mkdocs resolution (W–Y)** — the console script is preferred; an
-  installed-as-a-module mkdocs is found rather than soft-skipped; a code-only
-  diff never probes for it.
+* **Coverage-honesty + per-artefact JVM selection (Q, R, U, V)** — `--plan`
+  states what the JVM tier actually contains and points at the full sweep; a
+  diff under an artefact's tree adds exactly that artefact's suite beside
+  `implementation/core`, and a skipped tier selects nothing.
+* **mkdocs resolution (X–Y)** — an installed mkdocs, console script or module,
+  is found rather than soft-skipped; a code-only diff never probes for it. That
+  the console script is preferred is pinned hermetically by AD.
 * **The spine's own tree (Z–AB, rf2-fhdd3)** — a diff touching
   `scripts/test-fast-pr.sh` or this fixture tree arms the documentation tier and
   the spine's own self-test, and an ordinary `scripts/` change still does
