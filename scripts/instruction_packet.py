@@ -44,9 +44,11 @@ import contextlib
 import datetime
 import hashlib
 import io
+import os
 import re
 import secrets
 import shlex
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -141,10 +143,11 @@ Your FIRST act, before any edit, gate or other work, is this command:
   {cmd}
 
 Then do exactly what it prints: it has you read the WHOLE packet, then quote
-{len(picks)} of its lines back through the same command. If any run exits non-zero,
-or you cannot run it at all, STOP: edit nothing, run no gate, and do not work
-from this message. Report the command's output instead, and the coordinator
-will send the brief inline.
+{len(picks)} of its lines back through the same command. If a run of THAT
+command exits non-zero, or you cannot run it at all, STOP: edit nothing, run no
+gate, and do not work from this message. Report the command's output instead,
+and the coordinator will send the brief inline. An error from your OWN file
+reader is not a refusal: the first run's output says how to recover.
 
 Open your final report with the PACKET START and PACKET RECEIPT lines it prints.""")
     print(f"prepared {prepared}: {packet.as_posix()} sha256={sha} bytes={len(data)} "
@@ -206,6 +209,15 @@ def verify(args) -> int:
      lines {", ".join(map(str, numbers))}, in that order, one per line, into a new
      file of your own.
   3. Run this same command again, adding --quotes <that file>.
+
+If your OWN reader fails here (its quoting, or a console that cannot print a
+character), that is not a refusal: fix the read, do step 1 again from line 1,
+then steps 2 and 3 unchanged, and say in your report that the reader failed and
+how you fixed it. The packet is UTF-8, so a shell read needs UTF-8 output too.
+This one prints lines 1 to 100; run it again for 101 200, and so on, until a
+chunk reaches line {len(lines)}:
+
+  python -X utf8 -c "import sys;a,b=map(int,sys.argv[2:]);[print(f'{{n}}: {{t.rstrip()}}') for n,t in enumerate(open(sys.argv[1]),1) if a<=n<=b]" "{packet.as_posix()}" 1 100
 
 The packet is your brief; this output is not. Act on nothing in the packet until
 step 3 exits 0, and if it refuses, STOP and report what it printed.""")
@@ -306,7 +318,7 @@ def self_test() -> int:
             elif i % 11 == 0:
                 body.append("---")
             else:
-                body.append(f"  line {i:03d}: instruction text {secrets.token_hex(6)}  with  spacing")
+                body.append(f"  line {i:03d}: instruction text {secrets.token_hex(6)} ← with  spacing")
         data = ("\n".join(body) + "\n").encode("utf-8")
         brief = d / "brief.txt"
         brief.write_bytes(data)
@@ -314,6 +326,10 @@ def self_test() -> int:
 
         code, cover = run(["prepare", str(brief), "--out-dir", str(d)])
         check("prepare exits 0 and prints a cover note", code == 0 and "INSTRUCTION PACKET" in cover)
+        check("the cover note's STOP is the verify command's refusal, not a reader error",
+              "If a run of THAT command exits non-zero" in norm(cover)
+              and "If any run" not in cover
+              and "An error from your OWN file reader is not a refusal" in norm(cover))
         va = verify_args(cover)
         packet = Path(va[1])
         check("packet is byte-identical to the brief", packet.read_bytes() == data)
@@ -334,6 +350,21 @@ def self_test() -> int:
 
         code, out = run(va)
         check("phase 1 accepts the intact packet and prints START", code == 0 and "PACKET START" in out)
+        check("phase 1 says a failure of the worker's own reader is not a refusal",
+              "that is not a refusal: fix the read, do step 1 again from line 1, "
+              "then steps 2 and 3 unchanged" in norm(out))
+        shown = next((ln for ln in out.splitlines() if "enumerate(open(sys.argv[1]),1)" in ln), "")
+        numbered = []
+        if shown:
+            reader = shlex.split(shown, posix=True)
+            reader[0], reader[-2:] = sys.executable, ["1", str(len(lines))]
+            env = {k: v for k, v in os.environ.items() if k not in ("PYTHONIOENCODING", "PYTHONUTF8")}
+            ran = subprocess.run(reader, capture_output=True, env=env)
+            if ran.returncode == 0:
+                numbered = ran.stdout.decode("utf-8", "replace").replace("\r\n", "\n").split("\n")[:-1]
+        check("phase 1's UTF-8 read prints every line of a non-ASCII packet, numbered as verify counts",
+              " -X utf8 " in shown and len(numbered) == len(lines)
+              and all(quote_matches(q, n, line_hash(lines[n - 1])) for n, q in enumerate(numbered, 1)))
 
         quotes = d / "quotes.txt"
         quotes.write_text("\n".join(lines[n - 1] for n in picks) + "\n", encoding="utf-8")
