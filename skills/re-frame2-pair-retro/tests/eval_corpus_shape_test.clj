@@ -21,8 +21,9 @@
 ;;;; load-bearing rather than decorative; (2) the README documents that
 ;;;; wrapper honestly and carries the conversion; and (3) every item the
 ;;;; documented mapping yields from the real corpus is one the trigger runner
-;;;; can read — a string `query` and a boolean `should_trigger` — with the
-;;;; fixtures' ids and names unique.
+;;;; can read — a string `query` and a boolean `should_trigger`. That the
+;;;; fixtures' ids and names are unique is `scripts/check_skill_eval_docs.py`'s
+;;;; A4 axis, which reads every skill's evals.json.
 ;;;;
 ;;;; Run locally:  bb tests/eval_corpus_shape_test.clj   (from the skill root)
 ;;;; Exit:         0 = pass, non-zero = fail.
@@ -140,16 +141,12 @@
   ;; pins the README's filter. What the corpus decides is whether each item
   ;; it yields is one the runner can read.
   (let [parsed    @corpus
-        fixtures  (:evals parsed)
         converted (to-trigger-input parsed)]
     (testing "every converted item satisfies the runner's two accesses"
       (is (every? #(string? (:query %)) converted)
           "run_eval.py reads item[\"query\"] as a string.")
       (is (every? #(boolean? (:should_trigger %)) converted)
-          "run_eval.py compares item[\"should_trigger\"] as a boolean."))
-    (testing "ids and names stay unique in the source (they key the per-run directories)"
-      (is (= (count fixtures) (count (set (map :id fixtures)))))
-      (is (= (count fixtures) (count (set (map :name fixtures))))))))
+          "run_eval.py compares item[\"should_trigger\"] as a boolean."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
