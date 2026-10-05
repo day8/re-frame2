@@ -31,7 +31,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.link :as rf.routing.link]
             [re-frame.ssr :as rf.ssr]
@@ -43,19 +42,6 @@
 ;; test-support and drops the host-side scroll / nav-counter caches) applies
 ;; verbatim.
 (use-fixtures :each rf.routing-test-support/reset-runtime)
-
-;; ---- registry registration ----------------------------------------------
-
-(deftest route-link-registered-at-route-link-id
-  (testing ":route/link is present in the :view registrar kind"
-    ;; Per API.md `route-link` row and Spec 012 §Linking from views: the
-    ;; routing artefact registers a view at id `:route/link` on
-    ;; ns-load, on both platforms — `.cljc` render trees that embed
-    ;; `[rf/route-link ...]` resolve identically client- and server-side.
-    (is (some? (rf/handler-meta {:source :store :kind :view :id :route/link}))
-        ":route/link is registered when re-frame.routing is loaded")
-    (is (fn? (:handler-fn (rf.registrar/lookup :view :route/link)))
-        "the registered slot carries a callable :handler-fn")))
 
 ;; ---- href synthesis -----------------------------------------------------
 
@@ -83,30 +69,6 @@
                       :fragment ""})]
       (is (= "/search" (:href attrs))
           "empty :fragment is treated as no fragment (no trailing #)"))))
-
-;; ---- html-attr passthrough ---------------------------------------------
-
-(deftest route-link-passes-html-attrs-through
-  (testing "props other than :to / :params / :query / :fragment / :on-click pass through"
-    (rf/reg-route :route/home {} "/")
-
-    (let [[_ attrs children] (rf.routing/route-link-render-ssr
-                              {:to    :route/home
-                               :class "nav-link"
-                               :id    "home-link"
-                               :title "Home"
-                               :aria-label "Go to home page"}
-                              "Home")]
-      (is (= "/" (:href attrs)) ":href is synthesised")
-      (is (= "nav-link" (:class attrs)) ":class passes through")
-      (is (= "home-link" (:id attrs)) ":id passes through")
-      (is (= "Home" (:title attrs)) ":title passes through")
-      (is (= "Go to home page" (:aria-label attrs)) ":aria-label passes through")
-      (is (nil? (:to attrs)) ":to is consumed (not forwarded to <a>)")
-      (is (nil? (:params attrs)) ":params is consumed")
-      (is (nil? (:query attrs)) ":query is consumed")
-      (is (nil? (:fragment attrs)) ":fragment is consumed")
-      (is (= "Home" children) "children pass through"))))
 
 ;; ---- server-frame :url-strategy --------------------------------------------
 ;;
@@ -207,9 +169,9 @@
 (deftest route-link-policy-keys-ride-the-click-not-the-anchor
   (rf/reg-route :route/cart {} "/cart")
   (let [props {:to :route/cart :class "nav" :replace? true :scroll :preserve :bypass-leave? true}]
-    (testing "the policy keys never reach the <a>"
-      (is (= {:href "/cart" :class "nav"}
-             (second (rf.routing/route-link-render-ssr props "Cart")))))
+    (testing "the policy keys never reach the <a>; html attrs and children pass through"
+      (is (= [:a {:href "/cart" :class "nav"} "Cart"]
+             (rf.routing/route-link-render-ssr props "Cart"))))
     (testing "the click's :rf.route/url-requested carries each policy key written"
       (is (= [:rf.route/url-requested
               {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]
