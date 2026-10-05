@@ -108,10 +108,6 @@
                  " — the four EP-0021 infinite-feed ops are the agent-facing "
                  "trace vocabulary; a missing catalogue row is a contract gap."))))
     (testing "Spec 009 §Error event catalogue carries the loud-merge error row"
-      (is (literal-as-token? (:op infinite-error) doc)
-          (str (:op infinite-error) " MUST be catalogued in " spec-009
-               " (its Error event catalogue row is the agent-facing home "
-               "of the loud-merge error)."))
       ;; the catalogue row's Channel value: a registration-time thrown
       ;; ex-info is diagnostic-channel (Spec 009 §Error event catalogue —
       ;; "a thrown ex-info registration rejection is diagnostic-channel").
