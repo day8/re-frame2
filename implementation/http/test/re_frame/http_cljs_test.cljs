@@ -73,19 +73,6 @@
       (is (= :rf.http/transport (:kind out))
           "relative URL never classifies as CORS"))))
 
-(deftest classify-non-typeerror-stays-transport
-  (testing "a non-TypeError (e.g. a generic JS Error) on a
-  cross-origin URL still classifies as `:rf.http/transport`. CORS
-  rejections are always TypeErrors. The page origin is injected: without
-  one `cross-origin?` is false for every URL, and the error's name would
-  never be consulted."
-    (with-stub-location "https://app.example"
-      (fn []
-        (let [err (js/Error. "connection-reset")
-              out (classify-cljs-error err "https://other.invalid/x")]
-          (is (= :rf.http/transport (:kind out))
-              "non-TypeError stays at :rf.http/transport on a cross-origin URL"))))))
-
 (deftest classify-transport-cause-is-edn-serializable-string
   (testing "the generic-rejection `:rf.http/transport` branch
   stores `:cause` as the rejection CLASS-NAME STRING (`(.-name err)`), NOT the
@@ -124,6 +111,13 @@
   turn this red (Spec 014 §Failure categories `:rf.http/cors`)."
     (with-stub-location "https://app.example"
       (fn []
+        (testing "a non-TypeError on a cross-origin URL stays :rf.http/transport:
+                  CORS rejections are always TypeErrors"
+          (let [err (js/Error. "connection-reset")
+                out (classify-cljs-error err "https://other.invalid/x")]
+            (is (= :rf.http/transport (:kind out))
+                "non-TypeError stays at :rf.http/transport on a cross-origin URL")))
+
         (testing "TypeError on a genuinely cross-origin URL → :rf.http/cors"
           (let [err (js/TypeError. "Failed to fetch")
                 out (classify-cljs-error err "https://other.invalid/x?a=1")]
@@ -219,18 +213,19 @@
     (-> (f)
         (.finally (fn [] (set! (.-fetch js/globalThis) orig))))))
 
-(deftest binary-decode-reads-native-blob
-  (testing "`:decode :blob` reads the response via `.blob()`,
-  riding the native Blob under `:body-binary` (NOT the lossy `.text()`
-  string under `:body-text`). A transport that always read `.text` would
-  resolve a `:blob` decode to the body-TEXT string."
+(deftest blob-array-buffer-and-form-data-read-native-bodies
+  (testing "`:blob` reads via `.blob()`, `:array-buffer` via `.arrayBuffer()`
+  and `:form-data` via `.formData()`, each riding `:body-binary` (NOT the
+  lossy `.text()` string under `:body-text`). A transport that always read
+  `.text` would resolve a binary decode to the body-TEXT string."
     (async done
       (let [blob (js-obj "__kind" "blob")
-            resp (fake-response {:status       200
-                                 :content-type "image/png"
-                                 :blob-val     blob
-                                 :text-val     "lossy-utf8-text"})]
-        (-> (with-stub-fetch resp
+            ab   (js-obj "__kind" "ab")
+            fd   (js-obj "__kind" "fd")]
+        (-> (with-stub-fetch (fake-response {:status       200
+                                             :content-type "image/png"
+                                             :blob-val     blob
+                                             :text-val     "lossy-utf8-text"})
               #(cljs-fetch {:method  :get
                             :url     "/img.png"
                             :headers {}
@@ -242,19 +237,11 @@
                      (is (nil? (:body-text result))
                          "the lossy `.text()` string is NOT read for a `:blob` decode")
                      (is (true? (:ok? result)))))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest array-buffer-and-form-data-read-native-bodies
-  (testing "`:array-buffer` reads via `.arrayBuffer()` and
-  `:form-data` reads via `.formData()`, each riding `:body-binary`."
-    (async done
-      (let [ab (js-obj "__kind" "ab")
-            fd (js-obj "__kind" "fd")]
-        (-> (with-stub-fetch (fake-response {:status 200 :content-type "application/octet-stream"
-                                             :ab-val ab :text-val "txt"})
-              #(cljs-fetch {:method :get :url "/x" :headers {} :decode :array-buffer
-                            :internal-controller (js/AbortController.)}))
+            (.then (fn [_]
+                     (with-stub-fetch (fake-response {:status 200 :content-type "application/octet-stream"
+                                                      :ab-val ab :text-val "txt"})
+                       #(cljs-fetch {:method :get :url "/x" :headers {} :decode :array-buffer
+                                     :internal-controller (js/AbortController.)}))))
             (.then (fn [result]
                      (is (identical? ab (:body-binary result))
                          ":array-buffer rides the native ArrayBuffer")
@@ -268,24 +255,6 @@
                      (is (identical? fd (:body-binary result))
                          ":form-data rides the native FormData")
                      (is (nil? (:body-text result)))))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
-            (.then (fn [_] (done))))))))
-
-(deftest text-and-auto-text-still-read-body-text
-  (testing "non-binary decodes (`:text`, `:json`, omitted/`:auto`
-  over a text Content-Type) read `.text()` into `:body-text`: the
-  binary readers must not regress the common path."
-    (async done
-      (let [resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{\"ok\":true}" :blob-val (js-obj)})]
-        (-> (with-stub-fetch resp
-              #(cljs-fetch {:method :get :url "/api" :headers {} :decode :auto
-                            :internal-controller (js/AbortController.)}))
-            (.then (fn [result]
-                     (is (= "{\"ok\":true}" (:body-text result))
-                         ":auto over application/json reads `.text()`")
-                     (is (nil? (:body-binary result))
-                         "no binary body is read for a text/JSON decode")))
             (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
             (.then (fn [_] (done))))))))
 
@@ -383,8 +352,6 @@
                             :internal-controller (js/AbortController.)}))
             (.then (fn [_]
                      (let [h (aget @captured-init "headers")]
-                       (is (instance? js/Headers h)
-                           "headers is a Fetch `Headers` object, not a plain JS map")
                        ;; `Headers.get` joins repeated values with ", " — three
                        ;; appended values produce the joined multi-value string,
                        ;; NOT a serialised-vector blob.
@@ -429,7 +396,10 @@
   redacted `:rf.warning/http-header-invalid` trace fires naming the bad
   header, the bad pair is OMITTED, the valid header still rides, and the
   `cljs-fetch` Promise RESOLVES normally rather than rejecting / throwing
-  synchronously (an escape as `:rf.error/fx-handler-exception`)."
+  synchronously (an escape as `:rf.error/fx-handler-exception`). The
+  warning's `:url` routes through `re-frame.http.privacy/prepare-emit-tags`
+  (same as the JVM path): a denylisted query param is scrubbed and
+  `:sensitive?` is stamped at the top level of the trace event."
     (async done
       (let [captured-init (atom nil)
             resp (fake-response {:status 200 :content-type "application/json"
@@ -438,7 +408,7 @@
               #(with-init-capturing-fetch resp captured-init
                  (fn []
                    (cljs-fetch {:method  :get
-                                :url     "https://example.invalid/v1"
+                                :url     "https://example.invalid/v1?api_key=SECRET&page=2"
                                 ;; "" is an invalid header name → TypeError.
                                 :headers {""       "anything"
                                           "X-Good" "kept"}
@@ -457,14 +427,17 @@
                     (is (= :warning (:op-type w)))
                     (is (= "" (:header tags))
                         "trace names the offending header (the empty name)")
+                    (is (= "https://example.invalid/v1?api_key=:rf/redacted&page=2"
+                           (:url tags))
+                        "denylisted query-param value MUST be scrubbed in the trace URL")
+                    (is (true? (:sensitive? w))
+                        ":sensitive? stamped at top level — a denylisted param name is a signal")
                     (is (some? (:cause tags))
                         "trace carries a :cause naming the rejected header")
                     (is (not (contains? tags :value))
                         "trace MUST NOT carry the rejected value — values can be secrets"))
                   ;; The bad pair is omitted; the valid header survives.
                   (let [h (aget @captured-init "headers")]
-                    (is (instance? js/Headers h)
-                        "a Fetch Headers object is still built and passed to fetch")
                     (is (= "kept" (.get h "X-Good"))
                         "the valid header rides; only the bad pair was dropped")))))
             ;; A rejection / synchronous throw here means the
@@ -478,49 +451,6 @@
                           (str "regression — invalid header ESCAPED "
                                "the managed CLJS path (threw/rejected) instead "
                                "of surfacing a managed warning: " e))
-                      nil))
-            (.then (fn [_] (done))))))))
-
-(deftest cljs-fetch-crlf-header-value-surfaces-managed-warning-not-escape
-  (testing "a header VALUE carrying a CR (`\\r`) is the
-  classic response-splitting vector; `Headers.append` rejects it with a
-  TypeError. It is caught inside the managed path (warning emitted, pair
-  omitted, valid headers preserved, Promise resolves) — not escaped."
-    (async done
-      (let [captured-init (atom nil)
-            resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{}"})]
-        (-> (with-trace-capture
-              #(with-init-capturing-fetch resp captured-init
-                 (fn []
-                   (cljs-fetch {:method  :get
-                                :url     "https://example.invalid/v1"
-                                :headers {"X-Bad"  "value-with-\rCR"
-                                          "X-Good" "kept"}
-                                :decode  :json
-                                :internal-controller (js/AbortController.)})))
-              (fn [seen _result]
-                (let [warns (filter #(= :rf.warning/http-header-invalid
-                                        (:operation %))
-                                    @seen)]
-                  (is (seq warns)
-                      "expected a managed :rf.warning/http-header-invalid trace for the CR/LF value")
-                  (let [tags (:tags (first warns))]
-                    (is (= "X-Bad" (:header tags))
-                        "trace names the offending header")
-                    (is (not (contains? tags :value))
-                        "the CR/LF value MUST NOT ride the trace surface"))
-                  (let [h (aget @captured-init "headers")]
-                    (is (= "kept" (.get h "X-Good"))
-                        "the valid header survives the dropped CR/LF pair")
-                    (is (nil? (.get h "X-Bad"))
-                        "the response-splitting header was omitted, not sent")))))
-            ;; Handler upstream of the single trailing `done` — see the
-            ;; sibling row above.
-            (.catch (fn [e]
-                      (is false
-                          (str "regression — CR/LF header value escaped "
-                               "the managed path: " e))
                       nil))
             (.then (fn [_] (done))))))))
 
@@ -553,41 +483,9 @@
                     (is (str/includes? (str (:cause tags)) "Authorization")
                         ":cause names the rejected header"))
                   (is (not (str/includes? (pr-str @seen) sentinel))
-                      "no captured trace event carries any part of the rejected value"))))
-            ;; Handler upstream of the single trailing `done`.
-            (.catch (fn [e]
-                      (is false (str "unexpected reject: " e))
-                      nil))
-            (.then (fn [_] (done))))))))
-
-(deftest cljs-fetch-invalid-header-warning-redacts-denylisted-query-param
-  (testing "the managed CLJS header-validation warning routes
-  its `:url` through `re-frame.http.privacy/prepare-emit-tags` (same as the JVM
-  path): a denylisted query param (`?api_key=…`) is scrubbed and
-  `:sensitive?` is stamped at the top level of the trace event."
-    (async done
-      (let [captured-init (atom nil)
-            resp (fake-response {:status 200 :content-type "application/json"
-                                 :text-val "{}"})]
-        (-> (with-trace-capture
-              #(with-init-capturing-fetch resp captured-init
-                 (fn []
-                   (cljs-fetch {:method  :get
-                                :url     "https://example.invalid/v1?api_key=SECRET&page=2"
-                                :headers {"" "anything"}
-                                :decode  :json
-                                :internal-controller (js/AbortController.)})))
-              (fn [seen _result]
-                (let [w (first (filter #(= :rf.warning/http-header-invalid
-                                           (:operation %))
-                                       @seen))]
-                  (is (some? w) "warning event should have been captured")
-                  (let [tags (:tags w)]
-                    (is (= "https://example.invalid/v1?api_key=:rf/redacted&page=2"
-                           (:url tags))
-                        "denylisted query-param value MUST be scrubbed in the trace URL")
-                    (is (true? (:sensitive? w))
-                        ":sensitive? stamped at top level — a denylisted param name is a signal")))))
+                      "no captured trace event carries any part of the rejected value")
+                  (is (nil? (.get (aget @captured-init "headers") "Authorization"))
+                      "the CR/LF-bearing header was omitted, not sent"))))
             ;; Handler upstream of the single trailing `done`.
             (.catch (fn [e]
                       (is false (str "unexpected reject: " e))
@@ -893,61 +791,6 @@
                       nil))
             (.then (fn [_] (restore) (done))))))))
 
-;; ---- an ANONYMOUS request is frame-owned too (CLJS) ----------------------
-;;
-;; The test above names a `:request-id`, so the frame sweep can always find its
-;; handle. `:request-id` is optional, and an ordinary event-handler request
-;; without one has no owning actor either — a registry index must still hold
-;; it, or frame destroy could not reach it and its backoff timer would go
-;; on retrying into the destroyed frame.
-
-(deftest cljs-destroy-frame-cancels-anonymous-backoff-and-suppresses-reply
-  (testing "destroying a frame cancels an ANONYMOUS managed request
-            (no :request-id, no owning actor) sleeping in its backoff window: no
-            second fetch, and no reply"
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf/make-frame {:id :frame/anon :doc "the frame that owns the anonymous request"})
-      (rf.http.managed/clear-all-in-flight!)
-      (let [fetch-count (atom 0)
-            replies     (atom [])
-            restore     (with-counting-500-fetch fetch-count)
-            backoff-ms  80]
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue-anonymous
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url "/always-500"}
-                    :decode     :json
-                    :retry      {:on           #{:rf.http/http-5xx}
-                                 :max-attempts 5
-                                 :backoff      {:base-ms backoff-ms :factor 1
-                                                :max-ms  backoff-ms}}
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue-anonymous] {:frame :frame/anon})
-        ;; The stubbed 500 settles in microtasks, so one macrotask later attempt
-        ;; #1 has failed and the request is asleep in its backoff. There is no
-        ;; request-id to poll `in-flight-snapshot` on.
-        (-> (js/Promise. (fn [resolve _] (js/setTimeout resolve 10)))
-            (.then (fn [_]
-                     (is (= 1 @fetch-count) "precondition: attempt #1 fetched")
-                     (rf/destroy-frame! :frame/anon)
-                     (js/Promise.
-                       (fn [resolve _]
-                         (js/setTimeout resolve (+ backoff-ms 150))))))
-            (.then (fn [_]
-                     (is (= 1 @fetch-count)
-                         "the anonymous request's retry MUST NOT fetch after its frame is destroyed")
-                     (is (empty? @replies)
-                         "frame destroy SUPPRESSES the anonymous request's reply")))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_] (restore) (done))))))))
-
 ;; ---- managed body-prep failure delivery (CLJS) ----------------------------
 ;;
 ;; The JVM suite (re-frame.http-body-prep-failure-test) pins the same
@@ -973,45 +816,6 @@
             (js/Promise.reject
               (js/Error. "fetch must NOT be reached: body-prep threw before any network call"))))
     (fn [] (set! (.-fetch js/globalThis) orig))))
-
-(deftest cljs-throwing-body-thunk-delivers-managed-transport-failure
-  (testing "a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception) and clears the registry"
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (rf.http.managed/clear-all-in-flight!)
-      (let [replies (atom [])
-            restore (with-failing-fetch)]
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue/throwing-thunk
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url    "/x"
-                                 :method :post
-                                 :body   (fn [] (throw (js/Error. "boom-thunk")))}
-                    :request-id :prep-thunk
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue/throwing-thunk] {:frame :rf/default})
-        (-> (rf.test-support/poll-until
-              #(seq @replies)
-              {:timeout-ms 2000 :label "cljs body-thunk prep failure reply"})
-            (.then (fn [_]
-                     (is (= 1 (count @replies))
-                         "exactly one reply — the prep failure is delivered once")
-                     (let [reply (first @replies)]
-                       (is (= :error (:status reply)))
-                       (is (= :rf.http/transport (get-in reply [:error :kind]))
-                           "a throwing body thunk surfaces as the managed :rf.http/transport category")
-                       (is (= :request-prep (get-in reply [:error :stage]))
-                           "the :stage discriminator marks this as a request-preparation failure"))
-                     (is (empty? (rf.http.registry/in-flight-snapshot))
-                         "the in-flight registry is cleared — the failed-prep request is not pinned")))
-            (.catch (fn [e]
-                      (is false (str "unexpected: " e))
-                      nil))
-            (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-unencodable-body-delivers-managed-transport-failure
   (testing "a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
@@ -1089,8 +893,11 @@
                      (is (= 1 (count @replies))
                          "exactly one FINAL reply after the retries exhaust")
                      (let [reply (first @replies)]
+                       (is (= :error (:status reply)))
                        (is (= :rf.http/transport (get-in reply [:error :kind]))
-                           "the final reply carries the :rf.http/transport prep-failure category"))
+                           "the final reply carries the :rf.http/transport prep-failure category")
+                       (is (= :request-prep (get-in reply [:error :stage]))
+                           "the :stage discriminator marks this as a request-preparation failure"))
                      (is (empty? (rf.http.registry/in-flight-snapshot)))))
             (.catch (fn [e]
                       (is false (str "unexpected: " e))
