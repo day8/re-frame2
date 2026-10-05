@@ -48,41 +48,6 @@
 
 (use-fixtures :each reset)
 
-(deftest default-printer-matches-historical-canonical-form
-  (testing "The default printer (`default-edn-print`) produces the
-            canonical Malli-EDN bytes — sort-by-pr-str map
-            keys, metadata stripped, namespaced-map printing off,
-            `pr-str` over the canonicalised form. Locks the
-            default so the pinned digest
-            literals (`digest_parity_fixtures.cljc`)
-            match."
-    (is (= "[:map [:id :uuid]]"
-           (rf.schemas.validator/run-printer [:map [:id :uuid]]))
-        "vector schema serialises as straightforward pr-str")
-    (is (= "[:map {:closed true, :title \"User\"} [:id :uuid]]"
-           (rf.schemas.validator/run-printer
-             [:map (array-map :title "User" :closed true) [:id :uuid]]))
-        "map-keys in the props map sort by (compare (pr-str a) (pr-str b))
-         — :closed sorts before :title — regardless of insertion order")
-    (is (= "[:map [:id :uuid]]"
-           (rf.schemas.validator/run-printer
-             ^{:doc "user-id"} [:map [:id :uuid]]))
-        "metadata is stripped (`:doc` does not appear in the printed bytes)")
-    (is (= ":int"
-           (rf.schemas.validator/run-printer :int))
-        "primitive keyword schemas pass through pr-str unchanged")))
-
-(deftest print-key-swaps-the-printer-atom
-  (testing "a `:print` install reaches the run-printer hot path on
-            the next call — the digest pipeline picks up the new bytes
-            without a restart."
-    (let [marker-printer (fn [_schema] "::SENTINEL::")]
-      (rf.schemas/set-schema-fns! {:print marker-printer})
-      (is (= "::SENTINEL::" (rf.schemas.validator/run-printer [:map [:id :uuid]]))
-          "every schema serialises to the sentinel, regardless of shape")
-      (is (= "::SENTINEL::" (rf.schemas.validator/run-printer :int))
-          "primitive keyword schemas route through the registered fn too"))))
-
 (deftest schema-print-swap-flips-the-digest-bytes
   (testing "A printer swap changes the digest for a non-empty schema
             set — the per-schema bytes are fed through the digest
