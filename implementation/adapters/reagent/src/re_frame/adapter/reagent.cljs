@@ -11,9 +11,10 @@
 ;; ---- exactly-once Reaction disposal ---------------------------------------
 ;;
 ;; Spec 006 §On-dispose hooks promises disposal that is idempotent and
-;; re-entrant safe: every on-dispose callback fires EXACTLY ONCE in
-;; registration order, a second `dispose!` is a no-op, and a `dispose!`
-;; re-entered from inside a callback cannot recurse. Stock Reagent 2.0.1's
+;; re-entrant safe: every on-dispose callback fires EXACTLY ONCE PER
+;; REGISTRATION in registration order, a second `dispose!` re-fires nothing
+;; registered before the first, and a `dispose!` re-entered from inside a
+;; callback cannot recurse. Stock Reagent 2.0.1's
 ;; `reagent.ratom/dispose!` keeps neither half: it nils `watching`/`state`
 ;; but leaves `on-dispose` / `on-dispose-arr` intact and re-invokes them on
 ;; every call, and `Reaction.-remove-watch` AUTO-disposes when the last
@@ -41,6 +42,15 @@
 ;; `:dispose!`) and the routed `:adapter/dispose!` hook delegate through:
 ;; it consults the same marker and no-ops outright on a marked Reaction.
 ;;
+;; A registration made AFTER disposal revives the Reaction:
+;; `add-on-dispose-reviving!` clears the marker and arms the guard again
+;; before registering, so the new callback fires on the next disposal,
+;; exactly once, with the marker ahead of it. The sub-cache's on-dispose hook
+;; relies on that: when a render stops reading a sub an explicit subscribe
+;; still holds, the hook keeps the slot and re-registers itself on the
+;; disposed Reaction (Spec 006 §Which lifetime governs a ratom adapter), and
+;; the marker would otherwise no-op the `dispose-once!` that finally evicts it.
+;;
 ;; The marker key is a string-keyed expando property: never renamed under
 ;; `:advanced`, colliding with no Reagent field. The holder writes use the
 ;; `^clj` field-access idiom this ns already relies on for `.-watching`.
@@ -52,8 +62,10 @@
 
 (defn- install-dispose-guard!
   "Arm `reaction` with the exactly-once disposal marker (see the section comment
-  above). MUST run at construction, before any other callback registers,
-  so the marker is first in `on-dispose-arr`. Returns `reaction`."
+  above). MUST run while `on-dispose-arr` is empty — at construction, before
+  any other callback registers, or at a revival, after the marker has
+  cleared both holders — so the marker is first in `on-dispose-arr`.
+  Returns `reaction`."
   [reaction]
   (ratom/add-on-dispose! reaction
     (fn mark-disposed! [reaction]
@@ -61,6 +73,17 @@
       (set! (.-on-dispose ^clj reaction) nil)
       (set! (.-on-dispose-arr ^clj reaction) nil)))
   reaction)
+
+(defn- add-on-dispose-reviving!
+  "Register `f` on `reaction` through stock `ratom/add-on-dispose!`. A
+  guarded Reaction already disposed is revived first — its marker cleared
+  and the guard armed again — so `f` fires on its next disposal rather than
+  sitting behind a marker that no-ops every later `dispose-once!`."
+  [reaction f]
+  (when (disposed-marker-set? reaction)
+    (unchecked-set reaction disposed-marker-key false)
+    (install-dispose-guard! reaction))
+  (ratom/add-on-dispose! reaction f))
 
 (defn- make-guarded-reaction
   "Stock `ratom/make-reaction` plus the exactly-once disposal guard. The
@@ -239,7 +262,9 @@
                               (ratom/run reaction))
                             nil)
      :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
-     :add-on-dispose!   ratom/add-on-dispose!
+     ;; Reviving, so a registration made after disposal fires on the next
+     ;; one — see the section above.
+     :add-on-dispose!   add-on-dispose-reviving!
      :dispose!          dispose-once!
      :reactive?         ratom/reactive?
      ;; The reaction currently capturing derefs, i.e. the component

@@ -40,6 +40,7 @@
             [re-frame.classification :as rf.classification]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.interop :as rf.interop]
+            #?@(:cljs [[re-frame.disposable :as rf.disposable]])
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.source-coords :as rf.source-coords]
             [re-frame.subs.cache :as rf.subs.cache]
@@ -624,6 +625,7 @@
 
 (declare subscribe subscribe-in-frame unsubscribe unsubscribe-if-reaction
          compute-and-cache!)
+#?(:cljs (declare release-render-owned-share!))
 
 ;; ---- acquire recovery channel ---------------------------------------------
 ;;
@@ -779,6 +781,51 @@
                             "threw")
                           " while materializing.")})
         [recovery-qs true]))))
+
+(defn- kept-ref-count
+  "The `:ref-count` slot `k` of cache map `m` keeps when the substrate, not
+  the cache, disposes its cached `reaction` — what is left once the `share`
+  its render owners held is released — or nil when the slot is not kept.
+
+  An explicit `subscribe` is a ref-counted hold on every adapter, and so is a
+  parent's hold on its declared inputs. A ratom-family `Reaction` disposes
+  itself when its last watcher drops, without consulting `:ref-count`, so a
+  render that stops reading a sub reaches the slot's on-dispose hook while
+  such a hold still counts. That slot is kept, its count less the
+  render-owned share: a disposed `Reaction` re-captures its sources on its
+  next read. The JVM reaction recomputes on every deref, so it survives a
+  dispose too. Where the substrate cannot keep a slot, see
+  `substrate-keeps?`.
+
+  Not kept: a slot that no longer holds `reaction` (a cache-driven eviction
+  removed it before disposing, or a successor replaced it), and a slot whose
+  whole count is render-owned."
+  [m k reaction share]
+  (let [slot (get m k)]
+    (when (identical? reaction (:reaction slot))
+      (let [n (- (or (:ref-count slot) 0) share)]
+        (when (pos? n) n)))))
+
+#?(:cljs
+   (defn- substrate-keeps?
+     "True when a slot may outlive `reaction`'s dispose: the reaction survives
+     it, and the hook it re-registers can be armed.
+
+     Not for a derived value whose dispose is terminal — the
+     function-component substrates' `re-frame.disposable/IDisposable`, which
+     stops hearing its sources and never fires a later registration. Those
+     substrates do not dispose a still-cached value when a watch drops, so
+     only an explicit dispose reaches this there, and it evicts.
+
+     Not for a reaction built under an adapter other than the installed one
+     (`built-under`): the routed `add-on-dispose!` reaches only the installed
+     adapter's substrate, and a slot built under another adapter belongs to a
+     runtime that has since been torn down — a bundle carrying several
+     adapters disposes such leftovers after switching."
+     [reaction built-under]
+     (and (not (satisfies? rf.disposable/IDisposable reaction))
+          (rf.substrate.adapter/same-adapter?
+            built-under (rf.substrate.adapter/current-adapter)))))
 
 (defn- release-input-ref!
   "Release ONE declared input ref — the CONCRETE `input-reaction` this build
@@ -1308,55 +1355,83 @@
       ;; un-cached orphan is a no-op.
       (let [entry {:reaction   reaction
                    :inputs     input-signals
-                   :ref-count  1}]
+                   :ref-count  1}
+            #?@(:cljs [built-under (rf.substrate.adapter/current-adapter)])]
         (rf.interop/add-on-dispose! reaction
-          (fn []
-            ;; A layer-2+ sub's construction called `subscribe` once per
-            ;; declared input, each incrementing the input's `:ref-count`.
-            ;; The disposal must release those refs symmetrically —
-            ;; without this, input ref-counts leak after Reagent auto-
-            ;; disposes the parent. Decrement inputs BEFORE clearing the
-            ;; parent slot so the cache invariant ("ref-count reflects
-            ;; live refs") holds at every observable moment.
-            ;; Best-effort per-input release: a throw from one input's
-            ;; release surfaces a dev breadcrumb and the
-            ;; loop continues so the remaining inputs still release.
-            ;; Hand each release the CONCRETE input reaction this
-            ;; build acquired (`inputs` is `mapv`'d from `input-signals`, so
-            ;; the two are positionally parallel by construction). An
-            ;; address-only release would steal a successor entry's ref whenever
-            ;; an eviction batch is repopulated mid-walk by an eagerly
-            ;; reacquiring holder; the identity guard makes it a no-op
-            ;; instead, symmetric with the `identical?`-guarded cache-dissoc
-            ;; immediately below.
-            (doseq [[input-q input-r] (map vector input-signals inputs)]
-              (release-input-ref! frame-id input-q input-r :on-dispose))
-            ;; EMIT AT THE EVICTION SITE WHEN THE EVICTION IS OURS.
+          (fn release-or-keep-slot! []
+            ;; KEEP A SLOT SOMETHING ELSE STILL HOLDS, AND RE-ARM. A ratom
+            ;; `Reaction` disposes itself when its last watcher drops, so this
+            ;; can run while an explicit `subscribe`, or a parent's hold on a
+            ;; declared input, still counts (see `kept-ref-count`). Then only
+            ;; the render-owned share is released and the hook registers
+            ;; itself again — exactly once per registration — so the eviction
+            ;; that finally removes the slot still releases the inputs and
+            ;; emits.
             ;;
-            ;; On the ratom family this is the removal that a real view unmount
-            ;; actually takes: the render Reaction drops its watch, the sub
-            ;; Reaction auto-disposes (last watcher gone, no `auto-run`), and
-            ;; this callback clears the slot. Spec 006 §Reference counting and
-            ;; disposal promises a `:rf.sub/dispose` `:no-more-derefers` at the
-            ;; eviction site, and §`unsubscribe` says the automatic case fires
-            ;; the underlying release from exactly this hook — so a silent
-            ;; removal here would be a contract violation.
-            ;;
-            ;; Read from the `swap-vals!` snapshots rather than from a flag set
-            ;; inside the swap-fn, the same CAS-after-snapshot discipline the
-            ;; rest of this namespace uses: the swap-fn stays PURE, so a JVM
-            ;; retry cannot fire a spurious emit. And the emit is gated on THIS
-            ;; call having removed the slot, which is what makes a double emit
-            ;; impossible — every cache-driven eviction path dissocs before it
-            ;; disposes, so the identity guard below finds nothing and this
-            ;; stays quiet on those paths (see `emit-no-more-derefers!`).
-            (let [[before after]
-                  (swap-vals! cache (fn [m]
-                                      (if (identical? reaction (:reaction (get m k)))
-                                        (dissoc m k)
-                                        m)))]
-              (when (and (contains? before k) (not (contains? after k)))
-                (rf.subs.cache/emit-no-more-derefers! frame-id k)))))
+            ;; The share is released by DROPPING those holdings here, not left
+            ;; to the reaction's own holder callback later in this dispose
+            ;; pass: a dispose re-entered from a callback between the two would
+            ;; reach the re-registered hook while the holdings are still
+            ;; recorded, and release them twice.
+            (let [share   #?(:cljs (release-render-owned-share! reaction)
+                             :clj  0)
+                  keep?   #?(:cljs (substrate-keeps? reaction built-under)
+                             :clj  true)
+                  [pre _] (swap-vals! cache
+                                      (fn [m]
+                                        (if-some [n (when keep?
+                                                      (kept-ref-count m k reaction share))]
+                                          (assoc-in m [k :ref-count] n)
+                                          m)))]
+              (if (and keep? (some? (kept-ref-count pre k reaction share)))
+                (rf.interop/add-on-dispose! reaction release-or-keep-slot!)
+                (do
+                  ;; A layer-2+ sub's construction called `subscribe` once per
+                  ;; declared input, each incrementing the input's `:ref-count`.
+                  ;; The disposal must release those refs symmetrically —
+                  ;; without this, input ref-counts leak after Reagent auto-
+                  ;; disposes the parent. Decrement inputs BEFORE clearing the
+                  ;; parent slot so the cache invariant ("ref-count reflects
+                  ;; live refs") holds at every observable moment.
+                  ;; Best-effort per-input release: a throw from one input's
+                  ;; release surfaces a dev breadcrumb and the
+                  ;; loop continues so the remaining inputs still release.
+                  ;; Hand each release the CONCRETE input reaction this
+                  ;; build acquired (`inputs` is `mapv`'d from `input-signals`, so
+                  ;; the two are positionally parallel by construction). An
+                  ;; address-only release would steal a successor entry's ref whenever
+                  ;; an eviction batch is repopulated mid-walk by an eagerly
+                  ;; reacquiring holder; the identity guard makes it a no-op
+                  ;; instead, symmetric with the `identical?`-guarded cache-dissoc
+                  ;; immediately below.
+                  (doseq [[input-q input-r] (map vector input-signals inputs)]
+                    (release-input-ref! frame-id input-q input-r :on-dispose))
+                  ;; EMIT AT THE EVICTION SITE WHEN THE EVICTION IS OURS.
+                  ;;
+                  ;; On the ratom family this is the removal that a real view unmount
+                  ;; actually takes: the render Reaction drops its watch, the sub
+                  ;; Reaction auto-disposes (last watcher gone, no `auto-run`), and
+                  ;; this callback clears the slot. Spec 006 §Reference counting and
+                  ;; disposal promises a `:rf.sub/dispose` `:no-more-derefers` at the
+                  ;; eviction site, and §`unsubscribe` says the automatic case fires
+                  ;; the underlying release from exactly this hook — so a silent
+                  ;; removal here would be a contract violation.
+                  ;;
+                  ;; Read from the `swap-vals!` snapshots rather than from a flag set
+                  ;; inside the swap-fn, the same CAS-after-snapshot discipline the
+                  ;; rest of this namespace uses: the swap-fn stays PURE, so a JVM
+                  ;; retry cannot fire a spurious emit. And the emit is gated on THIS
+                  ;; call having removed the slot, which is what makes a double emit
+                  ;; impossible — every cache-driven eviction path dissocs before it
+                  ;; disposes, so the identity guard below finds nothing and this
+                  ;; stays quiet on those paths (see `emit-no-more-derefers!`).
+                  (let [[before after]
+                        (swap-vals! cache (fn [m]
+                                            (if (identical? reaction (:reaction (get m k)))
+                                              (dissoc m k)
+                                              m)))]
+                    (when (and (contains? before k) (not (contains? after k)))
+                      (rf.subs.cache/emit-no-more-derefers! frame-id k))))))))
         (let [installed (swap! cache (fn [m]
                                        (if (contains? m k)
                                          m
@@ -1568,7 +1643,10 @@
 ;; records then name only live holdings, and neither grows with renders, claims
 ;; or owner churn. Dropping a holding early loses nothing: every eviction path
 ;; removes the slot before disposing, so the release it replaces would have
-;; no-oped on its identity guard.
+;; no-oped on its identity guard. When the claimed reaction dies while its slot
+;; stays cached — a render stopped reading a sub something else still holds —
+;; the cache's on-dispose hook drops the holdings first and releases them from
+;; the slot's count itself (`release-render-owned-share!`).
 
 #?(:cljs
    (defn- held-reaction
@@ -1599,6 +1677,38 @@
            cell))))
 
 #?(:cljs
+   (defn- drop-holdings!
+     "Drop `reaction` from every owner cell its holders record `h` names —
+     identity-guarded, since a slot may by then hold a successor — and empty
+     `h`, detaching it from `reaction` unless a newer record replaced it.
+     Returns how many holdings were dropped."
+     [reaction h]
+     (when (identical? h (.-rfSubHolders ^js reaction))
+       (set! (.-rfSubHolders ^js reaction) nil))
+     (let [dropped (volatile! 0)]
+       (.forEach h
+         (fn [slot cell]
+           (when (identical? reaction (held-reaction @cell slot))
+             (vswap! cell dissoc slot)
+             (vswap! dropped inc))))
+       (.clear h)
+       @dropped)))
+
+#?(:cljs
+   (defn- release-render-owned-share!
+     "Drop every render owner's holding of `reaction` and return how many
+     there were: the render-owned share of its slot's `:ref-count`, which the
+     slot's on-dispose hook subtracts when it keeps the slot. Dropping them,
+     not merely counting them, is what makes a second call — a dispose
+     re-entered later in the same pass, reaching the re-registered hook —
+     answer 0 rather than release the same references twice. 0 for a
+     reaction no owner holds."
+     [reaction]
+     (if-some [h (.-rfSubHolders ^js reaction)]
+       (drop-holdings! reaction h)
+       0)))
+
+#?(:cljs
    (defn- record-holder!
      "Record on `reaction` that the owner holdings `cell` holds it at `slot`.
      The record is a JS Map from holdings cell to slot, created with the ONE
@@ -1611,15 +1721,7 @@
                          (set! (.-rfSubHolders ^js reaction) h)
                          (rf.interop/add-on-dispose! reaction
                            (fn drop-render-owned-holdings [_]
-                             (set! (.-rfSubHolders ^js reaction) nil)
-                             (.forEach h
-                               (fn [slot cell]
-                                 (vswap! cell
-                                         (fn [m]
-                                           (if (identical? reaction (held-reaction m slot))
-                                             (dissoc m slot)
-                                             m)))))
-                             (.clear h)))
+                             (drop-holdings! reaction h)))
                          h))]
        (.set holders cell slot))))
 
