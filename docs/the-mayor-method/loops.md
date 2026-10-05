@@ -444,16 +444,23 @@ test reads no field of that line at all — it reads the report, which the id le
 **If your project links a shared dependency tree into worker worktrees, never remove a worktree with
 the plain command** — it follows the link and deletes *through* it, silently, exiting successfully. Put
 the safe sequence in a **script**: snapshot every shared tree, unlink each *link* (never a recursive
-delete), verify, remove, re-check, and **fail loudly if the signature moved**.
+delete), verify, remove, re-check, and **fail loudly if the manifest differs**.
 
 - **Removal is not the only write that follows a link.** An installer a gate runs rewrites the shared
   target, so a tree can be emptied while its worker is alive and no cleanup has run.
-- **Capture the snapshot at runtime and count both sides the SAME WAY.** Count immediate entries *and*
-  recursive files — a top-level count cannot see files vanishing under surviving directories. And a
-  listing that hides entries turns the comparison into an offset that **CANCELS a real loss of its own
+- **Capture the snapshot at runtime and enumerate both sides the SAME WAY.** Recurse — a top-level
+  listing cannot see files vanishing under surviving directories — and keep hidden entries, because a
+  listing that hides them turns the comparison into an offset that **CANCELS a real loss of its own
   size**.
-- **So make the decisive control a clock, not a count** — the newest modification time inside the tree,
-  which a removal moves and a change of listing options cannot.
+- **So make the decisive control a MANIFEST, not a clock or a count** — every entry's relative path and
+  kind, each link recorded as a link and never traversed, and a content hash per file only where the
+  verdict claims the bytes survived. Any difference fails. **The newest modification time cannot
+  discharge that**: losing a file that is not the newest moves it only through the directory's own
+  timestamp, which a future-dated survivor — clock skew, an unpacked archive — outranks, and a rewrite
+  that keeps its timestamp never moves it at all. A count misses a loss and a gain of the same size.
+  Both stay as diagnostics, and neither ever outvotes a manifest that differs.
+- **Two scans under different listing policies, or one that did not finish, give no verdict** — refuse
+  rather than compare, because either can hide a loss or invent one.
 - **Sweep with a narrow force flag, never a blanket one.** A disposable-only force refuses any tree
   holding a modified tracked file, a note or a draft; when that guard was written, four worktrees held
   uncommitted work a blanket force would have destroyed silently.
