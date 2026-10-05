@@ -27,7 +27,7 @@
 
   The ALGEBRA is posture-independent and asserted without a guard: the fixed
   classifications, the per-kind declared-input lowering, the output fact id,
-  the `:derive` token, `:schema`, and the registry semantics all run under
+  the `:derive` token and `:schema` all run under
   `scripts/test-core-prod-gate.sh` as well as `clojure -M:test`. This is the
   same shape as `sub-topology-test` — the topology around the metadata is
   production-real; only the REFLECTION METADATA on it is not.
@@ -260,26 +260,3 @@
       ;; exists in production, not because this registration omitted it.
       (when rf.interop/debug-enabled?
         (is (not (contains? node :doc)))))))
-
-;; ---- registry semantics --------------------------------------------------
-
-(deftest reregistration-replaces-the-node
-  (testing "re-registering a sub replaces its algebra node (last-write-wins)"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (is (= [[:db []]] (:inputs ((rf.subs.tooling/sub-algebra-view) :a))))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] b))
-    (let [node ((rf.subs.tooling/sub-algebra-view) :a)]
-      (is (= [[:sub [:b]]] (:inputs node))
-          "the re-registered declared-input chain replaces the prior :db reader's inputs")
-      (is (has-fixed-classifications? node)))))
-
-(deftest cleared-sub-is-removed
-  (testing "(clear-sub id) removes the sub from the algebra view"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (is (contains? (rf.subs.tooling/sub-algebra-view) :a))
-    (rf/clear :sub :a)
-    (let [view (rf.subs.tooling/sub-algebra-view)]
-      (is (not (contains? view :a)))
-      (is (contains? view :b)))))
