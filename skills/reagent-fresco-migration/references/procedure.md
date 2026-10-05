@@ -383,10 +383,36 @@ migration assistant, not a permanent build lint.
 ## A single converted file is PROVISIONAL
 
 If a view's callers live in *other* files that are still Reagent, converting
-just its file leaves it un-rendered unless you bridge it with `h/as-component`.
-It compiles, and "compiles ≠ renders". Treat such a file as provisional until a
-converted parent, a root, or a deliberate bridge mounts it. That is why the unit
-of a pass is a *closed subtree*, not a lone file.
+just its file leaves it un-rendered until something mounts it. It compiles, and
+"compiles ≠ renders". Treat such a file as provisional until a converted
+parent, a root, or a deliberate bridge mounts it, and that mounted subtree is
+rendered and tested — a clean compile, or a bridge wrapper nothing mounts, is
+not acceptance. That is why the unit of a pass is a *closed subtree*, not a
+lone file.
+
+A Reagent caller can close it through either of two bridge doors without being
+converted itself, and the props it actually passes pick the door (spellings in
+[Step 1](#step-1--scope-a-closed-subtree); MIG-22):
+
+- **`h/as-element` in the Reagent parent's child position** —
+  `[:section (h/as-element [card props])]`. The props travel as a Fresco props
+  map, so every Clojure value arrives exactly as written. This is the door for
+  ordinary Clojure props.
+- **A stable `h/as-component`**, declared once at top level, used through a
+  raw or foreign props route: `r/create-element` with a `#js` props object
+  holding the original values, or a React parent passing its own props. Its
+  decode is shallow — it maps the names back and takes each value as the caller
+  built it.
+
+A map the view looks into, a keyword it compares, a set it tests, or a function
+it calls or compares by identity has to arrive as that same Clojure value, and
+a Reagent `[:> card* …]` alters most of them before the bridge sees them: a
+keyword arrives as its name, a map as a JavaScript object, a set, vector or
+other collection as an array, and a callable that is not a plain function (an
+`r/partial`) as a fresh wrapper. Only strings, numbers, booleans, plain
+functions and JavaScript objects cross it unchanged, so `[:>]` suits only a
+caller whose props are all of those; any other caller takes `h/as-element` or
+the raw route.
 
 ## Resuming an interrupted migration
 
