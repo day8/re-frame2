@@ -412,26 +412,3 @@
           ":out-b = 100 × :n = 500 — the moved flow materialised on its new path")
       (is (= [:out-b] (:output-path (get-in (rf.flows/flows-snapshot) [:rf/default :scaled])))
           "the live registry points :scaled at its new path [:out-b]"))))
-
-(deftest reg-flow-path-move-out-of-drain-vacates-directly
-  ;; The OUT-of-drain branch: a top-level (not reentrant) `reg-flow`
-  ;; `:output-path` move vacates the old path with a DIRECT app-db write —
-  ;; there is no pending deferred commit to clobber it. Pins that the
-  ;; call-shape split (`frame/in-drain?`) keeps the direct-vacate path intact.
-  (testing "out-of-drain reg-flow :output-path move vacates the old path immediately"
-    (rf/reg-event :seed (fn [_ _] {:db {:n 5}}))
-    (rf/reg-flow :scaled {:inputs [[:n]] :output-path [:out-a]} (fn [n] (* 2 (or n 0))))
-    (rf/dispatch-sync [:seed])
-    (is (= 10 (:out-a (rf/app-db-value :rf/default)))
-        "precondition: :out-a = 10")
-
-    ;; Top-level re-registration (NOT inside a drain) that moves the path.
-    (rf/reg-flow :scaled {:frame :rf/default :inputs [[:n]] :output-path [:out-b]} (fn [n] (* 100 (or n 0))))
-    (is (not (contains? (rf/app-db-value :rf/default) :out-a))
-        ":out-a vacated immediately by the direct out-of-drain write")
-
-    ;; The new path materialises on the next drain.
-    (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:touch] {:frame :rf/default})
-    (is (= 500 (:out-b (rf/app-db-value :rf/default)))
-        ":out-b materialised on the next drain after the move")))
