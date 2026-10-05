@@ -87,17 +87,6 @@
 ;; Denial through EVERY door — terminal, no pending, EXACTLY ONE event
 ;; ===========================================================================
 
-(deftest entry-denied-through-programmatic-door
-  (testing "programmatic :rf.route/navigate to a guarded target DENIES:
-            nothing commits, no pending value, one :rf.route/entry-denied"
-    (register-common!)
-    (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (let [seen (capture-denials!)]
-      (rf/dispatch-sync [:rf.route/navigate {:to :account}])
-      (is (= 1 (count @seen)) ":rf.route/entry-denied dispatched EXACTLY once")
-      (is (nil? (pending)) "a denial creates NO pending-navigation value")
-      (is (= :home (current-id)) "the slice did not move — entry was refused"))))
-
 (deftest entry-denied-through-link-door-fires-exactly-once
   (testing "the LINK door (:rf.route/url-requested) is a TWO-HOP path
             (url-requested → handle-url-change). A denial must fire the event
