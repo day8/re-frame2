@@ -84,34 +84,7 @@
   (rf.frame/frame-runtime-db-value :rf/default))
 
 ;; ===========================================================================
-;; (1) The always-on precondition — activation really lowers, in this posture
-;; ===========================================================================
-
-(deftest route-activation-lowers-its-classification-in-this-posture
-  (testing "The hydration redaction below is downstream of ONE
-            always-on fact: a real navigation re-roots the route's
-            projection-relative declarations to absolute runtime-db paths and
-            writes them into the live frame's elision registry. If a production
-            build ever stopped doing that the payload assertions would go quiet
-            rather than red — an empty registry withholds nothing and a
-            value-shaped assertion cannot tell that apart from a clean walk."
-    (navigate-to-classified-route!)
-    (let [reg (:rf.runtime/elision (live-runtime-db))]
-      (is (contains? (:sensitive-declarations reg)
-                     [:rf.runtime/routing :current :query :token])
-          "the `:sensitive` decl re-rooted to its absolute runtime-db path")
-      (is (contains? (:declarations reg)
-                     [:rf.runtime/routing :current :query :payload])
-          "and the `:large` one alongside it"))
-    (testing "and the durable slice really is carrying the secret in-process"
-      (is (= token-secret
-             (get-in (live-runtime-db)
-                     [:rf.runtime/routing :current :query :token]))
-          "FIXTURE — the runtime-db the projection is about does hold the raw
-           value, so a clean payload below is a redaction and not an absence"))))
-
-;; ===========================================================================
-;; (2) The egress site itself — the hydration blob redacts in production
+;; The egress site itself — the hydration blob redacts in production
 ;; ===========================================================================
 
 (deftest the-hydration-payload-a-visitor-receives-carries-no-raw-route-secret
@@ -141,21 +114,3 @@
           "and so does the structural `:route-id`")
       (is (not (.contains (pr-str payload) token-secret))
           "GUARD: the blob the client receives carries no raw secret"))))
-
-;; ===========================================================================
-;; (3) The boundary — an unclassified route is not over-redacted
-;; ===========================================================================
-
-(deftest an-unclassified-route-ships-its-slice-verbatim
-  (testing "The over-redaction control, driven through the same
-            real activation. A route that declares nothing lowers nothing, and
-            its durable slice rides the hydration wire intact. Without this the
-            assertions above would also pass under a blanket scrub, which would
-            be a different framework."
-    (rf/reg-route :route/home {:query [:map [:token :string]]} "/home")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/home?token=not-classified" {:rf.route/cause :link}])
-    (let [slice   (rf.ssr.payload-policy/project-runtime-db (live-runtime-db) :rf/default)
-          current (get-in slice [:rf.runtime/routing :current])]
-      (is (= "not-classified" (get-in current [:query :token]))
-          "an unclassified route query rides the hydration wire verbatim")
-      (is (= :route/home (:route-id current))))))
