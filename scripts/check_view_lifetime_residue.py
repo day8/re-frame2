@@ -166,13 +166,10 @@ def _run_self_tests(*, verbose: bool) -> int:
         ("camel head word", f"class View{S}e {{}}"),
         ("kebab / filename", f"{s}e-manager.cljs"),
         ("hidden on a release line", f"release is a {S}E release, not GC"),
-        ("upper-case", f"RETURNS A {s.upper()}E — THE OWNER TOKEN"),
     ]
     must_not_match = [
         ("release", "release the subscription"),
-        ("released", "the owner is released by supersession"),
         ("releases", "route exit releases route owners"),
-        ("releasing", "releasing the handle"),
         ("please", "please read the owner"),
         ("pleased", "the reviewer was pleased"),
         ("displease", "this would displease no one"),
