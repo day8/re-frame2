@@ -167,32 +167,6 @@
 
 ;; --- The lockstep tests -------------------------------------------------
 
-(deftest react-version-lockstep
-  (testing "Template's :react-version literal matches implementation/package.json"
-    (let [pkg-react     (read-package-json-pin "react")
-          pkg-react-dom (read-package-json-pin "react-dom")
-          tmp           (tmp-dir "rf2-template-lockstep-react-")]
-      (try
-        (let [root      (run-template! tmp "acme/my-app" :reagent)
-              pj-text   (slurp (io/file root "package.json"))
-              tpl-react     (extract-pin pj-text "react")
-              tpl-react-dom (extract-pin pj-text "react-dom")]
-          ;; impl tree must keep react / react-dom in lockstep with
-          ;; each other; if they ever diverge, the rationale should
-          ;; be in DESIGN-RATIONALE and this test updates accordingly.
-          (is (= pkg-react pkg-react-dom)
-              "implementation/package.json pins react and react-dom to the same version")
-          (is (= pkg-react tpl-react)
-              (str "Template :react-version (" tpl-react ") must match "
-                   "implementation/package.json :react (" pkg-react ") — "
-                   "P5 lockstep. Bump :react-version in "
-                   "tools/template/src/day8/re_frame2_template/hooks.clj."))
-          (is (= pkg-react-dom tpl-react-dom)
-              (str "Template react-dom pin (" tpl-react-dom ") must match "
-                   "implementation/package.json :react-dom (" pkg-react-dom ")")))
-        (finally
-          (delete-recursively tmp))))))
-
 (deftest pair-fixture-react-lockstep
   ;; Not a template literal — see the ns docstring for why it rides here.
   (testing "re-frame2-pair fixture's react / react-dom match implementation/package.json"
@@ -206,22 +180,6 @@
                    "TRACKS the project's React. Bump its "
                    "devDependencies in the same change.")))))))
 
-(deftest shadow-version-lockstep
-  (testing "Template's :shadow-version literal matches implementation/package.json"
-    (let [pkg-shadow (read-package-json-pin "shadow-cljs")
-          tmp        (tmp-dir "rf2-template-lockstep-shadow-")]
-      (try
-        (let [root       (run-template! tmp "acme/my-app" :reagent)
-              pj-text    (slurp (io/file root "package.json"))
-              tpl-shadow (extract-pin pj-text "shadow-cljs")]
-          (is (= pkg-shadow tpl-shadow)
-              (str "Template :shadow-version (" tpl-shadow ") must match "
-                   "implementation/package.json :shadow-cljs (" pkg-shadow ") — "
-                   "P5 lockstep. Bump :shadow-version in "
-                   "tools/template/src/day8/re_frame2_template/hooks.clj.")))
-        (finally
-          (delete-recursively tmp))))))
-
 (defn- base-version
   "Strip a leading npm range operator so a range in
   `implementation/package.json` (`elkjs` is `^0.11.1` there) compares with
@@ -230,12 +188,41 @@
   [pin]
   (string/replace-first pin #"^[~^=]+" ""))
 
-(deftest story-npm-lockstep
-  (testing "The two npm packages Story's shell needs match implementation/package.json"
-    (let [tmp (tmp-dir "rf2-template-lockstep-story-npm-")]
-      (try
-        (let [root    (run-template! tmp "acme/my-app" :reagent)
-              pj-text (slurp (io/file root "package.json"))]
+(deftest template-pin-literals-lockstep
+  ;; The pin literals are substrate-invariant, so one Reagent emission
+  ;; recovers all of them.
+  (let [tmp (tmp-dir "rf2-template-lockstep-pins-")]
+    (try
+      (let [root      (run-template! tmp "acme/my-app" :reagent)
+            pj-text   (slurp (io/file root "package.json"))
+            deps-text (slurp (io/file root "deps.edn"))]
+        (testing "Template's :react-version literal matches implementation/package.json"
+          (let [pkg-react     (read-package-json-pin "react")
+                pkg-react-dom (read-package-json-pin "react-dom")
+                tpl-react     (extract-pin pj-text "react")
+                tpl-react-dom (extract-pin pj-text "react-dom")]
+            ;; impl tree must keep react / react-dom in lockstep with
+            ;; each other; if they ever diverge, the rationale should
+            ;; be in DESIGN-RATIONALE and this test updates accordingly.
+            (is (= pkg-react pkg-react-dom)
+                "implementation/package.json pins react and react-dom to the same version")
+            (is (= pkg-react tpl-react)
+                (str "Template :react-version (" tpl-react ") must match "
+                     "implementation/package.json :react (" pkg-react ") — "
+                     "P5 lockstep. Bump :react-version in "
+                     "tools/template/src/day8/re_frame2_template/hooks.clj."))
+            (is (= pkg-react-dom tpl-react-dom)
+                (str "Template react-dom pin (" tpl-react-dom ") must match "
+                     "implementation/package.json :react-dom (" pkg-react-dom ")"))))
+        (testing "Template's :shadow-version literal matches implementation/package.json"
+          (let [pkg-shadow (read-package-json-pin "shadow-cljs")
+                tpl-shadow (extract-pin pj-text "shadow-cljs")]
+            (is (= pkg-shadow tpl-shadow)
+                (str "Template :shadow-version (" tpl-shadow ") must match "
+                     "implementation/package.json :shadow-cljs (" pkg-shadow ") — "
+                     "P5 lockstep. Bump :shadow-version in "
+                     "tools/template/src/day8/re_frame2_template/hooks.clj."))))
+        (testing "The two npm packages Story's shell needs match implementation/package.json"
           (doseq [[pkg literal] [["@xyflow/react" ":xyflow-version"]
                                  ["elkjs"         ":elkjs-version"]]]
             (let [impl-pin (read-package-json-pin pkg)
@@ -245,24 +232,16 @@
                        "implementation/package.json " pkg " (" impl-pin ") — P5 "
                        "lockstep. Bump " literal " in "
                        "tools/template/src/day8/re_frame2_template/hooks.clj.")))))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest rf2-version-lockstep
-  (testing "Template's :rf2-version literal matches repo-root VERSION"
-    (let [version-file (read-version-file)
-          tmp          (tmp-dir "rf2-template-lockstep-rf2-")]
-      (try
-        (let [root        (run-template! tmp "acme/my-app" :reagent)
-              deps-text   (slurp (io/file root "deps.edn"))
-              tpl-rf2     (extract-rf2-version deps-text)]
-          (is (= version-file tpl-rf2)
-              (str "Template :rf2-version (" tpl-rf2 ") must match "
-                   "repo-root VERSION (" version-file ") — P5 lockstep. "
-                   "Bump :rf2-version in "
-                   "tools/template/src/day8/re_frame2_template/hooks.clj.")))
-        (finally
-          (delete-recursively tmp))))))
+        (testing "Template's :rf2-version literal matches repo-root VERSION"
+          (let [version-file (read-version-file)
+                tpl-rf2      (extract-rf2-version deps-text)]
+            (is (= version-file tpl-rf2)
+                (str "Template :rf2-version (" tpl-rf2 ") must match "
+                     "repo-root VERSION (" version-file ") — P5 lockstep. "
+                     "Bump :rf2-version in "
+                     "tools/template/src/day8/re_frame2_template/hooks.clj.")))))
+      (finally
+        (delete-recursively tmp)))))
 
 ;; --- substrate + clojure(script) lockstep --------------------------------
 ;;
