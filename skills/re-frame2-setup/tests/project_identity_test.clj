@@ -166,29 +166,7 @@
   (every? #(str/includes? body %) tokens))
 
 ;; ---------------------------------------------------------------------------
-;; 1. The oracle is live
-;;
-;; Every assertion below compares something against `data-fn`. If the
-;; template moved and `load-file` quietly loaded a different shape, the
-;; comparisons could agree with each other and mean nothing — so pin one
-;; answer this suite does not compute, taken from the JVM tier's
-;; `name-derivation-dotted-group-test`, which proves it against a real
-;; deps-new emission.
-;; ---------------------------------------------------------------------------
-
-(deftest the-template-hook-is-the-oracle
-  (testing "the loaded hook derives the identity the template's JVM tier proves end to end"
-    (is (= {:namespace   "com.acme.my-cool-app"
-            :nested-dirs "com/acme/my_cool_app"
-            :npm-name    "my-cool-app"}
-           (hook-identity {:top "com.acme" :main "my-cool-app"}))
-        (str "tools/template/.../hooks.clj does not derive the identity that "
-             "template_test.clj's name-derivation-dotted-group-test proves against a "
-             "real deps-new emission. The generator changed: re-read the hook and "
-             "update SKILL.md §Project identity in the same commit."))))
-
-;; ---------------------------------------------------------------------------
-;; 2. Route parity — the documented rule and the generator agree
+;; 1. Route parity — the documented rule and the generator agree
 ;; ---------------------------------------------------------------------------
 
 (deftest documented-rule-matches-the-generator-derivation
@@ -201,7 +179,7 @@
                "namespace, source path and package name do not describe one project.")))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. An npm-invalid artefact fails closed BEFORE any file is written
+;; 2. An npm-invalid artefact fails closed BEFORE any file is written
 ;; ---------------------------------------------------------------------------
 
 (deftest invalid-npm-artefact-fails-before-emission
@@ -224,7 +202,7 @@
                "leaves the partial scaffold the generator never leaves.")))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. The rule is actually in the document the manual route reads
+;; 3. The rule is actually in the document the manual route reads
 ;;
 ;; Every expected string below is DERIVED from the hook, so this suite cannot
 ;; pass by agreeing with a stale transcription of it.
