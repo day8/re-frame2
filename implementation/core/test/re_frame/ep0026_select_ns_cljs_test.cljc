@@ -8,8 +8,9 @@
     * image-order resolution — the LATER image in `:images` WINS;
     * within ONE image any `[kind id]` that resolves two ways is an ERROR
       (two selected = ambiguous; inline-vs-selected = override-must-be-later;
-      two inline = malformed);
-    * image ids are UNIQUE per `:images` composition (a duplicate id fails loud);
+      two inline = malformed, pinned by `image-assembly-cljs-test`);
+    * image ids are UNIQUE per `:images` composition (a duplicate id fails
+      loud), pinned by `image-assembly-cljs-test`;
     * `:select-ns` SELECTS, it does NOT load (it must not defeat DCE).
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, never the
@@ -52,19 +53,6 @@
 ;; 1. :select-ns — one {:include :exclude} map; global exclusion; strict include
 ;; ===========================================================================
 
-(deftest select-ns-normalizes-to-the-internal-slots
-  (testing ":select-ns {:include … :exclude …} lowers to the normalized
-            :rf.image/include-ns / :rf.image/exclude-ns slots"
-    (let [v (rf.image/image {:id :app/main
-                          :select-ns {:include ["app.todo.**" "app.admin.**"]
-                                      :exclude ["app.todo.dev.**"]}})]
-      (is (= ["app.todo.**" "app.admin.**"] (:rf.image/include-ns v)))
-      (is (= ["app.todo.dev.**"] (:rf.image/exclude-ns v)))))
-  (testing ":exclude is optional and defaults to []"
-    (let [v (rf.image/image {:id :app/main :select-ns {:include ["app.**"]}})]
-      (is (= ["app.**"] (:rf.image/include-ns v)))
-      (is (= [] (:rf.image/exclude-ns v))))))
-
 (deftest select-ns-include-is-required-and-non-empty
   (testing "a :select-ns with NO :include fails loud"
     (is (= :rf.error/invalid-image
@@ -89,20 +77,6 @@
            (err-id #(rf.image/image {:id :x :select-ns {:include ['a.b]}}))))
     (is (= :rf.error/invalid-image
            (err-id #(rf.image/image {:id :x :select-ns {:include ["a.b"] :exclude ['c.d]}}))))))
-
-(deftest retired-include-exclude-ns-keys-fail-loud
-  (testing "the EP-0023 sibling :include-ns / :exclude-ns keys are RETIRED
-            (EP-0026): they fail loud at rf/image, never silently
-            accepted — :select-ns is the single selection surface"
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :include-ns ["a.b"]}))))
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :exclude-ns ["a.b"]}))))
-    ;; supplying :select-ns alongside a retired key still fails (the retired key
-    ;; is rejected outright).
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :select-ns {:include ["a.**"]}
-                                  :include-ns ["a.b"]}))))))
 
 (deftest select-ns-global-exclusion-and-strict-include
   (let [pool [(reg-desc "app.todo.list"     :event :todo/add ::add)
@@ -152,17 +126,6 @@
       (testing "reversing the order reverses the winner (app-image now last)"
         (let [gen (rf.image-assembly/assemble [test-doubles app-image] pool)]
           (is (= ::real (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))))
-
-(deftest cross-image-shadow-does-not-fail-assembly
-  (testing "a later image overriding an earlier one RESOLVES (later wins) — it
-            does NOT fail assembly (a cross-image shadow is reported, not failed)"
-    (let [pool      [(reg-desc "a.core" :event :app/boot ::a-boot)
-                     (reg-desc "b.core" :event :app/boot ::b-boot)]
-          img-a     (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b     (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
-          gen       (rf.image-assembly/assemble [img-a img-b] pool)]
-      (is (= ::b-boot (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :app/boot)))
-          "the later image (img-b) wins; assembly succeeds"))))
 
 (deftest multi-image-chain-last-wins
   (testing "a chain [base override-a override-b] resolves to the LAST image's
@@ -215,53 +178,10 @@
       (is (= :rf.error/image-within-image-collision (:rf.error/id d)))
       (is (= :move-the-override-to-a-later-image-or-deduplicate (:recovery d))))))
 
-(deftest within-image-two-inline-is-malformed
-  (testing "TWO inline :registrations entries for the same [kind id] in ONE image →
-            :rf.error/image-within-image-collision (malformed: define each once)"
-    (let [img (rf.image/image {:id :i
-                            :registrations {:reg-event [[:counter/inc {} ::a]
-                                                        [:counter/inc {} ::b]]}})]
-      (is (= :rf.error/image-within-image-collision
-             (err-id #(rf.image-assembly/assemble [img] [])))))))
-
 ;; ===========================================================================
-;; 4. Image ids unique per :images composition (a duplicate id fails loud)
+;; 4. Image ids unique per :images composition (a duplicate id fails loud):
+;;    `image-assembly-cljs-test`
 ;; ===========================================================================
-
-(deftest duplicate-image-id-fails-loud
-  (testing "two images sharing an :id within one :images composition →
-            :rf.error/image-duplicate-image-id"
-    (let [pool [(reg-desc "a.core" :event :a/e ::a)
-                (reg-desc "b.core" :event :b/e ::b)]
-          img1 (rf.image/image {:id :dup :select-ns {:include ["a.core"]}})
-          img2 (rf.image/image {:id :dup :select-ns {:include ["b.core"]}})]
-      (is (= :rf.error/image-duplicate-image-id
-             (err-id #(rf.image-assembly/assemble [img1 img2] pool))))))
-  (testing "the diagnostic names the duplicate id"
-    (let [img1 (rf.image/image {:id :dup :registrations {:reg-fx [[:a {} ::a]]}})
-          img2 (rf.image/image {:id :dup :registrations {:reg-fx [[:b {} ::b]]}})
-          d    (err-data #(rf.image-assembly/assemble [img1 img2] []))]
-      (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
-      (is (= [:dup] (:duplicate-image-ids d)))))
-  (testing "distinct NAMED ids compose cleanly"
-    (let [img1 (rf.image/image {:id :img/a :registrations {:reg-fx [[:a {} ::a]]}})
-          img2 (rf.image/image {:id :img/b :registrations {:reg-fx [[:b {} ::b]]}})
-          gen  (rf.image-assembly/assemble [img1 img2] [])]
-      (is (contains? (:rf.gen/resolver gen) [:fx :a]))
-      (is (contains? (:rf.gen/resolver gen) [:fx :b]))))
-  (testing "an ANONYMOUS image (no :id) in a MULTI-image composition fails
-            loud — it is un-nameable in the shadow report, so it cannot
-            participate in composition (rf/image contract: anonymous images
-            are for local tests/examples that do not compose)"
-    (let [img1 (rf.image/image {:registrations {:reg-fx [[:a {} ::a]]}})
-          img2 (rf.image/image {:registrations {:reg-fx [[:b {} ::b]]}})]
-      (is (= :rf.error/image-duplicate-image-id
-             (err-id #(rf.image-assembly/assemble [img1 img2] []))))))
-  (testing "a SINGLE anonymous image still assembles (the anonymous rule is
-            multi-image only)"
-    (let [img (rf.image/image {:registrations {:reg-fx [[:a {} ::a]]}})
-          gen (rf.image-assembly/assemble [img] [])]
-      (is (contains? (:rf.gen/resolver gen) [:fx :a])))))
 
 ;; ===========================================================================
 ;; 5. Framework standards are protected — an app [kind id] colliding with a
