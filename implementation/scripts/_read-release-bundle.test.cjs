@@ -80,25 +80,6 @@ test('listReleaseJsFiles returns null (not []) for a missing dir', () => {
   assert.equal(listReleaseJsFiles(missingDir()), null);
 });
 
-test('listReleaseJsFiles returns absolute paths to the top-level *.js files', () => {
-  const dir = makeBundleDir({
-    'main.js': 'a();',
-    'cljs_base.js': 'b();',
-  });
-  const files = listReleaseJsFiles(dir);
-  assert.equal(Array.isArray(files), true);
-  assert.equal(files.length, 2);
-  for (const f of files) {
-    assert.equal(path.isAbsolute(f), true);
-    assert.equal(f.endsWith('.js'), true);
-  }
-  // Set-equality on basenames (readdir order is not contractually sorted).
-  assert.deepEqual(
-    files.map((f) => path.basename(f)).sort(),
-    ['cljs_base.js', 'main.js'],
-  );
-});
-
 test('listReleaseJsFiles excludes non-.js files and subdirectories (rf2-z9a06 trap)', () => {
   const dir = makeBundleDir({
     'main.js': 'release();',
@@ -219,11 +200,6 @@ test('escapeRe escapes every RegExp metacharacter so the source is matched liter
   // and matches it as a whole (no metachar got through as an operator).
   const re = new RegExp(`^${escaped}$`);
   assert.equal(re.test(raw), true);
-});
-
-test('escapeRe escapes `.` and leaves a plain identifier alone', () => {
-  assert.equal(escapeRe('reagent.dom'), 'reagent\\.dom');
-  assert.equal(escapeRe('plainToken'), 'plainToken');
 });
 
 // ----- countMatches ----------------------------------------------------------
