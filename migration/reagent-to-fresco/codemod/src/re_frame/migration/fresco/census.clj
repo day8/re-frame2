@@ -563,7 +563,13 @@
 
   **CALL sites, so inert subtrees are pruned rather than walked.**
   The population is what the program runs, and a discard, a quote and a
-  `(comment …)` body are none of it."
+  `(comment …)` body are none of it.
+
+  **A call is a list or an anonymous-fn literal.** `#(r/flush)` calls
+  `r/flush` exactly as `(fn [] (r/flush))` does, so every node is read
+  through [[re-frame.migration.fresco.rewrite/call-form]] and the call is
+  reported at the literal. Only the head is a call: `#(f r/flush)` passes
+  `r/flush` as a value, as `(f r/flush)` does."
   [source file]
   (let [root        (p/parse-string-all source)
         rctx        (rf.migration.fresco.rewrite/ns-context root rf.migration.fresco.rewrite/reagent-namespace?)
@@ -586,8 +592,9 @@
         (if (rf.migration.fresco.rewrite/inert? (z/node loc))
           (recur (rf.migration.fresco.rewrite/past-subtree loc) entries ns-said?)
           (let [nd         (z/node loc)
-                rk         (roster-name nd rctx surface)
-                sk         (roster-name nd sctx substrate-surface)
+                cf         (rf.migration.fresco.rewrite/call-form nd)
+                rk         (roster-name cf rctx surface)
+                sk         (roster-name cf sctx substrate-surface)
                 ns-here?   (and unresolved? (not ns-said?) (ns-node? nd))
                 [line col] (when (or rk sk ns-here?) (z/position loc))]
             (recur
@@ -605,7 +612,7 @@
 
                ;; Resolved: this really is Reagent's, through a symbol the
                ;; `ns` form binds.
-               (and rk (rf.migration.fresco.rewrite/bound-call? nd rk rctx))
+               (and rk (rf.migration.fresco.rewrite/bound-call? cf rk rctx))
                (conj entries (entry (get surface rk) file line col (excerpt loc)
                                     {:api (str rk)}))
 
@@ -614,7 +621,7 @@
                ;; This is the arm the reported defect was missing — a
                ;; re-frame2 application on the Reagent adapter has every one
                ;; of its substrate calls here and none in the arm above.
-               (and sk (rf.migration.fresco.rewrite/bound-call? nd sk sctx))
+               (and sk (rf.migration.fresco.rewrite/bound-call? cf sk sctx))
                (conj entries (entry (get substrate-surface sk) file line col (excerpt loc)
                                     {:api (str sk)}))
 
@@ -629,12 +636,12 @@
                ;; `rdc/render` that IS the finding. Reporting both makes the
                ;; real one harder to see, which is the only thing a census
                ;; owes anybody.
-               (and rk unresolved? (namespace (rf.migration.fresco.rewrite/head-symbol nd)))
+               (and rk unresolved? (namespace (rf.migration.fresco.rewrite/head-symbol cf)))
                (conj entries (entry {:class   :unresolved-alias
                                      :verdict :runtime-blocker}
                                     file line col (excerpt loc)
                                     {:api    (str rk)
-                                     :symbol (str (rf.migration.fresco.rewrite/head-symbol nd))}))
+                                     :symbol (str (rf.migration.fresco.rewrite/head-symbol cf))}))
 
                :else entries)
              (or ns-said? ns-here?))))))))
