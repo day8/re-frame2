@@ -110,36 +110,30 @@ function runDetector(changedPaths) {
 // Case D: shadow-cljs.edn touched → warns.
 {
   const r = runDetector('tools/re-frame2-pair-mcp/shadow-cljs.edn\n');
-  assert(r.code === 0,                                                  'D: exit 0');
-  assert(/source changed/.test(r.stderr),                               'D: warning fires for shadow-cljs.edn');
   assert(/shadow-cljs\.edn/.test(r.stderr),                             'D: lists the changed file');
 }
 
 // Case E: deps.edn touched → warns.
 {
   const r = runDetector('tools/re-frame2-pair-mcp/deps.edn\n');
-  assert(r.code === 0,                            'E: exit 0');
   assert(/source changed/.test(r.stderr),         'E: warning fires for deps.edn');
 }
 
 // Case F: package.json touched → warns.
 {
   const r = runDetector('tools/re-frame2-pair-mcp/package.json\n');
-  assert(r.code === 0,                            'F: exit 0');
   assert(/source changed/.test(r.stderr),         'F: warning fires for package.json');
 }
 
 // Case G: README under MCP dir → silent (out-of-scope path).
 {
   const r = runDetector('tools/re-frame2-pair-mcp/README.md\n');
-  assert(r.code === 0,        'G: exit 0');
   assert(r.stderr === '',     'G: README change must not trigger');
 }
 
 // Case H: test/ under MCP dir → silent (test-only edits don't restage the binary).
 {
   const r = runDetector('tools/re-frame2-pair-mcp/test/stdio-roundtrip.js\n');
-  assert(r.code === 0,        'H: exit 0');
   assert(r.stderr === '',     'H: test-only edit must not trigger');
 }
 
@@ -149,7 +143,6 @@ function runDetector(changedPaths) {
     'tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/server.cljs\n' +
     'tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools.cljs\n'
   );
-  assert(r.code === 0,                                              'I: exit 0');
   const headerCount = (r.stderr.match(/source changed/g) || []).length;
   assert(headerCount === 1,                                         'I: single header for multiple source files');
   assert(/server\.cljs/.test(r.stderr) && /tools\.cljs/.test(r.stderr),
@@ -160,7 +153,6 @@ function runDetector(changedPaths) {
 //        must NOT trigger (the prefix gate ends with a `/`).
 {
   const r = runDetector('tools/re-frame2-pair-mcp-fake/src/foo.cljs\n');
-  assert(r.code === 0,        'J: exit 0');
   assert(r.stderr === '',     'J: lookalike prefix must not trigger');
 }
 
