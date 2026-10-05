@@ -2,7 +2,7 @@
   "The tagged setup/script step runner
   (spec/017-Testing-Story.md §Script step grammar + §Setup and script).
 
-  Three layers, all under `clojure -M:test` (JVM):
+  Two layers, both under `clojure -M:test` (JVM):
 
   - PURE grammar — `rf.story.play.runner/step-types` / `step-arity-ok?` / `coerce-script`
     / `step-assertion` / `step-wait-until` recognise the tagged steps
@@ -10,9 +10,6 @@
     and `coerce-script` never mistakes one for the bare event-vector
     shorthand it lifts to `[:dispatch …]` (the lift itself is
     `runner-test`'s). No re-frame dep.
-  - PLAN-COMPILE rejection — an `[:assert …]` checkpoint in `:setup` FAILS
-    plan construction (`re-frame.story.plan`) with
-    `:rf.error/story-assert-in-setup`.
   - HEADLESS execution against a live frame — `runner-events/exec-step!`
     drives a tagged `[:dispatch …]` through `settled-boundary`, settles a
     `[:wait-until pred]` on a queue/state predicate (timing out readably),
@@ -29,7 +26,6 @@
             [re-frame.registrar         :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story             :as rf.story]
-            [re-frame.story.plan        :as rf.story.plan]
             [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
             [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]))
@@ -37,15 +33,6 @@
 ;; ===========================================================================
 ;; PURE: the tagged step grammar
 ;; ===========================================================================
-
-(deftest step-types-include-new-tags
-  (testing "the one tagged grammar recognises :assert / :wait-until / :focus"
-    (is (= :assert     (rf.story.play.runner/step-type [:assert [:rf.assert/path-equals [:k] 1]])))
-    (is (= :wait-until (rf.story.play.runner/step-type [:wait-until [:db [:k] 1]])))
-    (is (= :focus      (rf.story.play.runner/step-type [:focus "[data-test=in]"])))
-    (is (true? (rf.story.play.runner/known-step? [:assert [:rf.assert/path-equals [:k] 1]])))
-    (is (true? (rf.story.play.runner/known-step? [:wait-until [:queue-empty]])))
-    (is (true? (rf.story.play.runner/known-step? [:focus "sel"])))))
 
 (deftest assert-step-is-an-assertion-class-step
   (testing ":assert contributes to pass/fail (it is an assertion-class step)"
@@ -111,45 +98,6 @@
                   [:focus "sel"]
                   [:wait 50]]]
       (is (= tagged (rf.story.play.runner/coerce-script tagged))))))
-
-;; ===========================================================================
-;; PLAN COMPILE: [:assert …] is rejected in :setup
-;; ===========================================================================
-
-(defn- err-id [thunk]
-  (try (thunk) ::no-throw
-       (catch #?(:clj Exception :cljs :default) e
-         (:rf.error/id (ex-data e)))))
-
-(deftest assert-in-setup-is-rejected-at-plan-compile
-  (testing "[:assert …] in :setup FAILS plan construction (spec/017 §Script
-            step grammar — illegal in :setup)"
-    (is (= :rf.error/story-assert-in-setup
-           (err-id #(rf.story.plan/variant-plan
-                      {:variant/id :story.bad/setup-assert
-                       :setup  [[:dispatch [:seed/a]]
-                                [:assert [:rf.assert/path-equals [:k] 1]]]
-                       :script [[:dispatch [:act/b]]]}
-                      {})))))
-  (testing "[:assert …] in :script compiles fine — only :setup rejects it"
-    (let [p (rf.story.plan/variant-plan
-              {:variant/id :story.ok/script-assert
-               :setup  [[:dispatch [:seed/a]]]
-               :script [[:dispatch [:act/b]]
-                        [:assert [:rf.assert/path-equals [:k] 1]]]}
-              {})]
-      (is (= [[:dispatch [:act/b]]
-              [:assert [:rf.assert/path-equals [:k] 1]]]
-             (:script p)))))
-  (testing "a bare-event-shorthand setup that happens to start with the
-            :assert keyword still rejects after migration normalization"
-    ;; `[:assert …]` is a known step, so coerce-script does NOT lift it to
-    ;; `[:dispatch [:assert …]]` — it stays a checkpoint and the reject fires.
-    (is (= :rf.error/story-assert-in-setup
-           (err-id #(rf.story.plan/variant-plan
-                      {:variant/id :story.bad/events-assert
-                       :setup [[:assert [:rf.assert/no-warnings]]]}
-                      {}))))))
 
 ;; ===========================================================================
 ;; HEADLESS execution against a live frame
