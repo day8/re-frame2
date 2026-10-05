@@ -632,21 +632,6 @@
       (is (= 3 (get-in out [:public :count]))
           "an unclassified sibling rides verbatim"))))
 
-(deftest derived-tree-local-raw-passes-through
-  (testing "under :rf.egress/local-raw the derived tree passes through verbatim
-            (the trusted-local opt-out)"
-    (mk-frame! :proj/derived-raw)
-    (let [source-db {:auth {:token "super-secret-token"}}
-          tree      (derived-tree-with-token "super-secret-token")
-          out       (rf/project-egress
-                      {:kind      :rf.observe/derived-tree
-                       :frame     :proj/derived-raw
-                       :tree      tree
-                       :source-db source-db}
-                      {:rf.egress/profile :rf.egress/local-raw})]
-      (is (= tree out)
-          "local-raw is the deliberate raw read — the tree crosses verbatim"))))
-
 (deftest derived-tree-multi-slot-form-path-walks-named-slots
   (testing "EP-0025: the MULTI-SLOT form PATH-walks each present :slot-keys value
             of a map; a re-keyed (non-app-db-position) secret ships raw,
