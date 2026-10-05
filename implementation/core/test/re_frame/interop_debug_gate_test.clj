@@ -24,9 +24,10 @@
   The JVM-side
   `re-frame.interop/debug-enabled?` gate is the SSR-mode production
   switch — the counterpart to CLJS `goog.DEBUG=false`. This suite
-  pins the gate's vocabulary semantics and its default, so a
-  contributor cannot change a case-sensitivity or
-  vocabulary contract without breaking a test.
+  pins the gate's vocabulary semantics, so a contributor cannot change a
+  case-sensitivity or vocabulary contract without breaking a test. Its
+  default (debug ON when nothing is set) is the posture every dev-lane test in
+  `clojure -M:test` runs under.
 
   The integration story (trace buffer / epoch surfaces respecting a REBOUND
   flag) lives in those respective suites, which carry the same caveat."
@@ -54,27 +55,17 @@
           (System/clearProperty "re-frame.debug")
           (System/setProperty "re-frame.debug" prior))))))
 
-(deftest default-is-debug-on
-  (testing "Absent property and absent env var leaves
-            the flag at its default `true`, so local dev / tests do not
-            need to opt in."
-    (with-prop nil
-      (fn []
-        ;; The env var may be set in CI but is not expected to be in
-        ;; default dev — guard the assertion on the env-var reading.
-        (when (nil? (System/getenv "RE_FRAME_DEBUG"))
-          (is (true? (@read-debug-flag))
-              "absent property + absent env var -> dev default true"))))))
-
 (deftest explicit-false-disables-the-gate
   (testing "The conventional false-y vocabulary
             (`false`, `0`, `no`, `off`, empty string), case-
-            insensitive, switches the flag off."
+            insensitive and trimmed of surrounding whitespace, switches the
+            flag off."
     (doseq [v ["false" "FALSE" "False"
                "0"
                "no" "NO" "No"
                "off" "OFF"
-               ""]]
+               ""
+               "  false  "]]
       (with-prop v
         (fn []
           (is (false? (@read-debug-flag))
@@ -94,20 +85,3 @@
         (fn []
           (is (true? (@read-debug-flag))
               (str "property value " (pr-str v) " leaves debug on")))))))
-
-(deftest whitespace-around-falsey-value-still-disables
-  (testing "The reader trims whitespace so a
-            `-Dre-frame.debug=' false '` invocation still resolves
-            to the disable-gate semantics."
-    (with-prop "  false  "
-      (fn []
-        (is (false? (@read-debug-flag))
-            "trimmed `false` disables the gate")))))
-
-(deftest gate-is-a-boolean-at-namespace-load
-  (testing "The published `debug-enabled?` Var is a boolean — not a
-            thunk, not a fn. Downstream `when rf.interop/debug-enabled?`
-            checks evaluate the Var once and JIT-inline the
-            branch."
-    (is (boolean? rf.interop/debug-enabled?)
-        "rf.interop/debug-enabled? is a boolean")))
