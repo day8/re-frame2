@@ -5,13 +5,13 @@
 
   | `:source` value     | stamped by                | when                                                 |
   |---------------------|---------------------------|------------------------------------------------------|
-  | `:fx-dispatch`      | `:dispatch` fx handler     | the `:dispatch` reserved fx executes                 |
   | `:fx-dispatch-later`| `:dispatch-later` fx handler| the `:dispatch-later` reserved fx fires after delay|
 
   Per Spec 002 §`:source` / Spec-Schemas §`:rf/dispatch-envelope`, each
   substrate dispatch site stamps the matching specific value so the
   Epoch panel's DISPATCH step labels the precise trigger rather than
-  an aggregate (`:fx` / `:unknown`).
+  an aggregate (`:fx` / `:unknown`). The `:fx-dispatch` stamp the `:dispatch`
+  fx handler applies is pinned by `re-frame.cascade-envelope-propagation-test`.
 
   The `:after-timer` and `:machine-spawn` paths live in the machines
   artefact's own test files (see `machines_after_cljs_test.cljs` and
@@ -29,13 +29,12 @@
   `scripts/test-core-prod-gate.sh` while the thing being asserted is
   production behaviour.
 
-  Each case therefore carries an ALWAYS-ON probe rather than a guard: a
-  `:test/probe` fx running inside every level of the cascade captures
+  The case therefore carries an ALWAYS-ON probe rather than a guard: a
+  `:test/probe` fx running in the parent and in the deferred child captures
   `(:envelope m)`, the production surface
   `cascade-envelope-propagation-test/fx-handler-ctx-carries-envelope-slot`
   establishes. The `:source` / `:origin` claims are read off those envelopes and
-  hold in BOTH postures — including the three-deep override and the
-  `:dispatch-later` deferral.
+  hold in BOTH postures, across the `:dispatch-later` deferral.
 
   What is left inside the `(when rf.interop/debug-enabled? …)` arms is the
   narrower claim the trace owns: that `:source` is HOISTED to the trace
@@ -76,57 +75,6 @@
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
-
-;; ---- always-on envelope probe --------------------------------------------
-;;
-;; The `:source` stamp lives on the DISPATCH ENVELOPE; reading it off the
-;; `:rf.event/dispatched` trace is one way to observe it, and the one
-;; that disappears under -Dre-frame.debug=false. A user fx-handler receives
-;; `(:envelope m)` — the production surface pinned by
-;; `cascade-envelope-propagation-test/fx-handler-ctx-carries-envelope-slot` —
-;; so running one inside each level of a cascade reads every envelope directly.
-
-(defn- register-probe-fx!
-  "Register `:test/probe`, an fx that records the dispatch envelope it runs
-  under into `envelopes` keyed by the level keyword it is called with."
-  [envelopes]
-  (rf/reg-fx :test/probe
-    (fn [m [level]] (swap! envelopes assoc level (:envelope m)))))
-
-;; ---- :fx-dispatch stamp by the :dispatch fx handler ----------------------
-
-(deftest dispatch-fx-overrides-parent-source-three-deep
-  (testing ":fx-dispatch is the *immediate* trigger — overrides at every cascade depth"
-    (let [seen      (atom [])
-          envelopes (atom {})]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-      (try
-        (register-probe-fx! envelopes)
-        (rf/reg-event :test/lvl-0
-          (fn [_ _] {:fx [[:test/probe [:lvl-0]] [:dispatch [:test/lvl-1]]]}))
-        (rf/reg-event :test/lvl-1
-          (fn [_ _] {:fx [[:test/probe [:lvl-1]] [:dispatch [:test/lvl-2]]]}))
-        (rf/reg-event :test/lvl-2
-          (fn [{:keys [db]} _] {:db db :fx [[:test/probe [:lvl-2]]]}))
-
-        (rf/dispatch-sync [:test/lvl-0] {:source :ui})
-
-        ;; ---- ALWAYS-ON: the override at EVERY depth -----------------------
-        (is (= :ui          (:source (:lvl-0 @envelopes))) "root keeps :ui")
-        (is (= :fx-dispatch (:source (:lvl-1 @envelopes))) "lvl-1 stamped :fx-dispatch")
-        (is (= :fx-dispatch (:source (:lvl-2 @envelopes)))
-            "lvl-2 ALSO stamped :fx-dispatch (immediate trigger, not :ui from the root)")
-
-        ;; ---- dev arm ------------------------------------------------------
-        (when rf.interop/debug-enabled?
-          (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
-                ev-for     (fn [id]
-                             (first (filter #(= [id] (get-in % [:tags :rf.event/v])) dispatched)))]
-            (is (= :ui          (:source (ev-for :test/lvl-0))) "root keeps :ui")
-            (is (= :fx-dispatch (:source (ev-for :test/lvl-1))) "lvl-1 stamped :fx-dispatch")
-            (is (= :fx-dispatch (:source (ev-for :test/lvl-2)))
-                "lvl-2 ALSO stamped :fx-dispatch (immediate trigger, not :ui from the root)")))
-        (finally (rf/unregister-listener! :trace ::rec))))))
 
 ;; ---- :fx-dispatch-later stamp by the :dispatch-later fx handler ----------
 
