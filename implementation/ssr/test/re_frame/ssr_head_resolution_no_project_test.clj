@@ -127,7 +127,8 @@
       ;; DELIBERATELY dev-only category: boundary validation is itself
       ;; production-elided (Spec 010 §Production builds), so no production
       ;; reject exists for this control to observe. The always-on control
-      ;; is test (4).
+      ;; is `re-frame.ssr-error-projector-substrate-test`'s direct-substrate
+      ;; install test.
       (when rf.interop/debug-enabled?
         (rf.trace/emit-error! :rf.error/schema-validation-failure
                            {:frame     fid
