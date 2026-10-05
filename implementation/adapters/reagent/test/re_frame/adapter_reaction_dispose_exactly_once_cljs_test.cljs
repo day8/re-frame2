@@ -201,8 +201,9 @@
           "post-shutdown unmount re-fired no teardown callback"))))
 
 (deftest unmount-then-shutdown-does-not-refire-sub-cache-teardown
-  (testing "a lingering owner's watch removal (stock auto-disposal evicting
-  the cache slot), then dispose-adapter!: teardown callbacks fire once"
+  (testing "a lingering owner's watch removal (stock auto-disposal, which
+  the explicit handle's slot survives), then dispose-adapter!: teardown
+  callbacks fire once"
     (rf/make-frame {:id :once/b})
     (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -214,14 +215,16 @@
       (is (some? rx) "precondition: the sub-cache holds the Reaction")
       (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       (add-watch rx ::owner (fn [_ _ _ _] nil))
-      ;; The owner unmounts first: stock auto-disposal fires the teardown,
-      ;; whose sub-cache closure evicts the slot.
+      ;; The owner unmounts first: stock auto-disposal fires the teardown.
+      ;; The explicit handle still holds the slot, so the sub-cache closure
+      ;; keeps it and re-registers itself.
       (remove-watch rx ::owner)
       (is (= 1 @fired) "stock auto-disposal fired the teardown once")
-      (is (nil? (cached-reaction :once/b))
-          "auto-disposal evicted the sub-cache slot (teardown preserved)")
-      ;; Adapter shutdown then walks a cache that no longer holds it — and
-      ;; even a direct second disposal of the same Reaction is a no-op.
+      (is (identical? rx (cached-reaction :once/b))
+          "the explicit handle keeps the sub-cache slot past the auto-disposal")
+      ;; Adapter shutdown then disposes the kept Reaction again, which fires
+      ;; only the re-registered sub-cache closure: this test's callback is
+      ;; spent.
       (rf.substrate.adapter/dispose-adapter!)
       (is (= 1 @fired)
           "adapter shutdown after unmount re-fired no teardown callback"))))
