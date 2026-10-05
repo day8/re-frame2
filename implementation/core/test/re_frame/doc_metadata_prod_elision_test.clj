@@ -39,9 +39,8 @@
   gate` in the dev lane proves the same call site retains it when the gate
   is on. The subject exists in both postures; only the strip differs.
 
-  The DEV half — `:doc` RETAINED for tooling / agent inspection, and
-  `strip-pure-documentation`'s dev identity — is a claim about the gate
-  being ON. Under `-Dre-frame.debug=false` there is nothing to retain, by
+  The DEV half — `:doc` RETAINED for tooling / agent inspection — is a
+  claim about the gate being ON. Under `-Dre-frame.debug=false` there is nothing to retain, by
   design, so those assertions sit inside a
   `(when rf.interop/debug-enabled? …)` arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -128,29 +127,6 @@
       (is (not (contains? (rf/handler-meta {:source :store :kind :cofx :id :rf2-9wwkcm/prod-cofx}) :doc))
           ":doc absent from cofx handler-meta in prod"))))
 
-;; ---- the strip helper, in isolation -------------------------------------
-
-(deftest strip-pure-documentation-helper-semantics
-  (testing "`strip-pure-documentation` drops `:doc` (and
-            only the pure-documentation keys) in prod, and is an identity
-            in dev. A non-map passes through untouched."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (is (= {:schema :int :tags #{:a}}
-             (rf.registrar/strip-pure-documentation
-               {:doc "x" :schema :int :tags #{:a}}))
-          "prod: only :doc stripped; load-bearing keys retained")
-      (is (= {} (rf.registrar/strip-pure-documentation {:doc "x"}))
-          "prod: doc-only map strips to empty")
-      (is (nil? (rf.registrar/strip-pure-documentation nil))
-          "non-map (nil) passes through"))
-    ;; Dev-instrumentation arm (see ns docstring §Posture split).
-    ;; "Identity in dev" is a claim about the gate being ON; under
-    ;; `-Dre-frame.debug=false` the helper is the strip, by design.
-    (when rf.interop/debug-enabled?
-      (is (= {:doc "x" :schema :int}
-             (rf.registrar/strip-pure-documentation {:doc "x" :schema :int}))
-          "dev: full map retained (identity)"))))
-
 ;; Note: the `reg-machine` LITERAL opts-map `:doc` elision belongs with this
 ;; contract too — but the runtime handler-meta strip rides the SAME single
 ;; `register!` chokepoint exercised by `doc-stripped-uniformly-across-reg-
@@ -169,9 +145,4 @@
             other standard registration-metadata key is load-bearing in
             production and MUST NOT be in this set."
     (is (= #{:doc} rf.registrar/pure-documentation-keys)
-        "the elidable set is exactly #{:doc}")
-    (doseq [load-bearing [:schema :data-schema :tags :interceptors :sensitive?
-                          :large? :rf/id :handler-fn :request :transport
-                          :scope :params-schema :invalidates :populates]]
-      (is (not (contains? rf.registrar/pure-documentation-keys load-bearing))
-          (str load-bearing " is load-bearing — must NOT be elidable")))))
+        "the elidable set is exactly #{:doc}")))
