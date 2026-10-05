@@ -199,8 +199,8 @@
 ;;                           it also proves the runtime answered the eval
 ;;                           (a blank/nil read means no runtime answered).
 ;;
-;; The JVM half (monotonic compile-cycle, last flush timestamp, REPL
-;; runtime ping/pong heartbeat) is assembled server-side in
+;; The JVM half (monotonic compile-cycle, last flush timestamp, the
+;; heartbeat of the build's own runtimes) is assembled server-side in
 ;; `re-frame2-pair-mcp.tools.freshness` and merged with this map — only
 ;; the JVM holds the shadow-cljs worker state.
 
