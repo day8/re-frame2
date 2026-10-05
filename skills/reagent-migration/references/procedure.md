@@ -108,7 +108,12 @@ documentation: an `on*`-named render prop, which needs a `:render` override
 Also read what it *cannot* see, and say so: a Form-2 component is a `defn`
 returning a `fn` and nothing else marks it, so the census counts the `r/atom`
 such a component closes over and reports nothing about the shape. A confident
-wrong number would be worse.
+wrong number would be worse. Nor does it see an ordinary third-party Reagent
+head: `[rc/v-box …]` calls no Reagent API, so a file of re-com views can report
+zero entries and still cross into Reagent at every such head. Inventory those
+providers and callers by hand
+([`catalog-judgment.md`](catalog-judgment.md#mig-09--10--22--foreign-react-and-the-props-that-cross-it)
+MIG-22).
 
 ## Step 1 — Scope a closed subtree
 
