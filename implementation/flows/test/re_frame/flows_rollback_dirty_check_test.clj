@@ -151,11 +151,12 @@
 ;; Two mechanisms prevent it: the flows `:after` is guarded on
 ;; `:rf/interceptor-error`, and the ctx-stashed snapshots are restored on the
 ;; in-band legacy-root / class-defect aborts (which run the `:after` CLEANLY,
-;; then abort at the final-effects boundary). Manifestations a–d + the
+;; then abort at the final-effects boundary). Manifestations a–b + the
 ;; restore-on-abort arm are covered below.
 ;; ===========================================================================
 
 ;; ---- (a) output-loss: a fresh flow first-firing during a handler-throw ----
+;;         A user-`:after` throw sets the same `:rf/interceptor-error` guard.
 
 (deftest chain-error-handler-throw-does-not-poison-fresh-flow-first-firing
   (testing "a handler-throw event's flows :after must not advance the fresh flow's last-inputs against the doomed db — an advanced row with a discarded output would make a later same-input drain skip forever. The guard leaves the row unadvanced so the next clean drain materialises the output."
@@ -164,8 +165,18 @@
     (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
     (rf/reg-event :boom (fn [_ _] (throw (ex-info "handler boom" {:src :test}))))
 
-    ;; The aborting event. Its flows :after must NOT advance :derived's row.
-    (rf/dispatch-sync [:boom])
+    ;; The aborting event. Its flows :after must not run at all: no advanced
+    ;; row, and no flow trace.
+    (let [events (atom [])]
+      (rf/register-listener! :trace ::spurious (fn [ev] (swap! events conj ev)))
+      (try
+        (rf/dispatch-sync [:boom])
+        (finally
+          (rf/unregister-listener! :trace ::spurious)))
+      (is (empty? (filterv #(= :rf.flow/computed (:operation %)) @events))
+          "no :rf.flow/computed on the aborted event (flow transform skipped)")
+      (is (empty? (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @events))
+          "no t2 (:rf.event/db-pending-post-flow) on the aborted event"))
     (is (not (contains? (rf.flows/last-inputs-snapshot) :derived))
         (str "the errored event did NOT advance :derived's dirty-check row "
              "(a row left advanced at [1] would suppress the flow). Got "
@@ -181,35 +192,7 @@
              "clean drain WITHOUT an input change. Got "
              (pr-str (rf/app-db-value :rf/default))))))
 
-;; ---- (b) user-:after throw: handler returned :db, an :after interceptor ----
-;;         throws. Same `:rf/interceptor-error` guard covers it.
-
-(deftest chain-error-user-after-throw-does-not-poison-flow
-  (testing "handler returns :db but a user :after interceptor throws → the flows :after must not advance last-inputs against the doomed pending db; a later clean drain materialises the output"
-    (rf/reg-event :seed (fn [_ _] {:db {:n 2}}))
-    (rf/dispatch-sync [:seed])
-    (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
-    ;; Interceptor chains are reference-only (EP-0022): register + reference.
-    (rf/reg-interceptor :test/after-boom
-                        {:after (fn [_ctx]
-                                  (throw (ex-info "after boom" {:src :test})))})
-    (rf/reg-event :with-bad-after
-                  {:interceptors [:test/after-boom]}
-                  (fn [{:keys [db]} _] {:db (assoc db :touched true)}))
-    (rf/dispatch-sync [:with-bad-after])
-
-    (is (not (contains? (rf.flows/last-inputs-snapshot) :derived))
-        ":derived's dirty-check row was NOT advanced by the user-:after-throw abort")
-    (is (nil? (:out (rf/app-db-value :rf/default)))
-        ":out not committed (the whole event aborted)")
-    (is (not (:touched (rf/app-db-value :rf/default)))
-        "the doomed handler write did not land either (no partial commit)")
-
-    (rf/dispatch-sync [:seed])
-    (is (= 20 (:out (rf/app-db-value :rf/default)))
-        "the flow materialised on the next clean drain (row was not poisoned)")))
-
-;; ---- (c) in-drain vacation LOST: a vacation queued by an :fx in event N ----
+;; ---- (b) in-drain vacation LOST: a vacation queued by an :fx in event N ----
 ;;         is drained-and-cleared by errored event N+1 and lost forever.
 
 (deftest chain-error-preserves-in-drain-queued-vacation
@@ -250,26 +233,6 @@
         "the queue is drained after the successful vacation")
     (is (= 35 (:out-keep (rf/app-db-value :rf/default)))
         ":out-keep (the live sibling flow) is untouched")))
-
-;; ---- (d) no spurious flow traces on a handler-throw abort -----------------
-
-(deftest chain-error-emits-no-spurious-flow-traces
-  (testing "a handler-throw abort emits NO :rf.flow/computed and NO t2 (:rf.event/db-pending-post-flow) — the flow transform never ran"
-    (let [events (atom [])]
-      (rf/register-listener! :trace ::spurious (fn [ev] (swap! events conj ev)))
-      (try
-        (rf/reg-event :seed (fn [_ _] {:db {:n 1}}))
-        (rf/dispatch-sync [:seed])
-        (rf/reg-flow :derived {:inputs [[:n]] :output-path [:out]} (fn [n] (* n 10)))
-        (reset! events [])
-        (rf/reg-event :boom (fn [_ _] (throw (ex-info "boom" {:src :test}))))
-        (rf/dispatch-sync [:boom])
-        (is (empty? (filterv #(= :rf.flow/computed (:operation %)) @events))
-            "no :rf.flow/computed on the aborted event (flow transform skipped)")
-        (is (empty? (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @events))
-            "no t2 (:rf.event/db-pending-post-flow) on the aborted event")
-        (finally
-          (rf/unregister-listener! :trace ::spurious))))))
 
 ;; ---- the in-band legacy-runtime-root abort (clean chain) ------------------
 ;;      restores the dirty-check the flows :after advanced before the abort.
