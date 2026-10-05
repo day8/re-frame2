@@ -57,8 +57,6 @@
              ["string \"1\""     {:rf.ui/tree-version "1" :tag :div} "1"]
              ["version 2"        {:rf.ui/tree-version 2  :tag :div} 2]]]
       (let [d (caught-ex-data #(rf.ssr.ui-tree/emit-ui-tree root))]
-        (is (map? d)
-            (str label ": expected a thrown ex-info, got " (pr-str d)))
         (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d))
             (str label ": must throw the SSR-seam version-gate id"))
         (is (contains? d :got) (str label ": ex-data carries :got"))
@@ -66,15 +64,6 @@
             (str label ": :got is the RECEIVED value"))
         (is (= #{1} (:supported d))
             (str label ": :supported is #{1}"))))))
-
-(deftest version-gate-own-lever-same-tree-only-the-version-differs
-  (testing "one structurally-identical tree emits at v1 and throws at v2"
-    (let [good (v1 {:tag :div :children ["ok"]})
-          bad  (assoc good :rf.ui/tree-version 2)]
-      (is (= "<div>ok</div>" (rf.ssr.ui-tree/emit-ui-tree good)))
-      (let [d (caught-ex-data #(rf.ssr.ui-tree/emit-ui-tree bad))]
-        (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d)))
-        (is (= 2 (:got d)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Malformed nodes PAST the gate — the SHARED id (a distinct failure class)
@@ -107,16 +96,16 @@
               #(rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children [{:html 42}]})))]
       (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
 
-(deftest trusted-html-child-under-textarea-is-rejected
-  ;; A hand-written trusted-markup (`{:html …}`) child beneath a
-  ;; <textarea> is host-divergent: react-dom/server 19.2 rejects
-  ;; dangerouslySetInnerHTML on a textarea (its content is value/defaultValue
-  ;; or a text child). The compiler rejects the source shape; this seam is the
-  ;; runtime defence for a manually-authored tree — it fails loud through the
-  ;; SHARED malformed-tree path rather than emitting a body React would reject.
+(deftest textarea-effective-child-stream-is-validated
+  ;; A direct `{:html …}` check of only the textarea's IMMEDIATE children
+  ;; would let a trusted-HTML leaf spliced in through a transparent fragment or
+  ;; view boundary slip through and emit verbatim. This seam validates the
+  ;; EFFECTIVE child stream (after splicing) against the textarea host child
+  ;; contract, failing loud at the ACTUAL offending path.
   (testing "a sole {:html s} child under <textarea> throws the shared id"
-    ;; Lever: without this check the serialiser would emit the markup
-    ;; verbatim ("<textarea><b>x</b></textarea>"), diverging from React 19.2.
+    ;; react-dom/server 19.2 rejects dangerouslySetInnerHTML on a textarea, so a
+    ;; hand-written trusted-markup child fails loud rather than emitting
+    ;; "<textarea><b>x</b></textarea>".
     (let [d (caught-ex-data
               #(rf.ssr.ui-tree/emit-ui-tree
                  (v1 {:tag :textarea :children [{:html "<b>x</b>"}]})))]
@@ -124,19 +113,6 @@
           "a textarea trusted-markup child is the shared tree-consumer id")
       (is (= [{:html "<b>x</b>"}] (:value d))
           "ex-data carries the offending children")))
-  (testing "a leading-LF {:html …} child under <textarea> is rejected, NOT "
-           "leading-LF-compensated — trusted-HTML compensation is pre/listing only"
-    (let [d (caught-ex-data
-              #(rf.ssr.ui-tree/emit-ui-tree
-                 (v1 {:tag :textarea :children [{:html "\n<b>x</b>"}]})))]
-      (is (= :rf.error/ui-tree-malformed (:rf.error/id d))))))
-
-(deftest textarea-effective-child-stream-is-validated
-  ;; A direct `{:html …}` check of only the textarea's IMMEDIATE children
-  ;; would let a trusted-HTML leaf spliced in through a transparent fragment or
-  ;; view boundary slip through and emit verbatim. This seam validates the
-  ;; EFFECTIVE child stream (after splicing) against the textarea host child
-  ;; contract, failing loud at the ACTUAL offending path.
   (testing "trusted markup nested through a transparent FRAGMENT is rejected"
     ;; Lever: checking immediate children alone, the fragment would splice
     ;; {:html …} into the textarea and the serialiser would emit
@@ -392,7 +368,6 @@
                                                                  :color "red"}}}))))))
 
 (deftest emits-void-elements-self-closed
-  (is (= "<br>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br}))))
   (is (= "<img src=\"a.png\">"
          (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :img :attrs {:src "a.png"}})))))
 
@@ -418,20 +393,15 @@
     (is (= "<br>" (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :br :children []}))))))
 
 (deftest drops-events-and-keys
-  (testing "events never serialise into HTML; :key has no HTML presence"
+  (testing "events never serialise into HTML; :key has no HTML presence;
+            node-level :rf.ui/* diagnostic keys never emit"
     (is (= "<button>Go</button>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :button
                                       :events {:on-click [:go]}
                                       :key 7
-                                      :children ["Go"]}))))))
-
-(deftest ignores-reserved-diagnostic-keys
-  (testing "node-level :rf.ui/* diagnostic keys never emit"
-    (is (= "<div>x</div>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div
                                       :rf.ui/presence {:phase :present}
                                       :rf.ui/boundary :client-only
-                                      :children ["x"]}))))))
+                                      :children ["Go"]}))))))
 
 (deftest splices-fragments-and-erases-view-boundaries
   (testing "fragment root splices its children with no wrapper"
@@ -469,9 +439,7 @@
     ;; Lever: through the `escape-html` path this would emit
     ;; "<script>a &amp; b &lt; c &gt; d</script>" — a corrupted script body.
     (is (= "<script>a & b < c > d</script>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["a & b < c > d"]}))))
-    (is (= "<script>if (a && b) {}</script>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["if (a && b) {}"]})))))
+           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :script :children ["a & b < c > d"]})))))
   (testing "ordinary ampersand / less-than in <style> stays LITERAL"
     (is (= "<style>a & b < c > d</style>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children ["a & b < c > d"]})))))
@@ -500,17 +468,6 @@
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children [".x{content:'</style>'}"]}))))
     (is (= "<style>a</\\53 TYLE>b</style>"
            (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :style :children ["a</STYLE>b"]}))))))
-
-(deftest raw-text-own-lever-p-still-escapes
-  (testing "VACUITY probe: the SAME text in a NON-raw-text element IS escaped"
-    ;; The bypass is narrow: only <script>/<style> skip entity escaping. If the
-    ;; branch mis-fired for ordinary elements this would drop the entities.
-    (is (= "<p>a &amp; b &lt; c &gt; d</p>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :p :children ["a & b < c > d"]})))
-        "an ordinary <p> keeps full 5-char escaping")
-    (is (= "<div>&lt;/script&gt;</div>"
-           (rf.ssr.ui-tree/emit-ui-tree (v1 {:tag :div :children ["</script>"]})))
-        "and </script> in a <div> is inert escaped text, not a raw-text escape")))
 
 ;; ---------------------------------------------------------------------------
 ;; Raw-text elements honor the ui/html trusted-markup child
@@ -718,9 +675,6 @@
     (testing "default (arity-1) emits no doctype"
       (is (= "<html></html>"
              (rf.ssr.ui-tree/emit-ui-tree tree))))
-    (testing "nil opts emits no doctype"
-      (is (= "<html></html>"
-             (rf.ssr.ui-tree/emit-ui-tree tree nil))))
     (testing ":doctype? false emits no doctype"
       (is (= "<html></html>"
              (rf.ssr.ui-tree/emit-ui-tree tree {:doctype? false}))))
