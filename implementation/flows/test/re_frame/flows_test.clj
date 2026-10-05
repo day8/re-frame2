@@ -1,21 +1,14 @@
 (ns re-frame.flows-test
-  "JVM smoke coverage for Spec 013 — Flows.
+  "JVM coverage for Spec 013 — Flows: the registry side of the clear
+  lifecycle, registration validation and its error ids, cycle detection,
+  hot-reload invalidation, frame routing, and the drain ordering `:fx` and
+  the `:db` install observe.
 
-  This file backstops the conformance fixtures in
-  spec/conformance/fixtures/flow-*.edn. Those fixtures describe canonical
-  flow shapes as data and are driven against the live runtime by
-  `re-frame.flows-conformance-test` (the flows artefact's own conformance
-  gate, which claims the `:flow/*` capability set). The tests here exercise
-  the same paths against the JVM reference implementation directly — a
-  focused, debuggable companion to the data-driven gate so a regression in
-  any of these shapes surfaces as a plain unit-test failure:
-
-    - reg-flow / clear-flow round-trip
-    - dirty-check (=-equal inputs do NOT recompute)
-    - topological sort (B reads what A wrote; one drain pass)
-    - cycle detection at registration time
-    - hot-reload re-evaluates the replaced flow on the next drain
-    - clear-all / lifecycle interaction with the per-frame registry
+  The canonical flow shapes — dirty-check, topological order, hot-reload,
+  frame scoping, teardown — are described as data in
+  spec/conformance/fixtures/flow-*.edn and driven against the live runtime
+  by `re-frame.flows-conformance-test` (the flows artefact's own
+  conformance gate, which claims the `:flow/*` capability set).
 
   The `:rf.fx/reg-flow` / `:rf.fx/clear-flow` settle is pinned in
   `re-frame.flows-settle-on-dispatch-test`."
@@ -86,24 +79,11 @@
 ;; 1. reg-flow / clear-flow lifecycle (registry side)
 ;; ---------------------------------------------------------------------------
 
-(deftest reg-flow-populates-registry
-  (testing "reg-flow stores the flow under [frame-id flow-id] in the per-frame registry"
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :area)
-        "the flow lives under :rf/default's slot of the per-frame registry")
-    ;; The per-frame `flows` store is the SOLE store — the flow
-    ;; is introspectable via the frame-scoped `flow-meta`, NOT a frame-blind
-    ;; registrar `:flow` slot (which is RESERVED-but-empty).
-    (is (some? (rf.flows/flow-meta {:frame :rf/default :id :area}))
-        "the flow is discoverable via the frame-scoped flow-meta")
-    (is (nil? (rf.registrar/lookup :flow :area))
-        "the :flow registrar kind is RESERVED-but-empty — no slot is written")))
-
 (deftest clear-flow-prunes-empty-frame-slot-from-registry
   ;; Clearing the LAST flow on a frame dissocs the frame-id key from the
   ;; per-frame `@flows` registry entirely, not leaving a `{frame-id {}}` husk.
-  ;; (Distinct from the leaf-only app-db vacation husk covered by the next
-  ;; deftest — this is about the registry map, not app-db.) Symmetric with
+  ;; (This is the registry map, not app-db, whose vacation is leaf-only.)
+  ;; Symmetric with
   ;; `teardown-on-frame-destroy!`'s `(swap! flows dissoc frame-id)`.
   (testing "clearing the sole flow on a frame removes the frame-id key from flows-snapshot"
     (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
@@ -112,28 +92,6 @@
     (rf/clear :flow :area)
     (is (not (contains? (rf.flows/flows-snapshot) :rf/default))
         "the frame-id key is GONE from @flows — no {frame-id {}} husk remains")))
-
-(deftest clear-flow-vacates-leaf-only-leaving-empty-parent-husk
-  ;; clear-flow's vacation contract is LEAF-ONLY. When the cleared flow's leaf
-  ;; was the sole key under its parent, an empty parent map remains —
-  ;; deliberate, not a leak. Pruning empty ancestor maps would risk deleting
-  ;; unrelated sibling slots that happen to be empty, so the leaf-only
-  ;; behaviour is the correct contract. The flow's *value* is fully gone (the
-  ;; spec's "vacate the slot" requirement); only the structural empty-map
-  ;; parent persists.
-  (testing "clearing a flow whose leaf is the sole key under its parent leaves an empty parent map"
-    (rf/reg-event :seed-wizard (fn [{:keys [db]} _] {:db {:wizard {}}}))
-    (rf/reg-flow :wizard/result {:inputs [[:wizard :seed]] :output-path [:wizard :result]} (fn [_] 42))
-    ;; Drive a drain so the flow materialises [:wizard :result].
-    (rf/reg-event :touch-wizard (fn [{:keys [db]} _] {:db (assoc-in db [:wizard :seed] 1)}))
-    (rf/dispatch-sync [:seed-wizard])
-    (rf/dispatch-sync [:touch-wizard])
-    (is (= 42 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "flow materialised its output at the leaf")
-    (rf/clear :flow :wizard/result)
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= {} (dissoc (get db :wizard) :seed))
-          "the leaf is vacated and the parent persists: only the husk (plus the unrelated sibling :seed) remains under it"))))
 
 (deftest clear-flow-noop-dissoc-does-not-rewrite-the-container
   ;; `clear-flow` skips `replace-container!` when the dissoc branch was a no-op
@@ -219,22 +177,6 @@
     ;; Sanity: siblings untouched.
     (is (= 3 (:foo (rf/app-db-value :rf/default))))
     (is (= 4 (:bar (rf/app-db-value :rf/default))))))
-
-(deftest clear-flow-handles-single-element-path
-  (testing "clear-flow with a single-element :output-path dissocs the top-level key"
-    ;; A flow whose :output-path is a one-element vector [:area]. A naïve
-    ;; (update-in cur [] dissoc :area) would leave :area in app-db (and
-    ;; silently introduce an {nil nil} entry); the length-1 special-case
-    ;; dissocs the top-level key directly.
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:area]} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:seed])
-    (is (= 12 (get (rf/app-db-value :rf/default) :area))
-        "flow ran on the drain after :seed and materialised :area")
-    (rf/clear :flow :area)
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= {:w 3 :h 4} db)
-          "the single-element :output-path is dissoc'd cleanly, with no spurious {nil nil} entry from update-in on an empty path, and its siblings are untouched"))))
 
 (deftest reg-flow-missing-id-and-bad-output-carry-canonical-error-ids
   ;; Companion to `reg-flow-error-carries-canonical-rf-error-id-slot`
@@ -575,62 +517,6 @@
       (is (= #{:a :b :c} (set (butlast cycle)))
           "all three offending ids appear in the path"))))
 
-(deftest reg-flow-replacement-that-introduces-cycle-preserves-prior-registration
-  ;; `reg-flow` runs cycle detection on a PROSPECTIVE flow-map BEFORE
-  ;; mutating; on failure nothing is written and the prior registration stays
-  ;; intact. A rollback path that wrote the new entry FIRST and then dissoc'd
-  ;; by id on a detected cycle would DELETE the prior registration as well as
-  ;; the just-written one — so a hot-reload that accidentally introduced a
-  ;; cycle would silently vacate the previously-working flow. This test pins
-  ;; that the prior registration survives.
-  (testing "a cyclic reg-flow REPLACEMENT must not silently delete the prior registration"
-    ;; Set up a non-cyclic two-flow graph where REPLACING :b is what
-    ;; closes the cycle. This specifically exercises the REPLACEMENT-introduced
-    ;; MULTI-node cycle path (single-node self-cycles are covered separately in
-    ;; the self-cycle tests), so we set :a's :inputs to point at
-    ;; :b's :output-path. After replacement of :b's inputs to point at :a's
-    ;; :output-path, the cycle :a → :b → :a closes.
-    ;;
-    ;; 1. :a reads [:b], writes [:a]. Currently no cycle because :b is
-    ;;    not yet registered.
-    (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} (fn [b] (str "A-from-B-" b)))
-    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :a)
-        "initial :a registers cleanly")
-
-    ;; 2. :b reads an unrelated path [:source], writes [:b]. Graph is
-    ;;    :b → :a (one-way), no cycle. `reg-flow-cycle-error-carries-
-    ;;    ordered-cycle-path` pins the INITIAL-cycle case (where :b at
-    ;;    first registration closes the cycle). This test pins the
-    ;;    REPLACEMENT case — :b registers cleanly first, then its
-    ;;    replacement is what would close the cycle.
-    (let [original-b-output (fn [src] (str "B-of-" src))]
-      (rf/reg-flow :b {:inputs [[:source]] :output-path [:b]} original-b-output)
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :b)
-          "initial :b registers cleanly (reads [:source]; no cycle)")
-
-      ;; 3. RE-register :b with :inputs [[:a]]. :a already reads [:b],
-      ;;    so the prospective graph closes :a → :b → :a. Cycle
-      ;;    detection MUST reject the replacement.
-      (is (thrown? Throwable
-            (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} (fn [a] (str "B-from-A-" a))))
-          "the cyclic replacement of :b throws :rf.error/flow-cycle")
-
-      ;; 4. THE KEY ASSERTION: the prior :b is STILL in the registry —
-      ;;    not silently deleted. A naive rollback that wrote the new
-      ;;    registration first and then dissoc'd it by id on rejection
-      ;;    WOULD have vacated the prior registration along with the
-      ;;    just-written one. The atomic prospective-map swap prevents
-      ;;    this: cycle/overlap detection runs on the prospective map
-      ;;    inside the swap! update fn and never commits on rejection,
-      ;;    so the prior registration is left untouched.
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :b)
-          "after a failed cyclic replacement, the prior :b registration is preserved")
-      (let [b-after (get-in (rf.flows/flows-snapshot) [:rf/default :b])]
-        (is (= [[:source]] (:inputs b-after))
-            "prior :b's :inputs are intact ([[:source]], not the rejected [[:a]])")
-        (is (identical? original-b-output (:derive b-after))
-            "prior :b's :derive fn has the SAME identity (not the rejected new fn)")))))
-
 ;; ---------------------------------------------------------------------------
 ;; 1c. Self-referential (single-node) dependency cycles
 ;;
@@ -679,89 +565,6 @@
           "the prior dirty-check row is preserved")
       (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
           "the prior materialized output is untouched"))))
-
-;; ---------------------------------------------------------------------------
-;; 2. Dirty-check / re-evaluation
-;; ---------------------------------------------------------------------------
-
-(deftest flow-noop-on-equal-input-rewrite
-  (testing "rewriting an input path with an =-equal value does NOT re-fire the flow"
-    (let [calls (atom 0)]
-      (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:n 5}}))
-      (rf/reg-event :replace-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-      (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n]
-                              (swap! calls inc)
-                              (* 2 n)))
-      (rf/dispatch-sync [:init])
-      (is (= 1 @calls) "first drain fires the flow once (initial evaluation)")
-      (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
-      ;; Replace :n with the same value (5 → 5).
-      (rf/dispatch-sync [:replace-n 5])
-      (is (= 1 @calls)
-          ":n was replaced with =-equal value; flow did NOT recompute")
-      (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
-          "output unchanged")
-      ;; Now flip :n to a different value.
-      (rf/dispatch-sync [:replace-n 7])
-      (is (= 2 @calls)
-          ":n changed to 7; flow recomputed")
-      (is (= 14 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))))))
-
-(deftest flow-no-recompute-when-unrelated-path-changes
-  (testing "writing an unrelated path does not re-fire a flow whose inputs are stable"
-    (let [calls (atom 0)]
-      (rf/reg-event :init      (fn [{:keys [db]} _] {:db {:user {:name "alice"} :other 0}}))
-      (rf/reg-event :bump-other (fn [{:keys [db]} _] {:db (update db :other inc)}))
-      (rf/reg-flow :user/uppercase-name {:inputs [[:user :name]] :output-path [:user :uppercase-name]} (fn [n]
-                              (swap! calls inc)
-                              (when n (.toUpperCase ^String n))))
-      (rf/dispatch-sync [:init])
-      (is (= 1 @calls) "first evaluation always fires")
-      (is (= "ALICE" (get-in (rf/app-db-value :rf/default)
-                             [:user :uppercase-name])))
-      (dotimes [_ 5] (rf/dispatch-sync [:bump-other]))
-      (is (= 1 @calls)
-          ":other changed but [:user :name] did not; flow stayed quiet"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. Topological sort — B depends on A; one drain settles both
-;; ---------------------------------------------------------------------------
-
-(deftest flow-topo-sort-cascades-in-one-drain
-  (testing "B reads what A wrote; topo sort places A first; one drain settles both"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 2 :h 3}}))
-    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
-    ;; A: :area depends on :w :h, writes :rect/:area.
-    (rf/reg-flow :rect/area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-    ;; B: :area*2 depends on :rect/:area, writes :rect/:area*2.
-    (rf/reg-flow :rect/area-doubled {:inputs [[:rect :area]] :output-path [:rect :area*2]} (fn [a] (* 2 a)))
-    (rf/dispatch-sync [:init])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= 6  (get-in db [:rect :area]))   "A fired with 2 × 3 = 6")
-      (is (= 12 (get-in db [:rect :area*2])) "B fired in the same drain with 6 × 2 = 12"))
-    (rf/dispatch-sync [:w! 5])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= 15 (get-in db [:rect :area]))   "A re-fired: 5 × 3 = 15")
-      (is (= 30 (get-in db [:rect :area*2])) "B saw A's new output and re-fired: 30"))))
-
-(deftest flow-topo-sort-handles-prefix-overlap
-  (testing "B's :inputs is a prefix of A's :output-path — A still runs before B (Spec 013 §Dependency rule)"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:user {:name "alice"} :note ""}}))
-    ;; A writes deep at [:user :uppercase] — its :output-path is rooted in
-    ;; the same prefix as B's input.
-    (rf/reg-flow :user/uppercase {:inputs [[:user :name]] :output-path [:user :uppercase]} (fn [n] (when n (.toUpperCase ^String n))))
-    ;; B's input is [:user] — a prefix of A's :output-path. Per Spec 013,
-    ;; the dependency rule fires in either prefix direction.
-    (rf/reg-flow :user/note {:inputs [[:user]] :output-path [:summary :note]} (fn [u]
-                            (str "user-keys:"
-                                 (pr-str (vec (sort (keys u)))))))
-    (rf/dispatch-sync [:init])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= "ALICE" (get-in db [:user :uppercase]))
-          "A wrote :user :uppercase")
-      (is (= "user-keys:[:name :uppercase]"
-             (get-in db [:summary :note]))
-          "B saw both :name and the just-written :uppercase in one drain"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. Hot-reload — a re-registration re-evaluates on the next drain
@@ -997,24 +800,13 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 9b. Same-frame re-registration that KEEPS its :output-path leaves the
-;;     prior output in app-db.
+;;     prior output in app-db, on both hosts in
+;;     `re-frame.flows-direct-reg-deferral-cljs-test`.
 ;;
-;; Only a CHANGED :output-path vacates the old path; that move is pinned on
-;; both sides of the drain boundary in `re-frame.flows-lifecycle-drain-race-test`.
+;; Only a CHANGED :output-path vacates the old path: in a drain that move is
+;; pinned in `re-frame.flows-lifecycle-drain-race-test`, and out of a drain
+;; in `re-frame.flows-vector-parent-vacation-test`.
 ;; ---------------------------------------------------------------------------
-
-(deftest same-frame-reregister-same-path-leaves-app-db-untouched
-  (testing "a same-frame re-registration that KEEPS the :output-path
-            does NOT vacate the value (negative control — only a :output-path
-            CHANGE triggers the vacate)"
-    (rf/reg-event :seed (fn [{:keys [db]} [_ n]] {:db {:n n}}))
-    (rf/reg-flow :keep {:inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
-    (rf/dispatch-sync [:seed 4])
-    (is (= 8 (:out (rf/app-db-value :rf/default))))
-    ;; Re-register on the same frame with a NEW body but the SAME path.
-    (rf/reg-flow :keep {:inputs [[:n]] :output-path [:out]} (fn [n] (* 5 (or n 0))))
-    (is (= 8 (:out (rf/app-db-value :rf/default)))
-        ":out is NOT vacated — same :output-path, so the prior value survives until the next recompute")))
 
 ;; ---------------------------------------------------------------------------
 ;; 9c. Flow replacement evidence (per-frame decision, `:frame` attribution,
@@ -1027,59 +819,14 @@
 ;;     `:after` — after the rest of the `:after` chain reshapes the db, and
 ;;     BEFORE the `:db` install + BEFORE `:fx` (Spec 013 §Drain integration).
 ;;
-;; These pin the observable consequences of that ordering:
-;;   (a) `:fx` sees the flow-derived app-db;
-;;   (b) the reactive cascade (subs) sees the flow-derived db;
-;;   (c) flows run BEFORE the `:db` install (the value installed already
-;;       carries flow output — single install of the flow-augmented db);
-;;   (d) flows run AFTER the `:after` chain reshape (path-scoped handlers
-;;       still feed the FULL db to flows — see
-;;       `flow-reads-full-db-under-path-scoped-handler`); and
-;;   (e) a user `:after` interceptor — which runs BEFORE the outermost flow
-;;       transform — sees the handler's PRE-flow `:db` effect (flow output
-;;       reaches it via app-db post-install, not via the chain).
+;; These pin two observable consequences of that ordering:
+;;   (a) `:fx` sees the flow-derived app-db; and
+;;   (b) flows run BEFORE the `:db` install (the value installed already
+;;       carries flow output — single install of the flow-augmented db).
+;; That flows run AFTER the rest of the `:after` chain (a path-scoped
+;; handler still feeds the FULL db to flows) is pinned on both hosts in
+;; `re-frame.flows-path-focused-no-db-cljs-test`.
 ;; ---------------------------------------------------------------------------
-
-(deftest user-after-interceptor-precedes-flow-transform
-  (testing "(e) a user `:after` runs BEFORE the outermost flow transform"
-    ;; The flow doubles :n into [:doubled]. A user `:after` interceptor —
-    ;; which runs BEFORE the outermost flow transform — captures the
-    ;; effects' :db. It must see the handler's write but the PRE-flow
-    ;; :doubled value (carried from the prior drain), NOT the freshly
-    ;; flow-computed one. The flow output is observable in app-db AFTER
-    ;; install — asserted at the end. This pins the deliberate ordering:
-    ;; flows are outermost so they read the full reshaped db; user :after
-    ;; interceptors precede them.
-    (let [seen-db (atom :unset)]
-      (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
-      ;; EP-0022 reference-only: register the capture interceptor, reference by id.
-      (rf/reg-interceptor :test/capture-after
-        {:after (fn [ctx]
-                  (reset! seen-db (get-in ctx [:effects :db]))
-                  ctx)})
-      (rf/reg-event :set-n
-        {:interceptors [:test/capture-after]}
-        (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-      (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
-      ;; init: flow first-computes 0 * 2 = 0 into [:doubled].
-      (rf/dispatch-sync [:init])
-      (is (= 0 (:doubled (rf/app-db-value :rf/default)))
-          "after :init the flow wrote :doubled = 0")
-      (reset! seen-db :unset)
-      ;; set-n 7: the user :after captures the pending :db effect BEFORE
-      ;; the outermost flow transform recomputes :doubled.
-      (rf/dispatch-sync [:set-n 7])
-      (is (map? @seen-db)
-          "the user after-interceptor captured the effects' :db")
-      (is (= 7 (:n @seen-db))
-          "the user :after saw the handler's own write")
-      (is (= 0 (:doubled @seen-db))
-          "the user :after saw the PRE-flow :doubled (0, carried from the prior
-           drain) — it ran BEFORE the outermost flow transform recomputed it")
-      ;; The recomputed flow output IS in app-db after install — the
-      ;; deliverable path for consumers that need flow output.
-      (is (= 14 (:doubled (rf/app-db-value :rf/default)))
-          "the recomputed flow output (7 * 2 = 14) landed in the installed app-db"))))
 
 (deftest fx-sees-flow-derived-app-db
   (testing "(b) an :fx entry reading app-db sees the flow output"
@@ -1099,45 +846,6 @@
       (rf/dispatch-sync [:go 5])
       (is (= 10 (:doubled @fx-saw))
           ":fx read the flow-derived :doubled (5 * 2 = 10) from app-db"))))
-
-(deftest reactive-cascade-sees-flow-derived-db
-  (testing "(c) a subscription over the flow's :output-path sees the flow output"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
-    (rf/reg-sub :doubled (fn [db _] (:doubled db)))
-    (rf/dispatch-sync [:init])
-    (rf/dispatch-sync [:set-n 9])
-    (is (= 18 @(rf/subscribe [:doubled]))
-        "the sub recomputed against the flow-augmented db install (9 * 2 = 18)")))
-
-(deftest flow-reads-full-db-under-path-scoped-handler
-  (testing "a flow reading a full-db path sees the FULL reshaped db
-            even when the triggering handler is `[:rf.interceptor/path …]`-scoped"
-    ;; The handler writes the :counter slice (path-scoped). The flow reads
-    ;; the FULL-DB path [:counter :n] and writes [:counter :doubled]. The
-    ;; flow transform must run against the FULL db (after the path
-    ;; interceptor splices the slice back), NOT the bare slice — otherwise
-    ;; `(get-in slice [:counter :n])` would be nil and the flow would
-    ;; mis-compute.
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:counter {:n 0}}}))
-    (rf/reg-event :inc
-                     {:interceptors [[:rf.interceptor/path [:counter]]]}
-                     (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-flow :counter/doubled {:inputs [[:counter :n]] :output-path [:counter :doubled]} (fn [n] (* 2 (or n 0))))
-    (rf/dispatch-sync [:seed])
-    (rf/dispatch-sync [:inc])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= 1 (get-in db [:counter :n]))
-          "the path-scoped handler incremented :counter/:n")
-      (is (= 2 (get-in db [:counter :doubled]))
-          "the flow read the FULL-db [:counter :n] (=1) and wrote 1 * 2 = 2 —
-           it ran against the reshaped full db, not the path slice"))
-    (rf/dispatch-sync [:inc])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= 2 (get-in db [:counter :n])))
-      (is (= 4 (get-in db [:counter :doubled]))
-          "second increment: flow recomputed 2 * 2 = 4 off the full db"))))
 
 (deftest flow-runs-before-db-install
   (testing "(c) a single :db install carries the flow output, AND
