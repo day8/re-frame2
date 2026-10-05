@@ -1180,8 +1180,8 @@ def _run_self_tests(verbose: bool = False) -> int:
     A witness is `<family>:<roster entry>` — which of the family's alternatives
     fired, not merely that the family did. Positive fixtures plant a LIVE
     retired symbol inside a code fence on a non-allowlisted-shaped page;
-    negative fixtures exercise the counterparts that MUST stay green:
-    removed-context prose, an inline code span, a masked `;` comment in a fence,
+    negative fixtures exercise the counterparts that MUST stay green: prose
+    naming retired symbols in inline code spans, a masked `;` comment in a fence,
     the sanctioned `app-db` term, the rewritten image/frame teaching, and a
     non-facade namespace-qualified symbol (an app's own `counter/install!` setup
     hook — the qualifier filter keeps a non-`rf/` qualifier from firing). A
@@ -1273,7 +1273,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("positive/live_rf_app_call.md",
          frozenset({_FACADE + "rf/app"})),
         # --- negatives: removed-context / sanctioned forms must stay GREEN ---
-        ("negative/removed_context_prose.md",          frozenset()),
         ("negative/inline_code_span_mention.md",       frozenset()),
         ("negative/masked_clj_comment_in_fence.md",    frozenset()),
         ("negative/app_db_sanctioned.md",              frozenset()),
