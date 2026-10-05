@@ -326,66 +326,6 @@
           "pending-nav names the rejecting guard sub-id"))))
 
 ;; ============================================================================
-;; :can-leave non-boolean → BLOCK + :rf.error/can-leave-non-boolean
-;; ============================================================================
-
-(deftest can-leave-non-boolean-blocks-navigation
-  (testing "a :can-leave sub that returns a non-boolean truthy value
-            BLOCKS navigation and emits :rf.error/can-leave-non-boolean,
-            tagged with the route-id keyword rather than the :path pattern.
-            Closed contract — blocking ensures the polarity
-            bug (returning the dirty-flag value rather than (not dirty?))
-            cannot silently strand form state."
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave [:editor/leave?]} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/set-dirty
-                     (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    ;; Polarity bug: return the dirty-flag directly (truthy when dirty).
-    ;; A truthy non-boolean must BLOCK nav.
-    (rf/reg-sub :editor/leave?
-                (fn [db _] (get-in db [:editor :dirty?])))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    ;; A non-truthy non-false value (`nil`) would also be a non-boolean
-    ;; — but we want to specifically exercise the "truthy non-boolean"
-    ;; polarity bug, so dirty the editor first.
-    (rf/dispatch-sync [:editor/set-dirty 42])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::can-leave-nb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (rf/unregister-listener! :trace ::can-leave-nb)
-      (let [db        (:rf.db/runtime (rf/frame-state-value :rf/default))
-            pending   (get-in db [:rf.runtime/routing :pending-navigation])
-            nb-traces (filter #(= :rf.error/can-leave-non-boolean
-                                   (:operation %))
-                              @traces)]
-        (is (= :editor/article (get-in db [:rf.runtime/routing :current :route-id]))
-            "navigation BLOCKED — slice still on the source route")
-        (is (some? pending)
-            ":rf/pending-navigation slot is populated (block path)")
-        ;; `:rejecting-route` is written from the same `(:route-id current)`
-        ;; the trace tags, so it restates the route-id fact in both postures.
-        (is (= :editor/article (:rejecting-route pending))
-            ":rejecting-route is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
-        ;; Dev-instrumentation arm (see ns docstring). The
-        ;; fail-CLOSED semantics this deftest exists for are pinned by the three
-        ;; runtime-db assertions above, which are posture-independent.
-        (when rf.interop/debug-enabled?
-          (is (= :rf.error/can-leave-non-boolean
-                 (-> nb-traces first :operation))
-              ":rf.error/can-leave-non-boolean trace fired")
-          (is (= :editor/article (-> nb-traces first :tags :route-id))
-              ":route-id is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
-          (is (= 42 (-> nb-traces first :tags :value))
-              "trace carries the offending non-boolean value")
-          (is (= :blocked-navigation (-> nb-traces first :recovery))
-              "trace hoists :recovery :blocked-navigation (Spec 009 §error contract)"))))))
-
-;; ============================================================================
 ;; can-leave / external-url diagnostics carry :frame
 ;; ============================================================================
 ;;
@@ -471,6 +411,10 @@
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
                          [:rf.runtime/routing :pending-navigation]))
           ":route/owner's pending-nav slot is populated")
+      (is (= :editor/article
+             (get-in (:rf.db/runtime (rf/frame-state-value :route/owner))
+                     [:rf.runtime/routing :pending-navigation :rejecting-route]))
+          ":rejecting-route is the route-id KEYWORD, not the \"/editor/articles/:id\" path string")
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/routing :pending-navigation]))
           ":rf/default saw no pending navigation — the guard is frame-local")
@@ -479,9 +423,12 @@
         (is (some (fn [ev]
                     (and (= :rf.error/can-leave-non-boolean (:operation ev))
                          (= 42 (-> ev :tags :value))
+                         (= :editor/article (-> ev :tags :route-id))
+                         (= :blocked-navigation (:recovery ev))
                          (= :route/owner (-> ev :tags :frame))))
                   @traces)
-            ":rf.error/can-leave-non-boolean carries :frame :route/owner")))))
+            ":rf.error/can-leave-non-boolean carries the offending value, the route-id
+             keyword, :recovery :blocked-navigation and :frame :route/owner")))))
 
 (deftest can-leave-subs-artefact-missing-trace-carries-frame-rf2-dbmj6x
   (testing ":rf.warning/can-leave-subs-artefact-missing stamps
