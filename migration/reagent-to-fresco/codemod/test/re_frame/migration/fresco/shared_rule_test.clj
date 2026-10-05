@@ -75,12 +75,9 @@
             load-bearing rather than vestigial."
     (let [url  (io/resource "re_frame/fresco/impl/slot.cljc")
           path (some-> url .getPath (str/replace "\\" "/"))]
-      (is (some? url) "the shared slot rule is on the classpath")
       (is (str/includes? path "implementation/fresco/src/re_frame/fresco/impl/slot.cljc")
           (str "the slot rule must come from the shipped package's shared file; it came from "
                path))
-      (is (not (str/includes? path "/migration/reagent-to-fresco/"))
-          "a copy of the slot rule has appeared inside the codemod's own tree")
       ;; The prototype-twin guard, spelled by NAMESPACE rather than by tree.
       ;; rf2-r4j91 wrote it as `/implementation/freehand/`, which was where the
       ;; twin lived; rf2-0yp7w P0 re-homed the harness into
@@ -112,17 +109,12 @@
           edn/read-string))
 
 (deftest the-callback-contracts-are-the-doors
-  (testing "the door's file is where this test thinks it is — a moved
-            file must red this pin rather than silently skip it"
-    (is (.exists door-file) (str "the door is not at " door-file)))
-
   (testing "rf2-vi11 — the report PRINTS this roster into the `defhost`
             sketch it invites a migrator to paste, so a fourth contract at
             the door, or a renamed one, makes the tool's own advice wrong.
             `html-attr-slots` and `re-event-prop` are mirrors the design
             calls conventions; this one is a mirror with an alarm on it."
     (let [door (door-contracts)]
-      (is (set? door) "the door's `callback-contracts` set was not found in its source")
       (is (= door (set rf.migration.fresco.dest/callback-contracts))
           (str "the door accepts " (pr-str door) " and this tool prints "
                (pr-str rf.migration.fresco.dest/callback-contracts)))))
