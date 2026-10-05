@@ -742,8 +742,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 9c. Flow replacement evidence (per-frame decision, `:frame` attribution,
-;;     `:different-fn?`, identical-reload suppression and reincarnation) runs
-;;     on both hosts in `re-frame.flows-replace-clear-trace-incarnation-cljs-test`.
+;;     `:different-fn?` and identical-reload suppression) runs on both hosts
+;;     in `re-frame.flows-replace-clear-trace-incarnation-cljs-test`.
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
