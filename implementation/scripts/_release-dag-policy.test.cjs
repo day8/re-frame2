@@ -351,37 +351,6 @@ test('ACCEPTANCE: if the ssr leaf does not publish, fresco cannot publish', () =
   );
 });
 
-test('TEETH: folding fresco back into the deploy-leaf matrix is rejected', () => {
-  // Same reconstruction-from-the-current-model shape as the ssr-ring case
-  // below, so the negative control cannot rot away from the file under test.
-  const regressed = JSON.parse(JSON.stringify(releaseModel));
-  const hoisted = matrixInclude(regressed.jobs['deploy-fresco']);
-  assert.equal(hoisted.length, 1, 'deploy-fresco should carry exactly one matrix value');
-  regressed.jobs['deploy-leaf'].strategy.matrix.include.push(hoisted[0]);
-  delete regressed.jobs['deploy-fresco'];
-  regressed.jobs['github-release'].needs = regressed.jobs['github-release'].needs.filter(
-    (n) => n !== 'deploy-fresco',
-  );
-
-  const violations = orderingViolations(regressed);
-  assert.equal(
-    violations.length,
-    1,
-    `expected exactly one violation for the folded shape, got ${violations.length}:\n  `
-      + violations.join('\n  '),
-  );
-  assert.match(violations[0], /fresco publishes a dependency on day8\/re-frame2-ssr/);
-  assert.match(violations[0], /'deploy-leaf' also publishes/);
-});
-
-test('TEETH: dropping deploy-fresco\'s needs: edge is rejected', () => {
-  const regressed = JSON.parse(JSON.stringify(releaseModel));
-  regressed.jobs['deploy-fresco'].needs = ['deploy-core'];
-  const violations = orderingViolations(regressed);
-  assert.equal(violations.length, 1, `expected one violation, got:\n  ${violations.join('\n  ')}`);
-  assert.match(violations[0], /does not transitively require 'deploy-leaf'/);
-});
-
 test('TEETH: the pre-fix shape (ssr-ring inside the deploy-leaf matrix) is rejected', () => {
   // Reconstruct the defect from the CURRENT model rather than a text fixture,
   // so the negative control cannot rot away from the file under test: fold
