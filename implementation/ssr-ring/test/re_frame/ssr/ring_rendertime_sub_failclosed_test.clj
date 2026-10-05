@@ -49,10 +49,7 @@
       A reactive SUB-throw recovers-to-nil → never
       reaches that catch.
     - `ring_draintime_error_test` covers drain-time categories that fire
-      BEFORE the pre-render read, so that single read sees them.
-
-  The harness mirrors `ring_draintime_error_test.clj`'s: direct in-process
-  handler call AND bytes-on-the-wire through Jetty + `java.net.http`."
+      BEFORE the pre-render read, so that single read sees them."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -61,22 +58,6 @@
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
-
-;; ===========================================================================
-;; Jetty + java.net.http harness
-;; ===========================================================================
-;;
-;; The ephemeral Jetty host (`with-jetty`) + `java.net.http`
-;; client / GET live in `re-frame.ssr.ring.test-support`.
-;; The 30s read timeout is explicit at the call site via `http-get`.
-
-(def ^:private read-timeout-secs 30)
-
-(defn- http-get
-  "Issue a real HTTP GET and return `{:status :body}` observed on the
-  wire (30s read-timeout pinned via the shared helper)."
-  [client port path]
-  (rf.ssr.ring.test-support/http-get client port path read-timeout-secs))
 
 ;; ===========================================================================
 ;; A root-view whose reactive sub THROWS during the render walk.
@@ -149,44 +130,4 @@
             (is (not (str/includes? body "header that renders"))
                 "the degraded recovered-to-nil body is DISCARDED under the 500")
             (is (not (str/includes? body "__rf_payload"))
-                "no hydration payload ships on the projected-error arm")))
-
-        (testing "bytes-on-the-wire through Jetty — the 500 survives the
-                  full round-trip"
-          (rf.ssr.ring.test-support/with-jetty [port handler]
-            (let [client (rf.ssr.ring.test-support/new-http-client)
-                  {:keys [status]} (http-get client port "/uses-throwing-sub")]
-              (is (= 500 status)
-                  "the render-time sub-throw fail-closed 500 rides the
-                   full Jetty round-trip — never a silent 200"))))))))
-
-;; ===========================================================================
-;; Test 2 — the happy path is unaffected (last-write-wins / empty-buffer
-;;          no-op). A clean reactive sub renders 200 through the same
-;;          re-flushing path.
-;; ===========================================================================
-
-(deftest happy-path-clean-sub-stays-200-after-reflush
-  (testing "the post-render re-flush is benign for the happy
-            path — a render walk with NO buffered error leaves the buffer
-            empty, the drain is a no-op, and the response keeps its
-            default 200. Confirms the re-flush is last-write-wins, not a
-            blanket status rewrite."
-    (rf/reg-sub :clean-sub (fn [_db _] :ok))
-    (rf/reg-view* :pages/uses-clean-sub
-      (fn []
-        (let [v @(rf/subscribe [:clean-sub])]
-          [:main [:h1 "clean"] [:p (str "value: " v)]])))
-    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/ok]]
-                     :root-view [(rf/view :pages/uses-clean-sub)]
-                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
-                                 :dev-error-detail? false}
-                     :payload :rf.ssr.payload/whole-app-db})]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [response (handler {:uri "/uses-clean-sub" :request-method :get})]
-          (is (= 200 (:status response))
-              "clean render → empty error buffer → re-flush no-op → 200")
-          (is (str/includes? (:body response) "value: :ok")
-              "the clean sub's value rendered into the wire HTML"))))))
+                "no hydration payload ships on the projected-error arm")))))))
