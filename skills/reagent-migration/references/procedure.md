@@ -24,22 +24,41 @@ Confirm all three, or stop:
    [`../SKILL.md`](../SKILL.md) §Read this first carries it as a table — and
    proceed when their request already chooses Fresco. Ask for a choice only
    when their goal is unclear; do not repeat a decision they already made.
-3. **Fresco is actually reachable from the target project's build.** This is
-   the check the project already passed to get onto re-frame2, not a second
-   one. `day8/re-frame2-fresco` is in the release set: every re-frame2 release
-   publishes it at the same version as `day8/re-frame2` and
-   `day8/re-frame2-reagent`. Until a release, every artefact resolves from
+3. **Fresco is reachable from the target project's build, and declared in
+   it.** Reachability is the check the project already passed to get onto
+   re-frame2, not a second one. `day8/re-frame2-fresco` is in the release set:
+   every re-frame2 release publishes it at the same version as `day8/re-frame2`
+   and `day8/re-frame2-reagent`. Until a release, every artefact resolves from
    source — `:local/root` from a checkout, as the installation page shows, or
    a `:git/sha` — Fresco and the Reagent adapter alike. So the route the build
-   already uses for `day8/re-frame2` resolves Fresco at the same version:
-   confirm it does, and add nothing else. Never draw an asymmetry here —
-   "swap to the adapter now, wait for Fresco" is false.
+   already uses for `day8/re-frame2` delivers Fresco at the same version.
+   Never draw an asymmetry here — "swap to the adapter now, wait for Fresco"
+   is false.
 
-   That route is the Fresco *runtime* the app compiles against. The reporter
-   Step 0 runs is a separate, tool-only coordinate passed through `-Sdeps`
-   and never added to the app's build: the pinned git coordinate by default,
-   or a `:local/root` on a checkout the author has already chosen
-   ([`../SKILL.md`](../SKILL.md) §Start with the reporter).
+   A route that delivers Fresco is not a declaration of it. A development
+   tool such as Xray depends on Fresco, so a dev alias carrying it makes
+   `re-frame.fresco` resolve in development while the base dependencies, the
+   test build and the release build never name `day8/re-frame2-fresco` — and
+   a converted view then has no Fresco to compile against outside
+   development. So measure the three declarations separately — the base
+   dependencies, the test build, the release build — and record each:
+
+   - **Each declares it**, directly or through the base dependencies it
+     inherits → keep it as it is.
+   - **Any of them lacks it, or gets it only through a dev-only tool** → add
+     that one coordinate to the base dependencies, on the route the build
+     already uses for `day8/re-frame2` — the same checkout, or the same
+     `:git/sha`. That is the whole change: no second route, no version
+     refresh.
+
+   That coordinate is the Fresco *runtime* the app compiles against. The
+   reporter Step 0 runs is a separate, tool-only coordinate passed through
+   `-Sdeps` and never added to the app's build: the pinned git coordinate by
+   default, or a `:local/root` on a checkout the author has already chosen
+   ([`../SKILL.md`](../SKILL.md) §Start with the reporter). The test kit is
+   test-only in the same way: where the build adds its source root (Step 5),
+   that path goes on the test alias or test build alone, never on the base
+   or release paths.
 
 ## Step 0 — Run the reporter, and read both halves
 
