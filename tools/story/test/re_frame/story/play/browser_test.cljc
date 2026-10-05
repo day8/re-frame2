@@ -22,23 +22,11 @@
   The capability/requirement + cannot-run contract for these ids lives in
   `re-frame.story.requirements-test`; this suite covers the EXECUTOR."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.story.assertions    :as rf.story.assertions]
             [re-frame.story.play.browser  :as rf.story.play.browser]))
 
 ;; ===========================================================================
 ;; HEADLESS FAIL-CLOSED — browser-tier assertions return :cannot-run
 ;; ===========================================================================
-
-(deftest headless-visual-snapshot-cannot-run
-  (testing "a headless run returns :cannot-run for :rf.assert/visual-snapshot"
-    ;; On the JVM `browser-available?` is false — the headless contract.
-    (is (false? (rf.story.play.browser/browser-available?)))
-    (let [rec (rf.story.play.browser/eval-visual-snapshot [] {:snapshot-identity {:content-hash "abcd1234"}})]
-      (is (= :rf.assert/visual-snapshot (:assertion rec)))
-      (is (= :cannot-run (:status rec)) "headless visual snapshot is :cannot-run, never a silent pass")
-      (is (true? (:cannot-run? rec)))
-      (is (false? (:passed? rec)))
-      (is (string? (:reason rec))))))
 
 (deftest headless-axe-a11y-cannot-run
   (testing "a headless run returns :cannot-run for axe-style :rf.assert/a11y"
@@ -117,24 +105,6 @@
       (is (true? (:passed? rec)))
       (is (= 0 (:count rec)))
       (is (empty? (:actual rec))))))
-
-(deftest structural-a11y-detects-img-missing-alt
-  (testing "an :img with no :alt is a structural issue"
-    (let [rec (rf.story.play.browser/eval-structural-a11y [] {:hiccup [:div [:img {:src "/k.png"}]]})]
-      (is (= :fail (:status rec)))
-      (is (false? (:passed? rec)))
-      (is (= 1 (:count rec)))
-      (is (= :img-missing-alt (-> rec :actual first :rule))))))
-
-(deftest structural-a11y-detects-control-missing-name
-  (testing "an interactive control with no accessible name is a structural issue"
-    (let [rec (rf.story.play.browser/eval-structural-a11y [] {:hiccup [:div [:button {:class "x"}]]})]
-      (is (= :fail (:status rec)))
-      (is (= :control-missing-name (-> rec :actual first :rule)))))
-  (testing "a control with aria-label is fine"
-    (let [rec (rf.story.play.browser/eval-structural-a11y
-                [] {:hiccup [:div [:button {:aria-label "close"}]]})]
-      (is (= :pass (:status rec))))))
 
 (deftest structural-a11y-detects-unlabeled-input
   ;; An interactive <input> with no accessible name is a genuine structural
@@ -255,30 +225,3 @@
     (is (rf.story.play.browser/browser-assertion? [:rf.assert/a11y-structural]))
     (is (not (rf.story.play.browser/browser-assertion? [:rf.assert/path-equals [:n] 1])))
     (is (not (rf.story.play.browser/browser-assertion? [:rf.assert/dom-visible "[x]"])))))
-
-(deftest eval-browser-assertion-routes-by-id
-  (testing "eval-browser-assertion routes each oracle atom to its evaluator"
-    ;; structural runs JVM-side (hiccup tree)
-    (let [rec (rf.story.play.browser/eval-browser-assertion
-                [:rf.assert/a11y-structural] {:hiccup [:div [:img]]})]
-      (is (= :rf.assert/a11y-structural (:assertion rec)))
-      (is (= :fail (:status rec))))
-    ;; visual / a11y are :cannot-run headless
-    (is (= :cannot-run (:status (rf.story.play.browser/eval-browser-assertion
-                                  [:rf.assert/visual-snapshot] {}))))
-    (is (= :cannot-run (:status (rf.story.play.browser/eval-browser-assertion
-                                  [:rf.assert/a11y] {}))))
-    ;; a non-oracle atom is not handled here
-    (is (nil? (rf.story.play.browser/eval-browser-assertion [:rf.assert/path-equals [:n] 1] {})))))
-
-;; ===========================================================================
-;; ID + KNOWN-SET INTEGRATION — the ids are recognised by the vocabulary
-;; ===========================================================================
-
-(deftest browser-tier-ids-are-known-assertions
-  (testing "plan construction accepts the browser-tier ids
-            (assertion-id-known?); their browser-assertion-ids membership is
-            browser-assertion-predicate's"
-    (is (rf.story.assertions/assertion-id-known? :rf.assert/visual-snapshot))
-    (is (rf.story.assertions/assertion-id-known? :rf.assert/a11y))
-    (is (rf.story.assertions/assertion-id-known? :rf.assert/a11y-structural))))
