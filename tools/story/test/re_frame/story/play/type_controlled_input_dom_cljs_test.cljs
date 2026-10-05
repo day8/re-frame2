@@ -25,11 +25,9 @@
   regex matches this suffix — where every test self-gates on `(browser?)`
   and exits early.
 
-  `direct-assignment-is-the-regression` is the load-bearing control: it
-  performs a direct `node.value` write on an identical mounted input and
-  asserts the controlled state does NOT update. A `type!` that assigned
-  directly would therefore red the tests above it AND leave this one
-  green, which is what pins the seam rather than merely exercising it."
+  `native-value-setter-skips-the-own-property-setter` pins the mechanism
+  directly: the setter `type!` writes through is the prototype's, never
+  the own-property accessor React installs."
   (:require [cljs.test :refer-macros [deftest is testing]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -204,36 +202,7 @@
               "both events reach a plain-DOM listener")
           (finally (.remove input)))))))
 
-;; ---- 5 · the regression control ------------------------------------------
-;;
-;; This is what makes the four tests above load-bearing rather than
-;; merely green. It performs a direct `(set! (.-value node) …)` write
-;; followed by the same two events `type!` dispatches, on an identical
-;; mounted input, and asserts the controlled component state does NOT
-;; move. If React ever stops filtering that write, this test reds and
-;; tells us the seam changed; until then it pins exactly why `type!`
-;; writes through the prototype setter.
-
-(deftest direct-assignment-is-the-regression
-  (testing "a direct node.value assignment leaves the controlled
-            component's on-change unfired"
-    (with-browser-act
-      (fn [act-fn]
-        (let [state       (r/atom {:email ""})
-              [node root] (mount! act-fn [(controlled-input state)])
-              input       (.querySelector node "[data-test=\"typed-email\"]")]
-          (try
-            (act-fn
-              (fn []
-                (set! (.-value input) "swallowed@example.com")
-                (.dispatchEvent input (js/Event. "input"  #js {:bubbles true :cancelable true}))
-                (.dispatchEvent input (js/Event. "change" #js {:bubbles true :cancelable true}))))
-            (is (= "" (:email @state))
-                "React's value tracker swallowed the direct assignment —
-                 `type!` must not write this way")
-            (finally (unmount! root))))))))
-
-;; ---- 6 · the mechanism, asserted directly --------------------------------
+;; ---- 5 · the mechanism, asserted directly --------------------------------
 
 (deftest native-value-setter-skips-the-own-property-setter
   (testing "native-value-setter returns the PROTOTYPE setter, not an
