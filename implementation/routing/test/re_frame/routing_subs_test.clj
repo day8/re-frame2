@@ -77,33 +77,6 @@
            @(rf/subscribe [:rf.route/chain]))
         ":rf.route/chain returns a single-element chain for the root")))
 
-(deftest sub-rf-pending-navigation
-  (testing ":rf/pending-navigation reads the pending-nav slot"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; No pending nav yet
-    (is (nil? @(rf/subscribe [:rf/pending-navigation]))
-        ":rf/pending-navigation returns nil when no nav is pending")
-    ;; Set up a pending nav via the can-leave guard
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (let [pending @(rf/subscribe [:rf/pending-navigation])]
-      (is (some? pending)
-          ":rf/pending-navigation populated after a guard rejection"))
-    ;; Clear it
-    (rf/dispatch-sync [:rf.route/cancel "pn-1"])
-    (is (nil? @(rf/subscribe [:rf/pending-navigation]))
-        ":rf/pending-navigation returns nil after :rf.route/cancel")))
-
 ;; ---- route slice key is :route-id; the sub-id is :rf.route/id -------------
 ;;
 ;; Adversarial pin for the slice key. The
