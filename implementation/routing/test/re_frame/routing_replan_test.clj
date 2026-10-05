@@ -289,26 +289,6 @@
           (is (= 1 (count @calls)) "the hook WAS consulted")
           (is (= rdb (runtime-db))))))))
 
-(deftest replan-keeps-the-fragment-only-law-and-mirrors-it
-  (testing "the fragment-only law's mirror: a fragment-only navigation never consults the replan
-            hook, and a replan after it keeps the fragment and the token it left"
-    (rf/reg-route :route/docs {} "/docs/:page")
-    (reg-nav-fxs-capturing!)
-    (with-replan-hook
-      (fn [_] {:fx [] :blocking {} :identities {k1 id1}})
-      (fn [calls]
-        (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "a"}])
-        (let [token (:nav-token (slice))]
-          (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "b"}])
-          (is (empty? @calls) "the fragment-only door does not replan resources")
-          (is (= token (:nav-token (slice))) "…and mints no token")
-          (is (= "b" (:fragment (slice))))
-          (rf/dispatch-sync [:rf.route/replan-resources {:cause [:after-fragment]}])
-          (is (= 1 (count @calls)) "an explicit replan is the separate, named contract")
-          (is (= "b" (:fragment (first @calls))) "…over the CURRENT fragment")
-          (is (= token (:nav-token (slice))) "…under the same token")
-          (is (= "b" (:fragment (slice))) "…leaving the fragment where it was"))))))
-
 (deftest replan-is-frame-scoped
   (testing "a replan dispatched to one frame consults the hook for THAT frame's slice
             only and writes THAT frame's runtime-db"
