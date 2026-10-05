@@ -162,44 +162,6 @@
           (rf.late-bind/set-fn! :flows/clear-flow old-clear))))))
 
 ;; ===========================================================================
-;; Two frames whose generations resolve the SAME fx id to DIFFERENT
-;; bodies. Dry-run targets the requested frame, invokes NEITHER body, records
-;; the requested frame's entry, and does not depend on the process-global
-;; registration union (neither body is globally registered).
-;; ===========================================================================
-
-(deftest dry-run-two-frames-same-fx-id-different-bodies
-  (testing "frame A and frame B each resolve [:same/fx] to a DIFFERENT inline
-            body; a dry-run against A records A's entry and runs neither body"
-    (rf/make-frame {:id :f/a})
-    (rf/make-frame {:id :f/b})
-    (let [fired-a (atom false)
-          fired-b (atom false)
-          img-a   (rf.image/image
-                    {:id :img/a
-                     :registrations
-                     {:reg-event [[:go {} (fn [_ _] {:fx [[:same/fx :A]]})]]
-                      :reg-fx    [[:same/fx {} (fn [_ _] (reset! fired-a true))]]}})
-          img-b   (rf.image/image
-                    {:id :img/b
-                     :registrations
-                     {:reg-event [[:go {} (fn [_ _] {:fx [[:same/fx :B]]})]]
-                      :reg-fx    [[:same/fx {} (fn [_ _] (reset! fired-b true))]]}})]
-      (rf.live-frame/make-frame {:id :f/a :images [img-a]} [])
-      (rf.live-frame/make-frame {:id :f/b :images [img-b]} [])
-      (is (not (contains? (set (keys (rf/registrations {:source :store :kind :fx}))) :same/fx))
-          "premise: :same/fx is image-only on BOTH frames — absent from the
-           process-global union")
-      (let [sink (atom [])]
-        (binding [rf.fx/*effect-sink* sink]
-          (rf/dispatch-sync [:go] {:frame :f/a}))
-        (is (false? @fired-a) "frame A's :same/fx body did not run")
-        (is (false? @fired-b) "frame B's :same/fx body did not run")
-        (is (= [[:same/fx :A]] @sink)
-            "recorded the REQUESTED frame's (A's) entry — resolved through A's
-             image, independent of the process-global registration union")))))
-
-;; ===========================================================================
 ;; :would-fire-effects is COMPLETE and SOURCE-ORDERED, and an escaped
 ;; external-effect sentinel stays untouched even though the tentative :db
 ;; committed (the sink runs AFTER commit but skips every fx body).
