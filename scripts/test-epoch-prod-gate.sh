@@ -54,7 +54,7 @@
 #
 # WHY THE ROSTER IS SO LOPSIDED, AND WHY THAT IS STRUCTURAL RATHER THAN DEBT.
 # Run ALONE under a real `-Dre-frame.debug=false`, most of this artefact's JVM
-# test namespaces are red and one does not terminate at all (class C below).
+# test namespaces are red.
 #
 # `epoch-jvm-prod-gate-test` is IN this lane: its dev-parity sanity check
 # carries core's `^:requires-debug` tag, which the `:prod-gate` alias excludes,
@@ -109,7 +109,7 @@ test_root="$artefact/test"
 # names a real namespace is a hard error (see `verify_roster` below), so a
 # rename cannot leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
-# Every entry falls into one of three classes, below; NONE is the "could run,
+# Every entry falls into one of two classes, below; NONE is the "could run,
 # nobody tried" class, so the roster has no incidental members and nothing to
 # shrink.  The discriminator that decides
 # every case is one question — DOES THE GATE ERASE WHAT THE SUITE IS ABOUT? — and
@@ -127,7 +127,7 @@ test_root="$artefact/test"
 # reads its handler's app-db write back before asserting the absence.  For this
 # artefact the VACUOUS-PASS class lives among the greens, not among the reds.
 known_red=(
-  # ── CLASS A · SUBJECT ELIDED (15; `excluded` on the run's own summary line
+  # ── CLASS A · SUBJECT ELIDED (16; `excluded` on the run's own summary line
   #    is the authority — it counts the array.)  These suites obtain
   #    their subject by
   #    dispatching and reading the ring back — recording, restore, replay,
@@ -160,6 +160,9 @@ known_red=(
   #    never fills and `replay-epoch!` returns `false` by design (pinned in
   #    `epoch-jvm-prod-gate-test` / `epoch-elision-prod-test`). Class A.
   re-frame.epoch-replay-cljs-test
+  #    Concurrency stress over recording, restore and listener fan-out: its
+  #    scenarios wait on records the gate never assembles, so they time out red.
+  re-frame.epoch-concurrency-stress-test
 
   # ── CLASS B · PUBLICATION ELIDED (6).  Different mechanism, same verdict, and
   #    worth separating because the failure ratios invite the wrong conclusion —
@@ -186,23 +189,6 @@ known_red=(
   re-frame.epoch-silencing-lineage-285-test
   re-frame.epoch-silencing-lineage-aba-test
   re-frame.epoch-silencing-same-generation-rearm-test
-
-  # ── CLASS C · HAZARDOUS: DOES NOT TERMINATE (1).  A different fact from "red"
-  #    and recorded as such.  Its stress loops wait on epoch ids the no-op floor
-  #    never mints, so each iteration burns its full budget.  Measured with
-  #    this namespace ALONE, on the same box minutes apart:
-  #
-  #        dev posture   7 tests / 929 assertions, 0 failures, exit 0 —   21s
-  #        under gate    no summary line, no verdict, killed at a 200s bound
-  #
-  #    The shape is worse than the ratio suggests.  It emits a ~267KB burst of
-  #    failures in its first half-minute and then produces NOTHING for the rest
-  #    of the bound — from outside, indistinguishable from a healthy long run.
-  #    A lane that WEDGES is worse than one that reds: it consumes the job's
-  #    whole timeout and reports no verdict at all.  DISPOSITION: stays excluded
-  #    on cost grounds, permanently, independent of how A and B are read.  This
-  #    is the highest-risk line in the file to re-include — do not.
-  re-frame.epoch-concurrency-stress-test
 )
 
 # ---------------------------------------------------------------------------
