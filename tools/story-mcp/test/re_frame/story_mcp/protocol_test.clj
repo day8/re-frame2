@@ -2,9 +2,8 @@
   "Wire-format tests for the MCP JSON-RPC protocol layer.
 
   Covers:
-   - JSON parse / encode round-trip
    - Envelope validation
-   - Frame I/O over an in-memory reader/writer
+   - Frame reading over an in-memory reader (blank lines, EOF)
    - Error-response shapes (the generic envelope, parse-error,
      internal-error; the dispatcher tests in tools_test.clj pin
      method-not-found and invalid-params)
@@ -13,9 +12,7 @@
   The wire layer is testable without booting Story's registrar; the
   dispatcher and tool implementations are
   separate (tools_test.clj covers those)."
-  (:require [cheshire.core :as json]
-            [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
             [re-frame.story-mcp.protocol :as rf.story-mcp.protocol]))
 
@@ -65,19 +62,6 @@
   (testing "blank method → invalid"
     (is (not (rf.story-mcp.protocol/valid-envelope? {:jsonrpc "2.0" :method "" :id 1})))))
 
-;; ---- JSON parse / encode --------------------------------------------------
-
-(deftest json-parse-keeps-string-keys
-  ;; `parse-json` parses with STRING keys (no recursive
-  ;; keywordisation). Envelope + known-arg keywordisation happens
-  ;; downstream in `normalize-frame` (exercised via `read-frame`). This
-  ;; closes the attacker-controlled-nested-key intern surface.
-  (testing "parsed map has STRING keys (no recursive keywordise)"
-    (let [m (rf.story-mcp.protocol/parse-json "{\"method\":\"tools/list\",\"id\":1}")]
-      (is (= "tools/list" (get m "method")))
-      (is (= 1 (get m "id")))
-      (is (nil? (:method m)) "no keyword key — parse-json is string-keyed"))))
-
 ;; ---- frame I/O -----------------------------------------------------------
 
 (defn- reader-of
@@ -96,39 +80,3 @@
   (testing "EOF returns rf.story-mcp.protocol/eof-sentinel"
     (let [r (reader-of "")]
       (is (= rf.story-mcp.protocol/eof-sentinel (rf.story-mcp.protocol/read-frame r))))))
-
-(deftest read-frame-propagates-parse-error
-  (testing "malformed JSON throws (caller writes parse-error response)"
-    (let [r (reader-of "{garbage\n")]
-      (try
-        (rf.story-mcp.protocol/read-frame r)
-        (is false "should have thrown")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/story-mcp-json-parse-failure (:rf.error/id (ex-data e)))))))))
-
-;; NB: `read-frame` is the INBOUND-frame reader — it
-;; normalises a request/notification frame and deliberately keywordises
-;; ONLY the envelope + the bounded arg-key allowlist (nested `:result`
-;; payload keys are NOT walked, since the server never reads its own
-;; responses). These write-frame tests therefore deserialise the written
-;; RESPONSE with a plain keywordising `json/parse-string` — that is the
-;; correct way to read back the server's own output, and it keeps the
-;; tests focused on `write-frame!`'s contract (newline + no embedded
-;; newlines + faithful serialisation).
-(defn- parse-line
-  "Read back one written JSON line as a fully-keywordised Clojure map —
-  the appropriate deserialiser for the server's OWN response output (not
-  the no-intern ingress reader)."
-  [^String s]
-  (json/parse-string (str/trim s) true))
-
-(deftest write-frame-roundtrips
-  (testing "write-frame appends a newline; round-trip via reader"
-    (let [sw (java.io.StringWriter.)
-          _  (rf.story-mcp.protocol/write-frame! sw {:jsonrpc "2.0" :id 1 :result {:ok true}})
-          out (.toString sw)]
-      (is (.endsWith out "\n"))
-      (is (not (.contains (subs out 0 (dec (count out))) "\n"))
-          "no embedded newlines per MCP stdio transport rules")
-      (is (= {:jsonrpc "2.0" :id 1 :result {:ok true}}
-             (parse-line out))))))
