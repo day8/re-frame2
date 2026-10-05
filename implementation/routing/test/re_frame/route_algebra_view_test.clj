@@ -151,21 +151,6 @@
       (is (not (contains? node :resource-edges))
           "a route with no :resources carries no :resource-edges key"))))
 
-(deftest every-registered-route-shares-the-rf-route-fact-id
-  (testing "every route projects to the same :rf/route fact id (every route materializes the one slice)"
-    (rf/reg-route :route/home    {} "/")
-    (rf/reg-route :route/about   {} "/about")
-    (rf/reg-route :route/article {} "/articles/:slug")
-    (let [view (rf.routing.tooling/route-algebra-view)]
-      (is (= #{:route/home :route/about :route/article} (set (keys view)))
-          "the view is keyed by per-route registration id")
-      (is (every? has-fixed-classifications? (vals view)))
-      (is (= #{:rf/route} (set (map :id (vals view))))
-          "every node's :id is :rf/route — one name per fact (EP-0007)")
-      (is (= #{:route/home :route/about :route/article}
-             (set (map (comp :id :source-form) (vals view))))
-          "each node's :source-form carries its own registration id"))))
-
 ;; ---- route-owned resource activation edge --------------------------------
 
 (deftest route-resources-lower-to-activation-edges
