@@ -9,34 +9,41 @@
   > image -> frame -> event stream
 
   The per-slice unit suites (`image-cljs-test`, `image-assembly-cljs-test`,
-  `live-frame-cljs-test`, `frame-resolution-cljs-test`, `migration-cljs-test`,
-  …) prove each slice's internals exhaustively. This suite is the COHESIVE
-  conformance proof the EP §Conformance And Tests list demands: each section
-  asserts ONE contract area through the public path and cites the EP clause it
-  proves. The sections, in EP order:
+  `image-assembly-cache-cljs-test`, `image-assembly-default-cljs-test`,
+  `live-frame-cljs-test`, `live-frame-reload-cljs-test`,
+  `frame-resolution-cljs-test`, `ep0026-select-ns-cljs-test`, …) prove each
+  slice exhaustively, and a contract they already drive through the public
+  path is pinned there alone. This suite holds the end-to-end cases no slice
+  suite reaches, each citing the EP clause it proves. The sections, in EP
+  order, with the suite that pins whatever a section does not:
 
     1. Image construction + selection (§Image, §Namespace-Selected Images,
-       §Image Fragments) — `:include-ns` glob grammar (`*` one segment / `**`
-       zero-or-more, case-sensitive), inline `:registrations`, zero-match
-       fail-loud.
-    2. Sealed assembly + validation (§Image Validation) — the sealed generation
-       shape; reference check; duplicate-id fail-loud; unsupported-kind.
+       §Image Fragments) — the inert normalized image value; zero-match
+       fail-loud. The `*` / `**` glob grammar and inline `:registrations`
+       lowering: `image-cljs-test`.
+    2. Sealed assembly + validation (§Image Validation) — the reference check.
+       The sealed generation shape, duplicate-id and unsupported-kind:
+       `image-assembly-cljs-test`.
     3. Layered resolution (EP-0026 §Layered Resolution / §Framework Standard
-       Registrations) — image-order layering (later image wins); cross-image
-       conflict; standard-shadow-forbidden (no public opt-in). There is no
-       declared `:replace` / `:replace-standard` winner model.
+       Registrations) — image-order layering (later image wins), within-image
+       collisions and standard-shadow-forbidden: `ep0026-select-ns-cljs-test`
+       and `image-assembly-cljs-test`. There is no declared `:replace` /
+       `:replace-standard` winner model.
     4. Default-image projection (§Default Image Semantics) — no/empty `:images`
-       projects the whole store + standards; cross-namespace collision fails
-       loud (no clobber).
+       projects the whole store + standards. The cross-namespace collision:
+       `image-assembly-default-cljs-test`.
     5. make-frame + frame-derived resolution (§Frame, §Frame-derived live
        registration resolution, §Public API) — `:images` attaches the resolved
-       generation; live-frame id-conflict; resolution through the TARGET frame's
-       generation; absence-is-default; ALL-OR-NOTHING generation scope.
+       generation. Resolution through the TARGET frame's generation,
+       absence-is-default and the ALL-OR-NOTHING scope:
+       `frame-resolution-cljs-test`; idempotent re-construction:
+       `live-frame-cljs-test`.
     6. Generation cache + invalidation (§Image — \"MUST cache resolved
-       generations\") — cache hit for identical inputs; invalidation on
-       `reg-*` / `clear-kind!` and on a standard-registry change.
+       generations\") — `image-assembly-cache-cljs-test`,
+       `image-assembly-default-cljs-test` and `source-store-cljs-test`.
     7. Hot reload (§Hot Reload) — re-`make-frame` / `reproject-live-frames!`
-       re-resolve every live frame; no frame left stale.
+       re-resolve every live frame; no frame left stale. Reload leaving a
+       sibling frame untouched: `live-frame-reload-cljs-test`.
     8. The one frame constructor (EP-0024 §One constructor) — `rf/make-frame`
        is the SINGLE public constructor, returning the frame VALUE (not a bare
        id keyword), with `:initial-events` setup events running AFTER the
@@ -56,13 +63,11 @@
   `make-frame` 2-arity — the same decoupling idiom the sibling slice suites use)
   need no live source-store wiring; they only reset the DERIVED process state
   (the standard registry + the generation cache + the live-frame registry). The
-  LIVE-store cases (the cache-invalidation + `clear-kind!` + reprojection
-  sections) drive the REAL `reg-*` → source-store → assemble cascade, so they
-  SNAPSHOT/RESTORE the source-store atom (NO `rf.registrar/clear-all!`
-  / `clear-kind!` in the fixture, which would destroy framework-shipped
-  ns-load registrations a sibling test ns depends on; `clear-kind!` appears only
-  INSIDE a case proving the `clear-kind!` invalidation). The registrar baseline is
-  snapshot/restored via `make-reset-runtime-fixture`.
+  LIVE-store reprojection case drives the REAL `reg-*` → source-store →
+  assemble cascade, so it SNAPSHOT/RESTOREs the source-store atom (NO
+  `rf.registrar/clear-all!` / `clear-kind!` in the fixture, which would destroy
+  framework-shipped ns-load registrations a sibling test ns depends on). The
+  registrar baseline is snapshot/restored via `make-reset-runtime-fixture`.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -149,99 +154,6 @@
       (is (= ["docs.counter.v2"] (:rf.image/include-ns a)))
       (is (vector? (:rf.image/inline a))))))
 
-(deftest s1-include-ns-glob-grammar
-  (testing "EP-0023 §Namespace-glob language: `*` matches EXACTLY ONE segment,
-            `**` matches ZERO OR MORE segments, case-sensitive whole-ns match;
-            selection is BY :rf.provenance/ns, never the registration-id ns"
-    ;; Authored in different source namespaces but several SHARE the id ns
-    ;; `counter` — selection must NOT pick by the id keyword's namespace.
-    (let [pool [(reg-desc "docs.quickstart.counter.v2" :event :counter/inc ::v2)
-                (reg-desc "docs.shared.widgets.button"  :view  :widgets/btn ::btn)
-                (reg-desc "docs.shared.widgets"         :view  :widgets/root ::root)
-                (reg-desc "docs.shared.widgets.forms.input" :view :widgets/input ::input)
-                (reg-desc "docs.shared"                  :event :shared/boot ::boot)]
-          ids (fn [img] (set (map (juxt :kind :id)
-                                  (rf.image/select-descriptors img pool))))]
-      (testing "exact inclusion — a pattern with no wildcard"
-        (is (= #{[:event :counter/inc]}
-               (ids (rf/image {:select-ns {:include ["docs.quickstart.counter.v2"]}})))))
-      (testing "`*` = exactly one segment: docs.shared.widgets.* matches
-                .button but NOT .widgets (no extra segment) nor .forms.input
-                (two extra segments)"
-        (is (= #{[:view :widgets/btn]}
-               (ids (rf/image {:select-ns {:include ["docs.shared.widgets.*"]}})))))
-      (testing "`**` = zero or more segments: docs.shared.** matches
-                docs.shared, docs.shared.widgets, and docs.shared.widgets.forms.input"
-        (is (= #{[:event :shared/boot]
-                 [:view  :widgets/btn]
-                 [:view  :widgets/root]
-                 [:view  :widgets/input]}
-               (ids (rf/image {:select-ns {:include ["docs.shared.**"]}})))))
-      (testing "selection is by provenance ns, not the id ns: the `:counter/inc`
-                event is NOT selected by a `counter`-id glob — there is no such
-                provenance namespace"
-        (is (= :rf.error/image-zero-match
-               (err-id #(rf.image/select-descriptors
-                          (rf/image {:select-ns {:include ["counter.*"]}}) pool)))))
-      (testing "case-sensitive whole-ns match: Docs.* does not match docs.*"
-        (is (= :rf.error/image-zero-match
-               (err-id #(rf.image/select-descriptors
-                          (rf/image {:select-ns {:include ["Docs.shared.**"]}}) pool))))))))
-
-(deftest s1-exclude-ns-subtracts-and-intra-segment-glob
-  (testing "EP-0023 §Namespace-Selected Images: `:exclude-ns` subtracts from the
-            `:include-ns` selection by provenance ns (not zero-match fail-loud,
-            never touches inline), and the intra-segment `*` matches within one
-            segment — the tool-self-seating narrowing case"
-    ;; A production ns alongside its `*-cljs-test` sibling co-registering the
-    ;; SAME id (the collision an exclude prevents), plus a deep test ns and a
-    ;; test-support subtree.
-    (let [pool [(reg-desc "app.feature.editor"          :fx    :editor/open ::prod)
-                (reg-desc "app.feature.editor-cljs-test" :fx   :editor/open ::test)
-                (reg-desc "app.feature.panels.diff-cljs-test" :sub :diff/x ::deep)
-                (reg-desc "app.feature.test-helpers.counter" :event :ctr/inc ::fixture)]
-          ids (fn [img] (set (map (juxt :kind :id)
-                                  (rf.image/select-descriptors img pool))))]
-      (testing "the intra-segment `*-cljs-test` (under `**`) excludes the test
-                nss at any depth; only the production descriptor survives"
-        (is (= #{[:fx :editor/open]}
-               (ids (rf/image {:select-ns {:include ["app.feature.**"] :exclude ["app.feature.**.*-cljs-test"
-                                            "app.feature.test-helpers.**"]}})))))
-      (testing "the surviving :editor/open is the PRODUCTION provenance, not the
-                `*-cljs-test` sibling — the dup-id is gone"
-        (let [sel (rf.image/select-descriptors
-                    (rf/image {:select-ns {:include ["app.feature.**"] :exclude ["app.feature.**.*-cljs-test"
-                                            "app.feature.test-helpers.**"]}})
-                    pool)]
-          (is (= 1 (count sel)))
-          (is (= "app.feature.editor" (:rf.provenance/ns (first sel))))))
-      (testing "an :exclude-ns pattern matching nothing is a NO-OP, not
-                fail-loud (unlike :include-ns) — the full include selection
-                survives (all 4 descriptors, no throw)"
-        (is (= 4 (count (rf.image/select-descriptors
-                          (rf/image {:select-ns {:include ["app.feature.**"] :exclude ["never.matches.**"]}})
-                          pool))))))))
-
-(deftest s1-inline-registrations-lower-to-descriptors
-  (testing "EP-0023 §Image Fragments: inline :registrations are selected
-            UNCONDITIONALLY (their image was supplied) — never by :include-ns —
-            and lower to descriptors carrying the inline source coordinate"
-    (let [img (rf/image
-                {:id :test/small
-                 :registrations
-                 {:reg-event [[:counter/inc {:doc "Increment."} ::inc-fn]]
-                  :reg-sub   [[:counter/value {:doc "Current value."} ::value-fn]]}})
-          ;; No :include-ns, so no source pool needed — inline descriptors are
-          ;; selected because the image was supplied.
-          selected (rf.image/select-descriptors img [])
-          by-id    (into {} (map (juxt #(vector (:kind %) (:id %)) identity)) selected)]
-      (is (= 2 (count selected)) "both inline entries are selected")
-      (is (= ::inc-fn (:impl (get by-id [:event :counter/inc]))))
-      (is (= ::value-fn (:impl (get by-id [:sub :counter/value]))))
-      (testing "the inline source coordinate names the image + section/id"
-        (is (= {:image :test/small :inline [:reg-event :counter/inc]}
-               (rf.image-assembly/descriptor-coordinate (get by-id [:event :counter/inc]))))))))
-
 (deftest s1-zero-match-selection-fails-loud
   (testing "EP-0023 §Namespace-Selected Images: a zero-match :include-ns pattern
             fails loud (:rf.error/image-zero-match) naming the image, the
@@ -264,44 +176,6 @@
 ;; Assembly projects selected descriptors (+ framework standards) into a sealed,
 ;; id-disjoint [kind id] resolver generation. Every validation point is
 ;; fail-loud with a distinct :rf.error/id.
-
-(deftest s2-sealed-generation-shape
-  (testing "EP-0023 §Specification Summary: a sealed generation carries
-            :rf.gen/resolver (the id-disjoint [kind id] map), :rf.gen/images,
-            and :rf.gen/kinds, and no :rf.gen/requires (EP-0026)"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-    (let [pool [(reg-desc "shop.cart" :event :cart/add   ::add)
-                (reg-desc "shop.cart" :sub   :cart/items ::items)]
-          img  (rf/image {:id :shop/main
-                          :select-ns {:include ["shop.cart"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (map? (:rf.gen/resolver gen)))
-      (is (= ::add   (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))))
-      (is (= ::items (:handler-fn (rf.image-assembly/resolve-descriptor gen :sub :cart/items))))
-      (testing "the framework standard is unioned in"
-        (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))))
-      (is (= [img] (:rf.gen/images gen)) "the normalized image vector is carried")
-      (is (not (contains? gen :rf.gen/requires))
-          "the :rf.gen/requires key is absent (EP-0026)")
-      (is (= #{:event :sub :fx} (rf.image-assembly/generation-kinds gen))))))
-
-(deftest s2-duplicate-id-fails-loud
-  (testing "EP-0023 §Image Validation: a genuine cross-source (kind, id)
-            collision with no declared winner is :rf.error/image-duplicate-id —
-            order must NEVER silently decide the survivor"
-    (let [img  (rf/image {:id :examples/all :select-ns {:include ["examples.**"]}})
-          pool [(reg-desc "examples.todo"    :event :boot/init ::todo)
-                (reg-desc "examples.counter" :event :boot/init ::counter)]]
-      (is (= :rf.error/image-duplicate-id
-             (err-id #(rf.image-assembly/assemble [img] pool)))))))
-
-(deftest s2-unsupported-kind-fails-loud
-  (testing "EP-0023 §Image Validation: a descriptor whose :kind is not in the
-            closed registry-kind set fails :rf.error/image-unsupported-kind"
-    (let [img  (rf/image {:select-ns {:include ["examples.x"]}})
-          pool [(reg-desc "examples.x" :not-a-kind :x/y ::y)]]
-      (is (= :rf.error/image-unsupported-kind
-             (err-id #(rf.image-assembly/assemble [img] pool)))))))
 
 (deftest s2-missing-reference-fails-loud
   (testing "EP-0023 §Image Validation: an event whose :interceptors chain names
@@ -330,71 +204,8 @@
 ;; :replace / :replace-standard winner model): the later image in :images wins; a
 ;; within-image [kind id] collision is an error (an override is always a later
 ;; image); a framework standard is protected (a public app image must not shadow
-;; one).
-
-(deftest s3-later-image-wins-cross-image-override
-  (testing "EP-0026 §Layered Resolution: a [kind id] in two composed images
-            resolves to the LATER image — image order, not the registrar, decides"
-    (let [pool      [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          app-image (rf/image {:id :app/main :select-ns {:include ["checkout.core"]}})
-          doubles   (rf/image {:id :test/doubles
-                               :registrations {:reg-fx [[:checkout.http/post {} ::story]]}})]
-      (is (= ::story (:impl (rf.image-assembly/resolve-descriptor
-                              (rf.image-assembly/assemble [app-image doubles] pool)
-                              :fx :checkout.http/post)))
-          "the later image (doubles) wins")
-      (is (= ::real (:handler-fn (rf.image-assembly/resolve-descriptor
-                                   (rf.image-assembly/assemble [doubles app-image] pool)
-                                   :fx :checkout.http/post)))
-          "reversing the order makes the app image (now last) win"))))
-
-(deftest s3-within-image-collision-fails-loud
-  (testing "EP-0026 §Layered Resolution: an image must resolve cleanly to ONE
-            descriptor per [kind id]; two SELECTED registrations within one image
-            are ambiguous, and an inline entry colliding with a selected one is a
-            within-image collision (an override must be a later image)"
-    (let [two-selected (rf/image {:id :app/dup
-                                  :select-ns {:include ["app.a" "app.b"]}})
-          pool         [(reg-desc "app.a" :fx :app/post ::a)
-                        (reg-desc "app.b" :fx :app/post ::b)]]
-      (is (= :rf.error/image-duplicate-id
-             (err-id #(rf.image-assembly/assemble [two-selected] pool)))))
-    (let [inline-vs-sel (rf/image {:id :app/clash
-                                   :select-ns {:include ["app.core"]}
-                                   :registrations {:reg-fx [[:checkout.http/post {} ::inline]]}})
-          pool          [(reg-desc "app.core" :fx :checkout.http/post ::sel)]]
-      (is (= :rf.error/image-within-image-collision
-             (err-id #(rf.image-assembly/assemble [inline-vs-sel] pool)))))))
-
-(deftest s3-standard-shadowing-forbidden
-  (testing "EP-0026 §Framework Standard Registrations: a public app image must
-            NOT shadow a framework standard — the app/standard collision fails
-            loud (a standard encodes an execution invariant, not an app extension
-            point), and there is no public :replace-standard opt-in"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-    (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::story-nav)]
-          img  (rf/image {:id :story/x :select-ns {:include ["product.story"]}})]
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (err-id #(rf.image-assembly/assemble [img] pool)))))
-    (testing "a standard with no colliding app id is simply unioned in"
-      (rf.image-assembly/clear-standards!)
-      (rf.image-assembly/clear-generation-cache!)
-      (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-      (let [pool [(reg-desc "app.core" :event :app/boot ::boot)]
-            img  (rf/image {:id :app/main :select-ns {:include ["app.core"]}})
-            gen  (rf.image-assembly/assemble [img] pool)]
-        (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url))))))))
-
-(deftest s3-duplicate-image-id-fails-loud
-  (testing "EP-0026 §Image Keys: two images sharing an :id within one composition
-            fail loud (:rf.error/image-duplicate-image-id) — the shadow report
-            identifies images by id, so a shared id is ambiguous"
-    (let [pool  [(reg-desc "checkout.core"  :fx :checkout.http/post ::real)
-                 (reg-desc "checkout.story" :fx :checkout.http/post ::story)]
-          img-a (rf/image {:id :compose/dup :select-ns {:include ["checkout.core"]}})
-          img-b (rf/image {:id :compose/dup :select-ns {:include ["checkout.story"]}})]
-      (is (= :rf.error/image-duplicate-image-id
-             (err-id #(rf.image-assembly/assemble [img-a img-b] pool)))))))
+;; one). Pinned by `ep0026-select-ns-cljs-test` and `image-assembly-cljs-test`;
+;; the boot-seeded standard's protection is SECTION 9.
 
 ;; ===========================================================================
 ;; SECTION 4 — Default-image projection
@@ -403,7 +214,7 @@
 ;;
 ;; No / empty :images projects the WHOLE source store + standards. A
 ;; cross-namespace same-(kind, id) collision fails loud on the default path too
-;; — load order never decides.
+;; — load order never decides (`image-assembly-default-cljs-test`).
 
 (deftest s4-default-image-projects-the-whole-store-plus-standards
   (testing "EP-0023 §Default Image Semantics: assemble with NO / empty :images
@@ -422,25 +233,15 @@
       (testing "and nil :images takes the same default path"
         (is (= gen (rf.image-assembly/assemble nil pool)))))))
 
-(deftest s4-default-image-cross-namespace-collision-fails-loud-no-clobber
-  (testing "EP-0023 §Default Image Semantics: a cross-namespace same-(kind, id)
-            collision in the default projection fails :rf.error/image-duplicate-id
-            REGARDLESS of pool order — the default image does not let load order
-            clobber"
-    (let [a (reg-desc "examples.todo"    :event :boot/init ::a)
-          b (reg-desc "examples.counter" :event :boot/init ::b)]
-      (is (= :rf.error/image-duplicate-id (err-id #(rf.image-assembly/assemble [] [a b]))))
-      (is (= :rf.error/image-duplicate-id (err-id #(rf.image-assembly/assemble [] [b a])))
-          "the OTHER pool order still fails — no last-write-wins"))))
-
 ;; ===========================================================================
 ;; SECTION 5 — make-frame + frame-derived resolution
 ;; (EP-0023 §Frame / §Frame-derived live registration resolution / §Public API)
 ;; ===========================================================================
 ;;
-;; make-frame attaches the resolved generation; an :id-bearing duplicate fails
-;; loud; dispatch/sub/fx/cofx resolve through the TARGET frame's generation;
-;; absence-is-default; the generation scope is ALL-OR-NOTHING across the cascade.
+;; make-frame attaches the resolved generation. Resolution through the TARGET
+;; frame's generation, absence-is-default and the ALL-OR-NOTHING scope are
+;; `frame-resolution-cljs-test`'s; idempotent re-construction under one :id is
+;; `live-frame-cljs-test`'s.
 
 (deftest s5-make-frame-attaches-the-resolved-generation
   (testing "EP-0023 §Frame: make-frame {:images} attaches the sealed generation
@@ -454,91 +255,6 @@
       (is (= ::inc (:handler-fn (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation frame)
                                                         :event :counter/inc)))))))
 
-(deftest s5-duplicate-id-is-idempotent-replacement
-  (testing "EP-0024 §Duplicate id policy: re-make-frame-ing the same id is
-            IDEMPOTENT REPLACEMENT (hot-reload / Story-friendly) — config +
-            generation refresh while durable state is preserved; it does NOT
-            fail loud. Registration ids stay reusable across images."
-    (let [pool [(reg-desc "examples.counter" :event :counter/inc ::inc)]
-          img  (rf/image {:select-ns {:include ["examples.counter"]}})
-          f1   (rf.live-frame/make-frame {:id :counter/main :images [img]} pool)]
-      ;; seed durable state, then re-make under the SAME id
-      (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
-      (let [db-before (rf/app-db-value :counter/main)
-            f2        (rf.live-frame/make-frame {:id :counter/main :images [img]} pool)]
-        (is (rf.live-frame/frame-object? f2) "re-make returns a frame value, no throw")
-        (is (= :counter/main (rf.frame/frame-value->id f1) (rf.frame/frame-value->id f2))
-            "both values route to the same id")
-        (is (= db-before (rf/app-db-value :counter/main))
-            "durable app-db is preserved across the idempotent re-make"))
-      (testing "a no-id (direct) frame value bypasses the public id space entirely"
-        (is (rf.live-frame/frame-object? (rf.live-frame/make-frame {:images [img]} pool)))
-        (is (rf.live-frame/frame-object? (rf.live-frame/make-frame {:images [img]} pool)))))))
-
-(deftest s5-resolution-derives-from-the-target-frame
-  (testing "EP-0023 §Frame-derived live registration resolution: two frames
-            running DIFFERENT images resolve the SAME [kind id] to their OWN
-            image's descriptor — the heart of the same-id story"
-    (let [todo-pool    [(reg-desc "examples.todo"    :event :boot/init ::todo-boot)]
-          counter-pool [(reg-desc "examples.counter" :event :boot/init ::counter-boot)]
-          todo-frame    (rf.live-frame/make-frame {:id :todo/main
-                                        :images [(rf/image {:select-ns {:include ["examples.todo"]}})]}
-                                       todo-pool)
-          counter-frame (rf.live-frame/make-frame {:id :counter/main
-                                        :images [(rf/image {:select-ns {:include ["examples.counter"]}})]}
-                                       counter-pool)]
-      (rf.live-frame/call-with-frame-resolution todo-frame
-        (fn [] (is (= ::todo-boot (rf.registrar/handler :event :boot/init)))))
-      (rf.live-frame/call-with-frame-resolution counter-frame
-        (fn [] (is (= ::counter-boot (rf.registrar/handler :event :boot/init)))))
-      (testing "neither frame's id leaks into the other (no global clobber)"
-        (rf.live-frame/call-with-frame-resolution todo-frame
-          (fn [] (is (= ::todo-boot (rf.registrar/handler :event :boot/init)))))))))
-
-(deftest s5-absence-is-default
-  (testing "EP-0023 §Frame-derived live registration resolution: with NO
-            generation bound, resolution falls through to the global registrar —
-            byte-identical for every existing caller (absence-is-default)"
-    (rf.registrar/register! :event :app/boot {:handler-fn ::default-boot})
-    (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot)))
-        "the default registrar path resolves the globally-registered handler")
-    (testing "a nil target / a frame object with no generation binds nothing"
-      (rf.live-frame/call-with-frame-resolution nil
-        (fn []
-          (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))
-          (is (nil? rf.registrar/*generation*))))
-      (rf.live-frame/call-with-frame-resolution {:rf.frame/object true}
-        (fn [] (is (nil? rf.registrar/*generation*)))))))
-
-(deftest s5-generation-scope-is-all-or-nothing
-  (testing "EP-0023 §Frame-derived live registration resolution: the binding
-            covers the WHOLE cascade — the event handler, its cofx, its fx, and a
-            child dispatch ALL resolve in the SAME image generation
-            (ALL-OR-NOTHING); an id NOT in the image resolves nil even though it
-            IS globally registered"
-    (let [pool  [(reg-desc "examples.feat" :event :feat/go   ::ev)
-                 (reg-desc "examples.feat" :cofx  :feat/now  ::cofx)
-                 (reg-desc "examples.feat" :fx    :feat/save ::fx)
-                 (reg-desc "examples.feat" :event :feat/child ::child)]
-          frame (rf.live-frame/make-frame {:images [(rf/image {:select-ns {:include ["examples.feat"]}})]}
-                               pool)
-          ;; A nested resolution simulating the fx walk / child dispatch deeper
-          ;; in the cascade.
-          nested-fx    (fn [] (rf.registrar/handler :fx :feat/save))
-          nested-child (fn [] (rf.registrar/handler :event :feat/child))]
-      ;; A globally-registered id the frame's image does NOT carry.
-      (rf.registrar/register! :event :other/global {:handler-fn ::global})
-      (rf.live-frame/call-with-frame-resolution frame
-        (fn []
-          (is (= ::ev    (rf.registrar/handler :event :feat/go))   "event")
-          (is (= ::cofx  (rf.registrar/handler :cofx  :feat/now))  "cofx")
-          (is (= ::fx    (nested-fx))                           "fx (nested)")
-          (is (= ::child (nested-child))                        "child dispatch (nested)")
-          (is (nil? (rf.registrar/lookup :event :other/global))
-              "a globally-registered id absent from the image is nil under the frame")))
-      (testing "outside the seam, the global id resolves again"
-        (is (= ::global (:handler-fn (rf.registrar/lookup :event :other/global))))))))
-
 ;; ===========================================================================
 ;; SECTION 6 — Generation cache + invalidation
 ;; (EP-0023 §Image — \"The reference implementation MUST cache resolved
@@ -547,75 +263,8 @@
 ;;
 ;; Cache HIT for identical image + store-generation. INVALIDATION on every
 ;; source-store mutation (reg-* / forget-* / clear-kind!) and on a
-;; standard-registry change. The LIVE-store cases drive the REAL reg-* cascade,
-;; so they snapshot/restore the source-store atom.
-
-(deftest s6-cache-hit-for-identical-inputs
-  (testing "EP-0023 §Image: a repeat assembly of the SAME image over the SAME
-            descriptor pool returns the SAME sealed object (the cache HIT — the
-            SSR no-re-seal guarantee)"
-    (let [img  (rf/image {:select-ns {:include ["app.core"]}})
-          pool [(reg-desc "app.core" :event :counter/inc ::inc)]
-          g1   (rf.image-assembly/assemble [img] pool)
-          g2   (rf.image-assembly/assemble [img] pool)]
-      (is (identical? g1 g2) "the identical inputs hit the cache and reuse the object")
-      (testing "an image differing only in :include-ns re-seals (distinct slot)"
-        (is (not (identical? g1 (rf.image-assembly/assemble [(rf/image {:select-ns {:include ["app.other"]}})]
-                                              [(reg-desc "app.other" :event :x ::x)]))))))))
-
-(deftest s6-live-store-cache-invalidates-on-reg-and-clear-kind
-  (testing "EP-0023 §Image: the LIVE-store default generation is
-            cached, and INVALIDATES on a `reg-*` AND on `rf.registrar/clear-kind!`
-            (clear-kind! must bump the source-store generation so a
-            stale cached generation is never returned)"
-    (let [store-before @rf.source-store/kind->id->ns->descriptor
-          reg-before   @rf.registrar/kind->id->metadata]
-      (try
-        ;; Start from a known-clean LIVE store so the default projection is
-        ;; deterministic.
-        (reset! rf.source-store/kind->id->ns->descriptor {})
-        (reset! rf.registrar/kind->id->metadata {})
-        (rf.image-assembly/clear-generation-cache!)
-        ;; reg-* writes the resolver map AND the provenance source store, bumping
-        ;; the store generation.
-        (rf.registrar/register! :event :cart/add {:handler-fn ::add :ns "shop.cart"})
-        (let [g1  (rf.image-assembly/assemble-default)
-              g1b (rf.image-assembly/assemble-default)]
-          (testing "a repeat over the UNCHANGED store reuses the cached object"
-            (is (identical? g1 g1b)))
-          (is (contains? (:rf.gen/resolver g1) [:event :cart/add]))
-          (testing "a NEW reg-* bumps the store generation → re-seal, not stale"
-            (rf.registrar/register! :sub :cart/items {:handler-fn ::items :ns "shop.cart"})
-            (let [g2 (rf.image-assembly/assemble-default)]
-              (is (not (identical? g1 g2)))
-              (is (contains? (:rf.gen/resolver g2) [:sub :cart/items]))))
-          (testing "clear-kind! :event drops the event slot AND invalidates the
-                    cache — a stale generation still resolving
-                    :cart/add must NOT come back"
-            (rf.registrar/clear-kind! :event)
-            (let [g3 (rf.image-assembly/assemble-default)]
-              (is (not (contains? (:rf.gen/resolver g3) [:event :cart/add]))
-                  "clear-kind! bumped the store generation; the re-sealed default
-                   generation no longer carries the cleared event")
-              (is (contains? (:rf.gen/resolver g3) [:sub :cart/items])
-                  "the surviving sub is still present"))))
-        (finally
-          (reset! rf.source-store/kind->id->ns->descriptor store-before)
-          (reset! rf.registrar/kind->id->metadata reg-before)
-          (rf.image-assembly/clear-generation-cache!))))))
-
-(deftest s6-cache-invalidates-on-standard-change
-  (testing "EP-0023 §Image: a standard-registry change bumps the standard
-            generation, so a re-assembly over the same pool is a MISS (the
-            standard set is part of every generation)"
-    (let [img  (rf/image {:select-ns {:include ["app.core"]}})
-          pool [(reg-desc "app.core" :event :counter/inc ::inc)]
-          g1   (rf.image-assembly/assemble [img] pool)]
-      (is (not (contains? (:rf.gen/resolver g1) [:fx :rf.nav/push-url])))
-      (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-      (let [g2 (rf.image-assembly/assemble [img] pool)]
-        (is (not (identical? g1 g2)) "the standard change forced a re-seal")
-        (is (contains? (:rf.gen/resolver g2) [:fx :rf.nav/push-url]))))))
+;; standard-registry change. Pinned by `image-assembly-cache-cljs-test`,
+;; `image-assembly-default-cljs-test` and `source-store-cljs-test`.
 
 ;; ===========================================================================
 ;; SECTION 7 — Hot reload
@@ -654,25 +303,6 @@
         (is (= ::v2-inc (:handler-fn (rf.image-assembly/resolve-descriptor
                                        (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/main))
                                        :event :counter/inc))))))))
-
-(deftest s7-reload-is-frame-targeted-not-sibling-moving
-  (testing "EP-0023 §Image: reloading one frame does NOT move a sibling that
-            previously shared the same image — reload is frame-targeted"
-    (let [pool  [(reg-desc "counter.v1" :event :counter/inc ::v1)]
-          v2    [(reg-desc "counter.v2" :event :counter/inc ::v2)]
-          img   (rf/image {:select-ns {:include ["counter.v1"]}})
-          left  (rf.live-frame/make-frame {:id :counter/left  :images [img]} pool)
-          right (rf.live-frame/make-frame {:id :counter/right :images [img]} pool)]
-      (rf.live-frame/make-frame {:id :counter/left
-                      :images [(rf/image {:select-ns {:include ["counter.v2"]}})]} v2)
-      (is (= ::v1 (:handler-fn (rf.image-assembly/resolve-descriptor
-                                 (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/right))
-                                 :event :counter/inc)))
-          "the right frame is untouched")
-      (is (= ::v2 (:handler-fn (rf.image-assembly/resolve-descriptor
-                                 (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/left))
-                                 :event :counter/inc)))
-          "only the left frame moved"))))
 
 (deftest s7-reproject-live-frames-re-resolves-explicit-image-frames
   (testing "EP-0023 §Default Image Semantics / §Hot Reload: a reg-* re-eval in a
@@ -897,20 +527,6 @@
                 (is (= :rf.error/unregistered-interceptor
                        (err-id #(rf.interceptor-registry/resolve-ref :app/never-registered))))))))))))
 
-(deftest s9-app-image-cannot-shadow-the-invariant-locked-path-interceptor
-  (testing "EP-0026 §Framework Standard Registrations: the framework-standard
-            :rf.interceptor/path is invariant-coupled and PROTECTED — a public app
-            image selecting a same-[kind id] registration FAILS LOUD
-            (:rf.error/image-standard-replacement-forbidden). There is no
-            :replace-standard opt-in: standards are not an app extension point"
-    (with-standard-interceptors-seeded
-      (fn []
-        (let [pool [(reg-desc "naive.override" :interceptor :rf.interceptor/path ::naive)]
-              img  (rf/image {:id :i
-                              :select-ns {:include ["naive.override"]}})]
-          (is (= :rf.error/image-standard-replacement-forbidden
-                 (err-id #(rf.image-assembly/assemble [img] pool)))))))))
-
 (deftest s9-public-app-image-cannot-shadow-a-standard
   (testing "EP-0026 §Framework Standard Registrations: there is NO public
             app-facing standard-replacement opt-in — a public app image colliding
@@ -947,7 +563,8 @@
 ;; `:registrations`) so it rides into the frame's generation — EP-0023
 ;; §Frame-derived resolution is ALL-OR-NOTHING (a bound generation resolves
 ;; ONLY its own descriptors, no registrar fallback; proven by
-;; `s5-generation-scope-is-all-or-nothing`), so a framework-registrar-only cofx
+;; `frame-resolution-cljs-test/event-sub-fx-cofx-view-all-derive-from-the-frame-generation`),
+;; so a framework-registrar-only cofx
 ;; would not be resolvable under the frame's generation. The whole event +
 ;; cofx pair lives in the one image, exactly as a real image-loaded feature
 ;; would ship them.
