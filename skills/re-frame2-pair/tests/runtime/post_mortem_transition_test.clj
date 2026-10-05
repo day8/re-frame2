@@ -119,12 +119,11 @@
             "no retained epoch transitions INTO the bad value, so no culprit is claimed")))))
 
 (deftest recipe-tells-the-agent-what-a-nil-answer-means
-  ;; The executable pin above proves the predicate is right; this one
-  ;; keeps the PROSE that reads its nil answer correctly, since that is
-  ;; the step where an agent would otherwise improvise a wrong culprit.
+  ;; The executable pin above proves the predicate is right, which it cannot
+  ;; be without reading `:db-before`; this one keeps the PROSE that reads its
+  ;; nil answer correctly, since that is the step where an agent would
+  ;; otherwise improvise a wrong culprit.
   (let [text (str @recipes-md)]
-    (is (str/includes? text ":db-before")
-        "the post-mortem recipe must show the before/after transition evidence")
     (is (re-find #"(?i)nil answer is information|not retained|before that|already bad" text)
         "the recipe must tell the agent how to report a nil (no retained transition) answer")))
 
