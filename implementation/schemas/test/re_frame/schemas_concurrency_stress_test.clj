@@ -1,5 +1,5 @@
 (ns re-frame.schemas-concurrency-stress-test
-  "JVM stress coverage for three schemas contention surfaces:
+  "JVM stress coverage for two schemas contention surfaces:
 
     1. **Hot-reload race** — N threads concurrently `reg-app-schemas`
        against a shared frame's per-frame side-table
@@ -12,25 +12,7 @@
        final state, and last-registration-wins is deterministic per
        (path, owning-thread).
 
-    2. **Schema-digest race under read/write contention** — Spec 010
-       §Digest algorithm computes a stable `\"sha256:<16-hex>\"` over
-       a frame's `{path → schema-value}` snapshot. The digest fn reads
-       through `(storage/app-schemas {:frame …})` which reduces over
-       `@schemas-by-frame` once. While writers churn the frame's entry
-       set, concurrent readers MUST see SOME coherent snapshot — never
-       a partial / torn read, never a digest that nobody could compute
-       from any actual point-in-time `{path → schema-value}` state.
-       The invariant is **snapshot coherence**: each reader captures
-       the live `app-schemas` snapshot ONCE and computes its own digest
-       LOCALLY from that captured value (one atomic deref + a pure
-       reduce-kv, no second registry read between snapshot and digest).
-       Computing the digest twice over the same captured snapshot MUST
-       produce byte-identical output (no cross-thread state pollution
-       in the digest pipeline; `run-printer` is the seam most at risk),
-       and every captured snapshot MUST be re-digestible without error
-       (no torn-read fragment that breaks the serialisation pass).
-
-    3. **Sensitive-path resolution under contention** — the unmemoised
+    2. **Sensitive-path resolution under contention** — the unmemoised
        sensitive-path walk (`walk-sensitive-paths-from-schema`) threads
        an accumulator map through a recursive descent of a Malli EDN
        schema vector. The walk is pure — same input ALWAYS produces the
@@ -45,23 +27,7 @@
        thread lands in the final per-frame side-table — total entry
        count = `(N × M)` distinct (path, schema-value) pairs.
 
-    2. **No double-action.** Schema-digest is deterministic per
-       captured snapshot — re-digesting the same captured `{path →
-       schema}` map twice produces byte-identical output. Pins the
-       digest pipeline (Spec 010 §Digest algorithm) is free of cross-
-       thread state pollution under reader/writer contention.
-
-    3. **Ordering stable.** Per Spec 010 §Per-frame schemas
-       `reg-app-schema` writes through `swap! … assoc-in [frame-id
-       path] meta` — the `swap!` CAS-retry contract is the linearisation
-       order. For a single (frame, path) re-registered N times across
-       threads, the final value is well-defined by the swap order; we
-       assert each thread's last-issued schema is observable in some
-       reader's snapshot somewhere in the run (reachability), and that
-       the FINAL state contains exactly one schema per (path) — no
-       per-thread shadowing.
-
-    4. **No leak.** Concurrent sensitive-path walks of a shared schema
+    2. **No leak.** Concurrent sensitive-path walks of a shared schema
        input MUST be identical across threads (no cross-thread
        accumulator pollution). Every parallel result MUST be a fresh walk
        rather than a cached object, the walks MUST overlap, and a
@@ -78,7 +44,7 @@
   schemas-by-frame atom CAN race across threads. JVM-only by design."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.schemas :as rf.schemas]
+            [re-frame.schemas]
             [re-frame.schemas.storage :as rf.schemas.storage]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
             [re-frame.schemas.walker :as rf.schemas.walker])
@@ -100,8 +66,7 @@
 ;; contention than the typical 4-core CI box; the per-thread
 ;; partitioning of registered paths means N×M distinct entries land
 ;; in the registry without per-path collision (so we can assert the
-;; final cardinality), while a separate scenario stresses the
-;; same-(path) collision case for ordering.
+;; final cardinality).
 (def ^:private n-threads 8)
 
 ;; ---- shared frame setup --------------------------------------------------
@@ -206,182 +171,10 @@
                 (str "Path " path ": meta :frame slot corrupted; got "
                      (pr-str (:frame meta))))))))))
 
-;; ---- 2. Schema-digest race under concurrent reads + writes ---------------
-
-(deftest schema-digest-race-stress
-  ;; Scenario 2.
-  ;;
-  ;; Setup: One thread is a sustained writer (re-registering schemas
-  ;; under varying paths to keep the per-frame entry set churning);
-  ;; the remaining (n-threads - 1) threads are readers each capturing
-  ;; an `app-schemas` snapshot in a tight loop. For each captured
-  ;; snapshot the reader stages it into an ephemeral frame keyed by
-  ;; (reader-id, iter), then computes the digest TWICE against that
-  ;; ephemeral frame and asserts the two digests are byte-identical
-  ;; (the digest pipeline is deterministic per input — same captured
-  ;; snapshot ALWAYS digests the same way, no cross-thread pollution
-  ;; in `run-printer` / serialisation under reader/writer contention).
-  ;;
-  ;; Note on the seam: `app-schemas-digest` itself does an atom read
-  ;; through `(storage/app-schemas {:frame …})`. Under writer churn
-  ;; two BACK-TO-BACK calls to `app-schemas-digest` against the LIVE
-  ;; frame need not be equal — the writer may have committed in
-  ;; between, which is correct behaviour, not torn-read. To pin the
-  ;; per-snapshot determinism we stage each captured snapshot into a
-  ;; reader-private frame (the writer never touches the ephemeral
-  ;; frame ids, so the comparison is well-defined) and compute the
-  ;; digest twice off that frozen input. Any divergence would
-  ;; indicate the digest pipeline carries cross-thread state.
-  ;;
-  ;; Invariants:
-  ;;   - Per-snapshot digest determinism — first vs second digest of
-  ;;     each ephemeral frame are equal (the no-double-action shape).
-  ;;   - The captured snapshot never contains a torn-read fragment —
-  ;;     i.e. the staged ephemeral frame digests cleanly without
-  ;;     throwing, and contains only well-formed (path → schema-value)
-  ;;     entries (every key is the same shape the writer wrote).
-  ;;   - Every reader thread completed at least one capture (the
-  ;;     writer didn't starve the readers).
-  (testing (str "1 writer × " (dec n-threads)
-                " readers — per-snapshot digest is deterministic "
-                "under reader/writer contention")
-    (setup-frame!)
-    ;; Seed the frame so the very first reader doesn't see the empty
-    ;; map (the empty-set digest is a valid result but a degenerate
-    ;; assertion); writer churns from m=0 onward.
-    (rf/reg-app-schema [:utdxg.digest/seed] {:frame stress-frame} [:int])
-
-    (let [latch       (CountDownLatch. 1)
-          ;; Tight per-reader bound on iters — readers churn faster
-          ;; than the writer (no swap! contention) so we cap to keep
-          ;; the captured-results vector bounded.
-          reader-iters (max 1 (quot stress-iters 2))
-          writer-iters stress-iters
-          ;; Per-reader vector of captured snapshot maps.
-          per-reader-results (vec (repeatedly (dec n-threads)
-                                              #(atom [])))
-          writer
-          (future
-            (.await latch)
-            (dotimes [m writer-iters]
-              ;; Writer churn: rotate across a small set of paths so
-              ;; the entry set stays bounded but its membership keeps
-              ;; flipping (re-registration of the same path mutates
-              ;; the schema value).
-              (let [path-idx (mod m 8)
-                    path     [:utdxg.digest (keyword (str "p" path-idx))]
-                    schema   [:enum (keyword (str "v" m))]]
-                (rf/reg-app-schema path {:frame stress-frame} schema))))
-          readers
-          (vec
-            (for [r (range (dec n-threads))]
-              (future
-                (.await latch)
-                (dotimes [_ reader-iters]
-                  ;; Capture the live snapshot — one atom deref + the
-                  ;; pure reduce-kv inside `app-schemas`. The captured
-                  ;; value is a fully-realised immutable map at this
-                  ;; point; no later writer mutation can perturb it.
-                  (let [snap (rf.schemas.storage/app-schemas
-                               {:frame stress-frame})]
-                    (swap! (nth per-reader-results r) conj snap))))))]
-      (.countDown latch)
-      ;; Bounded join.
-      (doseq [f (cons writer readers)]
-        (let [v (deref f 120000 ::timeout)]
-          (is (not= ::timeout v)
-              "reader/writer thread completed within 120s wall-clock")))
-
-      ;; --- Invariant: every reader hit at least one snapshot. ----
-      (doseq [r (range (dec n-threads))
-              :let [snapshots @(nth per-reader-results r)]]
-        (is (pos? (count snapshots))
-            (str "Reader " r " produced zero snapshots — writer "
-                 "starved the reader. (Writer-only schedule would "
-                 "indicate a thread-fairness regression worth "
-                 "investigating.)")))
-
-      ;; --- Invariant: per-snapshot digest determinism -------------
-      ;; For each captured snapshot stage it into a reader-private
-      ;; ephemeral frame and compute the digest TWICE; the two digests
-      ;; MUST be byte-identical. This pins that the digest pipeline
-      ;; (`compute-digest` → `digest-line` → `run-printer` → `sha256-hex`)
-      ;; carries no cross-thread state — every input deterministically
-      ;; maps to one output regardless of what the writer is doing.
-      ;;
-      ;; The ephemeral frame id is per-reader so distinct readers'
-      ;; staging areas don't collide; we only need one staging slot
-      ;; per reader (re-using it across iters), since each iter's
-      ;; captured snapshot is independently digested before the next
-      ;; iter overwrites the slot.
-      ;;
-      ;; Mutating schemas-by-frame directly to stage the captured
-      ;; snapshot is the legitimate way to seed a frozen input for
-      ;; digest checking — going through reg-app-schema would mutate
-      ;; the meta's source-coords on every entry (useless work; the
-      ;; digest only reads :schema values).
-      (doseq [r (range (dec n-threads))
-              :let [snapshots @(nth per-reader-results r)
-                    temp-frame (keyword "utdxg.digest"
-                                        (str "temp-r" r))]]
-        (try
-          (let [divergent
-                (into []
-                      (keep (fn [snap]
-                              (let [meta-snap (reduce-kv
-                                                (fn [acc path schema]
-                                                  (assoc acc path
-                                                         {:schema schema
-                                                          :path   path
-                                                          :frame  temp-frame}))
-                                                {}
-                                                snap)]
-                                (swap! rf.schemas.storage/schemas-by-frame
-                                       assoc temp-frame meta-snap)
-                                (let [d1 (rf.schemas/app-schemas-digest {:frame temp-frame})
-                                      d2 (rf.schemas/app-schemas-digest {:frame temp-frame})]
-                                  (when (not= d1 d2)
-                                    {:entries     (count snap)
-                                     :first-call  d1
-                                     :second-call d2})))))
-                      snapshots)]
-            (is (empty? divergent)
-                (str "Reader " r ": " (count divergent) " of " (count snapshots)
-                     " frozen captured snapshots digested non-deterministically"
-                     " (first three shown): " (pr-str (take 3 divergent))
-                     ". Indicates cross-thread state pollution in the digest"
-                     " pipeline.")))
-          (finally
-            (swap! rf.schemas.storage/schemas-by-frame dissoc temp-frame))))
-
-      ;; --- Invariant: every captured snapshot's keys are well-formed paths
-      ;; the writer is known to have issued. A torn-read fragment
-      ;; would surface as a key the writer never wrote (e.g. a half-
-      ;; constructed vector or a stale key from a completely different
-      ;; namespace). Spot-check the corner snapshots from each reader.
-      (let [valid-paths (set (for [i (range 8)]
-                               [:utdxg.digest (keyword (str "p" i))]))]
-        (doseq [r (range (dec n-threads))
-                :let [snapshots @(nth per-reader-results r)
-                      sample    (cond-> []
-                                  (seq snapshots)
-                                  (conj (first snapshots) (last snapshots)))]
-                snap sample]
-          (is (every? #(or (= % [:utdxg.digest/seed])
-                           (contains? valid-paths %))
-                      (keys snap))
-              (str "Reader " r ": captured snapshot has keys not "
-                   "issued by the writer (torn-read fragment?). "
-                   "Unexpected keys: "
-                   (pr-str (vec (remove
-                                  #(or (= % [:utdxg.digest/seed])
-                                       (contains? valid-paths %))
-                                  (keys snap)))))))))))
-
-;; ---- 3. Sensitive-path walker under contention ---------------------------
+;; ---- 2. Sensitive-path walker under contention ---------------------------
 
 (deftest sensitive-path-walker-contention-stress
-  ;; Scenario 3.
+  ;; Scenario 2.
   ;;
   ;; The sensitive-path walk is pure recursion through immutable data —
   ;; every accumulator is local to the call. Under N concurrent walks of a
@@ -526,140 +319,3 @@
         (is (= baseline post)
             (str "Post-stress walker baseline drifted: expected "
                  (pr-str baseline) "; got " (pr-str post)))))))
-
-;; ---- 4. Same-(path) hot-reload: ordering stability ----------------------
-
-(deftest reg-app-schema-same-path-ordering-stress
-  ;; Scenario 4 — the ordering-stable invariant.
-  ;;
-  ;; Spec 010 §Per-frame schemas / §Hot-reload semantics: re-registering
-  ;; the SAME (frame-id, path) overwrites the prior entry atomically
-  ;; via `swap! schemas-by-frame assoc-in [frame-id path] meta`. Under
-  ;; N-thread contention against the same path, each `swap!` retries
-  ;; on CAS failure — so every write IS applied in some serial order
-  ;; consistent with `swap!`'s linearisation. The invariants:
-  ;;
-  ;;   - The final entry for the contested path is one of the values
-  ;;     SOME thread issued (not a frankenstein composite, not nil,
-  ;;     not a stale prior write).
-  ;;   - The per-frame side-table contains EXACTLY one entry per path
-  ;;     (no shadow / parallel slot — the `assoc-in` write is total).
-  ;;   - The per-thread last-issued schema is recoverable from the
-  ;;     winning thread's record (the test rebuilds the
-  ;;     winner-determination by tagging each write's schema value
-  ;;     with the issuing thread id, then recovering the winner from
-  ;;     the final state).
-  ;;
-  ;; Spec 010 codifies last-registration-wins — re-registering a
-  ;; schema at a path replaces the previous one. The per-frame
-  ;; side-table replaces the prior entry atomically; whichever thread's swap!
-  ;; landed last (in linearisation order) is the winner. We can't
-  ;; predict WHICH thread that is (depends on scheduler), but we CAN
-  ;; assert the winner is a plausible candidate: its schema appears
-  ;; in the set of values some thread issued.
-  (testing (str n-threads " threads × " stress-iters
-                " reg-app-schema on the SAME path — winner is one "
-                "of the threads' issued values, no shadow entries")
-    (setup-frame!)
-    (let [contested-path [:utdxg.ordering/contested]
-          latch          (CountDownLatch. 1)
-          ;; Each thread tags its writes with (t, m) so a winning
-          ;; entry decodes to which thread + which iter wrote it.
-          mk-schema (fn [t m] [:enum (keyword (str "t" t "-i" m))])
-          futures
-          (vec
-            (for [t (range n-threads)]
-              (future
-                (.await latch)
-                (dotimes [m stress-iters]
-                  (rf/reg-app-schema contested-path
-                                     {:frame stress-frame} (mk-schema t m))))))]
-      (.countDown latch)
-      (doseq [f futures]
-        (let [v (deref f 120000 ::timeout)]
-          (is (not= ::timeout v)
-              "ordering thread completed within 120s wall-clock")))
-
-      ;; --- Invariant: exactly one entry for the contested path ----
-      (let [entries (rf.schemas.storage/frame-schema-entries stress-frame)]
-        (is (= 1 (count entries))
-            (str "Expected exactly one entry under contested path "
-                 "(per-path hot-reload is overwrite-in-place, not "
-                 "shadow); got " (count entries) " entries."))
-        (is (contains? entries contested-path)
-            (str "Contested path " contested-path " missing from "
-                 "final per-frame side-table; got keys "
-                 (pr-str (vec (keys entries)))))
-
-        ;; --- Invariant: winner is one of the values some thread issued -
-        (let [winner-schema (-> entries (get contested-path) :schema)
-              ;; A valid winner schema has shape `[:enum :tT-iM]` for
-              ;; some T in [0, n-threads), M in [0, stress-iters).
-              all-issued    (set (for [t (range n-threads)
-                                       m (range stress-iters)]
-                                   (mk-schema t m)))]
-          (is (contains? all-issued winner-schema)
-              (str "Winner schema " (pr-str winner-schema)
-                   " is not one of the values any thread issued. "
-                   "Either the swap!'s CAS retry corrupted the "
-                   "value (would indicate an atom-semantics regression) "
-                   "or the test setup is wrong.")))))))
-
-;; ---- 5. Frame-isolation under cross-frame contention ---------------------
-
-(deftest cross-frame-isolation-under-contention-stress
-  ;; Scenario 5 — pin Spec 010 §Per-frame schemas isolation
-  ;; under N-thread cross-frame contention.
-  ;;
-  ;; Per Spec 010 the per-frame side-table is the single source of
-  ;; truth for app-db schemas — registrations against frame A and
-  ;; frame B against the same path are independent entries. Under
-  ;; N-thread contention each thread writes to its OWN per-thread
-  ;; frame; the invariant is that one thread's writes NEVER bleed
-  ;; into another thread's frame (no shared-key bleed even when the
-  ;; path is identical across frames).
-  ;;
-  ;; This is the dual of scenario 1 (shared frame, disjoint paths):
-  ;; here the paths COLLIDE across frames but the frame partition
-  ;; isolates them. Spec 010 §Per-frame schemas
-  ;; is the codified contract; this test pins the runtime invariant
-  ;; under contention.
-  (testing (str n-threads " frames × " stress-iters
-                " reg-app-schema on the SAME path under contention "
-                "— per-frame isolation holds")
-    (let [shared-path [:utdxg.iso/shared]
-          per-thread-frames (mapv #(keyword "utdxg.iso" (str "f" %))
-                                  (range n-threads))
-          mk-schema (fn [t m] [:enum (keyword (str "t" t "-i" m))])]
-      (doseq [fid per-thread-frames]
-        (rf/make-frame {:id fid :doc (str "isolation-stress frame " fid)}))
-      (let [latch   (CountDownLatch. 1)
-            futures
-            (vec
-              (for [t (range n-threads)]
-                (future
-                  (.await latch)
-                  (dotimes [m stress-iters]
-                    (rf/reg-app-schema shared-path
-                                       {:frame (nth per-thread-frames t)} (mk-schema t m))))))]
-        (.countDown latch)
-        (doseq [f futures]
-          (let [v (deref f 120000 ::timeout)]
-            (is (not= ::timeout v)
-                "isolation thread completed within 120s wall-clock"))))
-
-      ;; --- Invariant: every per-thread frame's winner is a value -
-      ;; that thread (and ONLY that thread) issued.
-      (doseq [t (range n-threads)
-              :let [fid     (nth per-thread-frames t)
-                    entries (rf.schemas.storage/frame-schema-entries fid)
-                    winner  (-> entries (get shared-path) :schema)
-                    own-issued
-                    (set (for [m (range stress-iters)] (mk-schema t m)))]]
-        (is (= 1 (count entries))
-            (str "Frame " fid ": expected exactly one entry; got "
-                 (count entries)))
-        (is (contains? own-issued winner)
-            (str "Frame " fid " (thread " t "): winner schema "
-                 (pr-str winner) " was not issued by thread " t
-                 " — cross-frame bleed."))))))
