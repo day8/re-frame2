@@ -191,39 +191,26 @@
 ;; finding and the source is left unchanged: a head-only rewrite would certify
 ;; output v2 rejects at namespace load.
 
-(deftest custom-inline-interceptor-flagged-db
-  (testing "a custom interceptor var in the chain -> :flag :interceptors, unchanged"
-    (let [src "(rf/reg-event-db :x {:interceptors [my-auth-interceptor]}\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event-db (:form (first findings))))
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (str/includes? (:note (first findings)) "M-70"))
-      (is (= src source) "flagged site left byte-for-byte unchanged"))))
-
-(deftest custom-inline-interceptor-flagged-fx
-  (testing "a positional chain with a custom call (e.g. (rf/debug)) is NOT pure-renamed"
-    (let [src "(rf/reg-event-fx :x [(rf/debug)]\n  (fn [c _] {:db (:db c)}))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
-
-(deftest path-dynamic-arg-flagged
-  (testing "(rf/path p) with a non-literal arg has no derivable path vector -> flag"
-    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path p)]} (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
-
-(deftest mixed-chain-with-one-unresolved-entry-flags-whole-site
-  (testing "a chain mixing a convertible path with an underivable entry is NOT half-converted"
-    (let [src "(rf/reg-event-db :x {:interceptors [(rf/path :a) my-ic]}\n  (fn [db _] (assoc db :k 1)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :flag (:action (first findings))))
-      (is (= :interceptors (:flag (first findings))))
-      (is (= src source)))))
+(deftest unresolved-chain-entry-flags-whole-site
+  (testing "a chain entry with no derivable v2 reference flags the whole site, source unchanged"
+    (doseq [[label src form]
+            [["a custom interceptor var"
+              "(rf/reg-event-db :x {:interceptors [my-auth-interceptor]}\n  (fn [db _] (assoc db :k 1)))"
+              :reg-event-db]
+             ["a positional custom call is not pure-renamed"
+              "(rf/reg-event-fx :x [(rf/debug)]\n  (fn [c _] {:db (:db c)}))"
+              :reg-event-fx]
+             ["(rf/path p) with a non-literal arg has no derivable path vector"
+              "(rf/reg-event-db :x {:interceptors [(rf/path p)]} (fn [db _] (assoc db :k 1)))"
+              :reg-event-db]
+             ["a convertible path beside an underivable entry is not half-converted"
+              "(rf/reg-event-db :x {:interceptors [(rf/path :a) my-ic]}\n  (fn [db _] (assoc db :k 1)))"
+              :reg-event-db]]]
+      (let [{:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)
+            f (first findings)]
+        (is (= [form :flag :interceptors] ((juxt :form :action :flag) f)) label)
+        (is (str/includes? (:note f) "M-70") label)
+        (is (= src source) (str label ": left byte-for-byte unchanged"))))))
 
 (deftest db-nil-capable-with-convertible-chain-still-gates-on-d7
   (testing "a convertible chain does not bypass the D7 nil gate; source unchanged"
