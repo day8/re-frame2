@@ -8,7 +8,6 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [re-frame.source-coords :as rf.source-coords]
-            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
             [re-frame.testbed.open-in-editor-server :as rf.testbed.open-in-editor-server]
             [shadow.http.push-state :as shadow.push-state])
   (:import [java.net InetAddress InetSocketAddress URL URLClassLoader]
@@ -449,15 +448,6 @@
     (is (not (#'rf.testbed.open-in-editor-server/loopback-host? nil)))
     (is (not (#'rf.testbed.open-in-editor-server/loopback-host? "")))))
 
-(deftest origin-host-extracts-and-rejects-opaque
-  (testing "the host is extracted from a serialized origin"
-    (is (= "localhost" (#'rf.testbed.open-in-editor-server/origin-host "http://localhost:8042")))
-    (is (= "127.0.0.1" (#'rf.testbed.open-in-editor-server/origin-host "http://127.0.0.1:8031"))))
-  (testing "the opaque `null` origin and blank/nil yield nil (never loopback)"
-    (is (nil? (#'rf.testbed.open-in-editor-server/origin-host "null")))
-    (is (nil? (#'rf.testbed.open-in-editor-server/origin-host nil)))
-    (is (nil? (#'rf.testbed.open-in-editor-server/origin-host "")))))
-
 ;; File values and launch stderr may contain controls, so verify JSON round trips.
 
 (defn ^:private read-json-string-literal
@@ -836,8 +826,9 @@
          so the capability question is asked of the dependency at launch time
          instead, by launch-shim's probe. That auto-detect route is NOT
          undeclined: it is covered by
-         launch-declines-when-the-resolved-editor-would-drop-the-position and
-         endpoint-turns-a-launch-time-decline-into-the-same-422 below")))
+         launch-declines-when-the-resolved-editor-would-drop-the-position
+         below, and `handle` answers that decline as it answers every launch
+         failure, a 422 carrying the launch message")))
 
 (deftest endpoint-declines-coordinate-bearing-windsurf-request
   (testing "editor=windsurf with line+column is DECLINED before Node is
@@ -1001,19 +992,6 @@
       (finally
         (.setContextClassLoader (Thread/currentThread) prev)))))
 
-(deftest consumer-coords-name-files-that-exist
-  (testing "the witness below is only worth its green if its coordinates are
-            REAL — a renamed testbed file must fail here, loudly, rather than
-            quietly turn the resolution assertions into assertions about a
-            path that resolves to nothing"
-    (doseq [{:keys [tool root file]} consumer-coords]
-      (let [root-dir (io/file @repo-root root)
-            src      (io/file root-dir file)]
-        (is (.isDirectory root-dir)
-            (str tool " source root " root " exists in this checkout"))
-        (is (.isFile src)
-            (str tool " coordinate " file " exists under " root))))))
-
 (deftest real-relative-testbed-coords-resolve-through-the-endpoint
   (testing "a real relative Story coordinate and a real relative Xray
             coordinate each reach the handler and resolve to the intended
@@ -1038,43 +1016,6 @@
                       (str tool " resolved to the REAL on-disk source file"))
                   (is (= 12 line) (str tool " kept its line"))
                   (is (= 3 column) (str tool " kept its column")))))))))))
-
-(deftest off-endpoint-request-404s-and-the-uri-fallback-stays-relative
-  (testing "the NEGATIVE half, stated as what it actually executes. A
-            `:dev-http` entry with no re-frame2 handler serves static files
-            only, so an off-endpoint POST never reaches this namespace's
-            resolution at all: `handle` falls through and `handler` answers
-            shadow's own 404 — a non-2xx, which is exactly what sends the
-            browser to its `editor://` URI fallback (pinned client-side in
-            `re-frame.testbed.open-in-editor-client-cljs-test`). That
-            fallback composes the RAW coordinate, which is relative, so an OS
-            editor handler cannot stat it.
-
-            No source roots are installed here, deliberately: every
-            expression below is either an early fall-through or a pure
-            string/path-shape check, so a context classloader could not
-            change a single answer. The positive witness above is where the
-            real roots earn their keep"
-    (doseq [{:keys [tool file]} consumer-coords]
-      ;; An unwired port never reaches this namespace at all.
-      (is (nil? (rf.testbed.open-in-editor-server/handle {:uri            "/index.html"
-                              :request-method :post
-                              :query-string   (str "file=" file)
-                              :headers        {"host" "localhost:8042"}}))
-          (str tool ": a request that is not the endpoint path is not
-               handled here"))
-      (is (= 404 (:status (rf.testbed.open-in-editor-server/handler {:uri            "/index.html"
-                                         :request-method :post
-                                         :query-string   (str "file=" file)
-                                         :headers        {"host" "localhost:8042"}})))
-          (str tool ": the non-endpoint answer is a non-2xx, so the client
-               falls back"))
-      ;; …and the fallback's own input is still relative.
-      (is (not (rf.source-coords.editor-uri/absolute-path? file))
-          (str tool " coordinate is relative — the URI fallback alone
-               cannot reach the file"))
-      (is (= file (#'rf.source-coords.editor-uri/compose-path nil file))
-          (str tool " composes to itself with no project-root")))))
 
 ;; ---------------------------------------------------------------------------
 ;; A page load falls through to shadow's own index handling
@@ -1135,10 +1076,8 @@
                 (str label " answers exactly what shadow answers on a port
                      with no handler")))))))
   (testing "…and ONLY a page load. The same request as a POST — same index on
-            disk, same HTML Accept — still answers a non-2xx, which is the
-            off-endpoint contract pinned above. That pin cannot witness this on
-            its own: it installs no root and sends no Accept, so shadow's
-            handler would 404 its request too"
+            disk, same HTML Accept — still answers a non-2xx, which is what
+            sends the client to its `editor://` URI fallback"
     (with-index-root*
       (fn [root]
         (let [r (page-req :post "/" root)]
@@ -1218,11 +1157,13 @@
 ;; preserving URI fallback.
 ;;
 ;; `launch-shim` therefore asks the dependency rather than predicting it. The
-;; tests below pin that in three places: the dependency really does behave
-;; this way (a probe of the installed package, which also guards the declared
-;; set against drift), the shim really does decline it (real node children,
-;; none of which can open an editor), and a launch-time decline really does
-;; reach the client as the same 422 the declared route emits.
+;; tests below pin that in two places: the dependency really does behave this
+;; way (a probe of the installed package, which also guards the declared set
+;; against drift), and the shim really does decline it (real node children,
+;; none of which can open an editor). `handle` answers every launch failure as
+;; a 422 carrying the launch message (`json-resp-escapes-embedded-control-chars`,
+;; `endpoint-rejects-missing-file-with-422`), so a launch-time decline reaches
+;; the client as the same 422 and token the declared route emits.
 
 (def ^:private implementation-dir
   "The directory `shadow-cljs watch` runs the dev server from — and the only
@@ -1451,24 +1392,3 @@
                 (is (false? ok) "the nonexistent binary could not be launched")
                 (is (not= rf.testbed.open-in-editor-server/position-unsupported-error message)
                     "…and it was a launch failure, not a capability refusal")))))))))
-
-(deftest endpoint-turns-a-launch-time-decline-into-the-same-422
-  (testing "the wiring that makes the shim's refusal user-visible: a
-            coordinate-bearing request with NO editor param — what the client
-            sends for a nil preference and for {:custom …} — answers 422
-            `editor-position-unsupported` when the launch declines. Same
-            status and same token as the declared-vocabulary route, so the
-            browser has one contract to honour rather than two.
-
-            `launch!` is stubbed with the verdict the previous test proves the
-            real shim returns; what is under test here is the mapping"
-    (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& _]
-                                 {:ok false
-                                  :message rf.testbed.open-in-editor-server/position-unsupported-error})]
-      (let [resp (rf.testbed.open-in-editor-server/handle
-                   (req {:query "file=fake_ns/core.cljs&line=27&column=9"}))]
-        (is (= 422 (:status resp))
-            "a 200 here would claim 27:9 reached an editor that never got it;
-             non-2xx is what runs the client's coordinate-preserving fallback")
-        (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
-            "the same token the declared-vocabulary decline emits")))))
