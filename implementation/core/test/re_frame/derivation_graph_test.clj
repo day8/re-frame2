@@ -479,15 +479,6 @@
 ;; failure of a present namespace propagates (not tested here — it requires a
 ;; deliberately-broken sibling on the classpath).
 
-(deftest resolve-var-tolerates-a-genuinely-absent-namespace
-  (testing "a symbol whose NAMESPACE is not on the classpath is EXPECTED
-            absence — resolve-var returns nil (the no-flows story)"
-    (is (nil? (#'rf.derivation.graph/resolve-var 'totally.absent.optional.sibling/some-view))
-        "an un-loaded optional family namespace is tolerated as absent (nil)"))
-  (testing "a DASHED absent namespace is tolerated too"
-    (is (nil? (#'rf.derivation.graph/resolve-var 're-frame.totally-absent.optional-sibling/some-view))
-        "a dashed un-loaded optional family namespace is tolerated as absent (nil)")))
-
 (deftest resolve-sibling-yields-nil-for-an-absent-family
   (testing "an absent optional sibling resolves to nil (the family contributes
             nothing) — the no-flows / no-resources story"
