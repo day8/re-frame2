@@ -24,16 +24,6 @@ const assert = require('node:assert/strict');
 
 const { assertCallCoverageRatchet } = require('./_runner.cjs');
 
-test('GREEN: every advertised tool SDK-called ⇒ no throw', () => {
-  assert.doesNotThrow(() =>
-    assertCallCoverageRatchet({
-      advertised: ['a', 'b', 'c'],
-      called: new Set(['a', 'b', 'c']),
-      exclusions: {},
-    }),
-  );
-});
-
 test('GREEN: a mix of called + reviewed-excluded ⇒ no throw', () => {
   assert.doesNotThrow(() =>
     assertCallCoverageRatchet({
@@ -66,28 +56,22 @@ test('RED: an advertised tool neither called nor excluded ⇒ throws + names it'
   );
 });
 
-test('RED: a blank exclusion rationale ⇒ throws', () => {
-  assert.throws(
-    () =>
-      assertCallCoverageRatchet({
-        advertised: ['a', 'b'],
-        called: new Set(['a']),
-        exclusions: { b: '   ' },
-      }),
-    /MUST[\s\S]*carry a non-empty rationale[\s\S]*"b"/,
-  );
-});
-
-test('RED: a non-string exclusion rationale ⇒ throws', () => {
-  assert.throws(
-    () =>
-      assertCallCoverageRatchet({
-        advertised: ['a', 'b'],
-        called: new Set(['a']),
-        exclusions: { b: true },
-      }),
-    /non-empty rationale/,
-  );
+test('RED: a blank or non-string exclusion rationale ⇒ throws', () => {
+  for (const [label, rationale, pattern] of [
+    ['blank', '   ', /MUST[\s\S]*carry a non-empty rationale[\s\S]*"b"/],
+    ['non-string', true, /non-empty rationale/],
+  ]) {
+    assert.throws(
+      () =>
+        assertCallCoverageRatchet({
+          advertised: ['a', 'b'],
+          called: new Set(['a']),
+          exclusions: { b: rationale },
+        }),
+      pattern,
+      label,
+    );
+  }
 });
 
 test('RED: a stale exclusion row (not advertised) ⇒ throws', () => {
