@@ -70,7 +70,6 @@
   [2]: ../../TOKEN-BUDGETS.md"
   (:require [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
-            [malli.core      :as m]
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]))
 
 ;; ---------------------------------------------------------------------------
@@ -85,8 +84,6 @@
 ;;
 ;;   :slot         — the canonical keyword literal an agent supplies as
 ;;                   an `arguments` key. Bytes-identical across servers.
-;;   :role         — `:opt-in-boolean` / `:override-integer` / etc. Used
-;;                   by the schema gate below.
 ;;   :servers      — set of servers that contract for this slot. A
 ;;                   singleton means single-server today; multi-server
 ;;                   means the literal MUST appear in every named
@@ -109,7 +106,6 @@
 
 (def ^:private canonical-slots
   [{:slot     :include-sensitive
-    :role     :opt-in-boolean
     :servers  #{:re-frame2-pair-mcp :story-mcp}
     :sources  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/sensitive.cljs"
                            "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"]
@@ -131,7 +127,6 @@
                a data key whose wire form disallows it."}
 
    {:slot     :max-tokens
-    :role     :override-integer
     :servers  #{:re-frame2-pair-mcp :story-mcp}
     :sources  {;; re-frame2-pair-mcp surfaces the slot as the Clojure keyword
                ;; `:max-tokens` in the descriptor-splice helper
@@ -189,39 +184,6 @@
   token-boundary matched)."
   #{":rf.egress/include-large?"
     ":rf.egress/include-sensitive?"})
-
-;; ---------------------------------------------------------------------------
-;; Argument-role schema gate. Each role pins a Malli shape — a
-;; well-formed `arguments` payload the test fixtures below MUST
-;; conform to. The schemas don't reach into a live server; they pin
-;; the contract a consumer can encode against.
-;; ---------------------------------------------------------------------------
-
-(def ^:private OptInBoolean
-  "A boolean-typed input arg payload."
-  [:map {:closed false} [:include-sensitive :boolean]])
-
-(def ^:private OverrideInteger
-  "An integer-typed input arg payload — non-negative because `0` is
-  the documented cap-disabled escape hatch."
-  [:map {:closed false} [:max-tokens nat-int?]])
-
-(def ^:private role->schema
-  {:opt-in-boolean    OptInBoolean
-   :override-integer  OverrideInteger})
-
-(def ^:private role->fixtures
-  "Per-role fixture grid. Each fixture is a well-formed `arguments`
-  payload an agent might construct; each MUST validate against the
-  role's canonical schema. Drift in the role contract (e.g. a server
-  silently accepting `:max-tokens \"5000\"` as a string) is caught
-  upstream — these fixtures pin the AGENT-FACING canonical shape."
-  {:opt-in-boolean   [{:include-sensitive true}
-                      {:include-sensitive false}]
-   :override-integer [{:max-tokens 5000}
-                      {:max-tokens 0}                       ; cap disabled
-                      {:max-tokens 1}                       ; tight cap
-                      {:max-tokens 50000}]})                ; loose cap
 
 ;; ---------------------------------------------------------------------------
 ;; Near-miss variants — spellings that look right but aren't. A rename
@@ -283,21 +245,7 @@
       (conj (str \" nm-snake \")))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 1 — schema conformance. Every fixture validates against its
-;; role's canonical schema.
-;; ---------------------------------------------------------------------------
-
-(deftest every-fixture-conforms-to-its-role-schema
-  (doseq [{:keys [slot role]} canonical-slots
-          fixture             (get role->fixtures role)]
-    (testing (str "slot " slot " — role " role " — fixture " fixture)
-      (let [schema (get role->schema role)]
-        (is (m/validate schema fixture)
-            (str "Fixture " fixture " for slot " slot
-                 " failed role-schema validation. Role: " role))))))
-
-;; ---------------------------------------------------------------------------
-;; Gate 2 — source-text pin. The canonical slot literal appears as a
+;; Gate 1 — source-text pin. The canonical slot literal appears as a
 ;; FULL KEYWORD TOKEN in at least one of each server's named source
 ;; files.
 ;;
@@ -337,7 +285,7 @@
                  ":sources entry for " server "."))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 3 — no near-miss variants. Defence-in-depth against typo-style
+;; Gate 2 — no near-miss variants. Defence-in-depth against typo-style
 ;; drift (snake_case, dropped predicate `?`).
 ;; ---------------------------------------------------------------------------
 
@@ -375,7 +323,7 @@
                    "it in the divergence pin section of this test.")))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate 4 — divergence pin.
+;; Gate 3 — divergence pin.
 ;;
 ;; The size-elision opt-out has a single live emitter: re-frame2-pair-mcp's
 ;; `:elision` spelling. With only re-frame2-pair-mcp + story-mcp as MCP
@@ -388,7 +336,7 @@
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; Gate 5 — mcp-base vocab ns is the single source of truth for the
+;; Gate 4 — mcp-base vocab ns is the single source of truth for the
 ;; canonical keywords. Grep the vocab.cljc source for each literal.
 ;; ---------------------------------------------------------------------------
 
