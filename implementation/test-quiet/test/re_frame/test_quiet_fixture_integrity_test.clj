@@ -36,9 +36,8 @@
   `test-all-vars` builds its fixture chain with — so a guard that went on
   agreeing with itself after clojure.test changed underneath would be
   caught.  The end-to-end half (a real `deftest` that would FAIL, absent
-  from the tally, under the real `-main`, for both the map literal and a
-  symbol bound to a map) is pinned across a process boundary in
-  `re-frame.test-quiet-runner-contract-test`.
+  from the tally, under the real `-main`) is pinned across a process
+  boundary in `re-frame.test-quiet-runner-contract-test`.
 
   A NOTE ON THE PROBE NAMESPACES BELOW.  `uncallable-fixtures` reads
   `(all-ns)` in the shipped call, so a probe namespace left behind with a
@@ -128,9 +127,9 @@
 
 (deftest a-map-fixture-is-named-under-either-key
   ;; `use-fixtures` writes the VALUE it was handed, so a symbol bound to a map
-  ;; lands in this metadata exactly as the literal does; the case a static
-  ;; scan cannot see is pinned end to end by the contract test's
-  ;; `symbol-bound-map-fixture-refuses-the-run`.
+  ;; lands in this metadata exactly as the literal does.  Reading the metadata
+  ;; rather than the source is what lets the rule see that case, which no
+  ;; text scan can.
   (doseq [meta-key [:clojure.test/each-fixtures :clojure.test/once-fixtures]]
     (with-probe-ns 'probe.map-fixture-ns meta-key (list map-fixture)
       (fn [ns-obj]
