@@ -72,9 +72,9 @@
  "path — hiding the inspectable structure (a resolver's `:inputs` map "
  "+ `:whole-db?` cost, the EP-0016 disposition-2 promise).")))
 
-;; What `strip-fns` itself does — replace nested fns with the `:rf/fn`
-;; sentinel and leave a spec that round-trips as EDN — is asserted by RUNNING
-;; the shipped walker in machine_describe_test.clj.
+;; What `strip-fns` itself does — replace nested fns with the readable
+;; `:rf/fn` sentinel and leave the surrounding structure untouched — is
+;; asserted by RUNNING the shipped walker in machine_describe_test.clj.
 
 (let [{:keys [fail error]} (run-tests 'registrar-describe-test)]
  (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
