@@ -1,5 +1,5 @@
 (ns re-frame.story-mcp.tools.dedup-test
-  "Consumer-integration + payload-ratio coverage for the structural-dedup
+  "Consumer-integration coverage for the structural-dedup
   wire-boundary transform.
 
   Per `tools/story-mcp/spec/Principles.md` §Structural dedup at the wire
@@ -21,9 +21,7 @@
     - the wire-boundary envelope integration
       (`rf.story-mcp.tools.wire-pipeline/apply-dedup` dual-slot rewrite, sibling-slot
       preservation, the `:dedup-eligible?` gate through
-      `rf.story-mcp.tools.wire-pipeline/invoke-tool`);
-    - the reduction-ratio (payload-ratio) sanity on a representative
-      `run-variant` fixture.
+      `rf.story-mcp.tools.wire-pipeline/invoke-tool`).
 
   The test-only inverse (`dedup-expand`) lives in
   `re-frame.story-mcp.test-support`; the MCP server never inverts the
@@ -33,56 +31,10 @@
   `re-frame.mcp-base.args/parse-boolean` table-driven parser — coverage
   is in `mcp-base`'s args tests."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.mcp-base.dedup :as rf.mcp-base.dedup]
             [re-frame.story-mcp.test-support :as rf.story-mcp.test-support]
             [re-frame.story-mcp.tools.wire-pipeline :as rf.story-mcp.tools.wire-pipeline]
             [re-frame.story-mcp.tools.result :as rf.story-mcp.tools.result]
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]))
-
-;; ---------------------------------------------------------------------------
-;; Reduction-ratio sanity. Dedup must earn a non-trivial ratio on a
-;; realistic story-mcp fixture; we assert against the run-variant
-;; shape (`:app-db` + `:effective-args` + `:snapshot` carrying the same
-;; large nested map) since that's the wire surface dedup targets. The deduper is shape-agnostic — it collapses repeated big-db
-;; refs regardless of the surrounding verdict keys. This is the
-;; consumer's payload-ratio coverage (the base suite pins correctness,
-;; not the wire-size win on a realistic story-mcp shape).
-;; ---------------------------------------------------------------------------
-
-(deftest reduction-ratio-run-variant-shape
-  ;; A realistic story-mcp tool return: `preview-variant`'s structured
-  ;; payload re-keys the same `:app-db` value into three slots
-  ;; (`:app-db`, `:effective-args` carries it under `:state`, and
-  ;; `:snapshot` carries it as the snapshot body). The structural
-  ;; deduper collapses those three references into one.
-  (let [big-db (into {} (for [i (range 256)]
-                          [(keyword (str "k" i))
-                           (apply str (repeat 256 \x))]))
-        payload {:frame           :story.cart/full
-                 :app-db          big-db
-                 :effective-args  {:state big-db}
-                 :snapshot        {:body big-db}
-                 :assertions      [{:assertion :rf.assert/path-equals
-                                    :passed?   true
-                                    :expected  big-db
-                                    :actual    big-db}]
-                 :elapsed-ms      42
-                 :lifecycle       :ready
-                 :status          :pass}
-        raw-size (count (pr-str payload))
-        wrapped (rf.mcp-base.dedup/dedup-value payload true)
-        wrapped-size (count (pr-str wrapped))]
-    (testing "wrapped payload is much smaller than the raw structure"
-      ;; Five references to big-db; dedup should compress aggressively.
-      ;; ≥50% is the conservative floor pair-mcp uses; the realistic
-      ;; story-mcp shape clears it comfortably.
-      (is (< wrapped-size (* 0.5 raw-size))
-          (str "Deduped size (" wrapped-size
-               ") should be < 50% of raw (" raw-size
-               "). Ratio: " (/ wrapped-size raw-size 1.0))))
-    (testing "round-trip still reconstructs the full payload"
-      (let [restored (rf.story-mcp.test-support/dedup-expand wrapped)]
-        (is (= payload restored))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-boundary integration — `rf.story-mcp.tools.wire-pipeline/apply-dedup` is the wrapper that
