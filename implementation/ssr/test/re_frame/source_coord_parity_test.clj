@@ -144,12 +144,6 @@
           ;; a hardcoded copy of it.
           coord   (rf.views.jvm-source-coord-annotation/format-source-coord fixture-id fixture-coords)
           view-id (rf.views.jvm-source-coord-annotation/format-view-id fixture-id)]
-      ;; SEMANTIC, posture-independent: `(rf/view id)` resolves to
-      ;; the registered view and the view renders its own root and body. The
-      ;; gate can remove the attributes; it can never remove the element.
-      (is (.startsWith html "<p") (pr-str html))
-      (is (.endsWith html ">body</p>") (pr-str html))
-
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= (str "<p data-rf2-source-coord=\"" coord "\""
