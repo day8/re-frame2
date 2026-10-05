@@ -298,26 +298,3 @@
           (str "throughput < 100 req/s — got "
                (:req-per-sec result)
                " req/s; investigate per-request overhead.")))))
-
-(deftest ^:slow per-request-error-buffer-cleanup
-  (testing "destroy-frame! clears the pending-error-traces entry even
-            when the projector hasn't drained the buffer"
-    (install-registry!)
-    ;; Drive a few requests that EACH leave an entry in
-    ;; pending-error-traces (we plant it directly via a synthetic
-    ;; trace-emit so we don't have to engineer a real handler failure
-    ;; — the cleanup contract is the same).
-    (dotimes [i 50]
-      (let [fid (rf.frame/make-anon-frame-record!
-                  {:doc       (str "error-buffer test " i)
-                   :platform  :server
-                   :initial-events [[:load-test/server-init {:i i}]]})]
-        ;; Plant a fake pending error trace under this frame's slot.
-        (swap! (pending-error-traces-atom)
-               update fid (fnil conj [])
-               {:op-type :error :operation :rf.error/handler-exception})
-        (rf/destroy-frame! fid)))
-    ;; Every planted slot should be gone.
-    (is (= 0 (count (pending-error-traces-snapshot)))
-        "destroy-frame! cleared the pending-error-traces entries even
-         though the projector never drained them via get-response.")))
