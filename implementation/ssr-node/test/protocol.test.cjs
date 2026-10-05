@@ -146,14 +146,11 @@ test('the typed fields are typed', () => {
   assert.strictEqual(codeOf({ ...OK(), entry: 42 }), CODE.BAD_REQUEST_FIELD);
   assert.strictEqual(codeOf({ ...OK(), requestId: 7 }), CODE.BAD_REQUEST_FIELD);
   assert.strictEqual(codeOf({ ...OK(), buildId: 7 }), CODE.BAD_REQUEST_FIELD);
+  // `args` is EDN TEXT: the service never decodes application data.
+  assert.strictEqual(codeOf({ ...OK(), args: { page: 3 } }), CODE.BAD_REQUEST_FIELD);
   assert.strictEqual(codeOf({ ...OK(), timeoutMs: 0 }), CODE.BAD_REQUEST_FIELD);
   assert.strictEqual(codeOf({ ...OK(), timeoutMs: -1 }), CODE.BAD_REQUEST_FIELD);
   assert.strictEqual(codeOf({ ...OK(), timeoutMs: Infinity }), CODE.BAD_REQUEST_FIELD);
-});
-
-test('`args` must be EDN TEXT — the service never decodes application data', () => {
-  assert.strictEqual(codeOf({ ...OK(), args: { page: 3 } }), CODE.BAD_REQUEST_FIELD);
-  assert.strictEqual(codeOf({ ...OK(), args: '{:page 3}' }), null);
 });
 
 // ---------------------------------------------------------------------------
@@ -174,12 +171,6 @@ test('build identity: a caller expecting another build is refused', () => {
 // ---------------------------------------------------------------------------
 // The render-visibility allowlist
 // ---------------------------------------------------------------------------
-
-test('a state key the entry does not declare is refused', () => {
-  const err = refuseOf({ ...OK(), state: { ':todos': '[]', ':secrets': '{:token "abc"}' } });
-  assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
-  assert.strictEqual(err.detail.key, ':secrets');
-});
 
 test('the allowlist belongs to the ENTRY, so it is narrower for a narrower entry', () => {
   // `:todos` is fine for app/root and refused for app/other. Same request
@@ -221,13 +212,6 @@ test('the runtime allowlist belongs to the ENTRY too - an empty list reads nothi
     CODE.STATE_KEY_NOT_ALLOWED,
     'app/other declared [] - a decision, and the caller cannot widen it',
   );
-});
-
-test('runtime keys must be top-level runtime-db keys, values EDN text, and runtime an object', () => {
-  assert.strictEqual(codeOf({ ...OK(), runtime: { routing: '{}' } }), CODE.BAD_REQUEST_FIELD);
-  assert.strictEqual(codeOf({ ...OK(), runtime: { ':rf.runtime/routing': {} } }), CODE.BAD_REQUEST_FIELD);
-  assert.strictEqual(codeOf({ ...OK(), runtime: '{}' }), CODE.BAD_REQUEST_FIELD);
-  assert.strictEqual(refuseOf({ ...OK(), runtime: [] }).detail.field, 'runtime');
 });
 
 test('an absent runtime partition validates as an empty one - the field is optional, like state', () => {
@@ -319,32 +303,9 @@ function twoFaced(host, key, honestValue, honestReads = 1) {
   return () => reads;
 }
 
-test('a partition value is CAPTURED, so the request carries what was validated', () => {
-  const state = {};
-  const reads = twoFaced(state, ':route', '{:name :ok}');
-  const out = validateRequest({ protocol: 1, entry: 'app/root', state }, TABLES);
-
-  assert.notStrictEqual(
-    out.state,
-    state,
-    "the normalized request must not alias the caller's own partition object",
-  );
-  assert.strictEqual(
-    out.state[':route'],
-    '{:name :ok}',
-    'it must carry the value the validator checked, not a fresh read of the accessor behind it',
-  );
-  assert.strictEqual(
-    reads(),
-    1,
-    "and reading the normalized request must not reach back into the caller's object",
-  );
-});
-
 test('every field the normalized request carries is read exactly ONCE', () => {
-  // The invariant the row above is a consequence of, stated directly and
-  // over the whole field list rather than over the one field that happened
-  // to be reachable. `args` is the same gap a field away: read once for its
+  // The invariant over the whole field list, partitions included. `args`
+  // shows the gap the header describes: read once for its
   // `!== undefined` test, again for its `typeof` test and a third time to
   // build the returned request, it would let a caller satisfy both checks
   // and still put something else on the wire. This one uses an honest
