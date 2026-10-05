@@ -4,8 +4,9 @@
   projection → epoch capture → ordered tooling listeners).
 
   The first-time `:rf.flow/registered` evidence sits behind ONE exact-owner
-  postcheck, so a loss during the PRECEDING mark write withholds the trace
-  (`re-frame.flows-first-registration-watch-incarnation-test`). But that
+  postcheck, so a loss during the PRECEDING mark write withholds the trace;
+  the replacement shares that postcheck, and
+  `re-frame.flows-clear-reg-watch-incarnation-test` pins it. But that
   postcheck only proves A is live at the instant emission
   STARTS. `trace/emit!` is itself a callback-bearing pipeline whose stages
   recheck ownership ONLY while a continuation predicate is installed
@@ -27,8 +28,8 @@
   The seam here is DELIBERATELY the trace-internal listener boundary, not the
   mark write: A's flow declares NO output marks, so `reg-flow` reaches
   `trace/emit!` with A fully live and the ONLY callback seam is the ordered
-  listener fan-out inside emission — the boundary the mark-write fixture
-  (which loses A during the preceding mark write, before emission starts, with
+  listener fan-out inside emission — the boundary the mark-write watch tests
+  (which lose A during a preceding mark write, before emission starts, with
   a passive recorder) cannot reach. Removing the `call-with-continuation-
   predicate` wrapper (leaving the always-true default) makes the subsequent
   listener receive A's stale event and the focused assertion fail.

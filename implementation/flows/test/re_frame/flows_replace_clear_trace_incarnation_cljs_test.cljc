@@ -6,11 +6,10 @@
   is taken from THIS frame's authoritative prior/new stored flow values rather
   than a frame-blind process-global registrar dedup table.
 
-  The sibling of `re-frame.flows-first-registration-trace-incarnation-test` and
-  `re-frame.flows-first-registration-watch-incarnation-test`. The flow-registry
-  app-db / runtime-db / epoch writes are exact, and the FIRST-registration
-  `:rf.flow/registered` emit is fenced; this file pins the same fence on the
-  two remaining direct lifecycle traces:
+  The sibling of `re-frame.flows-first-registration-trace-incarnation-test`.
+  The flow-registry app-db / runtime-db / epoch writes are exact, and the
+  FIRST-registration `:rf.flow/registered` emit is fenced; this file pins the
+  same fence on the two remaining direct lifecycle traces:
 
     - REPLACEMENT: re-registering a flow id emits `:rf.registry/handler-replaced`
       (gated by a per-frame prior/new shape compare).
