@@ -786,8 +786,7 @@
 (defn- with-epoch-project-record-hook
   "Run `f` with the `:epoch/project-record` late-bind hook bound to `v`
   (`nil` simulating an artefact-less runtime), restoring the previous value
-  afterwards even when `f` throws. Same mechanism as
-  `re-frame.epoch-late-bind-missing-cljs-test`'s `with-hook-as-nil`."
+  afterwards even when `f` throws."
   [v f]
   (let [original (rf.late-bind/get-fn :epoch/project-record)]
     (try
