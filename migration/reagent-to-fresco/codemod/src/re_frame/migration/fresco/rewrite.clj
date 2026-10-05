@@ -687,11 +687,17 @@
   sites: the discard, the quote and the `(comment …)` body can sit at
   any depth in the subtree, and one guard on the recursion answers
   every caller at every depth. A syntax-quote is deliberately not
-  pruned — see [[inert?]] for why that boundary sits where it does."
+  pruned — see [[inert?]] for why that boundary sits where it does.
+
+  Each node is asked as the call it writes, through [[call-form]], so
+  `#(r/as-element …)` refuses exactly as `(fn [] (r/as-element …))` does.
+  [[bound-call?]] stays list-only because site detection asks it too, and
+  the `#(r/adapt-react-class X)` in `[#(r/adapt-react-class X) …]` is a
+  function at the head, not an adapted class."
   [node sym ctx]
   (boolean
    (and (not (inert? node))
-        (or (bound-call? node sym ctx)
+        (or (bound-call? (call-form node) sym ctx)
             (and (n/inner? node)
                  (some #(subtree-has-reagent-call? % sym ctx)
                        (n/children node)))))))
