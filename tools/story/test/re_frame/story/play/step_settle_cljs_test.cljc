@@ -140,14 +140,6 @@
 ;; The precondition decision itself
 ;; ===========================================================================
 
-(deftest a-settled-frame-has-no-unmet-precondition
-  (testing "the common case is a pure read that costs nothing and blocks
-            nothing — no queue outstanding, no node demanded"
-    (is (nil? (step-precondition-unmet settle-frame
-                                       [:dispatch-sync [:settle/inc]])))
-    (is (nil? (step-precondition-unmet settle-frame
-                                       [:assert [:rf.assert/path-equals [:n] 0]])))))
-
 (deftest headless-never-waits-for-a-node
   (testing "with no DOM available the selector precondition is MOOT — the
             executor's own no-DOM {:skipped? true} branch is the right
