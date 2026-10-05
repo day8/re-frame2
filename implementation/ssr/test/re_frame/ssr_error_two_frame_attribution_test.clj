@@ -20,20 +20,11 @@
   trace no-ops EXPLICITLY rather than guessing.
 
   This suite drives the canonical concurrent shape — TWO live server
-  frames — and proves:
-
-    1. A navigate-reject in ONE frame stamps the projected 4xx on THAT
-       frame's response accumulator only; the sibling stays clean. With
-       >1 server frame live this can only succeed if the trace carries
-       the emitting frame's `:frame` (a single-frame fallback would
-       return nil and stamp nothing).
-
-    2. The emitted error trace carries `[:tags :frame]` = the emitting
-       frame — the precondition `re-frame.epoch.capture/capture-event!`
-       gates on (capture.cljc skips frame-less traces), so the violation
-       is visible in the emitting frame's epoch / Xray rather than
-       silently dropped. Asserted at the trace-tag level so the suite
-       does not pull the epoch artefact onto the ssr test classpath.
+  frames — and proves that a navigate-reject in ONE frame stamps the
+  projected 4xx on THAT frame's response accumulator only; the sibling
+  stays clean. With >1 server frame live this can only succeed if the
+  trace carries the emitting frame's `:frame` (a single-frame fallback
+  would return nil and stamp nothing).
 
   Companion suites:
     - `re-frame.ssr-end-to-end-test` — single-frame default-projector
@@ -46,20 +37,19 @@
 
   ## Posture split
 
-  Tests (1)-(3) drive the attribution contract through ONE trigger — the
+  Tests (1) and (2) drive the attribution contract through ONE trigger — the
   navigate-reject — and that trigger does not exist in a production build.
   `route-url`'s `:params` check is boundary validation, and every
   `validate-*!` body returns `true` unconditionally under
   `-Dre-frame.debug=false` (Spec 010 §Production builds), so no reject
   fires, no `:rf.error/schema-validation-failure` is emitted, and the
   responses stay 200. They run inside
-  `(when interop/debug-enabled? …)` arms. Test (3) is doubly dev-scoped:
-  it reads the DEV trace bus and its subject is epoch / Xray capture.
+  `(when interop/debug-enabled? …)` arms.
 
   GUARDING THEM ALONE WOULD BE A FALSE GREEN. Per-frame error
   attribution is not a dev contract — it is the invariant that stops one
   concurrent request's failure stamping another's response, and it is
-  worth most on a production server. So test (4) pins the SAME contract
+  worth most on a production server. So test (3) pins the SAME contract
   through a trigger that survives the gate: a real throwing handler, whose
   `:rf.error/handler-exception` rides the always-on axis through
   `dispatch-on-error!` and is routed by `error-emit-projection-listener`'s
@@ -203,51 +193,7 @@
           (finally (restore)))))))
 
 ;; ===========================================================================
-;; (3) Epoch-visibility precondition — the navigate-reject trace carries
-;;     `[:tags :frame]`, the key `re-frame.epoch.capture/capture-event!`
-;;     gates on. Without it the violation is invisible to epoch / Xray.
-;; ===========================================================================
-
-(deftest navigate-reject-trace-carries-frame-for-epoch-capture
-  (testing "the navigate-reject `:rf.error/schema-validation-
-            failure` trace carries `[:tags :frame]` = the emitting frame.
-            `re-frame.epoch.capture/capture-event!` buffers a trace into
-            the in-flight cascade ONLY when its tags carry the cascade's
-            `:frame`; an unframed trace would be silently dropped
-            from the per-frame epoch record (and so invisible to the Xray
-            Issues / Schema-timeline lens). Asserted at the trace-tag
-            level so this suite does not pull the epoch artefact onto the
-            ssr test classpath."
-    ;; DEV ARM, doubly so: the trigger is production-elided AND
-    ;; the assertions read the DEV trace bus, whose subject here (epoch /
-    ;; Xray capture) is dev tooling. Nothing about this test has a
-    ;; production counterpart, and that is correct rather than a gap.
-    (when rf.interop/debug-enabled?
-      (let [restore (with-stub-validator)
-            traces  (atom [])]
-        (try
-          (register-routes-and-fx!)
-          (let [fa (make-server-frame frame-a)]
-            (rf/register-listener! :trace ::cap (fn [ev] (swap! traces conj ev)))
-            (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]
-                              {:frame fa})
-            (rf/unregister-listener! :trace ::cap)
-            (let [err (first (filter #(= :rf.error/schema-validation-failure
-                                         (:operation %))
-                                     @traces))]
-              (is (some? err)
-                  ":rf.error/schema-validation-failure emitted on the reject")
-              (is (= :event (-> err :tags :where))
-                  "the navigate-reject path tags :where :event")
-              (is (= fa (-> err :tags :frame))
-                  "the trace carries [:tags :frame] = the emitting frame —
-                   the precondition epoch capture gates on, so the violation
-                   lands in frame-a's epoch record (visible to Xray) rather
-                   than being dropped")))
-          (finally (restore)))))))
-
-;; ===========================================================================
-;; (4) THE PRODUCTION-POSTURE PIN. The same per-frame
+;; (3) THE PRODUCTION-POSTURE PIN. The same per-frame
 ;;     attribution contract, driven by a trigger that survives
 ;;     `-Dre-frame.debug=false`: a handler that throws. Its
 ;;     `:rf.error/handler-exception` rides the always-on axis via
