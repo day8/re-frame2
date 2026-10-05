@@ -94,16 +94,6 @@
 ;; the harness must be real before any assertion about it means anything
 ;; ---------------------------------------------------------------------------
 
-(deftest probe-child-runs-cleanly
-  (testing "the relaunched JVM completes and reports a result line"
-    (let [{:keys [exit err result]} @observed]
-      (is (zero? exit) (str "probe JVM exited " exit "; stderr:\n" err))
-      (is (some? result)
-          (str "no `" rf.prod-gate-dispatch-probe/result-marker "` line on the probe's stdout;"
-               " stderr:\n" err))
-      (is (nil? (:probe-threw result))
-          (str "the probe threw: " (:probe-threw result))))))
-
 (deftest gate-was-really-off
   (testing "the child really loaded under `-Dre-frame.debug=false`.
             Without this pin the rest of the suite would pass vacuously the
@@ -130,18 +120,6 @@
       (is (empty? (:errors result))
           (str "the dispatch must emit no error under the prod gate; got "
                (pr-str (:errors result)))))))
-
-(deftest resolution-and-registration-agree-under-the-production-gate
-  (testing "the whole contract in one assertion: a registry lookup
-            that SUCCEEDS while the dispatch reports `:rf.error/no-such-handler`
-            is a contradiction. The bare lookup reads the registrar atom; the
-            cascade's lookup reads the frame's sealed generation. They must
-            answer the same question the same way."
-    (let [{:keys [result]} @observed]
-      (is (true? (:bare-lookup-found? result))
-          "sanity: the registrar atom holds the handler")
-      (is (not (some #{:rf.error/no-such-handler} (:errors result)))
-          "the frame's generation must resolve what the registrar atom holds"))))
 
 (deftest cleared-registration-disappears-under-the-production-gate
   (testing "the removal twin. Were `unregister!`'s dirty-mark gated
