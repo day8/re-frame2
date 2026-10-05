@@ -152,6 +152,24 @@
     (let [body "(comment [:> Chart {:options {:page-size 10}}])\n"]
       (is (= (str hdr body) (rewritten body))))))
 
+(deftest an-inert-anonymous-fn-body-is-inert-for-every-walk
+  (testing "`#(comment …)` and `#(quote …)` are a `(comment …)` and a quote
+            behind an anonymous-fn literal, whose head is its body's head. The
+            shared predicate prunes them, so the report, the write and the
+            refusal walk all skip them. The live literal is the control: a walk
+            that skipped every literal would pass the rest."
+    (let [live "(def h #(do [:> Chart {:options {:page-size 10}}]))\n"]
+      (is (= [:nested-map-keys] (classes live)))
+      (is (= (str hdr "(def h #(do [:> Chart {:options {:pageSize 10}}]))\n") (rewritten live))
+          "the live literal's crossing is still repaired"))
+    (let [body (str "(def f #(comment [:> Chart {:options {:page-size 10}}]))\n"
+                    "(def g #(quote [:> Chart {:options {:page-size 10}}]))\n")]
+      (is (= [] (classes body)) "no site in either inert literal")
+      (is (= (str hdr body) (rewritten body)) "and neither is edited"))
+    (is (= []
+           (classes "[:> Foo {:x #(comment (r/as-element [:div]))}]\n"))
+        "an `r/as-element` in an inert literal is not a refusal reason")))
+
 ;; ---------------------------------------------------------------------------
 ;; The whole-file class, which is about a def rather than a crossing
 ;; ---------------------------------------------------------------------------
