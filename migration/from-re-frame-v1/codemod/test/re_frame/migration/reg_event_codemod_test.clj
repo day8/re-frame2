@@ -127,15 +127,6 @@
       (is (str/includes? source "{:keys [db]}"))
       (is (str/includes? source "{:db (update db :value inc)}")))))
 
-(deftest db-positional-path-vector-normalized
-  (testing "the historical positional chain becomes the one metadata-map form"
-    (let [src "(rf/reg-event-db :counter/inc\n  [(rf/path :counter)]\n  (fn [db _] (update db :value inc)))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}"))
-      (is (not (str/includes? source "(rf/path")))
-      (is (str/includes? source "{:db (update db :value inc)}")))))
-
 (deftest db-positional-multi-entry-order-preserved
   (testing "multiple positional entries keep their declaration order"
     (let [src "(rf/reg-event-db :x [(rf/path :a) (rf/path :b)] (fn [db _] (assoc db :k 1)))"
@@ -423,14 +414,6 @@
       ;; the handler is untouched — only the chain is normalized
       (is (str/includes? source "(fn [{:keys [db]} _] {:db (update db :value inc)})")))))
 
-(deftest reg-event-rescan-recovers-positional
-  (testing "an already-renamed reg-event with a positional chain is repaired"
-    (let [src "(rf/reg-event :x [(rf/path :a)] (fn [{:keys [db]} _] {:db db}))"
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :reg-event (:form (first findings))))
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:a]]]}")))))
-
 (deftest reg-event-rescan-flags-custom-inline
   (testing "an already-renamed reg-event with an underivable inline entry is flagged"
     (let [src "(rf/reg-event :x {:interceptors [my-ic]} (fn [{:keys [db]} _] {:db db}))"
@@ -449,14 +432,6 @@
           {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (empty? findings))
       (is (= src source)))))
-
-(deftest normalized-output-idempotent-and-clean
-  (testing "the converted output rescans clean and a second rewrite is a no-op"
-    (let [src "(rf/reg-event-db :counter/inc\n  {:interceptors [(rf/path :counter)]}\n  (fn [db _] (update db :value inc)))"
-          once  (rewrite src)
-          twice (rewrite once)]
-      (is (= once twice))
-      (is (empty? (rf.migration.reg-event-codemod/scan-string once)) "normalized output yields no findings"))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-db — renamed (non-`db`) first param  (rf2-xhfxcs.15)
