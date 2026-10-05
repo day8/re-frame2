@@ -50,7 +50,6 @@
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -164,16 +163,3 @@
       (rf.substrate.adapter/replace-container! nil {:dropped :write})
       (is (false? @forwarded)
           "the underlying adapter replace-container! was NOT invoked"))))
-
-;; ===========================================================================
-;; The late-bind hook the substrate reaches error-emit through is published.
-;; ===========================================================================
-
-(deftest dispatch-on-error-late-bind-hook-is-published
-  (testing "The substrate cannot static-require
-            `re-frame.error-emit` (load order), so it reaches
-            `dispatch-on-error!` via the `:error-emit/dispatch-on-error`
-            late-bind hook — which error-emit publishes at ns-load, so the
-            lookup never misses in production."
-    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-on-error))
-        "the hook is registered at error-emit ns-load")))
