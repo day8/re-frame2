@@ -282,8 +282,9 @@ Three siblings carry the operational detail:
   bite.
 - [`loops.md`](loops.md) — the standing loops, and the merge criterion in full.
 - [`dispatch-prompt-template.md`](dispatch-prompt-template.md) — the worker-prompt shapes, the
-  common preamble, the worktree-boundary block, and the gate-mechanics block. The last 3
-  travel verbatim: the preamble into every dispatch, the other 2 into every editing one.
+  common preamble, the two boundary blocks, and the gate-mechanics block. Those 4 travel
+  verbatim, pasted or inside a verified packet: the preamble into every dispatch, the
+  boundary block its shape needs, and the gate block into every editing one.
 
 None of those 3 is specific to this repository. The concrete values they need — your gate
 command, your tracker's commands, your hot-zone file list — belong in your own project's
