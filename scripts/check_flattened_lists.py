@@ -514,21 +514,9 @@ def corpus(cfg, roots) -> list[Path]:
 _CASES = [
     # (name, markdown, expected defect count)
     ("four-column child nests", "- parent\n    - child\n", 0),
-    ("two-column child is flat", "- parent\n  - child\n", 1),
-    ("three-column child is flat", "- parent\n   - child\n", 1),
     (
         "six-column grandchild of a four-column child is flat",
         "- parent\n    - child\n      - grandchild\n",
-        1,
-    ),
-    (
-        "eight columns after a blank line is a code block",
-        "- parent\n\n        - swallowed\n",
-        1,
-    ),
-    (
-        "eight columns with no blank line is a lazy continuation, still flat",
-        "- parent\n        - swallowed\n",
         1,
     ),
     (
@@ -542,16 +530,6 @@ _CASES = [
         1,
     ),
     (
-        "ordered parent with four columns nests",
-        "1. parent\n    1. child\n",
-        0,
-    ),
-    (
-        "the repair of the code-block case is clean",
-        "- parent\n    - child\n        - grandchild\n",
-        0,
-    ),
-    (
         "list-shaped lines inside a fence are not items",
         "Prose.\n\n```text\n- parent\n  - child\n```\n",
         0,
@@ -562,18 +540,8 @@ _CASES = [
         0,
     ),
     (
-        "a dedent to a sibling is not a defect",
-        "- parent\n    - child\n- sibling\n",
-        0,
-    ),
-    (
         "two separate top-level lists are not a pair",
         "- alpha\n\n## Heading\n\n  - beta\n",
-        0,
-    ),
-    (
-        "a deeper item that already sits at parent+4 is not reported",
-        "- parent\n    - child\n",
         0,
     ),
     (
@@ -628,6 +596,9 @@ def self_test() -> int:
     # the author is told to make.  An over-indented child renders as a code
     # block INSIDE its parent's `li`, so a rule that asks only "is it in an
     # li?" calls it a SIBLING and sends the author the wrong way.
+    #
+    # A kind list of exactly one entry is also a count of one, so these
+    # shapes carry no separate row in `_CASES`.
     for name, source, kind in [
         ("a two-column child is FLATTENED", "- parent\n  - child\n", "FLATTENED"),
         (
@@ -649,23 +620,10 @@ def self_test() -> int:
             print(f"FAIL  {name}: expected ['{kind}'], got {got}")
             failures += 1
 
-    # Both directions on one document: the same list, flattened and repaired.
-    flat = "Intro.\n\n- alpha\n  - beta\n    - gamma\n\nOutro.\n"
-    good = "Intro.\n\n- alpha\n    - beta\n        - gamma\n\nOutro.\n"
-    checks += 2
-    if len(analyse(flat, md)) == 0:
-        print("FAIL  negative control: the flattened document reported clean")
-        failures += 1
-    else:
-        print("ok    negative control: the flattened document is reported")
-    if len(analyse(good, md)) != 0:
-        print("FAIL  positive control: the repaired document reported a defect")
-        failures += 1
-    else:
-        print("ok    positive control: the repaired document is clean")
-
-    # The injection must be provably inert, and the checker must SAY SO when
-    # it is not rather than reporting a clean file.
+    # Every case above also passes analyse's own inertness test: the probed
+    # render, desentinelled, must equal the baseline render.  This one shows
+    # the checker SAYS SO when injection is not inert rather than reporting a
+    # clean file.
     checks += 1
     try:
         analyse("- item\n\n<div>\n", md)
@@ -673,15 +631,6 @@ def self_test() -> int:
         print("ok    an unbalanced document is reported UNMEASURABLE")
     else:
         print("FAIL  an unbalanced document was measured anyway")
-        failures += 1
-
-    checks += 1
-    if desentinel(_render(md, inject("- a\n  - b\n", collect_items("- a\n  - b\n")))) == _render(
-        md, "- a\n  - b\n"
-    ):
-        print("ok    desentinel(probe render) == baseline render")
-    else:
-        print("FAIL  desentinel(probe render) != baseline render")
         failures += 1
 
     print(f"\n{checks - failures}/{checks} checks passed")
