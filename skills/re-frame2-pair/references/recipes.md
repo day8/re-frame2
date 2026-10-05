@@ -47,13 +47,13 @@ The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `r
 
 ## "What is this app?" / First contact
 
-**Your first move on an unfamiliar app — a cart, a dashboard, anything you didn't write.** After `discover-app` connects, run `orient` *before any other read*. One round-trip that maps the whole app: which frames are app vs reserved tool frames, each app frame's top-level app-db keys, the registry **counts** per kind, and the navigable event / sub / fx / machine **id lists** — compact by construction (counts + ids + top-keys, never the full app-db).
+**Your first move on an unfamiliar app — a cart, a dashboard, anything you didn't write.** After `discover-app` connects, run `orient` *before any other read*. One round-trip that maps the whole app: which frames are app vs reserved tool frames, each app frame's top-level app-db keys, the registry **counts** per kind, and up to 20 example ids each of events, subs, fx and machines — bounded for the default budget (counts + capped ids + top-keys, never the full app-db).
 
 ```
 mcp__re-frame2-pair__orient {}
 ```
 
-Returns `{:ok? true :liveness {…} :frames {:all [...] :app [...] :operating <id>} :app-db-top-keys {<app-frame> [<top-level key>…]} :registry {:counts {<kind> N…} :events [...] :subs [...] :fx [...]} :machines [...]}`. Reserved `:rf/*` tool frames (Xray's `:rf/xray`, an SSR slot, …) are excluded from `:app-db-top-keys` so the summary never overflows on a tool frame's working set.
+Returns `{:ok? true :liveness {…} :frames {:all [...] :app [...] :operating <id>} :app-db-top-keys {<app-frame> [<top-level key>…]} :registry {:counts {<kind> N…} :events [...] :subs [...] :fx [...]} :machines [...] :truncated [{:slot [:registry :events] :shown 20 :total N :next {:tool "list-handlers" :args {:kind "event" …}}} …]}` — `:truncated` appears only when a list was cut short, and its `:next` is the call that returns every id. Reserved `:rf/*` tool frames (Xray's `:rf/xray`, an SSR slot, …) are excluded from `:app-db-top-keys` so the summary never overflows on a tool frame's working set.
 
 Narrate it back to the user as the app's shape — *"this app runs one app frame `:rf/default`, with `:cart` / `:route` / `:user` at the top of its db, 14 events, 9 subs, 3 fx, and one machine `:checkout`."* Then **drill** into whatever the user's question is about:
 
@@ -195,7 +195,7 @@ When the user mentions a state machine (Spec 005), chain:
 
 ## "Dead code scan"
 
-`list-handlers {kind: "event"}`, `list-handlers {kind: "sub"}`, etc. (or `orient`, whose `:registry` already carries the counts + id lists). Then `trace-window {ms: 60000}` with a large window — or ask the user to exercise the app first. Report registered ids that never appeared in any epoch's `:trigger-event` or `:sub-runs`. *Caveat: trace coverage is bounded by epoch-history depth and trace-buffer depth.*
+`list-handlers {kind: "event"}`, `list-handlers {kind: "sub"}`, etc. (`orient` carries the counts but only the first 20 ids of each kind, so the full id lists come from `list-handlers`). Then `trace-window {ms: 60000}` with a large window — or ask the user to exercise the app first. Report registered ids that never appeared in any epoch's `:trigger-event` or `:sub-runs`. *Caveat: trace coverage is bounded by epoch-history depth and trace-buffer depth.*
 
 ## Experiment loop
 

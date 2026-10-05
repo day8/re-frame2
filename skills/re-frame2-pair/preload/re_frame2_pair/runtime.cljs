@@ -3925,9 +3925,10 @@
      :machines        the registered machine ids (the `:rf/machine?` filter
                       over `(rf/registrations {:source :store :kind :event})`).
 
-   Compact + summarized by design (respect the wire cap): counts + the
-   high-value id vectors + per-frame top-keys, NOT the full app-db. The
-   MCP `orient` op (or `discover-app :orient true`) routes here.
+   Summarized by design: counts + the high-value id vectors + per-frame
+   top-keys, NOT the full app-db. The MCP `orient` op routes here and caps
+   each id vector to a run of examples for the wire, with a `:truncated`
+   entry naming the `list-handlers` call that returns the rest.
 
    Side effects: installs the trace/epoch/last-click listeners via
    `health` (idempotent)."
