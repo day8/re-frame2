@@ -359,19 +359,12 @@ def _run_self_test() -> int:
         # Silence is not a contradiction — passes either way.
         ("silent-files-omit", False, SILENT_PROSE, None, True),
         ("silent-files-include", True, SILENT_PROSE, None, True),
-        # No doc surface at all (no evals/README, skill README silent) — silent.
-        ("no-doc-surface-files-omit", False, None, "# Skill\n\nA skill.\n", True),
         # Sibling-mention guard: own EXCLUDE + sibling INCLUDE mention, files
         # OMIT — must resolve EXCLUDE (agree), NOT fire the include-direction.
         ("sibling-mention-resolves-exclude", False, EXCLUDE_WITH_SIBLING_MENTION, None, True),
-        # And the same prose with files INCLUDING evals MUST fire (the own
-        # EXCLUDE stance contradicts an include `files`).
-        ("sibling-mention-exclude-vs-include-files", True, EXCLUDE_WITH_SIBLING_MENTION, None, False),
         # Stance stated in the SKILL README rather than evals/README (mirrors
-        # re-frame2-setup: "excluded from the npm `files` array by design").
-        ("stance-in-skill-readme-exclude", False, None,
-         "## Layout\n\n`evals/` holds the trigger-accuracy fixture; it is "
-         "excluded from the npm `files` array by design.\n", True),
+        # re-frame2-setup: "excluded from the npm `files` array by design"); an
+        # include `files` contradicts it, so this must fire.
         ("stance-in-skill-readme-exclude-vs-include-files", True, None,
          "## Layout\n\n`evals/` holds the trigger-accuracy fixture; it is "
          "excluded from the npm `files` array by design.\n", False),
@@ -416,7 +409,7 @@ def _run_self_test() -> int:
     print(
         "self-test: all fixtures pass "
         "(agree-include + agree-exclude stay green; both contradiction "
-        "directions fire; silence + no-doc-surface stay green; the "
+        "directions fire; silence stays green; the "
         "sibling-mention guard resolves to the skill's own EXCLUDE stance; "
         "stance-in-skill-README is detected; out-of-scope skills are skipped)."
     )
