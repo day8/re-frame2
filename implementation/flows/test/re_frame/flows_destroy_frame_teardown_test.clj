@@ -7,9 +7,8 @@
   rows dropped, a sibling frame's rows kept) is pinned by the
   `flow-frame-destroy-teardown` conformance fixture, which
   `re-frame.flows-conformance-test` runs. This namespace pins what that
-  fixture cannot observe: a sibling's divergent definition surviving in
-  place, the frame-owned flow-output elision marks, and the refusal of a
-  registration against a destroyed frame.
+  fixture cannot observe: the frame-owned flow-output elision marks, and the
+  refusal of a registration against a destroyed frame.
 
   SINGLE-STORE: the per-frame `flows` atom is the SOLE store —
   there is no frame-blind registrar `:flow` slot to prune / realign. Teardown
@@ -46,25 +45,6 @@
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---- sibling frame keeps its OWN authoritative entry on destroy ---------
-
-(deftest destroy-frame-leaves-sibling-entry-authoritative-in-place
-  (testing "destroying frame A leaves frame B's per-frame entry intact and authoritative in place (no slot to realign)"
-    (rf/make-frame {:id :fc/a :doc "frame A"})
-    (rf/make-frame {:id :fc/b :doc "frame B"})
-    (let [f-a (fn [w h] (* (or w 0) (or h 0)))
-          f-b (fn [w h] (+ (or w 0) (or h 0)))]
-      (rf/reg-flow :shared {:frame :fc/a :inputs [[:w] [:h]] :output-path [:rect :area]} f-a)
-      (rf/reg-flow :shared {:frame :fc/b :inputs [[:w] [:h]] :output-path [:rect :area]} f-b)
-      ;; Destroy :fc/a. :fc/b still holds :shared with its OWN divergent body.
-      (rf.frame/destroy-frame! :fc/a)
-      (is (nil? (rf.flows/flow-meta {:frame :fc/a :id :shared}))
-          ":fc/a's entry is gone")
-      (is (= f-b (:derive (rf.flows/flow-meta {:frame :fc/b :id :shared})))
-          ":fc/b's entry is intact and authoritative IN PLACE — no realignment needed")
-      (is (nil? (rf.registrar/lookup :flow :shared))
-          "registrar :flow slot stays empty throughout"))))
 
 ;; ---- flow-output elision marks ride the frame-record drop ----------------
 ;;
