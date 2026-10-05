@@ -26,12 +26,11 @@
   The categories stamped with `[:tags :frame]`
   inside the routing drain — `:rf.error/no-such-handler` /
   `:rf.error/no-such-route` (→ 404) and `:rf.error/schema-validation-
-  failure` (→ 400) — are covered here. These map
+  failure` (→ 400) — map
   to DISCRIMINATING non-default statuses (404 / 400, not the generic
   500), so a regression that dropped or mis-stamped `:frame` for a
   routing drain-time category would silently ship a 200 for what should
-  be a 4xx, and no other ssr-ring test
-  would catch it. (A 200, not the 500: with no routable
+  be a 4xx. (A 200, not the 500: with no routable
   `:frame` the projector no-ops and the accumulator keeps its default
   200; see `error-listener/candidate-frame-for-error`.)
 
@@ -40,32 +39,13 @@
   drives an unmatched URL to the default projector's 404,
   `ssr_end_to_end_test/default-error-projector-fn-maps-all-enumerated-categories`
   pins that projector arm, and `ssr_error_two_frame_attribution_test` →
-  the navigate-reject 400 on the emitting frame only). ssr-ring DEPENDS on
-  that contract; this namespace proves the end-to-end WIRE status flows
-  through ITS handler:
+  the navigate-reject 400 on the emitting frame only). Both 4xx
+  categories leave ssr-ring through the same app arm, which
+  `ring_draintime_error_view_test/draintime-4xx-keeps-root-and-payload-never-error-view`
+  pins in-process. ssr-ring DEPENDS on that contract; this namespace
+  proves the per-frame WIRE status flows through ITS handler:
 
-    1. `draintime-no-such-route-projects-404-on-the-wire` — an
-       `:initial-events` that dispatches `:rf.route/handle-url-change` to an
-       unmatched URL emits a drain-time `:rf.error/no-such-handler`
-       (`:kind :route`), buffered by the always-on
-       `error-emit-projection-listener`, projected to 404 by
-       `ssr/flush-response-result!` (the single accumulator read in `ssr-handler`). Asserted on the
-       wire (Jetty + `java.net.http`) — the 404 is the DISCRIMINATING status
-       that proves the routing projector arm rode the wire, not the generic
-       500 fallback. The same request in-process (root and payload kept,
-       `:error-view` never called) is
-       `ring_draintime_error_view_test/draintime-4xx-keeps-root-and-payload-never-error-view`.
-
-    2. `draintime-navigate-reject-projects-400-on-the-wire` — an
-       `:initial-events` that fires a `:rf.route/navigate` whose `:params`
-       schema rejects emits a drain-time `:rf.error/schema-validation-
-       failure` (`:where :event`), projected to 400. Mirrors the ssr-
-       artefact two-frame regression's mechanism, driven through the
-       ring handler. The page still renders (status-only error per
-       Spec 011 §Server error projection — the 4xx owns the wire status
-       but the body is the rendered root-view).
-
-    3. `two-concurrent-frames-attribute-drain-time-404-per-frame` — the
+    `two-concurrent-frames-attribute-drain-time-404-per-frame` — the
        two-concurrent-server-frame attribution case AT THE ssr-ring
        BOUNDARY. Many simultaneous per-request frames is the canonical
        SSR shape (the same shape `concurrency_stress_test` drives, but
@@ -81,10 +61,7 @@
   The Jetty + `java.net.http` harness is the shared one
   `concurrency_stress_test.clj` / `ring_e2e_validator_test.clj` use."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
-            [re-frame.schemas :as rf.schemas]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.util.concurrent CountDownLatch]
@@ -118,179 +95,7 @@
   (rf.ssr.ring.test-support/http-get client port path read-timeout-secs))
 
 ;; ===========================================================================
-;; Stub validator — interpret a `:params` schema as a Clojure predicate
-;; `(fn [v] truthy?)`, mirroring the ssr-artefact two-frame attribution
-;; test's `with-stub-validator` so the navigate-reject path runs without
-;; dragging Malli onto the classpath.
-;; ===========================================================================
-
-(defn- with-stub-validator []
-  (let [snap     (rf.schemas/schema-fns)
-        ;; The stub is process-global, so while installed EVERY
-        ;; schema-validating boundary uses it — including the routing
-        ;; recordable allocation cofx, whose `:schema` is a real Malli VECTOR
-        ;; (`[:map [:token :string] [:counter :int]]`). A Malli vector is not
-        ;; a callable predicate (calling it as `(schema value)` index-lookups
-        ;; for an integer value and throws for a map), so a naive call would
-        ;; throw and the fail-closed seam would coerce it to FALSE, spuriously
-        ;; rejecting the well-formed generated nav-allocation. The stub
-        ;; therefore only adjudicates ACTUAL fn schemas (the predicate schemas
-        ;; these tests install) and PASSES any other (Malli vector / map)
-        ;; schema. Mirrors routing_test_support's `with-stub-validator`.
-        validate (fn [schema value]
-                   (if (fn? schema)
-                     (boolean (schema value))
-                     true))
-        explain  (fn [schema value]
-                   (when (fn? schema)
-                     {:reason :stub-explainer :value value}))]
-    (rf.schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (rf.schemas/set-schema-fns! snap))))
-
-;; ===========================================================================
-;; Test 1 — drain-time :rf.error/no-such-handler → projected 404 on the wire
-;; ===========================================================================
-;;
-;; This is the discriminating-status proof. `:initial-events` dispatches
-;; `:rf.route/handle-url-change` to an unmatched URL. `url-change-fx`
-;; (routing/url_change.cljc) threads the drain's `:frame` cofx and emits
-;; `:rf.error/no-such-handler` (`:kind :route`) tagged with that frame —
-;; one of the drain-time emit sites that stamp `:frame`. The always-on
-;; `error-emit-projection-listener` buffers it; `ssr/flush-response-result!` (the
-;; read in `ssr-handler`, BEFORE render) flushes the buffer through the
-;; default projector, which maps `:no-such-handler` → 404, and stamps it
-;; onto the response accumulator. `build-full-response` then materialises
-;; that 404 onto the Ring response status. 404 (not the generic 500) is
-;; the load-bearing assertion: it proves the ROUTING projector arm — the
-;; one fed by the drain's `:frame` stamp — reached the wire.
-
-(deftest draintime-no-such-route-projects-404-on-the-wire
-  (testing "a drain-time :rf.error/no-such-handler (unmatched
-            route in :initial-events) is projected to 404 by flush-response-result! and
-            rides the wire status through the ring handler — the routing
-            drain-time path, asserted at the ssr-ring
-            boundary (the ssr artefact proves it at the ssr layer; this
-            proves the WIRE status through the ring layer)."
-    ;; A registered route so a registry exists; the request URL below
-    ;; matches NONE of them, so url-change-fx falls back to not-found and
-    ;; emits the drain-time :rf.error/no-such-handler.
-    (rf/reg-route :route/home {} "/")
-    (rf/reg-event :init/route-to-missing
-      {:platforms #{:server}}
-      (fn [_ _]
-        ;; Drain-time error: dispatch a URL-change to an unmatched URL.
-        ;; The :rf.route/handle-url-change handler threads the frame cofx
-        ;; into url-change-fx, which emits :rf.error/no-such-handler with
-        ;; :frame stamped. The :dispatch fx keeps this inside
-        ;; the SAME initial-events drain so the error buffers against this
-        ;; per-request frame.
-        {:fx [[:dispatch [:rf.route/handle-url-change "/no-such-page"]]]}))
-    (rf/reg-view* :pages/not-found
-      (fn [] [:div.not-found "Not found page renders"]))
-
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:init/route-to-missing]]
-                     :root-view [(rf/view :pages/not-found)]
-                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
-                                 :dev-error-detail? false}
-                     :payload :rf.ssr.payload/whole-app-db})]
-      (testing "bytes-on-the-wire through Jetty — a real HTTP server
-                preserves the projected 404 status"
-        (rf.ssr.ring.test-support/with-jetty [port handler]
-          (let [client (rf.ssr.ring.test-support/new-http-client)
-                {:keys [status body]} (http-get client port "/no-such-page")]
-            (is (= 404 status)
-                "drain-time :no-such-handler → default projector's 404
-                 stamped on :rf/response by flush-response-result! → the
-                 wire status. A regression that dropped the :frame stamp
-                 would no-op the projector and ship the default 200 here.")
-            ;; A projected 4xx is a CLIENT fault with a renderable app (Spec
-            ;; 011 §Drain-time error classification): the 4xx owns the wire
-            ;; status but the app renders its OWN not-found root body. Only a
-            ;; projected 5xx diverts to the projected-error arm.
-            (is (str/includes? body "Not found page renders")
-                "the root-view body rides the wire alongside the 404 — the
-                 4xx app arm, not the projected-error arm")))))))
-
-;; ===========================================================================
-;; Test 2 — drain-time :rf.error/schema-validation-failure → projected 400
-;; ===========================================================================
-;;
-;; The navigate-reject path: a `:rf.route/navigate` whose target route's
-;; `:params` predicate rejects raises inside `route-url`; navigate.cljc
-;; catches it and emits `:rf.error/schema-validation-failure` (`:where
-;; :event`) with the drain's `:frame` stamped. The default projector maps it to 400. Same mechanism as
-;; the ssr-artefact two-frame attribution regression, driven through the
-;; ring handler. 400 is the discriminating status (distinct from both the
-;; default 200 AND the generic-fallback 500).
-
-(deftest draintime-navigate-reject-projects-400-on-the-wire
-  (testing "a drain-time :rf.error/schema-validation-failure
-            (navigate-reject in :initial-events) is projected to 400 and rides
-            the wire status through the ring handler — mirrors the ssr-
-            artefact navigate-reject regression at the ssr-ring boundary."
-    (let [restore (with-stub-validator)]
-      (try
-        (rf/reg-route :route/home {} "/")
-        ;; A route whose :params predicate rejects any :id not starting
-        ;; "a" — navigating with a bad :id makes route-url throw →
-        ;; navigate.cljc emits :rf.error/schema-validation-failure.
-        (rf/reg-route :route/article
-                      {:params (fn [{:keys [id]}]
-                                 (str/starts-with? (or id "") "a"))} "/articles/:id")
-        ;; Server-platform push-url so the navigate fx assembly resolves
-        ;; on a :platform :server frame (no-op sink — the reject path
-        ;; never pushes).
-        ;; FN form (no source-coord capture): this stubs the FRAMEWORK fx id
-        ;; :rf.nav/push-url (registered fn-form by routing with nil provenance
-        ;; ns) — the stub must REPLACE that source-store slot, not sit beside
-        ;; it as a cross-namespace duplicate that fails the request frame's
-        ;; default-image assembly loud (:rf.error/image-duplicate-id).
-        (rf.fx/reg-fx :rf.nav/push-url
-                   {:platforms #{:server :client}}
-                   (fn [_ _url] nil))
-        (rf/reg-event :init/navigate-bad-param
-          {:platforms #{:server}}
-          (fn [_ _]
-            ;; Drain-time error: a navigate whose :id ("zoo") fails the
-            ;; route's :params predicate → reject → schema-validation-
-            ;; failure, buffered against this per-request frame.
-            {:fx [[:dispatch [:rf.route/navigate {:to :route/article :params {:id "zoo"}}]]]}))
-        (rf/reg-view* :pages/article
-          (fn [] [:div.article "Article page renders"]))
-
-        (let [handler (rf.ssr.ring/ssr-handler
-                        {:initial-events [[:init/navigate-bad-param]]
-                         :root-view [(rf/view :pages/article)]
-                         :ssr       {:public-error-id   :rf.ssr/default-error-projector
-                                     :dev-error-detail? false}
-                         :payload :rf.ssr.payload/whole-app-db})]
-          (testing "direct in-process handler call — projected 400 on :status"
-            (let [response (handler {:uri "/articles/zoo" :request-method :get})]
-              (is (= 400 (:status response))
-                  "drain-time :schema-validation-failure → default
-                   projector's 400 stamped on :rf/response by flush-response-result!
-                   → ring :status. A dropped :frame stamp would no-op the
-                   projector and ship the default 200.")
-              (is (str/includes? (:body response) "Article page renders")
-                  "the root-view still renders — a projected 400 keeps the
-                   app's own bad-request UI (the 4xx app arm); only
-                   a projected 5xx diverts to the projected-error arm")))
-
-          (testing "bytes-on-the-wire through Jetty — 400 survives the round-trip"
-            (rf.ssr.ring.test-support/with-jetty [port handler]
-              (let [client (rf.ssr.ring.test-support/new-http-client)
-                    {:keys [status body]} (http-get client port "/articles/zoo")]
-                (is (= 400 status)
-                    "drain-time :schema-validation-failure → default
-                     projector's 400 rides the wire status. A dropped
-                     :frame stamp would ship the default 200.")
-                (is (str/includes? body "Article page renders")
-                    "the root-view still renders — status-only 400")))))
-        (finally (restore))))))
-
-;; ===========================================================================
-;; Test 3 — two concurrent server frames: per-frame drain-time attribution
+;; Two concurrent server frames: per-frame drain-time attribution
 ;; ===========================================================================
 ;;
 ;; The canonical concurrent-SSR shape: many per-request server frames
