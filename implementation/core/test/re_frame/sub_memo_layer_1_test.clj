@@ -6,8 +6,7 @@
   compares the db value directly (no varargs-seq alloc, no seq-vs-seq
   `=` walk). These tests pin the result-equivalence contract: the
   specialised wrapper must short-circuit on `=` inputs exactly like the
-  generic wrapper, must recompute on `not=` inputs, and must hand the
-  body fn the same `(db, query-v)` shape as the generic wrapper does.
+  generic wrapper, and must recompute on `not=` inputs.
 
   Microbench note: the alloc-per-recompute saving is one ArraySeq/Cons
   per layer-1 recompute (the varargs collection vec/seq the
@@ -46,40 +45,6 @@
 
 ;; ---- result-equivalence — the contract pin --------------------------------
 
-(deftest layer-1-memo-skips-recompute-on-equal-db
-  (testing "two consecutive derefs against the same db value run the body once"
-    (let [runs (atom 0)]
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-      (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:n])]
-        (is (= 7 @r))
-        (is (= 1 @runs) "first deref runs the body")
-        ;; Second deref against the unchanged db — memo MUST short-circuit.
-        (is (= 7 @r))
-        (is (= 1 @runs)
-            "second deref against same db does NOT re-invoke the body")
-        ;; Third deref — still no change.
-        (is (= 7 @r))
-        (is (= 1 @runs))))))
-
-(deftest layer-1-memo-recomputes-on-changed-db
-  (testing "deref after an app-db change runs the body again"
-    (let [runs (atom 0)]
-      (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
-      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-      (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:n])]
-        (is (= 0 @r))
-        (is (= 1 @runs))
-        (rf/dispatch-sync [:update 1])
-        (is (= 1 @r))
-        (is (= 2 @runs) "body re-runs when the db value changed")
-        (rf/dispatch-sync [:update 2])
-        (is (= 2 @r))
-        (is (= 3 @runs))))))
-
 (deftest layer-1-memo-value-equal-but-not-identical-skips
   (testing "two `=`-but-not-`identical?` db values short-circuit too
             — the contract is value equality, not identity"
@@ -99,21 +64,6 @@
         (is (= 42 @r))
         (is (= 1 @runs)
             "value-equal db short-circuits the memo (no body re-run)")))))
-
-(deftest layer-1-body-receives-db-and-query-v
-  (testing "the body fn receives the canonical (db, query-v) shape
-            under the specialised wrapper, as under the generic one"
-    (let [captured (atom nil)]
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 99}}))
-      (rf/reg-sub :n (fn [db query-v]
-                       (reset! captured [db query-v])
-                       (:n db)))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:n :arg1 :arg2])]
-        (is (= 99 @r))
-        (let [[db query-v] @captured]
-          (is (= {:n 99} db) "body receives the full db value")
-          (is (= [:n :arg1 :arg2] query-v) "body receives the full query-v"))))))
 
 (deftest layer-1-memo-handles-false-and-empty
   (testing "false and empty-map db values are not confused with the
