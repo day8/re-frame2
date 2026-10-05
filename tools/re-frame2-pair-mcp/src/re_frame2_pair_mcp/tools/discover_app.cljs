@@ -131,9 +131,8 @@
 
   `opts` carries the optional `:port` (the browser URL port discover-app
   resolved the build from) so a non-fresh hint names the EXACT
-  `http://localhost:<port>` the human reloads to wake / refresh a quiet
-  runtime — the agent can't reload a browser, so this is the early,
-  actionable, human-in-the-loop signal."
+  `http://localhost:<port>` to reload to wake / refresh a quiet runtime —
+  the early, actionable signal, whoever performs the reload."
   [conn build-id health opts shape]
   (-> (freshness/token-from-health conn build-id health opts)
       (.then
@@ -153,7 +152,7 @@
   "Build the freshness `opts` map carrying the browser URL `:port` the
   caller passed, or nil when no `:port` arg is present. The
   port lets a non-fresh liveness hint name the EXACT
-  `http://localhost:<port>` the human reloads to wake a quiet runtime.
+  `http://localhost:<port>` to reload to wake a quiet runtime.
   The port may arrive as a string off the MCP wire; coerce to an int so
   the hint reads `http://localhost:8033`, not `http://localhost:\"8033\"`."
   [args]
