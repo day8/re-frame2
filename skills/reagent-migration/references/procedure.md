@@ -247,6 +247,33 @@ Note the packaging: the kit lives on a **separate source root** that is
 deliberately not on the library's `:paths`, so a consumer who never writes a
 test never carries it. Wire it in through the project's test alias / build.
 
+**Mount under the application's own image composition.** Every kit mount
+builds a fresh frame, from the default image unless told otherwise — every
+registration loaded — and the default image refuses a `[kind id]` registered
+from two namespaces (`:rf.error/image-duplicate-id`). An application that
+deliberately overrides a library registration builds its frames from disjoint
+ordered images, the later winning; hand the kit that same vector with
+`:images`, on `hm/mount!`, `hm/hydrate!` and `hm/shadow!` alike:
+
+```clojure
+(hm/mount! [views/inbox {}]
+           {:images         [library-image app-image]   ; the app's own vector
+            :initial-events [[:inbox/seed]]})
+```
+
+Do not deduplicate registrations or build a default-image fixture to get past
+the refusal: that tests a frame the application never runs. The options map is
+closed, so a misspelt key raises `:rf.error/fresco-test-bad-option` naming the
+accepted ones.
+
+**Fallback: mount the frame yourself.** When the frame needs an
+`rf/make-frame` option the kit's mount does not carry, use the public pieces
+directly: build the frame with `rf/make-frame` (`:id`, `:images` and any
+record-config it needs), render the view under
+`[rf/frame-provider {:frame id} …]` on an ordinary React root, and
+`rf/destroy-frame!` it when the test ends. That route gives up the kit's
+settle doors and residue check, so assert the page and the teardown yourself.
+
 **`hm/shadow!` is the migration's own instrument**, and it is the one worth
 reaching for on a screen that must not change behaviour: it mounts the Reagent
 original and the Fresco candidate against isolated copies of the same seeded

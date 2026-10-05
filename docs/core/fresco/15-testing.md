@@ -355,6 +355,33 @@ Mounted operations take the handle first and return it where chaining is
 useful. `assert-clean!` is asynchronous because it waits for pending work to
 finish before checking.
 
+### Mount options
+
+`hm/mount!` takes these options, and `hm/hydrate!` takes the same plus
+`:html`. Any other key raises `:rf.error/fresco-test-bad-option` naming the
+accepted keys, so a misspelt option cannot be ignored in silence.
+
+| Option | Meaning |
+| --- | --- |
+| `:initial-events` | Setup events run into the new frame in order, before the first render; core's `rf/make-frame` option |
+| `:images` | The image composition the frame is built from, passed to `rf/make-frame` as given. Omit it for the default image |
+| `:container` | An existing element to render into. The default is a fresh `<div>` attached to `document.body` |
+| `:clock` | `true` gives the mount a [virtual clock](#virtual-clock-behaviour) |
+
+The default image covers every registration loaded, and it refuses a
+`[kind id]` registered from two namespaces with
+`:rf.error/image-duplicate-id`. An application that deliberately overrides a
+library registration builds its frames from disjoint ordered images instead,
+where the later image wins. Give the mount the same vector:
+
+```clojure
+(hm/mount! [views/inbox {}]
+           {:images         [library-image app-image]
+            :initial-events [[:inbox/seed]]})
+```
+
+`hm/shadow!` takes `:images` too, and builds both of its frames from it.
+
 Use the settle operations rather than React's `act` for page assertions.
 `dispatch-and-settle!` runs the event and commits the result before it returns,
 so the next line sees the DOM a user would see; `act` runs through a test
@@ -460,6 +487,8 @@ props. The row's own test proves what a row renders.
 | `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
 | A plain test raises `:rf.error/fresco-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
 | `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body, or pass the realised value ([Views and reads](02-views-and-reads.md)) |
+| `hm/mount!` throws `:rf.error/image-duplicate-id` | Two loaded namespaces register the same `[kind id]`, and the default image will not pick a winner | If one deliberately overrides the other, pass the application's ordered `:images`; otherwise rename one of them |
+| `hm/mount!` throws `:rf.error/fresco-test-bad-option` | An option key outside the mount's roster, often a misspelling | Use a key the message lists ([Mount options](#mount-options)) |
 | `hm/mount!` throws `:rf.error/initial-events-step-failed` | A seed event's handler, interceptor or coeffect threw, or a coeffect it requires is missing | Fix that step; `:step-index` and `:event` in the ex-data name it |
 | The mounted page renders empty | A seed event has no handler because the test does not require its namespace, so the step is skipped with an `:rf.error/no-such-handler` record rather than a throw | Require the events namespace |
 | `hm/settle-until!` rejects with `:rf.error/poll-until-timeout` | The predicate never held within `:timeout-ms` (default 2000) | Check what the predicate reads; pass `:label` to name the wait |
