@@ -824,6 +824,25 @@ jobs:
         continue-on-error: true
         run: python scripts/check_egress_walker_residue.py --verbose
 
+      # Instruction-packet helper self-test. `scripts/instruction_packet.py`
+      # delivers a dispatch brief as a file and checks the worker's receipt;
+      # its `--self-test` proves `verify` accepts the intact packet and refuses
+      # a changed, truncated, missing or misquoted one. It is a helper rather
+      # than a `check_*.py` gate, so there is no live scan to pair with it. It
+      # lives here because it is stdlib-only and no changed-surface output
+      # arms on it, so this always-on job is the one home a PR touching it
+      # cannot skip past. The id keeps the `<stem>_selftest` convention, so
+      # the verdict step below reports a failure and `--emit` prints this
+      # command. The reproduce-command guard discovers checker steps by the
+      # `check_*` shape and does not audit this one, so keep both its `id`
+      # (without one a failure is absent from `toJSON(steps)` and the job
+      # goes green) and `continue-on-error: true` (without it a failure stops
+      # the checkers after it).
+      - name: Self-test the instruction-packet helper
+        id: instruction_packet_selftest
+        continue-on-error: true
+        run: python scripts/instruction_packet.py --self-test
+
       # THE WORKFLOW JOB-CAP RATCHET DOES NOT LIVE HERE, AND THE
       # REASON IS THIS JOB'S DEFINING PROPERTY. It parses the workflow
       # documents with PyYAML — which is the whole point of it, a step-level
