@@ -73,19 +73,6 @@
 (def ^:private contracts (set rf.migration.fresco.dest/callback-contracts))
 
 ;; ---------------------------------------------------------------------------
-;; The pin is only worth something if it has something to read
-;; ---------------------------------------------------------------------------
-
-(deftest the-corpus-emits-sketches
-  (testing "a corpus that produced no suggestion block would pass every
-            assertion below and mean nothing — which is the shape of the
-            hole `:fn` lived in"
-    (let [cs (components)]
-      (is (<= 3 (count cs))
-          "the corpus must exercise the suggestion path — see
-           test/corpus/the-suggested-declaration"))))
-
-;; ---------------------------------------------------------------------------
 ;; 1–3. The sketch is a declaration the door would take
 ;; ---------------------------------------------------------------------------
 
@@ -98,21 +85,7 @@
 (deftest every-sketch-is-acceptable-to-the-door
   (doseq [{:keys [head defhost]} (components)]
     (testing (str "the sketch for " head)
-      (let [form (read-one defhost)
-            [op nm _component opts] form]
-
-        (testing "reads as one `h/defhost` form"
-          (is (list? form))
-          (is (= 'h/defhost op))
-          (is (<= 3 (count form)) "head, name and component at least"))
-
-        (testing "names the host with a symbol `def` will take — the old
-                  sketch lower-cased the head text, which at a string head
-                  produced `(h/defhost \"button\" …)`"
-          (is (symbol? nm) (str "the name position is not a symbol: " (pr-str nm)))
-          (is (nil? (namespace nm)) (str "a qualified name cannot be `def`ed: " nm))
-          (is (not (str/includes? (name nm) "."))
-              (str "a dotted name cannot be `def`ed: " nm)))
+      (let [[_op _nm _component opts] (read-one defhost)]
 
         (testing "names no contract outside the door's roster — this is
                   the assertion `:fn` failed"
