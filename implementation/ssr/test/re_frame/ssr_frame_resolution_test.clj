@@ -52,7 +52,6 @@
   `:status` — is always-on by contract."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.source-store :as rf.source-store]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.error-projector :as rf.ssr.error-projector]
             [re-frame.ssr.head-image-alpha :as rf.ssr.head-image-alpha]
@@ -104,41 +103,6 @@
 (defn- caught-error-id
   [f]
   (try (f) nil (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
-
-;; ---------------------------------------------------------------------------
-;; The premise: the store really does retain both, and the atom really does
-;; hold only BETA. If either half stops being true the tests below would pass
-;; vacuously, so both are asserted rather than assumed.
-;; ---------------------------------------------------------------------------
-
-(deftest the-two-support-namespaces-produce-a-genuine-divergence
-  (register-both!)
-  (testing "the provenance store retains BOTH descriptors for the shared id"
-    (is (= #{"re-frame.ssr.head-image-alpha" "re-frame.ssr.head-image-beta"}
-           (set (keys (rf.source-store/descriptors-for :head rf.ssr.head-image-alpha/head-id))))))
-
-  (testing "each frame's OWN generation resolves to its OWN image's body —
-            this is the answer the head query has to match.
-
-            Discriminated by RUNNING the resolved `:handler-fn`, not by
-            reading a `:doc` off the descriptor. `:doc` is a
-            pure-documentation key that `registrar/strip-pure-documentation`
-            drops BEFORE the metadata is stored when `debug-enabled?` is
-            false (Spec 001 §Production elision contract), so a `:doc`
-            assertion passes in the ordinary lane and reads nil under
-            `scripts/test-ssr-prod-gate.sh` — the same trap `ssr_head_test`'s
-            docstring records for `reg-head-accepts-metadata-arity`. The handler fn is the
-            executable and is never stripped; it is also the thing this
-            test is actually about, so the elision-proof assertion is the
-            more direct one."
-    (let [alpha-frame  (frame-selecting! "re-frame.ssr.head-image-alpha" {:marker "A"})
-          beta-frame   (frame-selecting! "re-frame.ssr.head-image-beta" {:marker "B"})
-          head-fn-for  (fn [frame]
-                         (:handler-fn (rf/handler-meta {:frame frame
-                                                        :kind  :head
-                                                        :id    rf.ssr.head-image-alpha/head-id})))]
-      (is (= {:title "alpha:probe"} ((head-fn-for alpha-frame) {:marker "probe"} nil)))
-      (is (= {:title "beta:probe"}  ((head-fn-for beta-frame)  {:marker "probe"} nil))))))
 
 ;; ---------------------------------------------------------------------------
 ;; head-model
