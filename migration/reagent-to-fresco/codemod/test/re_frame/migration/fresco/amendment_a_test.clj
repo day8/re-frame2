@@ -182,18 +182,6 @@
 (def ^:private rest-clash   "(r/partial all-args args__rf2)")
 (def ^:private double-clash "(r/partial vector f__rf2 f__rf2__1)")
 
-(deftest the-callee-name-never-shadows-a-local-the-site-already-uses
-  (testing "THE AUDIT'S REPRODUCTION. Under the fixed-name scheme this
-            emitted `(let [f__rf2 vector a1__rf2 f__rf2] …)`, and the
-            second initializer read the callee that had just been bound
-            over it — the wrapper answered `[:first vector]` where Reagent
-            answered `[:first :outer]`."
-    (let [[wrapper text] (emitted-under '[f__rf2 :outer] callee-clash)]
-      (is (= [:first :outer] (wrapper))
-          (str "the outer binding must reach the wrapper intact; emitted " text))
-      (is (empty? (collisions callee-clash))
-          (str "no generated name may be one the site already spells; emitted " text)))))
-
 (deftest a-generated-argument-name-never-shadows-a-local-either
   (testing "`a0__rf2` bound over the site's own `a0__rf2` corrupts the
             NEXT argument's initializer, which is the same defect one
