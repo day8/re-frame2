@@ -396,8 +396,10 @@ Post-Lock additions accumulated as follows:
   returning `:liveness` (debug-enabled? / frame counts / ambiguity),
   `:frames` (all / app-only / operating, reserved `:rf/*` tool frames split
   out), `:app-db-top-keys` (per-APP-frame top-level keys — the cheap "what
-  state shape" read), `:registry` (per-kind COUNTS plus the full sorted ids
-  for the three most navigable kinds — events / subs / fx), and `:machines`.
+  state shape" read), `:registry` (per-kind COUNTS plus up to 20 example ids
+  for the three most navigable kinds — events / subs / fx), and `:machines`
+  (also up to 20); a list cut short gets a `:truncated` entry with its total
+  and the `list-handlers` call that returns every id.
   It composes the existing introspection surfaces (discover-app + snapshot
   top-keys + list-handlers + list-subscriptions + machines) into a single
   summarized read that respects the wire cap — counts + high-value id
