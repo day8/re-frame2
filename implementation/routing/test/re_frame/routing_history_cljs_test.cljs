@@ -145,17 +145,6 @@
       (is (= :hist/cart (-> traces first :route-id))
           "the trace's :route-id matches the new route"))))
 
-(deftest url-requested-external-url-does-not-push-cljs
-  (testing "external absolute URLs are classified before pushState"
-    (register-routes!)
-    (rf/dispatch-sync [:rf.route/handle-url-change "/"])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "https://elsewhere.example/cart"}])
-    (is (= ["/"] (:entries @*history-state*))
-        "external URL did not append a history entry")
-    (is (= :hist/home
-           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "external URL did not rewrite the app route to not-found")))
-
 (deftest url-requested-non-string-url-fails-closed-cljs-rf2-w3qgc
   (testing "with a live window/location, a NON-STRING `:url`
             (nil / number / boolean / object) is classed EXTERNAL and never
@@ -209,10 +198,9 @@
 ;;       (not= (.-origin parsed) (.-origin loc)))     ; B — origin compare
 ;;
 ;; The shared window stub (document origin https://app.example, node global
-;; `js/URL`) makes THIS branch run in the node-test target. The single
-;; https://elsewhere.example vector in `url-requested-external-url-does-not-push-cljs`
-;; reaches ONLY clause B, and the non-string guard short-circuits BEFORE
-;; js/URL. Without a test of its own, a regression in clause A — the
+;; `js/URL`) makes THIS branch run in the node-test target, and the
+;; non-string guard short-circuits BEFORE js/URL. Without a test of its own,
+;; a regression in clause A — the
 ;; non-http(s)-scheme gate (dropped allowlist, `.-host` vs `.-origin`,
 ;; inverted compare) — would be a SILENT browser open-redirect.
 ;; These deftests drive the JVM lexical bypass matrix through the browser
@@ -468,25 +456,6 @@
         "Back restored the INCUMBENT :rf/default slice — popstate targeted the right frame")
     (is (nil? (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :aaa-early)) [:rf.runtime/routing :current])))
         "the earlier-sorting duplicate :aaa-early was NOT driven by popstate")))
-
-(deftest popstate-drives-default-owner-when-default-bound-cljs
-  (testing "the automatically-installed listener
-            drives :rf/default when it is the owner"
-    (register-routes!)
-    ;; register-routes! explicitly declares :rf/default as URL-bound, so its
-    ;; frame registration installed the listener.
-    (is (= :rf/default (rf.routing/url-owner-frame-id))
-        ":rf/default is the explicitly declared URL owner")
-
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
-    (is (= :hist/checkout (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "default slice on /checkout before Back")
-
-    (.back (.-history js/globalThis.window))
-    (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/cart (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "Back restored the explicitly owned :rf/default slice to /cart")))
 
 ;; =========================================================================
 ;; the :url-bound? frame LIFECYCLE installs/removes the listener
@@ -886,46 +855,6 @@
                                 [:rf.runtime/routing :current])))
           "Back drove A's slice via the surviving popstate listener"))))
 
-;; ---- first-load / deep-link route hydration at frame create ---------------
-;;
-;; The URL-owning frame's LIFECYCLE drives the initial URL sync: a
-;; `:url-bound? true` frame's (re-)registration installs its strategy listener
-;; and immediately syncs the CURRENT browser URL into the route slice — and it
-;; does so SYNCHRONOUSLY during frame creation. `frame-root` runs that creation
-;; at COMMIT (`re-frame.views.frame-boundary/frame-root-fc`'s useLayoutEffect) and
-;; renders its children only AFTER the frame is live, so a `root-view` reading
-;; `:rf/route` / `:rf.route/id` on its FIRST render sees the matched route, never
-;; a nil slice — even for a deep link or a hard refresh. (An imperative
-;; install at boot could get this ordering wrong — installing before the frame
-;; exists would skip the sync — so the frame lifecycle owns the ordering.)
-;; This pins the guarantee: register the URL
-;; owner while the browser already sits at a deep link and assert the slice is
-;; hydrated the instant the frame exists — no dispatch, no render, no popstate.
-
-(deftest first-load-deep-link-hydrates-slice-at-create-cljs-rf2-9vgyp7
-  (testing "a :url-bound? true frame created while the browser sits at a deep
-            link hydrates its route slice SYNCHRONOUSLY at create time, so the
-            first read sees the matched route (not nil)"
-    ;; Routes exist first (so the create-time sync can match), but the URL
-    ;; owner is not yet bound.
-    (rf/reg-route :hist/home    {} "/")
-    (rf/reg-route :hist/article {:params [:map [:id :string]]} "/articles/:id")
-    ;; Move the browser to a deep link BEFORE the URL owner is bound — the exact
-    ;; first-load / hard-refresh condition (window.location is now /articles/42).
-    (.pushState (.-history js/globalThis.window) nil "" "/articles/42")
-    ;; Bind the URL owner (the fixture pre-created :rf/default WITHOUT the slot;
-    ;; opting it in is a re-registration whose lifecycle hook runs the initial
-    ;; sync synchronously during make-frame).
-    (rf/make-frame {:id :rf/default :url-bound? true})
-    (let [slice (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/routing :current])]
-      (is (some? slice)
-          "the route slice is populated the instant the url-bound frame exists")
-      (is (= :hist/article (:route-id slice))
-          "the deep-link URL matched its route at create time (not nil / not-found)")
-      (is (= {:id "42"} (:params slice))
-          "the deep-link path param hydrated into the slice — a first render sees it"))))
-
 ;; ---- blocked popstate restores the browser URL -------------------------
 ;;
 ;; Per Spec 012 §Navigation blocking §Default flow step 4c — "the URL
@@ -1003,35 +932,6 @@
     (is (= "/editor/articles/X" (current-url *history-state*))
         "cancel leaves the restored URL in place")))
 
-(deftest forward-nav-block-does-not-restore-url-cljs
-  (testing "a FORWARD-nav block emits NO :rf.nav/replace-url —
-            the URL never moved, so there is nothing to restore"
-    ;; EP-0002: URL ownership is explicit — opt `:rf/default` in
-    ;; as the URL owner (the assertion that NO replace-url fires is only
-    ;; meaningful when the frame COULD own the URL).
-    (rf/make-frame {:id :rf/default :url-bound? true})
-    (rf/reg-route :hist/cart   {} "/cart")
-    (rf/reg-route :hist/editor {:params    [:map [:id :string]]
-                                :can-leave :hist/can-leave?} "/editor/articles/:id")
-    (rf/reg-event :hist/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :hist/can-leave?
-                (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
-
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/editor/articles/X"}])
-    (rf/dispatch-sync [:hist/dirty true])
-
-    (let [entries-before (:entries @*history-state*)]
-      ;; Forward nav attempt (link click / programmatic) — the browser URL
-      ;; has NOT moved; the block declines to push.
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/routing :pending-navigation]))
-          "the forward nav was blocked (pending slot set)")
-      (is (= entries-before (:entries @*history-state*))
-          "no push AND no replace — the history stack is byte-identical")
-      (is (= "/editor/articles/X" (current-url *history-state*))
-          "the address bar still shows the editor route (it never moved)"))))
-
 ;; ---- CONTINUE after a blocked popstate re-moves the URL -----------------
 ;;
 ;; The block above restored the address bar to the rejecting route's URL via
@@ -1095,46 +995,6 @@
         (is (= entries-before (count (:entries @*history-state*)))
             "the URL move was a replace, not a push — history length unchanged")))))
 
-;; ---- malformed-% fail-closed (CLJS decode path) --------------------------
-;;
-;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding
-;; The JVM suite pins the fail-closed contract
-;; (`match-url-malformed-percent-in-path-is-route-miss` in
-;; routing_registry_test.clj). The CLJS runtime decodes via
-;; `js/decodeURIComponent`, not the JVM's own escape reader — so the
-;; security-critical fail-closed path (hostile / broken URLs → route-miss,
-;; never a runtime crash) needs a smoke on the runtime that actually
-;; ships to browsers. `safe-url-decode` must swallow `js/decodeURIComponent`'s
-;; throw and `match-url` must return nil, exactly as on the JVM.
-(deftest match-url-malformed-percent-fails-closed-cljs
-  (testing "malformed %-encoding fails closed on the CLJS
-            decodeURIComponent path — match-url returns nil, never throws"
-    (register-routes!)
-    (rf/reg-route :hist/search {} "/search")
-    ;; Path segment — bare `%`, incomplete pair, non-hex pair.
-    (is (nil? (rf.routing/match-url "/articles/%"))
-        "bare `%` in path → route-miss (no decodeURIComponent throw escapes)")
-    (is (nil? (rf.routing/match-url "/articles/x%a"))
-        "incomplete %-pair in path → route-miss")
-    (is (nil? (rf.routing/match-url "/articles/x%XX"))
-        "non-hex %-pair in path → route-miss")
-    ;; Query value + key — whole URL fails closed (no partial slice).
-    (is (nil? (rf.routing/match-url "/search?x=%"))
-        "malformed query VALUE → whole URL is a route-miss")
-    (is (nil? (rf.routing/match-url "/search?%=v"))
-        "malformed query KEY → whole URL is a route-miss")
-    ;; Fragment.
-    (is (nil? (rf.routing/match-url "/search#%"))
-        "malformed `#fragment` → route-miss")
-    ;; No registered route: even a bare `%` URL must not throw.
-    (is (nil? (rf.routing/match-url "/%"))
-        "bare `%` with no matching route → route-miss, not an exception"))
-  (testing "well-formed %-encoding still decodes on the CLJS path"
-    (register-routes!)
-    (let [m (rf.routing/match-url "/articles/hello%20world")]
-      (is (some? m) "well-formed %-encoded path segment matches")
-      (is (= "hello world" (get-in m [:params :id]))
-          "decodeURIComponent decodes the well-formed segment into the slice"))))
 
 ;; :int query coercion is STRICT and IDENTICAL to the JVM. A lenient
 ;; `js/parseInt v 10` would turn `?page=12abc` into the NUMBER 12
@@ -1205,19 +1065,6 @@
 ;; PATH params coerce against the :params schema on CLJS too —
 ;; the canonical Spec 012 :uuid route must round-trip a real UUID URL to
 ;; {:id #uuid ...} on the browser, identically to the JVM (SSR) side.
-(deftest path-param-coercion-cljs
-  (testing ":int / :uuid PATH params coerce against the
-            :params schema before validation on CLJS"
-    (register-routes!)
-    (rf/reg-route :hist/page    {:params [:map [:n :int]]} "/page/:n")
-    (rf/reg-route :hist/article {:params [:map [:id :uuid]]} "/articles/:id")
-    (is (= 42 (get-in (rf.routing/match-url "/page/42") [:params :n]))
-        ":int path param coerced to a number")
-    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
-          m        (rf.routing/match-url (str "/articles/" uuid-str))]
-      (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
-          ":uuid path param coerced to a #uuid object")
-      (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string"))))
 
 ;; OPTIONED Malli scalar schemas (`[:int {:min 1}]`,
 ;; `[:uuid {}]`, `[:boolean {}]`, optioned enums, and
@@ -1226,128 +1073,10 @@
 ;; vector type-form would leave the value a string, failing the optioned
 ;; schema, so every valid deep link would 404. This is the CLJS half of the
 ;; JVM `rf2-fwz29i-*` pins in routing_registry_test.clj.
-(deftest optioned-scalar-coercion-cljs-rf2-fwz29i
-  (testing "optioned :query scalars coerce equivalently to bare forms on CLJS"
-    (register-routes!)
-    (rf/reg-route :hist/items
-                  {:query [:map
-                           [:page [:int {:min 1}]]
-                           [:id [:uuid {}]]
-                           [:archived [:boolean {}]]]} "/items")
-    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
-          m (rf.routing/match-url
-              (str "/items?page=2&id=" uuid-str "&archived=true"))]
-      (is (= 2 (get-in m [:query :page]))
-          "[:int {:min 1}] coerces \"2\" to 2")
-      (is (= (parse-uuid uuid-str) (get-in m [:query :id]))
-          "[:uuid {...}] coerces to a UUID object")
-      (is (true? (get-in m [:query :archived])) "[:boolean {...}] coerces")
-      (is (false? (:validation-failed? m))
-          "coerced typed values conform to their optioned schemas — no 404")))
-
-  (testing "optioned :params (path) scalars coerce equivalently on CLJS"
-    (rf/reg-route :hist/opt-page    {:params [:map [:n [:int {:min 1}]]]} "/op/:n")
-    (rf/reg-route :hist/opt-article {:params [:map [:id [:uuid {}]]]} "/oa/:id")
-    (is (= 2 (get-in (rf.routing/match-url "/op/2") [:params :n]))
-        "[:int {:min 1}] path param coerces to 2")
-    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
-          m        (rf.routing/match-url (str "/oa/" uuid-str))]
-      (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
-          "[:uuid {}] path param coerces to a UUID object")
-      (is (false? (:validation-failed? m)))))
-
-  (testing "optioned `[:enum {...} :a :b]` keeps the keyword allowlist gate"
-    (rf/reg-route :hist/sorted
-                  {:query [:map [:sort [:enum {:default :asc} :asc :desc]]]} "/sorted")
-    (is (= :asc (get-in (rf.routing/match-url "/sorted?sort=asc") [:query :sort]))
-        "declared enum value interns even with an opts map")
-    (is (= "nope" (get-in (rf.routing/match-url "/sorted?sort=nope") [:query :sort]))
-        "value outside the allowlist stays a string"))
-
-  (testing "[:maybe inner] coerces the present value against the inner type"
-    (rf/reg-route :hist/maybe
-                  {:query [:map [:page [:maybe [:int {:min 1}]]]]} "/maybe")
-    (let [m (rf.routing/match-url "/maybe?page=7")]
-      (is (= 7 (get-in m [:query :page]))
-          "[:maybe [:int {:min 1}]] coerces through wrapper + option")
-      (is (false? (:validation-failed? m))))))
 
 ;; {:fragment ""} normalizes to nil at the navigate
 ;; boundary on CLJS so the pushed URL and slice fragment agree with
 ;; URL-driven nav.
-;; =========================================================================
-;; 4. replaceState — no new history entry
-;; =========================================================================
-
-(deftest replacestate-no-new-entry-cljs
-  (testing ":rf.route/navigate with :replace? true → replaceState mutates the top entry; stack length unchanged"
-    (register-routes!)
-
-    ;; Land on /cart via a normal push so the stack is at length 2.
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (is (= ["/" "/cart"] (:entries @*history-state*))
-        "stack is at length 2 before the replace")
-    (let [pre-index (:index @*history-state*)]
-
-      ;; Programmatic navigation with :replace? true → :rf.nav/replace-url.
-      (rf/dispatch-sync [:rf.route/navigate {:to :hist/checkout :replace? true}])
-
-      (is (= ["/" "/checkout"] (:entries @*history-state*))
-          "replaceState rewrote the top entry from /cart to /checkout")
-      (is (= pre-index (:index @*history-state*))
-          "the history index did NOT advance (no new entry was created)"))))
-
-;; =========================================================================
-;; 5. Cross-state cleanup — A → B → pop → C → pop → pop
-;; =========================================================================
-;;
-;; Real-browser semantics: pushing a new entry after a `pop` truncates
-;; the forward history. The stub mirrors this. The slice cascade must
-;; track the active URL across every step.
-
-(deftest cross-state-cleanup-cljs
-  (testing "push A → push B → pop → push C → pop → pop yields the correct route cascade"
-    (register-routes!)
-    (let [route-id (fn []
-                     (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-          pop-and-dispatch!
-          (fn []
-            (.back (.-history js/globalThis.window))
-            (rf/dispatch-sync
-              [:rf.route/handle-url-change (current-url *history-state*)]))]
-
-      ;; push A (/cart)
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (is (= :hist/cart (route-id)) "after push A → :hist/cart")
-      (is (= ["/" "/cart"] (:entries @*history-state*)))
-
-      ;; push B (/checkout)
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
-      (is (= :hist/checkout (route-id)) "after push B → :hist/checkout")
-      (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*)))
-
-      ;; pop → back to /cart
-      (pop-and-dispatch!)
-      (is (= :hist/cart (route-id)) "after pop → :hist/cart")
-      (is (= 1 (:index @*history-state*))
-          "the forward entry survives the pop (only index moved)")
-
-      ;; push C (/articles/intro) → forward entry truncated, new entry appended.
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
-      (is (= :hist/article (route-id)) "after push C → :hist/article")
-      (is (= ["/" "/cart" "/articles/intro"] (:entries @*history-state*))
-          "pushing after a pop truncates the forward stack (browser semantics)")
-
-      ;; pop → back to /cart
-      (pop-and-dispatch!)
-      (is (= :hist/cart (route-id)) "after second pop → :hist/cart")
-
-      ;; pop → back to /
-      (pop-and-dispatch!)
-      (is (= :hist/home (route-id)) "after third pop → :hist/home")
-      (is (= 0 (:index @*history-state*))
-          "history.index is at the root entry"))))
-
 ;; =========================================================================
 ;; 6. History-mutation defence-in-depth: a throwing pushState / replaceState
 ;;    fails closed to a structured trace
