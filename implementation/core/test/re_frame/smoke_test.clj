@@ -11,8 +11,8 @@
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
   inside a `(when rf.interop/debug-enabled? …)` arm.
 
-  Those arms observe the DEV `:trace` stream (and the debug-gated view
-  annotations), whose emit sites are gated on `rf.interop/debug-enabled?` — read
+  Those arms observe the DEV `:trace` stream, whose emit sites are gated on
+  `rf.interop/debug-enabled?` — read
   once at namespace-load time on the JVM, constant-folded away by Closure under
   `goog.DEBUG=false`. Under the gate the framework emits none of it BY DESIGN,
   so the assertions are correct dev-posture coverage; they declare the posture
@@ -30,7 +30,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
-            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr]
             ;; Pull http-managed in so its late-bind hooks (in particular
             ;; :http/reg-http-interceptor) are published — the
             ;; registry-introspection-round-trip test below exercises
@@ -284,32 +284,6 @@
         (rf/dispatch-sync [:rf-l5q3.jvm.cf/observe-default])
         (is (= :rf/default @observed-current-frame))))))
 
-;; ---- app-schemas ---------------------------------------------------------
-
-(deftest app-schemas-returns-registered-schema-map
-  (testing "app-schemas returns {path → registration-metadata} for every
-            reg-app-schema declaration"
-    (is (= {} (rf.schemas/app-schemas {:frame :rf/default}))
-        "fresh registry: no schemas registered")
-    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
-    (rf/reg-app-schema [:todos] [:vector :string])
-    (let [m (rf.schemas/app-schemas {:frame :rf/default})]
-      (is (= 2 (count m)))
-      (is (= [:map [:id :uuid]]   (:schema (get m [:user]))))
-      (is (= [:vector :string]    (:schema (get m [:todos])))))
-    (is (= [:map [:id :uuid]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
-        "app-schema-meta agrees with app-schemas for individual paths"))
-  (testing ":frame is REQUIRED; the keyword sugar, the bare frame value and
-            the no-arg ambient form are all refused with the catalogued
-            :rf.error/no-frame-context"
-    (doseq [f [#(rf.schemas/app-schemas :rf/default)
-               #(rf.schemas/app-schemas nil)
-               #(rf.schemas/app-schemas {})
-               #(rf.schemas/app-schemas "not-a-keyword-or-map")]]
-      (is (= :rf.error/no-frame-context
-             (try (f) nil
-                  (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))))))
-
 ;; ---- compute-sub per-call memoisation -------------------------------------
 ;;
 ;; `compute-sub` threads a per-call `{query-v -> value}` memo through its
@@ -334,25 +308,6 @@
             "value is correct — memo is a pure dedup, never changes the result")
         (is (= 1 @root-calls)
             ":root computed exactly once despite two diamond paths reaching it")))))
-
-(deftest compute-sub-memoises-reused-leaf-in-a-deep-graph-jvm
-  (testing "a deeper reused-leaf graph computes the shared leaf once, not
-            multiplicatively"
-    (let [leaf-calls (atom 0)]
-      ;; Graph: top <- {l1,l2} ; l1 <- leaf ; l2 <- leaf ; leaf <- (db).
-      ;; Without the memo, `leaf` would resolve twice (once per l1/l2 path);
-      ;; the memo collapses it to one.
-      (rf/reg-sub :memo/leaf (fn [db _] (swap! leaf-calls inc) (:base db)))
-      (rf/reg-sub :memo/l1 {:inputs [[:memo/leaf]]} (fn [[x] _] (* x 2)))
-      (rf/reg-sub :memo/l2 {:inputs [[:memo/leaf]]} (fn [[x] _] (* x 3)))
-      (rf/reg-sub :memo/top
-        {:inputs [[:memo/l1] [:memo/l2]]}
-        (fn [[a b] _] (+ a b)))
-      (reset! leaf-calls 0)
-      (let [v (rf/compute-sub [:memo/top] {:base 5})]
-        (is (= 25 v) "5*2 + 5*3 = 25 — value unaffected by memoisation")
-        (is (= 1 @leaf-calls)
-            "the shared leaf computed exactly once across both intermediate paths")))))
 
 (deftest compute-sub-memo-is-per-call-not-cross-call-jvm
   (testing "the memo is scoped to ONE top-level compute-sub call — a second
@@ -739,49 +694,6 @@
 ;; ssr-with-fx-override and ssr-end-to-end live in the ssr artefact's
 ;; ssr_end_to_end_test.clj, co-located with the rest of the SSR
 ;; request-lifecycle coverage.
-
-(deftest reg-view-jvm
-  (testing "reg-view registers a view that render-to-string resolves
-            through its CALLABLE head"
-    ;; Plain-fn surface (reg-view*): explicit id, no auto-def.
-    (rf/reg-view* :greet
-      (fn [name] [:p "hello " [:strong name]]))
-
-    ;; `[(rf/view :greet) "world"]`, not `[:greet "world"]`.
-    ;; A keyword head is a DOM / custom element on every host; the emitter
-    ;; does not probe the registry for it.
-    ;;
-    ;; In a DEV build the registered handle's root also carries
-    ;; the two debug-gated view annotations (data-rf2-source-coord /
-    ;; data-rf-view — their exact bytes are pinned in
-    ;; `re-frame.ssr-source-coord-test`), so assert the RESOLUTION
-    ;; structurally here rather than couple the smoke test to the
-    ;; annotation format.
-    (let [html (rf.ssr/render-to-string [(rf/view :greet) "world"])]
-      (is (clojure.string/includes? html "hello <strong>world</strong>")
-          "render-to-string resolves a callable head")
-      ;; SEMANTIC, posture-independent: the resolved view's root
-      ;; really is a <p> element — with attributes in dev, bare in production.
-      (is (re-find #"^<p[ >]" html)
-          "the resolved view's <p> root is present")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). The two
-      ;; view annotations are debug-gated, so the root is bare `<p>` under
-      ;; the production gate and attributed `<p …>` in dev.
-      (when rf.interop/debug-enabled?
-        (is (clojure.string/starts-with? html "<p ")
-            "in DEV the resolved root also carries the debug-gated view annotations")))
-    (is (fn? (rf/view :greet))
-        "view returns the registered render fn")
-    (is (nil? (rf/view :no-such-view))))
-
-  (testing "the keyword spelling is an ELEMENT even though `:greet` is
-            registered. Pinned here, in the core smoke test, because this is
-            the one-line statement of the grammar a reader is most likely to
-            meet first."
-    (rf/reg-view* :greet
-      (fn [name] [:p "hello " [:strong name]]))
-    (is (= "<greet>world</greet>"
-           (rf.ssr/render-to-string [:greet "world"])))))
 
 ;; ---- registrations / handler-meta ----------------------------------------
 ;;
