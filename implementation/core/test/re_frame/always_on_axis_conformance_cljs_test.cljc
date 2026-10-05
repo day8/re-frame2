@@ -41,7 +41,6 @@
   DOM dependency."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [clojure.set :as set]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.late-bind :as rf.late-bind]
@@ -431,39 +430,14 @@
 ;; corpus-wide `register-error-listener!` substrate.
 ;; ===========================================================================
 
-(deftest every-always-on-category-fans-out-through-the-error-listener
-  (testing "Per Spec 009 §Error event catalogue:
-            every catalogued `always-on` category is exercised through the
-            `register-error-listener!` substrate — proving promotion is
-            real, not documentary. Data-driven over the full
-            `always-on-categories` set (pinned == the catalogue's
-            always-on rows by the JVM companion), so it stays green as
-            categories are added: each new always-on category is driven
-            through the axis the moment it joins the set."
-    (let [seen (atom #{})]
-      (rf.error-emit/register-error-listener!
-        :conformance/recorder
-        (fn [record] (swap! seen conj (:error record))))
-      (doseq [cat always-on-categories]
-        (drive-category! cat))
-      ;; Every always-on category must have appeared on the listener as the
-      ;; record's :error slot. A category that did NOT fan out (a substrate
-      ;; that dropped it, a report fn that short-circuited) is a gap.
-      (let [missing (set/difference always-on-categories @seen)]
-        (is (empty? missing)
-            (str "always-on categories that did NOT fan out through "
-                 "register-error-listener!: " (pr-str (sort missing)))))
-      (is (= always-on-categories @seen)
-          "the listener received EXACTLY the always-on set (no extras, no
-           gaps) — the always-on axis carries every always-on category"))))
-
 (deftest each-category-fans-out-exactly-once-and-carries-its-category
   (testing "Per Spec 009: a single drive of category `cat` through the
             always-on axis produces EXACTLY ONE listener record whose
             `:error` slot is `cat`. Pins the 1:1 fan-out (no duplicate
             emission, no category mislabelling) for every always-on
-            category individually — the data-driven per-category
-            counterpart to the aggregate test above."
+            category individually. Data-driven over the full
+            `always-on-categories` set, so a category joining the set is
+            driven through the axis the moment it joins."
     (doseq [cat always-on-categories]
       (rf.error-emit/clear-error-listeners!)
       (let [seen (atom [])]
