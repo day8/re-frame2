@@ -270,6 +270,30 @@
     (testing "nil target ⇒ nil (no delivery)"
       (is (nil? (rf.reply/complete nil reply))))))
 
+(deftest completion-keeps-target-vector-metadata
+  ;; Managed-Effects §The reply target: the reply map is appended to the app's
+  ;; target vector as written, so metadata on that vector travels with the
+  ;; delivered event, the same append managed HTTP makes.
+  (let [reply  {:status :ok :value 1}
+        tagged (with-meta [:article/load-replied {:id 42}] {:app/tag :article})]
+    (testing "a metadata-bearing target keeps its metadata through complete"
+      (is (= {:app/tag :article} (meta (rf.reply/complete tagged reply)))
+          "short form")
+      (is (= {:app/tag :article}
+             (meta (rf.reply/complete {:event tagged :delivery :append} reply)))
+          "descriptor form")
+      (is (= {:app/tag :article}
+             (meta (rf.reply/complete (rf.reply/durable-target tagged) reply)))
+          "a durable target, the form resources and mutations store"))
+    (testing "the completed event is the same value whether or not it carries metadata"
+      (is (= [:article/load-replied {:id 42} reply] (rf.reply/complete tagged reply))))
+    (testing "a metadata-free target completes to the same event, with no metadata"
+      (let [ev (rf.reply/complete [:article/load-replied {:id 42}] reply)]
+        (is (= [:article/load-replied {:id 42} reply] ev))
+        (is (nil? (meta ev)))))
+    (testing "a non-vector target never reaches the append: it fails closed"
+      (is (invalid-target? #(rf.reply/complete '(:article/load-replied {:id 42}) reply))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Group 2 — the functor laws for reply-target mapping.
 ;; ---------------------------------------------------------------------------
