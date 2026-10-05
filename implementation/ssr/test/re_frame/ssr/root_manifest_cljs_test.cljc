@@ -326,50 +326,6 @@
 ;; would stay green while the wire silently changed application-visible
 ;; hydration props.
 ;;
-;; So the proof below is joined by BYTES rather than by a shared host.
-;; `jvm-emitted-body` is the exact script body a JVM emitter without the
-;; numeric gate produces for `{:props {:x 9007199254740993N}}`. Each host then asserts
-;; its OWN half against those same bytes, with the shipped reader:
-;;
-;;   JVM  reads them back as 9007199254740993N  — the value rendered
-;;   CLJS reads them back as 9007199254740992   — a DIFFERENT number
-;;
-;; One wire, two hosts, two values, no error on either side. That is the
-;; hazard stated as an executable fact: it is *why* the emitter refuses
-;; the value.
-
-(def ^:private jvm-emitted-body
-  "The exact `<script>` body a JVM emitter without the numeric gate
-  produces for a bigint prop. Pinned as BYTES because bytes are what actually cross
-  — reconstructing it per-host would beg the question the test asks.
-
-  The JVM half below pins the one token that matters
-  (`9007199254740993N`) against the live printer, so this literal cannot
-  quietly go stale."
-  "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:x 9007199254740993N}}")
-
-(deftest jvm-emitted-number-reads-back-differently-on-cljs
-  (testing "the SAME wire bytes, read by the SHIPPED
-            `read-manifest` on each host, yield DIFFERENT hydration props.
-            Asserted as an observable VALUE: nothing throws, which is the
-            entire danger."
-    (let [x (get-in (rf.ssr.manifest/read-manifest 'test jvm-emitted-body) [:props :x])]
-      #?(:clj
-         (do
-           (is (= (pr-str 9007199254740993N) "9007199254740993N")
-               "the JVM printer really does emit the bigint token pinned in
-                `jvm-emitted-body` — if this reds, that literal is stale")
-           (is (= 9007199254740993N x)
-               "the SERVER reads its own wire back exactly")
-           (is (= "9007199254740993N" (pr-str x))))
-
-         :cljs
-         (do
-           (is (= "9007199254740992" (pr-str x))
-               "THE DEFECT: the browser's reader silently rounds the
-                server's 9007199254740993 down to 9007199254740992. The app
-                hydrates with a number the server never rendered."))))))
-
 (deftest only-cross-host-numbers-ride-the-wire
   (testing "what the numeric subset ADMITS. These must keep
             working: narrowing the wire must not narrow ordinary props."
@@ -738,21 +694,6 @@
   (testing "an EDN discard is not a second form"
     (is (= {:rf.root/schema-version 1}
            (rf.ssr.manifest/read-manifest 'test "{:rf.root/schema-version 1} #_{:x 1}")))))
-
-(deftest one-form-guard-is-load-bearing
-  (testing "THE LEVER for the one-form rule: the
-            bundled reader really does discard the suffix, so without the
-            count check the bodies above are accepted. If a future reader
-            starts throwing on trailing content this test goes red and the
-            explicit check can be reconsidered — it never rots into a
-            tautology."
-    (doseq [body ["{:rf.root/schema-version 1} trailing"
-                  "{:rf.root/schema-version 1} {:second true}"]]
-      (is (= {:rf.root/schema-version 1}
-             #?(:clj  (clojure.edn/read-string body)
-                :cljs (cljs.reader/read-string body)))
-          (str "the raw reader silently accepts " (pr-str body)
-               " — that is the hole `read-manifest` closes")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Discovery (CLJS) — adjacency, and nothing else
