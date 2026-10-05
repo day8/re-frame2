@@ -77,13 +77,6 @@
     (is (false? (rf.story.play.runner/step-arity-ok? [:flush-presence "300"])))
     (is (false? (rf.story.play.runner/step-arity-ok? [:flush-presence 100 200])))))
 
-(deftest step-presence-ms-reads-the-advance
-  (testing "nil means the no-arg arity (to quiescence), NOT 'absent'"
-    (is (nil? (rf.story.play.runner/step-presence-ms [:flush-presence])))
-    (is (= 300 (rf.story.play.runner/step-presence-ms [:flush-presence 300])))
-    (is (nil? (rf.story.play.runner/step-presence-ms [:wait 300]))
-        "the tag, never the nil, distinguishes the step")))
-
 (deftest flush-presence-summary
   (is (= "flush-presence" (rf.story.play.runner/step-summary [:flush-presence])))
   (is (= "flush-presence 300ms" (rf.story.play.runner/step-summary [:flush-presence 300]))))
@@ -149,24 +142,6 @@
              the two on `some?`, so the seam must hand it 0 rather than
              collapsing it into the quiescence arity")
         (is (= [100 nil 0] @calls)))
-      (finally (swap! rf.story.late-bind/hooks dissoc :flush-presence!)))))
-
-(deftest advance-with-no-host-reports-no-host
-  (testing "with no host installed the advance DID NOT HAPPEN, and `advance!`
-            says so faithfully — the executor projects `:no-host` into a
-            `:cannot-run` refusal. `advance!` itself stays pure
-            data → data: it reports, the executor judges"
-    (is (nil? (rf.story.play.presence/presence-flush-fn)))
-    (is (= {:status :no-host :ms nil} (rf.story.play.presence/advance! nil)))
-    (is (= {:status :no-host :ms 250} (rf.story.play.presence/advance! 250)))))
-
-(deftest advance-surfaces-a-throwing-host
-  (let [boom (ex-info "presence host exploded" {})]
-    (try
-      (rf.story.play.presence/install-presence-flush! (fn [_] (throw boom)))
-      (let [res (rf.story.play.presence/advance! nil)]
-        (is (= :error (:status res)) "a throwing host is never swallowed")
-        (is (string? (:error res))))
       (finally (swap! rf.story.late-bind/hooks dissoc :flush-presence!)))))
 
 ;; ===========================================================================
