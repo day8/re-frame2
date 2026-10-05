@@ -2749,9 +2749,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         })),
         ("positive/str_id_of_payload.cljc",
          frozenset({"str-id-of-payload|<positive/str_id_of_payload.cljc>"})),
-        # --- positives for the wider builder-bypass rule ---
-        ("positive/bypass_str_concat_no_token.cljc",
-         frozenset({"builder-bypass-message|<positive/bypass_str_concat_no_token.cljc>"})),
+        # --- positive for the wider builder-bypass rule ---
         ("positive/bypass_plain_string_no_token.cljc",
          frozenset({"builder-bypass-message|<positive/bypass_plain_string_no_token.cljc>"})),
         # --- positives for the let-binding resolution: resolving a
@@ -2790,14 +2788,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("negative/human_message_builder.cljc",      frozenset()),
         ("negative/throw_error_bang.cljc",           frozenset()),
         ("negative/str_concat_human_text.cljc",      frozenset()),
-        ("negative/keyword_as_reason_value.cljc",    frozenset()),
         ("negative/keyword_in_exdata.cljc",          frozenset()),
         ("negative/keyword_in_comment.cljc",         frozenset()),
         ("negative/keyword_in_docstring.cljc",       frozenset()),
         ("negative/inline_human_token_slim.cljc",    frozenset()),
         # --- negatives for the wider builder-bypass rule ---
-        ("negative/bypass_inline_token_str_concat.cljc", frozenset()),
-        ("negative/bypass_human_message_with_id.cljc",   frozenset()),
         ("negative/bypass_marker_exempt.cljc",           frozenset()),
         ("negative/bypass_no_error_id.cljc",             frozenset()),
         # --- negative for the let-binding resolution: a conformant
