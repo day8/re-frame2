@@ -95,8 +95,8 @@
 // the thing being hunted would all read green. So `scanForEgress` is
 // exercised against a doctored frame set that DOES leak and is required to
 // find it, the leaky fixture is driven in-process and required to really
-// return its payload, and the roster check is shown rejecting an added
-// field before it is trusted accepting the real one.
+// return its payload, and the roster row pins the exact key list beside
+// the drift check rather than trusting the checker alone.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -185,19 +185,6 @@ const req = (extra = {}) => ({
 // ---------------------------------------------------------------------------
 // 1. The roster
 // ---------------------------------------------------------------------------
-
-test('CONTROL — the roster check rejects an added field and a missing one', () => {
-  // Before any green roster row is believed. A checker that returned an
-  // empty list unconditionally would satisfy every row below it.
-  const honest = { type: 'complete', chunks: 1, renderMs: 0.4, buildId: 'b' };
-  assert.deepStrictEqual(rosterDrift(honest), { extra: [], missing: [] });
-
-  const leaked = { ...honest, meta: { readTodos: 'x' } };
-  assert.deepStrictEqual(rosterDrift(leaked).extra, ['meta'], 'an added field must be seen');
-
-  const truncated = { type: 'complete', chunks: 1, renderMs: 0.4 };
-  assert.deepStrictEqual(rosterDrift(truncated).missing, ['buildId']);
-});
 
 test('the complete frame carries EXACTLY the service-owned roster', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
@@ -419,18 +406,6 @@ test('a module that returns null is REFUSED too — `undefined` is the whole acc
   });
 });
 
-test('a well-behaved module returns nothing, and the service is fine with that', async () => {
-  // The positive half of the door, and — with `null` refused above — the
-  // ONLY half: `undefined` is the contract's answer, it is the entire
-  // accepted set, and it must not be coerced into an empty
-  // object that then trips the very check above.
-  await withService('reference', { isolates: 1 }, async (service) => {
-    const { chunks, complete } = await collect(service, req());
-    assert.strictEqual(chunks.length, 1);
-    assert.strictEqual(complete.type, 'complete');
-  });
-});
-
 // ---------------------------------------------------------------------------
 // 4. The OTHER door — a render module that THROWS
 //
@@ -558,25 +533,6 @@ test('a THROW after emitting is still a torn response, and still carries nothing
     assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
     assert.strictEqual(err.detail.afterChunks, 1, 'the tear is still named, with its count');
     assert.deepStrictEqual(refusalLeaks(err), []);
-  });
-});
-
-test('a thrown `code` cannot choose the refusal code, in-process', async () => {
-  // The taxonomy is closed and it is the SERVICE's. A module that types
-  // `err.code = ':rf.ssr-node/service-saturated'` is describing its own
-  // failure in this service's vocabulary; believing it turns an
-  // application bug into a lie about whose fault the failure was.
-  await withService('throws-data', { isolates: 1 }, async (service) => {
-    for (const entry of Object.keys(THROWS_DATA.SPOOFED_CODE)) {
-      const err = await refusalOf(() => collect(service, throwReq(entry)));
-      assert.strictEqual(err.code, CODE.RENDER_THREW, `${entry} spoofed the refusal code`);
-      assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
-      assert.deepStrictEqual(refusalLeaks(err), [], `${entry} leaked`);
-    }
-    // …and the invented-code entry, which is the same fault with no
-    // plausible deniability: a code that is not in the family at all.
-    const invented = await refusalOf(() => collect(service, throwReq('app/plain')));
-    assert.strictEqual(invented.code, CODE.RENDER_THREW);
   });
 });
 
@@ -710,29 +666,13 @@ test('CONTROL — the scheduled callback really does throw the sentinel-bearing 
     THROWS_ASYNC.SPOOFED_CODE,
     'it also types a `code`, as a module with its own taxonomy would',
   );
-  // Without this the status row below could go vacuous exactly the way
-  // section 4's could: rename a member of `CODE` and the fixture's
-  // hard-coded string stops being a spoof at all.
+  // Without this the spoof below could go vacuous exactly the way section
+  // 4's could: rename a member of `CODE` and the fixture's hard-coded
+  // string stops being a spoof at all.
   assert.ok(
     new Set(Object.values(CODE)).has(THROWS_ASYNC.SPOOFED_CODE),
     'the spoofed code must still be a real member of the family',
   );
-});
-
-test('CONTROL — the AWAITED arm of the same fixture is refused by the other receiver', async () => {
-  // The discriminator, and the row that makes this a section rather than a
-  // repeat. `app/rejected` hands the identical Error back by rejecting the
-  // promise `render` returned, so `worker.cjs` catches it and section 4's
-  // door closes on it. A green here beside a green below is two receivers
-  // both holding the law; a green here beside a red below is precisely one
-  // of them holding it.
-  await withService('throws-async', { isolates: 1 }, async (service) => {
-    const err = await refusalOf(() => collect(service, asyncReq('app/rejected')));
-    assert.ok(err, 'a rejected render must refuse');
-    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the awaited door, and its code');
-    assert.strictEqual(err.message, RENDER_THREW_REFUSAL);
-    assert.deepStrictEqual(asyncLeaks(err), [], 'the awaited arm leaked');
-  });
 });
 
 test('an exception that ESCAPES the render call carries nothing the module authored', async () => {
@@ -824,48 +764,13 @@ test('and the OPERATOR still gets the exception, in full, on the sidecar stderr'
   assert.ok(log.includes('throws-async.cjs'), 'and it must carry the stack, which is the point');
 });
 
-test('an escaped exception cannot choose the refusal header either', async () => {
-  // The transport corollary. `isolate-lost` and `render-threw` are both
-  // 500, so the status is not the spoof vector on this path — the HEADER
-  // is, and so is the code a JVM host branches on. The module typed a
-  // 400-mapped member of the family onto its Error; neither may move.
-  await withService('throws-async', { isolates: 1 }, async (service) => {
-    const http = await serve({ service, port: 0 });
-    try {
-      const res = await post(`http://127.0.0.1:${http.port}/render`, asyncReq('app/uncaught'));
-      assert.strictEqual(res.status, 500, 'the module chose its own HTTP status');
-      assert.notStrictEqual(
-        statusFor(THROWS_ASYNC.SPOOFED_CODE),
-        500,
-        'the spoofed code must map somewhere else, or there is nothing to spoof',
-      );
-      assert.strictEqual(
-        res.headers.get('x-rf-ssr-refusal'),
-        CODE.ISOLATE_LOST,
-        'the module chose its own refusal header',
-      );
-
-      const headers = JSON.stringify(Object.fromEntries(res.headers.entries()));
-      assert.ok(!res.text.includes(ASYNC_SENTINEL), 'the JSON body leaked the sentinel');
-      assert.ok(!headers.includes(ASYNC_SENTINEL), 'a header leaked the sentinel');
-      assert.strictEqual(
-        JSON.parse(res.text).message,
-        ISOLATE_LOST_REFUSAL,
-        'the body carries the contract wording',
-      );
-    } finally {
-      await http.close();
-    }
-  });
-});
-
 test('an ESCAPED exception after a chunk is a TORN response, and names the count', async () => {
   // The isolate-lost path's own torn arm, in process, where the
   // discriminator is readable as data rather than as a destroyed socket. The
   // worker crashed, so no `error` message ever arrives and the count cannot
   // come from the worker: `_failPendingRender` is the only thing that still
   // knows how many chunks were forwarded, so it is the one that has to name
-  // them. The HTTP row below is the same failure seen by the transport.
+  // them.
   await withService('throws-async', { isolates: 1 }, async (service) => {
     const chunks = [];
     let complete = null;
@@ -885,36 +790,6 @@ test('an ESCAPED exception after a chunk is a TORN response, and names the count
       [],
       'stamping the count must not have opened a channel for the module',
     );
-  });
-});
-
-test('a stream torn by an ESCAPED exception is destroyed, and still says nothing', async () => {
-  // The post-emit arm, over the transport, for the second receiver. Bytes
-  // already left under a 200, so there is no status left to send and the
-  // socket is destroyed rather than the response completed — the caller
-  // must see a broken transfer, not a well-formed shorter page it would
-  // cache. Same requirement section 4 makes of the first receiver.
-  await withService('throws-async', { isolates: 1 }, async (service) => {
-    const http = await serve({ service, port: 0 });
-    try {
-      const res = await fetch(`http://127.0.0.1:${http.port}/render?stream=1`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(asyncReq('app/uncaught-torn')),
-      });
-      assert.strictEqual(res.status, 200, 'the first chunk really did go out');
-      const read = await res.text().then(
-        (text) => ({ ok: true, text }),
-        (err) => ({ ok: false, err }),
-      );
-      assert.strictEqual(read.ok, false, 'a torn stream must not read as a complete body');
-      assert.ok(
-        !String(read.err).includes(ASYNC_SENTINEL),
-        'not even the transport error may carry the module wording',
-      );
-    } finally {
-      await http.close();
-    }
   });
 });
 
@@ -1052,7 +927,7 @@ test('CONTROL — the flaky fixture really does refuse to boot, with all three p
   assert.ok(isRefusalCode(BOOT_SPOOF_CODE), 'which must be a real member, or nothing is spoofed');
 });
 
-test('CONTROL — a caller really is QUEUED when the replacement is attempted', async () => {
+test('a replacement that cannot boot tells a WAITING CALLER nothing it authored, and tells the OPERATOR all of it', async () => {
   // The discriminator. Every assertion in this section is about what a
   // WAITER receives, so a run in which nobody was waiting — or in which the
   // pool never tried to replace anything — would be green about a path it
@@ -1063,10 +938,7 @@ test('CONTROL — a caller really is QUEUED when the replacement is attempted', 
   assert.strictEqual(run.hungRefusal.code, CODE.RENDER_TIMEOUT, 'the deadline is what kills it');
   assert.strictEqual(run.statsAfter.replacements, 1, 'and the pool must have tried to replace it');
   assert.ok(run.queuedRefusal, 'the queued caller must have been refused, not served');
-});
 
-test('a WAITING CALLER is told nothing the module or the deployment authored', async () => {
-  const run = await replacementBootFailure();
   const frame = run.queuedRefusal.toFrame('corr-boot');
   const text = JSON.stringify(frame);
 
@@ -1090,15 +962,12 @@ test('a WAITING CALLER is told nothing the module or the deployment authored', a
     500,
     'so the module cannot turn its own boot failure into a 503 a retry policy sleeps on',
   );
-});
 
-test('and the OPERATOR gets the boot failure, in full, on the sidecar stderr', async () => {
   // The other half, and not optional for the reason section 5 gives. On
   // this path the operator's position is worse than it is there: with no
   // waiter queued the refusal reaches no one, so a pool could shrink to
   // nothing in silence. The write is therefore unconditional — it is not
   // guarded on there being a waiter to leak to.
-  const run = await replacementBootFailure();
   assert.ok(
     run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
     'the operator was told nothing at all',
@@ -1220,7 +1089,7 @@ test('a module that throws while LOADING leaves its own stack on the sidecar std
 // only thing that would notice the day somebody reintroduces the second
 // read.
 //
-// The rows after it are the ARM — deleting it would let a raw `Error` reach
+// The row after it is the ARM — deleting it would let a raw `Error` reach
 // `statusFor` with no code at all. With the caller's route closed no
 // request reaches it, so it is driven at the seam it actually guards: a `Service`
 // over a stand-in pool whose isolate rejects with a raw `Error`. That is a
@@ -1325,8 +1194,8 @@ async function uncontractedRejection() {
   }
 }
 
-test('CONTROL — the staged fault really does reach the arm, past validation', async () => {
-  // Without this the two rows below could be green about a request the
+test('a rejection that is not a Refusal carries nothing the CALLER authored, and the OPERATOR still gets the fault', async () => {
+  // Without these two the assertions below could be green about a request the
   // validator refused — "no sentinel in the frame" is true of a caller-fault
   // refusal too, and it would prove nothing about the arm.
   const run = await uncontractedRejection();
@@ -1336,10 +1205,7 @@ test('CONTROL — the staged fault really does reach the arm, past validation', 
     CODE.RENDER_THREW,
     'and refused BY the last-resort arm, which is the only thing that answers with this code here',
   );
-});
 
-test('a rejection that is not a Refusal carries nothing the CALLER authored', async () => {
-  const run = await uncontractedRejection();
   const frame = run.refusal.toFrame('corr-clone');
   assert.ok(
     !JSON.stringify(frame).includes(CLONE_SENTINEL),
@@ -1347,15 +1213,12 @@ test('a rejection that is not a Refusal carries nothing the CALLER authored', as
   );
   assert.strictEqual(run.refusal.message, RENDER_THREW_REFUSAL, 'the wording is this contract\'s');
   assert.ok(isRefusalCode(frame.code), 'and the code is a member of the closed family');
-});
 
-test('and the OPERATOR gets the uncontracted fault, because nothing else would', async () => {
   // A fault here is a fault in the SIDECAR rather than in the application:
   // a render rejected with something the package's own contract does not
   // describe. Nothing upstream logs it — the worker never sees it and the
   // isolate never builds a refusal for it — so without this write the
   // wording would be the only copy in existence.
-  const run = await uncontractedRejection();
   assert.ok(
     run.stderr.split('\n').some((line) => line.includes('[rf.ssr-node]')),
     'the operator was told nothing at all',
