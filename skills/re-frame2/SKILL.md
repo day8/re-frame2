@@ -7,7 +7,7 @@ description: >
   Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect). Not for: live-app
   inspection (re-frame2-pair), code review (re-frame2-improver), Xray tours
   (re-frame2-xray), new projects (re-frame2-setup), v1→v2 migration
-  (re-frame-migration), Reagent→Fresco ports (reagent-migration), pair retros
+  (re-frame-migration), Fresco ports (reagent-fresco-migration), pair retros
   (re-frame2-pair-retro), or porting re-frame2 (re-frame2-implementor). Use
   whenever code mentions or needs reg-event, reg-sub, reg-fx, reg-cofx,
   reg-flow, reg-view, reg-machine, reg-route, reg-resource, reg-mutation,

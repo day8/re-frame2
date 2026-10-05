@@ -10,7 +10,7 @@ description: >
   pattern here?" — and only with code in scope: read, edited, pasted, or a
   readable .cljs/.cljc path; vocabulary alone is not enough. Not for: new code
   (re-frame2), new projects (re-frame2-setup), v1 migration
-  (re-frame-migration), Reagent-to-Fresco ports (reagent-migration), a running
+  (re-frame-migration), Fresco ports (reagent-fresco-migration), a running
   app (re-frame2-pair), pair retros (re-frame2-pair-retro), the Xray panel
   (re-frame2-xray), or porting re-frame2 (re-frame2-implementor).
 allowed-tools:
@@ -43,7 +43,7 @@ All three filters must hold before activating:
    - greenfield bootstrap → `re-frame2-setup`;
    - authoring new code → `re-frame2`;
    - migrating a re-frame v1.x codebase → `re-frame-migration` (any v1 surface raised for upgrade);
-   - porting Reagent views to Fresco → `reagent-migration` ("port this to `h/defview`", "move off Reagent hiccup", or a Reagent view raised in a Fresco-migration context is a migration ask even on an already-re-frame2 app — *critiquing* Reagent-view code against the catalogue stays here, *porting* it does not);
+   - porting Reagent views to Fresco → `reagent-fresco-migration` ("port this to `h/defview`", "move off Reagent hiccup", or a Reagent view raised in a Fresco-migration context is a migration ask even on an already-re-frame2 app — *critiquing* Reagent-view code against the catalogue stays here, *porting* it does not);
    - touring the Xray devtools panel → `re-frame2-xray`;
    - live-runtime work — attach, inspect, dispatch, time-travel against a running app → `re-frame2-pair`;
    - retro on a pair session → `re-frame2-pair-retro`;

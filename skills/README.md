@@ -90,7 +90,7 @@ the situation they cover:
   is the authoritative breaking-change list; the skill routes and
   sequences but never duplicates it.
 
-- [`reagent-migration/`](reagent-migration) — the optional, second
+- [`reagent-fresco-migration/`](reagent-fresco-migration) — the optional, second
   step after `re-frame-migration`: migrate Reagent view code to
   Fresco (`re-frame.fresco`, alias `h`), re-frame2's re-frame-native
   view layer. A Reagent hiccup view becomes an `h/defview` mounted in
@@ -173,7 +173,7 @@ migration report is signed off.
 | Bootstrap a brand-new re-frame2 ClojureScript project from nothing (or an empty CLJS project with shadow-cljs/Clojure but zero re-frame2 wiring) | "start a re-frame2 project", "scaffold re-frame2", "hello-world re-frame2 app", "new re-frame2 app", build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring | [`re-frame2-setup/`](re-frame2-setup) |
 | Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](re-frame2) |
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](re-frame-migration) |
-| Migrate Reagent **view** code to **Fresco**, the re-frame-native view layer — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if Fresco is wanted | "migrate my Reagent views to Fresco", "port this component to h/defview", "move off Reagent hiccup", "the re-frame-native views", deref-drop, or a Reagent view surface named in a Fresco context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `[:> …]` prop dialect) — **on an already-re-frame2 app** | [`reagent-migration/`](reagent-migration) |
+| Migrate Reagent **view** code to **Fresco**, the re-frame-native view layer — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if Fresco is wanted | "migrate my Reagent views to Fresco", "port this component to h/defview", "move off Reagent hiccup", "the re-frame-native views", deref-drop, or a Reagent view surface named in a Fresco context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `[:> …]` prop dialect) — **on an already-re-frame2 app** | [`reagent-fresco-migration/`](reagent-fresco-migration) |
 | Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user asks where a *human* looks in the visible panel; the moment they ask the agent to inspect or change the running app (read-only included), that's `re-frame2-pair` | [`re-frame2-xray/`](re-frame2-xray) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](re-frame2-pair) |
 | Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, preload runtime, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
@@ -217,7 +217,7 @@ family rule — single source below:
 | `re-frame2-pair` | drive a live runtime | the agent, against the live app | a grounding live read after every change (Pillar 4) | the role *is* driving a runtime — executing against it is the point |
 | `re-frame2-implementor` | implementation driver (build the runtime) | the agent, with its tool access | the port's **discovered** noninteractive gates — the per-EP slice at every loop pass, and the full required-foundation / claimed-capability conformance passes in an end-to-end session — with exact commands + exits reported; interactive/visual evidence stays a concise programmer handoff | acceptance criterion *is* spec-conformance; the EP loop's slice gate and the conformance passes operationalise it |
 | `re-frame-migration` | migrate v1 code on an existing codebase | **split** — the skill runs the project's discovered noninteractive install / compile / test gates; the programmer owns the boot smoke when no drivable runtime is connected | compile + tests clean by the skill's own run, **and** the boot smoke-test clean — driven through a connected runtime, or run by the programmer from the skill's checklist and reported as pending until then | trust-the-explicit-invoker baseline — an explicit "migrate this repo" authorises the Type-A edits and the project's own gates; Type-B rewrites stay ask-first, batched into one checkpoint |
-| `reagent-migration` | migrate Reagent views to Fresco on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Fresco moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
+| `reagent-fresco-migration` | migrate Reagent views to Fresco on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Fresco moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
 | `re-frame2` (authoring) | author code on an existing re-frame2 app | **split** — the skill runs the project's discovered noninteractive compile / test / lint gate; the programmer owns interactive / visual checks and anything needing a live runtime (`re-frame2-pair`) | the nearest declared gate passes on the changed path, with the exact command + result reported | trust-the-explicit-invoker baseline — the skill already discovers the gate from `deps.edn` / `shadow-cljs.edn` / `package.json` / the nearest README, so it runs it and reports rather than relaying the command to the human; it still drives no runtime of its own (that stays `re-frame2-pair`'s) |
 | `re-frame2-setup` | scaffold greenfield | **split** — the skill writes the files, runs `npm install` + a terminating `npx shadow-cljs compile app`, starts the watch, and reports the URL; the programmer confirms the counter in the browser | the skill's own install + compile pass and the dev server is serving, **and** the author sees the counter advance 0→1 (compile success alone is not a mount claim) | one prompt produces one served SPA — zero-interview default (Reagent + the template-baseline pin); the browser confirmation stays the author's because the skill drives no runtime of its own |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | one complete severity-ordered critique in the requesting turn, findings cross-linked to canonical idioms | read-only by default; a direct "review and apply/fix" request authorises safe in-scope `Edit`s (redesigns stay proposals); runs no suite |
@@ -262,8 +262,8 @@ and anchors so the absolute form keeps the rename-safety the relative one had.
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for
 `re-frame2-pair/`, `re-frame2-setup/`, `re-frame2-pair-retro/`,
-`re-frame2-improver/` and `reagent-migration/` run in
-`.github/workflows/test.yml` when those skill paths change; `reagent-migration`'s cold-start fixture is required PR
+`re-frame2-improver/` and `reagent-fresco-migration/` run in
+`.github/workflows/test.yml` when those skill paths change; `reagent-fresco-migration`'s cold-start fixture is required PR
 coverage, and the remaining behavioural replay fixtures stay
 manual/diagnostic.
 
@@ -314,8 +314,8 @@ the figures. Line counts and LF-normalised bytes as measured on 2026-09-26:
 - catalogue-shaped — `re-frame2-pair/references/ops.md` 221 L / 47,392 B;
   `re-frame2-pair/references/recipes.md` 339 L / 43,070 B;
   `re-frame2-pair-retro/references/known-frictions.md` 254 L / 20,618 B;
-  `reagent-migration/references/catalog-mechanical.md` 475 L / 22,654 B and
-  `reagent-migration/references/catalog-judgment.md` 380 L / 21,727 B (any
+  `reagent-fresco-migration/references/catalog-mechanical.md` 475 L / 22,654 B and
+  `reagent-fresco-migration/references/catalog-judgment.md` 380 L / 21,727 B (any
   row can apply to any view, so each is scanned whole for every view
   converted)
 - dense teaching — `re-frame2/references/state-machines/reg-machine.md`
@@ -490,12 +490,12 @@ behaviour. Future skill-authors: do not add one on cargo-cult grounds.
   boundary with the generator template; the drift guard pins the
   load-bearing coordinates so drift fails a test instead of shipping
   misinformation.
-- [`reagent-migration/tests/`](reagent-migration/tests) (`fixture/`) —
+- [`reagent-fresco-migration/tests/`](reagent-fresco-migration/tests) (`fixture/`) —
   clause (b): MIG-23's boot precondition (one `rf/init!` per cold process,
   before the first frame) is a contract boundary against core's adapter
   lifecycle, and the fixture is the drift guard that reds if a
   default-adapter registry ever appears — the same shape as setup's. Wired
-  as the `reagent-migration-fixture-cold-start` job.
+  as the `reagent-fresco-migration-fixture-cold-start` job.
 - [`re-frame2-pair-retro/tests/`](re-frame2-pair-retro/tests)
   (`duplicate_search_test.clj`) — clause (b): the §Issue drafts
   duplicate-search argv is a command contract with `gh`'s open-only
