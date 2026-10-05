@@ -346,6 +346,104 @@
       (is (= [:local-reactive-cell] (classes src "app/p.clj"))))))
 
 ;; ---------------------------------------------------------------------------
+;; An anonymous-fn literal's body is a call site
+;; ---------------------------------------------------------------------------
+
+(def ^:private anon-hdr "(ns app.t\n  (:require [reagent.core :as r]))\n")
+
+(defn- anon-classes [body] (classes (str anon-hdr body) "app/t.cljs"))
+
+(deftest an-anonymous-fn-body-is-a-call-site
+  (testing "`#(r/flush)` reads as `(fn* [] (r/flush))`: the literal's own
+            children ARE its body's call, head first, so the call sits at the
+            literal. Every spelling of the same callback counts that one call
+            exactly once."
+    (is (= [:render-control] (anon-classes "(def f (fn [] (r/flush)))\n"))
+        "the expanded `fn` is the control the literal is measured against")
+    (is (= [:render-control] (anon-classes "(def f #(r/flush))\n"))
+        "the direct literal")
+    (is (= [:render-control] (anon-classes "(def f #(r/flush %))\n"))
+        "the direct literal with an argument")
+    (is (= [:render-control] (anon-classes "(def f #(do (r/flush)))\n"))
+        "a list inside the literal is counted at the list, and the literal's
+         own head `do` is not rostered, so once")
+    (is (= [:render-control] (anon-classes "(defn f [] (react-dom/flushSync #(r/flush)))\n"))
+        "a literal nested as another call's argument")
+    (is (= [:render-control] (anon-classes "(def f (fn [] #(r/flush)))\n"))
+        "a literal nested inside a `fn`")
+    (is (= [:render-control] (anon-classes "(def f ^:once #(r/flush))\n"))
+        "a literal under metadata"))
+
+  (testing "a syntax-quoted literal is a template that emits the call at every
+            expansion, so it counts exactly as a syntax-quoted list does"
+    (is (= [:render-control] (anon-classes "(defmacro m [] `#(r/flush))\n"))))
+
+  (testing "a mixed file keeps its ordinary calls, in order, at their own
+            positions, and reports the literal at its `#` with the literal as
+            the excerpt"
+    (let [src (str anon-hdr
+                   "(defn a [] (r/flush))\n"
+                   "(defn b [] (react-dom/flushSync #(r/flush)))\n"
+                   "(defn c [] (r/flush))\n")]
+      (is (= [[3 12 "(r/flush)"] [4 33 "#(r/flush)"] [5 12 "(r/flush)"]]
+             (mapv (juxt :line :col :form)
+                   (:entries (rf.migration.fresco.census/scan src "app/t.cljs"))))))))
+
+(deftest an-inert-anonymous-fn-body-is-not-a-call-site
+  (testing "`#(quote (r/flush))` is `(fn* [] (quote (r/flush)))` and returns a
+            list it never calls; `#(comment …)` returns nil. The literal's head
+            is the body's head, so the same three inert shapes prune here as
+            they do in a list"
+    (is (= [] (anon-classes "(def f #(quote (r/flush)))\n"))
+        "`quote` at the literal's head")
+    (is (= [] (anon-classes "(def f #(comment (r/flush)))\n"))
+        "`comment` at the literal's head")
+    (is (= [] (anon-classes "(def f #(clojure.core/comment (r/flush)))\n"))
+        "a fully-qualified `comment` is the same head")
+    (is (= [] (anon-classes "(def f #(do #_(r/flush) nil))\n"))
+        "a discard inside the literal")
+    (is (= [] (anon-classes "#_#(r/flush)\n"))
+        "a discarded literal"))
+
+  (testing "pruning an inert literal must not prune what follows it"
+    (let [src (str anon-hdr
+                   "(def f #(quote (r/flush)))\n"
+                   "(def g #(r/flush))\n")]
+      (is (= [4] (mapv :line (:entries (rf.migration.fresco.census/scan src "app/t.cljs"))))))))
+
+(deftest a-symbol-passed-as-a-value-is-not-a-call
+  (testing "only the literal's HEAD is a call. `r/flush` handed to another
+            function inside the literal is a value, exactly as it is in a list"
+    (is (= [] (anon-classes "(def f (run-later r/flush))\n"))
+        "the list control")
+    (is (= [] (anon-classes "(def f #(run-later r/flush))\n"))
+        "an argument of the literal's call")
+    (is (= [] (anon-classes "(def f #(do r/flush))\n"))
+        "a bare symbol in the literal's body")))
+
+(deftest an-anonymous-call-resolves-like-any-other
+  (testing "the literal's head goes through the same `ns` context a list's
+            does, on both rosters and on the unresolved arm"
+    (is (= [:render-control]
+           (classes "(ns app.t\n  (:require [reagent.core :refer [flush]]))\n(def f #(flush))\n"
+                    "app/t.cljs"))
+        "a referred call")
+    (is (= []
+           (classes "(ns app.t\n  (:require [reagent.core :as r]))\n(def f #(flush))\n"
+                    "app/t.cljs"))
+        "a bare `flush` nothing referred is `clojure.core`'s")
+    (is (= [:substrate-test-seam]
+           (classes "(ns app.t\n  (:require [re-frame.adapter.uix :as ad]))\n(def f #(ad/flush-views!))\n"
+                    "app/t.cljs"))
+        "the substrate roster")
+    (is (= [:unresolved-reagent-require :unresolved-alias]
+           (classes (str "(ns app.panel\n"
+                         "  (:require [day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core :as r]))\n"
+                         "(def f #(r/flush))\n")
+                    "app/panel.cljs"))
+        "an alias the reader could not bind is reported, not skipped")))
+
+;; ---------------------------------------------------------------------------
 ;; Legal libspec options that bound nothing (merged-PR audit #8140)
 ;; ---------------------------------------------------------------------------
 
