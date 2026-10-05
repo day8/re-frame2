@@ -476,7 +476,10 @@ dispatch call that takes only text you emit.
   into its context, in several reads where its tool caps output, quotes the challenged lines from that
   read, and checks each quote against its hash — refusing a packet unread, read in part, or read
   through a tool that truncated it. Its report opens with the START stamp of the first check and the
-  RECEIPT line of the second.
+  RECEIPT line of the second. **An error in the worker's OWN reader is not a refusal** — its shell
+  quoting, or a console that cannot print a UTF-8 character: after a passing FILE check it fixes the
+  read (the first check's output shows a UTF-8-safe one), loads the whole packet again, runs the
+  unchanged READ check, and reports that its reader failed.
 - **Keep three clocks apart.** PREPARED is stamped as the packet is built; DISPATCHED is your own clock
   read as the dispatch call returns, recorded wherever you record the dispatch; START is the worker's
   first act, on its clock rather than yours. Measured on one 30 KB brief sent both ways to identical
@@ -491,8 +494,8 @@ dispatch call that takes only text you emit.
   caught, not certain. And that the bytes STAY: a harness that evicts old tool output can drop a packet
   where it would keep a prompt, so a worker whose context was compacted re-reads it.
 - **Fall back to the paste wherever the receipt cannot be established**: a worker that cannot read the
-  coordinator's files or run the check, a brief too short to challenge, or any refusal. A refused packet
-  is rebuilt or re-sent INLINE, never re-sent as a bare path with the check waived.
+  coordinator's files or run the check, a brief too short to challenge, or any refusal by the check. A
+  refused packet is rebuilt or re-sent INLINE, never re-sent as a bare path with the check waived.
 
 A reference implementation of both halves ships beside this method as `scripts/instruction_packet.py`:
 `prepare` builds the packet and prints the cover note, `verify` is the worker's two checks, and
