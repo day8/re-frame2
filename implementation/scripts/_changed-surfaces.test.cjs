@@ -550,16 +550,6 @@ const XRAY_COUNTER_FIXTURE =
   'tools/xray/test/day8/re_frame2_xray/test_helpers/host_fixtures/counter.cljs';
 const STORY_MACROS = 'tools/story/src/re_frame/story/macros.clj';
 
-test('Story e2e_multi_frame helper schedules cljs-browser (rf2-eyyd2)', () => {
-  // Required by share_url_state_popstate_stale_override_dom_cljs_test, which
-  // mounts only under `:browser-test`; on Node it finds no `window` and
-  // self-skips. Without this arm a helper-only PR would run the Node compile
-  // and skip the suite's only real assertions.
-  const result = classify(STORY_E2E_HELPER);
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
 test('Xray e2e_multi_frame helper schedules cljs-browser (rf2-eyyd2)', () => {
   // Required by reactive_data_view_rows_dom_cljs_test directly, AND by the
   // Story helper above (aliased `xray-e2e`), so it sits under both trees'
