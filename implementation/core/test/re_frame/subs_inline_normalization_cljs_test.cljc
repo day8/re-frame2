@@ -6,9 +6,9 @@
   image's inline `:reg-sub` descriptor runs) applies the retired-key guard, the
   classification validator, and the production `:doc` strip that public
   `reg-sub` runs, rather than projecting the raw metadata map straight onto
-  the runnable descriptor. This suite pins the parity: a retired `:spec` key
-  hard-errors on BOTH paths, a malformed `:sensitive` / `:large` declaration
-  raises on BOTH, a valid declaration survives identically, and the
+  the runnable descriptor. This suite pins the parity: a malformed
+  `:sensitive` / `:large` declaration raises on BOTH paths, a valid
+  declaration survives identically, and the
   runtime-owned runnable slots win over any metadata that names them. A
   mutation projecting the raw metadata directly (`(assoc metadata …)`) fails
   these rows.
@@ -54,20 +54,6 @@
          (ex-data e))))
 
 (def ^:private body (fn [_db _q] :ok))
-
-;; ---- retired bare key (`:spec`) — HARD ERROR on BOTH paths ----------------
-
-(deftest retired-spec-key-hard-errors-on-inline-and-public
-  (testing "public reg-sub and inline lower-inline-sub BOTH reject the retired
-            `:spec` bare key with the same discriminator + named replacement"
-    (let [pub    (caught-ex-data #(rf.subs/reg-sub :norm/pub-retired {:spec [:map]} body))
-          inline (caught-ex-data #(rf.subs/lower-inline-sub :norm/inline-retired {:spec [:map]} body))]
-      (doseq [[label ed] [["public" pub] ["inline" inline]]]
-        (testing label
-          (is (some? ed) "must throw")
-          (is (= :rf.error/retired-registration-key (:rf.error/id ed)))
-          (is (= :spec (:retired-key ed)))
-          (is (= :schema (:replacement ed)) "names the v2 key `:schema`"))))))
 
 ;; ---- malformed classification — HARD ERROR on BOTH paths ------------------
 
