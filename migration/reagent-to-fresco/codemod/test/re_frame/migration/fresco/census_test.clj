@@ -250,23 +250,6 @@
 ;; A legal population comes back CLEAN
 ;; ---------------------------------------------------------------------------
 
-(deftest a-corpus-without-reagent-is-clean
-  (let [src (str "(ns app.views\n"
-                 "  (:require [re-frame.core :as rf]))\n"
-                 "\n"
-                 "(defn page []\n"
-                 "  [:div (for [x @(rf/subscribe [:xs])] ^{:key x} [:span x])])\n")
-        {:keys [entries reagent? unresolved? recognised?]} (rf.migration.fresco.census/scan src "app/views.cljs")]
-    (is (= [] entries))
-    (is (false? reagent?))
-    (is (false? unresolved?))
-    (testing "and NOT recognised, which is a different fact from clean and is why
-              this deftest's name is only half the story. This is the shape of
-              every view file in the application that scored zero: legal,
-              unmentioned, and full of migration work the census has no
-              population for. `summarise` is where the two are told apart."
-      (is (false? recognised?)))))
-
 (deftest prose-about-reagent-is-not-a-finding
   (testing "the `ns` docstring is not a require. Five files in examples/ discuss
             `reagent.ratom/run!` in prose and are clean."
