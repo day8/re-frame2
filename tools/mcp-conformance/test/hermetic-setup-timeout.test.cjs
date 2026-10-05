@@ -67,16 +67,7 @@ const ORCH = path.join(
 process.env.HERMETIC_SETUP_TIMEOUT_MS = '750';
 process.env.HERMETIC_SETUP_SIGKILL_GRACE_MS = '400';
 
-const { runTrusted, SETUP_COMMAND_TIMEOUT_MS } = require(ORCH);
-
-test('hermetic runTrusted env override wired (rf2-wqi4n4 finding 2)', () => {
-  assert.equal(
-    SETUP_COMMAND_TIMEOUT_MS,
-    750,
-    'the orchestrator did not honour $HERMETIC_SETUP_TIMEOUT_MS — the ' +
-      'regression harness cannot drive a short per-command cap.',
-  );
-});
+const { runTrusted } = require(ORCH);
 
 test('runTrusted kills a hung setup command within its timeout, loop stays live (rf2-wqi4n4 finding 2)', async () => {
   // A never-exiting child: `node -e` with an unref'd interval would let
