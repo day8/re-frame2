@@ -44,9 +44,10 @@
                             (shadow's `:flush-complete`). The compile
                             that produced the bytes currently on disk.
       :runtime-count        connected REPL runtimes for this build.
-      :heartbeat-age-ms     ms since the most recent runtime's last
-                            ping/pong exchange (the WS heartbeat). High
-                            or nil ⇒ the WS is stale / no runtime.
+      :heartbeat-age-ms     ms since the freshest heartbeat among THIS
+                            build's runtimes (the relay stamps every
+                            message a runtime sends). High ⇒ the WS is
+                            stale; absent ⇒ no usable heartbeat sample.
 
   ## The cross-check verdict
 
@@ -59,20 +60,23 @@
                      browser is serving OLD code. RELOAD THE PAGE.
     :no-runtime      no REPL runtime connected for the build (WS dropped
                      / no tab open).
-    :unknown         the JVM half couldn't be read after a retry — degrade
-                     to browser-half-only, never crash. The dominant cause
-                     is MULTIPLE / ZOMBIE shadow-cljs JVMs (a stale watch
-                     Ctrl-C'd without freeing its ports; the socket reaches
-                     a runtime whose build worker is in a DIFFERENT JVM, so
-                     the worker lookup misses). The hint names the
-                     `npx shadow-cljs stop` → single-watch remediation.
-                     Rarer: an old shadow without get-worker, or a
-                     transient socket hiccup.
+    :unknown         freshness could not be verified. `:unknown-reason`
+                     says what was missing:
+                       :jvm-unreadable        the build state could not be
+                                              read after a retry;
+                       :no-build-worker       the JVM this socket reaches
+                                              runs no worker for the build;
+                       :heartbeat-unavailable runtimes are connected but
+                                              none has a usable heartbeat.
+                     Missing data never reads as `:fresh`, and the hint
+                     names one bounded next step — never stopping or
+                     restarting shadow-cljs processes, which nothing
+                     here can see.
 
   Everything here is best-effort: a JVM probe failure degrades to the
-  browser half plus `:liveness :unknown`. The token is a DIAGNOSTIC
-  signal, never a hard gate — a tool still runs; the agent just sees the
-  staleness."
+  browser half plus `:liveness :unknown`, keeping whatever worker, build
+  and runtime facts were read. The token is a DIAGNOSTIC signal, never a
+  hard gate — a tool still runs; the agent just sees the staleness."
   (:require [cljs.reader]
             [re-frame2-pair-mcp.nrepl :as nrepl]))
 
@@ -82,12 +86,24 @@
 ;;
 ;; shadow-cljs holds, per build worker, a `:build-state` whose
 ;; `::build/build-info` carries `:compile-cycle` (monotonic) and
-;; `:flush-complete` (ms of the last flush). The worker's `:runtimes`
-;; map carries each connected REPL runtime's `:last-ping` / `:last-pong`
-;; (the WS heartbeat). We read both JVM-side in one form, defending
-;; every access so an old shadow / a build with no worker collapses to
-;; nil rather than throwing — the caller degrades to `:liveness
-;; :unknown`.
+;; `:flush-complete` (ms of the last flush), and a `:runtimes` map of the
+;; build's connected runtimes keyed by relay client id.
+;;
+;; The heartbeat lives on the RELAY, not the worker. shadow's local relay
+;; keeps every client it serves under `:clients`, keyed by the same client
+;; id, and stamps that client's `:last-pong` on every message the client
+;; sends — its answers to the relay's idle pings included. The worker
+;; runtime's own `:last-pong` is written only by a `:cljs-repl-pong`
+;; reply, which current shadow-cljs never solicits, so on a healthy tab
+;; it stays absent. Both are read: a runtime's heartbeat is the freshest
+;; usable timestamp across its relay entry and its worker entry.
+;;
+;; The relay serves other builds' tabs, tools and the CLJ runtime too, so
+;; a heartbeat counts only when its client id is one of THIS build's
+;; runtimes. That match, the timestamp checks and the reduction all run
+;; Node-side in `summarise-build-state`: the JVM form only projects, so an
+;; empty or partial sample cannot throw there and erase the worker, build
+;; and runtime facts the read did get.
 ;;
 ;; We reach the worker via the public-ish `get-worker` (used elsewhere
 ;; in shadow's own API) and deref its `:state-ref`. `compile-cycle` /
@@ -97,21 +113,22 @@
 ;; classpath.
 
 (defn- build-state-jvm-form
-  "JVM-side form returning a freshness map for `build-id`, or nil on any
-  failure. Reads shadow's build worker state-ref:
+  "JVM-side form returning the raw build-state facts for `build-id`, or
+  nil on any failure:
 
-    {:compile-cycle    <int or nil>
+    {:worker?          <bool>         ; a worker exists for the build
+     :compile-cycle    <int or nil>
      :build-flushed-at <ms or nil>
-     :runtime-count    <int>
-     :heartbeat-age-ms <ms or nil>}
+     :runtimes         {<client-id> {:last-pong <ms or nil>}}  ; the build's
+     :relay-clients    {<client-id> {:last-pong <ms or nil>}}  ; every client
+     :now              <ms>}          ; read after both snapshots
 
   `build-id` is rendered as its keyword literal via
   `nrepl/build-id-literal`, which refuses (nil → this fn throws, and the
   caller's `try` degrades to nil) an id that would not print as a single
   keyword: this form is evaluated as Clojure on the shadow JVM, so a
-  multi-token id would run as code. Every access is
-  `try`-guarded; a missing worker / old shadow / unexpected shape
-  collapses to nil so the caller degrades cleanly."
+  multi-token id would run as code. The form is `try`-guarded and reduces
+  nothing; a missing worker reads as `:worker? false` with empty maps."
   [build-id]
   (let [bid (or (nrepl/build-id-literal build-id)
                 (throw (ex-info (str "Refusing the freshness read for build id " (pr-str build-id)
@@ -121,22 +138,60 @@
                                  :build       (pr-str build-id)})))]
     (str
       "(try"
-      "  (let [sup (:supervisor (shadow.cljs.devtools.server.runtime/get-instance!))"
+      "  (let [inst (shadow.cljs.devtools.server.runtime/get-instance!)"
+      "        sup (:supervisor inst)"
       "        worker (when sup (shadow.cljs.devtools.server.supervisor/get-worker sup " bid "))"
       "        st (some-> worker :state-ref deref)"
-      "        bs (:build-state st)"
-      "        info (get bs :shadow.build/build-info)"
-      "        runtimes (vals (:runtimes st))"
-      ;; most-recent heartbeat across connected runtimes: max last-pong,
-      ;; then age = now - that. nil when no runtime is connected.
-      "        last-pong (when (seq runtimes)"
-      "                    (apply max (keep :last-pong runtimes)))"
+      "        info (get (:build-state st) :shadow.build/build-info)"
+      "        pongs (fn [m] (into {} (map (fn [[id x]] [id {:last-pong (:last-pong x)}])) m))"
+      "        runtimes (pongs (:runtimes st))"
+      "        clients (pongs (some-> inst :relay :state-ref deref :clients))"
+      ;; Read the clock AFTER both snapshots, so a heartbeat stamped
+      ;; while they were taken can never read as later than `now`.
       "        now (System/currentTimeMillis)]"
-      "    {:compile-cycle    (:compile-cycle info)"
+      "    {:worker?          (some? worker)"
+      "     :compile-cycle    (:compile-cycle info)"
       "     :build-flushed-at (:flush-complete info)"
-      "     :runtime-count    (count runtimes)"
-      "     :heartbeat-age-ms (when last-pong (- now last-pong))})"
+      "     :runtimes         runtimes"
+      "     :relay-clients    clients"
+      "     :now              now})"
       "  (catch Throwable _ nil))")))
+
+(defn- heartbeat-at
+  "`t` when it is a usable heartbeat timestamp for a read taken at `now`:
+  a finite, positive number no later than the read. Anything else — nil,
+  a string, a timestamp from the future — is not evidence of a live
+  socket."
+  [t now]
+  (when (and (number? t) (js/isFinite t) (pos? t) (number? now) (<= t now))
+    t))
+
+(defn summarise-build-state
+  "The JVM half of the token from the raw facts `build-state-jvm-form`
+  returns:
+
+    {:worker?          <bool>
+     :compile-cycle    <int or nil>
+     :build-flushed-at <ms or nil>
+     :runtime-count    <int>
+     :heartbeat-age-ms <ms>}          ; only with a usable sample
+
+  A heartbeat is taken ONLY from the build's own runtimes: each worker
+  runtime id is looked up in the relay's client table, and the runtime's
+  own worker entry is read alongside it. A relay client that is not one
+  of these runtimes contributes nothing, whatever it reports. With no
+  usable sample `:heartbeat-age-ms` is absent, never guessed."
+  [{:keys [worker? compile-cycle build-flushed-at runtimes relay-clients now]}]
+  (let [samples (for [[id rt] runtimes
+                      t       [(:last-pong (get relay-clients id)) (:last-pong rt)]
+                      :let    [t (heartbeat-at t now)]
+                      :when   t]
+                  t)]
+    (cond-> {:worker?          (true? worker?)
+             :compile-cycle    compile-cycle
+             :build-flushed-at build-flushed-at
+             :runtime-count    (count runtimes)}
+      (seq samples) (assoc :heartbeat-age-ms (- now (apply max samples))))))
 
 (defn- conn-has-socket?
   "True when the conn-atom carries a live (non-closed) socket. A conn
@@ -153,16 +208,16 @@
 
 (defn- jvm-build-freshness-once
   "One JVM round-trip reading the build-worker freshness half for
-  `build-id`. Resolves to the parsed map or nil (unreadable / blank /
-  non-map / socket hiccup). The single-attempt primitive
-  `jvm-build-freshness` retries over this."
+  `build-id`. Resolves to the summarised half (`summarise-build-state`)
+  or nil (unreadable / blank / non-map / socket hiccup). The
+  single-attempt primitive `jvm-build-freshness` retries over this."
   [conn build-id]
   (-> (try
         (nrepl/jvm-eval conn (build-state-jvm-form build-id))
         (catch :default _ (js/Promise.resolve nil)))
       (.then (fn [resp]
                (let [v (some-> (:value resp) cljs.reader/read-string)]
-                 (when (map? v) v))))
+                 (when (map? v) (summarise-build-state v)))))
       (.catch (fn [_] nil))))
 
 (defn retry-once-on-nil
@@ -199,9 +254,8 @@
   read comes back nil we retry ONCE before degrading — a single extra
   ~5-50ms round-trip on the cold/degraded path only, never on the
   healthy path (the first read already succeeds there). A persistent nil
-  after the retry IS the real `:unknown` (old shadow with no
-  `get-worker`, or a dead worker), and the caller's hint names the
-  concrete next step honestly."
+  after the retry IS the real `:unknown :jvm-unreadable`, and the
+  caller's hint names the concrete next step honestly."
   [conn build-id]
   (if-not (conn-has-socket? conn)
     (js/Promise.resolve nil)
@@ -228,16 +282,18 @@
                    browser is serving old code (RELOAD).
     :fresh         runtime connected, heartbeat recent, build not
                    recompiled since load.
-    :unknown       the JVM half is absent (couldn't read shadow state —
-                   most often a multiple/zombie-shadow JVM split).
+    :unknown       the JVM half is absent, the reached JVM has no worker
+                   for the build (`:worker? false`), or the connected
+                   runtimes carry no usable heartbeat.
 
   Order matters: `:no-runtime` wins over `:stale-build` (you can't be
-  serving stale code if nothing's connected), and both win over
-  `:fresh`."
+  serving stale code if nothing's connected), and `:stale-build` wins
+  over a missing heartbeat, which needs no heartbeat to prove. `:fresh`
+  needs a heartbeat: a connected runtime with none is unverified."
   [{:keys [runtime-loaded-at build-flushed-at
-           runtime-count heartbeat-age-ms jvm-read?]}]
+           runtime-count heartbeat-age-ms jvm-read? worker?]}]
   (cond
-    (not jvm-read?)
+    (or (not jvm-read?) (false? worker?))
     :unknown
 
     (or (nil? runtime-count) (zero? runtime-count)
@@ -252,14 +308,26 @@
          (> build-flushed-at runtime-loaded-at))
     :stale-build
 
+    (not (number? heartbeat-age-ms))
+    :unknown
+
     :else
     :fresh))
 
+(defn- unknown-reason
+  "Which fact an `:unknown` verdict is missing — the same inputs as
+  `liveness-verdict`, checked in the same order."
+  [{:keys [jvm-read? worker?]}]
+  (cond
+    (not jvm-read?)  :jvm-unreadable
+    (false? worker?) :no-build-worker
+    :else            :heartbeat-unavailable))
+
 (defn- reload-target
-  "The concrete thing the human reloads to wake/refresh the runtime.
-  Prefer the app URL when the port is known (the agent then
-  relays ONE crisp instruction — `reload http://localhost:<port>`);
-  otherwise name the build so `shadow-cljs watch <build>` is unambiguous."
+  "The concrete thing to reload to wake/refresh the runtime. Prefer the
+  app URL when the port is known (ONE crisp instruction — `reload
+  http://localhost:<port>`); otherwise name the build so the target is
+  unambiguous."
   [{:keys [port build-id]}]
   (cond
     (number? port) (str "http://localhost:" port)
@@ -271,12 +339,15 @@
   "Operator-facing one-liner for a non-fresh verdict. nil for `:fresh`.
 
   `ctx` carries the optional `:port` (the browser URL port discover-app
-  resolved the build from) + `:build-id` so the `:no-runtime` / `:unknown`
-  hints can name the EXACT thing the human reloads — the agent cannot
-  reload a browser itself, so a non-fresh verdict is an early, crisp
-  human-in-the-loop instruction, not a self-heal."
-  [liveness {:keys [build-flushed-at runtime-loaded-at build-id] :as ctx}]
-  (let [target (reload-target ctx)]
+  resolved the build from) + `:build-id` so the `:stale-build` /
+  `:no-runtime` hints can name the EXACT thing to reload, and, for
+  `:unknown`, the `:unknown-reason` and `:runtime-count` the hint states.
+  Whether the agent reloads a browser itself or asks the user is the
+  skill's capability-and-ownership check, not this hint's to decide."
+  [liveness {:keys [build-flushed-at runtime-loaded-at build-id unknown-reason runtime-count]
+             :as   ctx}]
+  (let [target (reload-target ctx)
+        build  (if (some? build-id) (pr-str build-id) "<build>")]
     (case liveness
       :stale-build
       (str "STALE BUILD: this build recompiled "
@@ -289,26 +360,40 @@
       :no-runtime
       (str "NO RUNTIME: no live CLJS runtime is connected to this build "
            "(the WebSocket dropped, or no browser tab is open) — reads "
-           "will return blank until one reconnects. ACTION (the agent "
-           "cannot do this): open or reload " target ", then re-run "
-           "discover-app to confirm :liveness :fresh.")
+           "will return blank until one reconnects. ACTION: open or reload "
+           target ", then re-run discover-app to confirm :liveness :fresh.")
 
       :unknown
-      (str "LIVENESS UNKNOWN: could not read the shadow-cljs build worker "
-           "state after a retry. The browser-side instance id + load time "
-           "are still reported and reads may still work, but stale-build "
-           "detection is unavailable this call. Most common cause: MULTIPLE / "
-           "ZOMBIE shadow-cljs JVMs — a stale watch (Ctrl-C does not always "
-           "free shadow's ports) left an orphan JVM, and the nREPL socket "
-           "reached a runtime whose build worker lives in a DIFFERENT JVM, so "
-           "the worker lookup misses. (Less common: an old shadow without "
-           "get-worker, or the watch worker is down.) ACTION (the agent "
-           "cannot do this): run `npx shadow-cljs stop` to kill ALL shadow "
-           "JVMs, then start exactly ONE `shadow-cljs watch "
-           (if (some? build-id) (pr-str build-id) "<build>") "`, reload "
-           target ", and re-run discover-app to confirm :liveness :fresh. If "
-           "it still stays unknown after a single clean watch, the JVM-side "
-           "build worker genuinely is not answering (old shadow).")
+      (case unknown-reason
+        :no-build-worker
+        (str "LIVENESS UNKNOWN: the shadow-cljs process this nREPL connection "
+             "reaches runs no build worker for " build ", so its build state and "
+             "runtime heartbeats cannot be read; treat reads as unverified. "
+             "ACTION: confirm " build " is the build serving the app and that its "
+             "`shadow-cljs watch` runs in the process whose nREPL port Pair "
+             "connected to, then re-run discover-app. Watches for other builds "
+             "are unrelated; leave them running.")
+
+        :heartbeat-unavailable
+        (str "LIVENESS UNKNOWN: " runtime-count " runtime(s) are connected to "
+             build " and its build state was read, but none of them carries a "
+             "usable heartbeat timestamp, so the connection's freshness is "
+             "unverified. Stale-build detection still ran; reads may work but "
+             "are unverified. ACTION: re-run discover-app once. If it stays "
+             "unknown, this shadow-cljs version records runtime heartbeats where "
+             "Pair does not read them — report that as a Pair compatibility gap. "
+             "Restarting the browser or shadow-cljs does not change where the "
+             "heartbeat is recorded.")
+
+        (str "LIVENESS UNKNOWN: the shadow-cljs build state for " build " could "
+             "not be read over this nREPL connection after a retry, so "
+             "stale-build and heartbeat checks are unavailable this call. The "
+             "browser-side instance id and load time are still reported; treat "
+             "reads as unverified. ACTION: re-run discover-app once. If it stays "
+             "unknown, check that the nREPL port Pair connected to belongs to the "
+             "shadow-cljs process running `watch` for " build ", and report what "
+             "you find; nothing in this reply points at any other shadow-cljs "
+             "process."))
 
       nil)))
 
@@ -323,18 +408,20 @@
      :compile-cycle       <int|nil>   ; JVM (monotonic build id)
      :build-flushed-at    <ms|nil>    ; JVM
      :runtime-count       <int|nil>   ; JVM
-     :heartbeat-age-ms    <ms|nil>    ; JVM
+     :heartbeat-age-ms    <ms>        ; JVM, only with a usable heartbeat
      :build-id            <kw>
      :liveness            <:fresh|:stale-build|:no-runtime|:unknown>
+     :unknown-reason      <kw>        ; only when :unknown
      :hint                <str>}      ; only when non-fresh
 
   The optional 4-arity `opts` carries `:port` (the browser URL port the
   caller knows — discover-app's `:port` arg) so a non-fresh hint names
-  the EXACT `http://localhost:<port>` the human reloads.
+  the EXACT `http://localhost:<port>` to reload.
   `:port` rides on the token too, so the agent can relay it.
 
   Best-effort: a nil JVM half degrades to `:liveness :unknown` with the
-  browser half intact. Never rejects."
+  browser half intact, and a half with no heartbeat keeps its worker,
+  build and runtime facts. Never rejects."
   ([conn build-id browser] (assemble conn build-id browser nil))
   ([conn build-id browser opts]
   (-> (jvm-build-freshness conn build-id)
@@ -351,9 +438,12 @@
                                (when jvm?
                                  (select-keys jvm [:compile-cycle :build-flushed-at
                                                    :runtime-count :heartbeat-age-ms])))
-                liveness (liveness-verdict (assoc merged :jvm-read? jvm?))
-                hint     (verdict-hint liveness merged)]
-            (cond-> (assoc merged :liveness liveness)
+                facts    (assoc merged :jvm-read? jvm? :worker? (:worker? jvm))
+                liveness (liveness-verdict facts)
+                token    (cond-> (assoc merged :liveness liveness)
+                           (= :unknown liveness) (assoc :unknown-reason (unknown-reason facts)))
+                hint     (verdict-hint liveness token)]
+            (cond-> token
               hint (assoc :hint hint)))))
       (.catch (fn [_]
                 ;; Defensive: even an unexpected throw degrades to the
@@ -365,10 +455,12 @@
                            :read-at             (:read-at browser)
                            :build-id            build-id
                            :liveness            :unknown
+                           :unknown-reason      :jvm-unreadable
                            :hint                (verdict-hint
                                                   :unknown
                                                   (assoc browser :build-id build-id
-                                                                 :port port))}
+                                                                 :port port
+                                                                 :unknown-reason :jvm-unreadable))}
                     (some? port) (assoc :port port))))))))
 
 (defn token-from-health
@@ -378,8 +470,8 @@
   Promise of the token map.
 
   The optional 4-arity `opts` carries `:port` so a non-fresh
-  hint can name `http://localhost:<port>` — the EXACT URL the human
-  reloads to wake / refresh a quiet runtime."
+  hint can name `http://localhost:<port>` — the EXACT URL to reload to
+  wake / refresh a quiet runtime."
   ([conn build-id health] (token-from-health conn build-id health nil))
   ([conn build-id health opts]
    (assemble conn build-id
