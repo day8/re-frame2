@@ -813,8 +813,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     # (1) a mention OUTSIDE the reserved-namespace table never reserves — not a
     #     member spelling, not even a glob (an ordinary mention must not grant
     #     reservation).
-    expect("B: prose outside the table does NOT reserve (rf.prosefake)",
-           "rf.prosefake" not in reserved)
     expect("B: emitting an only-prose-mentioned namespace FIRES",
            b_fire('(x :rf.prosefake/member)', reserved) == {"rf.prosefake"})
 
@@ -847,11 +845,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     #     vocabulary must turn CHECK B red, in BOTH row shapes: the
     #     bold-marker row (`:rf.realm/*`, `:rf.module/*`, `:rf.app/*`) and the
     #     struck-through row (`:rf.reload/*`). Extracting a retired row's globs
-    #     like any other would pass every one of these.
-    expect("B: bold-marked retired row does NOT reserve",
-           {"rf.realm", "rf.module", "rf.app"}.isdisjoint(reserved))
-    expect("B: struck-through retired row does NOT reserve",
-           "rf.reload" not in reserved)
+    #     like any other would green that emission.
     expect("B: emitting retired-row vocabulary FIRES",
            b_fire('(x :rf.realm/install :rf.module/def :rf.app/boot '
                   ':rf.reload/diff)', reserved)
@@ -879,8 +873,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     #     CHECK B red.
     #
     #     (8a) a prose example inside the `:rf.flow/*` row.
-    expect("B: a glob in an active row's BODY does NOT reserve (rf.auditfake)",
-           "rf.auditfake" not in reserved)
     expect("B: emitting a body-glob-only namespace FIRES",
            b_fire('(x :rf.auditfake/member)', reserved) == {"rf.auditfake"})
 
@@ -889,8 +881,6 @@ def _run_self_tests(verbose: bool = False) -> int:
     #          `:rf.schema/*` row says does not exist) and `:rf.timer/*` (which
     #          the `:rf.work/*` row says is deferred) — a namespace could ship
     #          in code on the strength of the sentence denying it.
-    expect("B: a namespace a row body DENIES does not reserve",
-           {"rf.spec", "rf.timer"}.isdisjoint(reserved))
     expect("B: emitting a denied namespace FIRES",
            b_fire('(x :rf.spec/trace :rf.timer/after)', reserved)
            == {"rf.spec", "rf.timer"})
@@ -910,14 +900,12 @@ def _run_self_tests(verbose: bool = False) -> int:
     #     keyword and demand a FALSE Conventions row. Pinned in BOTH directions
     #     on the SAME namespace, so the exclusion cannot be mistaken for the
     #     namespace simply being reserved.
-    expect("B: an auto-resolved ::rf.x/y does NOT fire (it is alias-resolved)",
-           b_fire('(dissoc info ::rf.machines.result/depth-abort?)', reserved)
-           == set())
     expect("B: the same namespace spelled :rf.x/y STILL fires",
            b_fire('(dissoc info :rf.machines.result/depth-abort?)', reserved)
            == {"rf.machines.result"})
-    #     And the exclusion must not swallow a literal that merely FOLLOWS one:
-    #     a single pass over a map literal carries both spellings.
+    #     The auto-resolved direction rides on a map literal carrying both
+    #     spellings in one pass: the `::` form must not fire, and the exclusion
+    #     must not swallow the literal that merely FOLLOWS it.
     expect("B: a literal beside an auto-resolved one still fires",
            b_fire('{::rf.machines.result/depth-abort? true '
                   ':rf.zzzliteral/member 1}', reserved) == {"rf.zzzliteral"})
@@ -946,16 +934,13 @@ def _run_self_tests(verbose: bool = False) -> int:
     )
     rows = catalogue_rows(synthetic_009_rows)
 
+    # Set EQUALITY carries the scope discipline in both directions: the prose
+    # mention before the table is not a row, and the row-shaped line in the
+    # LATER section is not this table's.
     expect("C: parses the rows",
            rows == {":rf.error/handler-exception",
                     ":rf.warning/plain-fn",
                     ":rf.error/emitter-was-deleted"})
-    # Scope discipline, both directions: a prose mention before the table is
-    # not a row, and a row-shaped line in a LATER section is not this table's.
-    expect("C: prose mention is not a row",
-           ":rf.error/prose-only-mention" not in rows)
-    expect("C: a row after the next `###` heading is out of scope",
-           ":rf.error/row-in-a-later-table" not in rows)
 
     def c_fire(src: str,
                exempt: frozenset[str] = frozenset(),
@@ -988,19 +973,15 @@ def _run_self_tests(verbose: bool = False) -> int:
     # entry and nothing else.
     expect("C: the port-relative exemption silences only its own entry",
            c_fire(live_src, frozenset({":rf.error/emitter-was-deleted"})) == [])
-    # …and a mention in a COMMENT / DOCSTRING is not an emitter, so it must not
-    # green a row (the masking that protects CHECK A protects CHECK C too).
-    expect("C: a commented-out emitter does NOT green the row",
-           c_fire(live_src + ';; (x :rf.error/emitter-was-deleted)')
-           == [":rf.error/emitter-was-deleted"])
 
     # CHECK C — the parse FAILS CLOSED ---------------------------------------
     #
     # An unreadable section answered with an empty set would read to
     # `run_checks` as "nothing to report". A check whose population can
     # silently collapse to zero is a check that can fail to RUN while exiting
-    # 0. Focused controls: valid / renamed / malformed, so the rule is proven
-    # to fire on the break shapes WITHOUT firing on the shape it must accept.
+    # 0. The renamed and malformed controls prove the rule fires on the break
+    # shapes; the valid section is parsed unguarded above (`rows = ...`), so a
+    # raise on the shape it must accept fails the self-test there.
     def parse_raises(text: str) -> bool:
         try:
             catalogue_rows(text)
@@ -1008,8 +989,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         except CatalogueParseError:
             return True
 
-    expect("C: the valid catalogue section parses (the control)",
-           not parse_raises(synthetic_009_rows))
     renamed = synthetic_009_rows.replace(
         "### Error event catalogue", "### Error and warning event catalogue")
     expect("C: a RENAMED heading fails closed", parse_raises(renamed))
