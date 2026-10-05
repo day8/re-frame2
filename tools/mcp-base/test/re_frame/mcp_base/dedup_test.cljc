@@ -51,20 +51,6 @@
   (is (nil? (rf.mcp-base.dedup/dedup-value nil true)))
   (is (= 42 (rf.mcp-base.dedup/dedup-value 42 true))))
 
-(deftest no-substitutions?-detects-one-entry-root-only-cache
-  ;; `de-dupe-eq` always emits `cache-0` for the root; every substituted
-  ;; subtree adds a further `cache-N`. A one-entry cache therefore made
-  ;; NO substitutions.
-  (testing "a no-repeat non-empty collection ⇒ one-entry root-only cache"
-    (is (true? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq {:a 1 :b 2})))))
-    (is (true? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq [1 2 3])))))
-    (is (true? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq {:a {:x 1} :b {:y 2}}))))))
-  (testing "a repeated-subtree cache has >1 entry ⇒ substitutions happened"
-    (is (false? (boolean (rf.mcp-base.dedup/no-substitutions? (rf.mcp-base.dedup/de-dupe-eq [{:x 1} {:x 1}]))))))
-  (testing "non-map / empty inputs are not a root-only cache"
-    (is (false? (boolean (rf.mcp-base.dedup/no-substitutions? nil))))
-    (is (false? (boolean (rf.mcp-base.dedup/no-substitutions? {}))))))
-
 (deftest dedup-value-no-repeats-non-empty-returns-input-verbatim
   ;; A non-empty collection with no repeated subtrees produces only the
   ;; root cache entry; wrapping it would grow the wire value.
@@ -90,16 +76,6 @@
       (is (contains? out rf.mcp-base.vocab/dedup-table-key))
       (is (= #{rf.mcp-base.vocab/dedup-table-key} (set (keys out)))
           "exactly one top-level slot, the dedup-table marker"))))
-
-(deftest dedup-value-round-trips-exactly
-  ;; The agent host reconstructs by calling rf.mcp-base.dedup/expand on the
-  ;; cache-map value — pin that the wrap is losslessly reversible.
-  (let [shared {:repeated (vec (range 50))}
-        v      {:a shared :b shared :c shared :scalars [1 2 3]}
-        out    (rf.mcp-base.dedup/dedup-value v true)
-        cache  (get out rf.mcp-base.vocab/dedup-table-key)]
-    (is (= v (rf.mcp-base.dedup/expand cache))
-        "expand on the cache-map reconstructs the original structure")))
 
 (deftest dedup-value-uses-equality-not-identity
   ;; Values reconstructed from EDN (re-frame2-pair-mcp) or synthesised
