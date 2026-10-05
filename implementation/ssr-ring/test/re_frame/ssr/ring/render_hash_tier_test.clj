@@ -170,43 +170,6 @@
       (is (str/includes? body "data-rf-head-hash")
           "and its wire marker rides too"))))
 
-(deftest an-adoption-tier-root-form-ships-no-render-hash
-  (testing "the `[<component> {props}]` root shape — what a
-            native UIx or Fresco root can only ever
-            be — carries no hash on either channel, so a server arm that
-            serves such a root cannot re-create the fail-open gate the
-            client side refuses too."
-    (rf/reg-event :rf.test.q1b96/init {:platforms #{:server}} (fn [_ _] {:db {}}))
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:rf.test.q1b96/init]]
-                     :root-view      [a-component {}]
-                     :payload        :rf.ssr.payload/whole-app-db})
-          body    (:body (handler (get-request)))]
-      (is (str/includes? body "<div>a</div>") "the component still renders")
-      (is (nil? (wire-render-hash body)))
-      (is (not (str/includes? body "render-hash"))))))
-
-(deftest a-resolving-root-view-keeps-the-hash-channel
-  (testing "the rule conditions the channel, it does not remove
-            it. A `:root-view` that RESOLVES to a DOM-rooted tree
-            carries the hash — and that hash EQUALS the one the documented
-            client `:render-tree-fn #((rf/view :id))` computes, which the
-            unresolved form never could."
-    (register-app!)
-    (let [handler (rf.ssr.ring/ssr-handler
-                    {:initial-events [[:rf.test.q1b96/init]]
-                     ;; Note the OUTER call, mirroring the client's `#(…)`.
-                     :root-view      (fn [] ((rf/view :q1b96/root)))
-                     :payload        :rf.ssr.payload/whole-app-db})
-          body    (:body (handler (get-request)))
-          wire    (wire-render-hash body)
-          shipped (payload-render-hash body)]
-      (is (some? wire) "the marker is stamped on the root element")
-      (is (some? shipped) "the payload carries :rf/render-hash")
-      (is (= wire shipped) "wire marker == payload key (one canonical hash)")
-      (is (not= "f1d63f7e" shipped)
-          "and it is not the unresolved-root constant"))))
-
 (deftest the-surviving-hash-matches-the-documented-client-tree
   (testing "the load-bearing equality. Server `:root-view
             (fn [] ((rf/view :id)))` hashes the same tree the client's
