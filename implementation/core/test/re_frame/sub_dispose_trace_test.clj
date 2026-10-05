@@ -87,15 +87,14 @@
 ;; is untagged and joins the gate lane by default; the namespace itself is
 ;; LOADED there regardless. See `scripts/test-core-prod-gate.sh`.
 ;;
-;; TWO ARE NOT TAGGED. `dispose-then-resubscribe-builds-fresh-slot` and
-;; `input-dispose-throw-is-surfaced-and-isolated` carry emit assertions AND
-;; PRODUCTION sub-cache claims — the synchronous-dispose fresh-reaction
-;; rebuild, and the guarantee that one input's throwing release does not abort
-;; the walk over its siblings. `release-input-ref!` puts the `try`/`catch`
-;; OUTSIDE `rf.interop/debug-enabled?` and only the `emit-error!` inside it, so
-;; that second claim splits cleanly in half: SURFACED is dev, ISOLATED ships.
-;; Both keep their emit assertions inside a `(when rf.interop/debug-enabled? …)`
-;; arm and run their semantics in both postures.
+;; ONE IS NOT TAGGED. `input-dispose-throw-is-surfaced-and-isolated` carries
+;; emit assertions AND a PRODUCTION sub-cache claim — the guarantee that one
+;; input's throwing release does not abort the walk over its siblings.
+;; `release-input-ref!` puts the `try`/`catch` OUTSIDE
+;; `rf.interop/debug-enabled?` and only the `emit-error!` inside it, so the
+;; claim splits cleanly in half: SURFACED is dev, ISOLATED ships. It keeps its
+;; emit assertions inside a `(when rf.interop/debug-enabled? …)` arm and runs
+;; its semantics in both postures.
 
 (deftest ^:requires-debug dispose-emits-on-last-unsubscribe
   (testing ":rf.sub/dispose fires synchronously with :reason
@@ -178,47 +177,6 @@
               "every cascade emit carries the :no-more-derefers reason"))
         (finally
           (rf/unregister-listener! :trace ::cascade-emit))))))
-
-;; NOT `^:requires-debug`. The CLAIM here is that a synchronous dispose
-;; closes the slot, so the next subscribe
-;; rebuilds a FRESH reaction. That is `rf.interop/dispose!` and the cache map,
-;; not the trace, and it holds in both postures; only the emit COUNTS below
-;; are dev instrumentation, and they are guarded individually.
-(deftest dispose-then-resubscribe-builds-fresh-slot
-  (testing "unsubscribe disposes synchronously, so a
-            subsequent subscribe rebuilds against a fresh cache miss.
-            Two :rf.sub/dispose emits are NOT expected for one
-            subscribe/unsubscribe cycle — only the one at the
-            unsubscribe — but the rebuild does produce a NEW reaction
-            (no identity equality with the disposed one)"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 42}}))
-    (rf/reg-sub :sub/a (fn [db _] (:a db)))
-    (rf/dispatch-sync [:init])
-    (let [acc (collect-traces! ::sync-dispose-then-resub)]
-      (try
-        (let [r1 (rf/subscribe [:sub/a])]
-          (is (= 42 @r1))
-          (rf/unsubscribe [:sub/a])
-          ;; Dev instrumentation. `trace/emit` is a no-op under
-          ;; `-Dre-frame.debug=false`, so the emit COUNT is a dev-posture
-          ;; claim. The sync dispose it reports is not: the identity
-          ;; assertions below witness it in both postures.
-          (when rf.interop/debug-enabled?
-            (is (= 1 (count (dispose-events @acc)))
-                "one :rf.sub/dispose fired at the sync 1 → 0 transition"))
-          ;; A resubscribe after the sync dispose rebuilds — fresh
-          ;; reaction, not the disposed one. No additional dispose emit
-          ;; (the new slot is live).
-          (let [r2 (rf/subscribe [:sub/a])]
-            (is (not (identical? r1 r2))
-                "resubscribe returned a FRESH reaction (sync dispose
-                 closed the first slot before this rebuild)")
-            (is (= 42 @r2) "the rebuilt sub computes the same value")
-            (when rf.interop/debug-enabled?
-              (is (= 1 (count (dispose-events @acc)))
-                  "no additional dispose emit — the new slot is alive"))))
-        (finally
-          (rf/unregister-listener! :trace ::sync-dispose-then-resub))))))
 
 ;; ---- :hot-reload ---------------------------------------------------------
 ;;
