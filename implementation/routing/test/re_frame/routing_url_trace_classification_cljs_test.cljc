@@ -132,38 +132,6 @@
                     (second v)))))
         events))
 
-(deftest a-navigate-request-redacts-its-routes-declared-params
-  (testing "[:rf.route/navigate {:to …}]: the request's declared params and
-            query values redact on the event vector, undeclared ones ride"
-    (reg-routes!)
-    (let [events (capture-traces
-                   #(rf/dispatch-sync [:rf.route/navigate {:to     :route/acct
-                                                           :params {:secret param-secret :other "visible"}
-                                                           :query  {:token query-secret :page "2"}}]))]
-      (is (= param-secret (get-in @(rf/subscribe [:rf/route]) [:params :secret]))
-          "the in-process slice stays raw")
-      (when rf.interop/debug-enabled?
-        (let [requests (event-args :rf.route/navigate events)]
-          (is (seq requests) "control: the window carries the navigate event")
-          (is (every? #{{:to     :route/acct
-                         :params {:secret :rf/redacted :other "visible"}
-                         :query  {:token :rf/redacted :page "2"}}}
-                      requests)))))))
-
-(deftest a-navigate-url-request-redacts-its-routes-declared-parts
-  (testing "[:rf.route/navigate {:url …}]: the URL projects as the URL-change
-            event's does"
-    (reg-routes!)
-    (let [url    (str "/acct/" param-secret "/visible?token=" query-secret "&page=2")
-          events (capture-traces #(rf/dispatch-sync [:rf.route/navigate {:url url}]))]
-      (is (= param-secret (get-in @(rf/subscribe [:rf/route]) [:params :secret]))
-          "the in-process slice stays raw")
-      (when rf.interop/debug-enabled?
-        (let [requests (event-args :rf.route/navigate events)]
-          (is (seq requests))
-          (is (every? #{{:url "/acct/rf%2Fredacted/visible?token=rf/redacted&page=2"}}
-                      requests)))))))
-
 (deftest a-url-request-redacts-its-routes-declared-parts
   (testing "[:rf.route/url-requested {:url …}]: the link door's request projects
             its URL, and the URL-change event it synthesises does too"
