@@ -8,9 +8,9 @@
   string opener. A mask that misses either desynchronises at the first one and
   blanks the rest of the file — which arrives as a clean run over a corpus it
   can no longer read, the exact failure this checker's usability floor exists
-  to refuse. The self-test pins both directions on synthetic text: the same
-  `(require '[re-frame.machines :as machines])` fires as code and is invisible
-  in a string and in a comment."
+  to refuse. The requires in the comment and the strings below pin the
+  invisible direction; the self-test's char-literal controls pin the other,
+  where the same `(require '[re-frame.machines :as machines])` fires as code."
   (:require [re-frame.core :as rf]))
 
 ;; A doc comment quoting the deferred-require idiom:

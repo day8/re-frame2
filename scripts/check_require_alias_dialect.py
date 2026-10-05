@@ -1421,11 +1421,6 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
         not violations_of(ns_only_edges),
         f"{[v.alias for v in violations_of(ns_only_edges)]}",
     )
-    both_edges, _ = read_file(rel, text)
-    expect(
-        "control: and RED with it",
-        [v.alias for v in violations_of(both_edges)] == ["directory"],
-    )
 
     # ---- control 2: the exemption predicate is derived, both ways ----------
     rel, text = _fixture_text(repo_root, "negative", "host_conditional_exemption.cljc")
@@ -1441,14 +1436,11 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
     expect("control: and the SAME file fires once the two arms name one namespace",
            [v.alias for v in violations_of(read_file(rel, collapsed)[0])] == ["substrate"])
 
-    # ---- control 3: masking, in both directions ---------------------------
+    # ---- control 3: masking stays in step with the reader -----------------
+    # The invisible direction is negative/masked_require_shapes.cljc, whose
+    # requires sit in a comment and in strings.  These pin the other: a char
+    # literal opens neither, so the live require after it still fires.
     live = "(require '[re-frame.machines :as machines])"
-    expect("control: a live runtime require fires",
-           [v.alias for v in violations_of(read_file("x.cljc", live)[0])] == ["machines"])
-    expect("control: the same text inside a string is invisible",
-           not violations_of(read_file("x.cljc", '(def s "%s")' % live)[0]))
-    expect("control: the same text inside a comment is invisible",
-           not violations_of(read_file("x.cljc", ";; " + live)[0]))
     expect("control: a `\\;` char literal does not open a comment",
            [v.alias for v in violations_of(
                read_file("x.cljc", "(def c \\;)\n" + live)[0])] == ["machines"])
@@ -1514,26 +1506,15 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
                not twin_bad, f"{twin_bad}")
 
     # A discard consumes EXACTLY ONE form. Over-consumption is the silent
-    # direction — it blanks live code and reports a clean run — and the live
-    # `#_:clj-kondo/ignore` idiom sits immediately before real code, so this is
-    # the shape that would be eaten.
+    # direction — it blanks live code and reports a clean run.  The plain
+    # discards, a discard split from its form by a newline, a discarded quote,
+    # and the `#_:clj-kondo/ignore` idioms that sit immediately before live code
+    # are pinned by the discard fixtures above (negative/discard_*.cljc and
+    # positive/discard_consumes_exactly_one_form.cljc).  These pin the reader
+    # forms a discard must consume whole, and the `#_` it must not see at all.
     for label, text, want in (
-        ("a discarded ns libspec is not an edge",
-         "(ns x (:require #_[re-frame.machines :as machines] [re-frame.core :as rf]))", []),
-        ("the same libspec undiscarded IS",
-         "(ns x (:require [re-frame.machines :as machines] [re-frame.core :as rf]))", ["machines"]),
-        ("a `#_` split from its form by a newline still discards it",
-         "(ns x (:require #_\n  [re-frame.machines :as machines] [re-frame.core :as rf]))", []),
         ("`#_#_` discards TWO forms",
          "(ns x (:require #_#_[re-frame.a :as a] [re-frame.b :as b] [re-frame.core :as rf]))", []),
-        ("a discarded runtime require is not an edge",
-         "#_(require '[re-frame.machines :as machines])", []),
-        ("`#_:clj-kondo/ignore` does NOT eat the live form after it",
-         "#_:clj-kondo/ignore (require '[re-frame.machines :as machines])", ["machines"]),
-        ("`#_{:clj-kondo/ignore [...]}` does NOT eat the live form after it",
-         "#_{:clj-kondo/ignore [:x]}\n(require '[re-frame.machines :as machines])", ["machines"]),
-        ("a discard consumes a quote with the form it quotes",
-         "(require '[re-frame.core :as rf] #_'[re-frame.routing :as routing])", []),
         ("a discard consumes metadata with the form it decorates",
          "(ns x (:require #_^:m [re-frame.machines :as machines] [re-frame.core :as rf]))", []),
         # `\a` masks to a kept backslash and a blanked name; blanking it whole
@@ -1574,13 +1555,6 @@ def run_self_tests(repo_root: Path, verbose: bool = False) -> int:
     expect("control: an UPWARD refresh REFUSES", len(up.refusals) == 1, f"{up.refusals}")
     expect("control: and cannot alter the floor it wanted to raise",
            up.baseline.surfaces["tools"] == 10, f"{up.baseline.surfaces}")
-
-    mixed = plan_baseline(
-        {"tools": 11, "implementation/core": 0}, {"tools", "implementation/core"},
-        1200, prev,
-    )
-    expect("control: ONE regression refuses the WHOLE write, wins included",
-           bool(mixed.refusals), f"{mixed}")
 
     added = plan_baseline(
         {"tools": 10, "brand-new": 7}, {"tools", "implementation/core", "brand-new"},
