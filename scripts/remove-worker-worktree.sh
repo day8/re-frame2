@@ -24,13 +24,15 @@
 #   has to run through.
 #
 # WHAT IT DOES, in the one order that is safe:
-#   1. Snapshot every real node_modules in the MAYOR checkout (the canary).
+#   1. Snapshot every real node_modules in the MAYOR checkout (the canary): a
+#      MANIFEST of every entry's relative path and kind. A scan that does not
+#      complete refuses the run here, before anything is touched.
 #   2. Find every node_modules under the worktree that is a LINK and unlink
 #      the LINK ONLY — never a recursive delete, which is the thing that
 #      deletes through.
 #   3. Verify each link is actually gone before continuing.
 #   4. THEN `git worktree remove`.
-#   5. Re-snapshot the canary and FAIL LOUDLY if the signature moved.
+#   5. Re-snapshot the canary and FAIL LOUDLY if the manifest moved.
 #   Steps 2 and 4 are never chained into one command: the point is that the
 #   removal runs against a tree with no live reparse point left in it.
 #
@@ -72,7 +74,10 @@
 #   OK: worktree removal complete.
 #   Exit 0 on success, 1 on failure, 2 on usage error, 3 on a PARTIAL removal
 #   (below). A moved canary prints CANARY_FAILED to stderr with the npm ci
-#   recovery command.
+#   recovery command and the first entries lost and gained. A scan that did
+#   not complete prints CANARY_INCOMPLETE=<path> <reason> to stderr and exits
+#   1: before the removal it refuses with nothing touched; after it, the run
+#   has no verdict.
 #
 #   The exit codes split on WHAT THE CALLER SHOULD DO NEXT, which is the only
 #   thing a caller can act on:
@@ -93,10 +98,16 @@
 #        reached when that provenance is established — never from a predicate
 #        that merely failed to recognise something.
 #
-#   A <signature> is `<immediate-entries>/<recursive-files>/<sentinels-present>`,
-#   e.g. `103/2933/2`. The recursive count and the sentinels are load-bearing:
-#   the immediate-entry count alone cannot see files vanishing from under
-#   packages whose directories survive.
+#   A <signature> is
+#     manifest=<sha256> counts=<immediate-entries>/<recursive-files>/<sentinels-present>
+#   or MISSING when the directory is gone, or INCOMPLETE when its scan did not
+#   finish. THE MANIFEST IS THE VERDICT: one `<kind> <relative path>` line per
+#   entry — kind d, f, l (a link, recorded and never followed) or o (anything
+#   else) — recursive, hidden entries kept, sorted bytewise, hashed. The
+#   counts are diagnostics read off that same manifest: they say how much
+#   moved, and they never decide, because a count misses a loss and a gain of
+#   the same size. Both implementations build the same manifest, so the same
+#   tree gives the same digest from either.
 #
 #   A FAILED removal is classified rather than guessed at: a dirty tree read
 #   as file-locked would be waited out for ever, because no amount of waiting
@@ -251,31 +262,107 @@ to_lower() {
 # repo cannot build without.
 NM_SENTINELS='.bin shadow-cljs/package.json'
 
-# A node_modules HEALTH SIGNATURE: <immediate-entries>/<recursive-files>/<sentinels>.
-# Prints the word MISSING when the directory is not there at all — MISSING
-# against a real "before" is itself a canary failure.
+# THE ENUMERATION POLICY, one for every scan in a run: recursive, hidden
+# entries kept, and a link recorded as a link and never followed (`find`'s
+# default -P). GNU find (Git Bash, Linux) prints each entry's kind itself;
+# elsewhere a batched `printf` per kind writes byte-identical lines, at about
+# five times the cost (2.5s against 0.4s over 8414 entries on Windows).
+if find "$WORK_DIR" -maxdepth 0 -printf '' >/dev/null 2>&1; then
+  MANIFEST_FIND=gnu
+else
+  MANIFEST_FIND=portable
+fi
+
+# Write the MANIFEST of directory $1 to file $2: one `<kind> <relative path>`
+# line per entry, kind d, f, l (a link) or o (anything else), sorted bytewise.
+# Returns non-zero, with the reason in $2.err, when the scan did not complete
+# — an unreadable directory, an entry vanishing mid-walk — because a partial
+# manifest can hide a loss or invent one, so it must never be compared.
+write_manifest() {
+  _wm_out="$2"
+  rm -f "$_wm_out"
+  if [ "$MANIFEST_FIND" = gnu ]; then
+    ( cd "$1" && find . -mindepth 1 -printf '%y %P\n' ) \
+      > "$_wm_out.raw" 2> "$_wm_out.err" || return 1
+    sed 's/^[^fdl] /o /' "$_wm_out.raw" > "$_wm_out.kind" 2>> "$_wm_out.err" || return 1
+  else
+    ( cd "$1" && find . -mindepth 1 \
+        \( -type l -exec printf 'l %s\n' {} + \) -o \
+        \( -type d -exec printf 'd %s\n' {} + \) -o \
+        \( -type f -exec printf 'f %s\n' {} + \) -o \
+        -exec printf 'o %s\n' {} + ) \
+      > "$_wm_out.raw" 2> "$_wm_out.err" || return 1
+    sed 's|^\(.\) \./|\1 |' "$_wm_out.raw" > "$_wm_out.kind" 2>> "$_wm_out.err" || return 1
+  fi
+  LC_ALL=C sort "$_wm_out.kind" > "$_wm_out" 2>> "$_wm_out.err" || return 1
+  rm -f "$_wm_out.raw" "$_wm_out.kind"
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    _sh_out=$(sha256sum < "$1") || return 1
+  elif command -v shasum >/dev/null 2>&1; then
+    _sh_out=$(shasum -a 256 < "$1") || return 1
+  else
+    return 1
+  fi
+  printf '%s' "${_sh_out%% *}"
+}
+
+# A node_modules SIGNATURE: `manifest=<sha256> counts=<entries>/<files>/<sentinels>`,
+# keeping the manifest itself in file $2 (default: a scratch file) so a
+# failure can say WHAT moved. Prints MISSING when the directory is not there
+# at all — MISSING against a real "before" is itself a canary failure — and
+# INCOMPLETE when the scan did not finish.
 #
-# The immediate-entry count alone is half-blind:
-# a partial recursive delete can empty the files *under* every package while
-# leaving all the top-level package directories standing, so before == after
-# reports healthy over material damage. The recursive file count sees exactly
-# that shape, and the sentinels see a targeted loss two counts could coincide
-# on. All three are cheap — 2933 files in 0.08s over this repo's mayor
-# node_modules — so there is no reason to settle for the blind one.
+# The manifest decides. A count misses a loss and a gain of the same size —
+# one package file deleted while another appears elsewhere reads healthy on
+# every count. The counts stay beside the digest because they say how much
+# moved, and they are read off the manifest, so they cannot disagree with it.
+# Cost is about one count scan's: 0.2-0.5s per tree over this repo's mayor
+# node_modules, most of it process start-up.
 signature() {
+  _sig_out="${2:-$WORK_DIR/manifest-scratch}"
   if [ ! -d "$1" ]; then
     printf 'MISSING'
     return
   fi
-  _sig_entries=$(find "$1" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')
-  _sig_files=$(find "$1" -type f 2>/dev/null | wc -l | tr -d ' ')
-  _sig_sentinels=0
-  for _sig_s in $NM_SENTINELS; do
-    if [ -e "$1/$_sig_s" ]; then
-      _sig_sentinels=$((_sig_sentinels + 1))
-    fi
-  done
-  printf '%s/%s/%s' "$_sig_entries" "$_sig_files" "$_sig_sentinels"
+  if ! write_manifest "$1" "$_sig_out"; then
+    printf 'INCOMPLETE'
+    return
+  fi
+  if ! _sig_digest=$(sha256_of "$_sig_out"); then
+    printf 'no sha256sum or shasum to digest the manifest\n' >> "$_sig_out.err"
+    printf 'INCOMPLETE'
+    return
+  fi
+  _sig_counts=$(awk -v sentinels="$NM_SENTINELS" '
+    BEGIN { n = split(sentinels, s, " "); for (i = 1; i <= n; i++) want[s[i]] = 1 }
+    { kind = substr($0, 1, 1); path = substr($0, 3)
+      if (index(path, "/") == 0) entries++
+      if (kind == "f") files++
+      if (path in want) found++ }
+    END { printf "%d/%d/%d", entries, files, found }' "$_sig_out")
+  printf 'manifest=%s counts=%s' "$_sig_digest" "$_sig_counts"
+}
+
+# The counts half of a signature, `<entries>/<files>/<sentinels>`.
+sig_counts() {
+  printf '%s' "${1##*counts=}"
+}
+
+# What moved between two manifests: how many entries each side alone holds,
+# and the first five of each. A side with no manifest file reads as empty.
+manifest_delta() {
+  [ -f "$1" ] || : > "$1"
+  [ -f "$2" ] || : > "$2"
+  LC_ALL=C comm -23 "$1" "$2" > "$WORK_DIR/delta-lost" 2>/dev/null || true
+  LC_ALL=C comm -13 "$1" "$2" > "$WORK_DIR/delta-gained" 2>/dev/null || true
+  printf '  manifest entries lost: %s, gained: %s (the first 5 of each)\n' \
+    "$(wc -l < "$WORK_DIR/delta-lost" | tr -d ' ')" \
+    "$(wc -l < "$WORK_DIR/delta-gained" | tr -d ' ')"
+  head -n 5 "$WORK_DIR/delta-lost" | sed 's/^/    - /'
+  head -n 5 "$WORK_DIR/delta-gained" | sed 's/^/    + /'
 }
 
 # What `git worktree remove` will refuse over: modified or untracked files.
@@ -484,6 +571,31 @@ make_test_link() {
   [ -L "$_mtl_link" ]
 }
 
+# --self-test ONLY. Make directory $1 unlistable, so a scan of its parent
+# cannot complete. `chmod 000` does it on a POSIX filesystem for anyone but
+# root; Git Bash mounts NTFS `noacl`, where chmod changes nothing, so there the
+# listing right is denied through the ACL instead. Returns non-zero when
+# neither worked, so the caller SKIPS rather than claiming a refusal it never
+# provoked. make_listable undoes both.
+make_unlistable() {
+  chmod 000 "$1" 2>/dev/null || true
+  if ls "$1" >/dev/null 2>&1 \
+     && command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    MSYS_NO_PATHCONV=1 icacls "$(cygpath -w "$1")" /deny '*S-1-1-0:(RD)' >/dev/null 2>&1 || true
+  fi
+  if ls "$1" >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
+make_listable() {
+  chmod 755 "$1" 2>/dev/null || true
+  if command -v icacls >/dev/null 2>&1 && command -v cygpath >/dev/null 2>&1; then
+    MSYS_NO_PATHCONV=1 icacls "$(cygpath -w "$1")" /remove:d '*S-1-1-0' >/dev/null 2>&1 || true
+  fi
+}
+
 # Disarm every node_modules link under one worktree, before anything recursive
 # runs over it.
 #
@@ -610,13 +722,16 @@ report_remove_failure() {
 #   1. Builds a throwaway target with a known signature, links a node_modules
 #      at it, disarms, and requires BOTH: the link is gone AND the target is
 #      untouched.
-#   2. Proves the canary SEES the damage an immediate-entry count alone is
-#      blind to: files vanish from under every package while each package
-#      directory stays standing.
+#   2. Proves the canary SEES the damage a count is blind to: files vanishing
+#      from under packages whose directories stand, and a same-count swap —
+#      and that the manifest keeps hidden entries and records a link without
+#      following it.
 #   3. Proves the husk DETECTOR against three husk shapes.
 #   4. Proves the later-invocation GUARD by invoking this script, for real,
 #      against fixtures a wrong answer would destroy — the negative direction
 #      first, because refusing is the behaviour under test.
+#   5. Proves an INCOMPLETE canary scan refuses the run before any target is
+#      examined.
 #
 # Never touches a real node_modules, and never this repository.
 # ---------------------------------------------------------------------------
@@ -658,14 +773,66 @@ if [ "$SELF_TEST" -eq 1 ]; then
   ST_N_BEFORE=$(signature "$ST_NESTED")
   rm -f "$ST_NESTED/pkg-a/lib/index.js" "$ST_NESTED/pkg-b/lib/index.js"
   ST_N_AFTER=$(signature "$ST_NESTED")
-  if [ "${ST_N_BEFORE%%/*}" != "${ST_N_AFTER%%/*}" ]; then
-    die "SELF_TEST=FAILED the fixture's own top-level entry count moved (${ST_N_BEFORE%%/*} -> ${ST_N_AFTER%%/*}); it no longer tests what it claims."
+  ST_N_TOP_BEFORE=$(sig_counts "$ST_N_BEFORE")
+  ST_N_TOP_BEFORE=${ST_N_TOP_BEFORE%%/*}
+  ST_N_TOP_AFTER=$(sig_counts "$ST_N_AFTER")
+  ST_N_TOP_AFTER=${ST_N_TOP_AFTER%%/*}
+  if [ "$ST_N_TOP_BEFORE" != "$ST_N_TOP_AFTER" ]; then
+    die "SELF_TEST=FAILED the fixture's own top-level entry count moved ($ST_N_TOP_BEFORE -> $ST_N_TOP_AFTER); it no longer tests what it claims."
   fi
   if [ "$ST_N_BEFORE" = "$ST_N_AFTER" ]; then
     die "SELF_TEST=FAILED the canary is blind to nested file loss: signature stayed $ST_N_BEFORE."
   fi
   printf 'SELF_TEST nested_loss top_level_entries_unchanged=%s signature %s -> %s\n' \
-    "${ST_N_BEFORE%%/*}" "$ST_N_BEFORE" "$ST_N_AFTER"
+    "$ST_N_TOP_BEFORE" "$ST_N_BEFORE" "$ST_N_AFTER"
+
+  # The SAME-COUNT SWAP: one file lost and a different one gained elsewhere,
+  # so every count matches on both sides. This is the shape a count canary
+  # calls healthy, and the reason the manifest, not the counts, is the verdict.
+  # A hidden entry rides along, because a scan that drops hidden entries turns
+  # the comparison into an offset that cancels a real loss of its own size.
+  ST_SWAP="$WORK_DIR/swap"
+  mkdir -p "$ST_SWAP/.bin" "$ST_SWAP/pkg-a/lib" "$ST_SWAP/pkg-b/lib"
+  printf 'x\n' > "$ST_SWAP/pkg-a/lib/index.js"
+  printf 'x\n' > "$ST_SWAP/pkg-b/lib/index.js"
+  printf 'x\n' > "$ST_SWAP/.hidden-entry"
+  ST_S_BEFORE=$(signature "$ST_SWAP" "$WORK_DIR/swap-manifest")
+  grep -Fqx 'f .hidden-entry' "$WORK_DIR/swap-manifest" \
+    || die "SELF_TEST=FAILED the manifest dropped a hidden entry. Manifest: $(cat "$WORK_DIR/swap-manifest")"
+  rm -f "$ST_SWAP/pkg-a/lib/index.js"
+  printf 'x\n' > "$ST_SWAP/pkg-b/lib/other.js"
+  ST_S_AFTER=$(signature "$ST_SWAP")
+  if [ "$(sig_counts "$ST_S_BEFORE")" != "$(sig_counts "$ST_S_AFTER")" ]; then
+    die "SELF_TEST=FAILED the swap fixture's own counts moved ($(sig_counts "$ST_S_BEFORE") -> $(sig_counts "$ST_S_AFTER")); it no longer tests what it claims."
+  fi
+  if [ "$ST_S_BEFORE" = "$ST_S_AFTER" ]; then
+    die "SELF_TEST=FAILED the canary is blind to a same-count swap: signature stayed $ST_S_BEFORE."
+  fi
+  printf 'SELF_TEST same_count_swap counts_unchanged=%s signature %s -> %s\n' \
+    "$(sig_counts "$ST_S_BEFORE")" "$ST_S_BEFORE" "$ST_S_AFTER"
+
+  # A LINK INSIDE the tree is recorded as a link and never followed: what sits
+  # behind it is not enumerated, and changing it does not move the manifest.
+  ST_LK="$WORK_DIR/links"
+  ST_LK_TARGET="$WORK_DIR/links-target"
+  mkdir -p "$ST_LK" "$ST_LK_TARGET"
+  printf 'x\n' > "$ST_LK_TARGET/inside.js"
+  if make_test_link "$ST_LK/pkg-link" "$ST_LK_TARGET"; then
+    ST_L_BEFORE=$(signature "$ST_LK" "$WORK_DIR/links-manifest")
+    grep -Fqx 'l pkg-link' "$WORK_DIR/links-manifest" \
+      || die "SELF_TEST=FAILED a link was not recorded as a link. Manifest: $(cat "$WORK_DIR/links-manifest")"
+    if grep -Fq 'pkg-link/' "$WORK_DIR/links-manifest"; then
+      die "SELF_TEST=FAILED the scan followed a link. Manifest: $(cat "$WORK_DIR/links-manifest")"
+    fi
+    printf 'x\n' > "$ST_LK_TARGET/added-behind-the-link.js"
+    [ "$(signature "$ST_LK")" = "$ST_L_BEFORE" ] \
+      || die "SELF_TEST=FAILED a change behind a link moved the manifest, so the scan followed it."
+    disarm_link "$ST_LK/pkg-link" \
+      || die "SELF_TEST=FAILED could not unlink the link fixture: $ST_LK/pkg-link"
+    printf 'SELF_TEST link_in_manifest=yes (recorded as "l pkg-link"; its target never enumerated, and a change behind it left the signature at %s)\n' "$ST_L_BEFORE"
+  else
+    ST_LINK_OK=0
+  fi
 
   # The HUSK detector, in a throwaway repo; never touches this one.
   #
@@ -927,15 +1094,61 @@ if [ "$SELF_TEST" -eq 1 ]; then
 
   printf 'SELF_TEST argument_contract=yes (a missing path, a non-directory and a bare name each exit 2 with REFUSED_BAD_ARGUMENT= and no tree examined; a well-formed path still clears the gate and is judged on its identity)\n'
 
-  if [ "$ST_LINK_OK" -eq 0 ]; then
+  # ---- AN INCOMPLETE SCAN IS REFUSED, NOT COMPARED ----
+  #
+  # A mayor node_modules holding a directory the scan cannot list. The
+  # signature must say INCOMPLETE rather than hash what it did see, and the
+  # run must refuse before it examines any target: CANARY_INCOMPLETE= present,
+  # and none of the per-target lines a run that carried on would print. The
+  # target is the ordinary directory from above, which a run that carried on
+  # would refuse too — so the exit code alone cannot tell the two apart, and
+  # the assertions are on the lines.
+  ST_INC="$WORK_DIR/incomplete-mayor"
+  ST_INC_LOCKED="$ST_INC/node_modules/locked"
+  mkdir -p "$ST_INC_LOCKED"
+  printf 'x\n' > "$ST_INC_LOCKED/beyond-the-scan.js"
+  ST_INC_OK=0
+  if make_unlistable "$ST_INC_LOCKED"; then
+    ST_INC_OK=1
+    ST_I_SIG=$(signature "$ST_INC/node_modules")
+    ST_I_RC=0
+    sh "$SCRIPT_SELF" --mayor-root "$ST_INC" "$ST_G_PLAIN" > "$ST_G_OUT" 2>&1 || ST_I_RC=$?
+    make_listable "$ST_INC_LOCKED"
+    [ "$ST_I_SIG" = INCOMPLETE ] \
+      || die "SELF_TEST=FAILED an unlistable directory still produced a signature ($ST_I_SIG), so a partial scan would be compared."
+    [ "$ST_I_RC" -eq 1 ] \
+      || die "SELF_TEST=FAILED an incomplete canary scan exited $ST_I_RC, want 1. Output: $(cat "$ST_G_OUT")"
+    grep -q '^CANARY_INCOMPLETE=' "$ST_G_OUT" \
+      || die "SELF_TEST=FAILED an incomplete canary scan was not refused by name. Output: $(cat "$ST_G_OUT")"
+    if grep -qE '^(DISARMED|NO_LINKS|REMOVED|REFUSED_UNREGISTERED|REFUSED_NOT_A_HUSK)=' "$ST_G_OUT"; then
+      die "SELF_TEST=FAILED an incomplete canary scan went on to examine a target. Output: $(cat "$ST_G_OUT")"
+    fi
+    if [ "$ST_G_LINK_OK" -eq 1 ]; then
+      [ -L "$ST_G_LINK" ] \
+        || die "SELF_TEST=FAILED a run refused on an incomplete scan removed a link: $ST_G_LINK"
+    fi
+    printf 'SELF_TEST incomplete_scan=refused (signature INCOMPLETE; the run exited 1 with CANARY_INCOMPLETE= before examining any target)\n'
+  else
+    make_listable "$ST_INC_LOCKED"
+    printf 'SELF_TEST incomplete_scan=SKIPPED (no directory could be made unlistable here: running as root, or no ACL tool)\n'
+  fi
+
+  if [ "$ST_LINK_OK" -eq 0 ] || [ "$ST_INC_OK" -eq 0 ]; then
     # The verdict CI greps for is withheld: everything else passed, but a run
-    # that could not test the disarm has not proven the thing this script
-    # exists for.
-    printf 'SELF_TEST=SKIPPED the disarm went untested on this platform (no link could be created); every other assertion passed.\n'
+    # that could not test the disarm, or the refusal of an incomplete scan,
+    # has not proven the thing this script exists for.
+    ST_UNTESTED=""
+    if [ "$ST_LINK_OK" -eq 0 ]; then
+      ST_UNTESTED="the link disarm and the link-in-manifest check (no link could be created)"
+    fi
+    if [ "$ST_INC_OK" -eq 0 ]; then
+      ST_UNTESTED="${ST_UNTESTED:+$ST_UNTESTED; }the incomplete-scan refusal (no directory could be made unlistable)"
+    fi
+    printf 'SELF_TEST=SKIPPED untested on this platform: %s; every other assertion passed.\n' "$ST_UNTESTED"
     exit 0
   fi
 
-  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the canary caught nested-only loss, a husk is not mistaken for a clean tree, an unidentified directory is refused rather than condemned, and a bad argument is refused before any tree is examined.\n' "$ST_AFTER"
+  printf 'SELF_TEST=PASSED link unlinked with its target intact (%s), the manifest caught nested-only loss and a same-count swap, kept a hidden entry, recorded a link without following it, an incomplete scan is refused, a husk is not mistaken for a clean tree, an unidentified directory is refused rather than condemned, and a bad argument is refused before any tree is examined.\n' "$ST_AFTER"
   exit 0
 fi
 
@@ -1020,25 +1233,49 @@ printf 'MAYOR_ROOT=%s\n' "$MAYOR_ROOT"
 
 # ---------------------------------------------------------------------------
 # CANARY, captured at runtime — never a committed number, which would rot.
-# Every REAL (non-link) node_modules in the mayor checkout, with its health
-# signature. A junction we failed to detect still shows up here as a drop.
+# Every REAL (non-link) node_modules in the mayor checkout, with its
+# signature, and its manifest kept for the re-check. A junction we failed to
+# detect still shows up here as a manifest that moved.
+#
+# Each CANARY_FILE line is `<path> TAB <manifest file> TAB <signature>`.
 # ---------------------------------------------------------------------------
 CANARY_FILE="$WORK_DIR/canary"
 : > "$CANARY_FILE"
 
 find_node_modules "$MAYOR_ROOT" > "$WORK_DIR/mayor-nm"
+CANARY_N=0
 while IFS= read -r nm; do
   [ -n "$nm" ] || continue
   if [ -L "$nm" ]; then
     continue   # a link in the MAYOR tree is not a canary
   fi
-  printf '%s\t%s\n' "$(normalize_path "$nm")" "$(signature "$nm")" >> "$CANARY_FILE"
+  CANARY_N=$((CANARY_N + 1))
+  CANARY_MF="$WORK_DIR/manifest-$CANARY_N"
+  printf '%s\t%s\t%s\n' "$(normalize_path "$nm")" "$CANARY_MF" "$(signature "$nm" "$CANARY_MF")" >> "$CANARY_FILE"
 done < "$WORK_DIR/mayor-nm"
 
+# A BEFORE scan that did not complete leaves nothing to compare against, so
+# the run refuses here — before any link is disarmed or any tree removed.
+CANARY_INCOMPLETE=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
-  printf 'CANARY_BEFORE=%s %s\n' "${line%%	*}" "${line##*	}"
+  nm="${line%%	*}"
+  rest="${line#*	}"
+  mf="${rest%%	*}"
+  before="${rest#*	}"
+  printf 'CANARY_BEFORE=%s %s\n' "$nm" "$before"
+  if [ "$before" = INCOMPLETE ]; then
+    CANARY_INCOMPLETE=1
+    printf 'CANARY_INCOMPLETE=%s %s\n' "$nm" "$(head -n 1 "$mf.err" 2>/dev/null)" >&2
+  fi
 done < "$CANARY_FILE"
+
+if [ "$CANARY_INCOMPLETE" -eq 1 ]; then
+  printf 'A node_modules in the MAYOR checkout could not be scanned completely, so there\n' >&2
+  printf 'is no manifest to compare the removal against and no verdict to give.\n' >&2
+  printf 'NOTHING WAS DISARMED OR REMOVED. Fix what the scan reported, then re-run.\n' >&2
+  exit 1
+fi
 
 # The registered-worktree roster. Every entry goes through normalize_path,
 # exactly as the caller's argument does — NOT a bare `tr` of git's output.
@@ -1176,27 +1413,45 @@ while IFS= read -r raw_target; do
 done < "$TARGETS_FILE"
 
 # ---------------------------------------------------------------------------
-# Re-check the canary. A drop means something deleted through a link.
+# Re-check the canary. A moved manifest means something wrote through a link.
+#
+# The whole signature is compared, and that is the manifest's verdict: its
+# counts are read off the same manifest, so they move only when it does.
 # ---------------------------------------------------------------------------
 CANARY_BAD=0
+CANARY_NO_VERDICT=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
   nm="${line%%	*}"
-  before="${line##*	}"
-  after=$(signature "$nm")
+  rest="${line#*	}"
+  mf="${rest%%	*}"
+  before="${rest#*	}"
+  after=$(signature "$nm" "$mf.after")
   printf 'CANARY_AFTER=%s %s\n' "$nm" "$after"
-  if [ "$after" != "$before" ]; then
+  if [ "$after" = INCOMPLETE ]; then
+    CANARY_NO_VERDICT=1
+    printf 'CANARY_INCOMPLETE=%s %s\n' "$nm" "$(head -n 1 "$mf.after.err" 2>/dev/null)" >&2
+  elif [ "$after" != "$before" ]; then
     CANARY_BAD=1
-    printf 'CANARY_FAILED: %s went from %s to %s (entries/files/sentinels).\n' "$nm" "$before" "$after" >&2
+    printf 'CANARY_FAILED: %s went from %s to %s.\n' "$nm" "$before" "$after" >&2
+    manifest_delta "$mf" "$mf.after" >&2
   fi
 done < "$CANARY_FILE"
 
 if [ "$CANARY_BAD" -eq 1 ]; then
   printf '\n' >&2
-  printf 'A node_modules in the MAYOR checkout lost entries during this removal:\n' >&2
-  printf 'something deleted THROUGH a link that was not disarmed. Recover with\n' >&2
+  printf 'A node_modules in the MAYOR checkout changed during this removal:\n' >&2
+  printf 'something wrote THROUGH a link that was not disarmed. Recover with\n' >&2
   printf '  npm ci --prefix implementation\n' >&2
-  printf 'run from %s, then re-check the counts before dispatching anything.\n' "$MAYOR_ROOT" >&2
+  printf 'run from %s, then re-check it before dispatching anything.\n' "$MAYOR_ROOT" >&2
+  exit 1
+fi
+
+if [ "$CANARY_NO_VERDICT" -eq 1 ]; then
+  printf '\n' >&2
+  printf 'The AFTER scan of a node_modules in the MAYOR checkout did not complete, so\n' >&2
+  printf 'this run has NO VERDICT on whether the removal preserved it. Check it by hand\n' >&2
+  printf 'before dispatching anything.\n' >&2
   exit 1
 fi
 
