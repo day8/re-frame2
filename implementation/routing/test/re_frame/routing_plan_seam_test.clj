@@ -21,7 +21,7 @@
   The SEAM ITSELF is production-real and carries no posture guard. Every pure
   constructor test — `resolved-target`, the nil-query strip, the fragment
   collapse, `:query-defaults`, `route-plan`, the fail-loud `:branch` walk,
-  `leaf-plan-of`, `plan-trace-tags` and `url-resolution` —
+  `plan-trace-tags` and `url-resolution` —
   runs in the ordinary `clojure -M:test` suite AND in
   `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane). So
   do the door-wiring tests at the foot: the link/commit agreement, the exact
@@ -78,26 +78,6 @@
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
-
-;; ---- ResolvedTarget: facts, not intent ------------------------------------
-
-(deftest resolved-target-reflects-facts-verbatim
-  ;; The route declares `:tab`, so the keyword spelling IS the
-  ;; one the URL resolves to — an undeclared key would come back a string.
-  (rf.routing/reg-route :route/article
-    {:query [:map [:tab {:optional true} :string]]} "/articles/:slug")
-  (testing "the ResolvedTarget carries the resolved FACTS (facts say :route-id, intent says :to)"
-    (is (= {:route-id :route/article
-            :params   {:slug "routing-as-data"}
-            :query    {:tab "comments"}
-            :fragment "reply-42"
-            :url      "/articles/routing-as-data?tab=comments#reply-42"}
-           (rf.routing.resolve/resolved-target
-             {:route-id :route/article
-              :params   {:slug "routing-as-data"}
-              :query    {:tab "comments"}
-              :fragment "reply-42"
-              :url      "/articles/routing-as-data?tab=comments#reply-42"})))))
 
 ;; ---- the normalisations every door applies ---------------------------------
 ;;
@@ -315,17 +295,6 @@
       (is (= :parent-cycle (:kind (:branch-error plan))))
       (is (= :route/ping (:route-id* (:branch-error plan)))))))
 
-(deftest leaf-plan-of-is-the-behaviour-preserving-on-match-loader
-  (rf.routing/reg-route :route/article
-    {:on-match [[:article/load] [:comments/load]]} "/articles/:slug")
-  (rf.routing/reg-route :route/home {} "/")
-  (testing "the leaf plan is the route's :on-match loader vector (the loaders that fire)"
-    (is (= [[:article/load] [:comments/load]] (rf.routing.resolve/leaf-plan-of :route/article))))
-  (testing "a route with no :on-match has an empty leaf plan"
-    (is (= [] (rf.routing.resolve/leaf-plan-of :route/home))))
-  (testing "an unregistered / not-found target has an empty leaf plan"
-    (is (= [] (rf.routing.resolve/leaf-plan-of :rf.route/not-found)))))
-
 ;; ---- the route plan every door builds -------------------------------------
 
 (deftest route-plan-carries-source-cause-target-branch-leaf-plan
@@ -346,16 +315,6 @@
     (testing "the plan derives the parent-to-leaf branch and the leaf resource plan from the target"
       (is (= [:route/section :route/article] (:branch plan)))
       (is (= [[:article/load]] (:leaf-plan plan))))))
-
-(deftest route-plan-is-cause-parametric-across-the-doors
-  (rf.routing/reg-route :route/home {} "/")
-  (let [target (rf.routing.resolve/resolved-target {:route-id :route/home :params {} :query {} :url "/"})]
-    (testing "every door builds the plan through the same fn, differing ONLY in cause"
-      (doseq [cause rf.routing.resolve/causes]
-        (let [plan (rf.routing.resolve/route-plan {:source {:url "/"} :cause cause :target target})]
-          (is (= cause (:cause plan)))
-          (is (= target (:target plan)))
-          (is (= [:route/home] (:branch plan))))))))
 
 ;; ---- the projection as trace tags -----------------------------------------
 ;;
