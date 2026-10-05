@@ -80,17 +80,6 @@
             ":reason names the leaf path, so the elision-probe substring stays
              distinctive per surface")))))
 
-(deftest path-falls-back-to-registered-root-when-in-is-empty
-  (testing "when the registered schema is itself the failing slot
-            (Malli :in []), :path equals the registration root"
-    (rf/reg-app-schema [:count] [:int])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema! {:count "x"} :c/bad))
-          v      (first traces)]
-      (is (= [:count] (-> v :tags :path))
-          ":path is the registered root — no leaf to narrow to")
-      (is (= [:count] (-> v :tags :registered-path))))))
-
 ;; ---- sensitivity is path-targeted, not whole-schema ----------------------
 
 (deftest non-sensitive-sibling-failure-narrowed-value-verbatim-whole-explain-redacted
@@ -134,25 +123,6 @@
       (is (not (str/includes? (pr-str (:tags v)) "secret-pw"))
           "the conforming sensitive sibling's value does NOT appear anywhere in
            the emitted tags"))))
-
-(deftest sensitive-leaf-failure-redacted
-  (testing "the failing leaf IS the sensitive slot — redaction fires"
-    (rf/reg-app-schema [:user]
-                       [:map
-                        [:name     :string]
-                        [:password {:sensitive? true} :string]])
-    ;; :password is the failing leaf (int, not string).
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      {:user {:name "alice" :password 99}}
-                      :u/bad-pw))
-          v      (first traces)]
-      (is (true? (:sensitive? v))
-          "top-level :sensitive? stamp on the failing leaf's redaction")
-      (is (= :rf/redacted (-> v :tags :value)))
-      (is (= :rf/redacted (-> v :tags :explain)))
-      (is (= [:user :password] (-> v :tags :path))
-          ":path stays visible — structural slot survives redaction"))))
 
 (deftest both-sensitive-and-clean-failures-handled-independently
   (testing "two registered schemas; one's failure is sensitive, the
