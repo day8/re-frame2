@@ -1,21 +1,17 @@
 (ns re-frame.route-link-seam-cljs-test
-  "The substrate-neutral link seam — `rf.routing.link/link-model` +
-  `rf.routing.link/activate-link!`. These are the two routing-owned late-bound hooks a
-  view artefact's own route-link consumes so that artefact
-  reimplements NONE of the routing link law.
+  "The substrate-neutral link seam — `rf.routing.link/link-model`, one of the
+  two routing-owned late-bound hooks a view artefact's own route-link consumes
+  so that artefact reimplements NONE of the routing link law.
 
   `link-model` (pure) is asserted for href synthesis, dispatch-payload shape,
-  and native-anchor detection; `activate-link!` is asserted for the plain left
-  click (`.preventDefault` + dispatch to the CAPTURED render frame stamped
-  `:source :router`). The rest of the click decision (caller `:on-click` first,
-  modifier / native deferral) is pinned through the `:route/link` view in
-  route_link_cljs_test, whose `:on-click` calls `activate-link!` itself; this
-  file pins the SEAM a view artefact's route-link rides.
+  and native-anchor detection. The other hook, `activate-link!` (the click
+  decision: caller `:on-click` first, modifier / native deferral, dispatch to
+  the CAPTURED render frame stamped `:source :router`), is pinned through the
+  `:route/link` view in route_link_cljs_test, whose `:on-click` calls it.
 
   Per Spec 012 §Linking from views."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.trace.tooling :as rf.trace.tooling]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.link :as rf.routing.link]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -25,40 +21,6 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
      :init-fn rf.routing/reset-counters!}))
-
-(defn- mk-event
-  [{:keys [button meta ctrl shift alt default-prevented]
-    :or {button 0 meta false ctrl false shift false alt false
-         default-prevented false}}]
-  (let [o #js {:button button :metaKey meta :ctrlKey ctrl :shiftKey shift
-               :altKey alt :defaultPrevented default-prevented}]
-    (set! (.-preventDefault o) (fn [] (set! (.-defaultPrevented o) true)))
-    o))
-
-(defn- activate!
-  "Run `rf.routing.link/activate-link!` against a synthetic event; capture whether a
-  `:rf.route/url-requested` was dispatched, its `:source` tag and target
-  `:frame`, and whether preventDefault fired."
-  [{:keys [event on-click render-frame payload native?]}]
-  (let [dispatched (atom nil)
-        source     (atom nil)
-        frame-tag  (atom nil)
-        cb-key     (keyword (gensym "seam-capture-"))]
-    (rf.trace.tooling/register-listener!
-      cb-key
-      (fn [ev]
-        (when (and (= :rf.event/dispatched (:operation ev))
-                   (vector? (-> ev :tags :rf.event/v))
-                   (= :rf.route/url-requested (-> ev :tags :rf.event/v first)))
-          (reset! dispatched (-> ev :tags :rf.event/v))
-          (reset! source (:source ev))
-          ;; :frame rides on :tags (only :source is hoisted top-level, per Spec 009)
-          (reset! frame-tag (-> ev :tags :frame)))))
-    (try
-      (rf.routing.link/activate-link! event on-click render-frame payload native?)
-      {:dispatched @dispatched :source @source :frame @frame-tag
-       :prevented? (.-defaultPrevented event)}
-      (finally (rf.trace.tooling/unregister-listener! cb-key)))))
 
 ;; ---------------------------------------------------------------------------
 ;; link-model — the pure routing calculation
@@ -123,22 +85,4 @@
   (testing "target=_self / no native attrs stay interceptable"
     (is (false? (:native? (rf.routing.link/link-model {:to :route/cart :target "_self"} nil))))
     (is (false? (:native? (rf.routing.link/link-model {:to :route/cart} nil))))))
-
-;; ---------------------------------------------------------------------------
-;; activate-link! — the router-attributed click decision
-;; ---------------------------------------------------------------------------
-
-(deftest activate-plain-left-click-dispatches-to-render-frame
-  (rf/reg-route :route/cart {} "/cart")
-  (rf/make-frame {:id :frame/main :initial-events [[:rf/set-db {}]]})
-  (let [model   (rf.routing.link/link-model {:to :route/cart} :frame/main)
-        {:keys [dispatched source frame prevented?]}
-        (activate! {:event (mk-event {}) :on-click nil
-                    :render-frame :frame/main
-                    :payload (:payload model) :native? (:native? model)})]
-    (is prevented? "plain left-click prevents default")
-    (is (= [:rf.route/url-requested {:url "/cart"}] dispatched))
-    (is (= :router source) "the click stamps :source :router")
-    (is (= :frame/main frame)
-        "dispatch targets the captured render frame verbatim (committed-frame target)")))
 
