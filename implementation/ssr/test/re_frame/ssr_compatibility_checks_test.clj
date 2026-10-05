@@ -5,7 +5,7 @@
   app-db. Each fx is best-effort — a mismatch emits a structured warning
   trace; the hydration proceeds (degraded-but-running, never crash).
 
-  Coverage (2 per fx):
+  Coverage:
 
     - matching values → silent (no mismatch trace fires)
     - mismatching values → :rf.ssr/version-mismatch / :rf.ssr/schema-digest-
@@ -111,119 +111,83 @@
              the drain was never halted")))))
 
 ;; ===========================================================================
-;; :rf.ssr/check-version
+;; :rf.ssr/check-version and :rf.ssr/check-schema-digest
 ;; ===========================================================================
 ;;
-;; Per Spec 011 §The :rf/hydrate event: the fx receives a scalar (the
-;; server's version) per the reference handler, OR a map {:expected ... :actual ...}
+;; Per Spec 011 §The :rf/hydrate event: each fx receives a scalar (the
+;; server's value) per the reference handler, OR a map {:expected ... :actual ...}
 ;; for explicit comparisons.
-;; Matching → silent; mismatching → :rf.ssr/version-mismatch warning trace.
+;; Matching → silent; mismatching → a :rf.ssr/version-mismatch /
+;; :rf.ssr/schema-digest-mismatch warning trace.
 
-(deftest check-version-matching-is-silent
-  (testing "matching expected + actual → no :rf.ssr/version-mismatch trace"
-    (rf/reg-event ::probe-check-version-match
-      {:platforms #{:client}}
-      (fn [_ _]
-        ;; :rf/version is canonically an INTEGER pattern-
-        ;; protocol version (Spec-Schemas §:rf/hydration-payload), so the
-        ;; check-version probes compare integers, not semver strings.
-        {:fx [[:rf.ssr/check-version {:expected 1 :actual 1}]]}))
+(deftest matching-checks-are-silent
+  (testing "matching expected + actual → neither a mismatch nor a skipped trace"
+    (doseq [[label fx mismatch-op]
+            [;; :rf/version is canonically an INTEGER pattern-protocol version
+             ;; (Spec-Schemas §:rf/hydration-payload), so the check-version
+             ;; probes compare integers, not semver strings.
+             ["check-version, map form"
+              [:rf.ssr/check-version {:expected 1 :actual 1}]
+              :rf.ssr/version-mismatch]
+             ["check-schema-digest, map form"
+              [:rf.ssr/check-schema-digest {:expected "sha256:deadbeefcafef00d"
+                                            :actual   "sha256:deadbeefcafef00d"}]
+              :rf.ssr/schema-digest-mismatch]
+             ;; The version-side scalar resolves its client-side "actual" from
+             ;; the SSR artefact's compiled-in constant, not a host hook, so a
+             ;; scalar carrying the value the server stamped compares equal and
+             ;; there is no no-hook "skipped" path.
+             ["check-version, scalar equal to the SSR constant"
+              [:rf.ssr/check-version rf.ssr.payload-policy/pattern-protocol-version]
+              :rf.ssr/version-mismatch]]]
+      (rf/reg-event ::probe-check-match
+        {:platforms #{:client}}
+        (fn [_ _] {:fx [fx]}))
+      (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [::probe-check-match] {:frame f})
+          ;; Dev-instrumentation arm (see ns docstring). BOTH of
+          ;; these are negatives over the trace ring, and both pass vacuously
+          ;; under the gate, where the ring is empty whatever the fx did.
+          (when rf.interop/debug-enabled?
+            (is (empty? (traces-of @traces mismatch-op))
+                (str label " — matching values → no mismatch trace"))
+            (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
+                (str label " — both sides resolved → no skipped trace either"))))))))
 
-    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [::probe-check-version-match] {:frame f})
-        ;; Dev-instrumentation arm (see ns docstring). BOTH of
-        ;; these are negatives over the trace ring, and both pass vacuously
-        ;; under the gate, where the ring is empty whatever the fx did.
-        (when rf.interop/debug-enabled?
-          (is (empty? (traces-of @traces :rf.ssr/version-mismatch))
-              "matching version → no mismatch trace")
-          (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
-              "both sides supplied → no skipped trace either"))))))
-
-(deftest check-version-mismatch-emits-trace
-  (testing "differing expected + actual → :rf.ssr/version-mismatch warning trace"
-    (rf/reg-event ::probe-check-version-mismatch
-      {:platforms #{:client}}
-      (fn [_ _]
-        {:fx [[:rf.ssr/check-version {:expected 1 :actual 2}]]}))
-
-    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [::probe-check-version-mismatch] {:frame f})
-        ;; Dev-instrumentation arm (see ns docstring). The trace
-        ;; is this fx's ONLY output; its production behaviour — do not throw,
-        ;; do not halt the drain — is pinned by
-        ;; `compatibility-checks-are-best-effort-and-never-halt-the-drain`.
-        (when rf.interop/debug-enabled?
-          (let [hits (traces-of @traces :rf.ssr/version-mismatch)]
-            (is (= 1 (count hits))
-                (str "expected one :rf.ssr/version-mismatch trace; saw: "
-                     (pr-str (mapv :operation @traces))))
-            (when (seq hits)
-              (let [ev (first hits)]
-                (is (= :warning              (:op-type ev)))
-                (is (= 1                     (-> ev :tags :expected)))
-                (is (= 2                     (-> ev :tags :actual)))
-                (is (= :warned-and-applied   (:recovery ev))
-                    ":recovery rides at top-level per Spec 009")))))))))
-
-;; ===========================================================================
-;; :rf.ssr/check-schema-digest
-;; ===========================================================================
-;;
-;; Same shape as version-check. Matching → silent; mismatch → warning trace.
-;; Scalar form is what the reference :rf/hydrate handler dispatches (the
-;; payload's :rf/schema-digest); the fx looks up the client-side digest
-;; via the `:schemas/app-schemas-digest` late-bind hook. When the schemas
-;; artefact isn't on the classpath the hook is absent and the fx emits
-;; :rf.ssr/compatibility-check-skipped (covered by the scalar-form path
-;; running under the real schemas artefact below).
-
-(deftest check-schema-digest-matching-is-silent
-  (testing "matching expected + actual → no :rf.ssr/schema-digest-mismatch trace"
-    (rf/reg-event ::probe-check-digest-match
-      {:platforms #{:client}}
-      (fn [_ _]
-        {:fx [[:rf.ssr/check-schema-digest
-               {:expected "sha256:deadbeefcafef00d"
-                :actual   "sha256:deadbeefcafef00d"}]]}))
-
-    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [::probe-check-digest-match] {:frame f})
-        ;; Dev-instrumentation arm (see ns docstring). Vacuous
-        ;; under the gate — both are negatives over an empty ring.
-        (when rf.interop/debug-enabled?
-          (is (empty? (traces-of @traces :rf.ssr/schema-digest-mismatch))
-              "matching digest → no mismatch trace")
-          (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
-              "both sides supplied → no skipped trace either"))))))
-
-(deftest check-schema-digest-mismatch-emits-trace
-  (testing "differing expected + actual → :rf.ssr/schema-digest-mismatch warning trace"
-    (rf/reg-event ::probe-check-digest-mismatch
-      {:platforms #{:client}}
-      (fn [_ _]
-        {:fx [[:rf.ssr/check-schema-digest
-               {:expected "sha256:deadbeefcafef00d"
-                :actual   "sha256:0000000000000000"}]]}))
-
-    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [::probe-check-digest-mismatch] {:frame f})
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (let [hits (traces-of @traces :rf.ssr/schema-digest-mismatch)]
-            (is (= 1 (count hits))
-                (str "expected one :rf.ssr/schema-digest-mismatch trace; saw: "
-                     (pr-str (mapv :operation @traces))))
-            (when (seq hits)
-              (let [ev (first hits)]
-                (is (= :warning                              (:op-type ev)))
-                (is (= "sha256:deadbeefcafef00d"             (-> ev :tags :expected)))
-                (is (= "sha256:0000000000000000"             (-> ev :tags :actual)))
-                (is (= :warned-and-applied                   (:recovery ev)))))))))))
+(deftest mismatching-map-checks-emit-a-warning-trace
+  (testing "differing expected + actual → one warning trace carrying both"
+    (doseq [[label fx op expected actual]
+            [["check-version"
+              [:rf.ssr/check-version {:expected 1 :actual 2}]
+              :rf.ssr/version-mismatch 1 2]
+             ["check-schema-digest"
+              [:rf.ssr/check-schema-digest {:expected "sha256:deadbeefcafef00d"
+                                            :actual   "sha256:0000000000000000"}]
+              :rf.ssr/schema-digest-mismatch
+              "sha256:deadbeefcafef00d" "sha256:0000000000000000"]]]
+      (rf/reg-event ::probe-check-mismatch
+        {:platforms #{:client}}
+        (fn [_ _] {:fx [fx]}))
+      (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
+        (with-trace-recorder! [traces]
+          (rf/dispatch-sync [::probe-check-mismatch] {:frame f})
+          ;; Dev-instrumentation arm (see ns docstring). The trace
+          ;; is this fx's ONLY output; its production behaviour — do not throw,
+          ;; do not halt the drain — is pinned by
+          ;; `compatibility-checks-are-best-effort-and-never-halt-the-drain`.
+          (when rf.interop/debug-enabled?
+            (let [hits (traces-of @traces op)]
+              (is (= 1 (count hits))
+                  (str label " — expected one " op " trace; saw: "
+                       (pr-str (mapv :operation @traces))))
+              (when (seq hits)
+                (let [ev (first hits)]
+                  (is (= :warning (:op-type ev)) label)
+                  (is (= expected (-> ev :tags :expected)) label)
+                  (is (= actual (-> ev :tags :actual)) label)
+                  (is (= :warned-and-applied (:recovery ev))
+                      (str label " — :recovery rides at top-level per Spec 009")))))))))))
 
 ;; ===========================================================================
 ;; SCALAR-form paths
@@ -241,29 +205,6 @@
 ;; `:rf.ssr/compatibility-check-skipped` when the schemas artefact is absent
 ;; (covered below). Pin both paths so a regression that silently drops a
 ;; trace is caught.
-
-(deftest check-version-scalar-matches-ssr-constant
-  (testing "scalar form equal to the SSR-owned pattern-protocol constant → silent match (no skipped, no mismatch)"
-    ;; The version-side scalar resolves the client-side "actual"
-    ;; from the SSR artefact's compiled-in constant, not a host hook. A
-    ;; scalar carrying the same value the server stamped (= the constant)
-    ;; compares equal and is silent — there is no no-hook "skipped" path
-    ;; (the check is real by default).
-    (rf/reg-event ::probe-check-version-scalar-matches
-      {:platforms #{:client}}
-      (fn [_ _]
-        {:fx [[:rf.ssr/check-version rf.ssr.payload-policy/pattern-protocol-version]]}))
-
-    (let [f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [::probe-check-version-scalar-matches] {:frame f})
-        ;; Dev-instrumentation arm (see ns docstring). Vacuous
-        ;; under the gate — both are negatives over an empty ring.
-        (when rf.interop/debug-enabled?
-          (is (empty? (traces-of @traces :rf.ssr/compatibility-check-skipped))
-              "version scalar resolves via the SSR constant → never skipped")
-          (is (empty? (traces-of @traces :rf.ssr/version-mismatch))
-              "scalar == the SSR constant → silent match"))))))
 
 (deftest check-version-scalar-differs-from-ssr-constant-emits-mismatch
   (testing "scalar form differing from the SSR-owned constant → :rf.ssr/version-mismatch"
