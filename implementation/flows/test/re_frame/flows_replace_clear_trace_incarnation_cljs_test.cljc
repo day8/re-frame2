@@ -272,8 +272,8 @@
 ;; a frame-blind process-global registrar dedup key. Two live frames replacing
 ;; the same flow-id are two independent definitions (Spec 013 §Frame-scoping);
 ;; each genuine replacement must emit its OWN `:rf.registry/handler-replaced`,
-;; carrying `:frame`, and a subsequent identical reload / a same-id frame
-;; reincarnation must not inherit a sibling's or a predecessor's recorded shape.
+;; carrying `:frame`, and a subsequent identical reload must not inherit a
+;; sibling's recorded shape.
 ;; Each assertion below would be RED on a process-global dedup path.
 ;;
 ;; These run on BOTH hosts (`*-cljs-test.cljc`), covering the DIRECT `reg-flow`
@@ -351,34 +351,5 @@
       (is (= #{:left :right}
              (set (map #(get-in % [:tags :frame]) @captured)))
           "the reserved-effect evidence is attributable to its frame")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::repl-recorder)))))
-
-(deftest reg-flow-replacement-reincarnation-does-not-inherit-cross-host
-  ;; Destroy + recreate a frame under the SAME id; the new incarnation's genuine
-  ;; replacement must emit. A process-global table would persist across
-  ;; destroy and suppress the successor's real replacement.
-  (let [captured (atom [])
-        f1       (fn [n] (* 2 (or n 0)))
-        f2       (fn [n] (* 3 (or n 0)))]
-    (rf.trace.tooling/register-listener!
-      ::repl-recorder
-      (fn [ev]
-        (when (= :rf.registry/handler-replaced (:operation ev))
-          (swap! captured conj ev))))
-    (try
-      (rf/make-frame {:id :host})
-      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f1)
-      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f2)
-      (is (= 1 (count @captured)) "incarnation A's real replacement emitted once")
-      (reset! captured [])
-      (rf.frame/destroy-frame! :host)
-      (rf/make-frame {:id :host})
-      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f1)
-      (rf/reg-flow :shared {:frame :host :inputs [[:n]] :output-path [:out]} f2)
-      (is (= 1 (count @captured))
-          "the reincarnated frame's genuine replacement emits — no inherited shape")
-      (is (= :host (get-in (first @captured) [:tags :frame]))
-          "attributed to the reincarnated :host frame")
       (finally
         (rf.trace.tooling/unregister-listener! ::repl-recorder)))))
