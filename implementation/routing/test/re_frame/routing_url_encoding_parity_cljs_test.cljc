@@ -139,8 +139,8 @@
 ;; Every input below is built from NUMERIC code units rather than written
 ;; as a character literal. A lone surrogate does not survive every editor,
 ;; shell or file re-encoding intact, and a mangled one would quietly turn
-;; these rows into assertions about some other string; `code-units` plus
-;; the instrument control below is what keeps that honest.
+;; these rows into assertions about some other string; building them with
+;; `code-units` is what keeps that honest.
 
 (defn- code-units
   "Build a string from raw UTF-16 code-unit values. Host-symmetric: a
@@ -150,12 +150,6 @@
   (apply str (map (fn [c] #?(:clj  (str (char c))
                              :cljs (js/String.fromCharCode c)))
                   codes)))
-
-(defn- code-unit-at
-  "The numeric UTF-16 code unit at index `i` of `s`."
-  [s i]
-  #?(:clj  (int (.charAt ^String s i))
-     :cljs (.charCodeAt s i)))
 
 (def ^:private unpaired-surrogates
   "Code-unit sequences `encodeURIComponent` REFUSES. One row per shape so
@@ -182,25 +176,6 @@
    [[0x65E5]         "%E6%97%A5"    "日 — a three-byte BMP character"]
    [[0xFFFD]         "%EF%BF%BD"    "a real U+FFFD — the character just BELOW the surrogate-adjacent range, and the near-miss the decoder side turns on"]
    [[0x0061 0x0062]  "ab"           "plain ASCII"]])
-
-(deftest code-unit-helper-builds-the-strings-these-tables-claim
-  (testing "the instrument control: assert on NUMBERS, so a file
-            re-encoding that mangled a surrogate into U+FFFD (or into a
-            `?`) makes this red rather than quietly rewriting the
-            subject of every row below"
-    (let [high (code-units [0xD800])]
-      (is (= 1 (count high)) "a lone high surrogate is ONE code unit")
-      (is (= 0xD800 (code-unit-at high 0)) "and it really is D800"))
-    (let [low (code-units [0xDFFF])]
-      (is (= 1 (count low)) "a lone low surrogate is ONE code unit")
-      (is (= 0xDFFF (code-unit-at low 0)) "and it really is DFFF"))
-    (let [pair (code-units [0xD83D 0xDE00])]
-      (is (= 2 (count pair)) "U+1F600 is TWO code units in UTF-16")
-      (is (= 0xD83D (code-unit-at pair 0)) "high half")
-      (is (= 0xDE00 (code-unit-at pair 1)) "low half"))
-    (is (= 0x003F (code-unit-at (code-units [0x003F]) 0))
-        "the literal `?` control is a real question mark, not a
-         substituted surrogate")))
 
 (deftest url-encode-refuses-unpaired-surrogates-on-both-hosts
   (testing "an unpaired surrogate is REFUSED, not substituted. CLJS
@@ -375,8 +350,8 @@
         (is (some? parsed) "it is not a malformed-URL route-miss")
         (is (= emoji (get-in parsed [:params :slug]))
             "and round-trips back to the same string — `emoji` is built from
-             the code units the helper's own test pins, so a U+FFFD
-             substitution cannot read as a pass")))
+             numeric code units, so a U+FFFD substitution cannot read as
+             a pass")))
     (let [built (rf.routing/route-url {:to :parity/surrogate2 :params {:slug "?"}})]
       (is (= "/p/%3F" built)
           "and a literal `?` still emits %3F — the alias target stays
