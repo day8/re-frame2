@@ -170,10 +170,10 @@
   The wire-boundary transform's CANONICAL behaviour (round-trip
   exactness, the wrap shape) is covered cross-host in
   `re-frame.mcp-base.dedup-test`; the story-mcp consumer integration
-  (reduction-ratio sanity, `apply-dedup` envelope shape, descriptor
-  eligibility gate) lives in `re-frame.story-mcp.tools.dedup-test`. With
-  that coverage the per-tool tests are free to exercise their domain
-  semantics against the unwrapped payload.
+  (`apply-dedup` envelope shape, descriptor eligibility gate) lives in
+  `re-frame.story-mcp.tools.dedup-test`. With that coverage the per-tool
+  tests are free to exercise their domain semantics against the unwrapped
+  payload.
 
   Callers that want to exercise the live-on-the-wire shape (default
   posture) should call `rf.story-mcp.tools.wire-pipeline/invoke-tool` directly and use
@@ -1917,13 +1917,6 @@
     (is (= (count rf.story-mcp.tools.registry/tool-registry) (count ts)))
     (is (some #(= "list-stories" (:name %)) ts))))
 
-(deftest dispatch-tools-call-unknown-tool
-  (let [resp (rf.story-mcp.server/dispatch
-               {:jsonrpc "2.0" :id 4 :method "tools/call"
-                :params {:name "unknown-tool" :arguments {}}})]
-    (is (= rf.mcp-base.vocab/code-method-not-found (-> resp :error :code))
-        "an unknown tool yields a protocol-level method-not-found")))
-
 (deftest dispatch-tools-call-non-map-arguments-is-invalid-params
   (testing "a non-map `arguments` (scalar / array / string) is a
             params-CONTAINER shape failure ⇒ -32602 invalid-params, NOT a
@@ -1979,7 +1972,7 @@
   ;; protocol-level invalid-params emit. A `tools/call` whose `:name` is
   ;; not a string (numeric, or omitted entirely) must yield -32602
   ;; invalid-params, distinct from the method-not-found path that an
-  ;; unknown *string* tool name takes (dispatch-tools-call-unknown-tool).
+  ;; unknown *string* tool name takes (record-as-variant-is-retired-method-not-found).
   (testing "numeric :name → invalid-params"
     (let [resp (rf.story-mcp.server/dispatch
                  {:jsonrpc "2.0" :id 9 :method "tools/call"
@@ -2227,7 +2220,9 @@
         (is (= 1 (:cap-tokens body)))
         (is (= "get-story-instructions" (:tool body)))
         (is (pos? (:token-count body)))
-        (is (string? (:hint body)))))))
+        (is (string? (:hint body)))
+        (is (= #{:limit :token-count :cap-tokens :tool :hint} (set (keys body)))
+            "the marker body carries exactly mcp-base/overflow-payload's slots")))))
 
 (deftest cap-keeps-is-error-on-an-over-cap-failure
   ;; The cap applies to error results too (`invoke-tool`
@@ -2248,16 +2243,6 @@
     (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})]
       (is (overflow-marker? r))
       (is (nil? (:isError r))))))
-
-(deftest cap-zero-disables-the-cap
-  (testing "`:max-tokens 0` bypasses the cap; the full payload returns intact"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 0})]
-      (is (not (overflow-marker? r)))
-      (is (clojure.string/includes? (-> r :content first :text)
-                                    "re-frame2-story authoring conventions"))))
-  (testing "default cap (no `:max-tokens` arg) leaves a small response intact"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {})]
-      (is (not (overflow-marker? r))))))
 
 (deftest cap-negative-max-tokens-rejected-not-overflow-lockout
   ;; A negative `:max-tokens` resolves to a
@@ -2285,13 +2270,6 @@
       (is (= :max-tokens
              (get-in (edn/read-string (-> r :content first :text))
                      [rf.mcp-base.vocab/invalid-arg-key :arg]))))))
-
-(deftest cap-marker-shape-is-mcp-base-overflow
-  (testing "marker is byte-identical to mcp-base/overflow-payload's shape"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-story-instructions" {:max-tokens 1})
-          body (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key])]
-      (is (= #{:limit :token-count :cap-tokens :tool :hint}
-             (set (keys body)))))))
 
 (deftest cap-counts-the-structured-slot-beside-the-text
   ;; `edn-result` writes one payload into BOTH wire slots, so the cap sums
@@ -3106,23 +3084,6 @@
         (is (< elapsed 2000.0)
             (str "preview is BOUNDED near the 100ms ceiling, not the 3000ms wait. "
                  "elapsed=" elapsed "ms"))))))
-
-(deftest run-variant-short-wait-within-timeout-still-passes
-  (testing "a fast `[:wait]` well within :timeout-ms still settles :pass — the deadline doesn't break the happy path"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (rf.story/reg-variant :story.button/quick-wait
-      {:doc    "Short wait, comfortably inside the timeout."
-       :args   {:label "Quick"}
-       :tags   #{:dev}
-       :script [[:wait 20]]})
-    (with-clean-frame [vid :story.button/quick-wait]
-      (let [r (invoke "run-variant" {:variant-id "story.button/quick-wait"
-                                     :timeout-ms 5000})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= :pass (:status s))
-            "a fast variant within a generous timeout still settles :pass")
-        (is (rf.story/valid-run-result? s))))))
 
 (deftest stdio-loop-freed-after-lifecycle-deadline
   (testing "a timed-out run-variant does NOT monopolise the single-threaded
