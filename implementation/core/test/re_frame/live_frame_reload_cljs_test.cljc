@@ -16,7 +16,8 @@
       live context, and the returned frame VALUE names that id (compare by
       `rf.frame/frame-value->id`, not `identical?`);
     * resolution AFTER reload uses the NEW image (the swapped generation resolves
-      the new descriptor; the old is gone / changed);
+      the new descriptor; the old is gone / changed), read off the reloaded
+      frame in the frame-targeted test;
     * the added/changed/removed/retained `[kind id]` diff is a READ
       (`generation-diff` over two `frame-generation` values), not a bespoke
       verb's report;
@@ -24,9 +25,9 @@
       sibling that previously shared a generation object;
     * an `:id`-bearing reload updates the registry slot IN PLACE (the id keeps
       naming the same live context, now running the new generation);
-    * a non-vector `:images` is REJECTED (`:rf.error/make-frame-bad-images`) —
+    * a non-vector `:images` is REJECTED (`:rf.error/make-frame-bad-images`) by
       the SAME guard `make-frame` always enforces, since reload is just
-      re-construction;
+      re-construction — `live-frame-cljs-test` pins it;
     * a source-store `reg-*` change reprojects an EXPLICIT-`:include-ns` frame —
       `reproject-live-frames!` re-resolves it and swaps the new generation.
 
@@ -161,33 +162,9 @@
         (is (= {:count 7} (rf/app-db-value :counter/main)))))))
 
 ;; ===========================================================================
-;; 2. Resolution AFTER reload uses the NEW image
+;; 2. Resolution AFTER reload uses the NEW image — section 4's frame-targeted
+;;    test reads the reloaded frame's v2 handler through `live-frame`
 ;; ===========================================================================
-
-(deftest resolution-after-reload-uses-the-new-image
-  (testing "the swapped generation resolves the NEW descriptor; the v1 impl is
-            gone and v2's added id is present (EP-0023 — code changed, the VM
-            kept its memory)"
-    (let [frame    (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)
-          gen-v1   (rf.live-frame/frame-generation frame)
-          reloaded (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v2)
-          gen-v2   (rf.live-frame/frame-generation reloaded)]
-      (testing "the v1 generation resolved the v1 impl (control)"
-        (is (= ::inc-v1 (:handler-fn (rf.image-assembly/resolve-descriptor gen-v1 :event :counter/inc)))))
-      (testing "after reload, :counter/inc resolves the v2 impl"
-        (is (= ::inc-v2 (:handler-fn (rf.image-assembly/resolve-descriptor gen-v2 :event :counter/inc)))))
-      (testing "the v2-only :counter/reset is now resolvable"
-        (is (some? (rf.image-assembly/resolve-descriptor gen-v2 :event :counter/reset))))
-      (testing "registry lookup resolves the reloaded frame (id keeps naming the
-                same live context, now on the new generation — EP-0024:
-                live-frame reconstructs a fresh value from the record, so compare
-                by id)"
-        (is (= :counter/main (rf.frame/frame-value->id (rf.live-frame/live-frame :counter/main))))
-        (is (= (rf.frame/frame-value->id reloaded)
-               (rf.frame/frame-value->id (rf.live-frame/live-frame :counter/main))))
-        (is (= ::inc-v2 (:handler-fn (rf.image-assembly/resolve-descriptor
-                                       (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/main))
-                                       :event :counter/inc))))))))
 
 ;; ===========================================================================
 ;; 3. A reload's cross-image shadows are an ordinary frame-shadows READ
@@ -247,16 +224,9 @@
 ;; ===========================================================================
 ;; 6. Fail-loud — bad :images (the same make-frame guard; reload is just
 ;;    re-construction, so there is no separate "unknown target" failure mode —
-;;    an unknown id is simply a fresh creation, per make-frame's own contract)
+;;    an unknown id is simply a fresh creation, per make-frame's own contract).
+;;    `live-frame-cljs-test/non-vector-images-rejected` pins that guard.
 ;; ===========================================================================
-
-(deftest reload-non-vector-images-rejected
-  (testing "re-`make-frame`-ing with a non-vector :images (the one spelling)
-            throws the SAME :rf.error/make-frame-bad-images make-frame always
-            enforces — reload is just re-construction, not a separate guard"
-    (let [_ (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)]
-      (is (= :rf.error/make-frame-bad-images
-             (err-id #(rf.live-frame/make-frame {:id :counter/main :images img} pool-v2)))))))
 
 ;; ===========================================================================
 ;; 7. generation-diff is pure and correct in isolation
