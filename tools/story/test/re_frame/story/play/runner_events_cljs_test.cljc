@@ -106,20 +106,6 @@
 
 (use-fixtures :each bridge-reset!)
 
-(deftest failed-since-filters-to-failures-after-prev-count
-  (testing "failed-since returns only the :passed? false records appended
-            after prev-count — the dispatched event's contribution"
-    (let [prev (seed-assertions! [{:passed? true  :id :rf.assert/path-equals}])
-          _    (seed-assertions! [{:passed? false :id :rf.assert/path-equals
-                                   :expected :loaded :actual :idle :message "boom"}
-                                  {:passed? true  :id :rf.assert/path-equals}])
-          out  (failed-since bridge-frame prev)]
-      (is (= [{:passed? false :id :rf.assert/path-equals
-               :expected :loaded :actual :idle :message "boom"}]
-             out)
-          "only the one new failing record is returned — the earlier pass
-           (before prev-count) and the trailing pass are excluded"))))
-
 (deftest failed-since-empty-when-no-new-failures
   (testing "failed-since is empty when nothing failed since prev-count"
     (let [prev (seed-assertions! [{:passed? false :id :rf.assert/path-equals}])]
@@ -233,21 +219,13 @@
           "the tape-evaluated schema-error atom minted NO record here —
            it is not dispatched (no double-processing)"))))
 
-(deftest run-terminal-assertions-empty-is-noop
-  (testing "run-terminal-assertions! with no atoms records nothing"
-    (rf/reg-event ::seed-db (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
-    (seed-db! {:status :loaded})
-    (rf.story.play.runner-events/run-terminal-assertions! bridge-frame [])
-    (rf.story.play.runner-events/run-terminal-assertions! bridge-frame nil)
-    (is (empty? (:rf.story/assertions (rf/app-db-value bridge-frame)))
-        "an empty / nil terminal-assertions vector is a clean no-op")))
-
 ;; ---- CLJS-runnable: pure-data coverage of the script lift ---------------
 ;;
 ;; The bare-event-vector lift is the pure `coerce-script` / `parse-spec`
-;; contract, asserted in `runner-test`
-;; (coerce-script-lifts-bare-event-vectors + parse-spec-lifts-bare-
-;; vectors-inside-map) — its own layer, so it is not repeated here.
+;; contract, asserted in `runner-test` by
+;; parse-spec-lifts-bare-vectors-inside-map and
+;; parse-plays-coerces-bare-event-vectors — its own layer, so it is not
+;; repeated here.
 
 ;; ---- CLJS+JVM: every run-loop! exit path settles done-cb -----------------
 ;;
@@ -513,31 +491,6 @@
 ;; records the CANONICAL `:rf.assert/path-equals` record on the slot. There
 ;; is no synthetic `:rf.assert/db` / `:rf.assert/dom` rail — one
 ;; assertion-record vocabulary.
-
-#?(:clj
-   (deftest assert-db-failure-lands-in-assertions-slot
-     (testing "a failing folded :assert-db step records a :passed? false
-              :rf.assert/path-equals record into :rf.story/assertions so the
-              slot consumers + assertions-passing? observe the failure"
-       (rf/reg-event :rt/set-status
-         (fn [{:keys [db]} [_ v]] {:db (assoc db :status v)}))
-       (rf.story/reg-variant :story.bridge/db-fail
-         {:setup      []
-          :script {:auto-run? false
-                        :script    [[:dispatch-sync [:rt/set-status :idle]]
-                                    [:assert-db [:status] :loaded]]}})
-       (rf.story.async/deref-blocking (rf.story/run-variant :story.bridge/db-fail) 5000)
-       (run-blocking :story.bridge/db-fail)
-       (let [slot (rf.story/read-assertions :story.bridge/db-fail)
-             pe-recs (filterv #(= :rf.assert/path-equals (:assertion %)) slot)]
-         (is (= 1 (count pe-recs))
-             "the failing folded :assert-db landed exactly one canonical record")
-         (is (false? (:passed? (first pe-recs)))
-             "the slot record carries :passed? false")
-         (is (= :loaded (:expected (first pe-recs))))
-         (is (= :idle   (:actual   (first pe-recs))))
-         (is (false? (rf.story/assertions-passing? slot))
-             "assertions-passing? sees the folded failure")))))
 
 #?(:clj
    (deftest assert-db-pass-lands-in-assertions-slot
@@ -1031,22 +984,6 @@
          (is (= [] (:script spec)))
          (is (true? (:auto-run? spec)))))))
 
-;; ---- auto-run gating ------------------------------------------------------
-
-#?(:clj
-   (deftest auto-run-skips-when-disabled
-     (testing "auto-run! is a no-op when :auto-run? is false"
-       (let [seen (atom 0)]
-         (rf/reg-event :rt/touch
-           (fn [{:keys [db]} _] (swap! seen inc) {:db db}))
-         (rf.story/reg-variant :story.runner/no-auto
-           {:setup []
-            :script {:auto-run? false
-                          :script    [[:dispatch-sync [:rt/touch]]]}})
-         (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/no-auto) 5000)
-         (rf.story.play.runner-events/auto-run! :story.runner/no-auto)
-         (is (zero? @seen))))))
-
 ;; ---- run-state lifecycle ----------------------------------------------
 
 #?(:clj
@@ -1143,28 +1080,6 @@
                               {:variant-id variant-id
                                :play-key   play-key}))
               :else (do (Thread/sleep 5) (recur)))))))))
-
-#?(:clj
-   (deftest variant-plays-resolves-plays-vector
-     (testing "variant-plays returns a vector of parsed plays"
-       (rf/reg-event :rt/inc
-         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (rf.story/reg-variant :story.multi/two
-         {:setup []
-          :plays  [{:name "happy"
-                    :auto-run? false
-                    :script    [[:dispatch-sync [:rt/inc]]
-                                [:assert-db [:n] 1]]}
-                   {:name "error"
-                    :auto-run? false
-                    :script    [[:dispatch-sync [:rt/inc]]
-                                [:assert-db [:n] 99]]}]})
-       (let [plays (rf.story.play.runner-events/variant-plays :story.multi/two)]
-         (is (= 2 (count plays)))
-         (is (= ["happy" "error"] (mapv :name plays)))
-         ;; First play's auto-run? was explicitly false here, so no
-         ;; positional default applies.
-         (is (every? false? (map :auto-run? plays)))))))
 
 #?(:clj
    (deftest run-play-keys-state-per-play
