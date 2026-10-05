@@ -22,10 +22,11 @@
 //      gated on the platform — Windows requires elevated rights for
 //      symlinkSync, so we soft-skip there.
 //
-//   3. `safeReadFileInside` — refuses every candidate `safeUnlinkInside`
-//      refuses: its symlinked-parent case runs the unlink test's fixture,
-//      so the pair pins read/unlink parity and a stale external port is
-//      never trusted.
+//   3. `safeReadFileInside` — runs the same containment check as
+//      `safeUnlinkInside`. Its symlinked-leaf and symlinked-parent
+//      refusals are pinned through its one caller, `readPortFile`, in
+//      `port-file-escape.test.cjs`; this file pins its missing-file
+//      result, its encoding options and its input guards.
 
 'use strict';
 
@@ -473,20 +474,10 @@ test('safeUnlinkInside: rejects parent-symlink even when leaf does not exist', {
 // allowed root) must ALSO be refused on READ — closing the
 // "refuse-delete-but-trust-read" split. Both helpers share the same
 // `resolveContainedLeaf` containment check, so a candidate that throws
-// from safeUnlinkInside throws identically from safeReadFileInside.
+// from safeUnlinkInside throws identically from safeReadFileInside. The
+// read-side escape refusals are pinned through `readPortFile` in
+// port-file-escape.test.cjs, which reads every candidate through here.
 // ---------------------------------------------------------------------
-
-test('safeReadFileInside: reads file inside allowed root', () => {
-  const root = freshTmpDir('read-ok');
-  try {
-    const target = path.join(root, 'nrepl.port');
-    fs.writeFileSync(target, '54321');
-    const contents = safeReadFileInside(target, root);
-    assert.equal(contents, '54321');
-  } finally {
-    rmrf(root);
-  }
-});
 
 test('safeReadFileInside: returns null when file does not exist', () => {
   const root = freshTmpDir('read-missing');
@@ -510,61 +501,6 @@ test('safeReadFileInside: null options read as utf8; { encoding: null } returns 
     assert.equal(raw.toString('utf8'), 'abc');
   } finally {
     rmrf(root);
-  }
-});
-
-test('safeReadFileInside: rejects when realpath escapes allowed root (symlinked leaf)', { skip: process.platform === 'win32' }, () => {
-  // The hostile read shape: a leaf `nrepl.port` inside the allowed
-  // root that is itself a symlink to an EXTERNAL port file. A naive
-  // `fs.readFileSync` would follow the link and trust the external
-  // port; safeReadFileInside must refuse, the same way safeUnlinkInside
-  // refuses to delete it.
-  const root = freshTmpDir('read-escape-leaf');
-  const outsideDir = freshTmpDir('read-escape-outside');
-  try {
-    const externalPort = path.join(outsideDir, 'nrepl.port');
-    fs.writeFileSync(externalPort, '9999'); // a stale EXTERNAL runtime's port
-    const candidate = path.join(root, 'nrepl.port');
-    const linked = trySymlink(externalPort, candidate);
-    if (!linked) return; // platform/permissions — soft-skip
-
-    assert.throws(
-      () => safeReadFileInside(candidate, root),
-      /symlink-escape/,
-    );
-  } finally {
-    rmrf(root);
-    rmrf(outsideDir);
-  }
-});
-
-test('safeReadFileInside: rejects when parent dir is a symlink escaping root', { skip: process.platform === 'win32' }, () => {
-  // The orchestrator's load-bearing case: `<root>/.shadow-cljs` is a
-  // symlink to an external dir carrying a stale `nrepl.port`. The
-  // candidate path APPEARS to live under the allowed root, but realpath
-  // resolves the parent symlink to outside it. The read must refuse —
-  // otherwise the runner trusts an external runtime's port. This is the
-  // unlink parent-symlink test's fixture, so the two pin read/unlink parity.
-  const root = freshTmpDir('read-escape-parent');
-  const outsideDir = freshTmpDir('read-escape-parent-outside');
-  try {
-    const realSide = path.join(outsideDir, 'shadow-cljs');
-    fs.mkdirSync(realSide);
-    const externalPort = path.join(realSide, 'nrepl.port');
-    fs.writeFileSync(externalPort, '9999');
-
-    const symlinkedParent = path.join(root, '.shadow-cljs');
-    const linked = trySymlink(realSide, symlinkedParent);
-    if (!linked) return; // soft-skip
-
-    const candidate = path.join(symlinkedParent, 'nrepl.port');
-    assert.throws(
-      () => safeReadFileInside(candidate, root),
-      /symlink-escape/,
-    );
-  } finally {
-    rmrf(root);
-    rmrf(outsideDir);
   }
 });
 
