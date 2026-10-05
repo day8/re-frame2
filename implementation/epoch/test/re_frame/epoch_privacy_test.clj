@@ -230,10 +230,10 @@
 ;; pass-through, nil-input safety, and history-walk shape. It deliberately
 ;; does NOT re-assert projection IDEMPOTENCY (re-projecting an already-
 ;; projected record is a no-op at the substitution points) — that
-;; invariant has its authoritative pins in
+;; invariant has its authoritative pin in
 ;; `epoch_mcp_egress_conformance_test`
-;; (`forwarder-project-egress-is-sensitive-idempotent` +
-;; `forwarder-project-egress-is-large-idempotent`).
+;; (`forwarder-project-egress-is-large-idempotent`, whose whole-ring
+;; equality across passes covers both substitutions).
 ;; Keep idempotency assertions there; do not duplicate them here.
 ;; (There is no `:redact-fn` hook, so there is no redact×project
 ;; composition to pin; the redacted-modified-paths counter is section 4 at
@@ -591,12 +591,12 @@
 ;;
 ;;   G1. No sensitive paths declared                       -> 0.
 ;;   G2. Sensitive path declared but value unchanged       -> 0.
-;;   G3. Sensitive path declared and value changed         -> 1; rollup true.
 ;;   G4. Multiple sensitive paths, partial modification    -> the count.
-;;   G6. Projection passes the counter through unchanged.
+;;   G6. Sensitive path changed -> 1, and projection passes the counter
+;;       through unchanged.
 ;;   G7. Halted record (nil :db-before / :db-after) edge.
 ;;
-;; The G1/G2 zero cases are the DISCRIMINATING CONTROLS for G3/G4: without
+;; The G1/G2 zero cases are the DISCRIMINATING CONTROLS for G4/G6: without
 ;; them a producer hard-wired to return a positive integer would pass.
 
 (deftest G1-no-sensitive-paths-yields-zero-count
@@ -637,21 +637,6 @@
            about the declaration and not about an inert cascade")
       (is (= 0 (:rf.epoch/redacted-modified-paths-count raw))
           ":auth :password value identical pre/post — counter = 0"))))
-
-(deftest G3-sensitive-path-modified-yields-positive-count
-  (testing "a sensitive path's value changed across the cascade — the
-            counter is 1. The :rf.epoch/sensitive? rollup also reads true."
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :login
-                  (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw (last-record :test/main)]
-      (is (= 1 (:rf.epoch/redacted-modified-paths-count raw))
-          ":auth :password mutated nil -> \"topsecret\" — count = 1")
-      (is (true? (:rf.epoch/sensitive? raw))
-          "rollup also true — both signals key on the same registry"))))
 
 (deftest G4-multiple-sensitive-paths-partial-modification
   (testing "two sensitive paths declared; one changes, the other does
