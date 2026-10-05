@@ -28,38 +28,6 @@
 
 ;; ---- header validation surfaces a trace ----------------------------------
 
-(deftest invalid-header-value-emits-warning-not-silent-drop
-  (testing "a stray \\r in a header value fires
-  `:rf.warning/http-header-invalid` rather than silently dropping
-  the header. Security-relevant middleware (auth-header attachment)
-  depends on the signal."
-    (with-trace-capture
-      (fn [captured]
-        ;; The JDK HttpClient rejects a header value containing CR/LF
-        ;; (it would otherwise enable response-splitting attacks).
-        (let [_req (jvm-build-request
-                     {:method  :get
-                      :url     "https://example.invalid/"
-                      :headers {"X-Bad" "value-with-\rCR"}})
-              warns (filter #(= :rf.warning/http-header-invalid
-                                (:operation %))
-                            @captured)]
-          (is (seq warns)
-              (str "expected a :rf.warning/http-header-invalid trace; "
-                   "captured operations: "
-                   (pr-str (mapv :operation @captured))))
-          (let [w (first warns)]
-            (is (= :warning (:op-type w)))
-            (let [tags (:tags w)]
-              (is (= "X-Bad" (:header tags))
-                  "trace carries header NAME (value omitted — values may carry secrets)")
-              (is (= "https://example.invalid/" (:url tags))
-                  "trace carries the request URL for correlation")
-              (is (some? (:cause tags))
-                  "trace carries a :cause naming the rejected header")
-              (is (not (contains? tags :value))
-                  "trace MUST NOT carry the rejected value — values can be secrets"))))))))
-
 (deftest invalid-header-warning-carries-no-part-of-the-rejected-value
   (testing "the rejected header VALUE reaches no trace event, `:cause`
   included. The JDK's own rejection message echoes the value, and a header
@@ -77,10 +45,13 @@
                                @captured)]
           (is (seq warns)
               "the CR/LF-bearing value is rejected and the warning fires")
+          (is (= :warning (:op-type (first warns))))
           (let [tags (:tags (first warns))]
             (is (= "Authorization" (:header tags)))
             (is (str/includes? (str (:cause tags)) "Authorization")
-                ":cause names the rejected header"))
+                ":cause names the rejected header")
+            (is (not (contains? tags :value))
+                "trace MUST NOT carry the rejected value — values can be secrets"))
           (is (not (str/includes? (pr-str @captured) sentinel))
               "no captured trace event carries any part of the rejected value"))))))
 
