@@ -406,13 +406,17 @@ before reporting done.**
 Four blocks below travel **verbatim**: the **common preamble** into every dispatch, one of the two
 boundary blocks — **worktree** or **no-worktree** — into every dispatch according to its shape, and the
 **gate-mechanics block** into every editing one. Get them there by **extracting
-mechanically, then pasting the result into the prompt.** Both halves are mandatory and close different
-failures — the extraction makes paraphrase impossible, and the paste makes non-receipt impossible.
+mechanically, then delivering the result whole** — pasted into the prompt, or as a [verified
+packet](#delivering-a-brief-as-a-packet). Both halves are mandatory and close different failures — the
+extraction makes paraphrase impossible, and the delivery makes non-receipt impossible or visible before
+any work: a paste by construction, a packet by a receipt the worker returns before it acts.
 
-- **Sending the worker to the FILE is not a substitute.** A worker that skims it has not received the
-  block, and nothing in the transcript distinguishes that from one that read every line — so the first
-  evidence is a worker doing something the block forbids. Between a failure prevented by construction
-  and one prevented by a reader's diligence, take construction.
+- **Sending the worker to a FILE UNVERIFIED is not a substitute.** A worker that skims it has not
+  received the block, and nothing in the transcript distinguishes that from one that read every line —
+  so the first evidence is a worker doing something the block forbids. Between a failure prevented by
+  construction and one prevented by a reader's diligence, take construction. **The packet route is the
+  one sanctioned exception, because its receipt puts that distinction INTO the transcript before the
+  worker acts**; a path sent without that receipt is still this failure.
 - **No dispatch is small enough to earn a condensed block.** The temptation is strongest exactly where
   the block most dwarfs the task, and condensing there is the paraphrase the extraction exists to
   prevent, arriving dressed as proportionality. Measured: a mayor condensed the gate block for a
@@ -448,6 +452,54 @@ failures — the extraction makes paraphrase impossible, and the paste makes non
 
 ---
 
+## Delivering a brief as a packet
+
+A paste costs the coordinator the whole brief again on every dispatch: it re-emits tens of kilobytes it
+already holds on disk, serially, and both copies stay in its context for every call after. A packet
+replaces the paste with a file and a short cover note, and replaces the guarantee construction gave with
+a **receipt the worker returns before it acts**. Where your harness can send a prompt straight from a
+file, that is a paste — construction, no receipt needed — and costs you nothing; the packet is for a
+dispatch call that takes only text you emit.
+
+- **The packet IS the brief, byte for byte.** Assemble it exactly as you would to paste it — every
+  block, the stance, the fences, the resource grants, the task — and copy it unchanged to a file named
+  by its own digest, never rewritten, so assembling the next brief cannot change one a worker has yet
+  to read. Everything *Pasting a block* forbids a paste, it forbids a packet: a packet is not a place
+  to save words.
+- **The cover note is GENERATED, never written, and it is the whole prompt.** It carries the packet's
+  path, SHA-256, byte count and line count, and a fresh CHALLENGE drawn at dispatch time: one line
+  number at random from each of the start, middle and end of the packet, each with a short hash of that
+  line's text and never the text itself.
+- **The worker checks twice before anything else, and refuses work on either failing.** First the FILE:
+  present, the stated size, line count and digest, and a challenge that matches it — refusing a missing,
+  truncated or changed packet and a cover note copied wrongly. Then the READ: it loads the WHOLE packet
+  into its context, in several reads where its tool caps output, quotes the challenged lines from that
+  read, and checks each quote against its hash — refusing a packet unread, read in part, or read
+  through a tool that truncated it. Its report opens with the START stamp of the first check and the
+  RECEIPT line of the second.
+- **Keep three clocks apart.** PREPARED is stamped as the packet is built; DISPATCHED is your own clock
+  read as the dispatch call returns, recorded wherever you record the dispatch; START is the worker's
+  first act, on its clock rather than yours. Measured on one 30 KB brief sent both ways to identical
+  read-only workers: you spent 7 seconds emitting the 1.5 KB cover note against 68 emitting the brief,
+  and carried about 3 KB of the dispatch in your context against about 60; the packet worker took 26
+  seconds from delivery to its first act of work against 14 — the receipt's cost, paid by the worker in
+  parallel rather than by you serially — and work began 33 seconds after the dispatch did, against 82.
+- **What the receipt cannot prove, and must never be described as proving.** That the worker ATTENDED
+  to every line, which a paste cannot prove either. That it LOADED every line, which a paste does
+  guarantee: a worker looking each challenged line up by number passes, and so does a read that dropped
+  a stretch between the sampled lines — three bands make a lost head, middle or tail likely to be
+  caught, not certain. And that the bytes STAY: a harness that evicts old tool output can drop a packet
+  where it would keep a prompt, so a worker whose context was compacted re-reads it.
+- **Fall back to the paste wherever the receipt cannot be established**: a worker that cannot read the
+  coordinator's files or run the check, a brief too short to challenge, or any refusal. A refused packet
+  is rebuilt or re-sent INLINE, never re-sent as a bare path with the check waived.
+
+A reference implementation of both halves ships beside this method as `scripts/instruction_packet.py`:
+`prepare` builds the packet and prints the cover note, `verify` is the worker's two checks, and
+`--self-test` shows every refusal above firing.
+
+---
+
 ## The worktree boundary block
 
 **The concept.** A worker edits only its assigned worktree, never the mayor checkout. The shell's working
@@ -457,7 +509,8 @@ passed* — the leak happens mid-session, in one tool call. The real backstop is
 its repository root before every edit. New-file leaks are the worst case: a brand-new ignored file routed
 into the mayor checkout shows nothing in the worker's own status.
 
-Paste this verbatim into every editing dispatch. Adapt only the placeholders.
+Paste this verbatim into every editing dispatch, or carry it inside a
+[packet](#delivering-a-brief-as-a-packet). Adapt only the placeholders.
 
 ```text
 WORKTREE BOUNDARY — MANDATORY
@@ -536,7 +589,8 @@ dispatch is believed on does not exist here.
 design, and a worker handed both follows the more familiar one and goes looking for a worktree it has
 just been told it does not have.
 
-Paste this verbatim into every non-editing dispatch. Adapt only the placeholder.
+Paste this verbatim into every non-editing dispatch, or carry it inside a
+[packet](#delivering-a-brief-as-a-packet). Adapt only the placeholder.
 
 ```text
 NO-WORKTREE BOUNDARY — MANDATORY
@@ -767,8 +821,9 @@ A skipped gate needs a one-line reason in the change body. A silent skip fails r
 
 ## Quality gates — how a gate is run
 
-**This section is the gate-mechanics block.** Paste it verbatim into every editing dispatch, adapting
-only the placeholders, from this heading to the rule before `## Reviewing what comes back`. **`## Quality
+**This section is the gate-mechanics block.** Paste it verbatim into every editing dispatch, or carry it
+inside a [packet](#delivering-a-brief-as-a-packet), adapting only the placeholders, from this heading to
+the rule before `## Reviewing what comes back`. **`## Quality
 gates — which gate` is not it and does not stand in for it** — that section is addressed to you as you
 nominate the gate, so pasting it instead hands the worker your reasoning and withholds every mechanic it
 needs to run anything.
@@ -992,6 +1047,8 @@ no measurable gain, and the rules cost nothing there.
 
 ## Reviewing what comes back
 
+* **On a packet dispatch, does the report open with a RECEIPT naming the digest you sent?** If not, the
+  brief was never shown to have arrived: void the dispatch, whatever it did, and re-send it inline.
 * Did it check the premises, or accept them?
 * Is there a control, and does it fail for the right reason? **Ask specifically whether the control could
   catch its own case.**
@@ -1021,6 +1078,9 @@ no measurable gain, and the rules cost nothing there.
 ## Failure modes these shapes close
 
 - Back-compatibility shims by default → the stance is explicit in every preamble.
+- A block re-emitted by hand on every dispatch, a word dropped in transit, or a worker sent to a file it
+  never read → a packet copied by a tool, checked by digest, and receipted before the worker acts, with
+  the paste as its fallback.
 - Same-file races between concurrent workers → in-flight surfaces enumerated.
 - Two halves of one gate-coupled invariant fenced to two items, each red until the other merges → ask
   what each gate compares; one worker takes both halves.
