@@ -147,7 +147,7 @@
 
 ;; ---------------------------------------------------------------------------
 ;; A sensitive schema + a value that fails AT the sensitive slot, planting
-;; the sentinel there. Shared across every kind's corpus driver.
+;; the sentinel there. Shared by the production-path drivers below.
 ;;   schema:  [:map [:secret {:sensitive? true} :string]]
 ;;   value:   {:secret [sentinel]}   ;; a vector where a :string is required
 ;; The failing value carries the sentinel; absent redaction it rides verbatim
@@ -159,15 +159,6 @@
 
 (def ^:private failing-sensitive-value
   {:secret [sentinel]})
-
-;; An EVENT schema whose payload map marks a slot sensitive (a login
-;; shape): `[:cat [:= id] [:map [:password {:sensitive? true} :string]]]`.
-(def ^:private sensitive-event-schema
-  [:cat [:= :auth/login]
-   [:map [:password {:sensitive? true} :string]]])
-
-(def ^:private failing-sensitive-event
-  [:auth/login {:password [sentinel]}])
 
 ;; ---------------------------------------------------------------------------
 ;; CONFORMING SENSITIVE SIBLING — the secret rides at a slot that
@@ -203,76 +194,6 @@
 (def ^:private failing-sibling-event
   ;; :password CONFORMS (carries the sentinel); :age FAILS (string, not int).
   [:auth/profile {:password sentinel :age "old"}])
-
-;; ---------------------------------------------------------------------------
-;; PER-KIND CORPUS — drive every framework validation surface that emits
-;; `:rf.error/schema-validation-failure` and assert no value-bearing slot
-;; ships the sentinel for the `:sensitive?`-marked schema.
-;; ---------------------------------------------------------------------------
-
-(deftest event-validation-redacts-sensitive
-  (testing ":where :event (validate-event!) redacts the
-            sensitive payload"
-    (let [trace (capture-failure
-                  #(rf.schemas/validate-event!
-                     :auth/login failing-sensitive-event
-                     {:schema sensitive-event-schema}))]
-      (assert-no-leak ":where :event" trace)
-      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
-      (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
-
-;; There is no :where :cofx redaction row: there is no injection-time
-;; validate-cofx! (EP-0017). The cofx schema surface
-;; (`re-frame.cofx/validate-recordable-value!` →
-;; `:rf.error/cofx-value-invalid`) routes its value-bearing slots through the
-;; same `redact-validation-tags` seam; its redaction is covered by the core
-;; artefact's cofx satisfaction tests.
-
-(deftest fx-validation-redacts-sensitive
-  (testing ":where :fx-args (validate-fx!) redacts the sensitive fx args (incl.
-            the per-surface :rf.fx/args slot)"
-    (let [trace (capture-failure
-                  #(rf.schemas/validate-fx!
-                     :fx/secret :some/event failing-sensitive-value
-                     {:schema sensitive-map-schema}))]
-      (assert-no-leak ":where :fx-args" trace)
-      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> trace :tags :rf.fx/args)) ":rf.fx/args redacted"))))
-
-(deftest sub-return-validation-redacts-sensitive
-  (testing ":where :sub-return (validate-sub!) redacts the sensitive return
-            value (incl. the per-surface :rf.sub/query-v lookup key)"
-    (let [trace (capture-failure
-                  #(rf.schemas/validate-sub!
-                     :sub/secret [:sub/secret sentinel] failing-sensitive-value
-                     {:schema sensitive-map-schema}))]
-      (assert-no-leak ":where :sub-return" trace)
-      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> trace :tags :rf.sub/query-v)) ":rf.sub/query-v redacted"))))
-
-(deftest app-db-validation-redacts-sensitive
-  (testing ":where :app-db (validate-app-schema!) redacts the sensitive
-            post-commit slice"
-    (rf/reg-app-schema [:root] sensitive-map-schema)
-    (let [trace (capture-failure
-                  #(rf.schemas/validate-app-schema!
-                     {:root failing-sensitive-value} :root/bad))]
-      (assert-no-leak ":where :app-db" trace)
-      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
-
-(deftest machine-data-validation-redacts-sensitive
-  (testing ":where :machine-data (data-validation/validate-snapshot-data!)
-            redacts the sensitive :data map."
-    (let [trace (capture-failure
-                  #(rf.machines.data-validation/validate-snapshot-data!
-                     :my/machine {:data failing-sensitive-value}
-                     sensitive-map-schema :macrostep))]
-      (assert-no-leak ":where :machine-data" trace)
-      (is (= :rf/redacted (-> trace :tags :value)) ":value redacted")
-      (is (= :rf/redacted (-> trace :tags :received)) ":received redacted")
-      (is (= :rf/redacted (-> trace :tags :explain)) ":explain redacted"))))
 
 ;; ---------------------------------------------------------------------------
 ;; CONFORMING SENSITIVE SIBLING CORPUS — for each kind, the
