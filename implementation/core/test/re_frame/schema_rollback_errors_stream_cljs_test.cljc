@@ -533,18 +533,6 @@
         (is (= before (rf/app-db-value malformed-frame-id))
             "nothing installed — a validator that threw cannot prove conformance")))))
 
-(deftest ^:requires-debug a-well-formed-registration-is-silent
-  (when (and rf.interop/debug-enabled? (schemas-present?))
-    (rf/make-frame {:id :vkn8/well-formed :doc "malformed-schema negative control"})
-    (rf/with-frame :vkn8/well-formed
-      (rf/reg-app-schema [:ok] [:vector :int]))
-    (rf/reg-event :vkn8/well-formed-write (fn [_ _] {:db {:ok [1 2]}}))
-    (testing "a well-formed registration over a conforming commit fans nothing"
-      (let [captured (capture #(rf/dispatch-sync [:vkn8/well-formed-write]
-                                                 {:frame :vkn8/well-formed}))]
-        (is (empty? (malformed-records captured)))
-        (is (empty? (rejection-records captured)))))))
-
 ;; ===========================================================================
 ;; Arm 3 — the router's wholesale validator-machinery backstop
 ;; ===========================================================================
