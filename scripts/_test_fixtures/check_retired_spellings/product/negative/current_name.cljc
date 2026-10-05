@@ -5,9 +5,10 @@
 ;; current name, on its `h` alias, or on
 ;; the word Picasso.
 ;;
-;; The self-test also scans these same bytes attributed to a path under a
-;; retired directory name, where it must report exactly one finding — the PATH
-;; carrier, which no line of content can express.
+;; The self-test scans these bytes attributed to a path under a retired
+;; directory name and expects exactly one finding — the PATH carrier, which no
+;; line of content can express — so a content line that fired would raise the
+;; count past one.
 (ns re-frame.example.view
   (:require [re-frame.fresco :as h]))
 
