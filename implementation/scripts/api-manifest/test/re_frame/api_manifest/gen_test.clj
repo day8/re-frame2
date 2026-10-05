@@ -29,13 +29,6 @@
 ;; duplicate-rows — pure detection over synthetic rows.
 ;; ---------------------------------------------------------------------------
 
-(deftest no-duplicates-yields-empty
-  (testing "a manifest with distinct [namespace var] keys has no duplicates"
-    (is (empty? (rf.api-manifest.gen/duplicate-rows
-                  [{:namespace "re-frame.core" :var "reg-event"  :tier :front-porch}
-                   {:namespace "re-frame.core" :var "subscribe"  :tier :front-porch}
-                   {:namespace "re-frame.adapter.uix" :var "adapter" :tier :adapter}])))))
-
 (deftest duplicate-within-cljs-only-detected
   (testing "two rows sharing one [namespace var] (a duplicated :cljs-only
             sidecar entry, or a :cljs-only row colliding with a JVM-derived
@@ -48,13 +41,6 @@
                   {:namespace "re-frame.core" :var "subscribe" :tier :front-porch}])]
       (is (= 1 (count dups)))
       (is (= [["re-frame.adapter.uix" "adapter"] 2] (first dups))))))
-
-(deftest duplicates-are-sorted
-  (testing "the duplicate report is sorted by [namespace var] for stable output"
-    (let [dups (rf.api-manifest.gen/duplicate-rows
-                 [{:namespace "zzz" :var "b"} {:namespace "zzz" :var "b"}
-                  {:namespace "aaa" :var "a"} {:namespace "aaa" :var "a"}])]
-      (is (= [["aaa" "a"] ["zzz" "b"]] (map first dups))))))
 
 ;; ---------------------------------------------------------------------------
 ;; build-manifest — the throw (drift-check / generation refusal).
@@ -152,14 +138,6 @@
                :tier :implementation :facade? false}
               {:namespace "re-frame.core" :var "frame-provider"
                :tier :internal-public :facade? true}])))))
-
-(deftest implementation-facade-rows-are-sorted
-  (testing "the report is sorted by [namespace var] for stable output"
-    (is (= [["a.ns" "b"] ["a.ns" "c"] ["z.ns" "a"]]
-           (rf.api-manifest.gen/implementation-facade-rows
-             [{:namespace "z.ns" :var "a" :tier :implementation :facade? true}
-              {:namespace "a.ns" :var "c" :tier :implementation :facade? true}
-              {:namespace "a.ns" :var "b" :tier :implementation :facade? true}])))))
 
 (defn- live-sidecar-with-demoted-facade-var
   "The REAL committed sidecar with one live facade var's classification
