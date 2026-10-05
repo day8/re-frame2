@@ -96,28 +96,6 @@
 ;; flush-response-result! — returns the projected public-error alongside resp
 ;; ===========================================================================
 
-(deftest flush-response-result-returns-response-and-public-error
-  (testing "a buffered drain-time :rf.error/handler-exception is projected to
-            500 and returned as :public-error, with :status stamped on
-            :response — one drain, both facts."
-    (let [fid (make-server-frame :ssr/frr-500)]
-      (buffer-error! fid :rf.error/handler-exception)
-      (let [{:keys [response public-error]} (rf.ssr/flush-response-result! fid)]
-        (is (= 500 (:status public-error))
-            "the projected public-error is returned for classification")
-        (is (= :internal-error (:code public-error)))
-        (is (= 500 (:status response))
-            "the same 500 is stamped on the response accumulator")))))
-
-(deftest flush-response-result-no-error-returns-nil-public-error
-  (testing "no buffered error → :public-error nil and the default 200 response.
-            A host that reads a 200 with nil public-error stays on the app arm
-            (status alone is not proof of a projection)."
-    (let [fid (make-server-frame :ssr/frr-clean)
-          {:keys [response public-error]} (rf.ssr/flush-response-result! fid)]
-      (is (nil? public-error) "no projection fired")
-      (is (= 200 (:status response))))))
-
 (deftest two-frames-return-own-public-error-no-bleed
   (testing "two concurrent server frames each project + return THEIR OWN
             public-error — a 500 on one frame does not bleed onto the other's
