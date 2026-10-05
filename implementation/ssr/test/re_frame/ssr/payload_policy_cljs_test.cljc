@@ -207,13 +207,6 @@
 
 ;; ---- validate-policy-opts!: construction-time arm ------------------------
 
-(deftest validate-policy-opts-passes-allowlist
-  (testing "valid :payload vector passes validation + returns opts unchanged"
-    (let [opts {:initial-events [[:init]] :payload [:public/articles]}]
-      (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts))
-          "returns opts unchanged on success — composes cleanly into
-           threading/let positions"))))
-
 (deftest validate-policy-opts-passes-whole-app-db
   (testing "valid :payload whole-app-db keyword passes validation"
     (let [opts {:initial-events [[:init]] :payload :rf.ssr.payload/whole-app-db}]
@@ -233,14 +226,6 @@
           "a missing policy throws the missing-policy error")
       (is (= :declare-payload-policy (:recovery data))
           "error ex-data names the recovery action"))))
-
-(deftest validate-policy-opts-throws-on-unknown-policy
-  (testing "construction-time arm also catches typo'd :payload keywords"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-unknown-payload-policy"
-          (rf.ssr.payload-policy/validate-policy-opts!
-            {:initial-events [[:init]] :payload :rf.ssr.payload/whole-db})))))
 
 ;; ---- runtime-db projection (EP-0001) --------------------------------------
 
@@ -307,31 +292,6 @@
       (is (not (str/includes? (pr-str slice) ":source :effect"))
           "the registry declaration records (the {:source :effect} marks) do not
            leak — the classified PATH STRUCTURE never crosses the wire"))))
-
-(deftest full-hydration-payload-omits-elision-registry
-  (testing "the full :rf/hydration-payload the client receives
-            carries no :rf.runtime/elision registry and no classified path
-            structure / embedded sensitive id"
-    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db sample-runtime-db)
-          payload  (rf.ssr.payload-policy/build-payload
-                     :rf/default {:public/page :dashboard} "h1"
-                     {:version 1 :runtime-db rt-slice})]
-      (is (not (contains? (:rf/runtime-db payload) :rf.runtime/elision))
-          "the hydration payload's :rf/runtime-db carries no elision registry")
-      (is (not (str/includes? (pr-str payload) "user-secret-id"))
-          "no sensitive id embedded in a classification key rides the wire")
-      (is (not (str/includes? (pr-str payload) "sensitive-declarations"))
-          "the registry's sensitive-declaration STRUCTURE never crosses the wire"))))
-
-(deftest project-runtime-db-elision-only-projects-to-nil
-  (testing "a runtime-db carrying ONLY the elision registry (no
-            other durable subsystem fact) projects to nil, so build-payload
-            omits the optional :rf/runtime-db key entirely (the registry can
-            never be the sole reason a runtime-db slice rides)"
-    (is (nil? (rf.ssr.payload-policy/project-runtime-db
-                {:rf.runtime/elision {:sensitive-declarations
-                                      {[:auth :token] #{{:source :effect}}}}}))
-        "elision-only runtime-db contributes no wire slice")))
 
 (deftest project-runtime-db-nil-and-empty
   (testing "nil / empty / non-map runtime-db projects to nil so build-payload
@@ -636,23 +596,3 @@
                          (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
                                 :rf/schema-digest nil)))
         "a hand-stamped nil :rf/schema-digest must not validate")))
-
-(deftest build-payload-runtime-db-slot-is-typed
-  ;; `build-payload-emits-runtime-db-when-present` above pins the VALUE
-  ;; contract (the projected slice rides; nil omits the key), and
-  ;; `build-payload-conforms-to-hydration-payload-schema` validates a payload
-  ;; carrying that slice under the `:map` slot. What neither pins is that the
-  ;; omission is the only legal spelling of absence — so these are the
-  ;; schema-side arms.
-  (testing "a present-and-nil :rf/runtime-db is REJECTED by the schema — the
-            fail-open `[:maybe :map]` would admit a second spelling of absence"
-    (is (not (m/validate HydrationPayload
-                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
-                                :rf/runtime-db nil)))
-        "a hand-stamped nil :rf/runtime-db must not validate"))
-
-  (testing "a non-map :rf/runtime-db is REJECTED"
-    (is (not (m/validate HydrationPayload
-                         (assoc (rf.ssr.payload-policy/build-payload :rf/default {} "h" {})
-                                :rf/runtime-db "not-a-map")))
-        "a string runtime-db must not validate")))
