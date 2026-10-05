@@ -12,10 +12,12 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            ;; Publishes the Malli late-bind validate/explain/sensitive hooks;
-            ;; without it `route-url` soft-passes (no validation throw) and the
-            ;; `:schemas/redact-validation-tags` sensitivity oracle is unbound.
-            [re-frame.schemas.malli]
+            ;; SIDE-EFFECT REQUIRE, no alias: the schemas facade publishes the
+            ;; `:schemas/validate-with-registered-fn` and
+            ;; `:schemas/redact-validation-tags` late-bind hooks, and loads the
+            ;; Malli adapter they delegate to. Without it `route-url` soft-passes
+            ;; (no validation throw) and the route sensitivity oracle is unbound.
+            [re-frame.schemas]
             [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
             ;; SIDE-EFFECT REQUIRE, no alias: `rf/reg-route` is a late-bound
             ;; facade over the OPTIONAL `day8/re-frame2-routing` artefact,
