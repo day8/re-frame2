@@ -42,7 +42,9 @@
 ;; payload by construction — same `v`, two projections.
 ;;
 ;; The `:structuredContent` value is a JSON-coercible projection of `v`
-;; (keywords lose their `:`, sets become arrays, etc.). The text slot
+;; (keywords lose their `:`, sets become arrays, an inert tagged value
+;; `#tag form` becomes `{"rf.mcp/tag" "tag" "rf.mcp/form" <form>}`,
+;; etc.). The text slot
 ;; remains the source of truth for the cljs-readable round-trip; the
 ;; structured slot is the SDK-friendly view.
 ;;
@@ -130,6 +132,13 @@
   [x]
   (cond
     (keyword? x) (str (symbol x))
+    ;; An inert application tag (the decoder keeps unknown tags as
+    ;; `tagged-literal`s) has no JSON form of its own — `clj->js` would
+    ;; hand JSON.stringify the bare TaggedLiteral instance — so it
+    ;; projects to one documented object, its form projected like any
+    ;; other value.
+    (tagged-literal? x) {"rf.mcp/tag"  (str (:tag x))
+                         "rf.mcp/form" (qualify-keywords (:form x))}
     (map? x)     (persistent!
                   (reduce-kv (fn [m k v]
                                (assoc! m (qualify-keywords k) (qualify-keywords v)))

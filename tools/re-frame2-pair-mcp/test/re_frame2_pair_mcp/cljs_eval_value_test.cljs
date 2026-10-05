@@ -33,6 +33,7 @@
   LAST `:results` entry (itself an EDN-encoded string), and reads THAT
   to get the value. Two EDN reads, nested."
   (:require [cljs.test :refer-macros [deftest is async]]
+            [cljs.reader]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
@@ -286,3 +287,86 @@
         (.then (fn [v]
                  (is (nil? v) "empty :results vector resolves to nil")
                  (done))))))
+
+;; ---------------------------------------------------------------------------
+;; Application-defined tags stay inert tagged data.
+;;
+;; An app can print a value under a tag only its own reader registry knows
+;; (a date library's `#instant`, say). This Node process has no reader for
+;; it, so the decoder keeps such a value as an inert `tagged-literal` —
+;; tag and form intact, re-printing as the same EDN — instead of failing
+;; the whole reply back to its raw string. The standard readers still
+;; apply, nothing is registered globally, and the reader-eval tag `#=` is
+;; refused rather than kept.
+;; ---------------------------------------------------------------------------
+
+(defn- printed-result
+  "shadow's outer `cljs-eval` reply carrying `inner`, the runtime's printed
+  value, as its one `:results` entry."
+  [inner]
+  {:value (pr-str {:results [inner] :ns 'cljs.user})})
+
+(defn- with-quiet-stderr
+  "Run the Promise-returning `body-fn` with `console.error` silenced: the
+  decoder logs a parse failure, which is behaviour under test, not noise."
+  [body-fn]
+  (let [orig-err (.-error js/console)]
+    (set! (.-error js/console) (fn [& _] nil))
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! (.-error js/console) orig-err))))))
+
+(deftest application-tags-decode-as-inert-tagged-literals
+  (async done
+    (-> (with-stubbed-cljs-eval!
+          (printed-result (str "{:at #instant \"2026-01-01T00:00:00Z\""
+                               " :outer #app/outer {:inner #app/inner [1 :k/v]}"
+                               " :quoted \"#=(not-a-tag)\"}"))
+          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
+        (.then (fn [v]
+                 (is (map? v) "the enclosing map decodes instead of falling back to its raw string")
+                 (is (= (tagged-literal 'instant "2026-01-01T00:00:00Z") (:at v))
+                     "an unknown tag keeps its tag symbol and its form")
+                 (is (= 'app/outer (:tag (:outer v))) "nested tags decode at every depth")
+                 (is (= (tagged-literal 'app/inner [1 :k/v]) (get-in v [:outer :form :inner])))
+                 (is (= "#instant \"2026-01-01T00:00:00Z\"" (pr-str (:at v)))
+                     "an inert tag re-prints as the EDN it arrived as")
+                 (is (= "#=(not-a-tag)" (:quoted v))
+                     "`#=` inside a string is ordinary data — the refusal reads the parsed tag")))
+        (.then (fn [_] (done))))))
+
+(deftest standard-reader-tags-keep-their-readers
+  (async done
+    (-> (with-stubbed-cljs-eval!
+          (printed-result (str "{:t #inst \"2026-01-01T00:00:00.000-00:00\""
+                               " :u #uuid \"8e55e886-374f-4cf6-9c12-09ea4611a749\"}"))
+          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
+        (.then (fn [v]
+                 (is (instance? js/Date (:t v)) "#inst still reads to a Date")
+                 (is (= 1767225600000 (.getTime (:t v))))
+                 (is (uuid? (:u v)) "#uuid still reads to a UUID")
+                 (is (thrown? js/Error (cljs.reader/read-string "#instant \"2026-01-01T00:00:00Z\""))
+                     "the inert fallback is per read: the global reader registry is unchanged")))
+        (.then (fn [_] (done))))))
+
+(deftest reader-eval-tag-is-refused
+  (async done
+    (-> (with-quiet-stderr
+          (fn []
+            (with-stubbed-cljs-eval! (printed-result "{:x #=(js/alert 1)}")
+              (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))))
+        (.then (fn [v]
+                 (is (= "{:x #=(js/alert 1)}" v)
+                     "a #= form is refused and the reply falls back to its raw string")))
+        (.then (fn [_] (done))))))
+
+(deftest malformed-edn-beside-a-tag-still-falls-back
+  (async done
+    (-> (with-quiet-stderr
+          (fn []
+            (with-stubbed-cljs-eval! (printed-result "{:at #instant \"2026-01-01T00:00:00Z\" :b [1 2")
+              (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))))
+        (.then (fn [v]
+                 (is (= "{:at #instant \"2026-01-01T00:00:00Z\" :b [1 2" v)
+                     "malformed data still fails to its raw string — a tag does not mask it")))
+        (.then (fn [_] (done))))))
