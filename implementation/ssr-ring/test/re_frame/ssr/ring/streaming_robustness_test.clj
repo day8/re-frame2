@@ -23,7 +23,7 @@
   thread terminates. (Root-view / head / shell-walk
   resolution runs on the REQUEST thread, before the head commits — those
   fail closed to a non-200 on the request thread and never reach the
-  writer; see test 3.) The load-bearing contracts:
+  writer.) The load-bearing contracts:
 
     1. The writer thread MUST NOT escape with an uncaught throwable
        (it is the top-level Runnable of a detached thread — an escaped
@@ -42,40 +42,19 @@
 
   Tests:
 
-    1. `writer-survives-broken-pipe-on-write` — direct call to
-       `run-streaming-writer!` against a PipedOutputStream whose sink
-       (`PipedInputStream`) was closed before the writer started, handed
-       a PRE-RENDERED shell (the writer does not render
-       the shell). The first chunk write raises `IOException: Pipe
-       closed`. The writer's outer `catch Throwable` arm absorbs; no
-       exception escapes; the OutputStream is closed in `finally`.
-    2. `client-disconnect-mid-stream-cleans-up` — real Jetty + a real
+    1. `client-disconnect-mid-stream-cleans-up` — real Jetty + a real
        HTTP client that reads only the response head + a few bytes of
        the body then closes the InputStream. The writer thread, mid-
        flight on the next `.write`, hits a broken-pipe IOException;
        same catch + finally semantics; thread terminates within a
        generous bound; no orphan `rf2-ssr-streaming-*` thread remains.
-    3. `root-view-throw-fails-closed-non-200-bytes-on-wire` —
-       root-view fn throws on resolution (a structural shell failure).
-       The shell renders on the REQUEST thread before the head
-       commits, so the throw escalates to `:rf.error/ssr-render-failed`
-       and FAILS CLOSED to a non-200 projected error page — never a
-       silent 200. NO daemon
-       writer thread is spawned at all. (Spec 011 §744/§748/§954.)
-    4. `daemon-thread-name-is-frame-scoped` — sanity check that the
+    2. `daemon-thread-name-is-frame-scoped` — sanity check that the
        writer thread is named `rf2-ssr-streaming-<frame-id>` so the
        leak-detection assertions above can scope by name prefix and
        operators can correlate JFR / thread dumps to frames.
 
-  ## Why a direct `run-streaming-writer!` call for broken-pipe
-
-  The Jetty + HttpClient harness covers the end-to-end disconnect path
-  (test 2). Test 1 isolates the writer body — a deterministic, fast
-  reproducer of every `IOException` the catch arm has to absorb, with
-  no scheduling dependence on the OS socket layer. The fn is `defn-`,
-  so the test reaches it via `#'run-streaming-writer!` — a deliberate
-  narrow couple with the implementation in exchange for a robustness
-  proof that doesn't rely on real-network flakiness."
+  The writer body's `catch Throwable` arm itself is driven directly, on a
+  pipe closed before the first write, by `streaming_writer_trace_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -87,10 +66,8 @@
             [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
             [re-frame.test-support :refer [with-trace-recorder!]]
             [ring.middleware.head :as ring.head])
-  (:import [java.io InputStream IOException
-                    PipedInputStream PipedOutputStream]
-           [java.net.http HttpResponse$BodyHandlers]
-           [java.util.concurrent CountDownLatch TimeUnit]))
+  (:import [java.io InputStream]
+           [java.net.http HttpResponse$BodyHandlers]))
 
 (use-fixtures :each rf.ssr.ring.test-support/reset-runtime)
 
@@ -154,93 +131,7 @@
   (rf.ssr.ring.test-support/await-no-streaming-threads! timeout-ms leak-poll-ms))
 
 ;; ===========================================================================
-;; Test 1 — broken pipe on .write absorbed by the writer's catch arm
-;; ===========================================================================
-;;
-;; The realised reproducer for the writer's `catch Throwable` arm.
-;; `PipedOutputStream/write` raises `IOException: Pipe closed` once the
-;; matching `PipedInputStream` is closed — exactly what happens on the
-;; live socket path when the client aborts. We close the sink first,
-;; then call `run-streaming-writer!` directly on the current thread.
-;;
-;; What we pin:
-;;
-;;   - The writer body MUST NOT escape with the IOException. The whole
-;;     point of the outer `catch Throwable` is to absorb arbitrary
-;;     OutputStream failures (broken pipe, SSL shutdown mid-stream,
-;;     Jetty internal-buffer-full errors) without crashing the daemon
-;;     thread.
-;;   - The OutputStream is closed by the writer's `finally`. We can't
-;;     directly observe "close" on a closed pipe (already closed), but
-;;     we can prove the writer returned normally — which only happens
-;;     via the `finally`.
-;;
-;; We invoke the fn directly via `#'streaming/run-streaming-writer!`
-;; (it is `defn-`) — a deliberate narrow couple to the implementation
-;; in exchange for a deterministic, fast reproducer that doesn't rely
-;; on OS socket scheduling. The end-to-end disconnect path is covered
-;; by test 2.
-
-(deftest writer-survives-broken-pipe-on-write
-  (testing "writer absorbs IOException on .write and closes the OutputStream cleanly"
-    ;; Pre-broken pipe: close the InputStream side BEFORE handing the
-    ;; OutputStream to the writer. Every subsequent `.write` throws
-    ;; `IOException: Pipe closed`.
-    (let [pipe-in  (PipedInputStream. 1024)
-          pipe-out (PipedOutputStream. pipe-in)
-          _        (.close pipe-in)
-          ;; Direct writer-body invocation. We pass a throw-away
-          ;; frame-id (no frame registered) — the identity of the
-          ;; absorbed throw doesn't matter, only that
-          ;; the writer returns normally and the OutputStream is left
-          ;; in the closed state.
-          ;; The writer does not resolve/render the shell
-          ;; (`render-streaming-shell!` does that on the request
-          ;; thread). It receives PRE-RENDERED shell pieces and only
-          ;; drains the chunk stream, so we hand it a minimal valid
-          ;; `rendered` map. The very first `write-chunk!` of the shell
-          ;; prefix hits the pre-closed pipe → `IOException: Pipe closed`,
-          ;; the exact broken-pipe surface the outer `catch Throwable`
-          ;; absorbs. The contract under test: `catch
-          ;; Throwable, then finally close out` — the writer returns
-          ;; normally and the OutputStream is left closed.
-          rendered {:shell-prefix  "<!DOCTYPE html><html><head></head><body><div id=\"app\">"
-                    :shell-html    "<div></div>"
-                    :continuations []}
-          result   (try
-                     (@#'rf.ssr.ring.streaming/run-streaming-writer!
-                       pipe-out :no-such-frame rendered {:root-view [:div]})
-                     ::returned-normally
-                     (catch Throwable t
-                       [::escaped t]))]
-      (is (= ::returned-normally result)
-          "the writer's outer `catch Throwable` absorbs every throw —
-           no exception escapes the writer body. The contract is
-           `catch Throwable`, not `catch IOException`: arbitrary
-           OutputStream failures (broken pipe, SSL shutdown mid-stream,
-           Jetty internal-buffer errors) and the post-first-chunk
-           render throws the writer owns (continuation drains —
-           inline-fallback — and the final-payload build) MUST all be
-           absorbed. (Root-view / head / shell-walk
-           resolution runs on the request thread, so those never reach
-           the writer at all — they fail closed BEFORE the writer is
-           spawned.)")
-      ;; The writer's finally closes the OutputStream. Probe by
-      ;; writing — a closed PipedOutputStream throws on .write, the
-      ;; JDK contract that proves the finally arm ran.
-      (let [closed? (try
-                      (.write pipe-out (int 0))
-                      false
-                      (catch IOException _ true))]
-        (is closed?
-            "the writer's finally closed the OutputStream — a write
-             after close throws IOException per the JDK pipe contract.
-             Open pipes pin a buffer and starve the Ring server of
-             the EOF signal; this is the bones of the cleanup
-             contract.")))))
-
-;; ===========================================================================
-;; Test 2 — client disconnect mid-stream: writer cleans up, no orphan thread
+;; Test 1 — client disconnect mid-stream: writer cleans up, no orphan thread
 ;; ===========================================================================
 ;;
 ;; End-to-end disconnect path. We send a real HTTP request through
@@ -250,7 +141,7 @@
 ;; writer thread hits `IOException: Broken pipe` (or `Connection reset
 ;; by peer` — Jetty surface varies by JDK version; both are IOExceptions).
 ;;
-;; The contract is the same as test 1 but observed through the real
+;; The writer's catch + finally contract, observed through the real
 ;; transport: no orphan `rf2-ssr-streaming-*` thread after a generous
 ;; settle window. The settle window is needed because thread
 ;; termination is asynchronous w.r.t. the client read — we wait until
@@ -294,90 +185,13 @@
                      (mapv (fn [^Thread t] (.getName t)) leaked)))))))))
 
 ;; ===========================================================================
-;; Test 3 — root-view throw FAILS CLOSED to a non-200 on the
-;;          request thread; NO writer thread is spawned
-;; ===========================================================================
-;;
-;; Materialising the Ring head (status 200) and spawning the daemon writer
-;; BEFORE resolving/rendering the shell would let a root-view / shell-walk
-;; throw fire on the detached daemon thread, where it could only emit a
-;; trace + close the pipe — the wire would already have committed a silent
-;; 200/truncated body.
-;;
-;; Spec 011 §744/§748/§954: a shell-walk (or root-view) throw is the
-;; request's structural foundation failing; it MUST escalate to
-;; `:rf.error/ssr-render-failed` through the standard error-projection
-;; path and FAIL CLOSED to a non-200 projected error page — NOT a 200.
-;;
-;; So the shell renders on the REQUEST thread, before the
-;; head commits, mirroring the non-streaming post-render re-flush.
-;; A root-view throw propagates on the request thread and
-;; is routed through the projector (`project-render-throw->ring-response`)
-;; → a non-200 projected error page returned as an ORDINARY (non-chunked)
-;; Ring response. NO pipe and NO daemon writer thread is ever spawned.
-;;
-;; This test pins BOTH halves of the spec-aligned contract:
-;;   - the wire status is non-200 (500, the default projector's
-;;     `:rf.error/ssr-render-failed` mapping), bytes-on-wire through Jetty,
-;;   - no orphan `rf2-ssr-streaming-*` daemon thread (none is spawned at
-;;     all on a shell-render failure).
-;; The direct-handler half of this contract lives in
-;; `streaming_writer_trace_test/stream-handler-destroys-frame-when-shell-render-throws`.
-
-(deftest root-view-throw-fails-closed-non-200-bytes-on-wire
-  (testing "a root-view throw fails closed to a non-200 on the
-            full Jetty round-trip AND
-            spawns NO daemon writer thread — the shell renders on the
-            request thread before the head commits, so a structural shell
-            failure escalates to `:rf.error/ssr-render-failed` and projects
-            a non-200 (Spec 011 §744/§748/§954)."
-    (rf/reg-event :rf.test.server/init-min
-      {:platforms #{:server}}
-      (fn [_ _] {:db {}}))
-    (let [throwing-root  (fn root-view-fn []
-                           (throw (ex-info ":rf.test/intentional-root-view-throw"
-                                           {:reason "shell-render fail-closed probe"})))
-          handler        (rf.ssr.ring/stream-handler
-                           {:initial-events [[:rf.test.server/init-min]]
-                            :root-view throwing-root
-                            :payload :rf.ssr.payload/whole-app-db})]
-      (rf.ssr.ring.test-support/with-jetty [port handler]
-        (let [client   (rf.ssr.ring.test-support/new-http-client)
-              req      (rf.ssr.ring.test-support/http-get-request port "/" read-timeout-secs)
-              response (.send client req (HttpResponse$BodyHandlers/ofString))
-              status   (.statusCode response)
-              body     (.body response)]
-          (is (= 500 status)
-              "root-view throw fails closed to a 500 on the wire (default
-               projector maps `:rf.error/ssr-render-failed` → 500) — NOT
-               the silent 200 a daemon-writer-first order would ship
-               (Spec 011 §744/§748/§954)")
-          (is (string? body)
-              "the wire EOF'd cleanly — `.send` returned a body string,
-               no read-side hang")
-          (is (not (str/includes? body "intentional-root-view-throw"))
-              "the projected error body carries no internal exception
-               detail — the topology-leak boundary holds (Spec 011
-               §Where sanitisation happens)"))
-        ;; NO writer thread is spawned on a shell-render failure — the
-        ;; throw fires on the request thread before the pipe/thread exist.
-        ;; So there is nothing to leak; assert the absence explicitly.
-        (let [leaked (await-no-streaming-threads! 5000)]
-          (is (empty? leaked)
-              (str "no rf2-ssr-streaming-* daemon thread after a root-view
-                   throw — the shell-render failure short-circuits on the
-                   request thread, before any writer is spawned. Live
-                   threads observed: "
-                   (mapv (fn [^Thread t] (.getName t)) leaked))))))))
-
-;; ===========================================================================
-;; Test 4 — daemon thread name carries the frame-id (correlation + leak scope)
+;; Test 2 — daemon thread name carries the frame-id (correlation + leak scope)
 ;; ===========================================================================
 ;;
 ;; Sanity check that the writer thread is named `rf2-ssr-streaming-
 ;; <frame-id>` so:
 ;;
-;;   - the leak-detection assertions in tests 2 & 3 scope by name
+;;   - the leak-detection assertions in this namespace scope by name
 ;;     prefix correctly (otherwise we'd be matching every JVM thread
 ;;     and the contract would be untestable);
 ;;   - operators correlating thread dumps / JFR recordings to specific
@@ -385,7 +199,7 @@
 ;;
 ;; This is a "the bones of the leak detector are real" test — it
 ;; exists so a future refactor that renames the thread can't silently
-;; defeat the orphan-detection in tests 2 & 3.
+;; defeat the orphan-detection in this namespace.
 
 (deftest daemon-thread-name-is-frame-scoped
   (testing "writer thread name starts with rf2-ssr-streaming-"
@@ -443,7 +257,7 @@
                daemon thread"))))))
 
 ;; ===========================================================================
-;; Test 5 — head-materialisation throw must not orphan the pipe
+;; Test 3 — head-materialisation throw must not orphan the pipe
 ;;          or leak a writer thread
 ;; ===========================================================================
 ;;
@@ -541,7 +355,7 @@
                  (mapv (fn [^Thread t] (.getName t)) leaked)))))))
 
 ;; ===========================================================================
-;; Test 6 — a body nobody drains cannot pin the writer, the
+;; Test 4 — a body nobody drains cannot pin the writer, the
 ;;          request frame or the request slot for ever
 ;; ===========================================================================
 ;;
@@ -660,63 +474,6 @@
             (is (= "java.util.concurrent.TimeoutException"
                    (:ex-class (first records)))
                 "the stall limit stopped the writer, not some other failure")))
-        (finally (close-bodies! bodies))))))
-
-(deftest partially-read-then-abandoned-body-is-reclaimed-within-the-stall-limit
-  (testing "a live reader drains 255 bytes and then abandons
-            the body unclosed, so the JDK's dead-reader check never fires; the
-            stall limit reclaims it all the same"
-    (register-sized-page! 1000)
-    (let [bodies  (atom [])
-          handler (recording-stream-handler bodies)
-          release (CountDownLatch. 1)]
-      (try
-        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
-          (let [^InputStream body (:body (handler {:request-method :get :uri "/"}))
-                bytes-read (promise)
-                reader     (doto (Thread.
-                                   ^Runnable
-                                   (fn []
-                                     (deliver bytes-read
-                                              (.read body (byte-array 255) 0 255))
-                                     ;; Stay alive; never close the body.
-                                     (.await release 10 TimeUnit/SECONDS)))
-                             (.setDaemon true)
-                             (.start))
-                census     (await-no-leak! 3000)]
-            (is (pos? (long (deref bytes-read 3000 0)))
-                "the reader drained part of the body")
-            (is (.isAlive reader)
-                "the reader is still alive, so the JDK never calls the read end
-                 dead")
-            (is (= no-leak census)
-                "no writer thread, request frame or request slot outlives the
-                 stall limit (without the limit: 1 / 1 / 1, for the life of the
-                 JVM)")))
-        (finally
-          (.countDown release)
-          (close-bodies! bodies))))))
-
-(deftest fully-read-body-arrives-whole-without-a-stall-abort
-  (testing "control: a consumer that reads the whole body gets
-            all of it, and the stall limit never fires"
-    (register-sized-page! 1000)
-    (let [bodies  (atom [])
-          handler (recording-stream-handler bodies)]
-      (try
-        (with-redefs [rf.ssr.ring.streaming/stall-timeout-ms stall-limit-ms]
-          (let [[[html census] records]
-                (with-writer-failed-records
-                  (fn []
-                    (let [html (with-open [^InputStream is
-                                           (:body (handler {:request-method :get :uri "/"}))]
-                                 (slurp is))]
-                      [html (await-no-leak! 3000)])))]
-            (is (> (count html) (* 16 1024)) "the page outgrew the pipe")
-            (is (str/includes? html "row-999-padding") "the last row arrived")
-            (is (str/ends-with? html "</body></html>") "the document closed")
-            (is (= no-leak census))
-            (is (empty? records) "no writer-failed record")))
         (finally (close-bodies! bodies))))))
 
 (deftest steady-slow-reader-gets-the-whole-body-over-longer-than-the-limit

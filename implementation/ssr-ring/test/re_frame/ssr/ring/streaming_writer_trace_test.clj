@@ -4,28 +4,21 @@
 
   ## What this covers
 
-  `streaming_robustness_test` pins four behaviours around the streaming
-  writer's `catch Throwable` arm:
+  `streaming_robustness_test` pins the cleanup side of the streaming
+  writer's `catch Throwable` arm: no orphan writer thread after a
+  real-network disconnect, a frame-scoped thread name, and reclamation
+  of a body nobody drains.
 
-    1. broken-pipe absorbed, OutputStream closed by `finally`,
-    2. real-network disconnect cleans up,
-    3. root-view throw fails closed to a non-200 on the request thread
-       (the shell renders off the writer; a root-view
-       throw never reaches the daemon writer),
-    4. daemon thread name carries the frame-id.
-
-  Those four assert absence-of-escape and pipe-close, not the
-  `:rf.error/ssr-streaming-writer-failed` trace event that
-  `re-frame.ssr.ring.streaming/run-streaming-writer!` emits when the arm
-  absorbs a write failure, which Spec 011 §Failure semantics names as the
-  load-bearing observability signal for writer-thread failures.
-
-  This ns pins that emit. Trace observability is a production-
-  monitoring contract — apps registering trace listeners for the
-  failure category MUST see events fire. A refactor of
-  `run-streaming-writer!` that dropped the emit from the broken-pipe path
-  would pass those four, and
-  ops would lose the signal silently.
+  This ns pins the `:rf.error/ssr-streaming-writer-failed` trace event
+  that `re-frame.ssr.ring.streaming/run-streaming-writer!` emits when the
+  arm absorbs a write failure, which Spec 011 §Failure semantics names as
+  the load-bearing observability signal for writer-thread failures. It
+  drives the writer body directly, on a pipe closed before the first
+  write. Trace observability is a production-monitoring contract — apps
+  registering trace listeners for the failure category MUST see events
+  fire. A refactor of `run-streaming-writer!` that dropped the emit from
+  the broken-pipe path would leave the cleanup intact, and ops would lose
+  the signal silently.
 
   Second, the per-request frame destroy on a render
   failure. A shell-render throw (root-view throw) fails
