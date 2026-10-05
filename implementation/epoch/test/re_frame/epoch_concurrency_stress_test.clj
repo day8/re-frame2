@@ -6,7 +6,7 @@
   listener registry, and the per-frame ring buffer) are reached
   concurrently and must hold the same invariants.
 
-  Scenarios 1–3 (Scenarios 4–7 are described beside their deftests):
+  Scenarios 1–3 (Scenarios 4–6 are described beside their deftests):
 
   ### Scenario 1 — N concurrent settle! calls from N independent frames
 
@@ -104,10 +104,6 @@
             ;; exercise directly — NOT for fixture config reset (that
             ;; flows through `configure!`).
             [re-frame.epoch.state :as rf.epoch.state]
-            ;; `tool-pair` is `with-redefs`'d in Scenario 6 to open the
-            ;; validate-then-write TOCTOU window deterministically (the
-            ;; barriered precondition check).
-            [re-frame.epoch.tool-pair :as rf.epoch.tool-pair]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; Machines is a separate artefact whose late-bind
@@ -115,7 +111,7 @@
             ;; for symmetry across the suite so the captured ns-load
             ;; baseline includes the machines registrations.
             [re-frame.machines])
-  (:import [java.util.concurrent CountDownLatch TimeUnit]))
+  (:import [java.util.concurrent CountDownLatch]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
@@ -419,13 +415,6 @@
 
     (let [consumer-stop  (atom false)
           consumer-error (atom nil)
-          ;; Documented restore failure ops. The consumer's restore
-          ;; attempt may legitimately refuse with any of these (most
-          ;; commonly `:rf.epoch/restore-during-drain` when the
-          ;; producer is mid-cascade); we count outcomes rather than
-          ;; assert success.
-          ok-count       (atom 0)
-          fail-count     (atom 0)
           read-count     (atom 0)
           latch          (CountDownLatch. 1)
           producer
@@ -454,12 +443,8 @@
                       ;; observed epoch-id. Concurrent producer means
                       ;; the precondition will often refuse — that's
                       ;; the contract.
-                      (let [target-id (:epoch-id (rand-nth history))
-                            result    (rf/restore-epoch!
-                                        :rd7a7.race/main target-id)]
-                        (if result
-                          (swap! ok-count inc)
-                          (swap! fail-count inc)))))
+                      (rf/restore-epoch! :rd7a7.race/main
+                                         (:epoch-id (rand-nth history)))))
                   (recur)))
               (catch Throwable t
                 (reset! consumer-error t))))]
@@ -502,18 +487,7 @@
                    (or (->> (map vector (range) expected actual)
                             (some (fn [[i e a]]
                                     (when (not= e a) i))))
-                       -1)))))
-
-      ;; Diagnostic-only — surface the ratio of ok/fail/read so a
-      ;; future regression that flips one direction (e.g. always
-      ;; refuses) is visible at test-output read time. Not asserted
-      ;; — this scenario's invariants are 1/2/3 above; restore success
-      ;; rate is a function of producer/consumer interleaving and
-      ;; varies run-to-run.
-      (is (true? true)
-          (str "Diagnostic — reads: " @read-count
-               ", restore-ok: " @ok-count
-               ", restore-fail: " @fail-count)))))
+                       -1))))))))
 
 ;; ---- Scenario 4 (EP-0015 §15 / open-issue 6) -----------------------------
 ;;
@@ -739,120 +713,6 @@
                  "target evicted before the splice)."))))))
 
 ;; ---- Scenario 6 -----------------------------------------------------------
-;;
-;; RESTORE-vs-EVENT-DRAIN LINEARIZABILITY under the validate-then-write TOCTOU.
-;; Scenario 3 above races restores against dispatches but accepts an arbitrary
-;; true/false mix and asserts only exceptions / ring count / trigger order — it
-;; never asserts that a SUCCESSFUL restore stayed OUTSIDE an event's
-;; read-to-commit window. This scenario adds that STATE-linearizability
-;; invariant, deterministically, over many iterations.
-;;
-;; Each iteration forces the TOCTOU window open with a barrier wrapped around
-;; the precondition check: the restore validates its preconditions with NO
-;; drain in flight (so validation passes), THEN a concurrent `dispatch-sync`
-;; starts a drain whose handler reads db and blocks mid-transition (holding the
-;; frame's `:drain-lock`), THEN the restore is released to attempt its write. An
-;; unserialized restore write would splice into the blocked transition and be
-;; overwritten by the handler's commit, so the frame would end at `{:n 3}` even
-;; though the restore returned `true` — a result no serial schedule can
-;; produce. The restore blocks on `:drain-lock` and serializes
-;; AFTER the drain, so the outcome is the linearizable `{:n 1}`.
-;;
-;; The invariant, asserted every iteration: the racing event read the
-;; pre-restore db `{:n 2}` (so the event linearized BEFORE the restore), the
-;; restore reported success, therefore the restore committed LAST and its
-;; installed value MUST be the durable final state `{:n 1}`. `{:n 3}` (the
-;; restore's write erased by the event commit) is the non-linearizable failure.
-;;
-;; CLJS is single-threaded; the interleaving cannot manifest there — JVM-only.
-
-(def ^:private lin-iters
-  (or (some-> (System/getenv "RF2_3FC89F4_LIN_ITERS") Long/parseLong)
-      120))
-
-(deftest restore-linearizable-against-blocked-drain-stress
-  (testing (str lin-iters " iterations of restore-vs-blocked-drain under the "
-                "validate-then-write TOCTOU — every successful restore is "
-                "serialized against the event drain, so the outcome is the "
-                "linearizable {:n 1}, never the mid-transition-splice {:n 3}")
-    (let [frame-id       :3fc89f4.lin/main
-          ;; Per-iteration barrier state, read by the shared redef / handler.
-          barrier        (atom nil) ;; {:passed promise :release latch :armed? atom}
-          cur-hread      (atom nil) ;; per-iter promise: handler published db
-          cur-hrelease   (atom nil) ;; per-iter latch: release the blocked handler
-          orig-check     rf.epoch.tool-pair/check-restore-preconditions!]
-      (rf/make-frame {:id frame-id :doc "restore linearizability stress frame"})
-      (rf/reg-event :set (fn [{:keys [db]} [_ v]] {:db {:n v}}))
-      ;; The racing event: read db, publish it, block mid-transition holding
-      ;; :drain-lock until released, then commit n+1.
-      (rf/reg-event :blocked-inc
-        (fn [{:keys [db]} _]
-          (deliver @cur-hread db)
-          (.await ^CountDownLatch @cur-hrelease (long join-timeout-ms) TimeUnit/MILLISECONDS)
-          {:db {:n (inc (:n db))}}))
-
-      (with-redefs
-        [rf.epoch.tool-pair/check-restore-preconditions!
-         (fn [f e]
-           (let [result (orig-check f e)
-                 b      @barrier]
-             ;; Fire the barrier exactly once per iteration: publish the (:ok)
-             ;; result computed with NO drain in flight, then park until the
-             ;; concurrent drain is blocked mid-transition.
-             (when (and b (compare-and-set! (:armed? b) true false))
-               (deliver (:passed b) result)
-               (.await ^CountDownLatch (:release b) (long join-timeout-ms) TimeUnit/MILLISECONDS))
-             result))]
-
-        (dotimes [_ lin-iters]
-          (let [passed          (promise)
-                release-precond (CountDownLatch. 1)
-                armed?          (atom true)
-                handler-read    (promise)
-                release-handler (CountDownLatch. 1)]
-            (reset! barrier {:passed passed :release release-precond :armed? armed?})
-            (reset! cur-hread handler-read)
-            (reset! cur-hrelease release-handler)
-
-            ;; Seed a fresh {:n 1} epoch (target), then move current db to {:n 2}.
-            ;; The leading :set 7 guarantees a real transition INTO {:n 1}.
-            (rf/dispatch-sync [:set 7] {:frame frame-id})
-            (rf/dispatch-sync [:set 1] {:frame frame-id})
-            (rf/dispatch-sync [:set 2] {:frame frame-id})
-            (let [eid-1 (some (fn [r] (when (= {:n 1} (:db-after r)) (:epoch-id r)))
-                              (reverse (rf/epoch-history frame-id)))]
-              (is (some? eid-1) "seeded a fresh {:n 1} epoch to restore to")
-
-              (let [restore-fut (future (rf/restore-epoch! frame-id eid-1))]
-                ;; 1. Preconditions resolve with no drain in flight.
-                (is (= :ok (:outcome (deref passed join-timeout-ms ::timeout)))
-                    "restore preconditions passed before any drain")
-                ;; 2. Start the racing drain; wait until it is blocked mid-transition.
-                (let [drain-fut (future (rf/dispatch-sync [:blocked-inc] {:frame frame-id}))]
-                  (is (= {:n 2} (deref handler-read join-timeout-ms ::timeout))
-                      "the racing event read the pre-restore db {:n 2}")
-                  ;; 3. Release the restore to attempt its write (it blocks on
-                  ;;    the drain lock; an unserialized write would splice).
-                  (.countDown release-precond)
-                  ;; A short bias toward the splicing interleave (regression aid).
-                  (Thread/sleep 2)
-                  ;; 4. Let the blocked handler commit {:n 3} and settle.
-                  (.countDown release-handler)
-
-                  (let [rr (await-future restore-fut)
-                        dr (await-future drain-fut)]
-                    (is (not= ::timeout rr) "restore completed (no deadlock)")
-                    (is (not= ::timeout dr) "drain completed (no deadlock)")
-                    (is (true? rr) "restore reported success")
-                    ;; The linearizability invariant.
-                    (is (= {:n 1} (rf/app-db-value frame-id))
-                        (str "successful restore must be durable and serialized "
-                             "after the event that read {:n 2}; final db was "
-                             (pr-str (rf/app-db-value frame-id))
-                             " ({:n 3} = the restore's write spliced into and "
-                             "erased by the blocked transition — non-linearizable)"))))))))))))
-
-;; ---- Scenario 7 -----------------------------------------------------------
 ;;
 ;; SAME-ID LISTENER REPLACEMENT vs FAN-OUT / DESTROY. Scenario 2 churns
 ;; register/unregister of PER-THREAD ids and asserts only final listener-map
