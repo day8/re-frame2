@@ -570,13 +570,18 @@
   the exact name `attr-string` drops from the attribute stream, so the prop
   that leaves the attributes is the prop rendered as content.
 
-  The body is the `__html` of a `{:__html …}` map, written RAW — no entity
-  escape — as react-dom writes it: the markup is the caller's to make safe,
-  exactly as on the client. A prop present with no `__html` (nil, or not a
-  map) gives an empty body, as it does in `reagent2.dom.server`."
+  The body is the markup the prop's value answers for `:__html`, written RAW
+  — no entity escape — as react-dom writes it: the markup is the caller's to
+  make safe, exactly as on the client. React's `{:__html …}` map answers it,
+  and so does any value that supports lookup. That is how the Reagent
+  bridge's `reagent.core/unsafe-html` value, the only form stock Reagent 2
+  keeps on the client, renders here without this namespace requiring a
+  substrate: `re-frame.adapter.reagent` makes it answer `:__html`. A value
+  answering a nil `__html`, or none at all (a string, a vector), gives an
+  empty body, as it does in `reagent2.dom.server`."
   [converted]
   (when-let [channel (get converted "dangerouslySetInnerHTML")]
-    (let [html (when (map? channel) (:__html channel))]
+    (let [html (get channel :__html)]
       (cond
         (nil? html)    ""
         (number? html) (rf.ssr.hash/canonical-number html)
