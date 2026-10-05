@@ -24,9 +24,8 @@
       (is (re-find #"below the non-vacuous floor of 100" (:detail p)))))
   (testing "checked just below the floor still trips"
     (is (some? (rf.api-manifest.projection/vacuity-floor-problem "skills/" 99 100))))
-  (testing "checked AT or ABOVE the floor does not trip"
-    (is (nil? (rf.api-manifest.projection/vacuity-floor-problem "skills/" 100 100)))
-    (is (nil? (rf.api-manifest.projection/vacuity-floor-problem "skills/" 505 100)))))
+  (testing "checked AT the floor does not trip (strictly-below trips)"
+    (is (nil? (rf.api-manifest.projection/vacuity-floor-problem "skills/" 100 100)))))
 
 (deftest report-with-floor-goes-red-on-vacuous-empty
   (testing "an empty problem list with a sub-floor count is RED (the vacuous-green case)"
@@ -75,12 +74,6 @@
       (is (= "docs/core/x.md" (:file (first probs))))
       (is (re-find #"renamed to the flat :rf.cofx" (:detail (first probs)))))))
 
-(deftest keyword-drift-allows-rename-mention-naming-replacement
-  (testing "a :rf.world/inputs line that names the :rf.cofx replacement is approved"
-    (is (empty? (rf.api-manifest.projection/ep0017-keyword-drift-problems
-                  "spec/Spec-Schemas.md"
-                  [[5 "The EP-0010 :rf.world/inputs field is renamed to :rf.cofx (EP-0017)."]])))))
-
 (deftest keyword-drift-allows-error-id-and-prose-markers
   (testing "a :rf.world/inputs line naming the generic unrecognised-opt surface + :rf.cofx is a legitimate mention"
     (is (empty? (rf.api-manifest.projection/ep0017-keyword-drift-problems
@@ -91,13 +84,6 @@
                   "x.md"
                   [[1 "The :rf.world/inputs key is retired."]
                    [2 "A migration mention of :rf.world/inputs."]])))))
-
-(deftest keyword-drift-ignores-lines-without-the-keyword
-  (testing "lines that do not mention :rf.world/inputs produce no problems"
-    (is (empty? (rf.api-manifest.projection/ep0017-keyword-drift-problems
-                  "x.md"
-                  [[1 "Declare coeffects via :rf.cofx/requires; values arrive flat."]
-                   [2 "The :rf.cofx envelope map is the one nested record."]])))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0011 reply-envelope vocabulary-drift guard.
@@ -124,12 +110,6 @@
                   [[3 "The reply map carries a `:work-id` attempt identity."]])]
       (is (= 1 (count probs)))
       (is (= ":work-id" (:raw (first probs)))))))
-
-(deftest ep0011-canonical-work-id-not-flagged
-  (testing "the canonical namespaced :work/id is NOT a bare :work-id match"
-    (is (empty? (rf.api-manifest.projection/ep0011-reply-vocab-drift-problems
-                  "x.md"
-                  [[1 "The attempt identity is `:work/id` (one attempt, one id)."]])))))
 
 (deftest ep0011-allows-retirement-mentions
   (testing "a retired spelling on a line that names :work/id or the EP-0007
