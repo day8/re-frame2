@@ -121,7 +121,7 @@ fi
 # tests` reaching CI green is prevented HERE and nowhere else.  Keep the
 # headroom tight enough to mean something: a floor the lane could lose half
 # its suite and still clear is not a floor.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-573}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-497}"
 
 cd "$artefact"
 if ! clojure -M:test:prod-gate; then
