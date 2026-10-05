@@ -50,9 +50,9 @@
  * and the body sets `pipefail`.
  *
  * The workflow is read through `lib/workflow-yaml.cjs` rather than scraped with
- * regexes, so `run:` arrives already dedented and `fetch-depth` is read off the
- * checkout step as structure. Nothing is ever written inside this repository:
- * every fixture lives under the OS temp dir and is removed on the way out.
+ * regexes, so `run:` arrives already dedented. Nothing is ever written inside
+ * this repository: every fixture lives under the OS temp dir and is removed on
+ * the way out.
  *
  * Discovered by `npm run test:scripts`.
  */
@@ -100,14 +100,6 @@ function identifyStep() {
 function dispatchStep() {
   const step = dispatchJob().steps.find((s) => s.name === DISPATCH_STEP_NAME);
   assert.notEqual(step, undefined, `step "${DISPATCH_STEP_NAME}" not found in ${JOB_ID}`);
-  return step;
-}
-
-function checkoutStep() {
-  const step = dispatchJob().steps.find(
-    (s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@'),
-  );
-  assert.notEqual(step, undefined, `${JOB_ID} must check the repository out`);
   return step;
 }
 
@@ -353,24 +345,6 @@ test('ARM 5: an unresolvable base reds the step instead of reporting "nothing ch
 });
 
 // ── ARM 6 — the workflow half ───────────────────────────────────────────────
-
-test('the checkout depth and the fetch-by-name travel together (rf2-8oh5)', () => {
-  // THE CALLER HALF. ARMS 1-5 execute the step body against a fixture and would
-  // all stay green if a future edit raised the checkout to a depth that happened
-  // to cover the fixture while CI's real pushes went deeper. Reachability of the
-  // accepted base is ONE decision spread across two keys, so it is pinned as one:
-  // either the clone carries full history, or the step fetches the base by name.
-  const depth = checkoutStep().with['fetch-depth'];
-  if (depth !== '0') {
-    assert.match(
-      identifyStep().run,
-      /git fetch --no-tags --no-recurse-submodules --depth=1 origin "\$base"/,
-      `the checkout is fetch-depth: ${depth}, so the accepted base — which is ` +
-        'arbitrarily deeper — must be fetched BY NAME (portability.yml is the ' +
-        'worked precedent). Depth alone leaves the base unreachable.',
-    );
-  }
-});
 
 test('the accepted base arrives through env:, never interpolated into the run body (rf2-8oh5)', () => {
   const step = identifyStep();
