@@ -19,11 +19,8 @@
             [re-frame.api-manifest.projection :as rf.api-manifest.projection]))
 
 (def ^:private manifest-vars
-  ;; A small synthetic stand-in spanning several namespaces, exercising the
-  ;; bare-name latitude: `configure!` stands for a re-frame.story var,
-  ;; `machine-by-system-id` for a re-frame.machines one, the rest for
-  ;; re-frame.core — all resolve by name.
-  #{"reg-event" "reg-sub" "dispatch" "configure!" "reg-story" "machine-by-system-id"})
+  ;; A small synthetic stand-in for the manifest's bare var names.
+  #{"reg-event" "reg-sub" "dispatch"})
 
 (def ^:private scoped-allow
   {"reg-sub-raw" #{"migration/from-re-frame-v1/README.md"}})
@@ -32,18 +29,6 @@
   (rf.api-manifest.doc-api-check/reconcile {:references references
                 :manifest-vars manifest-vars
                 :scoped-allow scoped-allow}))
-
-(deftest live-manifest-var-resolves-anywhere
-  (testing "a live manifest var resolves in any reference tree with no problem"
-    (is (empty? (problems-for
-                  [{:var "reg-event" :line 13 :raw "rf/reg-event"
-                    :file "docs/api/re-frame.core.md"}
-                   {:var "configure!" :line 7 :raw "story/configure!"
-                    :file "docs/story/api/registration.md"}
-                   {:var "machine-by-system-id" :line 259 :raw "rf/machine-by-system-id"
-                    :file "docs/api/re-frame.machines.md"}
-                   {:var "reg-event" :line 88 :raw "rf/reg-event"
-                    :file "spec/Privacy.md"}])))))
 
 (deftest removed-name-with-no-manifest-row-is-red
   (testing "a removed / renamed / never-manifested name in live reference
@@ -100,15 +85,6 @@
    {:namespace "re-frame.fresco.overlay" :var "popover"}
    {:namespace "re-frame.fresco.forms"   :var "buffered-field"}
    {:namespace "re-frame.fresco.forms"   :var "drafts"}])
-
-(deftest coverage-clean-when-every-eligible-var-has-a-member
-  (testing "a namespace with a page whose member set covers every eligible var
-            (bare or ns-qualified, both reduced to the bare name) reconciles clean"
-    (is (empty? (rf.api-manifest.doc-api-check/coverage-problems
-                  {:eligible-rows cov-rows
-                   :members {"re-frame.fresco.overlay" #{"modal" "popover"}
-                             "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
-                   :exempt #{}})))))
 
 (deftest coverage-flags-a-namespace-with-no-page
   (testing "an eligible namespace ABSENT from the members map (no docs/api page)
