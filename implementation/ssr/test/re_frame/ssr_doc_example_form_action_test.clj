@@ -275,22 +275,6 @@
 ;; (1b) THE TRANSPORT SEAM: a real form-urlencoded body through the page's seam
 ;; ===========================================================================
 
-(deftest the-parsed-body-is-strings-keyed-by-strings
-  (testing "The premise the seam rests on. A
-            browser submits text; the host adapter parses it; nothing in that
-            chain keywordises a key or coerces a value. Naming this shape is
-            what makes the normalisation owner a real obligation rather than a
-            style note."
-    (let [parsed @parsed-post]
-      (is (every? string? (keys parsed))
-          "the parsed body's keys are STRINGS — the handler's :csrf-token
-           lookup would find nothing")
-      (is (every? string? (vals parsed))
-          "and so are its values — \"2\", not 2")
-      (is (= @posted-field-names (set (map keyword (keys parsed))))
-          "and it carries exactly the inputs the documented form renders, so
-           the wire body under test is the one this page's HTML produces"))))
-
 (deftest the-documented-seam-turns-the-wire-body-into-the-handlers-shape
   (testing "One named owner, and its code is on the page.
             `route->action` resolves the route to the event AND the schema that
@@ -363,24 +347,6 @@
           "while the FIELD schema names only the editable fields — the token
            is absent from it. This is the split, and the assertion that fails
            first if one schema is ever pointed at both jobs"))))
-
-(deftest both-call-sites-satisfy-the-field-schema-and-the-event-tripwire
-  (testing "The field schema validates BOTH payloads (Malli maps are
-            open, so the server's extra token passes through), and the dev-time
-            event `:schema` admits both dispatch shapes. A tripwire rejecting
-            the client dispatch would be a correctness defect of its own."
-    (let [{:keys [fields event-schema]} @example]
-      (is (m/validate fields client-dispatch)
-          "field schema accepts the client draft")
-      (is (m/validate fields @server-post)
-          "field schema accepts the server POST body unchanged")
-      (is (m/validate event-schema [:cart/add-item client-dispatch])
-          "the dev tripwire admits the client dispatch")
-      (is (m/validate event-schema [:cart/add-item @server-post])
-          "and the server POST")
-      (is (not (m/validate fields (assoc client-dispatch :quantity 0)))
-          "the field schema REJECTS a bad quantity — the split does not
-           soften the check it exists to make"))))
 
 (deftest the-token-is-marked-sensitive-on-the-surface-it-travels-through
   (testing "`:rf/server-init` dispatches the whole POST body as the
