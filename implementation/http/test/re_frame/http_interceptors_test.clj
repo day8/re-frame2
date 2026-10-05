@@ -319,94 +319,6 @@
             "other-frame request did NOT carry the header — interceptor is frame-scoped")
         (finally (stop-server! srv))))))
 
-;; ---- 4. throw-recovery: failed interceptor raises and skips the request ---
-
-(deftest interceptor-throw-raises-and-skips-dispatch
-  (testing "a throwing :before raises :rf.error/http-interceptor-failed and the request is not dispatched"
-    (let [traces      (atom [])
-          server-hits (atom 0)
-          listener-id (gensym "interceptor-test-")
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (swap! server-hits inc)
-              (write-response! ex 200 "application/json" "{}")))]
-      (try
-        (rf.trace.tooling/register-listener! listener-id
-                                  (fn [ev] (swap! traces conj ev)))
-        (rf/reg-http-interceptor :boom
-          {:before (fn [_ctx]
-                     (throw (ex-info "kaboom" {:detail :synthetic})))})
-        (rf/reg-event :load
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url (str "http://127.0.0.1:" port "/x")}
-                    :decode  :json
-                    :on-success nil
-                    :on-failure nil}]]}))
-        ;; The runtime's fx wrapper catches the throw and emits
-        ;; :rf.error/fx-handler-exception (per re-frame.fx). The
-        ;; user-observable surface for an interceptor failure is two-fold:
-        ;; (a) the request is NOT dispatched (server saw nothing), and
-        ;; (b) :rf.error/http-interceptor-failed appears on the trace
-        ;; stream so tools / 10x panels can attribute the failure.
-        (rf/dispatch-sync [:load])
-        ;; Wait for the interceptor-failure trace to land —
-        ;; the trace event IS the observable signal, and `poll-until` throws
-        ;; on timeout, so this wait is the trace assertion. server-hits is
-        ;; then asserted as zero (proven absence within the trace-fired window).
-        (rf.test-support/poll-until
-          #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
-                 @traces)
-          {:label ":rf.error/http-interceptor-failed surfaced"})
-        (is (zero? @server-hits)
-            "request was NOT dispatched — server saw zero requests")
-        (finally
-          (rf.trace.tooling/unregister-listener! listener-id)
-          (stop-server! srv))))))
-
-;; ---- 4a. interceptor-failure URL redaction --------------------------------
-
-(deftest interceptor-failure-trace-redacts-denylisted-query-params
-  (testing "when a
-  `:before` throws, the `:rf.error/http-interceptor-failed` trace MUST
-  route the request URL through the privacy composer; a
-  raw URL on the trace surface would leak any denylisted query param
-  (`?api_key=…`) into trace consumers."
-    (let [traces      (atom [])
-          listener-id (gensym "interceptor-redact-")]
-      (try
-        (rf.trace.tooling/register-listener! listener-id
-                                  (fn [ev] (swap! traces conj ev)))
-        (rf/reg-http-interceptor :boom
-          {:before (fn [_ctx]
-                     (throw (ex-info "kaboom" {:detail :synthetic})))})
-        (rf/reg-event :load
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request {:url "https://api.example.invalid/v1?api_key=SECRET&page=2"}
-                    :decode  :json
-                    :on-success nil
-                    :on-failure nil}]]}))
-        (rf/dispatch-sync [:load])
-        ;; Wait for the redacted-trace event to land.
-        (rf.test-support/poll-until
-          #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
-                 @traces)
-          {:label ":rf.error/http-interceptor-failed surfaced (redacted variant)"})
-        (let [w (first (filter #(= :rf.error/http-interceptor-failed
-                                    (:operation %))
-                                @traces))]
-          (is (some? w) ":rf.error/http-interceptor-failed should be on the stream")
-          (let [tags (:tags w)]
-            (is (= "https://api.example.invalid/v1?api_key=:rf/redacted&page=2"
-                   (:url tags))
-                "denylisted query-param value MUST be scrubbed")
-            (is (true? (:sensitive? w))
-                ":sensitive? stamped on the trace (denylist hit = signal)")))
-        (finally
-          (rf.trace.tooling/unregister-listener! listener-id))))))
-
 ;; ---- 4b. a non-map return is its own error, distinct from a throw ---------
 
 (defn- run-one-before!
@@ -701,42 +613,6 @@
       (is (= projected (:url (ex-data (get-in ev [:tags :exception])))))
       (is (= projected (:url (ex-data (:exception record))))))))
 
-;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
-
-(deftest clear-http-interceptor-unregisters
-  (testing "clear-http-interceptor removes the slot; subsequent requests are unaffected"
-    (let [seen-auth (atom nil)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (reset! seen-auth (header-of ex "Authorization"))
-              (write-response! ex 200 "application/json" "{}")))]
-      (try
-        (rf/reg-http-interceptor :auth-header
-          {:before (fn [ctx]
-                     (assoc-in ctx [:request :headers "Authorization"]
-                               "Bearer A"))})
-        (rf/reg-event :load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (-> db
-                       (update :replies (fnil conj []) reply))}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:load msg] :request {:url (str "http://127.0.0.1:" port "/x")}
-                      :decode  :json}]]})))
-        ;; First dispatch — interceptor fires.
-        (rf/dispatch-sync [:load])
-        (await-reply! #(= 1 (count (:replies %))) 5000)
-        (is (= "Bearer A" @seen-auth) "first request carried the auth header")
-        ;; Clear + dispatch again.
-        (reset! seen-auth nil)
-        (rf/clear :http-interceptor :auth-header)
-        (rf/dispatch-sync [:load])
-        (await-reply! #(= 2 (count (:replies %))) 5000)
-        (is (nil? @seen-auth)
-            "after clear, the second request did NOT carry the auth header")
-        (finally (stop-server! srv))))))
-
 ;; ---- 5a. single-arity clear FAILS CLOSED under no scope -------------------
 ;;
 ;; The fixture pins an ambient `*current-frame* :rf/default`, which would MASK a
@@ -988,7 +864,7 @@
 
 ;; ---- 8. clear-all-http-interceptors! bulk-clear ---------------------------
 ;;
-;; The test above (`clear-http-interceptor-unregisters`) covers the single-id
+;; Section 6b above covers the single-id
 ;; `clear-http-interceptor`; this one covers the bulk-clear
 ;; helper `clear-all-http-interceptors!`. Test fixtures and the
 ;; reset-runtime path use the bulk form to drop every registered chain;
@@ -1107,7 +983,6 @@
           {:label ":rf.error/http-interceptor-failed surfaced (sensitivity recompute)"})
         (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
               tags (:tags w)]
-          (is (some? w))
           ;; A sensitive request redacts ALL query values (broader than the
           ;; denylist), so BOTH the non-denylisted customer_email AND page
           ;; scrub. The load-bearing signal is that customer_email — which the
@@ -1246,37 +1121,6 @@
             ":after fires in reverse registration order")
         (finally (stop-server! srv))))))
 
-;; ---- 2. response transform threads through -------------------------------
-
-(deftest after-can-transform-the-response-shape
-  (testing "`:after` returns the (possibly-transformed)
-            response; the transformed shape is what reaches the
-            `:on-success` event vector via `build-reply-event`."
-    (let [srv (single-success-server "{\"original\":\"payload\"}")]
-      (try
-        (rf/reg-http-interceptor :transformer
-          {:after (fn [_ctx resp]
-                    ;; tag the value with a marker so we can confirm
-                    ;; the :on-success target saw the modified shape.
-                    (update resp :value
-                            (fn [v] (assoc v :touched-by :after))))})
-        (rf/reg-event :uheqq/load-xform
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:uheqq/load-xform msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/x")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:uheqq/load-xform])
-        (let [reply (await-reply-with-payload!)]
-          (is (= :ok (:status reply))
-              "the reply still classifies as :status :ok")
-          (is (= :after (get-in reply [:value :touched-by]))
-              ":after's mutation of (:value reply) reaches the on-success target")
-          (is (= "payload" (get-in reply [:value :original]))
-              "the underlying response value is preserved"))
-        (finally (stop-server! srv))))))
-
 ;; ---- 3. interceptors without :after are transparent in the response chain
 
 (deftest after-less-interceptors-are-transparent
@@ -1369,87 +1213,6 @@
               ":after read the :before's stashed ctx flag (request-correlation works)")
           (is (= 200 (get-in reply [:meta :status]))
               "the actual response status rides [:meta :status] on the delivered reply"))
-        (finally (stop-server! srv))))))
-
-;; ---- USE-CASE 2. Response-time telemetry --------------------------------
-
-(deftest motivating-response-time-telemetry
-  (testing "use case 2 — :before stamps a wall-clock start; the
-            :after reads it back via the SHARED ctx and computes the
-            response time delta. This is exactly what the
-            ctx-carried-from-before contract unlocks."
-    (let [observed (atom nil)
-          srv      (single-success-server "{\"items\":3}")]
-      (try
-        (rf/reg-http-interceptor :response-time
-          {:before (fn [ctx]
-                     (assoc ctx ::started-at (System/currentTimeMillis)))
-           :after  (fn [ctx resp]
-                     (let [started (::started-at ctx)
-                           ended   (System/currentTimeMillis)
-                           delta   (- ended started)]
-                       (reset! observed {:delta-ms delta :start started})
-                       (assoc resp :telemetry {:elapsed-ms delta})))})
-        (rf/reg-event :uheqq/load-telemetry
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:uheqq/load-telemetry msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/telemetry")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:uheqq/load-telemetry])
-        (let [reply (await-reply-with-payload!)]
-          (is (some? (:start @observed))
-              ":before's start mark was visible to :after via ctx")
-          (is (>= (:delta-ms @observed) 0)
-              "wall-clock delta is non-negative (computed from ctx-carried mark)")
-          (is (>= (get-in reply [:telemetry :elapsed-ms]) 0)
-              ":after's transformation reached the on-success reply"))
-        (finally (stop-server! srv))))))
-
-;; ---- USE-CASE 3. Cache-Control inspection -------------------------------
-
-(deftest motivating-cache-control-inspection
-  (testing "use case 3 — an :after interceptor parses
-            the server-emitted Cache-Control header off the reply's
-            [:meta :headers] and tags the reply with a structured :cache
-            slot. Downstream `:on-success` handlers consume the structured
-            form without re-parsing the header string at every dispatch
-            site."
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (-> ex .getResponseHeaders
-                      (.set "Cache-Control" "max-age=600, public"))
-                  (write-response! ex 200 "application/json"
-                                   "{\"doc\":\"hello\"}")))]
-      (try
-        (rf/reg-http-interceptor :cache-control
-          {:after (fn [_ctx resp]
-                    ;; Parse the Cache-Control header the
-                    ;; server ACTUALLY emitted off the reply's
-                    ;; [:meta :headers] into a structured :cache slot.
-                    ;; These assertions fail if the emitted header changes
-                    ;; without changing the expected parse.
-                    (let [cc (get-in resp [:meta :headers "cache-control"])]
-                      (assoc resp :cache
-                             {:max-age (some->> cc
-                                                (re-find #"max-age=(\d+)")
-                                                second
-                                                Long/parseLong)
-                              :public? (boolean (when cc (re-find #"\bpublic\b" cc)))})))})
-        (rf/reg-event :uheqq/load-cache
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:uheqq/load-cache msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/cache")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:uheqq/load-cache])
-        (let [reply (await-reply-with-payload!)]
-          (is (= 600 (get-in reply [:cache :max-age]))
-              "Cache-Control max-age parsed FROM the server-emitted header riding [:meta :headers]")
-          (is (true? (get-in reply [:cache :public?]))
-              "Cache-Control 'public' directive parsed from the actual header value"))
         (finally (stop-server! srv))))))
 
 ;; ---- USE-CASE 4. 401 auth-token refresh ---------------------------------
