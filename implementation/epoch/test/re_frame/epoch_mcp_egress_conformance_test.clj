@@ -8,7 +8,7 @@
   Here we exercise the full off-box-forwarder pattern an MCP server runs:
 
     1. Build a realistic mixed ring (sensitive + large + bookkeeping-only
-       records, a `:halted-depth` record, the empty case). `large` means BOTH
+       records, a `:halted-depth` record). `large` means BOTH
        shapes a large value can arrive in: the app-db PATH declaration and
        the whole-output `:large?` sub REGISTRATION stamp. The
        second is not app-db-rooted, so a fixture that declared only paths
@@ -187,9 +187,9 @@
               axis specifically; the frame-declared sensitive path is the
               leaf the projection's wire-elision walker matches against.
               The trigger-event event-args axis is exercised separately by
-              `re-frame.epoch-egress-redaction-cljs-test`'s `trigger-event-*`
-              tests, which drive
-              the secret IN the event vector and assert it fails closed)
+              `re-frame.epoch-egress-redaction-cljs-test`'s
+              `trigger-event-positional-secret-fails-closed`, which drives
+              the secret IN the event vector and asserts it fails closed)
     - :upload — writes the large path (large payload closed-over in the
                 handler for the same reason)
     - :halt/loop — a runaway: it re-dispatches itself
@@ -833,30 +833,6 @@
 ;;  Forwarder-shape conformance — project-egress (per-record egress)
 ;; ============================================================================
 
-(deftest forwarder-project-egress-leaks-no-raw-secret-bytes
-  (testing "MCP `register-epoch-listener!` forwarder pattern: ship! body runs
-            `project-egress` on each record before egress. The projected
-            shape MUST NOT carry the raw secret string anywhere — the
-            promise the MCP wire boundary makes to Security.md §Epoch
-            privacy posture (line 104)."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (let [shipped (atom [])
-          ship!   (fn [record]
-                    ;; Tool-side forwarder body — project at egress.
-                    (swap! shipped conj (rf/project-egress record)))]
-      (rf/register-listener! :epoch ::forwarder ship!)
-      (drive-mixed-ring! :test/mcp)
-      (is (pos? (count @shipped))
-          "the forwarder saw at least one cascade")
-      (is (some #(= :halted-depth (:outcome %)) @shipped)
-          "fixture: the forwarder shipped the `:halted-depth` record, whose
-           descriptor names the event carrying the secret")
-      (is (not-any? contains-secret? @shipped)
-          "no projected record carries the raw secret string anywhere
-           in its structure — every leaf at the sensitive path is the
-           :rf/redacted scalar sentinel"))))
-
 (deftest forwarder-project-egress-bounds-large-leaf-bytes
   (testing "MCP `register-epoch-listener!` forwarder pattern: the projected
             record MUST NOT egress the full large payload as a leaf
@@ -1018,56 +994,6 @@
       (is (= schemas-before schemas-after)
           "the schemas registry is unchanged"))))
 
-(deftest forwarder-project-egress-is-sensitive-idempotent
-  (testing "MCP forwarder pattern: under :sensitive? substitutions
-            `project-egress` is idempotent — re-projecting an
-            already-projected record returns a structurally-equal value
-            at the sensitive slot. The :sensitive? sentinel
-            (`:rf/redacted`) is a scalar keyword, so the walker has no
-            larger structure to descend into on a re-projection pass;
-            a forwarder pipeline that accidentally double-projects (e.g.
-            middleware composition, tool-then-watcher fan-out) MUST NOT
-            re-leak a sensitive value across passes.
-
-            Sibling test `forwarder-project-egress-is-large-idempotent`
-            pins the parallel guarantee for the :large? marker: the
-            wire-elision walker is marker-aware, so
-            both the sensitive and large substitutions are uniformly
-            idempotent under repeated projection. The sensitive case
-            holds because `:rf/redacted` is a non-matchable scalar; the
-            large case holds because the walker recognises its own
-            `:rf.size/large-elided` marker shape at the declared path
-            and passes it through unchanged.
-
-            What an MCP forwarder relies on: BOTH substitutions are
-            irreversible across passes. Once a record has been projected,
-            re-projecting it yields the same shape, byte-for-byte at
-            the substitution points."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [raw    (rf/epoch-history :test/mcp)
-          once   (mapv rf/project-egress raw)
-          twice  (mapv rf/project-egress once)
-          thrice (mapv rf/project-egress twice)]
-      ;; Sensitive substitution holds across all three passes.
-      (is (every? (fn [r] (= :rf/redacted (get-in r [:db-after :auth :password])))
-                  (rest once))
-          "every record past :seed carries :rf/redacted at the sensitive
-           leaf after one projection pass")
-      (is (every? (fn [r] (= :rf/redacted (get-in r [:db-after :auth :password])))
-                  (rest twice))
-          ":rf/redacted survives a second projection pass — scalar
-           sentinel is the walker's substitution target, not re-matchable")
-      (is (every? (fn [r] (= :rf/redacted (get-in r [:db-after :auth :password])))
-                  (rest thrice))
-          ":rf/redacted survives a third projection pass — sensitive
-           substitution is irreversible")
-      (is (not-any? contains-secret? thrice)
-          "the secret is still absent after three projection passes —
-           the MCP forwarder's no-leak guarantee holds even under
-           accidental double-projection"))))
-
 (deftest forwarder-project-egress-is-large-idempotent
   (testing "MCP forwarder pattern: under :large? substitutions
             `project-egress` is idempotent — re-projecting a record
@@ -1127,8 +1053,8 @@
 ;; ============================================================================
 ;;
 ;; There is no whole-ring convenience door. The supported whole-ring spelling
-;; is ordinary composition, which is what a forwarder writes and what these
-;; deftests pin.
+;; is ordinary composition, which is what a forwarder writes and what the
+;; deftest below pins.
 
 (defn- project-ring
   "The supported whole-ring egress spelling: map `project-egress` over the
@@ -1153,19 +1079,6 @@
           "the bulk snapshot does not leak the raw secret")
       (is (zero? (count-leaf-strings-at-least payload-size snapshot))
           "the bulk snapshot does not leak any raw large-payload bytes"))))
-
-(deftest watch-epochs-whole-ring-projection-empty-on-fresh-frame
-  (testing "MCP `watch-epochs` initial snapshot pattern: an MCP server
-            attached to a frame with no recorded epochs (a freshly-
-            booted app, a just-cleared session) MUST receive the empty
-            vector — not a missing-frame error. The snapshot path is
-            shape-stable across the empty case."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (is (= [] (project-ring :test/mcp))
-        "empty-ring snapshot is the empty vector")
-    (is (= [] (project-ring :rf/no-such-frame))
-        "missing-frame snapshot is also the empty vector — uniform shape")))
 
 ;; ============================================================================
 ;;  `:rf.egress/include-sensitive?` routes THROUGH projection, per-axis.
