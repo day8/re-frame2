@@ -16,19 +16,19 @@
   the registry `reg-flow` update fn.
 
   This file pins both ends:
-    - the pure `topo` helpers (`output-paths-overlap?` /
-      `detect-output-path-overlap!`) — algorithm-level, no runtime;
+    - the pure `topo/detect-output-path-overlap!` scanner — its error
+      shape and its iteration-order-independent pair report, no runtime;
     - the integrated `rf/reg-flow` path — the rejection actually fires at
       registration and the prior registration survives.
 
-  The identical, parent/child, sibling and unrelated cases run on both
-  hosts in `re-frame.flows-path-cljs-test`.
+  The `output-paths-overlap?` relation (identical, parent/child, sibling
+  and unrelated cases) runs on both hosts in `re-frame.flows-path-cljs-test`.
 
   TERMINATION NOTE: `detect-output-path-overlap!` scans the upper triangle of
   the frame's flow pairs via `(some ... (for ...))` — terminating by
-  construction. The disjoint-map test below is the explicit guard that the
-  scan terminates on any frame with ≥2 disjoint flows."
-  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
+  construction, and run by every registration into a frame that already
+  holds a flow."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as rf.flows]
             [re-frame.flows.topo :as rf.flows.topo]
@@ -46,34 +46,8 @@
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
-;; 1. topo/output-paths-overlap? — the prefix-relation predicate
+;; 1. topo/detect-output-path-overlap! — the prospective-map scanner
 ;; ---------------------------------------------------------------------------
-
-(deftest output-paths-overlap?-is-a-prefix-relation-at-any-depth
-  (testing "two output paths overlap iff one is a prefix of the other, at any
-            depth, never by shared elements; the identical, parent/child,
-            sibling and unrelated rows run on both hosts in
-            re-frame.flows-path-cljs-test"
-    (are [a b expected] (= expected (rf.flows.topo/output-paths-overlap? a b))
-      [:a :b :c] [:a :b :d]    false   ; deeper sibling leaves are disjoint
-      [:a :b]    [:a :b :c :d] true    ; a deep descendant overlaps its ancestor
-      ;; shared elements, neither a prefix: the same prefix-not-membership rule
-      ;; as depends-on? (flows_topo_test.clj)
-      [:x :y]    [:y :x]       false)))
-
-;; ---------------------------------------------------------------------------
-;; 2. topo/detect-output-path-overlap! — the prospective-map scanner
-;; ---------------------------------------------------------------------------
-
-(deftest detect-output-path-overlap!-passes-disjoint-map
-  (testing "a frame map of pairwise-disjoint output paths passes (returns the map unchanged) — and TERMINATES"
-    ;; TERMINATION GUARD: the scan must terminate on a ≥2-flow disjoint map;
-    ;; this assertion only completes if it does.
-    (let [flow-map {:a {:id :a :inputs [[:w]] :derive identity :output-path [:x :a]}
-                    :b {:id :b :inputs [[:h]] :derive identity :output-path [:x :b]}
-                    :c {:id :c :inputs [[:q]] :derive identity :output-path [:y]}}]
-      (is (= flow-map (rf.flows.topo/detect-output-path-overlap! flow-map))
-          "disjoint outputs: no throw, threads the map through"))))
 
 (deftest detect-output-path-overlap!-throws-on-identical-paths
   (testing "two flows with identical output :paths throw :rf.error/flow-path-overlap with the canonical thrown-error shape"
@@ -163,7 +137,7 @@
             "the str tie-break orders the colliding pair canonically (\"Aa\" < \"BB\")")))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. integrated rf/reg-flow — the core case: same-frame overlapping
+;; 2. integrated rf/reg-flow — the core case: same-frame overlapping
 ;;    outputs + DISJOINT inputs (no cycle, no edge) must be rejected.
 ;; ---------------------------------------------------------------------------
 
