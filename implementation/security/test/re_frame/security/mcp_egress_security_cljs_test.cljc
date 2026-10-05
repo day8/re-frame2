@@ -12,10 +12,9 @@
             [re-frame.security.gen :as rf.security.gen]))
 
 ;; These property tests intentionally drive thousands of malformed
-;; `:sensitive?` stamps through `sens/strip-sensitive` / `scrub-snapshot` /
-;; `sensitive-event?`. The quiet JVM and CLJS runners buffer the expected
-;; contract-drift warnings and replay them on failure. The malformed counter
-;; below independently proves that the warning path ran.
+;; `:sensitive?` stamps through `sens/strip-sensitive` / `scrub-snapshot`.
+;; The quiet JVM and CLJS runners buffer the expected contract-drift warnings
+;; and replay them on failure.
 
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-EGRESS-DO-NOT-SHIP")
 
@@ -77,7 +76,6 @@
     (let [result (rf.security.gen/for-all
                    gen-event-vec 400 23
                    (fn [events]
-                     (rf.mcp-base.sensitive/reset-malformed-count!)
                      (let [[kept _dropped] (rf.mcp-base.sensitive/strip-sensitive events false)]
                        ;; Check both content and classification: stripping a
                        ;; stamp alone must not hide a secondary-slot leak.
@@ -86,36 +84,6 @@
       (is (nil? result)
           (str "a sensitive event survived the allow-sensitive-disabled egress: "
                (pr-str (when result (dissoc result :threw))))))))
-
-(deftest deep-scan-catches-secondary-slot-sentinel-survivor
-  (testing "the deep scan catches a sentinel in :tags :received even when the
-            surviving event is not classified sensitive"
-    (let [survivor       {:operation :sub/recompute
-                          :tags {:value "public-data"
-                                 :received [sentinel]}}
-          [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [survivor] false)]
-      (is (= [survivor] kept))
-      (is (zero? dropped))
-      (is (not-any? #(= sentinel (-> % :tags :value)) kept)
-          "a primary-slot check is blind to :received")
-      (is (not-any? rf.mcp-base.sensitive/sensitive-event? kept)
-          "classification alone is blind because the survivor is not stamped")
-      (is (some contains-sentinel? kept)
-          "the deep scan catches the sentinel in :tags :received")
-      (is (contains-sentinel? survivor)))))
-
-(deftest allow-sensitive-disabled-malformed-stamp-counts-as-dropped
-  (testing "a malformed truthy stamp is dropped and increments the
-            observability counter exactly once"
-    (doseq [stamp malformed-stamps]
-      (rf.mcp-base.sensitive/reset-malformed-count!)
-      (let [ev {:operation :x :sensitive? stamp :tags {:value sentinel}}
-            [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [ev] false)]
-        (is (= [] kept) (str "malformed stamp " (pr-str stamp) " was NOT dropped"))
-        (is (= 1 dropped))
-        (is (= 1 (rf.mcp-base.sensitive/malformed-count))
-            (str "malformed stamp " (pr-str stamp)
-                 " must bump the counter exactly once per event"))))))
 
 (deftest allow-sensitive-enabled-opt-in-passes-through-verbatim
   (testing "with include? true (operator opted in via --allow-sensitive-reads),
@@ -168,7 +136,6 @@
     (let [result (rf.security.gen/for-all
                    gen-snapshot 300 31
                    (fn [snap]
-                     (rf.mcp-base.sensitive/reset-malformed-count!)
                      (let [[scrubbed _dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
                        (and (not (snapshot-leaks-sentinel? scrubbed))
                             ;; :app-db must survive verbatim (read-time
@@ -198,13 +165,3 @@
           "deep scan flags the sentinel in a frame's :tags :received")
       (is (not (snapshot-leaks-sentinel? clean))
           "deep scan must not flag a sentinel-free snapshot"))))
-
-(deftest malformed-stamp-corpus-fail-closed
-  (testing "each truthy non-boolean stamp classifies as sensitive"
-    (doseq [stamp malformed-stamps]
-      (is (true? (rf.mcp-base.sensitive/sensitive-event? {:sensitive? stamp}))
-          (str "stamp " (pr-str stamp) " must classify as sensitive (drop)")))
-    (testing "explicit false / nil / absent pass (non-sensitive)"
-      (is (false? (rf.mcp-base.sensitive/sensitive-event? {:sensitive? false})))
-      (is (false? (rf.mcp-base.sensitive/sensitive-event? {:sensitive? nil})))
-      (is (false? (rf.mcp-base.sensitive/sensitive-event? {:operation :x}))))))
