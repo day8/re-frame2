@@ -36,7 +36,7 @@
 
   ## Why the dev suite cannot prove this
 
-  The dev-mode legs in `re-frame.routing-nav-fx-schemas-cljs-test` assert the
+  The dev-mode legs in `re-frame.routing-scroll-record-bounded-cljs-test` assert the
   always-on listener fires, but they run with the trace surface LIVE. They
   cannot distinguish a record that rides the always-on axis from one that
   rides the dev trace — under `goog.DEBUG=true` both deliver. Only a
