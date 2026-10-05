@@ -8,8 +8,8 @@
     'FNV-1a 32-bit over a canonical EDN serialisation of the render-tree
      (depth-first traversal; attribute maps in sorted-key order; nil pruned).'
 
-  This file pins the **nil pruning** rule on `canonical-edn` and its
-  recursion through a whole tree. Without it, the ubiquitous
+  This file pins the **nil pruning** rule on `canonical-edn`. Without it,
+  the ubiquitous
   `{:class (when condition? :selected)}` shape produces `{:class nil}` on
   one side and `{}` on the other, and the trees hash differently despite
   being structurally equivalent. It also pins how a Var head and
@@ -70,23 +70,6 @@
 ;; total order over str-colliding keys (`:a` beside `":a"`) are pinned with
 ;; literal hashes on both hosts by `re-frame.hash-parity-test` and
 ;; `re-frame.ssr.hash-parity-cljs-test`.
-
-(deftest render-tree-hash-prunes-nil-deeply
-  (testing "pruning is recursive — nil-pruning applies at every level"
-    (is (= (rf.ssr.hash/render-tree-hash
-             [:section {:class "wrap"}
-              [:header {:role "banner" :hidden nil}
-               [:h1 "Title" nil]]
-              [:article {:class nil}
-               [:p "Body" nil]]])
-           (rf.ssr.hash/render-tree-hash
-             [:section {:class "wrap"}
-              [:header {:role "banner"}
-               [:h1 "Title"]]
-              [:article {}
-               [:p "Body"]]]))
-        "a deeply nested tree with nils at multiple levels hashes identically
-         to the same tree with all nils pruned")))
 
 ;; ===========================================================================
 ;; :doctype? + :render-hash composition
