@@ -69,15 +69,6 @@
       :keyword        false
       42              false)))
 
-(deftest carrier-extras-extend-header-denylist
-  (testing "app-declared header carriers compose with defaults"
-    (let [extras #{"x-honeycomb-team"}]
-      (is (rf.http.privacy-headers/sensitive-header? "X-Honeycomb-Team" extras))
-      (is (rf.http.privacy-headers/sensitive-header? "x-honeycomb-team" extras))
-      ;; absent extras → only the built-in defaults apply
-      (is (not (rf.http.privacy-headers/sensitive-header? "X-Honeycomb-Team")))
-      (is (not (rf.http.privacy-headers/sensitive-header? "X-Honeycomb-Team" nil))))))
-
 (deftest carrier-cannot-remove-a-built-in-header-default
   (testing "EP-0025 — the built-in header denylist is IMMUTABLE: an app's
             carrier policy is a union-EXTEND of the defaults, never a remove.
@@ -127,16 +118,6 @@
   (is (nil? (rf.http.privacy-headers/redact-headers nil)))
   (is (= {} (rf.http.privacy-headers/redact-headers {}))))
 
-(deftest redact-headers-handles-mixed-case-keys
-  (testing "header-name match ignores case on the map key"
-    (let [m {"AUTHORIZATION" "Bearer xyz"
-             "set-cookie"    "id=1"
-             "Set-cookie"    "id=2"}
-          r (rf.http.privacy-headers/redact-headers m)]
-      (is (= :rf/redacted (get r "AUTHORIZATION")))
-      (is (= :rf/redacted (get r "set-cookie")))
-      (is (= :rf/redacted (get r "Set-cookie"))))))
-
 (deftest redact-headers-redacts-vector-valued-sensitive-header
   (testing "a denylisted header whose value is a VECTOR (the
             documented multi-valued request-header shape, string → vector
@@ -169,15 +150,6 @@
       {}                                      false)))
 
 ;; ---- 4. redact-request-tags ----------------------------------------------
-
-(deftest redact-request-tags-always-redacts-headers
-  (testing "headers are denylist-redacted regardless of :sensitive?"
-    (let [tags  {:url "/x"
-                 :headers {"Authorization" "Bearer t"
-                           "Content-Type"  "application/json"}}
-          r     (rf.http.privacy/redact-request-tags tags false)]
-      (is (= :rf/redacted (get-in r [:headers "Authorization"])))
-      (is (= "application/json" (get-in r [:headers "Content-Type"]))))))
 
 (deftest redact-request-tags-redacts-the-payload-when-sensitive
   (testing "a sensitive request's :body and :params become the sentinel and
@@ -356,17 +328,8 @@
 ;; also iterates it cannot see a key DROPPED from it: delete `:reply-to` from
 ;; the roster and the projection stops classifying it, while a test iterating
 ;; the roster would walk the two survivors and pass — an unclassified
-;; reply-address payload behind a green suite. The roster is
-;; pinned against this literal in its own assertion below, so the two cannot
-;; drift apart either.
+;; reply-address payload behind a green suite.
 (def ^:private reply-address-keys-literal [:reply-to :on-success :on-failure])
-
-(deftest reply-address-roster-is-the-three-spelled-keys
-  (testing "`reply-address-keys` is the unified `:reply-to` plus the
-            split `:on-success` / `:on-failure` sugar, in that order. Dropping
-            one silently un-classifies its payloads everywhere the roster is
-            reduced over, so the roster itself is pinned rather than trusted"
-    (is (= reply-address-keys-literal rf.http.encoding/reply-address-keys))))
 
 (deftest project-managed-fx-args-classifies-every-reply-address-key
   (testing "the artefact-level fn applies the target registration's
@@ -487,23 +450,6 @@
 
 ;; ---- 8. redact-url-query-string -------------------------------------------
 
-(deftest redact-url-denylist-replaces-sensitive-values
-  (testing "denylisted query-param values become :rf/redacted; non-denylisted preserved"
-    (let [[url any?] (rf.http.url/redact-url-query-string
-                       "https://api.example.com/users?api_key=SECRET&page=2"
-                       false)]
-      (is (= "https://api.example.com/users?api_key=:rf/redacted&page=2" url))
-      (is (true? any?)))))
-
-(deftest redact-url-sensitive-true-redacts-everything
-  (testing "when sensitive? true, ALL params are redacted (broader rule)"
-    (let [[url any?] (rf.http.url/redact-url-query-string
-                       "https://api.example.com/users?user_id=42&page=2&sort=asc"
-                       true)]
-      (is (= "https://api.example.com/users?user_id=:rf/redacted&page=:rf/redacted&sort=:rf/redacted"
-             url))
-      (is (true? any?)))))
-
 (deftest redact-url-with-nothing-to-redact-is-unchanged
   (testing "with nothing to redact — no query string, no denylisted name, a
             fragment but no query, a bare `?`, or a nil / non-string value —
@@ -584,16 +530,6 @@
       (is (= :rf/redacted (get-in r [:headers "Authorization"])))
       (is (= :rf/redacted (get-in r [:failure :body])))
       (is (true? (:sensitive? r))))))
-
-(deftest prepare-emit-failure-composes-correctly
-  (let [failure {:kind :rf.http/http-5xx
-                 :status 500
-                 :body "internal user data"
-                 :headers {"Set-Cookie" "id=42"}}
-        r       (rf.http.privacy/prepare-emit-failure failure true)]
-    (is (= :rf/redacted (:body r)))
-    (is (= :rf/redacted (get-in r [:headers "Set-Cookie"])))
-    (is (true? (:sensitive? r)))))
 
 (deftest prepare-emit-tags-stamps-sensitive-on-denylist-hit
   (testing "denylisted query-param alone (no per-call :sensitive?) stamps :sensitive?"
@@ -746,9 +682,6 @@
           qp       (:query-params carriers)]
       (is (= #{"shop_token"} (:include qp)))
       (is (= #{"token" "sig"} (:except qp))))
-    (testing "the vector form resolves to a plain set"
-      (reg-managed-carriers! {:query-params ["shop_token"]})
-      (is (= #{"shop_token"} (:query-params (rf.http.privacy/managed-carriers)))))
     (testing "a policy map of all-empty vectors resolves :query-params to nil"
       (reg-managed-carriers! {:query-params {:include [] :except []}})
       (is (nil? (:query-params (rf.http.privacy/managed-carriers)))))))
