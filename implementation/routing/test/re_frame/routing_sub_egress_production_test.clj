@@ -48,8 +48,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.privacy :as rf.privacy]
             [re-frame.routing.sub-egress :as rf.routing.sub-egress]
             [re-frame.routing-test-support :as rf.routing-test-support]))
@@ -85,34 +83,7 @@
           [:rf.runtime/routing :current]))
 
 ;; ===========================================================================
-;; (1) The always-on precondition — activation really lowers, in this posture
-;; ===========================================================================
-
-(deftest route-activation-lowers-its-classification-in-this-posture
-  (testing "every redaction below is downstream of ONE always-on
-            fact: navigating to a classified route re-roots its
-            projection-relative declarations to absolute runtime-db paths and
-            writes them into the live frame's per-frame elision registry. If a
-            production build ever stopped doing that, the redactions below would
-            go quiet rather than red — nothing would be declared, so nothing
-            would be withheld, and a value-shaped assertion cannot tell that
-            apart from a clean walk. This is the non-vacuity pin that can."
-    (navigate-to-classified-route!)
-    (let [reg (:rf.runtime/elision (rf.frame/frame-runtime-db-value :rf/default))]
-      (is (contains? (:sensitive-declarations reg)
-                     [:rf.runtime/routing :current :query :token])
-          "the `:sensitive [[:query :token]]` decl re-rooted to its absolute
-           runtime-db path")
-      (is (contains? (:declarations reg)
-                     [:rf.runtime/routing :current :query :payload])
-          "and the `:large` one alongside it"))
-    (testing "and the routing artefact really published the seam core consults"
-      (is (some? (rf.late-bind/get-fn :routing/route-sub-egress-path))
-          "`:routing/route-sub-egress-path` is bound — core reaches routing
-           through this hook and nothing else"))))
-
-;; ===========================================================================
-;; (2) The egress site itself — off-box direct reads redact in production
+;; (1) The egress site itself — off-box direct reads redact in production
 ;; ===========================================================================
 
 (deftest route-sub-egress-redacts-the-classified-slice-off-box
@@ -166,19 +137,10 @@
           "`:rf.route/params`' bare params map redacts through its own seed"))))
 
 ;; ===========================================================================
-;; (3) The two boundaries the projection must not cross
+;; (2) The boundaries the projection must not cross. The in-process read
+;; staying raw is pinned by `routing-classification-test`, which runs in
+;; this lane too.
 ;; ===========================================================================
-
-(deftest the-in-process-read-stays-raw-in-production
-  (testing "classification is read ONLY at egress. The durable
-            slice the handler, the views and the app's own subs see keeps the
-            real values, in a production build as in a dev one; a redaction that
-            reached in-process would be a correctness bug wearing a privacy
-            fix's clothes."
-    (navigate-to-classified-route!)
-    (let [slice (route-slice)]
-      (is (= token-secret (get-in slice [:query :token])))
-      (is (= "blobdata" (get-in slice [:query :payload]))))))
 
 (deftest a-non-route-sub-is-untouched
   (testing "NARROW, and deliberately so: this is not generic
