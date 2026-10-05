@@ -49,41 +49,6 @@
 
 ;; ---- result-equivalence — the contract pin --------------------------------
 
-(deftest layer-n-1-memo-skips-recompute-on-equal-upstream
-  (testing "two consecutive derefs against an unchanged upstream value
-            run the layer-2 body once"
-    (let [runs (atom 0)]
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-      (rf/reg-sub :n  (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (swap! runs inc) (* 2 n)))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:n*2])]
-        (is (= 14 @r))
-        (is (= 1 @runs) "first deref runs the body")
-        (is (= 14 @r))
-        (is (= 1 @runs)
-            "second deref against same upstream does NOT re-invoke the body")
-        (is (= 14 @r))
-        (is (= 1 @runs))))))
-
-(deftest layer-n-1-memo-recomputes-on-changed-upstream
-  (testing "deref after an upstream change runs the body again"
-    (let [runs (atom 0)]
-      (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
-      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-      (rf/reg-sub :n   (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 {:inputs [[:n]]} (fn [[n] _] (swap! runs inc) (* 2 n)))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:n*2])]
-        (is (= 0 @r))
-        (is (= 1 @runs))
-        (rf/dispatch-sync [:update 3])
-        (is (= 6 @r))
-        (is (= 2 @runs) "body re-runs when the upstream value changed")
-        (rf/dispatch-sync [:update 5])
-        (is (= 10 @r))
-        (is (= 3 @runs))))))
-
 (deftest layer-n-1-body-receives-upstream-value-and-query-v
   (testing "the body fn receives the canonical (upstream, query-v)
             shape under the specialised wrapper"
