@@ -1798,26 +1798,47 @@ Per the slim Reagent rewrite design (IMPL-SPEC §10 / DECISION-7 / DECISION-8 / 
 
 | Removed surface | Replacement |
 |---|---|
-| `reagent.dom/render` | `reagent2.dom.client/create-root` + `reagent2.dom.client/render` |
-| `reagent.dom/unmount-component-at-node` | `reagent2.dom.client/unmount` |
+| `reagent.dom/render` | The adapter's client root: one `(defonce app-root (reagent-adapter/client-root))` handle, then `(reagent-adapter/render! app-root [app] container)` — the [worked recipe](#legacy-mount-path) below |
+| `reagent.dom/unmount-component-at-node` | `(reagent-adapter/unmount! app-root)` on that same handle |
 | `reagent.dom/force-update-all` | None — file an issue if you hit a real use case |
-| `reagent.core/render` | `reagent2.dom.client/create-root` + `reagent2.dom.client/render` |
+| `reagent.core/render` | The same client-root rewrite as `reagent.dom/render` |
 | `reagent.dom/dom-node` | `:ref` callback (class components) or `React.useRef` (function components) — React 19 removed `findDOMNode` |
 
-**The bridge keeps MOST of the Vars, but the render call site still changes — and `dom-node` is gone on the bridge too.** The classic bridge (`day8/re-frame2-reagent`, depending on stock Reagent 2.x) still ships `reagent.dom/render`, `reagent.core/render`, `reagent.dom/unmount-component-at-node` and `reagent.dom/force-update-all` — stock Reagent has not removed *those* Vars. But React 19 removed the `react-dom/render` that `reagent.dom/render` delegates to, so on the bridge the Var resolves and the build is clean, yet at run time stock Reagent logs a console warning that the function doesn't exist and then calls it anyway: the call **throws a `TypeError`** and nothing mounts, with no `:rf.error/*` trace, because the exception comes from the boot code rather than a handler. `reagent.dom/unmount-component-at-node` has the same warn-then-throw shape over `unmountComponentAtNode`, and `reagent.core/render` throws Reagent's own "moved to reagent.dom" error. The render call site needs the same `create-root` + `render` rewrite either way, just targeting `reagent.dom.client` (bridge) instead of `reagent2.dom.client` (slim).
+**The bridge keeps MOST of the Vars, but the render call site still changes — and `dom-node` is gone on the bridge too.** The classic bridge (`day8/re-frame2-reagent`, depending on stock Reagent 2.x) still ships `reagent.dom/render`, `reagent.core/render`, `reagent.dom/unmount-component-at-node` and `reagent.dom/force-update-all` — stock Reagent has not removed *those* Vars. But React 19 removed the `react-dom/render` that `reagent.dom/render` delegates to, so on the bridge the Var resolves and the build is clean, yet at run time stock Reagent logs a console warning that the function doesn't exist and then calls it anyway: the call **throws a `TypeError`** and nothing mounts, with no `:rf.error/*` trace, because the exception comes from the boot code rather than a handler. `reagent.dom/unmount-component-at-node` has the same warn-then-throw shape over `unmountComponentAtNode`, and `reagent.core/render` throws Reagent's own "moved to reagent.dom" error. The render call site needs the same rewrite either way, and it is one rewrite for both: the adapter's own client root, required as `[re-frame.adapter.reagent :as reagent-adapter]`. Both artefacts publish the same `client-root` / `render!` / `unmount!` trio at that namespace, so the migrated boot namespace compiles unchanged against either, and the app requires neither `reagent.dom.client` nor `reagent2.dom.client`: the adapter owns the React root, and the coordinate is chosen in `deps.edn`, not in the boot line. **Pre-publish, the slim namespace is different:** the published `day8/reagent-slim` jar ships its adapter at `re-frame.adapter.reagent` because its release step renames the namespace, while in the tree the slim adapter is `re-frame.adapter.reagent-slim` — so on a pre-publish `:local/root` or `:git/sha` route a slim boot line requires `re-frame.adapter.reagent-slim` until the coordinate is repinned to a published `:mvn/version`.
 
-**`dom-node` is the exception, and it is not a slim-only sweep.** The pinned stock floor — Reagent `2.0.1` — has ALREADY deleted `reagent.dom/dom-node`; it is defined in neither `reagent/dom.cljs` nor `reagent/core.cljs` in that release (it lived at `reagent/dom.cljs` in 1.2.0). So a bridge-targeted app carrying a `dom-node` call site fails to **compile** against the bridge, exactly as it would against slim. Sweep `dom-node` on BOTH adapter targets, before the first compile. Only `force-update-all` and `unmount-component-at-node` remain bridge-available, and migrating from the bridge to the slim artefact (per the rewrite-adoption commit in IMPL-SPEC §13) is the trigger for *their* sweep.
+**`dom-node` is the exception, and it is not a slim-only sweep.** The pinned stock floor — Reagent `2.0.1` — has ALREADY deleted `reagent.dom/dom-node`; it is defined in neither `reagent/dom.cljs` nor `reagent/core.cljs` in that release (it lived at `reagent/dom.cljs` in 1.2.0). So a bridge-targeted app carrying a `dom-node` call site fails to **compile** against the bridge, exactly as it would against slim. Sweep `dom-node` on BOTH adapter targets, before the first compile. `unmount-component-at-node` is not deferred either: its Var resolves on the bridge but throws under React 19, so it moves to `unmount!` with the render call site, on both targets. Only `force-update-all` remains bridge-available — it re-renders only roots `reagent.dom/render` mounted, so it has nothing to re-render once the mount is rewritten — and migrating from the bridge to the slim artefact (per the rewrite-adoption commit in IMPL-SPEC §13) is the trigger for *its* sweep.
 
 There is no `reagent.core/dom-node`: the Var was always `reagent.dom/dom-node`, so an exact inventory greps that qualified name plus the common alias spellings (`rdom/dom-node`, `dom/dom-node`, `r-dom/dom-node`) — not `reagent.core/`, which never defined it.
 
 **Migration agent action.**
 
 1. For each of the five symbols, grep the codebase for call sites.
-2. Rewrite each call site to the replacement listed above. The mount-path rewrites (`render` / `unmount`) are mechanical once the caller's `container` reference is identified — they expand to a `create-root` + `render` / `unmount` pair around the same container.
+2. Rewrite each call site to the replacement listed above. The mount-path rewrites (`render` / `unmount-component-at-node`) are mechanical once the caller's `container` reference is identified, on both adapter targets — they become one `defonce` `client-root` handle with `render!` / `unmount!` through it, around the same container ([worked recipe](#legacy-mount-path)).
 3. `dom-node` rewrites are NOT mechanical — `findDOMNode` returned the underlying DOM node for a mounted React component, and the canonical React-19 replacement is to capture the node via `:ref` at the call site **of the parent**, not at the consumer. Flag every `dom-node` call site for human review — **on both adapter targets**, and grep the historical `reagent.dom` spelling plus its aliases (`reagent.dom/dom-node`, `rdom/dom-node`, `dom/dom-node`, `r-dom/dom-node`), which is what a real v1 codebase carries.
 4. `force-update-all` rewrites are NOT mechanical — the surface had no documented use case beyond global-rebuild scripts. Flag for human review and ask the maintainer whether the call site can be removed entirely; if not, file an issue.
 
 <a id="legacy-mount-path"></a>**Anchor: `#legacy-mount-path`** — the `render` / `unmount-component-at-node` worked recipe (linked from IMPL-SPEC §10).
+
+```clojure
+;; v1 — on the bridge these resolve, then throw under React 19; on slim they are absent
+(defn mount! []
+  (reagent.dom/render [app] (.getElementById js/document "app")))
+
+(defn unmount! []
+  (reagent.dom/unmount-component-at-node (.getElementById js/document "app")))
+
+;; v2 — identical on both artefacts; the adapter owns the React root
+;; (:require [re-frame.adapter.reagent :as reagent-adapter])
+(defonce app-root (reagent-adapter/client-root))
+
+(defn ^:dev/after-load mount! []
+  (reagent-adapter/render! app-root [app] (.getElementById js/document "app")))
+
+(defn unmount! []
+  (reagent-adapter/unmount! app-root))
+```
+
+`client-root` allocates an inert handle and does no DOM work, so the `defonce` is safe at namespace load and on every hot reload. The first `render!` through the handle creates the React root at the container; every later one — the `^:dev/after-load` call included — updates that same root instead of mounting a second, fighting one, and the container is read on the first call only. `unmount!` releases the root and returns the handle to inert, idempotently, and `rf/destroy-adapter!` releases a root the handle still holds, exactly once. The `dom-node` and `force-update-all` sites are not part of this rewrite: they stay with the author, per actions 3 and 4.
 
 <a id="dom-node-removal"></a>**Anchor: `#dom-node-removal`** — the `dom-node` worked recipe (linked from IMPL-SPEC §10).
 
