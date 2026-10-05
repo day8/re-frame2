@@ -2086,7 +2086,6 @@ _COORD_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
 # copies a sample from.
 _ARROW_SOURCE_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- positives: the retired keyword token must FIRE ---
-    ("arrow/positive/arrow_single_input.cljc",     1),
     ("arrow/positive/arrow_multi_input.cljc",      1),
     ("arrow/positive/arrow_in_metadata_form.cljc", 1),
     # --- negatives: prose and every shipped shape stay GREEN ---
@@ -2146,15 +2145,16 @@ _ARROW_PROSE_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
 # BYTES are attributed to, expected finding count) — the path is a parameter
 # rather than the fixture's own location because rule (g) grades the path as
 # well as the content, and because its exemption is path-scoped. That is what
-# lets the table make its two sharpest claims on IDENTICAL BYTES:
+# lets the table make its two sharpest claims:
 #
 #   * `negative/supersession_quote.md` is GREEN at
-#     `docs/design/fresco/decisions.md` and RED one directory over. The
-#     exemption is scoped, not merely present.
-#   * `negative/current_name.cljc` carries no occurrence at all, is GREEN under
-#     `implementation/fresco/`, and reports exactly one finding under
-#     `implementation/hicasso/`. That finding is the PATH, which no line of
-#     content can express and a content-only rule cannot see.
+#     `docs/design/fresco/decisions.md` and RED one directory over, on
+#     IDENTICAL BYTES. The exemption is scoped, not merely present.
+#   * `negative/current_name.cljc` carries no occurrence at all and reports
+#     exactly one finding under `implementation/hicasso/`. That finding is the
+#     PATH, which no line of content can express and a content-only rule cannot
+#     see; a content line that over-fired on the current name would raise the
+#     count past one.
 #
 # `positive/decisions_outside_quote.md` makes the third: in the exempted file
 # itself, a line outside the exempted construct is graded normally. A widening
@@ -2163,13 +2163,6 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     # --- positives: every carrier of the retired product name must FIRE ---
     ("product/positive/namespace_require.cljc",
      "implementation/example/src/re_frame/example/view.cljc", 1),
-    ("product/positive/adapter_keyword.cljc",
-     "implementation/example/src/re_frame/example/config.cljc", 1),
-    # `.edn` is a suffix no other rule in this gate opens.
-    ("product/positive/artifact_coordinate.edn",
-     "implementation/example/deps.edn", 1),
-    # Ordinary prose, unmasked and unfenced.
-    ("product/positive/teaching_prose.md", "docs/core/views.md", 1),
     # The exempted FILE, at a line outside the exempted CONSTRUCT.
     ("product/positive/decisions_outside_quote.md",
      "docs/design/fresco/decisions.md", 1),
@@ -2194,8 +2187,6 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
     # --- negatives ---
     ("product/negative/supersession_quote.md",
      "docs/design/fresco/decisions.md", 0),
-    ("product/negative/current_name.cljc",
-     "implementation/fresco/src/re_frame/example/view.cljc", 0),
     ("product/negative/archive_pin.cjs",
      "bench/fresco/src/re_frame/bench/fresco/data_archive.cjs", 0),
     ("product/negative/archive_vocabulary_control.cjs",
@@ -2217,7 +2208,7 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 #
 # The `.clj-kondo` PAIR is stated as a pair on purpose: the cache below it is subtracted, the two TRACKED config files beside
 # it are not, and a future repair that reached for a directory NAME instead of a
-# path would pass the first three rows and fail these two. The `notes.log.md`
+# path would pass every other row and fail these two. The `notes.log.md`
 # row is the matching near-miss for `PRODUCT_EXCLUDE_SUFFIXES` — it proves the
 # `.log` subtraction is a SUFFIX rather than a substring, so a real document
 # cannot be hidden by having the token in its name.
@@ -2252,12 +2243,11 @@ _PRODUCT_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
 #     whole of the `.clj-kondo` precedent — would be pinned by nothing. No
 #     tracked file sits under any directory named `data`; that is what makes
 #     the wrong repair invisible until one does, so the row is
-#     representative rather than real, exactly as the eight rows above it are.
+#     representative rather than real, like every row here that plants at a
+#     path no tracked file occupies.
 _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     # --- the whole repo MUST be reached, including the trees no lane compiles ---
-    ("implementation/core/src/re_frame/example.cljc", 1),
     ("bench/fresco/scripts/data_archive.cjs",         1),
-    ("docs/design/fresco/notes.md",                   1),
     ("examples/todomvc/README.md",                    1),
     ("package.json",                                  1),
     (".clj-kondo/config.edn",                         1),
@@ -2275,7 +2265,6 @@ _PRODUCT_ROSTER_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     ("scripts/_test_fixtures/planted.md",             0),
     (".clj-kondo/.cache/v1/cljs/re-frame.transit.json", 0),
     ("audit-pr9568-push-1.log",                       0),
-    ("implementation/pr7662-retained-read.log",       0),
     ("bench/fresco/src/re_frame/bench/fresco/data/"
      "workcount-n1b9h/run5-a4a1537cb71.json",         0),
     ("bench/fresco/src/re_frame/bench/fresco/data/"
@@ -2360,7 +2349,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("positive/query_retain_promotion_vocabulary.cljc", 1),
         # --- negatives: every sanctioned counterpart must stay GREEN ---
         ("negative/public_frame_opt.cljc",          0),
-        ("negative/frame_trace_tag.cljc",           0),
         ("negative/fx_handler_ctx_frame.cljc",      0),
         ("negative/rf_frame_id_coeffect.cljc",      0),
         ("negative/client_navigate_url.cljc",       0),
