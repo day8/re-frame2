@@ -2764,9 +2764,10 @@ Unlike the `read-ui` / `read-dom` wrapper pattern, these tools do **not**
 route through a `re-frame2-pair.runtime` fn. `re-frame.fresco.tool`
 lives in `day8/re-frame2-fresco`, and **nothing in `re-frame.fresco`
 requires it** — that is how the substrate keeps the door out of a
-production build entirely. An app on the Reagent or UIx adapter never has
-it at all. Requiring it in the generic preload would make the preload
-uncompilable in those apps.
+production build entirely. An app has it only once something requires it
+(Xray does), whatever its adapter, and an app without `day8/re-frame2-fresco`
+on its classpath cannot load it at all. Requiring it in the generic preload
+would make the preload uncompilable in those apps.
 
 So each tool evals a self-contained form that **resolves** the door at
 runtime — `cljs.core/find-ns-obj` on the namespace, `unchecked-get` on

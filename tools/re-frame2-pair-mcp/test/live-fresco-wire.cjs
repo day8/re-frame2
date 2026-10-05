@@ -71,7 +71,7 @@
 // ## The DOOR-ABSENT rung, witnessed first
 //
 // The tools document a degradation ladder whose first rung is an app that
-// has no evidence door — a Reagent/UIx app, or a Fresco app nothing
+// has no evidence door — an app, on any adapter, that nothing
 // pulled the door into. A form guarding the door with `cljs.core/exists?`
 // would leave that rung unreachable: `exists?` guards a missing VAR, but
 // the call it guards is a var reference like any other, and shadow's
@@ -395,7 +395,7 @@ async function main() {
     // ---- THE DOOR-ABSENT RUNG, before anything loads the door -----------
     // Nothing in `re-frame.fresco` requires `re-frame.fresco.tool`, so a
     // freshly-watched build has not compiled it and this host is, for the
-    // moment, indistinguishable from a Reagent/UIx app: the population the
+    // moment, like any app nothing pulled the door into: the population the
     // `:evidence-tier-unavailable` rung is written for.
     const doorLoaded = await callTool(client, 'eval-cljs', {
       form: `(cljs.core/some? (cljs.core/find-ns-obj "${DOOR_NS}"))`,

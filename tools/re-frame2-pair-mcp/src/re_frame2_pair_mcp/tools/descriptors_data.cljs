@@ -1314,8 +1314,8 @@
 ;; every read answers inside the evidence envelope (:schema / :producer /
 ;; :read / :complete? / :loss) and egresses only bounded serializable data (no
 ;; cell / React handle, and no read VALUE at all). Absence is honest:
-;; :evidence-tier-unavailable (the door is not loaded — a non-Fresco app, or a
-;; Fresco app nothing pulled it into), :evidence-tier-inactive (a production
+;; :evidence-tier-unavailable (the door is not loaded — nothing in the app, on
+;; any adapter, pulled it in), :evidence-tier-inactive (a production
 ;; build; the door is dev-only).
 ;;
 ;; THREE reads, and no static per-view ones. Fresco mints no boundary identity
@@ -1359,8 +1359,9 @@
                      "\"app.views\" :file \"/src/app/views.cljs\" :line 12 :column 1}}] :instances 3 "
                      ":read-orders 1 :frame :app/main :reads [{:sub-id :todo :query [:todo 7] :frame-id "
                      ":app/main :epoch 4}]}] :generation 12}. "
-                     "2. Nothing mounted: {} -> the same envelope with :boundaries []. "
-                     "3. Door not loaded (a Reagent/UIx app, or a Fresco app nothing loaded it into): {} -> "
+                     "2. No Fresco boundary mounted, as in an app whose views all use another adapter: "
+                     "{} -> the same envelope with :boundaries [], which is no evidence about those views. "
+                     "3. Door not loaded (nothing in the app, on any adapter, has required it): {} -> "
                      "{:ok? false :reason :evidence-tier-unavailable}. "
                      "4. Production build: {} -> {:ok? false :reason :evidence-tier-inactive}.")
    :typicalTokens 600

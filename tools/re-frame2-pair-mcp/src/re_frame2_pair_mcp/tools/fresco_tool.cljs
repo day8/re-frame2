@@ -75,8 +75,10 @@
   through a `re-frame2-pair.runtime` fn. `re-frame.fresco.tool` lives in
   `day8/re-frame2-fresco`, and **nothing in `re-frame.fresco` requires it** —
   that is how the substrate keeps the door out of a production build entirely.
-  An app on the Reagent or UIx adapter never has it at all. Requiring it in the
-  generic preload would make the preload uncompilable in those apps. So each
+  An app has it only once something requires it (Xray does), whatever its
+  adapter, and an app without `day8/re-frame2-fresco` on its classpath cannot
+  load it at all. Requiring it in the generic preload would make the preload
+  uncompilable in those apps. So each
   tool evals a self-contained form that RESOLVES the door at runtime and calls
   it only when present, surfacing its absence HONESTLY as
   `:reason :evidence-tier-unavailable` — 'tolerate absent evidence explicitly',
@@ -107,9 +109,8 @@
                                         the consumer half of a boundary the
                                         producer means literally;
     - `{:ok? false :reason :evidence-tier-unavailable}` — `re-frame.fresco.tool`
-                                        is not loaded (a non-Fresco app, or a
-                                        Fresco app nothing has loaded the door
-                                        into);
+                                        is not loaded — nothing in the app, on
+                                        any adapter, has required it;
     - `{:ok? false :reason :evidence-tier-inactive}` — every read answers `nil`
                                         under `:advanced` with `goog.DEBUG`
                                         false. The door is dev-only;
@@ -158,10 +159,11 @@
 (def ^:private unavailable-hint
   (str "the re-frame.fresco.tool evidence door is not loaded in this app. It "
        "lives in day8/re-frame2-fresco and NOTHING in re-frame.fresco "
-       "requires it — that is how a production build never loads it — so a "
-       "Fresco app has it only once something pulls it in (Xray does), and an "
-       "app on the Reagent or UIx adapter does not have it at all. Load "
-       "re-frame.fresco.tool into the running build and retry."))
+       "requires it — that is how a production build never loads it — so an "
+       "app on any adapter has it only once something pulls it in (Xray "
+       "does). Load re-frame.fresco.tool into the running build and retry. "
+       "A loaded door answers about Fresco boundaries only: an empty roster "
+       "is no evidence about Reagent or UIx views."))
 
 (def ^:private inactive-hint
   (str "every re-frame.fresco.tool read answers nil under :advanced with "
@@ -240,8 +242,8 @@
        :err \"WARNING - :undeclared-var … Use of undeclared Var
              re-frame.fresco.tool/read-mounted-boundaries\"}
 
-  So the one case `:evidence-tier-unavailable` names — a Reagent/UIx app, or a
-  Fresco app nothing pulled the door into — would be the one case that branch
+  So the one case `:evidence-tier-unavailable` names — an app, on any adapter,
+  that nothing pulled the door into — would be the one case that branch
   could not reach, and the operator would get an analyzer warning where the
   load-the-door hint belongs.
 

@@ -10,7 +10,8 @@
        stub, that the tool resolves rather than references the door, is
        READ-ONLY, and does NOT route through a `re-frame2-pair.runtime`
        wrapper (the deliberate divergence — the door is optional and absent in
-       a Reagent/UIx app, so it must not be hard-required in the preload).
+       any app nothing pulled it into, so it must not be hard-required in the
+       preload).
 
     2. Tool wiring — the schema gate and the map-envelope-result
        passthrough of the form's envelope are pinned by the conformance
@@ -29,7 +30,7 @@
   So the absent path is RUN. `re-frame.fresco.tool` is genuinely absent
   from this Node test process — Pair must never require it, and the
   bundle-isolation fence means it never will — which makes this process a
-  faithful stand-in for a Reagent/UIx app. The test lifts the door name and the
+  faithful stand-in for a door-less app. The test lifts the door name and the
   read name out of the ACTUAL emitted form and drives the SAME `cljs.core`
   lookup the form performs, with a loaded namespace as the positive control so
   a nil answer is proof of absence rather than of a broken probe.
@@ -151,7 +152,7 @@
       (is (= read-fn read-nm)
           (str read-fn ": …and names this read at the resolution site"))
       ;; The rung's own condition, evaluated: this process has no
-      ;; re-frame.fresco.tool, exactly like a Reagent or UIx app.
+      ;; re-frame.fresco.tool, exactly like any app nothing pulled the door into.
       (is (nil? (cljs.core/find-ns-obj door-ns))
           (str read-fn ": re-frame.fresco.tool is absent here — if this ever "
                "resolves, Pair has acquired a dependency on the provider and the "

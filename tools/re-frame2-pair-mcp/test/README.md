@@ -180,8 +180,8 @@ are about the door rather than about an empty runtime.
 It also witnesses the door-absent rung, and that row runs first.
 Before anything pulls `re-frame.fresco.tool` in, the same three tools
 must answer `:reason :evidence-tier-unavailable` with the
-load-the-door hint — the population being a Fresco build that has never
-compiled the door, which is what a Reagent or UIx app is permanently.
+load-the-door hint — the population being any build that has never
+compiled the door, whatever its adapter.
 A form referencing a var in an unloaded namespace would answer a raw
 `:rf.error/eval-cljs-compile-error` instead, because shadow's analyzer
 rejects it before any branch of it runs. No stubbed suite can see that,
