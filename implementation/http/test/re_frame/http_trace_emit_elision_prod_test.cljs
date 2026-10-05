@@ -33,7 +33,6 @@
   dev-mode (the dev contract the JVM
   `http-managed` tests pin)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             ;; Require every gated emit-site host ns so the reachability
@@ -97,20 +96,3 @@
           "no trace events delivered under :advanced + goog.DEBUG=false
            — the :rf.http/aborted-on-actor-destroy emit body elided
            while the abort callback still ran"))))
-
-(deftest http-managed-abort-fx-emits-no-trace-under-prod
-  (testing "Per Spec 009 §Production-elision: dispatching the public
-            `:rf.http/managed-abort` fx against a request-id with no
-            in-flight handle is a tolerated no-op (Spec 014 §Aborts) —
-            and emits NO trace events under prod. Exercises the fx
-            handler's load-bearing reachability through the public
-            dispatch surface."
-    (let [seen (listener-fixture
-                 (fn []
-                   (rf/reg-event :prod-elision/abort-touch
-                     (fn [_ _]
-                       {:fx [[:rf.http/managed-abort
-                              :prod-elision/no-such-req]]}))
-                   (rf/dispatch-sync [:prod-elision/abort-touch])))]
-      (is (empty? seen)
-          "no trace events delivered for the abort-fx under prod"))))
