@@ -758,25 +758,15 @@ _UNEXERCISABLE_READ_FORMS: dict[str, str] = {
 # is written once per (durable key, read form) the fixture proves; a fixture
 # planting N witnesses on N lines is asserted by NAME, not by the number N.
 _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
-    "positive/now_ms_into_loaded_at.cljc":
-        frozenset({"loaded-at<-now-ms"}),
-    # The same plant in the canonical dotted alias dialect. Its own fixture,
-    # not a second line in the one above, so the bare-leaf and dotted spellings
-    # can each die alone and be named when they do.
+    # The canonical dotted alias dialect has a fixture of its own, apart from
+    # the bare-leaf `interop/` spelling in `every_durable_timestamp_key.cljc`,
+    # so each spelling can die alone and be named when it does.
     "positive/dotted_alias_now_ms_into_loaded_at.cljc":
         frozenset({"loaded-at<-now-ms"}),
-    "positive/date_now_into_started_at.cljc":
-        frozenset({"started-at<-.now js/Date"}),
     "positive/epoch_now_into_settled_at.cljc":
         frozenset({"settled-at<-now-ms"}),
-    "positive/random_uuid_into_id.cljc":
-        frozenset({"id<-random-uuid"}),
     "positive/now_ms_multiline.cljc":
         frozenset({"stale-at<-now-ms"}),
-    # `(rand-nth …)` matches the `rand` roster entry as well as its own, so this
-    # one line honestly witnesses two entries.
-    "positive/rand_nth_into_temp_id.cljc":
-        frozenset({"temp-id<-rand", "temp-id<-rand-nth"}),
     "positive/durable_write_near_debug_probe.cljc":
         frozenset({"updated-at<-now-ms"}),
     # Written out, NOT derived from `_DURABLE_TIMESTAMP_KEYS`. A comprehension
@@ -816,7 +806,7 @@ _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
         # browser host facts, call-wrapped. Each of these lines
         # ALSO witnesses the bare entry whose text it contains — listed above,
         # and named again here so deleting either roster entry reds this
-        # fixture by name (the rand/rand-nth double-attribution precedent).
+        # fixture by name (as the `(rand-nth …)` line also witnesses `rand`).
         "instance-id<-.getItem js/localStorage",
         "instance-id<-.getItem js/sessionStorage",
         "instance-id<-.-prop js/location",
@@ -834,18 +824,12 @@ _NEGATIVE_FIXTURES: tuple[str, ...] = (
     "negative/effect_side_crypto_token.cljc",
     # a trace/diagnostic timestamp (allowlisted wrapper)
     "negative/trace_diagnostic_timestamp.cljc",
-    # a perf probe gated on debug-enabled? (its reads bind locals + write no
-    # durable key; the durable :updated-at threads the causal token) — green on
-    # its own merits, NOT via a debug-proximity allowlist
-    "negative/debug_enabled_perf_probe.cljc",
     # the browser-host-fact counterpart: storage / location / navigator /
     # media-query facts threaded off the token's :rf.cofx, with the getter
     # spellings confined to ambient cofx suppliers
     "negative/threaded_host_fact.cljc",
     # the conscious #_:rf.world/ambient-ok escape
     "negative/ambient_ok_escape.cljc",
-    # ... and the same escape over a call-wrapped getter read
-    "negative/ambient_ok_getter_escape.cljc",
     # the symbol in a docstring / `;;` comment
     "negative/now_ms_in_docstring.cljc",
     # a freshness DECISION read (compared, not written durably)
