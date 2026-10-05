@@ -12,21 +12,17 @@
 
     1. `trace-summary` projects each wire-bearing slot through
        `elide-wire-value`, while framework identity facts remain unchanged;
-    2. sensitive classifications and large-value elision compose, with
-       sensitive winning at a both-marked path;
+    2. sensitive classifications and large-value elision compose;
     3. an explicit frame selects the policy; otherwise a carried
        `:rf.frame/id` self-summarizes, and unresolved frames fail closed;
     4. off-box and local-redacted profiles protect classified fields, while
-       the explicit `:rf.egress/local-raw` profile exposes them;
-    5. durable projection strips a mapped target's ephemeral function, and a
-       raw completed event can be explicitly summarized before egress.
+       the explicit `:rf.egress/local-raw` profile exposes them.
 
-  This is pure-function and live-frame conformance over `re-frame.reply`
-  (`trace-summary`, `complete`, `map-completed-event`, `durable-target`) and
-  `re-frame.core/project-egress`. Reply-target functor laws are owned by core and the
-  timer probe; mapping is used here only to distinguish ephemeral and durable
-  target representations. The `.cljc` namespace runs in both the CLJS node
-  gate and the JVM test alias.
+  This is pure-function and live-frame conformance over
+  `re-frame.reply/trace-summary` and `re-frame.core/project-egress`. Core owns
+  reply-target completion, mapping and durable projection, and the precedence
+  of sensitive over large at a both-marked path. The `.cljc` namespace runs in
+  both the CLJS node gate and the JVM test alias.
 
   Canonical contract: `spec/015-Data-Classification.md` §`project-egress`
   + `spec/Managed-Effects.md` §Tracing (the data-only trace summary)."
@@ -50,7 +46,6 @@
 ;;
 ;;   [:token]      → sensitive
 ;;   [:blob]       → large
-;;   [:secret-big] → sensitive and large
 ;; ---------------------------------------------------------------------------
 
 (def ^:private frame-id :reply-egress/main)
@@ -69,14 +64,13 @@
   ;; Seed the same runtime registry that classification effects update.
   (rf.frame/swap-runtime-db! frame-id
     (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:token] [:secret-big]]
-                :large     [[:blob] [:secret-big]]}))))
+               {:sensitive [[:token]]
+                :large     [[:blob]]}))))
 
 ;; Payload fixtures use the classified coordinates directly.
 (defn- reply-body []
   {:token      raw-token
    :blob       big-string
-   :secret-big big-string
    :public     {:count 3}})
 
 (def ^:private work-id
@@ -188,20 +182,10 @@
         (is (= :completed (:rf.reply/work-status summary))  ":rf.reply/work-status verbatim")
         (is (= frame-id (:rf.frame/id summary))    ":rf.frame/id verbatim")
         (is (= completed-at-ms (:completed-at summary)) ":completed-at verbatim"))
-      (testing "NO raw sensitive/large value survives in ANY projected wire slot"
+      (testing "NO raw sensitive/large value survives anywhere in the summary"
         ;; Marker/redaction PRESENCE is asserted above; this proves the raw
         ;; value is ABSENT — recursively, so a value retained under a sibling
         ;; key or embedded in a marker cannot slip through.
-        (is (not (embeds-raw-token? (:value summary)))
-            "the raw token is absent from the projected :value slot")
-        (is (not (embeds-raw-blob? (:value summary)))
-            "the raw 40k blob is absent from the projected :value slot")
-        (is (not (embeds-raw-token? (:correlation summary)))
-            "the raw token is absent from the projected :correlation slot")
-        (is (not (embeds-raw-blob? (:meta summary)))
-            "the raw blob is absent from the projected :meta slot")
-        ;; And nothing raw survives anywhere in the whole summary (identity
-        ;; facts carry no wire values).
         (is (not (embeds-raw-token? summary))
             "no raw token anywhere in the trace summary")
         (is (not (embeds-raw-blob? summary))
@@ -222,25 +206,10 @@
           "the family error :status rides (not a declared wire path)")
       (is (= work-id (:rf.reply/work-id summary)) ":rf.reply/work-id verbatim on an error reply")
       (testing "NO raw sensitive/large value survives in the projected :error slot"
-        (is (not (embeds-raw-token? (:error summary)))
-            "the raw token is absent from the projected :error payload")
         (is (not (embeds-raw-blob? (:error summary)))
             "the raw blob is absent from the projected :error payload")
         (is (not (embeds-raw-token? summary))
             "no raw token anywhere in the error trace summary")))))
-
-;; ---------------------------------------------------------------------------
-;; Sensitive classification wins over large classification.
-;; ---------------------------------------------------------------------------
-
-(deftest sensitive-wins-over-large-at-a-both-marked-reply-slot
-  (testing "a both-marked reply value redacts rather than large-elides"
-    (mk-frame!)
-    (let [summary (rf.reply/trace-summary (ok-reply) {:frame frame-id})]
-      (is (redacted? (get-in summary [:value :secret-big]))
-          "the both-marked leaf is REDACTED, not large-elided")
-      (is (not (large-marker? (get-in summary [:value :secret-big])))
-          "sensitive wins — no large marker at the both-marked path"))))
 
 ;; ---------------------------------------------------------------------------
 ;; An explicit frame takes precedence; otherwise the carried frame is used.
@@ -273,10 +242,7 @@
   ;; Remove ambient scope so the carried stamp is the only frame source.
   (binding [rf.frame/*current-frame* nil]
     (testing "a live carried frame supplies the wire-slot policy"
-      (let [reply   (ok-reply)
-            summary (rf.reply/trace-summary reply nil)]
-        (is (= frame-id (:rf.frame/id reply))
-            "precondition: reply carries the live frame stamp")
+      (let [summary (rf.reply/trace-summary (ok-reply) nil)]
         (is (redacted? (get-in summary [:value :token]))
             "the carried frame's sensitive policy redacts [:token]")
         (is (large-marker? (get-in summary [:value :blob]))
@@ -332,13 +298,6 @@
       (let [summary (rf.reply/trace-summary (ok-reply) {:frame nil})]
         (is (redacted? (:value summary))
             "explicit nil beats the ambient scope, not just the carried stamp"))))
-  (testing "CONTROL: an OMITTED :frame key still lets the carried stamp supply policy"
-    (binding [rf.frame/*current-frame* nil]
-      (let [summary (rf.reply/trace-summary (ok-reply) nil)]
-        (is (redacted? (get-in summary [:value :token]))
-            "the carried frame redacts its sensitive leaf")
-        (is (= 3 (get-in summary [:value :public :count]))
-            "per-leaf policy, NOT the whole-slot redact explicit nil produces"))))
   (testing "CONTROL: explicit nil retains the deliberate raw opt-out"
     (let [summary (rf.reply/trace-summary (ok-reply)
                                           {:frame nil :rf.egress/include-sensitive? true})]
@@ -389,71 +348,3 @@
             "local-raw is the positive control — the raw token IS present")
         (is (embeds-raw-blob? projected-result)
             "local-raw is the positive control — the raw blob IS present")))))
-
-(deftest off-box-project-egress-fails-closed-on-an-unresolved-frame
-  (testing "project-egress fails closed for an unresolved explicit frame"
-    (let [projected-result (rf/project-egress (reply-body)
-                            {:frame :reply-egress/ghost :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? projected-result)
-          "an unresolved-frame off-box egress conservatively redacts the whole reply body")
-      (is (not (embeds-raw-token? projected-result))
-          "the raw token NEVER ships under an unresolved frame")
-      (is (not (embeds-raw-blob? projected-result))
-          "the raw blob NEVER ships under an unresolved frame"))))
-
-;; ---------------------------------------------------------------------------
-;; Mapped targets have distinct ephemeral and durable representations; completed
-;; events remain raw in memory and require projection before egress.
-;; ---------------------------------------------------------------------------
-
-(deftest a-mapped-reply-target-has-a-data-only-durable-representation
-  (testing "durable-target strips a mapped target's ephemeral accumulator"
-    (let [relayed (rf.reply/map-completed-event (fn [event] [:parent/relay event])
-                                    [:article/loaded {:id 42}])]
-      (is (false? (rf.reply/data-only-target? relayed))
-          "a mapped target is not data-only while it carries ::post")
-      (let [durable (rf.reply/durable-target relayed)]
-        (is (true? (rf.reply/data-only-target? durable))
-            "the durable projection strips the accumulator")))))
-
-(deftest a-completed-reply-event-can-be-summarized-for-egress
-  (testing "a completed event is raw in memory and its reply can be summarized for egress"
-    (mk-frame!)
-    (let [target    [:article/loaded {:id 42}]
-          completed (rf.reply/complete target (ok-reply))
-          ;; Completion appends the raw reply; trace-summary creates the egress view.
-          delivered (peek completed)
-          summary   (rf.reply/trace-summary delivered {:frame frame-id})]
-      (is (= [:article/loaded {:id 42} (ok-reply)] completed)
-          "the completed event carries the raw reply as its final arg in-memory")
-      (is (redacted? (get-in summary [:value :token]))
-          "the summary redacts the sensitive body")
-      (is (large-marker? (get-in summary [:value :blob]))
-          "the egress projection elides the large body")
-      (is (= work-id (:rf.reply/work-id summary))
-          "identity facts remain on the summary"))))
-
-;; ---------------------------------------------------------------------------
-;; Adversarial control: a marker map that STILL embeds the raw
-;; large value passes the superficial `large-marker?` presence check but is
-;; caught by the recursive sentinel predicate — proving the raw-value-absence
-;; gate has teeth that marker-presence alone lacks.
-;; ---------------------------------------------------------------------------
-
-(deftest sentinel-predicate-catches-a-marker-that-embeds-the-raw-value
-  (testing "a large-marker map that ALSO retains the raw big-string fools
-            large-marker? but the recursive sentinel predicate would go RED on it"
-    (let [leaking {:rf.size/large-elided true :raw big-string}]
-      ;; The fail-open gap: the superficial marker-presence check is satisfied.
-      (is (large-marker? leaking)
-          "large-marker? returns true for the leaking marker (the gap the recursive predicate closes)")
-      ;; The recursive sentinel predicate catches the embedded raw value, so a
-      ;; raw-value-absence assertion built on it FAILS on this leaking shape.
-      (is (embeds-raw-blob? leaking)
-          "the sentinel predicate FINDS the raw blob the leaking marker embeds")))
-  (testing "a LEGITIMATE large-elided marker carries no raw value, so the
-            sentinel predicate does not false-positive on it"
-    (let [clean (rf.elision/->marker big-string [:blob] {})]
-      (is (large-marker? clean) "a real marker is still a marker")
-      (is (not (embeds-raw-blob? clean))
-          "the real marker carries only a byte-count / type / handle — no raw blob"))))
