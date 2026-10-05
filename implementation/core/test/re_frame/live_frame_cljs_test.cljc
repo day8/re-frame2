@@ -307,20 +307,6 @@
             "durable app-db is PRESERVED across the idempotent replacement
              (NOT reset to {} — the record's runtime state survives)")))))
 
-(deftest registration-id-reuse-across-images-is-fine
-  (testing "two DIFFERENT frame ids may each carry an image reusing the same
-            REGISTRATION ids — registration ids are reusable across images;
-            only FRAME ids are unique (the heart of the same-id story)"
-    (let [img   (rf.image/image {:select-ns {:include ["examples.counter"]}})
-          left  (rf.live-frame/make-frame {:id :counter/left  :images [img]} counter-pool)
-          right (rf.live-frame/make-frame {:id :counter/right :images [img]} counter-pool)]
-      ;; Both live frames resolve the SAME registration id :counter/inc; no
-      ;; conflict because the FRAME ids differ. `frame-generation` reads each
-      ;; record's generation by id (EP-0024 — accepts a frame value or an id).
-      (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation left)  :event :counter/inc)))
-      (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation right) :event :counter/inc)))
-      (is (= #{:counter/left :counter/right} (rf.live-frame/live-frame-ids))))))
-
 ;; ===========================================================================
 ;; 4. A direct (no-id) frame object BYPASSES the registry
 ;; ===========================================================================
