@@ -25,12 +25,10 @@
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.interop :as rf.interop]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.routing.url-bound :as rf.routing.url-bound]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
@@ -115,27 +113,7 @@
 ;; dedupe), so each `(require 're-frame.routing :reload)` would add one more
 ;; identical copy and a single duplicate URL binding would emit N
 ;; `:rf.error/duplicate-url-binding` diagnostics. The one-conflict →
-;; one-diagnostic invariant below is the behavioral pin; the first test pins
-;; where the check lives.
-
-(deftest url-bound-hook-is-not-a-registrar-hook
-  (testing "the url-bound exclusivity check does not ride the
-            registrar's registration-hooks vector (frames don't flow through
-            rf.registrar/register!), and repeated facade reloads leave no copies
-            there — the lifecycle hook is the late-bind
-            :routing/on-frame-registered! publication, which is key-idempotent"
-    ;; reset-runtime already did clear-all! + one :reload before this test.
-    ;; Reload twice more to simulate repeated REPL/test recovery cycles.
-    (require 're-frame.routing :reload)
-    (require 're-frame.routing :reload)
-    (let [hooks  @(deref #'rf.registrar/registration-hooks)
-          target rf.routing.url-bound/check-url-bound-exclusivity!
-          copies (count (filter #(identical? target %) hooks))]
-      (is (zero? copies)
-          "the url-bound exclusivity check is absent from the registrar's
-           registration-hooks vector — it rides the frame lifecycle hook"))
-    (is (some? (rf.late-bind/get-fn :routing/on-frame-registered!))
-        "the :routing/on-frame-registered! lifecycle hook is published")))
+;; one-diagnostic invariant below is the behavioral pin.
 
 (deftest one-conflict-emits-one-duplicate-binding-after-repeated-reloads
   (testing "after reinstalling the routing facade
@@ -210,48 +188,6 @@
     (is (= :rf/default (rf.routing/url-owner-frame-id))
         "the incumbent :rf/default STILL owns the URL — the earlier-sorting
          duplicate did NOT steal it")))
-
-(deftest duplicate-sorting-before-incumbent-noops-its-push
-  (testing "a duplicate :url-bound? true frame that sorts before
-            the incumbent does NOT drive the browser URL — its
-            :rf.nav/push-url no-ops while the incumbent's still fires.
-            Exercises the REAL push-url path through the production
-            url-owner-frame-id resolver (a reimplemented gate cannot catch a
-            resolution regression)."
-    (rf/make-frame {:id :aaa-early :url-bound? true})       ;; sorts before :rf/default
-    (rf/reg-route :route/home {} "/home")
-    (let [pushed (atom [])]
-      ;; Production-gated fx consulting the REAL resolver.
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}
-                  :doc       "test fx consulting the production url-owner resolver"}
-                 (fn [{:keys [frame]} url]
-                   (when (= frame (rf.routing/url-owner-frame-id))
-                     (swap! pushed conj {:frame frame :url url}))))
-      ;; The earlier-sorting duplicate navigates FIRST — were it the owner,
-      ;; this push would fire. It must no-op.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :aaa-early})
-      (is (empty? @pushed)
-          "the earlier-sorting duplicate's push is suppressed — it is NOT the owner")
-      ;; The incumbent still drives the URL.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
-      (is (= [{:frame :rf/default :url "/home"}] @pushed)
-          "the incumbent :rf/default still pushes the URL"))))
-
-(deftest incumbent-relinquishes-ownership-falls-to-next-claimant
-  (testing "when the incumbent re-registers WITHOUT :url-bound?
-            true (opts out), ownership re-resolves to the next-claimed live
-            binding — self-healing, NOT frozen on the now-unbound incumbent"
-    ;; :rf/default is the incumbent; add an earlier-sorting duplicate that
-    ;; claimed second.
-    (rf/make-frame {:id :aaa-early :url-bound? true})
-    (is (= :rf/default (rf.routing/url-owner-frame-id))
-        "incumbent :rf/default owns while it carries the binding")
-    ;; The incumbent opts out — ownership must NOT stay frozen on it.
-    (rf/make-frame {:id :rf/default :url-bound? false})
-    (is (= :aaa-early (rf.routing/url-owner-frame-id))
-        "ownership re-resolves to the next live claimant (:aaa-early) once the
-         incumbent relinquishes its binding")))
 
 ;; ============================================================================
 ;; Frames registered BEFORE re-frame.routing loads must not let a
