@@ -234,9 +234,8 @@
 ;;   `re-frame.mcp-base.envelope/with-indicators`) +
 ;;   `egress/count-elided` (delegating to
 ;;   `re-frame.mcp-base.elision/count-elided-markers`). The
-;;   `envelope-slot-parity-across-emitting-servers` +
-;;   `story-mcp-routes-envelope-through-the-centralised-helper` gates in
-;;   `wire_vocab_test.clj` pin that routing.
+;;   `story-mcp-routes-envelope-through-the-centralised-helper` gate in
+;;   `wire_vocab_test.clj` pins that routing.
 ;;
 ;; The story-mcp tool sources are CLJC (not CLJS), so the
 ;; `re-frame2-pair-mcp-source-files` walker above (CLJS-only) does not
