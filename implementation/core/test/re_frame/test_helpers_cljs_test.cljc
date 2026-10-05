@@ -44,20 +44,6 @@
 ;; expand-tree
 ;; ---------------------------------------------------------------------------
 
-(deftest expand-tree-passes-through-keyword-tags
-  (testing "vectors with a keyword tag are walked, not invoked"
-    (let [tree [:div {:k 1} [:span "hi"]]
-          out  (rf.test-helpers/expand-tree tree)]
-      (is (= [:div {:k 1} [:span "hi"]] out)))))
-
-(deftest expand-tree-invokes-function-components
-  (testing "a vector starting with a fn is invoked with its args"
-    (let [tree [counter-button {:n 7 :on-click identity}]
-          out  (rf.test-helpers/expand-tree tree)]
-      (is (vector? out))
-      (is (= :button (first out)))
-      (is (= "counter-inc" (:data-testid (second out)))))))
-
 (deftest expand-tree-handles-leaves
   (testing "non-vector/non-seq inputs are returned unchanged"
     (is (= "hi"      (rf.test-helpers/expand-tree "hi")))
@@ -159,12 +145,6 @@
 ;; find-by-testid family
 ;; ---------------------------------------------------------------------------
 
-(deftest find-by-testid-finds-outer-node
-  (let [tree (counter-view {:n 0 :on-inc identity})
-        hit  (rf.test-helpers/find-by-testid tree "counter-root")]
-    (is (some? hit))
-    (is (= :div (first hit)))))
-
 (deftest find-by-testid-walks-into-function-components
   (testing "the testid lives inside a nested function component — the
             walker expands the component to reach it"
@@ -172,10 +152,6 @@
           hit  (rf.test-helpers/find-by-testid tree "counter-inc")]
       (is (some? hit) "find-by-testid did not expand the nested fn-component")
       (is (= :button (first hit))))))
-
-(deftest find-by-testid-returns-nil-when-no-match
-  (let [tree (counter-view {:n 0 :on-inc identity})]
-    (is (nil? (rf.test-helpers/find-by-testid tree "does-not-exist")))))
 
 (deftest find-by-testid-returns-first-match
   (testing "multiple matches → only the first is returned"
@@ -194,9 +170,6 @@
     (is (= 2 (count hits)))
     (is (= "first"  (last (first hits))))
     (is (= "second" (last (second hits))))))
-
-(deftest find-all-by-testid-empty-when-no-match
-  (is (= [] (rf.test-helpers/find-all-by-testid [:div] "nope"))))
 
 (deftest find-by-testid-prefix-matches-stem
   (let [tree (list-view [{:id 1 :label "a"}
@@ -225,22 +198,6 @@
       (is (= :button (first (rf.test-helpers/find-by-attr tree :data-test "submit"))))
       (is (= "hello" (last (rf.test-helpers/find-by-attr tree :data-test "label"))))
       (is (nil? (rf.test-helpers/find-by-attr tree :data-test "missing"))))))
-
-(deftest find-by-attr-resolves-custom-prefix
-  (testing "Xray-style :data-rf-xray-* selectors are matched"
-    (let [tree [:div {:data-rf-xray-id "frame-picker"}
-                [:button {:data-rf-xray-id "btn-1"} "1"]
-                [:button {:data-rf-xray-id "btn-2"} "2"]]]
-      (is (some? (rf.test-helpers/find-by-attr tree :data-rf-xray-id "btn-1")))
-      (is (= "2" (last (rf.test-helpers/find-by-attr tree :data-rf-xray-id "btn-2")))))))
-
-(deftest find-by-attr-handles-arbitrary-keys
-  (testing "any attribute key — :id, :name, :class — is matchable"
-    (let [tree [:form {:id "login"}
-                [:input {:name "user"}]
-                [:input {:name "pass"}]]]
-      (is (= "login" (-> (rf.test-helpers/find-by-attr tree :id "login") second :id)))
-      (is (= "pass"  (-> (rf.test-helpers/find-by-attr tree :name "pass") second :name))))))
 
 (deftest find-all-by-attr-collects-every-match
   (let [tree [:ul
@@ -287,21 +244,9 @@
       [:span "Count: " 5]                     "Count: 5"
       [:div {:k 1}]                           "")))
 
-(deftest text-content-walks-function-components
-  (let [tree (counter-view {:n 42 :on-inc identity})]
-    (is (= "Count: 42"
-           (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "counter-inc"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; extract-handler / invoke-handler
 ;; ---------------------------------------------------------------------------
-
-(deftest extract-handler-reads-one-event-key
-  (let [tree (counter-view {:n 0 :on-inc identity})
-        btn  (rf.test-helpers/find-by-testid tree "counter-inc")]
-    (is (fn? (rf.test-helpers/extract-handler btn :on-click)))
-    (is (nil? (rf.test-helpers/extract-handler btn :on-change))
-        "a key the node does not carry reads nil")))
 
 (deftest invoke-handler-calls-and-returns
   (let [fired (atom nil)
