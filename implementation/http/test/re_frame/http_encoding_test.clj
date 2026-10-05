@@ -27,10 +27,6 @@
 ;; ---- attempt → delay (deterministic, jitter off) -------------------------
 
 (deftest compute-backoff-ms-without-jitter
-  (testing "`default-backoff` holds the Spec 014 §Retry and backoff defaults
-            (base-ms 250, factor 2, max-ms 5000) that `compute-backoff-ms`
-            draws its `:or` defaults from"
-    (is (= {:base-ms 250 :factor 2 :max-ms 5000} rf.http.encoding/default-backoff)))
   (testing "the default curve: base-ms × factor^(attempt-1) = 250, 500, 1000,
             2000, 4000, then clamped to max-ms 5000"
     (are [attempt ms] (= ms (rf.http.encoding/compute-backoff-ms {} attempt))
@@ -409,16 +405,6 @@
 ;; http_managed_test (accept-failure round-trip); here we pin the DEFAULT
 ;; and the simple user-fn pass-through.
 
-(deftest run-accept-default-is-ok
-  (testing "with no :accept fn, the decoded value is wrapped
-            unconditionally as {:ok decoded} (run-accept only ever runs
-            against an already-classified 2xx response)"
-    (is (= {:ok {:title "hello"}}
-           (rf.http.encoding/run-accept nil {:title "hello"})))
-    (is (= {:ok nil}
-           (rf.http.encoding/run-accept nil nil))
-        "a nil decoded body still wraps as {:ok nil}")))
-
 (deftest run-accept-default-never-produces-http-status-rf2-xmp74u
   (testing "conformance guard: the default `:accept` (nil
             accept-fn) NEVER returns a `:failure` and NEVER the off-taxonomy
@@ -435,11 +421,9 @@
                      [1 2 3]
                      "raw text"
                      42]]
-      (let [result (rf.http.encoding/run-accept nil decoded)]
-        (is (contains? result :ok)
-            (str "default accept yields {:ok ...} for " (pr-str decoded)))
-        (is (not (contains? result :failure))
-            "default accept NEVER yields a :failure, so never an off-taxonomy :kind :http-status")))))
+      (is (= {:ok decoded} (rf.http.encoding/run-accept nil decoded))
+          (str "default accept yields exactly {:ok decoded} — never a :failure — for "
+               (pr-str decoded))))))
 
 (deftest run-accept-user-fn-overrides-default
   (testing "a supplied :accept fn is invoked with the decoded
