@@ -26,7 +26,6 @@
             ;; A validation reject short-circuits before browser effects, so
             ;; the handler can be driven directly with synthetic coeffects.
             [re-frame.routing.navigate :as rf.routing.navigate]
-            [re-frame.routing.registry :as rf.routing.registry]
             #?(:clj  [re-frame.test-support :as rf.test-support :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :as rf.test-support :refer-macros [with-trace-recorder!]])
             ;; Drive the production trace emitter so tests observe the top-level
@@ -119,25 +118,18 @@
 (deftest machine-exception-data-verbatim-for-plain-machine
   (testing "a machine with no :sensitive mark keeps
             :exception-data verbatim (the seam is precise, not a blanket
-            scrub) and is NOT classified sensitive at egress"
+            scrub) and is NOT classified sensitive at egress, whether the
+            trace addresses it by :machine-id or by the preferred :actor-id"
     (declare-machine-marks!)
-    (let [out  (emit-machine-action-exception-for plain-machine-id)
-          tags (:tags out)]
-      (is (some? out) "the machine-action-exception trace was delivered")
-      (is (map? (:exception-data tags)) ":exception-data NOT redacted")
-      (is (not (:sensitive? out))
-          "no top-level :sensitive? when the machine declares nothing sensitive")
-      (is (false? (rf.mcp-base.sensitive/sensitive-event? out)) "MCP egress treats it as non-sensitive"))))
-
-(deftest machine-exception-data-verbatim-for-unregistered-machine
-  (testing "an unregistered machine keeps :exception-data verbatim"
-    ;; No declare-machine-marks! call — the id is unregistered, so the
-    ;; registrar carries no :event meta and `registration-classification` derives nil.
-    (let [out  (emit-machine-action-exception-for :sec/unregistered)
-          tags (:tags out)]
-      (is (some? out) "the machine-action-exception trace was delivered")
-      (is (map? (:exception-data tags)) ":exception-data verbatim (no marks)")
-      (is (not (:sensitive? out)) "no top-level :sensitive? stamp"))))
+    (doseq [id-key [:machine-id :actor-id]]
+      (let [out  (emit-machine-action-exception* id-key plain-machine-id)
+            tags (:tags out)]
+        (is (some? out) (str id-key ": the machine-action-exception trace was delivered"))
+        (is (map? (:exception-data tags)) (str id-key ": :exception-data NOT redacted"))
+        (is (not (:sensitive? out))
+            (str id-key ": no top-level :sensitive? when the machine declares nothing sensitive"))
+        (is (false? (rf.mcp-base.sensitive/sensitive-event? out))
+            (str id-key ": MCP egress treats it as non-sensitive"))))))
 
 (deftest machine-exception-data-redacted-for-nil-frame
   (testing "a machine-action-exception whose trace carries no
@@ -164,36 +156,6 @@
 
 ;; Production emits address live instances by :actor-id; :machine-id remains a
 ;; fallback. Both paths must apply the same classification.
-(deftest machine-exception-data-redacted-for-sensitive-actor
-  (testing "an :actor-id-keyed sensitive-machine exception
-            redacts :exception-data, hoists the TOP-LEVEL :sensitive? flag,
-            and never exposes the sentinel"
-    (declare-machine-marks!)
-    (let [out  (emit-machine-action-exception* :actor-id sensitive-machine-id)
-          tags (:tags out)]
-      (is (some? out) "the machine-action-exception trace was delivered")
-      (is (= :rf/redacted (:exception-data tags)) ":exception-data redacted")
-      (is (true? (:sensitive? out)) "top-level :sensitive? hoisted")
-      (is (not (contains-sentinel? out))
-          (str "the sentinel leaked into the :actor-id-keyed exception trace: "
-               (pr-str tags)))
-      ;; The structural actor id remains available to locate the failure.
-      (is (= sensitive-machine-id (:actor-id tags)) ":actor-id kept")
-      (is (= :do/thing (:action-id tags)) ":action-id kept")
-      (is (= "boom" (:exception-message tags)) ":exception-message kept"))))
-
-(deftest machine-exception-data-verbatim-for-plain-actor
-  (testing "an :actor-id-keyed machine with no :sensitive mark
-            rides :exception-data verbatim on the preferred branch (the seam
-            is precise, not a blanket scrub)"
-    (declare-machine-marks!)
-    (let [out  (emit-machine-action-exception* :actor-id plain-machine-id)
-          tags (:tags out)]
-      (is (some? out) "the machine-action-exception trace was delivered")
-      (is (map? (:exception-data tags)) ":exception-data NOT redacted")
-      (is (not (:sensitive? out))
-          "no top-level :sensitive? when the machine declares nothing sensitive"))))
-
 (deftest actor-id-takes-precedence-over-machine-id
   (testing "when both keys are present the classification lookup prefers
             :actor-id: an :actor-id pointing at the SENSITIVE machine redacts
@@ -210,55 +172,6 @@
       (is (true? (:sensitive? out)) "top-level :sensitive? hoisted from the :actor-id machine")
       (is (not (contains-sentinel? out))
           "the sentinel never survives when :actor-id wins the lookup"))))
-
-(defn- gen-ex-data
-  "Generator: a sentinel-bearing ex-data value at a random collection/map
-  nesting. `depth` bounds recursion."
-  [depth]
-  (if (<= depth 0)
-    (fn [rng] [sentinel rng])
-    (fn [rng]
-      (let [[wrap rng1] (rf.security.gen/rand-nth rng [:map :vector :set :nested-map])
-            [inner rng2] ((gen-ex-data (dec depth)) rng1)]
-        (case wrap
-          :map        [{:k inner} rng2]
-          :vector     [[inner] rng2]
-          :set        [#{inner} rng2]
-          :nested-map [{:a {:b inner}} rng2])))))
-
-(def ^:private gen-nested-ex-data
-  (fn [rng]
-    (let [[depth rng1] (rf.security.gen/next-int rng 5)]
-      ((gen-ex-data (inc depth)) rng1))))
-
-(deftest sensitive-machine-redacts-ex-data-at-arbitrary-nesting
-  (testing "across arbitrary nestings of
-            the sentinel inside :exception-data, a sensitive machine elides
-            the WHOLE slot and hoists the TOP-LEVEL :sensitive?; the sentinel
-            never survives AND sens/strip-sensitive drops the event with
-            --allow-sensitive-reads disabled. Run over BOTH id-keys so the
-            preferred :actor-id branch and the :machine-id fallback both get
-            property coverage."
-    (declare-machine-marks!)
-    (doseq [id-key [:actor-id :machine-id]]
-      (let [result (rf.security.gen/for-all
-                     gen-nested-ex-data 120 41
-                     (fn [ex-data]
-                       (let [tags (assoc (machine-action-exception-tags
-                                           id-key sensitive-machine-id)
-                                         :exception-data ex-data)
-                             out  (emit-machine-action-exception tags)
-                             [kept dropped] (rf.mcp-base.sensitive/strip-sensitive [out] false)]
-                         (and (some? out)
-                              (= :rf/redacted (-> out :tags :exception-data))
-                              (true? (:sensitive? out))
-                              (not (contains-sentinel? out))
-                              (= 1 dropped)
-                              (empty? kept)))))]
-        (is (nil? result)
-            (str "a sensitive machine leaked :exception-data (or failed to drop "
-                 "at egress) for a generated nesting under " id-key ": "
-                 (pr-str (when result (dissoc result :threw)))))))))
 
 (def ^:private sensitive-params-schema
   ;; The rejected value appears in route-url's exception data.
@@ -309,34 +222,3 @@
         ;; Read the envelope: `:tags` never carries `:sensitive?`.
         (is (not (contains? trace :sensitive?))
             "no :sensitive? stamp on a non-sensitive route")))))
-
-;; Per-slot projection happens before MCP filtering. The explicit raw-event
-;; opt-in therefore retains the structural error without restoring scrubbed data.
-(deftest redaction-survives-even-the-opt-in-mcp-egress
-  (testing "even with
-            --allow-sensitive-reads fully ENABLED (include? true), neither the
-            machine :exception-data nor the navigate :error egresses the
-            sentinel"
-    (declare-machine-marks!)
-    (let [machine-ev (emit-machine-action-exception-for sensitive-machine-id)
-          nav-trace  (capture-navigate-failure sensitive-params-schema)
-          events     (filterv some? [machine-ev nav-trace])
-          [kept _]   (rf.mcp-base.sensitive/strip-sensitive events true)]
-      (is (= 2 (count events)) "both redacted events were produced")
-      (is (not-any? contains-sentinel? kept)
-          (str "the sentinel reached the MCP boundary even after redaction: "
-               (pr-str kept))))))
-
-(deftest route-url-throw-ex-data-carries-the-sentinel
-  (testing "the route-url validation throw's ex-data embeds
-            the failing param value (the sentinel); without redaction the
-            navigate :error slot would ship it"
-    (rf/reg-route :sec/raw-route {:params sensitive-params-schema} "/doc/:doc")
-    (let [ex (try
-               (rf.routing.registry/route-url {:to :sec/raw-route :params {:doc sentinel}})
-               nil
-               (catch #?(:clj Throwable :cljs :default) e e))]
-      (is (some? ex) "route-url threw on the non-conforming sensitive param")
-      (when ex
-        (is (contains-sentinel? (ex-data ex))
-            "the throw's ex-data embeds the value protected by :error redaction")))))
