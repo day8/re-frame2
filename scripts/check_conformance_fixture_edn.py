@@ -462,8 +462,6 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("ok_well_formed.edn", _GOOD, 0),
         ("ok_brackets_in_strings_and_chars.edn", _TRICKY_BUT_VALID, 0),
         ("bad_extra_closing_brace.edn", _EXTRA_BRACE, 1),
-        ("bad_mismatched_pair.edn", _MISMATCHED_PAIR, 1),
-        ("bad_mismatched_in_fixture.edn", _MISMATCHED_IN_FIXTURE, 1),
         ("bad_trailing_second_form.edn", _TRAILING_FORM, 1),
         ("bad_unclosed_form.edn", _UNCLOSED, 1),
         ("bad_unterminated_string.edn", _UNTERMINATED_STRING, 1),
@@ -521,11 +519,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         elif verbose:
             sys.stderr.write("self-test PASS: names_the_file\n")
 
-    # A defect COUNT of 1 on the mismatched cases is not enough: if they were
-    # caught by the depth rule instead, they would not discriminate an
-    # opener stack from an aggregate depth counter, which scans them clean.
-    # Assert the reason, and assert the aggregate numbers are the clean
-    # file's, so a regression to depth-only counting fails here.
+    # The mismatched shapes are asserted by REASON, not by a defect count: a
+    # count of 1 could come from the depth rule instead, and then it would not
+    # discriminate an opener stack from an aggregate depth counter, which
+    # scans them clean. Assert the reason, and assert the aggregate numbers
+    # are the clean file's, so a regression to depth-only counting fails here.
     for name, text in (
         ("mismatch_pair", _MISMATCHED_PAIR),
         ("mismatch_in_fixture", _MISMATCHED_IN_FIXTURE),
