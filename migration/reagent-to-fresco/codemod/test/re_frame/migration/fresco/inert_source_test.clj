@@ -168,7 +168,10 @@
       (is (= (str hdr body) (rewritten body)) "and neither is edited"))
     (is (= []
            (classes "[:> Foo {:x #(comment (r/as-element [:div]))}]\n"))
-        "an `r/as-element` in an inert literal is not a refusal reason")))
+        "an `r/as-element` in an inert literal is not a refusal reason")
+    (is (= []
+           (classes "[:> Foo {:x #(quote (r/as-element [:div]))}]\n"))
+        "nor in a quoted one")))
 
 ;; ---------------------------------------------------------------------------
 ;; The whole-file class, which is about a def rather than a crossing
@@ -251,3 +254,41 @@
             macro's template emits a real `r/as-element` per expansion."
     (is (= [:as-element-island :computed-value]
            (classes "[:> Foo {:x `(r/as-element [:div])}]\n")))))
+
+(deftest a-reagent-call-at-the-head-of-an-anonymous-fn-is-a-refusal-reason
+  (testing "`#(r/as-element [:div])` writes the same call as
+            `(fn [] (r/as-element [:div]))`, but the parser's `:fn` node holds
+            the head and its arguments directly, with no list around them.
+            The refusal walk reads the literal as the call it writes, so the
+            two spellings refuse alike."
+    (is (= [:as-element-island]
+           (classes "[:> Foo {:x #(r/as-element [:div])}]\n"))
+        "the literal refuses exactly as the expanded `fn` in the test above")
+    (is (= [:as-element-island]
+           (classes "[:> Foo {:x #(r/as-element %)}]\n"))
+        "with an argument")
+    (is (= [:as-element-island]
+           (classes "[:> Foo {:x (fn [] #(r/as-element [:div]))}]\n"))
+        "a literal returned from a live `fn`")
+    (is (= [:as-element-island]
+           (classes "[:> Foo {:x #(do (r/as-element [:div]))}]\n"))
+        "a call one list down inside the literal, which the walk always found")
+    (is (= [:reagent-api-residue]
+           (classes "[:> Foo {:x #(r/atom 0)}]\n"))
+        "the Reagent-API arm asks through the same walk, so it is answered
+         the same way"))
+
+  (testing "a Reagent fn passed as a VALUE inside a literal is not a call"
+    (is (= [] (classes "[:> Foo {:x #(run-later r/as-element)}]\n")))
+    (is (= [] (classes "[:> Foo {:x #(do r/as-element)}]\n"))))
+
+  (testing "site detection does not read through the literal. A
+            `#(r/adapt-react-class X)` is a function that adapts a class when
+            it is called, not an adapted class, so it is neither a W5 head nor
+            an `:adapt-def-site`. Each expanded call is the control."
+    (is (= [:adapt-react-class-head]
+           (classes "[(r/adapt-react-class X) {:a 1}]\n")))
+    (is (= [] (classes "[#(r/adapt-react-class X) {:a 1}]\n")))
+    (is (= 0 (sites "[#(r/adapt-react-class X) {:a 1}]\n")))
+    (is (= [:adapt-def-site] (classes "(def Foo (r/adapt-react-class X))\n")))
+    (is (= [] (classes "(def Foo #(r/adapt-react-class X))\n")))))
