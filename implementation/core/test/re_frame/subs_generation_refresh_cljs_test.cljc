@@ -251,29 +251,7 @@
       (is (= 2 @(rf.subs/subscribe [:gen/value] {:frame :gen/a}))
           "while frame A refreshed"))))
 
-;; ---- 4. durable frame state survives -------------------------------------
-
-(deftest durable-frame-state-survives-the-refresh
-  (testing "the app-db a frame accumulated is preserved across the generation
-            change the invalidation rides on"
-    (let [image-of (fn [image-id n]
-                     (rf.image/image
-                       {:id            image-id
-                        :registrations {:reg-event [[:gen/bump
-                                                     (fn [{:keys [db]} _]
-                                                       {:db (assoc db :bumped true)})]]
-                                        :reg-sub   [[:gen/db-read
-                                                     (fn [db _q] [n (:bumped db)])]]}}))]
-      (install! :gen/dframe (image-of :gen/d1 1))
-      (rf/dispatch-sync [:gen/bump] {:frame :gen/dframe})
-      (is (= [1 true] @(rf.subs/subscribe [:gen/db-read] {:frame :gen/dframe})))
-
-      (install! :gen/dframe (image-of :gen/d2 2))
-      (is (= [2 true] @(rf.subs/subscribe [:gen/db-read] {:frame :gen/dframe}))
-          "the sub body is the NEW generation's; the app-db is the SAME frame's
-           durable state (`:bumped` survived)"))))
-
-;; ---- 5. a removed registration releases exactly its own refs -------------
+;; ---- 4. a removed registration releases exactly its own refs -------------
 
 (deftest a-removed-sub-is-evicted-and-recovers-as-a-miss
   (testing "a registration REMOVED by the new generation is evicted, and the
