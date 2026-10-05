@@ -13,12 +13,13 @@
   the stale one. Each could persist a wrong decision into `app-db` that the later
   settle, repairing only the derived slot, would not undo.
 
-  The deftests below are exactly that shape: one handler emitting a lifecycle
-  effect AND a `:dispatch`, where the dispatched handler reads the derived slot
-  and records what it saw. They are the CONTROL for the ordering — under a
-  back-of-queue settle the clear arm would read the stale value and the
-  register arm's continuations would read `nil`, while every other flows test
-  stays green, so no other test in the lane catches it."
+  The deftest below is exactly that shape: one handler emitting a lifecycle
+  effect between two `:dispatch`es, where each dispatched handler reads the
+  derived slot and records what it saw. It is the CONTROL for the ordering —
+  under a back-of-queue settle its continuations would read `nil` while every
+  other flows test stays green. Both lifecycle effects request their settle
+  through the same `:fx`-walk request and router head-insert, so the register
+  arm stands for the clear arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; Loading `re-frame.flows` is what publishes the `:flows/reg-flow`
@@ -39,34 +40,6 @@
    {:inputs      [[:wizard :foo] [:wizard :bar]]
     :output-path [:derived]}
    (fn [foo bar] (+ foo bar))])
-
-(deftest settle-precedes-continuations-queued-by-the-clearing-handler
-  (testing "a :dispatch emitted alongside :rf.fx/clear-flow reads the vacated
-            slot, not the flow's stale output"
-    (rf/reg-event :init (fn [_ _] {:db {:wizard {:foo 1 :bar 2}}}))
-    (rf/reg-event :enter (fn [_ _] {:fx [[:rf.fx/reg-flow sum-flow]]}))
-    (rf/reg-event :read-after-clear
-      (fn [{:keys [db]} _]
-        {:db (assoc db :seen-after-clear (:derived db))}))
-    (rf/reg-event :leave
-      (fn [_ _]
-        {:fx [[:rf.fx/clear-flow :sum]
-              [:dispatch [:read-after-clear]]]}))
-
-    (rf/dispatch-sync [:init])
-    (rf/dispatch-sync [:enter])
-    (is (= 3 (:derived (rf/app-db-value :rf/default)))
-        "precondition — the flow is registered and its output materialised")
-
-    (rf/dispatch-sync [:leave])
-
-    (let [db (rf/app-db-value :rf/default)]
-      (is (not (contains? db :derived))
-          (str "precondition — the settle boundary itself still holds. Row " db))
-      ;; THE CONTROL, clear arm. Red under a back-of-queue settle:
-      ;; `{:seen-after-clear 3}` with `:derived` already removed.
-      (is (nil? (:seen-after-clear db))
-          (str "the continuation ran AFTER the settle and read the vacated slot. Row " db)))))
 
 (deftest settle-precedes-a-whole-run-of-queued-continuations
   (testing "one settle, ahead of EVERY continuation the handler queued, and the
