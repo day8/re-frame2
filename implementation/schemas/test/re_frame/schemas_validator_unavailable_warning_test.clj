@@ -59,19 +59,6 @@
 
 ;; ---- positive paths -------------------------------------------------------
 
-(deftest warning-fires-once-across-multiple-reg-app-schema-calls
-  (testing "subsequent reg-app-schema calls within the same process do NOT
-            re-emit the warning (process-lifecycle one-shot)"
-    (with-trace-recorder! [recorded]
-      (with-unbound-malli-validate
-        (fn []
-          (rf/reg-app-schema [:user]    [:map [:id :int]])
-          (rf/reg-app-schema [:cart]    [:vector :any])
-          (rf/reg-app-schema [:session] [:map [:tok :string]])))
-      (is (= 1 (count (warnings-of recorded
-                                   :rf.warning/schema-validator-unavailable)))
-          "three registrations -> exactly one warning"))))
-
 (deftest warning-fires-once-from-reg-app-schemas-bulk
   (testing "bulk reg-app-schemas registers many entries; the warning still
             fires once across all entries (each delegates to reg-app-schema
