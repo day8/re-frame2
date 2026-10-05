@@ -24,9 +24,12 @@ Every failure prints REFUSED and exits 1, before the worker has edited anything 
 any gate.
 
 Quotes are compared with whitespace runs collapsed and the ends trimmed, and a leading
-line-number prefix (`37<TAB>text`, `37: text`, `37→text`) is tolerated, because those are
-what a faithful copy out of a numbered file view looks like.  Sentinels are drawn only
-from lines with at least MIN_SENTINEL_CHARS characters of text, so none is guessable.
+line-number prefix is tolerated, because that is what a faithful copy out of a numbered
+file view looks like, whatever the line itself begins with.  The prefix is the line's
+number, optionally indented, then either one or more spaces or TABs (`37<TAB>text`,
+`    37<TAB>text`, `37 text`) or optional whitespace and one of `: | . ) ] → -`
+(`37: text`, `37→text`).  Sentinels are drawn only from lines with at least
+MIN_SENTINEL_CHARS characters of text, so none is guessable.
 
 What the receipt cannot prove: that the worker attended to every line, which an inline
 brief cannot prove either; or that it read the whole packet rather than only the
@@ -171,8 +174,14 @@ def parse_challenge(spec: str, line_count: int) -> list[tuple[int, str]]:
 def quote_matches(quote: str, n: int, h: str) -> bool:
     if line_hash(quote) == h:
         return True
-    m = re.match(rf"\s*{n}\s*(?:[\t:|.)\]→-]|\s)(.*)$", quote)
-    return bool(m) and line_hash(m.group(1)) == h
+    # Each reading of the prefix is tried on its own: a single pattern stops at its first
+    # match, and in `37<TAB>- text` that match spends the TAB as padding and the line's own
+    # `-` as the separator.
+    for prefix in (rf"\s*{n}\s*[:|.)\]→-]", rf"\s*{n}\s+"):
+        m = re.match(prefix + "(.*)$", quote)
+        if m and line_hash(m.group(1)) == h:
+            return True
+    return False
 
 
 def verify(args) -> int:
@@ -377,6 +386,40 @@ def self_test() -> int:
                          encoding="utf-8")
         code, out = run(va + ["--quotes", str(loose)])
         check("phase 2 tolerates number prefixes, collapsed spacing and CRLF", code == 0)
+
+        shaped = [f"  line {i:02d}: instruction text long enough to be a sentinel" for i in range(1, 31)]
+        shaped[11] = "- **a bullet line**, quoted out of a numbered view after its TAB"
+        shaped[22] = "| a table row | quoted out of a numbered view | after its TAB |"
+        sbrief = d / "shaped.txt"
+        sbrief.write_text("\n".join(shaped) + "\n", encoding="utf-8")
+        _, scover = run(["prepare", str(sbrief), "--out-dir", str(d)])
+        at = (12, 23)
+        sva = with_flag(verify_args(scover), "--challenge",
+                        ",".join(f"{n}:{line_hash(shaped[n - 1])}" for n in at))
+
+        def shaped_run(quoted: list[str]) -> tuple[int, str]:
+            q = d / "quotes-shaped.txt"
+            q.write_text("\n".join(quoted) + "\n", encoding="utf-8")
+            return run(sva + ["--quotes", str(q)])
+
+        for label, form in (("TAB-numbered", "{n}\t"), ("`cat -n`-numbered", "{n:>6}\t"),
+                            ("space-numbered", "{n} ")):
+            code, out = shaped_run([form.format(n=n) + shaped[n - 1] for n in at])
+            check(f"phase 2 accepts a {label} quote of a `- ` bullet and a `| ` table row",
+                  code == 0 and "PACKET RECEIPT" in out)
+
+        forms = ("", "{n}\t", "{n:>6}\t", "{n} ", "{n}: ", "{n}→")
+
+        def one_wrong(form: str, i: int, n: int, text: str) -> bool:
+            quoted = [form.format(n=k) + shaped[k - 1] for k in at]
+            quoted[i] = form.format(n=n) + text
+            return refused(*shaped_run(quoted), f"[{at[i]}]")
+
+        check("REFUSES a wrong-text quote of a bullet or a table row, whatever its prefix",
+              all(one_wrong(f, i, at[i], shaped[at[i] - 1] + "x") for f in forms for i in range(2)))
+        check("REFUSES a right-text quote of a bullet or a table row under the wrong line number",
+              all(one_wrong(f, i, wrong, shaped[at[i] - 1])
+                  for f in forms[1:] for i in range(2) for wrong in (at[i] + 1, at[i] * 10)))
 
         def variant(name: str, content: bytes) -> str:
             p = d / name
