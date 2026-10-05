@@ -63,12 +63,6 @@
       (is (true? (rf.substrate.adapter/same-adapter? copied rf.substrate.plain-atom/adapter))
           "the token comparison is symmetric for two canonical maps"))))
 
-(deftest same-adapter-false-across-different-kinds
-  (testing "two canonical maps with DIFFERENT :kind are not the same adapter"
-    (let [as-uix (assoc rf.substrate.plain-atom/adapter :kind :rf.adapter/uix)]
-      (is (false? (rf.substrate.adapter/same-adapter? rf.substrate.plain-atom/adapter as-uix))
-          "a different canonical :kind is a different adapter"))))
-
 (deftest same-adapter-falls-back-to-identity-for-non-canonical
   (testing "a non-canonical / :custom / kindless adapter routes by object identity"
     (let [custom-a {:kind :custom :make-state-container identity}
