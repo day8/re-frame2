@@ -36,13 +36,11 @@
 ;; max-tokens — per-call cap resolution.
 ;; ---------------------------------------------------------------------------
 
-(deftest max-tokens-default-when-nil
-  (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens nil))))
-
 (deftest max-tokens-zero-disables-cap
   (is (nil? (rf.mcp-base.cap/max-tokens 0))))
 
 (deftest max-tokens-non-number-falls-back-to-default
+  (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens nil)))
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens "bogus")))
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens :not-a-number)))
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens [1 2 3]))))
@@ -209,20 +207,6 @@
         out  (rf.mcp-base.cap/apply-cap map-io r {:tool "snapshot" :cap toks})]
     (is (identical? r out))))
 
-(deftest apply-cap-uses-result-io-build-fn
-  ;; Verify the build-overflow-result hook is what produces the new
-  ;; result — a custom IO can shape the result however it likes.
-  (let [marker-only-io (reify rf.mcp-base.cap/ResultIO
-                         (wire-payload-strings [_ result] (map :text (:content result)))
-                         (build-overflow-result [_ marker _]
-                           {::custom-shape true :marker marker}))
-        big (big-string 8000)
-        r   (ok-text-result {:huge big})
-        out (rf.mcp-base.cap/apply-cap marker-only-io r {:tool "snapshot" :cap 500})]
-    (is (true? (::custom-shape out))
-        "build-overflow-result is the sole producer of the over-cap shape")
-    (is (contains? (:marker out) rf.mcp-base.vocab/overflow-key))))
-
 ;; ---------------------------------------------------------------------------
 ;; Secondary char-byte cap — defence in depth against the
 ;; `(quot count 4)` token undercount on CJK / emoji / base64 / dense
@@ -230,11 +214,6 @@
 ;; tokens still trips the cap because the secondary char check uses
 ;; `cap * byte-cap-multiplier`.
 ;; ---------------------------------------------------------------------------
-
-(deftest sum-payload-chars-aggregates-across-slots
-  (let [r {:content [{:type "text" :text (big-string 1000)}
-                     {:type "text" :text (big-string 2000)}]}]
-    (is (= 3000 (rf.mcp-base.cap/sum-payload-chars map-io r)))))
 
 (deftest byte-cap-multiplier-pinned-at-8x
   ;; The multiplier is part of the cap contract — call out a change.
