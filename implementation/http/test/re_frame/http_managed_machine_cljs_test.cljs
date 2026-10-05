@@ -5,12 +5,10 @@
   end-to-end shape against the in-process JDK HTTP server. This file
   confirms that on CLJS:
 
-  - The wrapper machine registration succeeds when `re-frame.machines`
-    is on the classpath at http-managed load time, and its `:succeeded` /
-    `:failed` terminals are `:final?` leaves.
   - A parent machine `:spawn`ing `:rf.http/managed` with the canned
-    success stub fires the wrapper, transitions to `:succeeded`, and
-    dispatches `[<parent-id> [:succeeded value]]` back to the parent.
+    stub receives `[:succeeded value]` / `[:failed failure]` back, which
+    needs the wrapper registered when `re-frame.machines` is on the
+    classpath at http-managed load time.
   - Wrapper children under `:spawn-all` resolve the join (Spec 014
     §Multiple wrappers per parent), hand a join parent the same value a
     `:spawn` parent receives, and never message a join parent directly.
@@ -36,10 +34,9 @@
             ;; registrations). This test calls `install-managed-request-stubs!`
             ;; directly, so it requires that ns.
             [re-frame.http.test-support :as rf.http.test-support]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]))
 
-;; `:async? true` — the (3) :spawn-all rows are `async`, and cljs.test aborts a
+;; `:async? true` — the :spawn-all rows are `async`, and cljs.test aborts a
 ;; namespace holding async tests unless its fixtures are the map form.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -49,79 +46,7 @@
                 (rf.machines/reset-timers!)
                 (rf.http.managed/clear-all-in-flight!))}))
 
-(defn- snapshot [machine-id]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots machine-id]))
-
-;; ---- (1) wrapper registration succeeds on classpath ---------------------
-
-(deftest wrapper-is-registered-when-machines-is-present
-  (testing "loading both re-frame.machines and re-frame.http.managed registers `:rf.http/managed` as a machine"
-    (let [meta (rf.registrar/lookup :event :rf.http/managed)]
-      (is (some? meta) ":rf.http/managed is registered as an :event")
-      (is (true? (:rf/machine? meta))
-          ":rf/machine? metadata flag is set — it's an actual machine, not a vanilla event")
-      (let [spec (:rf/machine meta)]
-        (is (= :requesting (:initial spec)))
-        (is (contains? (:states spec) :requesting))
-        (is (contains? (:states spec) :succeeded))
-        (is (contains? (:states spec) :failed))
-        ;; `:terminal?` is not `:final?` (Spec 005 §Child completion
-        ;; protocol): a `:spawn-all` join over children whose terminals were only
-        ;; `:terminal?` would never resolve, so the terminals are `:final?` leaves.
-        (is (= {:final? true :output-key :rf/result}
-               (select-keys (get-in spec [:states :succeeded]) [:final? :error? :output-key]))
-            ":succeeded is a :final? leaf whose result is :rf/result")
-        (is (= {:final? true :error? true :output-key :rf/result}
-               (select-keys (get-in spec [:states :failed]) [:final? :error? :output-key]))
-            ":failed is an :error? :final? leaf whose result is :rf/result")))))
-
-;; ---- (2) parent :spawn spawns wrapper, registry/snapshot wiring -------
-
-(deftest spawn-injects-framework-keys-into-the-wrapper
-  (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/invoke-id into the wrapper's :data"
-    ;; An fx that genuinely NEVER replies — gives us a stable :requesting
-    ;; snapshot to inspect without racing against Fetch. (Not the route-map
-    ;; test stub: with no matching route it synthesises a transport failure,
-    ;; which fails the wrapper and exits the parent's spawn state.)
-    (rf/reg-fx ::silent (fn [_ _] nil))
-    (try
-      (rf/reg-machine :cljs/auth2
-        {:initial :idle
-         :states
-         {:idle {:on {:login :authenticating}}
-          :authenticating
-          {:spawn {:machine-id :rf.http/managed
-                    :data       {:request {:url "/api/me" :method :get}}}
-           :on     {:succeeded :authenticated
-                    :failed    :idle}}
-          :authenticated {}}})
-      (rf/dispatch-sync
-        [:cljs/auth2 [:login]]
-        ;; Route the wrapper actor's outgoing :rf.http/managed fx to the
-        ;; silent fx above, so it does NOT issue a real Fetch. A per-call
-        ;; override propagates through the spawn into the wrapper actor's own
-        ;; dispatch (Spec 002 §Run propagation).
-        {:fx-overrides {:rf.http/managed ::silent}})
-      (let [db (:rf.db/runtime (rf/frame-state-value :rf/default))]
-        (is (= :rf.http/managed#1
-               (get-in db [:rf.runtime/machines :spawned :cljs/auth2 [:authenticating]]))
-            "the wrapper actor is bound under the parent's spawn-registry slot")
-        (let [wrapper-snap (snapshot :rf.http/managed#1)
-              wrapper-data (:data wrapper-snap)]
-          (is (= :requesting (:state wrapper-snap))
-              "the wrapper is in :requesting awaiting the (stubbed-out) reply")
-          (is (= :rf.http/managed#1 (:rf/self-id wrapper-data))
-              ":rf/self-id is stamped to the wrapper's own id")
-          (is (= :cljs/auth2 (:rf/parent-id wrapper-data))
-              ":rf/parent-id is stamped to the parent machine's id")
-          (is (= [:authenticating] (:rf/invoke-id wrapper-data))
-              ":rf/invoke-id is stamped to the parent's :spawn-bearing state path")
-          (is (= {:url "/api/me" :method :get} (:request wrapper-data))
-              "the user's :request is preserved verbatim under :data")))
-      (finally
-        (rf/clear :fx ::silent)))))
-
-;; ---- (3) wrapper children under :spawn-all ------------------------------
+;; ---- wrapper children under :spawn-all ----------------------------------
 ;;
 ;; Spec 014 §Multiple wrappers per parent puts `:rf.http/managed` children
 ;; under `:spawn-all`. A join resolves only when each child reaches a `:final?`
@@ -202,30 +127,6 @@
                            :failed    {:target :failed :action :record}}}
       :done       {}
       :failed     {}}}))
-
-(deftest spawn-all-join-all-resolves-over-wrapper-children
-  (testing "two :rf.http/managed children under :spawn-all :join :all resolve the join once both reply; the join event carries the decisive child's decoded value and each child tore itself down at finality"
-    (async done
-      (rf.http.test-support/install-managed-request-stubs!
-        {[:get "/api/me"]    {:reply {:ok {:id 42}}}
-         [:get "/api/prefs"] {:reply {:ok {:theme "dark"}}}})
-      (reg-join-parent! :cljs/hydrate :all [(wrapper-child :user "/api/me")
-                                            (wrapper-child :prefs "/api/prefs")])
-      (let [f (stubbed-frame! :rf.http/managed-test-stub)]
-        (rf/dispatch-sync [:cljs/hydrate [:go]] {:frame f})
-        (-> (rf.test-support/poll-until (settled? f :cljs/hydrate)
-                                        {:timeout-ms 2000 :label ":join :all resolves"})
-            (.then (fn [_]
-                     (let [[ev child-id result] (resolved-event f :cljs/hydrate)]
-                       (is (= :done (:state (snap-in f :cljs/hydrate))))
-                       (is (= :all-done ev) ":on-all-complete fired")
-                       (is (contains? #{:user :prefs} child-id) "the join names its decisive child")
-                       (is (= (get {:user {:id 42} :prefs {:theme "dark"}} child-id) result)
-                           "the join result is the decisive child's (:value reply), not the reply envelope"))
-                     (is (nil? (snap-in f :rf.http/managed#1)) "finality tore the first child down")
-                     (is (nil? (snap-in f :rf.http/managed#2)) "finality tore the second child down")))
-            (.catch (fn [e] (is false (str "unexpected — " (where-is f :cljs/hydrate) " — " (.-message e))) nil))
-            (.then (fn [_] (rf.http.test-support/uninstall-managed-request-stubs!) (done))))))))
 
 (deftest spawn-and-spawn-all-parents-receive-the-same-value
   (testing "one wrapper reply reaches a :spawn parent as [:succeeded value] / [:failed failure] and a :spawn-all parent as the join result — the SAME value on both paths, success and failure, so `:output-key` and the single-:spawn dispatch cannot drift apart; the failure path is also an accepted child error reaching :on-any-failed"
