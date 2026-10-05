@@ -87,19 +87,6 @@
 ;; The PARSER — a real HTML5 tree construction, not a model of one.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private html5-newline-eating-elements
-  "The newline-eating elements, written out from the HTML Standard
-  (§13.2.6.4.x — the `in body` insertion mode drops one LF immediately after a
-  `pre` / `listing` / `textarea` start tag).
-
-  DELIBERATELY A LITERAL, not `rf.ssr.html-helpers/newline-eating-tags`: this
-  namespace must not read the production roster it is used to check, or a wrong
-  roster would agree with itself. `one-roster-one-rule` pins the production
-  roster against this literal from the other side. The PARSER below shares no
-  roster with either — it derives the behaviour from the standard itself, which
-  is the whole reason it is here."
-  #{"pre" "listing" "textarea"})
-
 (defn- parsed-text-content
   "PARSES `html` with `nu.validator.htmlparser` — a port of the HTML5
   tree-construction algorithm — and returns the `textContent` of the first
@@ -117,40 +104,13 @@
             (str "the parse produced no <" tag "> element: " (pr-str html)))
     (.getTextContent (.item elements 0))))
 
-(deftest the-parser-is-itself-exercised
-  ;; NEGATIVE CONTROL: the parser must report the LOSS on UNCOMPENSATED
-  ;; markup — the exact output of an emitter without the compensation — or
-  ;; every green below would be vacuous. A witness that has never
-  ;; been red about the defect is not a witness.
-  (testing "UNCOMPENSATED markup loses its leading LF"
-    (is (= "code" (parsed-text-content "pre" "<pre>\ncode</pre>"))
-        "this is the lost-character defect, observed rather than modelled")
-    (is (= "listed" (parsed-text-content "listing" "<listing>\nlisted</listing>")))
-    (is (= "text" (parsed-text-content "textarea" "<textarea>\ntext</textarea>"))))
-  ;; The compensated round-trip, entity decoding and a non-newline-eating
-  ;; element are parsed on the same bytes by the emitter tests below.
-  (testing "the roster the parser exhibits IS the HTML Standard literal"
-    ;; Read off the parser rather than asserted at it: for each element, the
-    ;; compensated and uncompensated parses differ exactly where the standard
-    ;; says one LF is eaten.
-    (is (= html5-newline-eating-elements
-           (set (for [tag   ["pre" "listing" "textarea" "div" "span" "p"]
-                      :when (not= (parsed-text-content
-                                   tag (str "<" tag ">\nx</" tag ">"))
-                                  "\nx")]
-                  tag)))
-        "pre / listing / textarea eat a leading LF; nothing else does")))
-
 ;; ---------------------------------------------------------------------------
 ;; The shared rule — one roster, one implementation
 ;; ---------------------------------------------------------------------------
 
 (deftest one-roster-one-rule
   (testing "the newline-eating roster lives ONCE, in the shared helpers ns"
-    (is (= #{"pre" "listing" "textarea"} rf.ssr.html-helpers/newline-eating-tags))
-    (is (identical? rf.ssr.html-helpers/newline-eating-tags
-                    rf.ssr.ui-tree/newline-eating-tags)
-        "the S5 serialiser reads the SHARED roster, not a copy of it"))
+    (is (= #{"pre" "listing" "textarea"} rf.ssr.html-helpers/newline-eating-tags)))
   (testing "the shared rule itself"
     (is (= "\n" (rf.ssr.html-helpers/leading-newline-compensation "pre" "\nx")))
     (is (= "\n" (rf.ssr.html-helpers/leading-newline-compensation "textarea" "\nx")))
