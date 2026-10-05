@@ -135,19 +135,6 @@
 ;; encoded `user%2Fid`) and recovers the EXACT declared keyword on the match
 ;; side.
 
-(deftest route-url-namespaced-query-key-round-trips
-  (testing "a single namespaced declared query key round-trips through the
-            route-url/match-url prism with its namespace intact"
-    (rf/reg-route :route/np {:query [:map [:user/id :string]]} "/np")
-    (let [url (rf.routing/route-url {:to :route/np :params {} :query {:user/id "u-7"}})]
-      ;; the namespace survives into the URL token (percent-encoded `/`).
-      (is (= "/np?user%2Fid=u-7" url)
-          "the namespace is emitted in the reversible URL token, not dropped")
-      (let [m (rf.routing/match-url url)]
-        (is (= :route/np (:route-id m)))
-        (is (= {:user/id "u-7"} (:query m))
-            "match-url recovers the EXACT declared keyword, namespace included")))))
-
 (deftest route-url-distinct-namespaces-same-name-do-not-collide
   (testing "ADVERSARIAL: two declared query keys that share a NAME across
             different namespaces (:user/id + :account/id) emit DISTINCT URL
@@ -157,8 +144,8 @@
     (let [url (rf.routing/route-url {:to :route/two :params {} :query {:user/id "u" :account/id "a"}})]
       ;; both namespaced keys are present and DISTINCT in the emitted URL —
       ;; no `id=` collapse, no duplicate bare key.
-      (is (clojure.string/includes? url "user%2Fid=u"))
-      (is (clojure.string/includes? url "account%2Fid=a"))
+      (is (= "/two?account%2Fid=a&user%2Fid=u" url)
+          "the exact canonical URL: each namespace survives in its reversible token")
       (let [m (rf.routing/match-url url)]
         (is (= {:account/id "a" :user/id "u"} (:query m))
             "both namespaced keys round-trip to their EXACT declared keywords"))
