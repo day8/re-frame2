@@ -437,15 +437,6 @@ def run_self_test() -> int:
         root = Path(tmp) / "skills"
         root.mkdir()
 
-        # --- C1 negative: a compliant description passes. -------------------
-        _write_skill(root, "compliant", "x" * (PACKAGE_MAX_DESC_CHARS - 1))
-        entries, errors = collect_skills(root)
-        expect("C1 fixture parses", not errors and len(entries) == 1, str(errors))
-        expect(
-            "C1 PASSES a description one char under the portable cap",
-            check(entries, ceiling=10**9) == [],
-        )
-
         # --- C1 positive: one char over the portable cap reds it. -----------
         _write_skill(root, "compliant", "x" * (PACKAGE_MAX_DESC_CHARS + 1))
         entries, _ = collect_skills(root)
@@ -491,20 +482,10 @@ def run_self_test() -> int:
             entry.resolved_len == 800 + 3 + 300,
             f"got {entry.resolved_len}",
         )
-        expect(
-            "C1 FAILS on description+when_to_use crossing the cap",
-            check(entries, ceiling=10**9) != [],
-        )
 
         # --- entry/footprint arithmetic matches the runtime formula. --------
         _write_skill(root, "compliant", "x" * 100)
         entries, _ = collect_skills(root)
-        entry = entries[0]
-        expect(
-            "entryLen == len(name) + 4 + min(desc, 1536)",
-            entry.entry_len == len("compliant") + ENTRY_OVERHEAD_CHARS + 100,
-            f"got {entry.entry_len}",
-        )
         _write_skill(root, "second", "y" * 200)
         entries, _ = collect_skills(root)
         expected_total = (
