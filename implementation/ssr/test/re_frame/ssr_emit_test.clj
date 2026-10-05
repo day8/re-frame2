@@ -761,6 +761,44 @@
     (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
         (str "render-shell — " label))))
 
+;; The body is the markup the prop's value answers for `:__html`, so a value
+;; other than the plain map supplies one by answering it through lookup. The
+;; Reagent bridge relies on that: stock Reagent 2 keeps the prop only when its
+;; value is `reagent.core/unsafe-html`'s tagged value, and
+;; `re-frame.adapter.reagent` makes that value answer `:__html`. Reagent is
+;; CLJS-only, so the stand-in here is a JVM `ILookup`; the bridge's own value
+;; is pinned by `re-frame.adapter-unsafe-html-ssr-cljs-test`.
+
+(deftype LookupHtml [html]
+  clojure.lang.ILookup
+  (valAt [_ k] (when (= :__html k) html))
+  (valAt [_ k not-found] (if (= :__html k) html not-found)))
+
+(deftest dangerously-set-inner-html-reads-any-value-answering-html
+  (doseq [[label tree expected]
+          [["a value answering :__html renders its markup as the body"
+            [:div {:dangerouslySetInnerHTML (->LookupHtml "<b>x</b>")}]
+            "<div><b>x</b></div>"]
+           ["that body wins over children, as the plain map's does"
+            [:div {:dangerouslySetInnerHTML (->LookupHtml "<i>raw</i>")} "ignored"]
+            "<div><i>raw</i></div>"]
+           ["the plain map renders exactly as before"
+            [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
+            "<div><b>x</b></div>"]
+           ["a value answering a nil :__html gives an empty body"
+            [:div {:dangerouslySetInnerHTML (->LookupHtml nil)} "ignored"]
+            "<div></div>"]
+           ["a string answers no :__html and gives an empty body"
+            [:div {:dangerouslySetInnerHTML "<b>x</b>"} "ignored"]
+            "<div></div>"]
+           ["a vector answers no :__html and gives an empty body"
+            [:div {:dangerouslySetInnerHTML ["<b>x</b>"]} "ignored"]
+            "<div></div>"]]]
+    (is (= expected (rf.ssr.emit/render-to-string tree {}))
+        (str "render-to-string — " label))
+    (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
+        (str "render-shell — " label))))
+
 ;; ===========================================================================
 ;; Form-2 raw-fn component renders (never leaks the inner fn's
 ;; .toString as page text)
