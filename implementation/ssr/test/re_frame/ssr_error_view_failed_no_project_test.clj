@@ -137,7 +137,8 @@
       ;; DEV ARM: the emit is `trace/emit-error!`, so under the
       ;; production gate this control observes an empty buffer. The category
       ;; itself DOES reach production, so the control is not lost — it is
-      ;; re-run on the always-on axis by test (4).
+      ;; re-run on the always-on axis by
+      ;; `re-frame.ssr-sub-exception-two-frame-attribution-test`.
       (when rf.interop/debug-enabled?
         (rf.trace/emit-error! :rf.error/sub-exception
                            {:frame     fid
