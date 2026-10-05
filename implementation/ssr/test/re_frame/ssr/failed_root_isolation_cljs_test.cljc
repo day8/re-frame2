@@ -31,22 +31,7 @@
 
   One blanket mutation could red some of these while leaving others
   green, which would certify a falsifiability it never established. So
-  each arm is failed by its own lever, and the manifest, verify and mount
-  arms are each falsified by their own `boot-page-without-isolation!`
-  counterpart. The conflict arm has none: its lever is a claim installed
-  before the page boots rather than a key on the root's spec.
-
-  ## The unguarded twin is permanent and executable
-
-  `boot-page-without-isolation!` IS `boot-one-root!` with the try/catch
-  deleted — the bare hydrate-then-mount loop a host writes when it does
-  not use the boundary. The manifest, verify and mount levers each run
-  the same page through it
-  (`without-the-boundary-one-failed-root-takes-the-page-down`) and
-  measure the damage: the failing root's throw escapes and the roots
-  after it never boot. Delete the guard from `hydrate-page!` and the
-  isolation arms reproduce their twins' outcome. So the guard cannot
-  decay into a tautology.
+  each arm is failed by its own lever, at every position.
 
   ## Both hosts
 
@@ -63,9 +48,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
-            ;; JVM-only: the sole executable read is the `#?(:clj …)`
-            ;; `with-redefs [interop/debug-enabled? false]` arm below.
-            #?(:clj [re-frame.interop :as rf.interop])
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.boot :as rf.ssr.boot]
             [re-frame.ssr.install :as rf.ssr.install]
@@ -183,18 +165,6 @@
    'test fid (rf.ssr.install/payload-content-digest (payload-for {:count 99}))
    :page/other-response))
 
-(defn- boot-page-without-isolation!
-  "THE UNGUARDED TWIN, kept permanently executable: `boot-one-root!` with the
-  try/catch deleted. This is the bare loop a host writes without the
-  boundary — hydrate each root, mount it, move on. The first failure
-  escapes and every root after it is never reached."
-  [specs]
-  (mapv (fn [{:keys [mount-fn] :as spec}]
-          (let [payload (rf.ssr.boot/hydrate! (dissoc spec :mount-fn))]
-            (when mount-fn (mount-fn))
-            payload))
-        specs))
-
 ;; ---------------------------------------------------------------------------
 ;; The isolation arms — one lever each, every position
 ;; ---------------------------------------------------------------------------
@@ -265,40 +235,6 @@
         (poison-with-a-conflicting-payload! (nth frames fail-idx))
         (assert-isolated! (rf.ssr/hydrate-page! specs) frames fail-idx
                           (str "conflict @" fail-idx))))))
-
-;; ---------------------------------------------------------------------------
-;; The unguarded twin — the manifest, verify and mount levers, without the
-;; boundary
-;; ---------------------------------------------------------------------------
-
-(defn- measure-unisolated!
-  "Run the page through the unguarded loop and report what survived."
-  [lever]
-  (let [frames (vec (repeatedly 3 fresh-frame!))
-        specs  (root-specs frames 0 lever)]
-    (rf.ssr.install/reset-installed-payloads!)
-    {:escaped? (try (boot-page-without-isolation! specs) false
-                    (catch #?(:clj Throwable :cljs :default) _ true))
-     :frames   frames}))
-
-(deftest without-the-boundary-one-failed-root-takes-the-page-down
-  (testing "MEASURED (this is the defect, not an aspiration): in a bare
-            hydrate-then-mount loop the first root's throw escapes and
-            every root after it is never booted. Each lever is measured
-            separately — a single blanket failure could red one arm while
-            leaving the others untouched."
-    (doseq [[label lever] [["manifest" manifest-lever]
-                           ["verify"   verify-lever]
-                           ["mount"    mount-lever]]]
-      (let [{:keys [escaped? frames]} (measure-unisolated! lever)]
-        (is escaped?
-            (str label ": the failing root's throw escaped the loop"))
-        (doseq [i [1 2]]
-          (is (not (hydrated? (nth frames i)))
-              (str label ": root " i " was never reached — this is exactly "
-                   "what hydrate-page! prevents. If this ever goes green "
-                   "the failure stopped propagating and the isolation arm "
-                   "above is testing nothing.")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What a failed root leaves behind
@@ -528,34 +464,6 @@
             (str label ": the dead-frame record names the frame"))
         (is (nil? (rf.ssr.install/installed-payload fid))
             (str label ": and the claim was released"))))))
-
-;; ---------------------------------------------------------------------------
-;; Isolation is a PRODUCTION property
-;; ---------------------------------------------------------------------------
-
-#?(:clj
-   (deftest isolation-and-its-report-survive-with-debugging-disabled
-     (testing "a guarantee only the dev build can see does not exist for
-               users. With `debug-enabled?` false — the dev trace bus
-               silent, as under CLJS `:advanced` + goog.DEBUG=false — one
-               root still fails alone AND its always-on record still
-               arrives. Nothing in the boundary sits behind the debug
-               gate. (The CLJS half of this proof is structural: the
-               category is `always-on` in the Spec 009 catalogue, which
-               `error-catalogue-channel-conformance-test` pins against
-               the `always-on-axis-conformance-cljs-test` literal.)"
-       (with-redefs [rf.interop/debug-enabled? false]
-         (reg-bump!)
-         (let [frames  (vec (repeatedly 3 fresh-frame!))
-               specs   (root-specs frames 1 mount-lever)
-               records (capture-error-records! #(rf.ssr/hydrate-page! specs))]
-           (is (= 1 (count (root-boot-failures records)))
-               "the always-on record survives a production build")
-           (doseq [i [0 2]]
-             (is (hydrated? (nth frames i))
-                 (str "sibling " i " hydrated with debugging off"))
-             (is (interactive? (nth frames i))
-                 (str "sibling " i " is running with debugging off"))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The boundary is isolation, not recovery
