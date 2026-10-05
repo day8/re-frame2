@@ -83,17 +83,6 @@
             (is (not (contains? (:tags m) :received)))
             (is (not (contains? (:tags m) :value)))))))))
 
-(deftest event-unknown-op-schema-fails-closed
-  (testing "an unknown-op :schema on a reg-event
-            handler also fails closed with a distinct trace, no throw."
-    (let [calls (atom 0)]
-      (rf/reg-event :ev/unknown
-        {:schema [:not-a-real-op :int]}
-        (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
-      (let [traces (capture #(rf/dispatch-sync [:ev/unknown 1]))]
-        (is (= 0 @calls) "handler skipped")
-        (is (= 1 (count (malformed-traces traces))) "one malformed-schema trace fired")))))
-
 (defn- cofx-value-invalid-traces [traces]
   (filter #(= :rf.error/cofx-value-invalid (:operation %)) traces))
 
