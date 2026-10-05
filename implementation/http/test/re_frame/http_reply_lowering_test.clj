@@ -242,8 +242,11 @@
 ;; Group 2c — the public failure `:error` map is SELF-IDENTIFYING.
 ;; Every failure category carries :request {:method :url}, :request-id,
 ;; :attempt/:max-attempts, and :work/id — WHICH request failed, not only what
-;; kind of failure it was. Exercised end-to-end
-;; through the real transport for the categories a test server can trigger.
+;; kind of failure it was. Every ordinary category reaches the one
+;; `self-identify` stamp in `emit-and-dispatch-failure!` (the aborted reply
+;; has its own), so this group drives it end-to-end through the real
+;; transport for one ordinary category, the retry-exhausted path and the
+;; aborted reply.
 ;; ===========================================================================
 
 (defn- fetch-failure-error
@@ -279,16 +282,6 @@
           (is (= 404 (:status err))))
         (finally (stop-server! srv))))))
 
-(deftest failure-reply-is-self-identifying-transport
-  (testing "an :rf.http/transport failure (connection refused) is self-identifying"
-    ;; Port 1 is reliably closed — connection refused → :rf.http/transport.
-    (let [url "http://127.0.0.1:1/x"
-          err (fetch-failure-error url {:request-id :sid/xport})]
-      (is (= :rf.http/transport (:kind err)))
-      (is (= {:method :get :url url} (:request err)))
-      (is (= :sid/xport (:request-id err)))
-      (is (= [:rf.work/http :sid/xport 1 1] (:work/id err))))))
-
 (deftest failure-reply-echoes-the-defaulted-method
   (testing "a request that leaves :method out echoes the effective :get"
     ;; Port 1 is reliably closed — connection refused → :rf.http/transport.
@@ -316,18 +309,6 @@
           (is (= 3 (:max-attempts err)) "the retry ceiling rides the failure")
           (is (= [:rf.work/http :sid/five-xx 1 3] (:work/id err))
               "the work-id's attempt slot matches the exhausting attempt"))
-        (finally (stop-server! srv))))))
-
-(deftest failure-reply-is-self-identifying-decode
-  (testing "an :rf.http/decode-failure (malformed JSON on 200) is self-identifying"
-    (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 200 "application/json" "{not json")))]
-      (try
-        (let [url (str "http://127.0.0.1:" (:port srv) "/bad")
-              err (fetch-failure-error url {:request-id :sid/decode})]
-          (is (= :rf.http/decode-failure (:kind err)))
-          (is (= {:method :get :url url} (:request err)))
-          (is (= :sid/decode (:request-id err)))
-          (is (= [:rf.work/http :sid/decode 1 1] (:work/id err))))
         (finally (stop-server! srv))))))
 
 (deftest failure-reply-is-self-identifying-aborted
