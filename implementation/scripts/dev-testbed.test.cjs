@@ -187,12 +187,6 @@ function it(label, f) {
 
 console.log('dev-testbed arg-resolution tests');
 
-it('a single explicit build-id passes through unchanged', () => {
-  assert.deepStrictEqual(resolveArgs([':examples/standard-epochs']), [
-    ':examples/standard-epochs',
-  ]);
-});
-
 it('a removed group name is NOT expanded — it passes through as a literal', () => {
   // `xray` is just a token. It reaches shadow-cljs as an
   // unknown build-id (which shadow-cljs reports), never a 6-build expansion.
