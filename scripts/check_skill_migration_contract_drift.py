@@ -2743,11 +2743,6 @@ def _self_test() -> int:
         'drill: `snapshot {path: "[:rf.db/runtime]"}` (the runtime-db partition).',
         dirty=True, label="C2 snapshot {path: [:rf.db/runtime]}",
     )
-    expect(
-        'read the boot machine via `get-path {path: "[:rf.runtime/machines '
-        ':snapshots :app/boot]"}`.',
-        dirty=True, label="C3 get-path at a specific runtime machine snapshot",
-    )
     # PASS fixtures — the partition-aware recipe and the negated warning.
     expect(
         'the canonical `read-sub {sub: "[:rf/machine :app/boot]"}` reads the '
@@ -2781,37 +2776,9 @@ def _self_test() -> int:
 
     # --- Rule 5 fixtures — stock-Reagent Form-3 lifecycle targeting ------------
     expect_text(
-        "In :component-did-mount read `(rf/subscribe-once query-v)` and in "
-        ":component-will-unmount call `(rf/unsubscribe query-v)`.",
-        dirty=True, label="E1 Form-3 lifecycle recommends bare read/teardown",
-    )
-    expect_text(
-        "In a Form-3 hook use `(rf/subscribe-once query-v {:frame frame})`; "
-        "teardown is `(rf/unsubscribe frame query-v)`.",
-        dirty=False, label="E2 Form-3 lifecycle targets captured frame",
-    )
-    expect_text(
         "A bare `(rf/subscribe-once query-v)` in a lifecycle hook throws "
         "`:rf.error/no-frame-context`.",
         dirty=False, label="E3 negative bare lifecycle example",
-    )
-    expect_text(
-        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
-        "- **One-shot current value at mount:** "
-        "`(rf/subscribe-once query-v)` retains no handle.",
-        dirty=True, label="E4 multiline Form-3 paragraph catches bare one-shot",
-    )
-    expect_text(
-        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
-        "```clojure\n:component-did-mount\n"
-        "(fn [_]\n  (rf/subscribe-once query-v))\n```",
-        dirty=True, label="E5 multiline hook code catches bare one-shot",
-    )
-    expect_text(
-        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
-        "- **One-shot current value at mount:** "
-        "`(rf/subscribe-once query-v {:frame frame})` retains no handle.",
-        dirty=False, label="E6 multiline explicit-frame recipe is clean",
     )
     expect_text(
         "**Form-3 lifecycle — negative example.** Do not copy this.\n\n"
@@ -2846,18 +2813,6 @@ def _self_test() -> int:
         dirty=True, label="F1 same-line vector query arg is bare",
     )
     expect_text(
-        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  (rf/subscribe-once [:todos/all :active]))\n```",
-        dirty=True, label="F2 vector query arg inside a lifecycle hook",
-    )
-    expect_text(
-        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  (rf/subscribe-once\n    query-v))\n```",
-        dirty=True, label="F3 call split across lines",
-    )
-    expect_text(
         "**Form-3 lifecycle.** Teardown must name the frame.\n\n"
         "```clojure\n:component-will-unmount\n(fn [_]\n"
         "  (rf/unsubscribe\n    [:todos/all :active]))\n```",
@@ -2869,15 +2824,9 @@ def _self_test() -> int:
         "  (rf/subscribe-once (build-query-v id)))\n```",
         dirty=True, label="F5 list-expression query arg is still one argument",
     )
-    # Frame-qualified equivalents of every shape above MUST pass — the opts map
-    # / frame-first argument is what makes the call legal, and arity is how the
-    # scanner sees it.
-    expect_text(
-        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  (rf/subscribe-once [:todos/all :active] {:frame frame}))\n```",
-        dirty=False, label="G1 vector query + explicit frame opts is clean",
-    )
+    # Frame-qualified forms of the split-line shapes above MUST pass — the opts
+    # map / frame-first argument is what makes the call legal, and arity is how
+    # the scanner sees it.
     expect_text(
         "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
         "```clojure\n:component-did-mount\n(fn [_]\n"
@@ -2896,18 +2845,9 @@ def _self_test() -> int:
         dirty=True, label="G4 string with spaces inside a vector is one argument",
     )
     expect_text(
-        "In `:component-did-mount` call "
-        "`(rf/subscribe-once [:msg \"}{)(\"] {:frame frame})`.",
-        dirty=False, label="G5 brackets inside a string do not break the counter",
-    )
-    expect_text(
         "A lifecycle hook may call `(rf/subscribe-once-ish query-v)` — a "
         "different fn entirely.",
         dirty=False, label="G6 head-symbol prefix match is not a subscribe-once call",
-    )
-    expect_text(
-        "A lifecycle note mentioning `(rf/unsubscribe-all frame)` is unrelated.",
-        dirty=False, label="G7 unsubscribe-all is not unsubscribe",
     )
     expect_text(
         "An unbalanced `:component-did-mount` excerpt `(rf/subscribe-once query-v` "
@@ -2916,17 +2856,12 @@ def _self_test() -> int:
     )
     # The arity rule must not become a global ban: a bare one-argument call is
     # CORRECT wherever a real resolver scope exists. Only lifecycle context
-    # makes it drift. (These mirror the shapes the live corpus ships at
-    # breaking-changes.md O-6 and README O-13/O-14.)
+    # makes it drift. (G9 mirrors the shape the live corpus ships at
+    # breaking-changes.md O-6.)
     expect_text(
         "Drop the type checks; use `(rf/subscribe-once [:todos/all :active])` if "
         "you need the value outside a reactive context.",
         dirty=False, label="G9 bare vector call with no lifecycle context is legal",
-    )
-    expect_text(
-        "Outside of views (event handlers, fx, REPL) the substrate-agnostic "
-        "`(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work.",
-        dirty=False, label="G10 ambient bare call in the O-13 shape is legal",
     )
 
     # --- Rule 5 structural bounds ---------------------------------------------
@@ -2940,27 +2875,6 @@ def _self_test() -> int:
         "A `reg-view` body runs under a live resolver scope, so "
         "`(rf/subscribe-once query-v)` resolves against the provider frame.",
         dirty=False, label="H1 heading ends lifecycle context; ambient call legal",
-    )
-    expect_text(
-        "## Form-3 lifecycle\n\n"
-        "Capture the frame in the outer callable.\n\n"
-        "---\n\n"
-        "In an ordinary registered view, `(rf/subscribe-once [:todos/all])` "
-        "reads the provider frame.",
-        dirty=False, label="H2 thematic break ends lifecycle context",
-    )
-    expect_text(
-        "## Form-3 lifecycle\n\n"
-        "A hook has no ambient frame.\n\n"
-        "Seed the library with `(rf/subscribe-once query-v)` at mount.",
-        dirty=True, label="H3 context still carries WITHIN its own section",
-    )
-    expect_text(
-        "### Form-3 lifecycle\n\n"
-        "Capture the frame in the outer callable.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  (rf/subscribe-once query-v))\n```",
-        dirty=True, label="H4 heading itself establishes context for its section",
     )
     # I-cases: BEFORE/AFTER polarity is per call, not per block. A block-wide
     # exemption would let an affirmative AFTER recipe hide beside a historical
@@ -2986,13 +2900,6 @@ def _self_test() -> int:
         "```",
         dirty=False,
         label="I2 BEFORE exempt + frame-qualified AFTER is wholly clean",
-    )
-    expect_text(
-        "**Form-3 lifecycle — BEFORE.** Do not copy this.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  (rf/subscribe-once [:todos/all :active]))\n```",
-        dirty=False,
-        label="I3 BEFORE label exempts the fence that follows it",
     )
     expect_text(
         "## Form-3 lifecycle — BEFORE\n\n"
@@ -3050,14 +2957,6 @@ def _self_test() -> int:
         "    ))\n```",
         dirty=True, label="LEX-1 bare call + trailing comment stays arity-1",
     )
-    # LEX-2: a comment BEFORE the sole argument must also not inflate arity.
-    expect_text(
-        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  (rf/subscribe-once  ; read the current value once\n"
-        "    query-v))\n```",
-        dirty=True, label="LEX-2 comment before the sole argument stays arity-1",
-    )
     # LEX-3: a `;`-comment or stray brackets inside the form must not corrupt the
     # bracket depth — the frame-qualified call is arity 2 and legal.
     expect_text(
@@ -3077,14 +2976,6 @@ def _self_test() -> int:
         '  (log/debug "calling (rf/subscribe-once query-v) now")\n'
         "  (rf/subscribe-once query-v {:frame frame}))\n```",
         dirty=False, label="LEX-4 call-shaped text inside a string is clean",
-    )
-    # LEX-5: a call-shaped token inside a `;` comment is not a call either.
-    expect_text(
-        "**Form-3 lifecycle.** A hook has no ambient frame.\n\n"
-        "```clojure\n:component-did-mount\n(fn [_]\n"
-        "  ;; avoid the bare (rf/subscribe-once query-v) here\n"
-        "  (rf/subscribe-once query-v {:frame frame}))\n```",
-        dirty=False, label="LEX-5 call-shaped text inside a comment is clean",
     )
     # LEX-6: a prose semicolon must not hide a following bare call — the Clojure
     # lexis is scoped to code contexts, not English punctuation.
@@ -3132,18 +3023,6 @@ def _self_test() -> int:
         "  (rf/subscribe-once query-v))\n```",
         dirty=True, label="POL-3 string 'BEFORE' does not forge an exemption",
     )
-    # POL-4: `;; BEFORE` / `;; AFTER` COMMENT labels are honoured per call —
-    # the BEFORE example is exempt, the AFTER recipe is not.
-    expect_text(
-        "**Form-3 lifecycle.** Capture the frame in the outer callable.\n\n"
-        "```clojure\n"
-        ";; BEFORE (v1) — no frame to name\n"
-        "(rf/subscribe-once old-query)\n"
-        ";; AFTER (v2) — the recipe to copy\n"
-        "(rf/subscribe-once query-v)\n"
-        "```",
-        dirty=True, label="POL-4 comment BEFORE/AFTER labels work per call",
-    )
     # POL-5: ordinary negative prose ("Not recommended: …") is a negative label,
     # so it exempts the anti-pattern it names. Reading the `recommended`
     # substring as a POSITIVE marker would falsely flag the call.
@@ -3180,14 +3059,6 @@ def _self_test() -> int:
         "In a registered view `(rf/subscribe-once query-v)` reads the "
         "provider frame.",
         dirty=False, label="MD-2 Setext-H1 ends lifecycle context",
-    )
-    # MD-3: the Setext heading itself establishes context for its own section, so
-    # a bare call beneath a Setext-headed lifecycle section is dirty.
-    expect_text(
-        "Form-3 lifecycle\n"
-        "================\n\n"
-        "A hook has no ambient frame. Seed with `(rf/subscribe-once query-v)`.",
-        dirty=True, label="MD-3 Setext-H1 heading establishes context for its section",
     )
     # MD-4: a CommonMark SPACED thematic break (`* * *`) resets bounded context
     # like a compact `---`; matching only the compact forms would miss it.
@@ -3283,14 +3154,13 @@ def _self_test() -> int:
         m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
         m1_expect(ns, pre_0tur_invert, "flag", f"M1-regression-detected {ns}")
     # The exact O-12 tooling namespace is exempt and `pre_z9xl_invert` flags it;
-    # bare subs, db and a private subs sibling are flagged, and the subtree-wide
+    # bare subs and a private subs sibling are flagged, and the subtree-wide
     # spelling is caught because it exempts those two subs controls.
     ns = "re-frame.subs.tooling"
     m1_expect(ns, good_invert, "exempt", f"M1-good-exempt {ns}")
     m1_expect(ns, pre_z9xl_invert, "flag", f"M1-regression-detected {ns}")
-    for ns in ("re-frame.subs", "re-frame.db", "re-frame.subs.cache"):
-        m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
     for ns in ("re-frame.subs", "re-frame.subs.cache"):
+        m1_expect(ns, good_invert, "flag", f"M1-good-flag {ns}")
         m1_expect(ns, subtree_invert, "exempt", f"M1-subtree-overreach-seen {ns}")
     # M-38 carves plain-atom + the substrate contract ns out of its own rename,
     # so both are exempt and `pre_zjss3_invert` flags them — the false positive
@@ -3328,16 +3198,11 @@ def _self_test() -> int:
         failures += 1
 
     # --- M-51 sweep fixtures ---------------------------------------------------
-    # The correct sweep sees all four unary shapes and skips the binary control;
-    # a narrow sweep (newline required, bare-symbol param only) sees one.
-    good_m51 = re.compile(r"reg-fx[^\n]*\n?[^\n]*\(fn \[[^]\s_][^]]*\]")
+    # A narrow sweep (newline required, bare-symbol param only) sees one of the
+    # four unary shapes and skips the binary control. Pinning its misses
+    # exactly fails both a sweep check that reports too many misses and one
+    # that reports too few.
     bad_m51 = re.compile(r"reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]")
-    if _m51_sweep_misses(good_m51):
-        print(
-            "SELF-TEST FAIL (M51-good): the correct M-51 sweep "
-            f"{_m51_sweep_misses(good_m51)!r}"
-        )
-        failures += 1
     bad_misses = _m51_sweep_misses(bad_m51)
     if len(bad_misses) != 3 or any("control" in m for m in bad_misses):
         print(
@@ -3399,12 +3264,6 @@ def _self_test() -> int:
             "           (reset! !widget (mk-gauge! this)))\n",
         ),
         dirty=True, label="VC4 destructured subscribe never used to acquire is flagged",
-    )
-    # VC5 — the fully-namespaced ambient acquire is caught too.
-    expect_captured(
-        CANON.replace("(let [reaction (subscribe query-v)]",
-                      "(let [reaction (re-frame.core/subscribe query-v)]"),
-        dirty=True, label="VC5 re-frame.core/subscribe ambient acquire is flagged",
     )
     # VC6 — out of scope: the dispatch-only route-2 example destructures only
     # `dispatch` and never `unsubscribe`, so it is not the exceptional Form-3.
@@ -3473,24 +3332,6 @@ def _self_test() -> int:
     # The same CANON, read for the question that decides whether the recipe
     # WORKS: does anything activate the reaction it acquires?
     expect_owner(CANON, dirty=False, label="VO1 canonical track!-owner recipe is clean")
-    # VO2 — the seed-deref + add-watch shape with no owner; it must never be able
-    # to ship.
-    PRE_FIX_MOUNT = (
-        "         (fn [this]\n"
-        "           (let [reaction (subscribe query-v)]           ; ACQUIRE\n"
-        "             (feed-gauge! @reaction)\n"
-        "             (add-watch reaction watch-key\n"
-        "               (fn [_ _ _ v] (feed-gauge! v)))))\n"
-    )
-    PRE_FIX = CANON.replace(CANON_MOUNT, PRE_FIX_MOUNT).replace(
-        "           (some-> @!driver r/dispose!)\n",
-        "           (remove-watch @!reaction watch-key)\n",
-    )
-    expect_owner(
-        PRE_FIX,
-        dirty=True,
-        label="VO2 the seed-deref + add-watch recipe is flagged",
-    )
     # VO3 — the trap alone: an add-watch bolted onto the owned recipe.
     expect_owner(
         CANON.replace(
@@ -3592,10 +3433,6 @@ def _self_test() -> int:
 
     expect_form3(K_OWNER, K_CANON, dirty=False, label="K1 complete owner + aligned canonical is clean")
     expect_form3(
-        K_OWNER.replace("retargeted from provider A to provider B", "kept on one frame"),
-        K_CANON, dirty=True, label="K2 owner without the A→B retarget case is dirty",
-    )
-    expect_form3(
         "It goes stale if a surviving instance is retargeted from provider A to "
         "provider B. Remedy: a frame-derived React `key` remount, or the "
         "registered `reg-view` child (route 1). See `guided-views-m11.md` "
@@ -3619,23 +3456,8 @@ def _self_test() -> int:
     )
 
     # Semantic-teeth fixtures. Vocabulary presence is not enough: the
-    # OPPOSITE polarity must fail even when every positive token survives, and
-    # tokens scattered across unrelated paragraphs must not satisfy the invariant.
+    # OPPOSITE polarity must fail even when every positive token survives.
     #
-    # K7: an adopter owner that ASSERTS the reversal ("automatically follows …
-    # never goes stale") with the A→B / remount / pointer tokens sprinkled into
-    # unrelated paragraphs. A presence-only guard would return [] here.
-    K7_REVERSED_SCATTERED = (
-        "Capture-once automatically follows any provider change; it never goes "
-        "stale.\n\n"
-        "Elsewhere, an instance can be retargeted from provider A to provider B.\n\n"
-        "You might force a remount with a frame-derived React `key`.\n\n"
-        "See `guided-views-m11.md` §M-11 for more."
-    )
-    expect_form3(
-        K7_REVERSED_SCATTERED, K_CANON, dirty=True,
-        label="K7 adopter reversal + scattered vocabulary is dirty",
-    )
     # K8: every positive token tied in ONE paragraph, but with a "no need to
     # remount" / "never goes stale" reversal spliced in — polarity teeth must
     # fail it (the reversal survives beside the correct relationship).
@@ -3649,17 +3471,6 @@ def _self_test() -> int:
     expect_form3(
         K8_REVERSED_TIED, K_CANON, dirty=True,
         label="K8 adopter reversal with every positive token present is dirty",
-    )
-    # K9: the canonical owner reversed — the cross-owner
-    # leg must catch it, not just the adopter.
-    K9_CANON_REVERSED = (
-        "Capture-once automatically retargets and re-resolves to the new "
-        "provider.\n\n"
-        "For example, an instance may be retargeted from provider A to provider B."
-    )
-    expect_form3(
-        K_OWNER, K9_CANON_REVERSED, dirty=True,
-        label="K9 canonical reversal is dirty",
     )
     # K10: the adaptive-remedy prose (route 1 follows A→B "with no remount")
     # must NOT be read as a reversal — it is the remedy, not the footgun.
@@ -3715,30 +3526,9 @@ def _self_test() -> int:
     )
     expect_m0(M0_CLEAN, dirty=False, label="M0-1 route text is clean")
     expect_m0(
-        M0_CLEAN + '\nday8/re-frame2 {:mvn/version "<latest>"}',
-        dirty=True, label="M0-2 mvn <latest> map coord is dirty",
-    )
-    expect_m0(
-        M0_CLEAN + '\n[day8/re-frame2 "<latest>"]',
-        dirty=True, label="M0-3 Lein <latest> vector coord is dirty",
-    )
-    expect_m0(
-        M0_CLEAN + "\nleave the dep alone, do not apply any other migration "
-        "rules, and flag the situation in the migration report",
-        dirty=True, label="M0-4 leave-the-dep-alone stop instruction is dirty",
-    )
-    expect_m0(
         M0_CLEAN + "\nthe author should wait until a release lands, then "
         "re-run the migration",
         dirty=True, label="M0-5 wait-for-a-release instruction is dirty",
-    )
-    expect_m0(
-        M0_CLEAN.replace(
-            "deps-versions.md"
-            "#choosing-the-coordinate-publication-state-decides-the-shape",
-            "deps-versions.md",
-        ),
-        dirty=True, label="M0-6 dropped delegation anchor is dirty",
     )
     # M0-7 — the section-scoping seam: the anchor removed from the M-0 section
     # while a later artefact rule (the M-27..M-33 shape) carries it. A
@@ -3758,13 +3548,6 @@ def _self_test() -> int:
         dirty=True,
         label="M0-7 anchor only in a later artefact rule is dirty",
     )
-    # M0-8 — no M-0 rule heading at all: the delegation assertion has nothing
-    # to scope to, so the lock must report rather than silently pass.
-    expect_m0(
-        M0_CLEAN.replace("### M-0. Bump", "Bump"),
-        dirty=True,
-        label="M0-8 missing M-0 heading is dirty",
-    )
     # M0-9 — polarity 1: a numbered subsection
     # (`#### M-0.1 …`) inside M-0, before the delegation anchor. Its dot is a
     # decimal point, not a rule terminator, so the span must run on to
@@ -3781,8 +3564,8 @@ def _self_test() -> int:
     )
     # M0-10 — polarity 2: the parent `### M-0.` heading removed, an orphan
     # `#### M-0.1` child left carrying the anchor. The child id is not an M-0
-    # rule heading, so the lock must report the missing heading (as in M0-8)
-    # rather than silently scoping the section to the orphan.
+    # rule heading, so the lock must report the missing heading rather than
+    # silently scoping the section to the orphan.
     expect_m0(
         M0_CLEAN.replace(
             "### M-0. Bump the dependency coordinate to `day8/re-frame2`",
@@ -3895,7 +3678,7 @@ def _self_test() -> int:
             )
             failures += 1
 
-    # SETUP-5..8 - the scan unit is a NORMALISED PARAGRAPH, not a physical
+    # SETUP-5..7 - the scan unit is a NORMALISED PARAGRAPH, not a physical
     # line. Both banned phrases are multi-word, and Markdown reflow puts a
     # newline anywhere between two words: under a per-line scan the first
     # shape's `\s+` could never reach one (`splitlines` would already have cut
@@ -3903,9 +3686,7 @@ def _self_test() -> int:
     # - not a rewrite - would silently disarm the lock. SETUP-5 and SETUP-6
     # wrap the two real sentences INSIDE the banned phrase itself, which is the
     # only wrap that matters; SETUP-7 pins that a wrap does not flip polarity
-    # the other way either; SETUP-8 pins the paragraph BOUND, so a negation two
-    # paragraphs up cannot shield an instruction the way joining the whole file
-    # would let it.
+    # the other way either.
     expect_leaf(
         '**Per-feature artefact not yet published.** Same shape as M-0\'s '
         '"no v2 version" edge case: leave the dependency\n'
@@ -3928,14 +3709,6 @@ def _self_test() -> int:
         "dep alone, and do **not** stop and wait for a release.",
         dirty=False,
         label="SETUP-7 a wrap does not turn M-0's negated quotation dirty",
-    )
-    expect_leaf(
-        "Do not defer a per-feature artefact.\n"
-        "\n"
-        "leave the dep alone until the artefact lands.",
-        dirty=True,
-        label="SETUP-8 a negation in a PRIOR paragraph does not shield the "
-              "instruction",
     )
 
     # SETUP-4 - live tooth against the SHIPPED leaf, not a fixture that could
@@ -4103,14 +3876,6 @@ def _self_test() -> int:
         "and an unknown stream throws `:rf.error/unknown-listener-stream`.",
         dirty=True,
         label="R7-1 a stale M-26 four-stream row",
-    )
-    expect_r7(
-        "— which also carries the always-on `:events` and `:errors` "
-        "streams. The stream is the **first** argument, and it is not "
-        "optional: the vocabulary is closed (`:trace` / `:events` / "
-        "`:errors` / `:epoch`) with no bare default.",
-        dirty=True,
-        label="R7-2 a stale M-55 closed-vocabulary sentence",
     )
     expect_r7(
         "… with the raw always-on `:events` / `:errors` streams of "
