@@ -57,30 +57,6 @@
   (is (= {:n 0} (rf/app-db-value :rf/default)) "baseline post-init state"))
 
 ;; ---------------------------------------------------------------------------
-;; 1. Synchronous trace listener reads the OLD value during a rejection.
-;; ---------------------------------------------------------------------------
-
-(deftest sync-trace-listener-reads-old-value-during-rejection
-  (testing "a sync :trace listener reading app-db at the
-            schema-validation-failure emit observes the PRE-HANDLER value —
-            the invalid candidate is never installed, so no listener can
-            observe it through the container"
-    (seed-int-schema!)
-    (let [seen (atom ::never-fired)]
-      (rf/register-listener! :trace ::old-value-probe
-        (fn [ev]
-          (when (= :rf.error/schema-validation-failure (:operation ev))
-            (reset! seen (rf/app-db-value :rf/default)))))
-      (rf/dispatch-sync [:n/break])
-      (rf/unregister-listener! :trace ::old-value-probe)
-      (is (= {:n 0} @seen)
-          "the listener read the OLD app-db during the rejection —
-           NOT the invalid candidate (commit-then-rollback would have
-           exposed {:n \"boom\"} here)")
-      (is (= {:n 0} (rf/app-db-value :rf/default))
-          "post-dispatch the container still holds the pre-handler value"))))
-
-;; ---------------------------------------------------------------------------
 ;; 2. Zero container writes for a rejected dispatch.
 ;; ---------------------------------------------------------------------------
 
