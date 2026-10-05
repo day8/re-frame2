@@ -7,9 +7,8 @@
   `:fixture/calls` through its generic runner, which reads each step's
   `:shell-html-includes`, `:continuations` (shell walk only),
   `:html-includes`, `:failed?`, `:payload-keys` and `:rf/version`. This
-  namespace pins the main fixture's shell walk with one failure message
-  per missing substring, and what the generic runner does not read: the
-  nested fixture's `:shell-html-excludes`, `:html-excludes` and per-drain
+  namespace pins what the generic runner does not read: the nested
+  fixture's `:shell-html-excludes`, `:html-excludes` and per-drain
   `:continuations`, and both fixtures' `:fixture/wire-order` blocks."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -50,37 +49,7 @@
                         {:id id :tree tree})))
       (into [handler] (vec args)))))
 
-(defn- reset+reg-fixture-handlers
-  [test-fn]
-  (rf.ssr.test-fixture/reset-runtime
-    (fn []
-      ;; Register the four views the fixture's :fixture/handlers names.
-      (rf/reg-view ^{:rf/id :streaming.test/article-list} _al []
-        [:ul.articles [:li "Article A"] [:li "Article B"]])
-      (rf/reg-view ^{:rf/id :streaming.test/comments-section} _cs []
-        [:ul.comments [:li "First comment"] [:li "Nice piece"]])
-      (rf/reg-view ^{:rf/id :streaming.test/related} _rl []
-        [:ul.related [:li "Related X"] [:li "Related Y"]])
-      ;; View references are CALLABLE heads. `(rf/view :id)`
-      ;; resolves inside this fn body, i.e. at RENDER time, by which point
-      ;; all four views above are registered; a top-level vector would
-      ;; capture nil (the `:each` reset clears the registrar first).
-      (rf/reg-view ^{:rf/id :streaming.test/root} _root []
-        [:main
-         [:h1 "News"]
-         [(rf/view :streaming.test/article-list)]
-         [:rf/suspense-boundary
-          {:id :streaming.test/comments
-           :fallback [:p.fallback "Loading comments…"]}
-          [(rf/view :streaming.test/comments-section)]]
-         [:rf/suspense-boundary
-          {:id :streaming.test/related
-           :fallback [:p.fallback "Loading related…"]}
-          [(rf/view :streaming.test/related)]]
-         [:footer "End"]])
-      (test-fn))))
-
-(use-fixtures :each reset+reg-fixture-handlers)
+(use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 (defn- read-one-form
   "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
@@ -115,23 +84,6 @@
   (let [raw   (slurp (io/file "../../spec/conformance/fixtures/ssr-streaming.edn"))
         fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)" ":rf.machine.timer/$1")]
     (read-one-form fixed "ssr-streaming.edn")))
-
-(deftest streaming-fixture-shell-walk-matches-pin
-  (testing "render-shell emits the shell HTML + 2 continuations the fixture pins"
-    (let [fixture (load-streaming-fixture)
-          shell-call (->> (:fixture/calls fixture)
-                          (filter #(= :ssr.streaming/render-shell (:call %)))
-                          first)
-          {:keys [shell-html continuations]}
-          (rf.ssr/streaming-render-shell (realise-fixture-head (:input shell-call)))
-          expect (:expect shell-call)]
-      (testing "shell-html includes every fixture-pinned substring"
-        (doseq [s (:shell-html-includes expect)]
-          (is (str/includes? shell-html s)
-              (str "shell-html missing: " (pr-str s)))))
-      (testing "continuations register in fixture-pinned FIFO order"
-        (is (= (mapv :id (:continuations expect))
-               (mapv :id continuations)))))))
 
 (deftest streaming-fixture-wire-order-pinned
   (testing "Fixture's :fixture/wire-order block enumerates the four chunk kinds in spec order"
