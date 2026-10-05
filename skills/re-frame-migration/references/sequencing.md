@@ -14,19 +14,17 @@ Phase 0b — React-19 / Reagent-2 floor gate (GO before any dep edit)
 Phase 1 — Orient (pinned corpus, dependencies, test suite)
  │
  ▼
-Phase 2 — Bump (M-0)
- │
- └──> compile + tests
-       │
-       ├── failures ──> Phase 3 (sweep) ─┐
-       │                                  │
-       └── clean compile ─────────────────┤
-                                          ▼
-                          Apply / triage the Phase-0a SILENT-fail plan
-                          + the M-70 metadata-interceptors sweep
-                          (none surface at compile — applied
-                           regardless of whether the compile failed;
-                           M-70 is loud-at-RUNTIME, not silent)
+Phase 2 — Bump (M-0): classpath preparation
+ │         + the Phase-0a plan's approved forced blocker fixes
+ ▼
+First compile attempt — a diagnostic; it need not pass
+ │         (§The first compile, below)
+ ▼
+Phase 3 — the planned sweep: the rest of the Phase-0a plan,
+          incl. the SILENT-fail rules and the M-70 metadata-
+          interceptors sweep (none surface at compile; M-70 is
+          loud-at-RUNTIME, not silent), plus whatever the attempt
+          surfaced — applied whether or not the attempt passed
                                           │
                                           ▼
                           Phase 4 — compile + tests + BOOT SMOKE-TEST
@@ -41,9 +39,23 @@ Phase 2 — Bump (M-0)
 
 [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. That holds for the **forced/loud** axis — but the silent-fail rules still need applying, so verify *and* run the smoke-test before calling it done.
 
+## The first compile
+
+This is the skill's one statement of where the first compile falls and what its result may hold; the other leaves point here, and the "post-M-0 compile gate" they name is this attempt.
+
+1. **The inventory is read-only and comes first.** Phase 0a reads the dependency tree, dependency source and the app's committed source, searching with `rg`; it rewrites nothing and builds nothing, and its plan is written before the first dependency edit ([`inventory-and-plan.md`](inventory-and-plan.md)).
+2. **Two kinds of edit precede the first compile attempt, and only these:**
+   - **classpath preparation** — the M-0 dependency pass carrying the Phase-0b bumps and the 10x preload drop, the exclusion of every v1 `re-frame/re-frame` edge, the install, and the classpath-clean check, run after the last dependency edit ([`setup.md`](setup.md));
+   - **the plan's approved forced blocker fixes** — each Phase-0a row marked forced because the project cannot compile with it unchanged (a `console`-referencing add-on, an off-contract `re-frame.*` require), whose disposition is settled, by the plan itself or by the author's choice where the row needs one. A forced row still waiting on that choice holds only itself: the attempt runs without it and fails there, as expected.
+
+   Every other planned rewrite follows the attempt.
+3. **The attempt is a diagnostic and need not pass.** Run it once with the project's own command and read it. Trace each error to its rule through [`breaking-changes.md`](breaking-changes.md) and add it to the plan; an error inside a held row's namespaces is evidence for that row. A failed attempt holds only the rows its errors touch — independent authorised Type A sites proceed in the sweep — and Type B sites stay held for the end-of-sweep batch whatever it shows.
+4. **A large migration makes the same attempt once, before the Wave-0.5 pre-pass and the fan-out**, and may expect it to fail: the tree is build-atomic until every unit lands. Reconcile any error naming an un-inventoried surface into the inventory before the partition is fixed. Workers then produce diffs without per-file compiles, and the consolidated compile after the last wave is the first one expected to pass ([`orchestrating-a-large-migration.md` §5](orchestrating-a-large-migration.md#5-the-all-or-nothing-single-compile-gate)).
+5. **Acceptance does not move.** The migration is complete only when the Phase-4 compile, tests and boot smoke-test, the clean-checkout suite and the optimized / release compile are all green ([`runtime-smoke-test.md` §Required to finish is not required to run](runtime-smoke-test.md#required-to-finish-is-not-required-to-run)). The first attempt is evidence for the sweep, never acceptance.
+
 The sweep order below is for the failures a compile *surfaces*. Two classes of breakage are **not** in that bucket and must be carried in regardless of whether the compile fails:
 
-- **Forced removals/conversions** — broken add-ons, off-contract requires, classpath-colliding transitives — are known and planned from **Phase 0a** ([`inventory-and-plan.md`](inventory-and-plan.md)): the inventory scans each add-on's source up front so they're fixed in one sweep rather than one-per-recompile. Use the Phase-0a plan's ordering to clear the forced compile-blockers (so the post-M-0 compile gate is reachable).
+- **Forced removals/conversions** — broken add-ons, off-contract requires, classpath-colliding transitives — are known and planned from **Phase 0a** ([`inventory-and-plan.md`](inventory-and-plan.md)): the inventory scans each add-on's source up front so they're fixed in one sweep rather than one-per-recompile. Their approved fixes land before the first compile attempt ([§The first compile](#the-first-compile)); one still waiting on the author lands once the choice is made.
 - **SILENT-fail rules** ([`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)) — the signal-fn `reg-sub` (M-71), `^:flush-dom` (M-16), unary `reg-fx` handlers (M-51) — **compile clean** and never appear as a compile failure. They're caught by the Phase-0a app-source grep and **applied/triaged whether or not the compile failed**; the [boot smoke-test](runtime-smoke-test.md) is the only thing that confirms the fix landed. A clean compile does NOT route you straight to the report.
 - **M-8 and M-15b are carried the same way but are loud-at-runtime, not silent.** An unfolded top-level `:dispatch` / custom-fx key refuses its whole event pre-commit (`:rf.error/effect-map-shape`, always-on — the `:db` write is rolled back with it); a `{:db fresh}` boot carrying a retired `:rf/runtime` root throws `:rf.error/legacy-runtime-root`. Both compile clean, so both ride the Phase-0a up-front grep and are applied whether or not the compile failed.
 - **The M-70 metadata-interceptors sweep** — *loud-at-runtime, not silent, but carried the same way.* Event interceptor chains outside metadata `:interceptors` compile clean then throw at ns-load (aborting the offending ns → the app hangs at boot). Because the compile never surfaces them, this rides the **same Phase-0a up-front structural grep** as the silent rules, is **applied whether or not the compile failed**, and the [boot smoke-test](runtime-smoke-test.md) ([row #6](silent-runtime-failures.md)) catches any survivor. Sweep-group slot: **Group 5 (item 19a)** below. → [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
@@ -159,7 +171,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 |---|---|---|
 | 39 | **M-14** | Only if the user is adopting Spec 012's routing surface (paired with M-29). Otherwise N/A. |
 | 40 | **M-19** | Opt-in shift to map-payload event vectors. Off by default; only run if the user has explicitly asked to modernise. |
-| 41 | **O-16** | v1 add-on-lib **conversion** (opt-in). Detected by `day8.re-frame/async-flow-fx` coord + `:async-flow` fx fingerprint. Convert flows → `reg-machine`. Type B (ask first). **But the add-on does NOT keep working:** `async-flow-fx` calls the removed `re-frame.core/console` and fails to compile on v2, so removal-or-conversion is a **forced compile-gate pre-step** (runs in the Group 1 sweep, surfaced at the post-M-0 compile gate), not a Phase-5 leisure item. The *conversion* is the opt-in part; *acting* is not. See [`breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in). |
+| 41 | **O-16** | v1 add-on-lib **conversion** (opt-in). Detected by `day8.re-frame/async-flow-fx` coord + `:async-flow` fx fingerprint. Convert flows → `reg-machine`. Type B (ask first). **But the add-on does NOT keep working:** `async-flow-fx` calls the removed `re-frame.core/console` and fails to compile on v2, so removal-or-conversion is a **forced compile-gate pre-step** (its approved fix lands before the first compile attempt — [§The first compile](#the-first-compile)), not a Phase-5 leisure item. The *conversion* is the opt-in part; *acting* is not. See [`breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in). |
 | 42 | **O-17** | v1 add-on-lib **conversion** (opt-in). Detected by `day8.re-frame/http-fx` coord + `:http-xhrio` fx fingerprint. Convert `:http-xhrio` → `:rf.http/managed` (pairs with M-31's `day8/re-frame2-http` artefact add). Type B (ask first). **But the add-on does NOT keep working:** `http-fx` `:refer`s the removed `re-frame.core/console` and fails to compile on v2, so removal-or-conversion is a **forced compile-gate pre-step**, not deferrable. Same forced/opt-in split as O-16. See [`breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in). |
 | 43 | **O-18** | Security + operational logging sweep (opt-in). Detected by the observability sites M-13 / M-17 surface (audit loggers, telemetry forwarders). Compose privacy + oversize defenses per observer egress + propose `{:sensitive? true}` schema annotations. Type B (flag per site). Run after M-13 / M-17 have classified the observers. |
 
