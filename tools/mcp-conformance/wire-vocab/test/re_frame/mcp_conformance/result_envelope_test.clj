@@ -209,22 +209,6 @@
     (is (m/validate ResultEnvelope {:rf.mcp/result :unserializable
                                     :type "function" :preview "#object[Function]"}))))
 
-(deftest result-key-literal-in-re-frame2-pair-mcp-emit-source
-  ;; Source-text pin: the canonical `:rf.mcp/result` literal MUST appear
-  ;; as DATA (the `result-key` def value) in mcp-base/vocab.cljc — the
-  ;; single-source-of-truth home re-frame2-pair-mcp consumes via the
-  ;; `vocab/result-key` symbol. Stripped before grep so a rename of the
-  ;; def value trips the gate even if old docstrings still mention the
-  ;; prior name. Mirrors `cursor-stale-literal-in-re-frame2-pair-mcp-emit-source`.
-  (let [literal  ":rf.mcp/result"
-        rel      "tools/mcp-base/src/re_frame/mcp_base/vocab.cljc"
-        stripped (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source rel))]
-    (is (str/includes? stripped literal)
-        (str literal " missing from " rel
-             " AFTER stripping docstrings/comments. The canonical "
-             "`result-key` declaration moved — restore the literal or "
-             "update this test."))))
-
 (deftest result-key-matches-the-live-vocab-constant
   ;; Pin the gate's dispatch keyword against the live JVM-reachable
   ;; `vocab/result-key` constant (the `.cljc` def is on the `:test`
