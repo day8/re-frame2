@@ -76,33 +76,6 @@
       (is (map? (rf.http.json/json-parse s {:max-decoded-keys 10}))
           "5 unique keys under cap=10 should succeed even with 1000 entries"))))
 
-;; ---- Cheshire is mandatory; malformed JSON propagates --------------------
-
-(deftest cheshire-rejects-malformed-input-cleanly
-  (testing "malformed JSON (truncated escape, unterminated
-  string, invalid token) raises a Cheshire/Jackson `JsonParseException`.
-  The `:rf.http/managed` cascade's `decode-response-body` catch site
-  surfaces this as `:rf.http/decode-failure` with the parser message at
-  `:cause` — no per-test fixture needed; the contract is simply 'parse
-  errors throw'."
-    ;; Inputs Cheshire/Jackson rejects with a parse exception. (Jackson
-    ;; is tolerant of some shapes by design — trailing-comma arrays and
-    ;; missing-close-brace objects fall through to its end-of-stream
-    ;; handler rather than throwing — so we pick inputs that are
-    ;; definitively malformed: truncated escapes, unterminated string
-    ;; literals, and invalid tokens.)
-    (doseq [s ["{not-a-key:1}"      ; bareword key
-               "\"unterminated"     ; unterminated string
-               "{\"x\":\"\\u\"}"   ; truncated unicode escape
-               "{\"x\":\"\\uZZ"   ; invalid unicode hex
-               "tru"               ; truncated `true`
-               "{\"x\":nul}"]]      ; misspelt null
-      (let [thrown (try (rf.http.json/json-parse s) ::no-throw
-                        (catch Exception e e))]
-        (is (instance? Exception thrown)
-            (str "expected a parse exception for " (pr-str s)
-                 " — got " thrown))))))
-
 ;; The same body writes the same JSON on both hosts. The CLJS
 ;; twin (`cljs-json-stringify-matches-across-hosts` in
 ;; http_json_cljs_test.cljs) pins the identical expectations; this JVM half
@@ -147,8 +120,8 @@
 ;; document). A future Cheshire upgrade that changes that behaviour
 ;; would surface here.
 ;;
-;; Truthful-malformed inputs are covered above in
-;; `cheshire-rejects-malformed-input-cleanly` — those throw. This
+;; Malformed inputs throw instead (http_decode_test's malformed-JSON tests
+;; pin that through `decode-response-body`). This
 ;; deftest is the no-throw counterpart that pins the
 ;; "input simply has no JSON value to surface → return nil" path.
 
