@@ -101,7 +101,7 @@ rowed in Spec 009's main catalogue rather than in its Fresco section.
 | `:rf.error/fresco-state-bad-argument` | gave `reg-state` a concern that is not namespace-qualified or options outside `{:default …}`, or used an instance key outside the accepted set (`nil` included) at a read or write; the reason names which | — |
 | `:rf.error/fresco-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
 | `:rf.error/fresco-true-child` | let `true` reach child position | ch02 |
-| `:rf.error/fresco-test-bad-option` | gave an L2 `tree` non-map options or an option outside its closed roster `#{:subs}`, gave `hm/shadow!` an option or script step outside its roster, or called `hm/advance-clock!` on a handle whose mount was not given `{:clock true}` | ch15 |
+| `:rf.error/fresco-test-bad-option` | gave an L2 `tree`, `hm/mount!`, `hm/hydrate!` or `hm/shadow!` non-map options or an option outside its closed roster (`tree` `#{:subs}`; `mount!` `#{:initial-events :images :container :clock}`; `hydrate!` those plus `:html`; `shadow!` `#{:reference :candidate :images :initial-events :script}`), gave `hm/shadow!` a script step outside its grammar, or called `hm/advance-clock!` on a handle whose mount was not given `{:clock true}` | ch15 |
 | `:rf.error/fresco-test-bad-reads` | gave an L2 `tree` a `:subs` option that is not a query-to-value map | — |
 | `:rf.error/fresco-test-boundary-body-not-retained` | gave an L2 `tree` a minted head in a build that erased its body | — |
 | `:rf.error/fresco-test-host-is-opaque` | let a `defhost` crossing reach the L2 semantic tree | — |
