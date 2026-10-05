@@ -306,65 +306,13 @@
     rf.ssr.server-fx-schemas/delete-cookie-args {:name :stale :path "/"}           false]])
 
 ;; ===========================================================================
-;; (1) THE FOUR MALFORMATIONS, refused under BOTH postures
+;; (1) THE MALFORMATIONS, refused under BOTH postures
 ;;
-;; Each assertion is true in every build, and each
-;; reads the PURE accumulator, so it is a claim about the guard and not about
-;; the error projection downstream of it.
+;; Every malformed reserved-fx call is a row of the §3 corpus, which drives it
+;; through the live fx and reads the PURE accumulator, so it is a claim about
+;; the guard and not about the error projection downstream of it. This section
+;; keeps the one consequence the corpus cannot see.
 ;; ===========================================================================
-
-(deftest a-string-status-never-reaches-the-accumulator
-  (testing "`[:rf.server/set-status \"not-an-int\"]` must not leave
-            `:status \"not-an-int\"` on the accumulator in a release build —
-            a STRING on the HTTP status line, which only one host
-            adapter's coercion would save."
-    (let [{:keys [raw response]} (drive! [:rf.server/set-status "not-an-int"])]
-      (is (integer? (:status raw))
-          "the malformed status never reached the accumulator — its :status
-           is an integer")
-      (is (integer? (:status response))
-          "and so is the PUBLIC host-adapter surface's")
-      (is (sibling-ran? raw)
-          "containment: only the offending fx was skipped — its sibling ran"))))
-
-(deftest a-value-less-header-never-reaches-the-accumulator
-  (testing "a `:value`-less `:rf.server/set-header` must not leave
-            `[\"X-Foo\" nil]` in `:headers` — a nil header value every host
-            adapter would have to invent a meaning for."
-    (let [{:keys [raw response]} (drive! [:rf.server/set-header {:name "X-Foo"}])]
-      (is (not-any? (fn [[k _]] (= "X-Foo" k)) (:headers raw))
-          "nothing landed for the malformed header")
-      (is (not-any? (fn [[_ v]] (nil? v)) (:headers raw))
-          "no header on the accumulator carries a nil value")
-      (is (not-any? (fn [[_ v]] (nil? v)) (:headers response))
-          "nor does any on the PUBLIC host-adapter surface")
-      (is (sibling-ran? raw) "containment: the sibling fx still ran"))))
-
-(deftest a-value-less-cookie-never-reaches-the-accumulator
-  (testing "a `:value`-less `:rf.server/set-cookie` must not leave
-            `{:name \"session\"}` in `:cookies`. A missing cookie `:value` is
-            not inferable as `\"\"`, as omit, or as a bug — which is exactly
-            why it is refused rather than repaired downstream."
-    (let [{:keys [raw response]} (drive! [:rf.server/set-cookie {:name "session"}])]
-      (is (empty? (:cookies raw))
-          "the malformed cookie never reached the accumulator")
-      (is (empty? (:cookies response))
-          "nor the PUBLIC host-adapter surface")
-      (is (sibling-ran? raw) "containment: the sibling fx still ran"))))
-
-(deftest a-malformed-safe-redirect-never-reaches-the-accumulator
-  (testing "`{:location \"/ok\" :status \"not-int\"}` must not install
-            whole — a string status inside the `:redirect` slot, which Spec
-            011 §Redirect precedence step 1 also flows onto `:status`."
-    (let [{:keys [raw response]} (drive! [:rf.server/safe-redirect
-                                          {:location "/ok" :status "not-int"}])]
-      (is (nil? (:redirect raw))
-          "no :redirect landed")
-      (is (not= "not-int" (:status raw))
-          "and the non-int status did not flow onto :status")
-      (is (integer? (:status response))
-          "the PUBLIC host-adapter surface's :status is an integer")
-      (is (sibling-ran? raw) "containment: the sibling fx still ran"))))
 
 (deftest a-target-less-safe-redirect-is-a-code-bug-not-a-security-signal
   (testing "`:location` is `:rf.server/safe-redirect`'s validation
@@ -389,88 +337,6 @@
             (str label " — and NO :rf.error/safe-redirect-* record reached the"
                  " always-on security axis; saw: "
                  (pr-str (mapv :error records))))))))
-
-(deftest a-malformed-trusted-redirect-never-reaches-the-accumulator
-  (testing "the caller-TRUSTED sibling: without its guard `:rf.server/redirect`
-            would take a non-int `:status` just as readily."
-    (let [{:keys [raw]} (drive! [:rf.server/redirect {:location "/x" :status "oops"}])]
-      (is (nil? (:redirect raw)) "no :redirect landed")
-      (is (integer? (:status raw)) "the accumulator's :status is an integer")
-      (is (sibling-ran? raw) "containment: the sibling fx still ran"))))
-
-;; ===========================================================================
-;; (2) NON-VACUITY — the guards admit the valid
-;;
-;; Without this, every assertion in §1 would be satisfied by a gate that
-;; refused everything.
-;; ===========================================================================
-
-(deftest well-formed-args-still-land-under-both-postures
-  (testing "non-vacuity: the guard rejects the malformed and admits
-            the valid — it is not a blanket gate."
-    (rf/reg-event ::good
-      (fn [_ _]
-        {:fx [[:rf.server/set-status 201]
-              [:rf.server/set-header    {:name "Cache-Control" :value "no-store"}]
-              [:rf.server/append-header {:name "Vary" :value "Accept"}]
-              [:rf.server/set-cookie    {:name "session" :value "abc"
-                                         :max-age 3600 :same-site :lax
-                                         :secure true :http-only true}]
-              [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
-    (let [f (server-frame)]
-      (rf/dispatch-sync [::good] {:frame f})
-      (let [raw (rf.ssr/peek-response f)]
-        (is (= 201 (:status raw)) "set-status landed")
-        (is (some (fn [[k _]] (= "Cache-Control" k)) (:headers raw))
-            "set-header landed")
-        (is (some (fn [[k _]] (= "Vary" k)) (:headers raw))
-            "append-header landed")
-        (is (= 2 (count (:cookies raw)))
-            "set-cookie + delete-cookie both landed")
-        (is (= ["session" "stale"] (mapv :name (:cookies raw)))
-            "in order, with their names intact")))))
-
-(deftest the-documented-tolerances-are-not-tightened-by-the-guard
-  (testing "the cookie schema DELIBERATELY tolerates string
-            `:max-age` / `:expires` / `:same-site` (apps build cookie attrs
-            from host data that arrives as strings, and the per-attribute
-            CR/LF gate must SEE those strings). The guard mirrors that
-            tolerance row for row — a string `:expires` is rejected LATER, by
-            the Ring materialiser."
-    (let [f (server-frame)]
-      (rf/reg-event ::tolerant
-        (fn [_ _]
-          {:fx [[:rf.server/set-cookie {:name      "session"
-                                        :value     "abc"
-                                        :max-age   "3600"
-                                        :expires   "1700000000000"
-                                        :same-site "Strict"}]]}))
-      (rf/dispatch-sync [::tolerant] {:frame f})
-      (is (= 1 (count (:cookies (rf.ssr/peek-response f))))
-          "the string-attr cookie still lands at the fx boundary")))
-
-  (testing "`:rf.server/redirect`'s documented NO-TARGET graceful
-            path stands — `:location` is optional, the redirect
-            installs, and the adapter's `:rf.ssr/ssr-redirect-no-target`
-            warn→3xx takes over downstream. A required-`:location` guard
-            here would 500 the case Spec 011 says must degrade gracefully."
-    (let [f (server-frame)]
-      (rf/reg-event ::no-target
-        (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
-      (rf/dispatch-sync [::no-target] {:frame f})
-      (is (= {:status 302} (:redirect (rf.ssr/peek-response f)))
-          "the target-less redirect passed the guard and set :redirect")))
-
-  (testing "taxonomy: an untrusted-INPUT policy rejection is the
-            emit-and-no-op. A blank `:location` is a STRING — a
-            well-formed call carrying a bad value — so it takes
-            safe-redirect's parse-failure arm, not the guard's throw."
-    (let [{:keys [raw response]} (drive! [:rf.server/safe-redirect {:location ""}])]
-      (is (nil? (:redirect raw))
-          "the policy gate still refuses it")
-      (is (= 200 (:status response))
-          "and it is NOT projected to a 500 — a rejected redirect must not
-           become a denial of service"))))
 
 ;; ===========================================================================
 ;; (2b) THE TWO ONE-KEY-DEEP SHAPES, WITNESSED ON THE RAW ACCUMULATOR
