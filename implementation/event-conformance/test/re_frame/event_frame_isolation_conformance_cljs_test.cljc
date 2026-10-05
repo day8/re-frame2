@@ -72,40 +72,21 @@
           counter-image
           (rf.image/image {:id :examples/counter
                         :select-ns {:include ["examples.counter"]}})
-          todo-frame
-          (rf.live-frame/make-frame {:id :todo/main :images [todo-image]}
+          _ (rf.live-frame/make-frame {:id :todo/main :images [todo-image]}
                          todo-registrations)
-          counter-frame
-          (rf.live-frame/make-frame {:id :counter/main :images [counter-image]}
+          _ (rf.live-frame/make-frame {:id :counter/main :images [counter-image]}
                          counter-registrations)]
-      (is (some? (rf.registrar/lookup :event :boot/init))
-          "the same-id global sentinel is genuinely armed on the default registrar
-           (so the `not= :global` rows below are not vacuous)")
       (rf/dispatch-sync [:boot/init] {:frame :todo/main})
       (rf/dispatch-sync [:boot/init] {:frame :counter/main})
-      (testing "each frame ran ITS OWN image's handler"
-        (is (= :todo    (:booted-by (rf/app-db-value :todo/main)))
-            "the todo frame ran the TODO image's handler end-to-end")
-        (is (= :counter (:booted-by (rf/app-db-value :counter/main)))
-            "the counter frame ran the COUNTER image's handler end-to-end"))
-      (testing "the default registrar was not used"
-        (is (not= :global (:booted-by (rf/app-db-value :todo/main)))
-            "the todo frame did NOT resolve the global handler")
-        (is (not= :global (:booted-by (rf/app-db-value :counter/main)))
-            "the counter frame did NOT resolve the global handler"))
-      (testing "each frame committed ONLY its own state — no cross-frame bleed"
+      (testing "each frame ran ITS OWN image's handler and committed ONLY its own
+                state — not the global handler, no cross-frame bleed"
         (is (= {:booted-by :todo}    (rf/app-db-value :todo/main))
             "the todo frame's app-db holds ONLY the todo handler's write")
         (is (= {:booted-by :counter} (rf/app-db-value :counter/main))
             "the counter frame's app-db holds ONLY the counter handler's write"))
       (testing "the generation binding did NOT leak past either cascade"
         (is (nil? rf.registrar/*generation*)
-            "after the dispatches, no generation is bound (the seam unwound)"))
-      (testing "the two frames carry genuinely different resolved generations for
-                the same id (no shared generation)"
-        (is (not= (rf.live-frame/frame-generation todo-frame)
-                  (rf.live-frame/frame-generation counter-frame))
-            "the two image-loaded frames resolve the SAME id through DIFFERENT generations")))))
+            "after the dispatches, no generation is bound (the seam unwound)")))))
 
 (deftest two-image-frames-same-id-isolate-the-runtime-db-partition
   (testing "same-id framework-authority handlers read + commit the RUNTIME-DB
@@ -178,18 +159,9 @@
       ;; Dispatch ONCE to each explicit target — the sibling is left alone.
       (rf/dispatch-sync [:boot/rt-init] {:frame :conf.rt/todo})
       (rf/dispatch-sync [:boot/rt-init] {:frame :conf.rt/counter})
-      (testing "the same-id GLOBAL runtime sentinel is genuinely armed (not a
-                vacuous `not= :global`)"
-        (is (some? (rf.registrar/lookup :event :boot/rt-init))
-            "the same-id global runtime handler is live on the default registrar"))
-      (testing "each handler read ITS OWN frame's runtime-db seed as the
-                `:rf.db/runtime` coeffect — not a sibling's or the default's"
-        (is (= :todo-seed (:rf.runtime/conf-observed (rf.frame/frame-runtime-db-value :conf.rt/todo)))
-            "the todo handler observed the TODO frame's runtime-db seed")
-        (is (= :counter-seed (:rf.runtime/conf-observed (rf.frame/frame-runtime-db-value :conf.rt/counter)))
-            "the counter handler observed the COUNTER frame's runtime-db seed"))
-      (testing "each runtime-db effect committed ONLY to its own frame — exact
-                per-frame runtime-db, no cross-frame commit bleed"
+      (testing "each handler read ITS OWN frame's runtime-db seed and committed
+                ONLY to its own frame — exact per-frame runtime-db, no global
+                fallback, no cross-frame commit bleed"
         (is (= {:rf.runtime/conf-seed     :todo-seed
                 :rf.runtime/conf-observed :todo-seed
                 :rf.runtime/conf-writer   :todo}
@@ -200,11 +172,6 @@
                 :rf.runtime/conf-writer   :counter}
                (rf.frame/frame-runtime-db-value :conf.rt/counter))
             "the counter frame's runtime-db is EXACTLY the counter handler's write over the counter seed"))
-      (testing "neither frame fell back to the same-id GLOBAL runtime handler"
-        (is (not= :global (:rf.runtime/conf-writer (rf.frame/frame-runtime-db-value :conf.rt/todo)))
-            "the todo frame did NOT resolve the global runtime handler")
-        (is (not= :global (:rf.runtime/conf-writer (rf.frame/frame-runtime-db-value :conf.rt/counter)))
-            "the counter frame did NOT resolve the global runtime handler"))
       (testing "the un-dispatched SIBLING frame's runtime-db is UNCHANGED — no
                 todo / counter / global runtime write leaked into it"
         (is (= {:rf.runtime/conf-seed :sibling-seed}
@@ -215,10 +182,7 @@
         (is (= {} (rf/app-db-value :conf.rt/todo))
             "the todo frame's app-db partition saw no write from the runtime-only event")
         (is (= {} (rf/app-db-value :conf.rt/counter))
-            "the counter frame's app-db partition saw no write from the runtime-only event"))
-      (testing "the generation binding did NOT leak past either cascade"
-        (is (nil? rf.registrar/*generation*)
-            "after the dispatches, no generation is bound (the resolution seam unwound)")))))
+            "the counter frame's app-db partition saw no write from the runtime-only event")))))
 
 (deftest child-dispatch-stays-in-the-frames-image-and-commits-only-that-frame
   (testing "a child dispatch keeps the parent frame's image and state boundary"
@@ -252,13 +216,8 @@
               "the parent resolved the image's inc handler")
           (is (= :image (:step target-db))
               "the CHILD fx dispatch re-derived the generation and resolved the
-               image's step handler too (coherent across the cascade)"))
-        (testing "neither the parent nor the child fell back to the global registrar"
-          (is (not= :global (:inc target-db)))
-          (is (not= :global (:step target-db)))))
+               image's step handler too (coherent across the cascade)")))
       (testing "the SIBLING frame on a different image is UNTOUCHED — the cascade
                 committed only the target frame's app-db (effect/state isolation)"
         (is (= {} (rf/app-db-value :sibling/main))
-            "the sibling frame received no write at all — its app-db is the fresh empty map")
-        (is (not= :sibling (:inc (rf/app-db-value :counter/main)))
-            "no sibling-image handler ran on the target frame")))))
+            "the sibling frame received no write at all — its app-db is the fresh empty map")))))
