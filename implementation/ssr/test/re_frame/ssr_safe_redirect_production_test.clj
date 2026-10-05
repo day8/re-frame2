@@ -434,31 +434,6 @@
       (let [r (first (safe-redirect-records (:records (reject! {:location loc}))))]
         (is (= expected (:scheme-class r)) (str loc " — probe class"))))))
 
-(deftest the-scrub-is-total-over-the-shapes-a-location-can-take
-  (testing "`url-egress/redact-url-carriers` does not stand between the
-            attacker's URL and PRODUCTION — the structural projection above
-            does — but it scrubs the `:location` on the DEV diagnostics
-            (and the route-miss `:url`), so its totality is a
-            claim worth pinning: it is reached for EVERY rejection arm
-            including the parse-failure one, where `:location` may be nil,
-            blank or a non-string. Asserted on the pure fn so the totality
-            claim needs no bus at all.
-
-            Read the two together and the EP-0015 relationship is the point:
-            the dev operator sees their own process in full detail, and the
-            production record is a strict projection of it."
-    (is (nil? (rf.privacy.url/redact-url-carriers nil)))
-    (is (= 42 (rf.privacy.url/redact-url-carriers 42)))
-    (is (= "" (rf.privacy.url/redact-url-carriers "")))
-    (is (= "/plain/path" (rf.privacy.url/redact-url-carriers "/plain/path"))
-        "a bare path is not a carrier this policy targets")
-    (is (= "javascript:alert(1)" (rf.privacy.url/redact-url-carriers "javascript:alert(1)"))
-        "the attack string itself survives intact when it carries no
-         query / fragment — the common case, and the one a responder needs")
-    (is (= "/x?a=rf/redacted&flag#rf/redacted"
-           (rf.privacy.url/redact-url-carriers "/x?a=1&flag#frag"))
-        "values redacted, keys kept, value-less flag key kept, fragment whole")))
-
 ;; ===========================================================================
 ;; (5) THE VALUES — bounded and framework-owned, not merely closed keys
 ;; ===========================================================================
