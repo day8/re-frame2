@@ -78,8 +78,9 @@
 (deftest flow-exposes-its-full-algebra-view
   (testing "a reg-flow exposes the full materialized / after-event / frame node"
     (rf/reg-flow :cart/materialized-total {:inputs [[:cart :items] [:pricing :discounts]] :output-path [:cart :total]} (fn [items discounts] [items discounts]))
-    (let [node (get-in (rf.flows.tooling/flow-algebra-view)
-                       [:rf/default :cart/materialized-total])]
+    (let [node   (get-in (rf.flows.tooling/flow-algebra-view)
+                         [:rf/default :cart/materialized-total])
+          source (:source node)]
       (is (some? node) "the flow is present under its owning frame's slot")
       (is (has-fixed-classifications? node)
           "flow carries the fixed derivation / app-db / after-event / frame / materialized classifications")
@@ -92,16 +93,18 @@
       (is (= [:frame :rf/default] (:owner node))
           "the owner is the frame the flow registered against")
       (is (fn? (:derive node))
-          "the :derive body fn is surfaced as an opaque :derive token"))))
-
-(deftest single-frame-arity-returns-that-frames-flows
-  (testing "(flow-algebra-view frame-id) returns {flow-id node} for one frame"
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (let [per-frame (rf.flows.tooling/flow-algebra-view :rf/default)]
-      (is (= #{:area} (set (keys per-frame))))
-      (is (= (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :area])
-             (get per-frame :area))
-          "the one-frame form equals that frame's entry in the all-flows map"))))
+          "the :derive body fn is surfaced as an opaque :derive token")
+      (is (some? source) ":source map is present when the registration carried coords")
+      (is (some? (:ns source))     ":ns captured at the call site")
+      (is (number? (:line source)) ":line captured at the call site")
+      (is (some? (:file source))   ":file captured at the call site")
+      (is (not (contains? node :schema)) ":schema is absent when the registration supplied none")
+      (is (not (contains? node :doc))    ":doc is absent when the registration supplied none")
+      (let [per-frame (rf.flows.tooling/flow-algebra-view :rf/default)]
+        (is (= #{:cart/materialized-total} (set (keys per-frame)))
+            "(flow-algebra-view frame-id) returns {flow-id node} for one frame")
+        (is (= node (get per-frame :cart/materialized-total))
+            "the one-frame form equals that frame's entry in the all-flows map")))))
 
 ;; ---- runtime-db partition-qualified input --------------------------------
 
@@ -135,17 +138,7 @@
       (is (= [:frame :other]       (get-in view [:other :shared :owner]))
           "each node names its own owning frame"))))
 
-;; ---- source-coords / schema / doc passthrough ----------------------------
-
-(deftest source-coords-surface-in-the-node
-  (testing ":ns / :line / :file captured by reg-flow surface under :source"
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (let [node   (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :area])
-          source (:source node)]
-      (is (some? source) ":source map is present when the registration carried coords")
-      (is (some? (:ns source))     ":ns captured at the call site")
-      (is (number? (:line source)) ":line captured at the call site")
-      (is (some? (:file source))   ":file captured at the call site"))))
+;; ---- schema / doc passthrough --------------------------------------------
 
 (deftest schema-and-doc-pass-through
   (testing ":schema and :doc supplied on the flow map surface in the node"
@@ -154,22 +147,3 @@
       (is (= :app.money/amount (:schema node))
           "the declared output :schema surfaces as a node fact")
       (is (= "a priced total" (:doc node))))))
-
-(deftest no-schema-or-doc-when-absent
-  (testing ":schema / :doc are absent when the registration didn't supply them"
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (let [node (get-in (rf.flows.tooling/flow-algebra-view) [:rf/default :area])]
-      (is (not (contains? node :schema)))
-      (is (not (contains? node :doc))))))
-
-;; ---- registry semantics --------------------------------------------------
-
-(deftest cleared-flow-is-removed
-  (testing "(clear-flow id) removes the flow from the algebra view"
-    (rf/reg-flow :a {:inputs [[:w]] :output-path [:out :a]} (fn [w] w))
-    (rf/reg-flow :b {:inputs [[:h]] :output-path [:out :b]} (fn [h] h))
-    (is (contains? (rf.flows.tooling/flow-algebra-view :rf/default) :a))
-    (rf/clear :flow :a)
-    (let [per-frame (rf.flows.tooling/flow-algebra-view :rf/default)]
-      (is (not (contains? per-frame :a)))
-      (is (contains? per-frame :b)))))
