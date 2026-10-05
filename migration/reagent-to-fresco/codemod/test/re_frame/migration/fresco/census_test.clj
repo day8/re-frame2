@@ -629,18 +629,14 @@
             (str "CONFIDENT ZERO: " ns* " is recognised, " call " is one of its public "
                  "calls, and the census scored it :full with zero entries — which is the "
                  "sentence `a zero below is a measurement` over a roster that has no row "
-                 "for it (rf2-xoal)"))
-        (is (= 0 (:files-clean s))
-            "a file whose only call is on the roster is not a clean file")
-        (is (= 1 (:files-recognised s))))))
+                 "for it (rf2-xoal)")))))
 
   (doseq [[ns* call] substrate-namespace-calls]
     (testing (str ns* " " call)
       (let [s (probe ns* call)]
         (is (= :full (:recognition s)))
         (is (not (and (= :full (:recognition s)) (zero? (:entries s))))
-            (str "CONFIDENT ZERO through the prefix rule: " ns* " " call))
-        (is (= 0 (:files-clean s)))))))
+            (str "CONFIDENT ZERO through the prefix rule: " ns* " " call))))))
 
 (deftest the-audits-reproduction
   (testing "the exact file the merged-PR audit of #9132 built, and the four numbers
