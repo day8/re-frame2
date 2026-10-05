@@ -72,14 +72,21 @@
   context, and never from an argument — so there is no frame id to pass
   down a view, and no helper here that could reach across. This facade
   makes that structural rather than documented: `mount!` MINTS a frame of
-  its own for every call, seeds it with `:initial-events`, and destroys it
-  in [[assert-clean!]].
+  its own for every call, builds it from `:images`, seeds it with
+  `:initial-events`, and destroys it in [[assert-clean!]].
 
   There is deliberately no `:frame` option. Two mounted apps therefore
   cannot see each other's state — not by convention, but because neither
   can be handed the other's frame. Anything a test needs the frame FOR is
   on the handle: `(rf/with-frame (:frame m) (deref (rf/subscribe …)))`
   reads it, and [[dispatch-and-settle!]] writes it.
+
+  What the frame is BUILT from is the caller's to say, in core's own
+  vocabulary: `:images` reaches `rf/make-frame` as given, and omitting it
+  is the default image. An application that overrides a library's
+  registration — one `[kind id]` from two namespaces — is refused by the
+  default image and mounts under disjoint ordered images, the later
+  winning, exactly as it does outside a test.
 
   (The deliberately shared-frame multi-root case is a claim about the
   RUNTIME rather than about a consumer's app, and it belongs where it
@@ -161,19 +168,24 @@
   report: residue is a reported test failure, so that id is never
   raised.)
 
-  [[shadow!]] does not weaken that. Its OPTIONS are its own surface and
-  nothing else refuses them, so it does refuse a malformed one — but it
-  reuses the kit's `:rf.error/fresco-test-bad-option`, whose
-  meaning is *the kit was given options outside their closed contract*
-  and whose two recoveries are the two arms this door needs. An
-  id names the refusal rather than the door (complaints.md, *Rulings this
-  catalogue owns*), so no id is minted here.
+  The doors' OPTIONS do not weaken that. An option map is this facade's
+  own surface and nothing else refuses it, so [[mount!]], [[hydrate!]] and
+  [[shadow!]] each refuse a malformed one — a non-map, or a key outside
+  the door's closed roster — because an option quietly ignored is a
+  setting its author believes is in force. They reuse the kit's
+  `:rf.error/fresco-test-bad-option`, whose meaning is *the kit was given
+  options outside their closed contract*. An id names the refusal rather
+  than the door (complaints.md, *Rulings this catalogue owns*), so no id
+  is minted here. What an accepted option MEANS stays the runtime's to
+  refuse: `:images` and `:initial-events` reach `rf/make-frame` as given,
+  so a composition core cannot build, or a seed step that fails, arrives
+  with core's own id.
   Everything shadow! learns about the CODE, in contrast, is returned as a
   verdict rather than thrown — see that door on why a script step that
   cannot run is a red and not a raise.
 
-  The two refusals this namespace raises of its own reuse existing ids the
-  same way. [[advance-clock!]] on a handle whose mount was not given
+  Two more refusals this namespace raises of its own reuse existing ids
+  the same way. [[advance-clock!]] on a handle whose mount was not given
   `{:clock true}`, or whose clock came down with it, is that same
   `:rf.error/fresco-test-bad-option`: the door needs an option the mount
   never carried. [[hydrate!]]'s adoption wait running out of budget is
@@ -635,21 +647,71 @@
 ;; Mounting
 ;; ---------------------------------------------------------------------------
 
+(defn- bad-option!
+  "Refuse options outside a door's closed contract, or an advance on a
+  handle with no clock, reusing the kit's own
+  `:rf.error/fresco-test-bad-option`. See the namespace docstring
+  §Refusals on why these doors refuse at all and why they mint no id to
+  do it."
+  [reason extra]
+  (throw (rf.error/ex-info-from-data
+           (merge extra
+                  {:rf.error/id :rf.error/fresco-test-bad-option
+                   :where       're-frame.fresco.test.mounted
+                   :reason      reason
+                   :recovery    :no-recovery}))))
+
+(defn- closed-options!
+  "Refuse `opts` unless it is a map whose every key is in `roster`, and
+  answer nil. `door` names the caller in the reason, and `consequence`
+  finishes the sentence saying what the ignored key would have cost — an
+  option quietly ignored is a setting its author believes is in force.
+  Runs before a door allocates anything, so a refused call leaves nothing
+  to put back."
+  [door roster opts consequence]
+  (when-not (map? opts)
+    (bad-option! (str door "'s options are a map; they were " (pr-str opts) ".")
+                 {:value opts}))
+  (when-let [unknown (seq (remove roster (keys opts)))]
+    (bad-option! (str door " accepts "
+                      (pr-str (vec (sort-by str roster)))
+                      " and nothing else; it was given "
+                      (pr-str (vec (sort-by str unknown)))
+                      ". An option that is quietly ignored is a setting its "
+                      "author believes is in force — " consequence)
+                 {:unknown (vec (sort-by str unknown))})))
+
+(def ^:private mount-options
+  "[[mount!]]'s closed option roster."
+  #{:initial-events :images :container :clock})
+
+(def ^:private hydrate-options
+  "[[hydrate!]]'s closed option roster: [[mount!]]'s, plus the server bytes."
+  (conj mount-options :html))
+
+(def ^:private ignored-composition
+  "What a misspelt option costs the two mounting doors."
+  (str "a misspelt `:images`, accepted in silence, would build the mount "
+       "from the default image, a frame the application never runs."))
+
 (defn- mint-frame!
   "This mount's own frame — a keyword nothing else can name, made live and
   seeded in one call. Answers `[frame-kw ordinal]`.
 
-  `:initial-events` reaches `rf/make-frame` rather than being dispatched
-  here afterwards, because that is core's own construction channel: the
-  steps run in order and drain to fixed point BEFORE the call returns, so
-  the frame the root is about to render against is already at rest. A
-  seeding loop written here would be a second mechanism wearing core's
-  spelling."
-  [initial-events]
+  `:images` and `:initial-events` reach `rf/make-frame` as given, because
+  that is core's own construction channel. `:images` keeps core's meaning
+  — absent, the default image; present, the images in order with the
+  later winning — and a composition core cannot build is core's refusal,
+  raised before any frame exists. The seed steps run in order and drain
+  to fixed point BEFORE the call returns, so the frame the root is about
+  to render against is already at rest. A seeding loop or an image check
+  written here would be a second mechanism wearing core's spelling."
+  [{:keys [initial-events] :as opts}]
   (let [ordinal  (swap! !mount-seq inc)
         frame-kw (keyword "re-frame.fresco.test.mounted" (str "mount-" ordinal))]
     (rf/make-frame (cond-> {:id frame-kw}
-                     (seq initial-events) (assoc :initial-events (vec initial-events))))
+                     (contains? opts :images) (assoc :images (:images opts))
+                     (seq initial-events)     (assoc :initial-events (vec initial-events))))
     (swap! !facade-frames conj frame-kw)
     [frame-kw ordinal]))
 
@@ -785,6 +847,16 @@
                        point before the mount renders. Core's own
                        `rf/make-frame` vocabulary; seed a literal app-db
                        with `[[:rf/set-db {…}]]`.
+      :images          the image composition the frame is built from — a
+                       non-empty vector of `rf/image` values, the later
+                       image winning a `[kind id]` both define. Core's own
+                       `rf/make-frame` option, passed as given; omit it
+                       for the default image, the whole source store,
+                       which refuses a `[kind id]` registered from two
+                       namespaces (`:rf.error/image-duplicate-id`).
+                       Disjoint ordered images are how an application
+                       that deliberately overrides a library registration
+                       mounts.
       :container       an existing DOM element to render into. The default
                        is a fresh `<div>` appended to `document.body` —
                        attached, so `screen`-scoped Testing Library
@@ -797,6 +869,10 @@
                        effects is already this clock's; released by
                        [[unmount!]], or by the throw that stops this call
                        ever answering a handle.
+
+  Any other key, or a non-map `opts`, is refused with
+  `:rf.error/fresco-test-bad-option` naming the roster, before the clock
+  or anything else is allocated.
 
   ## What it records before it renders
 
@@ -824,9 +900,10 @@
   The clock is the one allocation [[abandon!]] cannot undo, because it is
   taken before there is anything to hang it on: a `:initial-events` step
   that fails leaves from `mint-frame!` with core's own
-  `:rf.error/initial-events-step-failed`, before a frame, a container, a
-  root or a handle exists. So the hold belongs to the CALL until
-  [[handle-for]] hands it to the mount, and the `try` below is that
+  `:rf.error/initial-events-step-failed` — and an `:images` composition
+  core cannot build leaves the same way, with core's id for that — before
+  a frame, a container, a root or a handle exists. So the hold belongs to
+  the CALL until [[handle-for]] hands it to the mount, and the `try` below is that
   lifetime — one release, on every escaping path, of exactly the one hold
   this call took. A clocked peer mount therefore keeps the
   clock it is standing on: the release is a decrement, and the failed
@@ -837,7 +914,11 @@
   a handle for a root that had rendered nothing and report the error at
   the window instead."
   ([form] (mount! form {}))
-  ([form {:keys [initial-events container clock]}]
+  ([form {:keys [container clock] :as opts}]
+   ;; The roster check comes before every allocation, so a refused call
+   ;; has taken nothing — not even the clock — and there is nothing to
+   ;; release.
+   (closed-options! "mount!" mount-options opts ignored-composition)
    ;; The clock is the FIRST allocation and the last release, because the
    ;; seeding below already runs handlers and the render below already
    ;; runs effects — either can arm a timer, and one armed on the platform
@@ -849,7 +930,7 @@
    ;; and restore the platform out from under a clocked peer.
    (when clock (install-clock!))
    (try
-     (let [[frame-kw ordinal] (mint-frame! initial-events)
+     (let [[frame-kw ordinal] (mint-frame! opts)
            baseline           (census)
            node               (or container (rf.fresco.impl.mount/fresh-container!))
            !refusal           (volatile! nil)
@@ -908,15 +989,18 @@
 
   ## Every failure is a REJECTION, and every failure leaves nothing behind
 
-  All three of them: an `:initial-events` step whose handler fails, which
-  leaves `mint-frame!` carrying core's own
-  `:rf.error/initial-events-step-failed`; a form the codec refuses while
-  `hydrate-root!` is still building its element, which raises on this
-  call's own stack; and an adoption that never completes. A
-  promise-returning door that threw synchronously would throw past every
+  All of them: an option outside the roster, refused with
+  `:rf.error/fresco-test-bad-option` before anything is allocated; an
+  `:images` composition core cannot build, or an `:initial-events` step
+  whose handler fails, each leaving `mint-frame!` with core's own id
+  (`:rf.error/initial-events-step-failed` for the step); a form the codec
+  refuses while `hydrate-root!` is still building its element, which
+  raises on this call's own stack; and an adoption that never completes.
+  A promise-returning door that threw synchronously would throw past every
   `.catch` a caller had attached and hang the test rather than fail it,
-  so the refusal is handed to the promise — the runtime's own `ex-info`
-  unchanged for the first two, this door's timeout for the third.
+  so the refusal is handed to the promise — the kit's own for the roster,
+  the runtime's own `ex-info` unchanged for core's and the codec's, and
+  this door's timeout for the adoption.
 
   In every case the page is put back as the call found it: the frame
   destroyed, the root taken down with its adoption window shut, and a
@@ -924,7 +1008,7 @@
   where it is (see [[abandon!]])."
   ([form] (hydrate! form {}))
   ([form opts] (hydrate! form opts 3000))
-  ([form {:keys [initial-events container html clock]} budget-ms]
+  ([form {:keys [container html clock] :as opts} budget-ms]
    ;; THE REJECTION BOUNDARY ENCLOSES THE SYNCHRONOUS CONSTRUCTION TOO,
    ;; which is what makes the promise above the WHOLE error channel rather
    ;; than most of it. `mint-frame!` runs core's strict setup, so a seeding
@@ -942,7 +1026,8 @@
    ;; roll themselves back through [[abandon!]] and return their rejection
    ;; rather than throwing it, so this catch never sees them.
    (try
-     (let [[frame-kw ordinal] (mint-frame! initial-events)
+     (closed-options! "hydrate!" hydrate-options opts ignored-composition)
+     (let [[frame-kw ordinal] (mint-frame! opts)
            baseline  (census)
            node      (or container (rf.fresco.impl.mount/fresh-container!))
            supplied? (some? container)
@@ -1121,8 +1206,6 @@
   ([handle pred opts]
    (.then (rf.test-support/poll-until pred opts)
           (fn [_] (settle! handle)))))
-
-(declare bad-option!)
 
 (defn advance-clock!
   "Move this mount's virtual clock forward by `ms`, run everything that
@@ -1397,8 +1480,9 @@
 ;; ISOLATION IS NOT NEGOTIABLE. Subscriptions may not reach across frames, so
 ;; the two implementations cannot share one — `mount!` mints a frame per call
 ;; and there is no `:frame` option to defeat that (see the namespace
-;; docstring). Each side is seeded from the SAME `:initial-events` vector, so
-;; the pair is one application in two isolated copies of one seeded world.
+;; docstring). Each side is built from the SAME `:images` and seeded from the
+;; SAME `:initial-events` vector, so the pair is one application in two
+;; isolated copies of one seeded world.
 ;;
 ;; AND ISOLATION IS EXACTLY WHAT MAKES THE COMPARISON UNFAIR, at one slot.
 ;; `capsule-replay-verdict.md` states the general result and names this door
@@ -1434,7 +1518,7 @@
   option quietly ignored is a setting its author believes is in force,
   and a stray `:seed` — a natural guess at `:initial-events` — would
   otherwise mount two UNSEEDED views and compare them happily."
-  #{:reference :candidate :initial-events :script})
+  #{:reference :candidate :images :initial-events :script})
 
 (def ^:private step-verbs
   "The script's closed verb roster. A step is one of these keys and
@@ -1443,19 +1527,6 @@
   step that never happened — the vacuous green this whole door exists to
   be able to fail."
   #{:click :type})
-
-(defn- bad-option!
-  "Refuse a malformed shadow option, or an advance on a handle with no clock,
-  reusing the kit's own `:rf.error/fresco-test-bad-option`. See the namespace
-  docstring §Refusals on why these doors refuse at all and why they mint no
-  id to do it."
-  [reason extra]
-  (throw (rf.error/ex-info-from-data
-           (merge extra
-                  {:rf.error/id :rf.error/fresco-test-bad-option
-                   :where       're-frame.fresco.test.mounted
-                   :reason      reason
-                   :recovery    :no-recovery}))))
 
 ;; ---------------------------------------------------------------------------
 ;; The intent stream
@@ -1984,6 +2055,9 @@
   4. `:initial-events` is the seed, in core's own frame vocabulary:
      `[[:rf/set-db {…}]]` for a literal app-db, or the application's own
      setup events. BOTH mounts get it, each into a frame of its own.
+     `:images`, optional, is the composition BOTH frames are built from,
+     exactly as for [[mount!]] — the application's own, when it builds
+     its frames from one.
   5. `:script` is the flow, as `{:click selector}` and
      `{:type [selector text]}` steps in order.
   6. Assert the verdict — `(is (= :green (:status (hm/shadow! …))))` — and
@@ -2112,19 +2186,9 @@
 
   The mounts come down on every path out, including a throw."
   [opts]
-  (when-not (map? opts)
-    (bad-option! (str "shadow!'s options are a map; they were " (pr-str opts) ".")
-                 {:value opts}))
-  (when-let [unknown (seq (remove shadow-options (keys opts)))]
-    (bad-option! (str "shadow! accepts "
-                      (pr-str (vec (sort-by str shadow-options)))
-                      " and nothing else; it was given "
-                      (pr-str (vec (sort-by str unknown)))
-                      ". An option that is quietly ignored is a setting its "
-                      "author believes is in force — a stray `:seed`, a natural "
-                      "guess at `:initial-events`, accepted in silence would "
-                      "compare two UNSEEDED views.")
-                 {:unknown (vec (sort-by str unknown))}))
+  (closed-options! "shadow!" shadow-options opts
+                   (str "a stray `:seed`, a natural guess at `:initial-events`, "
+                        "accepted in silence would compare two UNSEEDED views."))
   (let [{:keys [reference candidate initial-events script]} opts
         scripted? (contains? opts :script)
         _         (when scripted?
@@ -2134,8 +2198,9 @@
                                    {:value script}))
                     (run! check-step! script))
         log       (open-log!)
-        mount-opts (cond-> {} (seq initial-events)
-                     (assoc :initial-events (vec initial-events)))
+        mount-opts (cond-> {}
+                     (contains? opts :images) (assoc :images (:images opts))
+                     (seq initial-events)     (assoc :initial-events (vec initial-events)))
         !reference-mount (volatile! nil)
         !candidate-mount (volatile! nil)]
     (try

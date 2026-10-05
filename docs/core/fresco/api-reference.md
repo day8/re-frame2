@@ -435,9 +435,9 @@ The mounted tier: a real React root, a real frame and a real DOM.
   (:require [re-frame.fresco.test.mounted :as hm]))
 
 (hm/mount! form)
-(hm/mount! form {:initial-events es :container node :clock true})
+(hm/mount! form {:initial-events es :images imgs :container node :clock true})
 (hm/hydrate! form)
-(hm/hydrate! form {:html bytes :container node :initial-events es :clock true})
+(hm/hydrate! form {:html bytes :container node :initial-events es :images imgs :clock true})
 (hm/hydrate! form opts budget-ms)
 
 (hm/rerender! handle form)
@@ -460,8 +460,8 @@ hm/this-frame
 
 | Name | What it does |
 | --- | --- |
-| `hm/mount!` | mounts `form` on a fresh React root under a frame of this mount's own, and returns the handle. `:initial-events` seeds that frame in core's own vocabulary; `:container` renders into an element you already have; `:clock true` installs a virtual clock before anything else this call does |
-| `hm/hydrate!` | mounts by adopting server bytes, and returns a **promise** of the handle, resolved once this root's adoption window has shut. `:html` supplies the bytes, or `:container` a container you already filled; `:initial-events` is as for `hm/mount!`; `:clock true` is installed once adoption has finished, not before it. The default budget is 3000 ms, and an adoption that outruns it rejects with `:rf.error/poll-until-timeout` |
+| `hm/mount!` | mounts `form` on a fresh React root under a frame of this mount's own, and returns the handle. `:initial-events` seeds that frame in core's own vocabulary; `:images` is the image composition that frame is built from, passed to `rf/make-frame` as given (omit it for the default image); `:container` renders into an element you already have; `:clock true` installs a virtual clock before anything else this call does. Any other key throws `:rf.error/fresco-test-bad-option`, naming the accepted keys |
+| `hm/hydrate!` | mounts by adopting server bytes, and returns a **promise** of the handle, resolved once this root's adoption window has shut. `:html` supplies the bytes, or `:container` a container you already filled; `:initial-events` and `:images` are as for `hm/mount!`; `:clock true` is installed once adoption has finished, not before it. Any other key rejects with `:rf.error/fresco-test-bad-option`. The default budget is 3000 ms, and an adoption that outruns it rejects with `:rf.error/poll-until-timeout` |
 | `hm/rerender!` | renders `form` into the existing root — same root, same frame, same DOM nodes wherever React can keep them |
 | `hm/dispatch-and-settle!` | dispatches into this mount's frame through the runtime's own synchronous dispatch, drains it, commits the echo, and returns the handle |
 | `hm/settle!` | lets everything React has already scheduled commit. The empty `flushSync`, with no work of its own — it cannot reach work that is merely enqueued |
@@ -474,7 +474,7 @@ hm/this-frame
 | `hm/bodies-run` | how many boundary bodies ran while `f` did — what a change **cost**, where the census says what the page **retains** |
 | `hm/counted` | `[:cells :cell-refs :boundaries :edges :entries]`, the five residue counters in report order |
 | `hm/this-frame` | the stand-in each mount's own frame keyword normalises to in a shadow report, so a difference is never merely the two mounts being two mounts |
-| `hm/shadow!` | mounts a reference and a candidate against isolated copies of one seeded frame, drives both with one script, and compares canonical DOM and the intent stream at every checkpoint. `opts` carries `:reference`, `:candidate`, `:initial-events` and `:script` (any other key throws), and a script step is `{:click selector}` or `{:type [selector text]}`, in order. Returns `{:status :green :checkpoints n}`, or a red naming the checkpoint |
+| `hm/shadow!` | mounts a reference and a candidate against isolated copies of one seeded frame, drives both with one script, and compares canonical DOM and the intent stream at every checkpoint. `opts` carries `:reference`, `:candidate`, `:initial-events`, `:script` and, optionally, `:images`, the composition both frames are built from (any other key throws), and a script step is `{:click selector}` or `{:type [selector text]}`, in order. Returns `{:status :green :checkpoints n}`, or a red naming the checkpoint |
 
 The residue counters cover Fresco's runtime. They do not count arbitrary DOM
 listeners, browser timers or handles retained by foreign libraries.

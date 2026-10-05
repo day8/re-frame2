@@ -371,6 +371,13 @@ Each side has its own frame copy, so writes cannot leak between them. If the
 two dispatch different events at the first checkpoint, their state and DOM
 diverge from there, which points at the original cause.
 
+Both frames are built from the default image unless you pass `:images`. An
+application that builds its frames from explicit images, for example to keep
+a deliberate override of a library registration that the default image
+refuses with `:rf.error/image-duplicate-id`, passes the same vector here.
+`hm/mount!` and `hm/hydrate!` take the same option
+([Mount options](15-testing.md#mount-options)).
+
 A red result names the checkpoint and the DOM node or event that differs.
 
 A green result covers only the flows in the script, so script the screen's
