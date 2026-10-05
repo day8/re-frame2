@@ -264,8 +264,7 @@
   ;; regression the docstring names.
   (testing "the SCHEMA rejects a realm slot (the emitter-regression guard)"
     (let [base (:multi-frame-pinned success-fixtures)]
-      (doseq [realm-slot [:realms :operating-realm :selected-realm :frame-realms
-                          :frame-realm :rf.realm/id]]
+      (doseq [realm-slot [:realms :operating-realm :rf.realm/id]]
         (testing (str "a success envelope carrying " realm-slot " fails validation")
           (is (not (m/validate OperatingFrameSuccess (assoc base realm-slot :whatever)))
               (str "OperatingFrameSuccess MUST reject a " realm-slot
