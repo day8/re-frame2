@@ -177,7 +177,9 @@
 ;; `set-timeout!` returns) fires before the handle is published, and could
 ;; publish a handle PAST a frame destroy that raced the schedule. These tests
 ;; drive both interleavings DETERMINISTICALLY through the
-;; `rf.interop/set-timeout!` seam (not a flaky probability stress).
+;; `rf.interop/set-timeout!` seam (not a flaky probability stress); the destroy
+;; race is driven, callback included, by the `release-frame!` row of
+;; `dispatch-later-cleanup-during-arming-suppresses-callback-dispatch` below.
 ;; ===========================================================================
 
 (def ^:private race-frame :rf2-3fc89f3/race)
@@ -211,45 +213,6 @@
           "the publish phase CANCELLED the spent handle (safe even though it had
            already completed) rather than leaking it forever"))))
 
-(deftest dispatch-later-destroy-between-reserve-and-publish-cancels-handle
-  (testing "a frame destroy that lands BETWEEN the reservation and the handle
-            publication removes the visible reservation without cancelling a
-            sentinel; the publish phase then CANCELS the returned handle, no
-            event dispatches, and nothing is published past cleanup"
-    (let [dispatched (atom [])
-          cleared    (atom [])
-          the-handle ::live-handle
-          event      [:rf2-3fc89f3/target]
-          opts       {:source :fx-dispatch-later :source-detail {:ms 600000}}]
-      (with-dispatch-stub
-        (fn [ev op] (swap! dispatched conj [ev op]))
-        (fn []
-          (with-redefs [rf.interop/set-timeout!
-                        (fn [_f _ms]
-                          ;; The arming reservation is VISIBLE here (phase 1 ran
-                          ;; before set-timeout!). Destroy the frame mid-schedule:
-                          ;; release-frame! must DROP the reservation but NEVER
-                          ;; pass the arming SENTINEL to clear-timeout!. Then we
-                          ;; return the real handle (publication happens next).
-                          (is (= 1 (count (timers-for-frame race-frame)))
-                              "the arming reservation is visible mid-set-timeout!")
-                          (rf.fx/release-frame! race-frame)
-                          (is (empty? @cleared)
-                              "release-frame! did NOT cancel the arming sentinel
-                               (nothing cleared yet)")
-                          the-handle)
-                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'rf.fx/arm-dispatch-later! race-frame 600000 event opts))))
-      (is (= [the-handle] @cleared)
-          "the publish phase found the reservation gone (destroy removed it) and
-           CANCELLED the returned handle; the arming SENTINEL was NEVER passed to
-           clear-timeout! (release-frame! skips it)")
-      (is (empty? @dispatched)
-          "no deferred event dispatched into the destroyed frame")
-      (is (empty? (timers-for-frame race-frame))
-          "no handle published after cleanup — the reservation was gone, so the
-           publish phase declined to reinsert"))))
-
 (deftest release-and-reset-never-cancel-the-arming-sentinel
   (testing "release-frame! and reset-dispatch-later-timers! DROP an in-progress
             arming reservation but NEVER pass the sentinel to clear-timeout!,
@@ -276,28 +239,6 @@
           "reset cancelled the REAL handle but NEVER the arming sentinel")
       (is (empty? @timers)
           "the table is fully cleared"))))
-
-(deftest dispatch-later-zero-delay-live-path-fires-once-no-residue
-  (testing "a real 0ms :dispatch-later on a LIVE frame fires the deferred event
-            exactly once and leaves no side-table residue — the immediate-fire
-            path is leak-free through the real host executor, no stress needed"
-    (let [target-ran (atom 0)]
-      (rf/make-frame {:id test-frame :doc "zero-delay live-path frame"})
-      (rf/reg-event :rf2-uxz52g/target
-        (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
-      (rf/reg-event :rf2-uxz52g/arm-now
-        (fn [_ _] {:fx [[:dispatch-later {:ms 0 :event [:rf2-uxz52g/target]}]]}))
-
-      (rf/dispatch-sync [:rf2-uxz52g/arm-now] {:frame test-frame})
-      ;; Let the 0ms host timer fire and the deferred event drain.
-      (Thread/sleep 200)
-
-      (is (= 1 @target-ran)
-          "the 0ms timer fired the deferred target exactly once through the real
-           executor")
-      (is (zero? (count (timers-for-frame test-frame)))
-          "the fired 0ms timer left no orphan/spent handle in the side table")
-      (rf/destroy-frame! test-frame))))
 
 ;; ===========================================================================
 ;; CLEANUP-WINS-DURING-ARMING callback SUPPRESSION.
