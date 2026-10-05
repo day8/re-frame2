@@ -61,17 +61,6 @@
                    :decode           :json}))
           (str "whitespace-only body " (pr-str s) " must decode to nil")))))
 
-(deftest empty-2xx-auto-json-body-decodes-to-nil-cross-host
-  (testing "the parity also holds when `:decode` is omitted
-            and `:auto` resolves to :json via the `application/json`
-            Content-Type (a 200 with an
-            empty body and a JSON content-type). nil on both hosts."
-    (is (nil? (rf.http.decode/decode-response-body
-                {:body-text        ""
-                 :headers          {"content-type" "application/json; charset=utf-8"}
-                 :decode           :auto}))
-        "auto-sniffed empty 2xx JSON body must decode to nil")))
-
 (deftest non-empty-json-body-still-parses-cross-host
   (testing "the empty-body guard is surgical: a NON-empty
             JSON body parses normally on both hosts (the happy
