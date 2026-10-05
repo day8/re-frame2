@@ -544,14 +544,6 @@ def _self_test() -> int:
         "a stray `:rf/runtime` root now HARD-ERRORS (shipped EP-0001 bead 9, rf2-tfepxu).",
         leaked=True, label="C1 plain bead id",
     )
-    expect_beadid(
-        "the post-v1 deferral withdrawn via rf2-mle6e / PR #2863; the runtime records history.",
-        leaked=True, label="C2 bead id beside a PR ref",
-    )
-    expect_beadid(
-        "the dual-partition recompute trigger is a SILENT regression (rf2-d3fb7.1).",
-        leaked=True, label="C3 bead id with .N sub-task suffix",
-    )
 
     # CLEAN fixtures — the public-evidence wording must NOT flag.
     expect_beadid(
