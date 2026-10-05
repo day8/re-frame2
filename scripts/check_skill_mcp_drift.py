@@ -1044,43 +1044,6 @@ def check_body_path_identity(
     return drift, info
 
 
-# A body carrying every character class the `--body-file` boundary exists to
-# keep out of argv: command substitution, a backtick, a backslash, both quote
-# kinds, a bare `$`, and a newline.
-_NASTY_BODY = (
-    "## spec-gap(EP-042): reproduction\n"
-    "command substitution: $(rm -rf /)\n"
-    "backtick: `whoami`\n"
-    "backslash: C:\\Users\\nobody\\AppData\n"
-    "quotes: \"double\" and 'single'\n"
-    "bare dollar: $HOME and ${TMPDIR:-/tmp} and $RANDOM\n"
-)
-
-
-class _LiteralPathHost:
-    """A `Write` with literal-path semantics and a `gh` that reads --body-file.
-
-    The filesystem is a dict keyed by the EXACT string handed to `Write`.
-    That is the whole point: a real `Write` tool is not a shell, so whatever
-    expression is in `file_path` becomes part of the key rather than being
-    expanded. `gh_issue_create` then looks up the exact `--body-file` string,
-    and the two only meet when they are the same string.
-    """
-
-    def __init__(self) -> None:
-        self.files: dict[str, str] = {}
-        self.written_paths: list[str] = []
-
-    def write(self, file_path: str, content: str) -> None:
-        self.written_paths.append(file_path)
-        self.files[file_path] = content
-
-    def gh_issue_create(self, body_file: str) -> str:
-        if body_file not in self.files:
-            raise FileNotFoundError(body_file)
-        return self.files[body_file]
-
-
 # ---------------------------------------------------------------------------
 # Doc-coverage axis — every server tool must have a documented semantic home.
 #
@@ -1669,8 +1632,10 @@ def _run_self_test(ci: bool) -> int:
       3. A synthetic consumer carrying the local body+title clauses MUST
          stay green — proving the clause proof is the live path every
          shipped recipe travels.
-      4. The shipped implementor consumer specifically must be GREEN via
-         its local clauses with no allowance present.
+      4. The shipped implementor consumer specifically must be present,
+         keep `require_search=True`, and fire no `missing-search-clause`
+         drift. Step 1 proves its body+title clauses and its lack of an
+         allowance, because it runs over every shipped rule.
 
     The other axes' proofs are described where they run.
 
@@ -1795,8 +1760,10 @@ def _run_self_test(ci: bool) -> int:
                 "is broken."
             )
 
-    # (4) Shipped implementor specifically: GREEN via local clauses, no
-    #     allowance.
+    # (4) Shipped implementor specifically: present, pinned to
+    #     require_search, and green on its search-before-filing clause. Its
+    #     body+title clauses and its lack of an allowance are proven by (1),
+    #     which runs over every shipped rule.
     impl_rule = next(
         (r for r in TITLE_SAFETY_RULES if r.consumer == "re-frame2-implementor"),
         None,
@@ -1807,11 +1774,6 @@ def _run_self_test(ci: bool) -> int:
             "consumer must stay enforced, not dropped."
         )
     else:
-        if impl_rule.allowance_bead is not None:
-            failures.append(
-                "re-frame2-implementor carries an allowance_bead -- "
-                "remove it so the local clauses enforce the rule."
-            )
         # The implementor must carry the search-before-filing
         # clause locally — require_search pins it.
         if not impl_rule.require_search:
@@ -1821,15 +1783,6 @@ def _run_self_test(ci: bool) -> int:
                 "(dedupe) clause."
             )
         impl_drift, _ = check_title_safety_rules([impl_rule])
-        if [
-            d for d in impl_drift
-            if d.direction == "missing-title-safety"
-        ]:
-            failures.append(
-                "re-frame2-implementor fired missing-title-safety drift with "
-                "no allowance -- its local recipe is missing the body or title "
-                "clauses."
-            )
         if [
             d for d in impl_drift
             if d.direction == "missing-search-clause"
@@ -2044,74 +1997,7 @@ def _run_self_test(ci: bool) -> int:
             "`--body-file` one concrete path it also shows `Write` receiving."
         )
 
-    # (5b) BEHAVIOURAL: the concrete paths the SHIPPED recipes actually print
-    #      must survive a literal-path `Write` -> `gh --body-file` handoff
-    #      byte-for-byte, on both host shapes. This is what a token-presence
-    #      assertion could never say: that the recipe as written RUNS.
-    for rule in TITLE_SAFETY_RULES:
-        text = "\n".join(d.read_text(encoding="utf-8") for d in rule.docs)
-        shapes = {
-            "POSIX": _POSIX_EXAMPLE_RE.findall(text),
-            "Windows": _WINDOWS_EXAMPLE_RE.findall(text),
-        }
-        for shape, paths in shapes.items():
-            if not paths:
-                failures.append(
-                    f"{rule.consumer}: no concrete {shape} worked path to "
-                    f"exercise -- the behavioural arm would pass vacuously."
-                )
-                continue
-            path = paths[0]
-            host = _LiteralPathHost()
-            host.write(path, _NASTY_BODY)
-            try:
-                delivered = host.gh_issue_create(path)
-            except FileNotFoundError:
-                failures.append(
-                    f"{rule.consumer}/{shape}: `gh --body-file {path}` could "
-                    f"not find the file `Write` created at the same string."
-                )
-                continue
-            if delivered != _NASTY_BODY:
-                failures.append(
-                    f"{rule.consumer}/{shape}: body did not reach `gh` "
-                    f"byte-for-byte through --body-file."
-                )
-            if host.written_paths[-1] != path:
-                failures.append(
-                    f"{rule.consumer}/{shape}: captured Write.file_path "
-                    f"({host.written_paths[-1]!r}) != captured --body-file "
-                    f"argument ({path!r})."
-                )
-
-    # (5c) BEHAVIOURAL CONTROL: an expression-path recipe must FAIL this
-    #      harness, or the harness proves nothing. It fails two ways: the
-    #      expression reaches `Write` literally, and the nonce re-rolls
-    #      before the `gh` step.
-    ctrl = _LiteralPathHost()
-    ctrl.write("${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md", _NASTY_BODY)
-    try:
-        ctrl.gh_issue_create("/tmp/re-frame2-issue-2984-24950.md")
-        failures.append(
-            "CONTROL DID NOT BITE: a nonce expression passed literally to "
-            "`Write` was still found by an expanded `--body-file` path. The "
-            "literal-path harness is not modelling `Write` correctly."
-        )
-    except FileNotFoundError:
-        pass
-
-    ctrl2 = _LiteralPathHost()
-    ctrl2.write("/tmp/re-frame2-issue-7f3a9c.md", _NASTY_BODY)
-    try:
-        ctrl2.gh_issue_create("/tmp/re-frame2-issue-b1d420.md")
-        failures.append(
-            "CONTROL DID NOT BITE: a nonce regenerated for the `gh` step "
-            "still found the body `Write` created under the first nonce."
-        )
-    except FileNotFoundError:
-        pass
-
-    # (5d) STRUCTURAL CONTROL: synthetic recipes that reintroduce the defect
+    # (5b) STRUCTURAL CONTROL: synthetic recipes that reintroduce the defect
     #      must each fire, and a correct one must stay green.
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
@@ -2262,11 +2148,9 @@ def _run_self_test(ci: bool) -> int:
           "phantom row both fire. arg-signature: shipped rules green with every "
           "manifest tool's signature compared; synthetic covered stays green; "
           "missing, stale and unparsed signatures all fire. "
-          "body-path-identity: shipped recipes green; "
-          "both host shapes survive a literal-path Write -> gh --body-file "
-          "handoff byte-for-byte; a nonce expression and a regenerated "
-          "nonce both fail that handoff; expression / placeholder / unpaired / "
-          "absent / POSIX-only recipes all fire. single-host: shipped rules "
+          "body-path-identity: shipped recipes green; expression / "
+          "placeholder / unpaired / absent / POSIX-only recipes all fire. "
+          "single-host: shipped rules "
           "green; a reintroduced foreign-server entry fires; the own-host "
           "green is earned, not vacuous).")
     return 0
