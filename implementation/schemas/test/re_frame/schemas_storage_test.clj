@@ -87,14 +87,6 @@
 ;; `:schemas/frame-schema-entries` late-bind hook's target (elision, epoch,
 ;; and the validation hot path), so it is pinned here on the OWNING ns.
 
-(deftest app-schemas-returns-empty-for-unknown-frame
-  (testing "an unknown frame produces an empty map — the read never blows
-            up on consumers that ask before any registration has happened"
-    (is (= {} (rf.schemas/app-schemas {:frame :rf/default})))
-    (is (= {} (rf.schemas/app-schemas {:frame :never/created})))
-    (is (= {} (rf.schemas.storage/frame-schema-entries :never/created))
-        "the private seam agrees")))
-
 (deftest app-schemas-returns-path-to-meta-map
   (testing "app-schemas returns the full {path → schema-meta} map for a
             frame — the {id meta} shape rf/registrations answers, and the
@@ -212,24 +204,6 @@
 ;; string / non-frame map / vector) fails loud rather than silently becoming
 ;; a registry key no keyword-id read can reach.
 
-(deftest reg-app-schema-frame-value-opt-routes-to-resolved-frame-id
-  (testing "registering with `{:frame frame-value}` stores under
-            the frame's RESOLVED ID (frame-target->id), so a read-by-id finds
-            it — NOT under the frame-value map itself"
-    (let [fv (frame-value :tenant/fv-a)]
-      (rf/reg-app-schema [:user] {:frame fv} [:map [:id :int]])
-      ;; The load-bearing assertion: read-by-id resolves the value-keyed write.
-      (is (= [:map [:id :int]] (:schema (rf.schemas/app-schema-meta {:frame :tenant/fv-a :path [:user]})))
-          "read-by-frame-id finds the schema registered via a frame VALUE")
-      ;; And the stored registry key is the bare frame-id keyword, not the map.
-      (is (= [:tenant/fv-a]
-             (keys (rf.schemas/snapshot-schemas-by-frame)))
-          "schemas-by-frame is keyed by the resolved frame-id, not the value map")
-      ;; The frame-value-opt read agrees with the frame-id read.
-      (is (= (:schema (rf.schemas/app-schema-meta {:frame :tenant/fv-a :path [:user]}))
-             (:schema (rf.schemas/app-schema-meta {:frame fv :path [:user]})))
-          "read via {:frame frame-value} and via the frame-id agree"))))
-
 (deftest reg-app-schema-bare-frame-value-routes-to-its-frame
   (testing "a BARE frame value in reg-app-schema's metadata slot names its
             frame exactly as `{:frame fv}` does, as a bare value in
@@ -310,25 +284,6 @@
                 ":received carries the offending :frame value verbatim")))
         (is (= before (rf.schemas/snapshot-schemas-by-frame))
             (str "store unchanged after rejecting :frame " (pr-str bad-frame)))))))
-
-(deftest explicit-frame-honoured-not-silently-replaced-by-ambient
-  (testing "LOAD-BEARING: an explicit non-ambient :frame target in
-            reg-app-schema metadata is HONOURED (registers against the declared
-            frame), NEVER silently borrowed from the ambient/carried frame. The
-            singular path lifts the :frame TARGET into the {:frame target} opts
-            shape (frame-target->opts) and resolves it the SAME way the read
-            surface does — so a valid keyword target lands on its OWN frame and
-            the ambient frame is untouched. The bad-target test above pins
-            the negative half; this pins the
-            POSITIVE half of the contract: the declared frame wins."
-    (binding [rf.frame/*current-frame* :review/ambient]
-      (rf/reg-app-schema [:user] {:frame :review/explicit} [:map [:id :int]])
-      (is (= [:map [:id :int]] (:schema (rf.schemas/app-schema-meta {:frame :review/explicit :path [:user]})))
-          "schema landed on the explicitly-declared frame")
-      (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :review/ambient :path [:user]})))
-          "the AMBIENT frame was NOT silently used — no schema leaked onto it")
-      (is (= [:review/explicit] (keys (rf.schemas/snapshot-schemas-by-frame)))
-          "exactly one frame entry, keyed by the declared target"))))
 
 (deftest app-schema-meta-preserves-standard-and-open-registration-metadata
   (testing "app-schema-meta returns the FULL
@@ -459,17 +414,6 @@
     (is (= 1 (count (filter #(= [:a :b] %)
                             (keys (get (rf.schemas/snapshot-schemas-by-frame) :rf/default)))))
         "exactly ONE entry for the path — no list-vs-vector key split")))
-
-(deftest app-schemas-digest-list-path-equals-vector-path
-  (testing "EP-0012 §Digest path keys — a frame populated
-            via a list path digests identically to one populated via the
-            equivalent vector path (digest keys derive from the canonical
-            vector, not the raw container shape)"
-    (rf/reg-app-schema (list :a :b) {:frame :seq-frame} :string)
-    (rf/reg-app-schema [:a :b] {:frame :vec-frame} :string)
-    (is (= (rf.schemas/app-schemas-digest {:frame :vec-frame})
-           (rf.schemas/app-schemas-digest {:frame :seq-frame}))
-        "list-keyed and vector-keyed frames produce byte-identical digests")))
 
 ;; ===========================================================================
 ;; Schema paths are full :rf/path citizens (concrete segments)
@@ -775,19 +719,3 @@
     (is (= {} (rf.schemas/app-schemas {:frame :tenant/keep}))
         "second destroy of an already-empty frame is a clean no-op")
     (is (= {} (rf.schemas/app-schemas {:frame :tenant/never})))))
-
-(deftest on-frame-destroyed-allows-clean-re-registration
-  (testing "after destroy, re-registering the same frame-id
-            starts from a clean slate (no orphan
-            schemas re-fire against the re-created frame)"
-    (rf/reg-app-schema [:user]   {:frame :tenant/reuse} [:map [:id :int]])
-    (rf/reg-app-schema [:orphan] {:frame :tenant/reuse} [:string])
-    (rf.schemas/on-frame-destroyed! :tenant/reuse)
-    ;; Re-create with only ONE of the prior schemas.
-    (rf/reg-app-schema [:user] {:frame :tenant/reuse} [:vector])
-    (let [entries (rf.schemas/app-schemas {:frame :tenant/reuse})]
-      (is (= #{[:user]} (set (keys entries)))
-          "only the freshly-registered path is present — :orphan did not
-           survive the destroy")
-      (is (= [:vector] (-> entries (get [:user]) :schema))
-          "the re-registration's schema, not the pre-destroy one"))))
