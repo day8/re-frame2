@@ -21,15 +21,19 @@
 
   Each is a SPECIALISATION, never a second implementation: the same
   answers by a cheaper route. This namespace is what makes that claim
-  falsifiable. Every assertion below is one a divergence would break.
+  falsifiable. Every assertion below is one a divergence would break. Two
+  rows are held elsewhere: the empty-query sort by `routing-registry-test`'s
+  query-emission tests, and the strategy consult by
+  `route-link-ssr-parity-cljs-test`'s href parity across strategy shapes.
 
   ## The mutations this file is proved against
 
   Each of these three turns it red:
 
   1. **`\\{` deleted from `literal-run-end`'s boundary set.** A literal run then
-     swallows the opening brace. RED: `literal-run-end-stops-at-every-sigil`,
-     1 failure.
+     swallows the opening brace, so an elided group raises
+     `:rf.error/missing-route-param`. RED: 3 errors in
+     `emitted-paths-are-exactly-what-the-pattern-says`.
   2. **`\\:` deleted from the same set.** A run swallows the param sigil, so
      every pattern emits its own text where the value belongs
      (`/profile/:username` for `{:username \"jane\"}`). RED: 27 failures across
@@ -53,13 +57,9 @@
   Nothing here is a benchmark. The table above names what the tests are
   guarding; the studio page carries the measurement."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.routing :as rf.routing]
             [re-frame.routing.registry :as rf.routing.registry]
-            [re-frame.routing.strategy :as rf.routing.strategy]
-            [re-frame.routing-test-support :as rf.routing-test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
@@ -140,22 +140,6 @@
         (is (= params (:params m)) (str "round trip of " url))))))
 
 ;; ===========================================================================
-;; The boundary scanner the fast walk is built on
-;; ===========================================================================
-
-(deftest literal-run-end-stops-at-every-sigil
-  (let [run-end #'rf.routing.registry/literal-run-end
-        end     (fn [s i] (run-end s (count s) i))]
-    (testing "a run ends at the next : * { or }, and nowhere else"
-      (is (= 9  (end "/profile/:username" 0)) ":")
-      (is (= 7  (end "/files/*rest" 0))       "*")
-      (is (= 5  (end "/docs{/:section}?" 0))  "{")
-      (is (= 9  (end "/docs{/:x}?" 9))        "}")
-      (is (= 6  (end "/plain" 0))             "no sigil — the whole pattern")
-      (is (= 5  (end "/x/:y" 5))              "an index at the end returns itself")
-      (is (= 0  (end ":only" 0))              "a sigil AT the cursor is a zero-length run"))))
-
-;; ===========================================================================
 ;; The fail-closed classes — every one of them closed
 ;; ===========================================================================
 
@@ -229,54 +213,3 @@
         "an UNDECLARED keyword value host-stringifies")
     (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username 'jane}})))
     (is (= "/profile/true"  (rf.routing.registry/route-url {:to :eq/profile :params {:username true}})))))
-
-;; ===========================================================================
-;; The query side — the empty short-circuit, and the sorted path it skips
-;; ===========================================================================
-
-(deftest the-query-string-is-what-it-was
-  (register-routes!)
-  (testing "no query — the short-circuit"
-    (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted})))
-    (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted :query {}})))
-    (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted :query {:sort nil}}))
-        "a nil-valued key is elided, not emitted as a bare key"))
-  (testing "a query — the canonical-order sort"
-    (is (= "/search?sort=asc" (rf.routing.registry/route-url {:to :eq/sorted :query {:sort "asc"}})))
-    (is (= "/search?page=2&sort=asc"
-           (rf.routing.registry/route-url {:to :eq/sorted :query {:sort "asc" :page "2"}}))
-        "keys emit in canonical order, not insertion order")
-    (is (= "/search?page=2&sort=asc"
-           (rf.routing.registry/route-url {:to :eq/sorted :query (array-map :page "2" :sort "asc")}))
-        "and the SAME URL whichever order the caller spelled them in")))
-
-;; ===========================================================================
-;; The render-time strategy consult
-;; ===========================================================================
-
-(deftest frame-config-answers-the-strategy-question-frame-meta-answered
-  (testing "the narrowed read is the same read for every frame shape"
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (try
-      (rf.frame/upsert-frame! :eq/hash {:url-bound? true
-                                     :url-strategy rf.routing.strategy/hash-url-strategy})
-      (rf.frame/upsert-frame! :eq/plainframe {:url-bound? true})
-      (doseq [id [:eq/hash :eq/plainframe :eq/never-made]]
-        (is (= (:url-strategy (rf.frame/frame-meta id))
-               (:url-strategy (rf.frame/frame-config id)))
-            (str "frame-config and frame-meta must agree on :url-strategy for " id))
-        (is (identical? (rf.routing.strategy/url-strategy-from-config (rf.frame/frame-meta id))
-                        (rf.routing.strategy/url-strategy-for-frame-id id))
-            (str "the consult must resolve what frame-meta's config would, for " id)))
-      (is (identical? rf.routing.strategy/hash-url-strategy
-                      (rf.routing.strategy/url-strategy-for-frame-id :eq/hash)))
-      (is (identical? rf.routing.strategy/history-url-strategy
-                      (rf.routing.strategy/url-strategy-for-frame-id :eq/plainframe)))
-      (is (identical? rf.routing.strategy/history-url-strategy
-                      (rf.routing.strategy/url-strategy-for-frame-id nil)))
-      (testing "and frame-config does not leak the lifecycle keys frame-meta merges"
-        (is (contains? (rf.frame/frame-meta :eq/hash) :created-at))
-        (is (not (contains? (rf.frame/frame-config :eq/hash) :created-at))))
-      (finally
-        (rf.frame/destroy-frame! :eq/hash)
-        (rf.frame/destroy-frame! :eq/plainframe)))))
