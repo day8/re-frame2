@@ -1,9 +1,9 @@
 # EP-0038: The Fresco View-Layer Programme
 
-Status: accepted
+Status: final
 Type: standards-track
 Created: 2026-07-30
-Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable); HD-022–HD-028 resolved under that same authority; P2 fork ruled by the operator directly 2026-08-13 (HD-029 — Fresco graduates, as a success)
+Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable); HD-022–HD-028 resolved under that same authority; P2 fork ruled by the operator directly 2026-08-13 (HD-029 — Fresco graduates, as a success); final 2026-10-06 by operator ruling (decisions settled; v0 completion carried as implementation errata)
 
 > **Status-bookkeeping erratum — 2026-08-31.** The Go-path text below says
 > EP-0036 would be marked superseded by this EP. EP-0036 was already in the
@@ -12,6 +12,34 @@ Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated author
 > The non-terminal donor records actually absorbed by Freehand — EP-0030,
 > EP-0033, and EP-0034 — are `superseded-by EP-0036`. This corrects lifecycle
 > bookkeeping only; HD-029 and Fresco's successful graduation are unchanged.
+
+> **`final` means the decisions are settled.** Mike ruled on 2026-10-06 that this
+> EP is `final` now: every decision the programme exists to make has been made,
+> and the v0 build its Graduation section waited on is carried as
+> [implementation errata](#implementation-errata) instead — the EP-0005 pattern
+> [EP-0009](EP-0009-the-ep-process.md#statuses) provides for a final EP. The
+> ruling is the 2026-10-06 addendum under [Resolved Decisions](#resolved-decisions).
+> Where this EP and its normative homes differ, the homes govern: Specs 004B,
+> 004C and 006, and the [Fresco guide](../core/fresco/index.md).
+
+## Implementation errata
+
+The decisions are final; the v0 build is not yet certified against its
+definition of done, §13 of `docs/design/fresco/product/specification.md`. Each
+row names the bead that owns it, or says that none does, and is struck when that
+owner closes. No row reopens a ruling.
+
+- **Open — two pilots on the published artefact.** §13 bullet 16. Owner:
+  `rf2-hic-063`, a held gate until an installable artefact exists.
+- **Open — the first published tag.** Owner: `rf2-kmqx3`, an operator act. The
+  pilots and the re-audit both need an installable artefact.
+- **Open — the §13 re-audit.** Owner: `rf2-1d85t`. It re-runs the `rf2-hic-064`
+  definition-of-done audit once the pilots ship, including the correction
+  ledger's one unresolved row, and is blocked by `rf2-kmqx3`.
+- **Open — K2, the `1.5×` bulk architecture kill.** Unowned. K2 is not waived
+  and measures under its own protocol, recorded in
+  `docs/design/fresco/validation.md` §"The kill table at graduation"; no live
+  bead carries the measurement, and a later red result bites as registered.
 
 ## Abstract
 
@@ -504,6 +532,48 @@ This records the implemented contracts and the later SSR gate ruling. This EP
 retains its recorded `accepted` status; its terminal disposition still needs to
 be recorded against the Graduation conditions.
 
+### Addendum, 2026-10-06 — the graduation disposition: this EP is final, and v0 completion moves to errata
+
+**Operator ruling (Mike), given in chat on 2026-10-06: Option 1 — declare
+EP-0038 final now, with an implementation-errata ledger.** It rules four things:
+
+- **(a) Open issue 3 is closed.** Correctness is witnessed, and the tripwire
+  stands as a correctness-blocks-performance kill rule. H1/H2 are unbenchmarked,
+  and the allocation slope is a non-claim per spec §13.
+- **(b) Open issue 4 is closed as moot.**
+- **(c) The narrow-contract clause is satisfied by substitution.** `spec/004` is
+  deleted, and the normative homes are 004B/004C/006 plus `docs/core/fresco`.
+- **(d) The "final when v0 lands" clause is amended.** Final records settled
+  decisions, and v0 completion moves to errata rows: `rf2-hic-063`, `rf2-kmqx3`,
+  a §13 re-audit owner, and K2 under its own protocol.
+
+Recorded here per rule 2, and as an addendum rather than an edit per EP-0009
+rule 3. The Graduation section, the Open Issues list, and the status sentences
+in the 2026-08-13, 2026-08-16 and 2026-10-02 addenda are left as written: each
+states the status as it stood, and this ruling answers them. Open issues 3 and 4
+carry dated resolutions below, and the Go exit carries a dated amendment beside
+it. The errata rows are the [Implementation errata](#implementation-errata)
+section at the head of this EP; the §13 re-audit owner is `rf2-1d85t`, filed with
+this record.
+
+- **What the ruling rests on.** The decisions this EP exists to make are all
+  recorded above: the P2 fork (HD-029), the read surface, SSR R0–R8 with start
+  gates 3 and 5 discharged on 2026-09-02, K5's withdrawal, the K1 price, and the
+  `spec/004` disposition. For (a), the
+  [collector judgement](https://github.com/day8/re-frame2/blob/main/docs/design/fresco/studio/arm1-lean-react-dogfood-judgement.md)
+  records that the tripwire did not fire and that no bench row has spent either
+  strategy swing, and §13 of the product specification states that warm
+  allocation carries no product claim unless its instrument qualifies. For (b),
+  the only bead filed from the W1 mount reconciliation, `rf2-prjh0`, closed on
+  2026-07-26 as a null result, and the Freehand mount ratio it attributed went
+  with the Freehand tree. For (c), `spec/README.md` states that there is no 004
+  view contract.
+- **What it does not decide.** K2's `1.5×` architecture kill is still not waived.
+  No figure, threshold, verdict or kill row moves, and §13 is unchanged: its
+  re-audit is an errata row now, not a graduation condition.
+
+Evidence and the per-condition table are on `rf2-6yo0q.26`.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
@@ -531,7 +601,12 @@ be recorded against the Graduation conditions.
    series; the [product substrate decision](https://github.com/day8/re-frame2/blob/main/docs/design/fresco/product/substrate-decision.md)
    records the later subscription-spine choice. Each retains its measurement
    limits.
+   **Resolved 2026-10-06** by the addendum above: closed. Correctness is
+   witnessed and the tripwire stands as a correctness-blocks-performance kill
+   rule; H1/H2 are unbenchmarked, and the allocation slope is a non-claim per
+   spec §13.
 4. The residual W1 dominance-attribution bead (does not gate the baseline).
+   **Resolved 2026-10-06** by the addendum above: closed as moot.
 
 ## Graduation
 
@@ -548,6 +623,14 @@ Standards-track terminal states, made explicit per exit:
   programme beads are closed with the ruling; the adapters are affirmed as the
   answer. Both exits are successful deliveries of a *decided* question with
   receipts.
+
+**Amended 2026-10-06 by operator ruling** (the addendum under
+[Resolved Decisions](#resolved-decisions)); the Go text above is kept as written.
+`final` records settled decisions, and v0 completion is carried as
+[implementation errata](#implementation-errata). The narrow graduation is
+satisfied by substitution: `spec/004` is deleted, and the normative homes are
+004B, 004C and 006 plus `docs/core/fresco`. EP-0036's supersession was moot, per
+the 2026-08-31 erratum at the head of this EP.
 
 ## Non-goals
 
