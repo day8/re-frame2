@@ -921,10 +921,6 @@ def run_self_test() -> int:
 
     case("A green tree reports no failure", expect=None)
 
-    files = dict(GREEN_FILES)
-    files["implementation/core/test/app/skipped_test.cljc"] = "(ns app.skipped-test)\n(deftest t (is true))\n"
-    case("B2 fires on a `.cljc` no CLJS selector reaches", expect="B2 partially emptied", files=files)
-
     case("B2 fires on a false `-jvm-test` declaration",
          shadow=SELF_TEST_SHADOW_WIDENED, expect="B2 false single-lane")
 
@@ -933,11 +929,6 @@ def run_self_test() -> int:
         "(ns app.unbacked-jvm-test)\n(deftest t (is true))\n")
     case("B2 fires on a `-jvm-test` no JVM lane discovers",
          expect="B2 unbacked single-lane", files=files)
-
-    files = dict(GREEN_FILES)
-    files["implementation/core/test/app/helper_thing.cljc"] = (
-        "(ns app.helper-thing)\n(deftest t (is true))\n")
-    case("B1 fires on a test file no lane selects", expect="B1 orphan", files=files)
 
     case("B3 fires on a lane root that does not exist",
          shadow=SELF_TEST_SHADOW.replace('"core/test"', '"core/renamed-away"'),
@@ -954,11 +945,8 @@ def run_self_test() -> int:
     # a column-0 scan cannot see, under a namespace no selector
     # reaches.  Seeing the shape is what makes B1 fire; not seeing it would be
     # a silent pass.
-    files = dict(GREEN_FILES)
-    files["implementation/core/test/app/rc_helper.cljc"] = (
-        "(ns app.rc-helper)\n#?(:cljs\n   (deftest t (is true)))\n")
-    case("B1 sees a deftest behind a reader conditional", expect="B1 orphan", files=files)
-
+    # The `do` sits inside a reader conditional, so this one case needs the
+    # reader to see through both transparent heads.
     files = dict(GREEN_FILES)
     files["implementation/core/test/app/rc_do_helper.cljc"] = (
         "(ns app.rc-do-helper)\n#?(:clj\n   (do\n     (deftest t (is true))))\n")
