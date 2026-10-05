@@ -845,3 +845,139 @@
       (is (= 2 (:files-with-reagent s)))
       (is (= 1 (:files-with-substrate s)))
       (is (= 0 (:files-clean s))))))
+
+;; ---------------------------------------------------------------------------
+;; `r/as-element` is TRIAGE: whether it is right turns on whose heads it lowers
+;; ---------------------------------------------------------------------------
+
+(def ^:private kept-island
+  "A converted view whose body is a Reagent island its author keeps. Every
+  head `r/as-element` lowers here is a Reagent component — re-com's
+  `v-box`, a Reagent `reg-view`, a retained Reagent helper — so Reagent is
+  the right lowerer and the call stays. Swapping in `h/as-element` would
+  send those heads into Fresco's lowerer."
+  (str "(ns app.summary\n"
+       "  (:require [re-frame.fresco :as h]\n"
+       "            [reagent.core :as r]\n"
+       "            [re-com.core :as rc]\n"
+       "            [app.search :as search]\n"
+       "            [app.widget :as widget]))\n"
+       "\n"
+       "(h/defview summary-content-view [{:keys [opts grid-props]}]\n"
+       "  (r/as-element\n"
+       "    [rc/v-box :gap \"12px\"\n"
+       "     :children [[search/describe-query opts]\n"
+       "                [widget/nested-grid grid-props]]]))\n"))
+
+(def ^:private fresco-through-reagent
+  "The unsafe bridge: a Fresco view handed to `r/as-element`, so Reagent
+  lowers a head only Fresco can lower."
+  (str "(ns app.shell\n"
+       "  (:require [re-frame.fresco :as h]\n"
+       "            [reagent.core :as r]))\n"
+       "\n"
+       "(h/defview card [{:keys [title]}] [:div title])\n"
+       "\n"
+       "(defn panel [] [:section (r/as-element [card {:title \"x\"}])])\n"))
+
+(defn- as-element-entry
+  "The one census entry in `src`, asserting there is exactly one."
+  [src file]
+  (let [es (:entries (rf.migration.fresco.census/scan src file))]
+    (is (= 1 (count es)) "exactly one call site")
+    (first es)))
+
+(deftest a-kept-reagent-island-is-counted-and-is-not-a-runtime-blocker
+  (testing "the island stays COUNTED: it is Reagent API the migration has to see,
+            reported at the call's own coordinate"
+    (let [e (as-element-entry kept-island "app/summary.cljs")]
+      (is (= {:class :as-element :line 9 :col 3 :detail {:api "as-element"}}
+             (select-keys e [:class :line :col :detail])))
+      (testing "and it is triage, not a confirmed runtime failure"
+        (is (= :human-decision (:verdict e))))
+      (testing "and its recovery sentence says a kept island stays, and why the
+                obvious respelling is wrong for it"
+        (is (str/includes? (:note e) "stays as it is"))
+        (is (str/includes? (:note e) "Fresco's lowerer")))))
+  (testing "the summary carries the call in the triage bucket, under its own class"
+    (let [s (:summary (rf.migration.fresco.census/build
+                       [(rf.migration.fresco.census/scan kept-island "app/summary.cljs")]))]
+      (is (= 1 (:entries s)))
+      (is (= {:as-element 1} (:by-class s)))
+      (is (= {:human-decision 1 :mechanical 0 :runtime-blocker 0} (:by-verdict s))))))
+
+(deftest a-fresco-view-through-r-as-element-gets-the-unsafe-bridge-guidance
+  (let [e (as-element-entry fresco-through-reagent "app/shell.cljs")]
+    (is (= [:as-element 7 26] [(:class e) (:line e) (:col e)]))
+    (testing "the census does not resolve the head, so it claims no failure either —
+              but its sentence names the unsafe bridge and both of Fresco's
+              supported doors"
+      (is (= :human-decision (:verdict e)))
+      (is (str/includes? (:note e) "UNSAFE bridge"))
+      (is (str/includes? (:note e) "`h/as-element`"))
+      (is (str/includes? (:note e) "`h/as-component`"))
+      (is (str/includes? (:note e) "`:render` callback contract")
+          "the deferred foreign caller keeps its warning"))))
+
+(deftest an-unresolved-or-dynamic-as-element-target-gains-no-invented-safety
+  (let [hdr    "(ns app.t\n  (:require [reagent.core :as r]))\n"
+        island (as-element-entry kept-island "app/summary.cljs")]
+    (testing "a target the reader cannot see — a parameter, a computed tree — gets
+              exactly the entry a kept island gets: the census settles neither,
+              and its sentence says so"
+      (let [shape #(select-keys % [:class :verdict :note :detail])]
+        (doseq [body ["(defn el [h] (r/as-element h))\n"
+                      "(defn el [] (r/as-element (build-tree)))\n"]]
+          (let [e (as-element-entry (str hdr body) "app/t.cljs")]
+            (is (= :human-decision (:verdict e)) body)
+            (is (= (shape island) (shape e)) body)))
+        (is (str/includes? (:note island) "a dynamic or unresolved target stays unsettled"))))
+    (testing "being lexically inside `h/defview` proves nothing: the same island in a
+              plain `defn` gets the same entry"
+      (let [plain (str/replace kept-island "(h/defview summary-content-view" "(defn summary-content-view")
+            shape #(select-keys % [:class :verdict :note :detail :line :col])]
+        (is (= (shape island) (shape (as-element-entry plain "app/summary.cljs"))))))
+    (testing "a call whose alias the reader could not bind stays the runtime blocker it
+              is: the tool cannot tell whose `as-element` this is, so it does not
+              lend it the triage verdict"
+      (let [src (str "(ns app.panel\n"
+                     "  (:require [day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core :as r]))\n"
+                     "(defn el [] (r/as-element [:div]))\n")
+            es  (:entries (rf.migration.fresco.census/scan src "app/panel.cljs"))]
+        (is (= [[:unresolved-reagent-require :runtime-blocker] [:unresolved-alias :runtime-blocker]]
+               (mapv (juxt :class :verdict) es)))
+        (is (= {:api "as-element" :symbol "r/as-element"} (:detail (second es))))))))
+
+(deftest as-element-binds-positions-and-prunes-like-every-other-call
+  (testing "every legal binding reaches the row, with the triage verdict"
+    (doseq [[label src]
+            [["alias"              "(ns a (:require [reagent.core :as r]))\n(r/as-element [:div])\n"]
+             ["refer"              "(ns a (:require [reagent.core :refer [as-element]]))\n(as-element [:div])\n"]
+             ["rename"             "(ns a (:require [reagent.core :refer [as-element] :rename {as-element ->el}]))\n(->el [:div])\n"]
+             ["refer :all"         "(ns a (:require [reagent.core :refer :all]))\n(as-element [:div])\n"]
+             ["slim"               "(ns a (:require [reagent2.core :as r]))\n(r/as-element [:div])\n"]
+             ["reader conditional" "(ns a (:require #?(:cljs [reagent.core :as r])))\n(r/as-element [:div])\n"]]]
+      (testing label
+        (is (= [[:as-element :human-decision 2 1 {:api "as-element"}]]
+               (mapv (juxt :class :verdict :line :col :detail)
+                     (:entries (rf.migration.fresco.census/scan src "a.cljc"))))))))
+  (testing "a bare `as-element` nothing referred is not Reagent's"
+    (is (= [] (classes "(ns a (:require [reagent.core :as r]))\n(as-element [:div])\n" "a.cljs"))))
+  (testing "an anonymous-fn literal is reported at its `#`, a call inside a `fn` at
+            its own paren"
+    (is (= [[2 8] [3 16]]
+           (mapv (juxt :line :col)
+                 (:entries (rf.migration.fresco.census/scan
+                            (str "(ns a (:require [reagent.core :as r]))\n"
+                                 "(def f #(r/as-element [:div %]))\n"
+                                 "(def g (fn [x] (r/as-element [:span x])))\n")
+                            "a.cljs"))))))
+  (testing "inert source is no call site, and a symbol passed as a value is no call"
+    (doseq [body ["#_(r/as-element [:div])\n"
+                  "(def a '(r/as-element [:div]))\n"
+                  "(comment (r/as-element [:div]))\n"
+                  "(def f #(quote (r/as-element [:div])))\n"
+                  "(def f #(comment (r/as-element [:div])))\n"
+                  "(def f (run-later r/as-element))\n"
+                  "(def f #(run-later r/as-element))\n"]]
+      (is (= [] (classes (str "(ns a (:require [reagent.core :as r]))\n" body) "a.cljs")) body))))
