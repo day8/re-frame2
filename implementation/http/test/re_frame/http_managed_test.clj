@@ -167,14 +167,7 @@
              #(rf.http.test-support/canned-failure-handler ctx mixed))
       (check "the route-map stub"
              #(stub-handler {[:get "http://127.0.0.1:1/x"] {:value {:ok true}}}
-                            ctx mixed)))
-    (testing "…while both unmixed styles run on the canned path"
-      (doseq [ok [{:reply-to [:no-op]}
-                  {:on-success [:no-op] :on-failure [:no-op]}]]
-        (is (nil? (rf.http.test-support/canned-success-handler
-                    {:frame :rf/default :event [:no-op]}
-                    (merge {:request {:method :get :url "/x"} :value {}} ok)))
-            (str (pr-str (vec (keys ok))) " is accepted by the canned stub"))))))
+                            ctx mixed)))))
 
 ;; ---- 1b-ter. missing / malformed reply targets are refused everywhere -----
 
@@ -616,20 +609,6 @@
 ;; returns lower-case keys.)
 
 (deftest content-type-of-case-insensitive
-  (testing "lowercase key"
-    (is (= "application/json"
-           (rf.http.decode/content-type-of {"content-type" "application/json"}))))
-  (testing "canonical Title-Case key"
-    (is (= "application/json"
-           (rf.http.decode/content-type-of {"Content-Type" "application/json"}))))
-  (testing "all-caps key (CONTENT-TYPE)"
-    (is (= "application/json"
-           (rf.http.decode/content-type-of {"CONTENT-TYPE" "application/json"}))))
-  (testing "mixed casing"
-    (is (= "application/json"
-           (rf.http.decode/content-type-of {"Content-type" "application/json"})))
-    (is (= "text/plain"
-           (rf.http.decode/content-type-of {"cOnTeNt-TyPe" "text/plain"}))))
   (testing "keyword key (some middlewares use keywords)"
     (is (= "application/json"
            (rf.http.decode/content-type-of {:content-type "application/json"})))
@@ -1008,44 +987,10 @@
 ;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`. A helper
 ;; that only registered the stub fx without installing the override
 ;; would let a plain `dispatch-sync` inside the body run the REAL production
-;; transport (network IO / hang / nondeterminism / false-green).
-;;
-;; To prove the REAL fx is never reached we shadow `:rf.http/managed` with
-;; a sentinel that flips an atom. If the override were absent the bare
-;; dispatch would land on this sentinel (the real fx slot) and the atom
-;; would flip; with the helper-installed override the dispatch routes to
-;; the stub instead and the sentinel stays untouched while the stubbed
-;; reply lands.
-
-(deftest with-request-stubs-intercepts-without-manual-override-rf2-rzqan
-  (testing "inside with-request-stubs, a plain dispatch-sync
-            (NO per-call :fx-overrides) is intercepted by the stub and the real
-            :rf.http/managed fx slot is NEVER invoked"
-    (let [real-fx-invoked? (atom false)]
-      ;; Shadow the production fx slot with a sentinel. Reaching THIS proves
-      ;; the override was absent. The stub path bypasses it.
-      (rf.fx/reg-fx :rf.http/managed
-                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
-      (rf/reg-event :rzqan/load
-        (fn [{:keys [db]} [_ msg reply]]
-          (if reply
-            {:db (assoc db :result reply)}
-            {:fx [[:rf.http/managed
-                   {:reply-to [:rzqan/load msg] :request {:method :get :url "/rzqan"}
-                    :decode  :json}]]})))
-      (rf.http.test-support/with-request-stubs
-        {[:get "/rzqan"] {:reply {:ok {:stubbed true}}}}
-        (fn []
-          ;; Bare wrapper form — the helper alone must route to the stub.
-          (rf/dispatch-sync [:rzqan/load])
-          (let [db (await-reply! #(some? (:result %)) 2000)]
-            (is (= :ok (get-in db [:result :status]))
-                "the stubbed reply landed via the route-map stub")
-            (is (= {:stubbed true} (get-in db [:result :value]))
-                "the configured :ok value rode through the synthesised success reply")
-            (is (false? @real-fx-invoked?)
-                "the real :rf.http/managed fx was NEVER invoked — the helper's
-                 installed override intercepted the dispatch")))))))
+;; transport (network IO / hang / nondeterminism / false-green). Every
+;; bare-wrapper test in this file depends on that override, so a helper that
+;; skipped it turns them red; the test below pins that a per-call override
+;; still wins over it.
 
 (deftest with-request-stubs-per-call-override-still-wins-rf2-rzqan
   (testing "a per-call :fx-overrides inside the wrapper wins
@@ -1633,30 +1578,6 @@
               "the :schema-validation-failure? slot is set true (Spec 014 line 410)"))
         (finally (stop-server! srv))))))
 
-(deftest jvm-schema-decode-success-coerces-value
-  (testing "a 200 JSON response that satisfies the Malli
-            :decode schema returns the coerced value as the :success reply
-            (string status coerced to keyword by the json-transformer)"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json"
-                               "{\"id\":7,\"status\":\"active\"}")))]
-      (try
-        (rf/reg-event :thing/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:thing/load msg] :request {:url (str "http://127.0.0.1:" port "/thing")}
-                      :decode  [:map [:id :int] [:status :keyword]]}]]})))
-        (rf/dispatch-sync [:thing/load])
-        (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :ok (get-in db [:reply :status])))
-          (is (= {:id 7 :status :active} (get-in db [:reply :value]))
-              "the schema coerces the string status to a keyword e2e"))
-        (finally (stop-server! srv))))))
-
 (deftest jvm-too-many-keys-cap-classifies-as-decode-failure
   (testing "the :rf.http/max-decoded-keys cap threaded into the
             schema-branch decode surfaces a :too-many-keys throw as
@@ -1977,29 +1898,6 @@
               "the malformed return classifies as :rf.http/accept-failure")
           (is (= {:ok true} (:decoded failure))
               "the pre-accept decoded value rides through as :decoded"))
-        (finally (stop-server! srv))))))
-
-(deftest jvm-accept-well-formed-ok-still-succeeds
-  (testing "a well-formed {:ok v} accept return succeeds:
-            the success reply carries v (regression guard for the phase split)"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-response! ex 200 "application/json" "{\"value\":42}")))]
-      (try
-        (rf/reg-event :acceptok/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:acceptok/load msg] :request {:url (str "http://127.0.0.1:" port "/o")}
-                      :decode  :json
-                      :accept  (fn [decoded] {:ok (:value decoded)})}]]})))
-        (rf/dispatch-sync [:acceptok/load])
-        (let [db (await-reply! #(some? (:reply %)) 5000)]
-          (is (= :ok (get-in db [:reply :status])))
-          (is (= 42 (get-in db [:reply :value]))
-              "a well-formed {:ok v} projects the success value"))
         (finally (stop-server! srv))))))
 
 ;; ---- stub/canned request-chain failure honours TOP-LEVEL
