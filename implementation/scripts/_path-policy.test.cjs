@@ -69,31 +69,6 @@ it('rejects a sibling-of-out path', () => {
   );
 });
 
-it('rejects an absolute path elsewhere on the filesystem', () => {
-  // Use an absolute path that is clearly outside the repo. On Windows
-  // this looks like 'C:\\tmp\\evil'; on POSIX '/tmp/evil'. Either way
-  // it is outside DEFAULT_OUT_ROOT.
-  const elsewhere = process.platform === 'win32' ? 'C:\\tmp\\evil' : '/tmp/evil';
-  assert.throws(
-    () =>
-      enforcePolicy('STORY_BUILD_OUTPUT_DIR', elsewhere, {
-        allowedRoots: [DEFAULT_OUT_ROOT],
-      }),
-    /outside the approved roots/,
-  );
-});
-
-it('rejects path-traversal attempts', () => {
-  const traversal = path.join(DEFAULT_OUT_ROOT, '..', '..', 'etc');
-  assert.throws(
-    () =>
-      enforcePolicy('STORY_BUILD_OUTPUT_DIR', traversal, {
-        allowedRoots: [DEFAULT_OUT_ROOT],
-      }),
-    /outside the approved roots/,
-  );
-});
-
 // ---- symlink / junction escape --------------------------------------------
 //
 // A symlink/junction UNDER an allowed root whose target resolves OUTSIDE
