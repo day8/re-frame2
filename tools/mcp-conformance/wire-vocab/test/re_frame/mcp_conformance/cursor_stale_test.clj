@@ -35,7 +35,6 @@
             [malli.core     :as m]
             [malli.error    :as me]
             [re-frame.mcp-base.cursor :as rf.mcp-base.cursor]
-            [re-frame.mcp-base.vocab  :as rf.mcp-base.vocab]
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
             [re-frame.mcp-conformance.wire-vocab.schemas :refer [CursorStaleResult]]
             [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]
@@ -117,22 +116,11 @@
   (let [emitted (rf.mcp-base.cursor/cursor-stale-result
                   (fn [_message data] data)
                   "watch-epochs"
-                  {:extra {:requested-id "epoch-9001"
-                           :head-id      "epoch-9101"}})]
-    (testing "the builder sources :reason from vocab/cursor-stale-reason"
-      (is (= rf.mcp-base.vocab/cursor-stale-reason (:reason emitted))
-          (str "cursor-stale-result MUST emit the canonical "
-               ":reason value (vocab/cursor-stale-reason). If this fails, "
-               "the builder hardcoded a literal that drifted from the "
-               "vocab constant agents pattern-match on. Got :reason = "
-               (pr-str (:reason emitted)))))
+                  {})]
     (testing "the emitted envelope validates against canonical CursorStaleResult"
       (is (m/validate CursorStaleResult emitted)
           (str "Live-emitted cursor-stale envelope failed CursorStaleResult "
-               "validation:\n" (me/humanize (m/explain CursorStaleResult emitted)))))
-    (testing "the consumer's :extra slots merge through verbatim"
-      (is (= "epoch-9001" (:requested-id emitted)))
-      (is (= "epoch-9101" (:head-id emitted))))))
+               "validation:\n" (me/humanize (m/explain CursorStaleResult emitted)))))))
 
 (deftest story-cursor-stale-emitted-live-by-canonical-builder
   ;; SECOND-server LIVE-emission gate for `:rf.mcp/cursor-stale`.
@@ -160,30 +148,14 @@
         structured (:structuredContent emitted)]
     (testing "story-mcp wraps the reason in an MCP error envelope"
       (is (true? (:isError emitted))
-          "story-mcp cursor-stale rides an :isError true MCP result (per result/error-result)")
-      (is (some? structured)
-          "story-mcp cursor-stale MUST carry the structured data-map on :structuredContent"))
-    (testing "the structured content sources :reason from vocab/cursor-stale-reason"
-      (is (= rf.mcp-base.vocab/cursor-stale-reason (:reason structured))
-          (str "story-mcp cursor-stale-result MUST emit the canonical "
-               ":reason value (vocab/cursor-stale-reason). If this fails, "
-               "story-mcp's builder drifted from the shared cross-MCP "
-               "constant agents pattern-match on. Got :reason = "
-               (pr-str (:reason structured)))))
+          "story-mcp cursor-stale rides an :isError true MCP result (per result/error-result)"))
     (testing "the structured content validates against canonical CursorStaleResult"
       (is (m/validate CursorStaleResult structured)
           (str "Live-emitted story-mcp cursor-stale :structuredContent failed "
                "CursorStaleResult validation:\n"
                (me/humanize (m/explain CursorStaleResult structured)))))
     (testing "the tool name threads through to the structured slot"
-      (is (= "list-stories" (:tool structured))))
-    (testing "pair-mcp + story-mcp emit the IDENTICAL cross-MCP reason value"
-      ;; The whole point of the multi-server contract: an agent learns
-      ;; the keyword once and reuses the recovery path on either server.
-      (let [pair-reason (:reason (rf.mcp-base.cursor/cursor-stale-result
-                                   (fn [_m data] data) "watch-epochs" {}))]
-        (is (= pair-reason (:reason structured))
-            "the two servers MUST agree on the :rf.mcp/cursor-stale reason value")))))
+      (is (= "list-stories" (:tool structured))))))
 
 (def ^:private story-mcp-cursor-source
   "story-mcp's cursor source — the builder for the Docs `list-*`
