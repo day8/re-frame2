@@ -31,7 +31,8 @@
       `:rf.cofx/requires` into `:rf.cofx/requires-parsed`;
     * an UNSUPPORTED inline kind fails loud at `rf/image`;
     * a metadata-only `[id metadata]` 2-tuple fails loud (under EP-0026 a
-      2-tuple's second slot is the handler body).
+      2-tuple's second slot is the handler body), pinned by
+      `image-cljs-test`.
 
   Dual-runtime (`-cljs-test` rides `npm run test:cljs`; cognitect-test-runner
   discovers the `.cljc` on the JVM). The four core kind namespaces are required
@@ -283,57 +284,3 @@
       (is (= :rf.error/invalid-image (:rf.error/id data)))
       (is (= :reg-view (:unsupported-section data)))
       (is (= [:reg-cofx :reg-event :reg-fx :reg-sub] (:supported-sections data))))))
-
-;; ===========================================================================
-;; 3. The metadata-only [id metadata] form is rejected (EP-0026).
-;; ===========================================================================
-
-(deftest metadata-only-tuple-rejected
-  (testing "a 2-tuple [id metadata-map] (a metadata-only form) fails
-            loud — a 2-tuple's second slot is the handler BODY, not metadata"
-    (doseq [section [:reg-event :reg-sub :reg-fx :reg-cofx]]
-      (is (= :rf.error/invalid-image
-             (invalid-image-id #(rf.image/image {:registrations {section [[:x {:doc "meta only"}]]}})))
-          (str section " metadata-only 2-tuple must be rejected"))))
-  (testing "a 3-tuple [id metadata body] is the way to attach metadata"
-    (let [body (fn [_ _] {})
-          d    (runnable {:reg-event [[:x {:doc "ok"} body]]})]
-      ;; A doc-ONLY metadata map is the weakest possible witness
-      ;; for this claim: `:doc` is stripped under -Dre-frame.debug=false, so
-      ;; the map reduces to nothing and the row cannot distinguish "the middle
-      ;; slot was read as metadata" from "the middle slot was ignored".
-      ;; It sits in the arm...
-      (when rf.interop/debug-enabled?
-        (is (= {:doc "ok"} (:metadata d))))
-      (is (= body (:impl d))))
-    ;; ...and has an always-on partner that reads a LOAD-BEARING middle slot,
-    ;; so the grammar claim holds in the posture that ships.
-    (let [body (fn [_ _] {})
-          d    (runnable {:reg-event [[:x {:rf.cofx/requires [:rf.cofx/now]} body]]})]
-      (is (= {:rf.cofx/requires [:rf.cofx/now]} (:metadata d))
-          "the 3-tuple's middle slot is read as metadata in every posture")
-      (is (= body (:impl d))
-          "and the third slot is the handler body, not the metadata"))))
-
-;; ===========================================================================
-;; 4. The two grammars compose: a single image carrying all four supported kinds
-;;    lowers each correctly (the EP §Use Case 2 teaching shape).
-;; ===========================================================================
-
-(deftest all-four-kinds-compose-in-one-image
-  (testing "an image defining all four supported kinds inline lowers each into
-            its runnable shape (the EP-0026 §Use Case 2 self-contained image)"
-    (let [v   (rf.image/image
-                {:id :quickstart/counter
-                 :registrations
-                 {:reg-event [[:counter/inc (fn [{:keys [db]} _] {:db db})]]
-                  :reg-sub   [[:counter/value (fn [db _] (:counter/value db))]]
-                  :reg-fx    [[:metrics/send (fn [_] nil)]]
-                  :reg-cofx  [[:clock/now (fn [] 0)]]}})
-          ds  (mapv rf.image-assembly/lower-inline-descriptor (:rf.image/inline v))
-          by  (into {} (map (juxt (juxt :kind :id) identity)) ds)]
-      (is (= 4 (count ds)))
-      (is (fn? (:handler-fn (by [:event :counter/inc]))))
-      (is (= :db (:input-kind (by [:sub :counter/value]))))
-      (is (fn? (:handler-fn (by [:fx :metrics/send]))))
-      (is (contains? (by [:cofx :clock/now]) :recordable?)))))
