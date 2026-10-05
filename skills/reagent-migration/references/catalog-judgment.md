@@ -322,8 +322,15 @@ Two migration behaviours are worth pre-empting:
 
 **MIG-22 — a third-party Reagent wrapper (re-com et al.) is a Reagent
 component, not a React one.** `r/reactify-component` makes it crossable, and the
-census reports every such site. That is two renderers in one tree: a judgment
-call, worth measuring. The cleaner move is often the **outward** bridge — keep
+census reports every call to that bridge API (`:outward-bridge`) — not every
+use of a third-party Reagent component. An ordinary head such as
+`[rc/v-box …]` or `[rc/input-text …]` calls no Reagent API, so the census never
+lists it, and a file the census reports clean, or does not recognise, can
+still cross into a Reagent library at every such head. Inventory those by
+hand — each library namespace that provides Reagent components, and each view
+that calls one as a head — because every such caller is a crossing this rule
+decides. That is two renderers in one tree: a judgment call, worth measuring.
+The cleaner move is often the **outward** bridge — keep
 the wrapper subtree on Reagent and hand a converted Fresco view up to it with
 `(def card* (h/as-component card))`, declared once at top level beside the view.
 The parent's props arrive as the view's ordinary props map, children at
