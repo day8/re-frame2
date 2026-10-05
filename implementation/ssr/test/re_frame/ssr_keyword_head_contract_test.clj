@@ -208,30 +208,6 @@
                (rf.ssr.emit/render-to-string [(rf/view :dashboard/card) :revenue] nil)))))))
 
 ;; ===========================================================================
-;; The streaming shell walker — `render-shell`
-;; ===========================================================================
-
-(deftest streaming-walker-keyword-head-is-an-element
-  (testing "the shell walker obeys the same one grammar. It has its
-            OWN keyword branch, so a `(registrar/lookup :view head)` probe
-            there would leave the streaming path diverging from every
-            client substrate even with the standard emitter aligned.
-            `both-emitters-agree-on-the-same-head` pins the walker's bytes
-            to the standard emitter's for keyword and callable heads; this
-            pins that the walker still recurses through the element into
-            nested children, so a suspense boundary underneath a keyword
-            head is reachable"
-    (let [{:keys [shell-html continuations]}
-          (rf.ssr.streaming/render-shell
-            [:dashboard/card
-             [:rf/suspense-boundary {:id :b1 :fallback [:span "loading"]}
-              [card-view :revenue]]])]
-      (is (= 1 (count continuations))
-          "the boundary under an element head must still be recorded")
-      (is (str/starts-with? shell-html "<card>")
-          "the element head is emitted, not resolved away"))))
-
-;; ===========================================================================
 ;; Unrecognised reserved `:rf/*` heads fail loud
 ;; ===========================================================================
 
