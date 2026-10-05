@@ -196,16 +196,6 @@
 ;; (2) THE RECORD — exactly one, with the two discriminators that matter
 ;; ===========================================================================
 
-(deftest the-rejection-fans-exactly-one-always-on-record
-  (testing "Spec 009's one-runtime-error law: the two enforcement
-            routes (dev refuses in step-1, production inside the interceptor)
-            converge on ONE emit site, so a rejection cannot report twice —
-            which is also what stops the projection buffer from filling with
-            duplicates of itself."
-    (let [{:keys [records]} (ingest! bad-payload)]
-      (is (= [:rf.error/schema-validation-failure] (mapv :error records))
-          "exactly one always-on record, and it is the boundary category"))))
-
 (deftest the-record-carries-the-discriminators-the-projector-gates-on
   (testing "`:where :event` is what
             `default-error-projector-fn` gates its 400 arm on — a record
@@ -214,8 +204,13 @@
             `:source :boundary` is the second discriminator: it separates this
             production-reachable member from the seven dev-only `:where`
             surfaces the same category spans."
-    (let [record (first (boundary-records (:records (ingest! bad-payload))))]
-      (is (= :rf.error/schema-validation-failure (:error record)))
+    (let [records (:records (ingest! bad-payload))
+          record  (first (boundary-records records))]
+      (is (= [:rf.error/schema-validation-failure] (mapv :error records))
+          "exactly one always-on record, and it is the boundary category —
+           Spec 009's one-runtime-error law: the dev and production
+           enforcement routes converge on ONE emit site, so a rejection
+           cannot report twice or fill the projection buffer with duplicates")
       (is (= :event (:where record))
           ":where :event — the default projector's 400 gate")
       (is (= :boundary (:source record))
@@ -258,22 +253,14 @@
           "nor does a value riding an undeclared key beside it")
       (is (= :api/ingest (:event-id record))
           "and the record is still worth having: the refused endpoint is named
-           structurally, WITHOUT the payload that travelled with it"))))
-
-(deftest the-production-record-carries-exactly-the-enumerated-slots
-  (testing "the key set is CLOSED. A slot added to this record
-            reaches an off-box shipper in a production build, so widening it
-            must be a deliberate change rather than a drift — and the exact
-            `=` names any re-introduced payload-bearing slot of the DEV trace
-            in its failure output, rather than relying on a sentinel that
-            happened to be chosen well."
-    (let [record (first (boundary-records (:records (ingest! bad-payload))))]
+           structurally, WITHOUT the payload that travelled with it")
       (is (= #{:error :where :source :event-id :failing-id :schema-id
                :frame :recovery :time}
              (set (keys record)))
-          "exactly the nine enumerated slots — every one an identifier, so
-           none of the dev trace's payload-bearing slots (:event :value
-           :received :explain :schema :reason) rides the always-on record"))))
+          "the key set is CLOSED — exactly the nine enumerated slots, every one
+           an identifier, so none of the dev trace's payload-bearing slots
+           (:event :value :received :explain :schema :reason) rides the
+           always-on record, and widening it must be a deliberate change"))))
 
 ;; ===========================================================================
 ;; (4) ATTRIBUTION — the 400 lands on the frame that refused
