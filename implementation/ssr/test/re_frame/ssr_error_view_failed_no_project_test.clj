@@ -55,12 +55,13 @@
   are assertions ABOUT the dev listener, which is the surface their names
   and docstrings claim.
 
-  Tests (3) and (4) are the production-visible counterparts and run under
-  BOTH postures, calling `error-emit-projection-listener` DIRECTLY — the
-  always-on path a `-Dre-frame.debug=false` JVM SSR host uses. (4) is what
-  stops the guard costing coverage: `:rf.error/sub-exception` genuinely
-  reaches production on that axis, so the no-over-skip control is
-  adjudicated for real under the gate rather than only in dev."
+  Test (3) is the production-visible counterpart and runs under BOTH
+  postures, calling `error-emit-projection-listener` DIRECTLY — the
+  always-on path a `-Dre-frame.debug=false` JVM SSR host uses. The
+  no-over-skip control on that axis is
+  `re-frame.ssr-sub-exception-two-frame-attribution-test`, whose throwing
+  subscription projects its `:rf.error/sub-exception` to a 500 through the
+  always-on substrate in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -188,36 +189,3 @@
            category — not buffered")
       (is (= 200 (:status (rf.ssr/get-response fid)))
           "status stays 200 on the production substrate too"))))
-
-;; ===========================================================================
-;; (4) Always-on NO-OVER-SKIP control — the production counterpart of (2).
-;;     On a `-Dre-frame.debug=false` JVM the dev bus is silent,
-;;     so "the error-view-failed record was not buffered" is only meaningful
-;;     next to "a genuine drain-time record on the SAME listener WAS".
-;; ===========================================================================
-
-(deftest always-on-path-genuine-drain-time-error-still-projects-non-200
-  (testing "no over-skip, always-on:
-            `:rf.error/sub-exception` — a reactive sub throwing mid-render,
-            fail-closed — delivered to the ALWAYS-ON
-            `error-emit-projection-listener` IS buffered and projects a
-            non-200. The category rides `dispatch-on-error!` in production,
-            so unlike the dev control this one has a live producer in the
-            posture that ships: an over-broad skip would silently turn an
-            unusable page into a 200 on a real server."
-    (let [fid (make-server-frame)]
-      (rf.ssr.error-listener/error-emit-projection-listener
-        {:error      :rf.error/sub-exception
-         :event      nil
-         :event-id   nil
-         :frame      fid
-         :time       0
-         :exception  (ex-info "sub boom" {})
-         :elapsed-ms 0})
-      (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
-          "a genuine drain-time failure IS buffered by the always-on listener")
-      (is (= 500 (:status (rf.ssr/get-response fid)))
-          "and it projects the default projector's fail-closed 500 — the
-           always-on listener is doing real work in this posture, so the
-           error-view-failed skip in (3) is targeted and does not swallow a
-           real failure's status"))))
