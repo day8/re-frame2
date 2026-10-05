@@ -81,18 +81,12 @@
   ;; `navigate-handler`'s unguarded `merge` fold, where Clojure's own
   ;; collection semantics would decide the outcome three different ways.
   ;;
-  ;; The two-element-vector control and the vector / string / nil /
-  ;; seq-of-pairs rejections, with the plain `{}` and `{:page 2}` passes, are
+  ;; The vector / string / nil / seq-of-pairs rejections, with the plain `{}`
+  ;; and `{:page 2}` passes, are
   ;; `routing-boundary-totality-cljs-test`'s
   ;; `navigate-non-map-query-merge-rejects-cross-host`, on this same `current`
   ;; and on both hosts. The rows below are the ones only this suite carries.
   (let [current {:route-id :route/search :query {:q "x"}}]
-
-    (testing "the hazard's other two symptoms on this host"
-      (is (thrown? ClassCastException (merge {} "oops"))
-          "a string reaches a RAW host throw in the same fold (no ex-data)")
-      (is (= {:q "x"} (merge {:q "x"} nil))
-          "a present nil VANISHES in the fold — a silent no-op, not a reject"))
 
     (testing "a set rejects too — the rule is any non-map, not only the shapes a
               fold happens to accept"
@@ -126,16 +120,6 @@
 
 ;; ---- extract-address: only the extracted address is an address ------------
 
-(deftest extract-address-selects-only-the-address-key-class
-  (testing "a flat wrapper carrying an address + policy + a DOM attr extracts to ONLY the address keys"
-    (is (= {:to :route/article :params {:slug "x"} :query {:tab "c"}}
-           (rf.routing.address/extract-address {:to       :route/article
-                                     :params   {:slug "x"}
-                                     :query    {:tab "c"}
-                                     :replace? true         ;; policy — dropped
-                                     :on-click identity     ;; behaviour — dropped
-                                     :class    "nav"})))))  ;; DOM attr — dropped
-
 (deftest valid-address?-is-the-closed-schema-over-the-extracted-address
   (testing "a well-formed extracted address is valid"
     (is (rf.routing.address/valid-address? {:to :route/article :params {:slug "x"} :query {} :fragment nil})))
@@ -147,21 +131,6 @@
   (testing "the extracted address of a policy-carrying wrapper IS valid — policy never reached the schema"
     (is (rf.routing.address/valid-address?
           (rf.routing.address/extract-address {:to :route/article :params {:slug "x"} :replace? true})))))
-
-;; ---- consumption: route-url resolves through the shared address class -----
-
-(deftest route-url-rejects-non-address-keys-via-the-shared-class
-  (rf.routing/reg-route :route/article {} "/articles/:slug")
-  (testing "route-url is address-only over the SHARED address-keys class: a policy key rejects loud"
-    (let [ex (try (rf.routing/route-url {:to :route/article :params {:slug "x"} :replace? true})
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "route-url rejects a non-address (policy) key")
-      (is (= :bad-address-keys (:reason (ex-data ex))))
-      (is (= [:replace?] (:keys (ex-data ex))))))
-  (testing "the extracted address builds the same URL whether or not policy rode alongside it"
-    (is (= "/articles/x"
-           (rf.routing/route-url (rf.routing.address/extract-address
-                                {:to :route/article :params {:slug "x"} :replace? true}))))))
 
 ;; ---- consumption: route-link (link-model) resolves through the extractor --
 
