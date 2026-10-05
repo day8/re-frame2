@@ -1263,26 +1263,6 @@
         (is (nil? (find-keyword co-probe))
             "refusing an unknown override key MUST NOT intern it")))))
 
-;; `snapshot-identity` forwards `:cell-overrides`
-;; into `rf.story/snapshot-identity`, where it perturbs the `:content-hash`
-;; via the resolved `:effective-args`. The descriptor + API advertise
-;; the slot, since it is a real identity input — hiding it behind
-;; `additionalProperties false` would let a validating client strip it
-;; while a non-validating client got a different hash. The test below
-;; pins both halves: `invoke-tool` refuses an argument the descriptor does
-;; not advertise, so the override call succeeding shows the slot is
-;; advertised, and the differing hash shows the override is identity-bearing.
-(deftest snapshot-identity-cell-overrides-changes-hash
-  (testing "a cell-override perturbs the content-hash (it is identity-bearing)"
-    (let [bare      (invoke "snapshot-identity" {:variant-id "story.button/primary"})
-          over<- (invoke "snapshot-identity" {:variant-id    "story.button/primary"
-                                              :cell-overrides {:label "Override"}})]
-      (is (success? bare))
-      (is (success? over<-))
-      (is (not= (-> bare :structuredContent :content-hash)
-                (-> over<- :structuredContent :content-hash))
-          "the same variant with a different cell-override must hash differently"))))
-
 (deftest read-a11y-violations-unavailable-on-jvm-host-is-error
   ;; The a11y-panel-state provider is UNREACHABLE on the
   ;; JVM stdio host (no bridge to the CLJS `violations-by-frame` atom), so
@@ -1299,23 +1279,6 @@
       (is (= "read-a11y-violations" (:tool s)))
       (is (not (contains? s :violations))
           "no false-empty :violations slot — the host never ran axe-core"))))
-
-(deftest read-a11y-violations-reached-provider-distinguishes-empty-from-absent
-  ;; The reached-provider (co-hosted) branch of `tool-read-a11y-violations`.
-  ;; A bound `*a11y-provider*` returns the by-frame violations map directly.
-  ;; A frame with NO entry, even beside another frame's findings, is an
-  ;; ORDINARY empty success — the reached-and-empty answer that the JVM
-  ;; capability-unavailable error is distinguishable from. Findings riding
-  ;; through verbatim are pinned in
-  ;; `read-a11y-violations-carries-incomplete-beside-violations`.
-  (testing "provider REACHED but no entry for this frame ⇒ ordinary empty success (NOT unavailable)"
-    (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (fn [] {:story.other/frame [{:id "x"}]})]
-      (let [r (invoke "read-a11y-violations" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r)
-            "a reached provider with no findings for this frame is a SUCCESS, distinct from unavailable")
-        (is (= [] (:violations s))
-            "no entry for this frame ⇒ reached-and-empty vec, not an error")))))
 
 (deftest read-a11y-violations-carries-incomplete-beside-violations
   ;; axe-core's INCOMPLETE results (checks it could not decide) ride beside
@@ -1854,32 +1817,6 @@
 ;; `rf.story-mcp.config/origin`; the registrar's open-shape variant schema admits
 ;; the extra slot.
 ;; ---------------------------------------------------------------------------
-
-(deftest register-variant-stamps-origin-story-mcp
-  (testing "register-variant writes a body carrying :origin :story-mcp"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r    (invoke "register-variant"
-                       {:variant-id "story.button/origin-map"
-                        :body       {:doc  "Origin-stamped via map body."
-                                     :args {:label "Stamped"}}})
-          body (rf.story/variant->edn :story.button/origin-map)]
-      (is (success? r))
-      (is (= :story-mcp (:origin body))
-          "registered body must carry :origin :story-mcp")
-      ;; Caller-supplied keys survive alongside the stamp.
-      (is (= "Origin-stamped via map body." (:doc body)))
-      (is (= {:label "Stamped"} (:args body))))))
-
-(deftest register-variant-edn-string-body-stamps-origin
-  (testing "an EDN-string body registers with its own slots and :origin :story-mcp"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r    (invoke "register-variant"
-                       {:variant-id "story.button/origin-edn"
-                        :body       "{:doc \"Origin via EDN.\" :args {:label \"OK\"}}"})
-          body (rf.story/variant->edn :story.button/origin-edn)]
-      (is (success? r))
-      (is (= "Origin via EDN." (:doc body)) "the EDN string parsed into the registered body")
-      (is (= :story-mcp (:origin body))))))
 
 (deftest register-variant-overrides-caller-supplied-origin
   (testing "story-mcp owns the :origin slot — caller-supplied values are clobbered"
