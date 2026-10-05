@@ -112,6 +112,7 @@
             form))
         rt/all-forms))
 
+;; nil when either form is missing, which makes every walk test below error.
 (def ^:private strip-fns-fn
   (let [sentinel sentinel-form
         walker   (rt/defn-named 'strip-fns)]
@@ -130,14 +131,6 @@
    :data    {:retries 0}
    :guards  {:can-go? (fn [_ _] true)}
    :actions {:log! (fn [_ _] nil)}})
-
-(deftest shipped-strip-fns-is-loadable
-  (is (some? sentinel-form)
-      "fn-slot-sentinel must be a top-level def in the preload — nothing to substitute without it")
-  (is (some? strip-fns-fn)
-      (str "strip-fns must be readable and evaluable out of the preload source. "
-           "If this fails the two assertions below prove nothing, so it is "
-           "asserted rather than assumed.")))
 
 (deftest shipped-strip-fns-replaces-guard-and-action-fns
   (let [stripped (strip-fns-fn machine-spec-with-fns)]
