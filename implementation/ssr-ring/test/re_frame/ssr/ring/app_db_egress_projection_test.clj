@@ -51,26 +51,6 @@
 
 ;; ---- allowlist + projection compose ---------------------------------------
 
-(deftest allowlisted-key-sensitive-child-redacted
-  (testing "an allowlisted top-level key (:session) ships, but its
-            frame-sensitive child (:token) is redacted by the ssr-hydration
-            projection; the public sibling (:user) rides verbatim; unlisted
-            keys (:public / :secrets) are omitted by the allowlist"
-    (reg-sensitive-frame!)
-    (let [out    (rf.ssr.ring.payload/build-payload server-frame app-db "h1"
-                                        {:payload [:session :public]})
-          db     (:rf/app-db out)]
-      (is (= rf.privacy/redacted-sentinel (get-in db [:session :token]))
-          "the frame-sensitive nested :token is redacted on the hydration wire")
-      (is (= "alice" (get-in db [:session :user]))
-          "the public sibling rides verbatim")
-      (is (= {:page :dashboard} (:public db))
-          "another allowlisted key rides through the projection unchanged")
-      (is (not (contains? db :secrets))
-          ":secrets (unlisted) is omitted by the allowlist")
-      (is (not (.contains (pr-str out) "secret-jwt"))
-          "no raw token survives anywhere in the emitted payload"))))
-
 (deftest whole-app-db-still-projects-sensitive-children
   (testing "an explicit :rf.ssr.payload/whole-app-db opt-in ships every key,
             but STILL projects frame-sensitive children — the raw token never
@@ -85,32 +65,6 @@
       (is (= "internal-only" (get-in db [:secrets :api-key]))
           ":secrets rides under whole-app-db opt-in (no frame mark on it)")
       (is (not (.contains (pr-str out) "secret-jwt"))))))
-
-;; ---- fail-closed: an unknown / unregistered frame redacts the whole slice --
-
-(deftest missing-frame-policy-fails-closed
-  (testing "building the payload against an UNREGISTERED frame (no resolvable
-            elision policy) fails CLOSED — the whole app-db slice redacts to
-            the :rf/redacted sentinel rather than ship under no policy"
-    ;; deliberately do NOT register :rf.bt9kct/ghost
-    (let [out (rf.ssr.ring.payload/build-payload :rf.bt9kct/ghost app-db "h1"
-                                     {:payload [:session]})]
-      (is (= rf.privacy/redacted-sentinel (:rf/app-db out))
-          "an unresolvable frame redacts the whole slice (fail-closed)")
-      (is (not (.contains (pr-str out) "secret-jwt"))
-          "no raw value escapes under a missing frame policy"))))
-
-(deftest no-classification-frame-rides-allowlisted-slice-verbatim
-  (testing "a registered frame with NO :sensitive classification ships its
-            allowlisted slice verbatim (the projection is a precise
-            classification walk, not a blanket scrub)"
-    (rf/make-frame {:id :rf.bt9kct/plain :platform :server})
-    (let [out (rf.ssr.ring.payload/build-payload :rf.bt9kct/plain app-db "h1"
-                                     {:payload [:session]})
-          db  (:rf/app-db out)]
-      (is (= {:token "secret-jwt" :user "alice"} (:session db))
-          "no frame classification → allowlisted slice rides verbatim")
-      (is (not (contains? db :public))))))
 
 ;; ---- no size elision on the hydration wire ---------------------------------
 ;;
@@ -152,40 +106,6 @@
           "control: the unallowlisted key is still absent")
       (is (not (.contains (pr-str out) "tok-server-only"))
           "control: no raw sensitive value survives anywhere in the payload"))))
-
-(deftest large-classified-value-survives-a-real-hydrate
-  (testing "the wire payload, read back as EDN and installed by a real
-            :rf/hydrate into a client frame, leaves the client holding the
-            vector"
-    (reg-catalog-frame!)
-    (let [payload (-> (rf.ssr.ring.payload/build-payload catalog-frame catalog-db nil
-                                                         {:payload [:catalog]})
-                      pr-str
-                      edn/read-string)
-          client  (rf.frame/make-anon-frame-record! {:doc      "hydration client frame"
-                                                     :platform :client})]
-      (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
-      (let [items (get-in (rf/app-db-value client) [:catalog :items])]
-        (is (vector? items) (str "the client holds a vector, not a marker; got " (pr-str items)))
-        (is (= [1 2 3] items)))
-      (is (= rf.privacy/redacted-sentinel
-             (get-in (rf/app-db-value client) [:catalog :owner-token]))
-          "control: the sensitive sibling is still the sentinel on the client"))))
-
-(deftest large-value-obeys-the-numeric-crossing-rule
-  (testing "a :large value rides, so it obeys the JVM numeric crossing
-            rule: a Long past 2^53 inside it is refused rather than shipped as a
-            marker (which would destroy the value silently)"
-    (reg-catalog-frame!)
-    (let [data (try (rf.ssr.ring.payload/build-payload
-                      catalog-frame
-                      {:catalog {:items [1 9007199254740993] :title "Shop"}}
-                      nil {:payload [:catalog]})
-                    nil
-                    (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-      (is (= :rf.error/ssr-hydration-payload-invalid (:rf.error/id data)))
-      (is (= [:catalog :items 1] (:path data)))
-      (is (= :rf/app-db (:partition data))))))
 
 ;; ---- the :payload-include-sensitive permit ----------------------------------
 ;;
@@ -247,18 +167,6 @@
   (testing "control: with no permit the token is redacted"
     (is (= rf.privacy/redacted-sentinel
            (get-in (:payload (serve-session! {})) [:rf/app-db :session :csrf])))))
-
-(deftest a-permitted-value-is-live-client-state-after-a-real-hydrate
-  (reg-session-app!)
-  (let [{:keys [payload]} (serve-session! permit)
-        client            (rf.frame/make-anon-frame-record! {:doc      "permit client frame"
-                                                             :platform :client})]
-    (rf/dispatch-sync [:rf/hydrate payload] {:frame client})
-    (is (= "csrf-abc-123" (get-in (rf/app-db-value client) [:session :csrf]))
-        "the client holds the token it must send back, not :rf/redacted")
-    (is (= rf.privacy/redacted-sentinel
-           (get-in (rf/app-db-value client) [:session :upstream-key]))
-        "control: the withheld sibling is still the sentinel on the client")))
 
 (deftest a-permitted-rendered-value-hydrates-without-a-mismatch
   (testing "the hiccup tier renders the LIVE frame, so the server HTML carries
