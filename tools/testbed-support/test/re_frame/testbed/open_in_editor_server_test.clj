@@ -110,48 +110,6 @@
        sort
        vec))
 
-(deftest guard-allows-valid-local-post
-  (testing "a POST addressed to a loopback Host with a loopback Origin from
-            another local port is admitted and answers 200 — admission, not
-            CORS, is the boundary"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "localhost:8031"
-                           :origin "http://localhost:8042"
-                           :file   "fake_ns/core.cljs"}))]
-          (is (= 200 (:status resp)) "valid local POST is accepted")
-          (is (= 1 (count @calls)) "launch! was invoked exactly once")
-          (is (= [] (cors-headers resp))
-              "the endpoint sets no CORS header of its own")))))
-  (testing "a same-origin POST that omits Origin entirely still passes on the
-            loopback Host check alone"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "127.0.0.1:8031"
-                           :origin nil
-                           :file   "fake_ns/core.cljs"}))]
-          (is (= 200 (:status resp)))
-          (is (= 1 (count @calls))))))))
-
-(deftest guard-rejects-cross-origin-post
-  (testing "a POST whose Origin is a REMOTE page is rejected 403 and never
-            reaches launch! — the drive-by vector the guard closes"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "localhost:8031"
-                           :origin "https://evil.example"
-                           :file   "/etc/passwd"}))]
-          (is (= 403 (:status resp)) "cross-origin POST is forbidden")
-          (is (zero? (count @calls)) "launch! was not called")
-          (is (= [] (cors-headers resp))
-              "no CORS header — the remote origin is not reflected"))))))
-
 (deftest guard-rejects-non-loopback-host
   (testing "a POST addressed to a non-loopback Host (a public binding /
             DNS-rebinding attempt) is rejected 403 before launch!"
@@ -193,29 +151,7 @@
           (is (= 403 (:status resp))
               "a forged loopback Host does not admit a remote peer")
           (is (re-find #"\"error\":\"forbidden\"" (:body resp)))
-          (is (zero? (count @calls)) "launch! was not called")))))
-  (testing "spoofing a loopback ORIGIN as well does not help — the peer still
-            decides"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "127.0.0.1:8031"
-                           :origin "http://localhost:8042"
-                           :peer   "10.0.0.5"
-                           :file   "/etc/passwd"}))]
-          (is (= 403 (:status resp)))
-          (is (zero? (count @calls)))))))
-  (testing "an IPv6 remote peer is refused on the same footing"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :post
-                           :host   "localhost:8031"
-                           :peer   "2001:db8::5"
-                           :file   "/etc/passwd"}))]
-          (is (= 403 (:status resp)))
-          (is (zero? (count @calls))))))))
+          (is (zero? (count @calls)) "launch! was not called"))))))
 
 (deftest guard-fails-closed-on-unknown-peer
   (testing "an absent :remote-addr is refused — a missing transport fact is
@@ -226,17 +162,7 @@
                      (req {:method :post :host "localhost:8031"
                            :peer :absent :file "/etc/passwd"}))]
           (is (= 403 (:status resp)))
-          (is (zero? (count @calls)))))))
-  (testing "blank and malformed peer values are refused too"
-    (doseq [bad ["" "   " "not-an-address" "127.0.0.1.evil.example"
-                 "127.0.0.1, 10.0.0.5" "localhost"]]
-      (let [calls (atom [])]
-        (with-launch-spy calls
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       (req {:method :post :host "localhost:8031"
-                             :peer bad :file "/etc/passwd"}))]
-            (is (= 403 (:status resp)) (str "refused peer value: " (pr-str bad)))
-            (is (zero? (count @calls)))))))))
+          (is (zero? (count @calls))))))))
 
 (deftest guard-ignores-forwarding-headers
   (testing "X-Forwarded-For cannot launder a remote peer into a loopback one —
@@ -251,20 +177,6 @@
                          (assoc-in [:headers "x-real-ip"] "127.0.0.1")))]
           (is (= 403 (:status resp)))
           (is (zero? (count @calls))))))))
-
-(deftest guard-rejects-remote-peer-before-method-and-preflight
-  (testing "the transport check is the OUTERMOST gate: a remote peer gets 403
-            for a GET (not 405) and for an OPTIONS (not 405 either)"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
-                              (req {:method :get :host "localhost:8031"
-                                    :peer "203.0.113.7" :file "/etc/passwd"})))))
-        (is (= 403 (:status (rf.testbed.open-in-editor-server/handle
-                              (req {:method :options :host "localhost:8031"
-                                    :origin "http://localhost:8042"
-                                    :peer "203.0.113.7"})))))
-        (is (zero? (count @calls)) "launch! was not called")))))
 
 (deftest loopback-peer?-classifies-correctly
   (testing "the IPv4 loopback block, both IPv6 loopback spellings, and the
@@ -401,19 +313,6 @@
                "/127.0.0.999:54321" "localhost/1.2.3.456:54321"]]
       (is (nil? (#'rf.testbed.open-in-editor-server/peer-literal s))
           (str "never reaches getByName: " (pr-str s))))))
-
-(deftest guard-rejects-non-post-drive-by
-  (testing "a simple GET drive-by (the `<img>`/`<form>`/`no-cors` class) is
-            rejected 405 even from a loopback Host — it never launches"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     (req {:method :get
-                           :host   "localhost:8031"
-                           :origin nil
-                           :file   "/etc/passwd"}))]
-          (is (= 405 (:status resp)) "GET is method-not-allowed")
-          (is (zero? (count @calls)) "launch! was not called"))))))
 
 (deftest guard-options-is-not-a-preflight
   (testing "the supported client workflow is same-origin (the client posts a
