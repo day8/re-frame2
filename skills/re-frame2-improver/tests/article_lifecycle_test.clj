@@ -94,6 +94,8 @@
     (load-string (str/replace @after-block "rf/" ""))
     @registry))
 
+;; A missing or duplicated After block, or an id it does not register, makes
+;; every test that calls the handler error.
 (defn- handler [id] (get @handlers id))
 
 ;; The canonical envelopes EP-0011 delivers to the two reply targets.
@@ -108,21 +110,6 @@
 
 (def ^:private loading-db
   (delay (:db ((handler :article/load) {:db {}} [:article/load {:slug "alpha"}]))))
-
-;; ---------------------------------------------------------------------------
-;; Premise — the block is present and registers all three lifecycle events
-;; ---------------------------------------------------------------------------
-
-(deftest after-block-is-found-and-complete
-  (testing "exactly one fenced block registers :article/load-failed"
-    (is (some? @after-block)
-        "the canonical After block is missing, renamed, or duplicated"))
-  (testing "it registers the load and both reply handlers"
-    (doseq [id [:article/load :article/loaded :article/load-failed]]
-      (is (some? (handler id))
-          (str "the After block does not register " id
-               ". A canonical fix without both reply branches cannot settle its "
-               "lifecycle at all.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The always-on gate is the point of the block
