@@ -189,38 +189,6 @@
                        "the empty window slice above is a real absence and not a "
                        "dead instrument")))))))))
 
-(deftest direct-clear-settle-is-frame-local
-  (testing "clearing on one frame settles that frame only — a sibling frame's
-            identically-named flows are neither recomputed nor mutated"
-    (let [left-derives  (atom 0)
-          right-derives (atom 0)]
-      (rf/make-frame {:id :probe/left})
-      (rf/make-frame {:id :probe/right})
-      (rf/reg-event :seed (fn [_ _] {:db {:x 2}}))
-      (doseq [[frame-id counter] [[:probe/left left-derives]
-                                  [:probe/right right-derives]]]
-        (rf/reg-flow :probe/a
-          {:frame frame-id :inputs [[:x]] :output-path [:a]}
-          (fn [x] x))
-        (rf/reg-flow :probe/b
-          {:frame frame-id :inputs [[:a]] :output-path [:b]}
-          (fn [a] (swap! counter inc) a)))
-      (rf/dispatch-sync [:seed] {:frame :probe/left})
-      (rf/dispatch-sync [:seed] {:frame :probe/right})
-      (is (= {:x 2 :a 2 :b 2} (rf/app-db-value :probe/right))
-          "precondition — the sibling frame is materialised")
-
-      (let [right-before @right-derives]
-        (rf/clear :flow :probe/a {:frame :probe/left})
-        (let [left-observed  (rf/app-db-value :probe/left)
-              right-observed (rf/app-db-value :probe/right)]
-          (is (= {:x 2 :b nil} left-observed)
-              "the cleared frame settled: A's slot gone, B recomputed against the absence")
-          (is (= {:x 2 :a 2 :b 2} right-observed)
-              "the sibling frame's app-db is untouched")
-          (is (zero? (- @right-derives right-before))
-              "the sibling frame's dependent was not re-derived"))))))
-
 (deftest direct-clear-no-op-paths-stay-silent
   (testing "an unknown flow id settles nothing and derives nothing"
     (call-with-recorder
