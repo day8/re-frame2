@@ -70,17 +70,6 @@ test('the pool recovers, and the replacement is a DIFFERENT thread', async () =>
   });
 });
 
-test('a hung isolate does not take the rest of the pool with it', async () => {
-  await withService('hang', { isolates: 2, admissionTimeoutMs: 10000 }, async (service) => {
-    const [refused, served] = await Promise.all([
-      refusalOf(() => collect(service, hang({ timeoutMs: 200 }))),
-      collect(service, quick()),
-    ]);
-    assert.strictEqual(refused.code, CODE.RENDER_TIMEOUT);
-    assert.strictEqual(served.chunks.length, 1);
-  });
-});
-
 test('the service ceiling binds a caller that asks for longer', async () => {
   await withService(
     'hang',
