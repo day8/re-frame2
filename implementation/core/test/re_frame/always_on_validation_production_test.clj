@@ -373,22 +373,6 @@
 ;;             elided
 ;; ===========================================================================
 
-(deftest at-boundary-passes-a-conforming-event-through-in-every-posture
-  (testing "the negative control for surface 2. The boundary
-            interceptor is not simply breaking every dispatch: a CONFORMING
-            payload flows through and the handler runs exactly once, in both
-            postures."
-    (let [calls (atom 0)]
-      (rf/reg-event :prod/boundary
-        {:schema    [:cat [:= :prod/boundary] :int]
-         :boundary? true}
-        (fn [{:keys [db]} [_ n]]
-          (swap! calls inc)
-          {:db (assoc db :n n)}))
-      (rf/dispatch-sync [:prod/boundary 42])
-      (is (= 1 @calls) "the conforming payload reached the handler")
-      (is (= 42 (:n (db-of))) "and committed"))))
-
 ;; ===========================================================================
 ;; Surface 2, second half — the rejection is OBSERVABLE, and says so truthfully
 ;; ===========================================================================
@@ -440,7 +424,22 @@
             "and to the owning frame, so a multi-frame server host can route
              it per-request")
         (is (= :no-recovery (:recovery rec)))
-        (is (number? (:time rec)))))))
+        (is (number? (:time rec)))
+        (testing "and it settles `:outcome :rejected`. The handler produces no
+                  `:db`, so a cascade reaching its ordinary tail would settle
+                  `:ok`, and an off-box shipper watching the always-on
+                  `:events` stream would see a dispatch that worked. Neither
+                  other non-`:ok` value fits: `:error` means the interceptor
+                  chain threw (it did not) and `:rolled-back` means a candidate
+                  state transition was refused before install (no candidate
+                  ever existed — the handler never ran)."
+          (let [evt (event-record-for captured :prod/boundary)]
+            (is (some? evt) "the always-on `:events` record fired for the dispatch")
+            (is (= :rejected (:outcome evt))
+                (str "`:outcome :rejected`. Red with `:ok` means production "
+                     "monitoring is being told a refused untrusted payload "
+                     "settled cleanly — it cannot separate hostile input from a "
+                     "healthy dispatch."))))))))
 
 (deftest at-boundary-rejection-record-is-structural-only-in-every-posture
   (testing "the EGRESS contract. Whatever this record carries ships
@@ -482,47 +481,29 @@
                "record, by any route — not in a `:reason` sentence, not in an "
                "`:explain` map, not stringified into an identifier.")))))
 
-(deftest at-boundary-rejection-settles-outcome-rejected-in-every-posture
-  (testing "the sharper half. The handler produces no `:db`, so a cascade
-            reaching its ordinary tail would settle `:ok` — an off-box shipper
-            watching the always-on `:events` stream would see a dispatch that
-            worked.
-
-            `:rejected` is a public event outcome and it says exactly
-            what happened. Neither other non-`:ok` value fits: `:error`
-            means the interceptor chain threw (it did not) and `:rolled-back`
-            means a candidate state transition was refused before install (no
-            candidate ever existed — the handler never ran). Overloading either
-            would corrupt working semantics; `:ok` would be a lie."
-    (rf/reg-event :prod/boundary
-      {:schema    [:cat [:= :prod/boundary] :int]
-       :boundary? true}
-      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (let [captured (record-both-axes
-                     #(rf/dispatch-sync [:prod/boundary "not-an-int"]))
-          evt      (event-record-for captured :prod/boundary)]
-      (is (some? evt) "the always-on `:events` record fired for the dispatch")
-      (is (= :rejected (:outcome evt))
-          (str "`:outcome :rejected`. Red with `:ok` means production "
-               "monitoring is being told a refused untrusted payload "
-               "settled cleanly — it cannot separate hostile input from a "
-               "healthy dispatch.")))))
-
 (deftest at-boundary-pass-emits-no-record-and-settles-ok-in-every-posture
-  (testing "the negative control for both halves. The boundary record is
-            not simply stamped on every dispatch through a guarded handler: a
-            CONFORMING payload fans no boundary record and settles `:ok`, so a
-            shipper's `:rejected` count is a count of real refusals and its
-            silence is real silence."
-    (rf/reg-event :prod/boundary
-      {:schema    [:cat [:= :prod/boundary] :int]
-       :boundary? true}
-      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (let [captured (record-both-axes #(rf/dispatch-sync [:prod/boundary 42]))]
-      (is (empty? (boundary-records captured))
-          "a passing payload fans NO always-on boundary record")
-      (is (= :ok (:outcome (event-record-for captured :prod/boundary)))
-          "and settles `:ok`"))))
+  (testing "the negative control for both halves. The boundary
+            interceptor is not simply breaking every dispatch: a CONFORMING
+            payload flows through and the handler runs exactly once, in both
+            postures. Nor is the boundary record simply stamped on every
+            dispatch through a guarded handler: a CONFORMING payload fans no
+            boundary record and settles `:ok`, so a shipper's `:rejected`
+            count is a count of real refusals and its silence is real
+            silence."
+    (let [calls (atom 0)]
+      (rf/reg-event :prod/boundary
+        {:schema    [:cat [:= :prod/boundary] :int]
+         :boundary? true}
+        (fn [{:keys [db]} [_ n]]
+          (swap! calls inc)
+          {:db (assoc db :n n)}))
+      (let [captured (record-both-axes #(rf/dispatch-sync [:prod/boundary 42]))]
+        (is (= 1 @calls) "the conforming payload reached the handler")
+        (is (= 42 (:n (db-of))) "and committed")
+        (is (empty? (boundary-records captured))
+            "a passing payload fans NO always-on boundary record")
+        (is (= :ok (:outcome (event-record-for captured :prod/boundary)))
+            "and settles `:ok`")))))
 
 (deftest unguarded-schema-refusal-is-not-a-boundary-rejection-in-every-posture
   (testing "the always-on report's NARROWNESS, pinned. A handler carrying
