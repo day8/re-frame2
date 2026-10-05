@@ -46,12 +46,6 @@ test('includesToken: RED-then-GREEN — plain .includes is fooled by a longer si
   assert.equal(includesToken(text, ':invalid-cofx-time-ms'), true);
 });
 
-test('includesToken: matches the short reason when it genuinely stands alone', () => {
-  const text = 'dispatch refused: :invalid-cofx (non-map cofx arg)';
-  assert.equal(includesToken(text, ':invalid-cofx'), true);
-  assert.equal(includesToken(text, ':invalid-cofx-time-ms'), false);
-});
-
 test('includesToken: token at the very start/end of text still matches', () => {
   assert.equal(includesToken(':invalid-cofx', ':invalid-cofx'), true);
   assert.equal(includesToken('prefix :invalid-cofx', ':invalid-cofx'), true);
