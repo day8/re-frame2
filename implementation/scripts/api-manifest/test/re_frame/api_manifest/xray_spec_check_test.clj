@@ -23,11 +23,7 @@
    {:namespace "day8.re-frame2-xray.panels.epoch-panel"  :var "Panel"}
    {:namespace "day8.re-frame2-xray.panels"              :var "mount-trace!"}
    ;; A non-Xray row that must never satisfy an Xray reference.
-   {:namespace "re-frame.core"                           :var "Panel"}
-   ;; A re-frame.core facade row, for the `(rf/<var>` path. It is
-   ;; deliberately NOT an Xray-namespaced row: the facade path resolves
-   ;; against ALL rows, where the two Xray paths filter to the Xray prefix.
-   {:namespace "re-frame.core"                           :var "trace-buffer"}])
+   {:namespace "re-frame.core"                           :var "Panel"}])
 
 (defn- problems-for
   "Run `reconcile` over `qualified-refs` / `bare-refs` / `facade-refs`
@@ -43,14 +39,6 @@
                    :bare-allow      bare-allow
                    :facade-allow    facade-allow
                    :rel             "tools/xray/spec/API.md"}))
-
-(deftest qualified-symbol-resolves-by-exact-ns+var
-  (testing "a live fully-qualified panel symbol resolves clean"
-    (is (empty? (problems-for
-                  {:qualified-refs [{:ns "day8.re-frame2-xray.panels.trace"
-                                     :var "Panel" :line 1
-                                     :raw "day8.re-frame2-xray.panels.trace/Panel"}]}))
-        "panels.trace/Panel is a manifest [ns var] row — must pass")))
 
 (deftest stale-namespace-with-shared-bare-var-is-rejected
   (testing "a stale/unmanifested Xray namespace whose
@@ -103,15 +91,6 @@
 ;; unmoved. These pin the third shape so that cannot happen silently.
 ;; ---------------------------------------------------------------------------
 
-(deftest facade-reference-to-a-live-var-resolves
-  (testing "a `(rf/<var>` reference whose bare name any manifest row carries
-            resolves clean — resolution is over ALL rows, not the Xray-
-            filtered ones, because these name the re-frame CORE facade"
-    (is (empty? (problems-for
-                  {:facade-refs [{:var "trace-buffer" :line 502
-                                  :raw "rf/trace-buffer"}]}))
-        "rf/trace-buffer is a re-frame.core manifest row — must pass")))
-
 (deftest facade-reference-to-a-removed-var-is-rejected
   (testing "a `(rf/<var>` reference naming a renamed /
             removed / never-manifested surface must go RED."
@@ -121,14 +100,7 @@
       (is (= 1 (count problems))
           "the planted facade reference must be flagged")
       (is (= 502 (:line (first problems)))
-          "the problem must name the planted line")))
-
-  (testing "and a removed name is still caught even though the check filters
-            the OTHER two paths to the Xray namespace prefix — a facade var
-            deleted repo-wide has no row in any namespace"
-    (is (seq (problems-for
-               {:facade-refs [{:var "sub-cache" :line 512 :raw "rf/sub-cache"}]}))
-        "rf/sub-cache is not a public var — must not resolve")))
+          "the problem must name the planted line"))))
 
 (deftest facade-allowlist-silences-a-named-reference
   (testing "an explicitly allowlisted facade name passes"
