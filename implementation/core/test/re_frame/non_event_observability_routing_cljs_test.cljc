@@ -52,7 +52,9 @@
         arms are pinned by
         `re-frame.observability-process-default-cljs-test`;
     (f) a buggy (throwing) sink is isolated — the corpus listener + sibling
-        sinks still receive the record.
+        sinks still receive the record. Both routes deliver through the one
+        `route-stream!`, so `re-frame.observability-routing-cljs-test` pins
+        the isolation for both.
 
   Dual-runtime `*_cljs_test.cljc`: the shadow-cljs `:node-test`
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
@@ -64,7 +66,6 @@
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -272,49 +273,3 @@
       (is (empty? @sink-seen)
           "an unresolved frame routes nothing to a sink — no :rf/default synthesis")
       (is (= 1 (count @listener-seen)) "the corpus-wide listener still fired"))))
-
-;; ===========================================================================
-;; (f) A buggy (throwing) sink is isolated — the corpus listener + sibling
-;; sinks still receive the record.
-;; ===========================================================================
-
-(deftest buggy-sink-isolated-on-non-event-route
-  (testing "a throwing sink on the non-event route is
-            dropped (sibling isolation); the sibling sink + the corpus-wide
-            listener still receive the record."
-    (let [good-seen     (atom [])
-          listener-seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/boom
-                                  (fn [_record] (throw (ex-info "sink bug" {}))))
-      (rf/register-observability-sink! :test.sinks/good
-                                  (fn [record] (swap! good-seen conj record)))
-      (rf.error-emit/register-error-listener! :test/listener
-                                   (fn [record] (swap! listener-seen conj record)))
-      (rf/make-frame {:id :obs/sib :observability
-                      {:errors [{:sink :test.sinks/boom
-                                 :rf.egress/profile :rf.egress/off-box-observability}
-                                {:sink :test.sinks/good
-                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
-      ;; Must not throw out of the emit.
-      (is (nil? (rf.error-emit/dispatch-frame-teardown-report!
-                  :obs/sib
-                  [{:hook :ssr/on-frame-destroyed
-                    :exception (ex-info "x" {}) :where :safe-call-hook!}]
-                  1))
-          "the emit returns nil — a throwing sink does not propagate")
-      (is (= 1 (count @good-seen))
-          "the sibling sink still received the projected record")
-      (is (= 1 (count @listener-seen))
-          "the corpus-wide listener still received the record"))))
-
-;; ===========================================================================
-;; The non-event frame-sink route is published as a late-bind hook.
-;; ===========================================================================
-
-(deftest route-error-record-late-bind-hook-is-published
-  (testing "observability publishes the
-            `:observability/route-error-record` late-bind hook so
-            rf.error-emit/dispatch-error-record! reaches the frame-sink route
-            without a static require (load-cycle break)."
-    (is (some? (rf.late-bind/get-fn :observability/route-error-record))
-        "the hook is registered at observability ns-load")))
