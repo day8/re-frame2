@@ -76,10 +76,9 @@
 (def ^:private marker-prop "rf2Oz7wrShellMarker")
 
 (defn- shell-marker
-  "Which test substrate componentized `x`, or nil when nothing did.
-  Reads through `goog.object/get` rather than `aget` so a `MetaFn` (an IFn
-  OBJECT, which is exactly what an un-componentized head is) answers nil
-  instead of throwing."
+  "Which test substrate componentized `x`, or nil when nothing did — an
+  un-componentized head is the bare frame-aware wrapper, which carries no
+  marker property."
   [x]
   (when (some? x) (gobj/get x marker-prop)))
 
