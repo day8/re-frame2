@@ -278,6 +278,7 @@
 
 (extend-type reagent.template/UnsafeHTML
   ILookup
-  (-lookup [this k] (-lookup this k nil))
-  (-lookup [this k not-found]
-    (if (keyword-identical? k :__html) (.-s this) not-found)))
+  (-lookup
+    ([this k] (-lookup this k nil))
+    ([this k not-found]
+     (if (keyword-identical? k :__html) (.-s this) not-found))))
