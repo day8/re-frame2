@@ -140,7 +140,7 @@
     ;; DEV ARM. The navigate-reject trigger is production-elided
     ;; (Spec 010 §Production builds): under the gate the params validate
     ;; vacuously, nothing is rejected, and both frames would sit at 200. The
-    ;; production-posture pin for this same contract is test (4).
+    ;; production-posture pin for this same contract is test (3).
     (when rf.interop/debug-enabled?
       (let [restore (with-stub-validator)]
         (try
@@ -176,7 +176,7 @@
             frame-a stays clean — the mirror of test (1), proving
             attribution follows the EMITTING frame in both directions
             (not a fixed/first-registered server frame)."
-    ;; DEV ARM, same reason as test (1). Test (4) mirrors this
+    ;; DEV ARM, same reason as test (1). Test (3) mirrors this
     ;; symmetry check on the always-on axis.
     (when rf.interop/debug-enabled?
       (let [restore (with-stub-validator)]
