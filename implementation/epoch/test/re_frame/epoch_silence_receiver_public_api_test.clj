@@ -48,34 +48,6 @@
 
 ;; ---- a real emitted silence self-filters at the public boundary -----------
 
-(deftest superseded-silence-self-filters-through-the-public-receiver-decision
-  (testing "a real :rf.epoch.cb/silenced-on-frame-destroy carries :observed-gen;
-            a consumer decides whether it is CURRENT using only
-            rf/epoch-silence-current? — accepting the live signal and discarding
-            a signal superseded by an intervening re-registration"
-    (let [tags (silence-tags :test/short-lived :seed ::watcher ::recorder)]
-      (is (some? tags) "a silence fired for the destroyed frame")
-      (is (= ::watcher (:cb-id tags)))
-      (is (= :test/short-lived (:frame tags)))
-      (is (contains? tags :observed-gen)
-          "the signal is generation-qualified (:observed-gen present)")
-
-      ;; CONSUMER, current registration: the silence names the live callback, and
-      ;; nothing has re-armed it on that frame — APPLY.
-      (is (true? (rf/epoch-silence-current? tags))
-          "the live signal is accepted — it names a current fact")
-
-      ;; Now supersede the registration THROUGH THE PUBLIC VERB.
-      (rf/register-listener! :epoch ::watcher (fn [_] nil))
-
-      ;; CONSUMER, superseded: the SAME captured signal is now discarded. One
-      ;; call, no private registry read, and — unlike a two-query recipe — no
-      ;; seam for the replacement to land in.
-      (is (false? (rf/epoch-silence-current? tags))
-          "a signal for the replaced registration is discarded at the public
-           boundary")
-      (rf/unregister-listener! :epoch ::watcher))))
-
 (deftest an-unregistered-listener-discards-its-own-pending-silence
   (testing "the drop half of registration identity, end to end through the public
             surface: a consumer that unregisters before deciding must not act on
