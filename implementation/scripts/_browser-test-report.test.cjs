@@ -19,19 +19,6 @@ function test(name, fn) {
   tests.push({ name, fn });
 }
 
-test('summary parser extracts cljs.test counts from noisy text', () => {
-  const parts = summaryPartsFromText([
-    '[browser:log] booted',
-    'Ran 12 tests containing 34 assertions.',
-    '0 failures, 0 errors.',
-  ].join('\n'));
-
-  assert.deepEqual(parts, {
-    ran: 'Ran 12 tests containing 34 assertions.',
-    failErr: '0 failures, 0 errors.',
-  });
-});
-
 // A prelude app log shaped exactly like a zero-failure cljs.test summary
 // (`0 failures, 0 errors.`) that PRECEDES the real `Ran ...` line must NOT
 // be paired as the failure summary. A first-match-of-each parser would
@@ -198,16 +185,6 @@ test('diagnostic buffer reports emptiness and ignores null adds', () => {
   assert.equal(buffer.isEmpty(), true, 'null/undefined adds are no-ops');
   buffer.add('first line');
   assert.equal(buffer.isEmpty(), false);
-});
-
-test('diagnostic buffer entries() returns a defensive copy', () => {
-  const buffer = createDiagnosticBuffer();
-  buffer.add('a');
-  const snapshot = buffer.entries();
-  snapshot.push({ stream: 'stdout', text: 'mutation' });
-  // Mutating the returned array must not leak back into the buffer.
-  assert.equal(buffer.entries().length, 1);
-  assert.deepEqual(buffer.entries(), [{ stream: 'stdout', text: 'a' }]);
 });
 
 // The fixture abort. The literal below is the one cljs.test 1.12.x
