@@ -148,7 +148,7 @@
         "runtime-db SURVIVES a fresh-map :db return — the partition footgun is structurally absent")))
 
 ;; ===========================================================================
-;; 3 — runtime-db commit (both write shapes — decision #5)
+;; 3 — runtime-db commit (whole-value; the mutators are section 7 — decision #5)
 ;; ===========================================================================
 
 (deftest runtime-db-effect-whole-value-commit
@@ -164,20 +164,6 @@
         "the :rf.db/runtime effect installed the runtime-db partition")
     (is (= {:app :data} (rf/app-db-value :pc/rtfx))
         "app-db is untouched by a runtime-only effect")))
-
-(deftest runtime-db-operation-style-write
-  (testing "operation-style runtime writes (via the mutator) coexist with whole-value (decision #5)"
-    (rf/make-frame {:id :pc/rtop :doc "rtop"})
-    ;; whole-value seed
-    (rf/replace-frame-state! :pc/rtop {:rf.db/runtime {:rf.runtime/machines {:a 1}}})
-    (is (= {:rf.runtime/machines {:a 1}} (:rf.db/runtime (rf/frame-state-value :pc/rtop))))
-    ;; operation-style update over the partition (read-modify-write)
-    (rf/replace-frame-state! :pc/rtop {:rf.db/runtime (assoc (:rf.db/runtime (rf/frame-state-value :pc/rtop))
-                                   :rf.runtime/routing {:current {:route-id :x}})})
-    (is (= {:rf.runtime/machines {:a 1}
-            :rf.runtime/routing {:current {:route-id :x}}}
-           (:rf.db/runtime (rf/frame-state-value :pc/rtop)))
-        "an operation-style write merges into the existing runtime-db partition")))
 
 ;; ===========================================================================
 ;; 4 — atomic cross-partition commit (Spec 006 §Commit boundary)
