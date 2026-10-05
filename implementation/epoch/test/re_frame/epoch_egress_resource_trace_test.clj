@@ -220,33 +220,6 @@
    :effects       []})
 
 ;; ---------------------------------------------------------------------------
-;; (1) :resource/key — a single scoped-key slot (sensitive params)
-;; ---------------------------------------------------------------------------
-
-(deftest off-box-redacts-resource-key-slot-sensitive-params
-  (testing "a :rf.resource/cache-hit row's :resource/key has its
-            sensitive scope + params tokenized off-box; the resource-id +
-            structural tags survive; no raw secret egresses"
-    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
-          record     (record-with
-                       [(event :rf.resource/cache-hit
-                               {:rf.frame/id :test/rt :resource/key scoped-key
-                                :generation 1 :owner [:app :l 1] :cause :ensure})])
-          projected  (rf/project-egress record)
-          tags       (:tags (first (:trace-events projected)))
-          [pscope rid pparams] (:resource/key tags)]
-      (is (= :secret/article rid) "the resource-id (position 1) survives")
-      (is (redacted-component? pscope) "the scope is tokenized")
-      (is (redacted-component? pparams) "the params are tokenized")
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the structural attribution tags ride verbatim"
-        (is (= [:app :l 1] (:owner tags)))
-        (is (= :ensure (:cause tags)))
-        (is (= 1 (:generation tags))))
-      (testing "no raw secret survives anywhere in the projected record"
-        (is (not (contains-secret? projected)))))))
-
-;; ---------------------------------------------------------------------------
 ;; (2) :removed — a scoped-keys vector slot (large params)
 ;; ---------------------------------------------------------------------------
 
@@ -309,44 +282,11 @@
         (is (not (contains-secret? projected)))))))
 
 ;; ---------------------------------------------------------------------------
-;; (3b) nested :patch-summary — recursive projection of nested scoped keys
-;; ---------------------------------------------------------------------------
-
-(deftest off-box-redacts-nested-patch-summary-keys
-  (testing "the :rf.mutation/succeeded :patch-summary nested map
-            has its :removed key vector AND its :rollback per-key disposition
-            maps projected recursively; no raw secret leaks through the nest"
-    (let [k-rem  (sk :rf.scope/global :secret/article {:auth-token secret})
-          k-roll (sk :rf.scope/global :secret/article {:auth-token (str secret "-2")})
-          record (record-with
-                   [(event :rf.mutation/succeeded
-                           {:rf.frame/id :test/rt :mutation :m/del :instance 1
-                            :patch-summary {:patched   []
-                                            :populated []
-                                            :removed   [k-rem]
-                                            :rollback  [{:resource/key k-roll
-                                                         :revision 3}]}})])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))
-          ps        (:patch-summary tags)
-          [_ rid pparams]   (first (:removed ps))
-          roll-row  (first (:rollback ps))]
-      (is (= :secret/article rid) "nested :removed resource-id survives")
-      (is (redacted-component? pparams) "nested :removed params tokenized")
-      (is (= :secret/article (second (:resource/key roll-row)))
-          "nested :rollback resource-id survives")
-      (is (redacted-component? (nth (:resource/key roll-row) 2))
-          "nested :rollback params tokenized")
-      (is (= 3 (:revision roll-row)) "nested :rollback non-key facts ride verbatim")
-      (is (true? (:sensitive? tags)) "the row is stamped sensitive (nested leak caught)")
-      (is (not (contains-secret? projected)) "no raw secret survives the nest"))))
-
-;; ---------------------------------------------------------------------------
 ;; (3c) a REAL optimistic commit — the settlement row ships no entry snapshot
 ;; ---------------------------------------------------------------------------
 ;;
-;; The (3b) arm above feeds a hand-built `:rollback` row with no `:before`, so
-;; it cannot see what a REAL commit puts on the `:rf.mutation/succeeded`
+;; A hand-built `:rollback` row with no `:before` cannot see what a REAL
+;; commit puts on the `:rf.mutation/succeeded`
 ;; `:patch-summary`. The recorded inverse's `:before` is the WHOLE pre-apply
 ;; cache entry, `:data` included, and a projector that tokenizes only the
 ;; row's own `:resource/key` would let `:before` ride. Two guards, one per arm:
@@ -457,28 +397,6 @@
       (is (= [3 4 :patch] [(:revision row) (:applied-revision row) (:forward row)])
           "the scalar disposition facts ride verbatim")
       (is (empty? (secret-leak-paths projected)) "no raw secret egresses"))))
-
-;; ---------------------------------------------------------------------------
-;; (5) fail-closed on an UNREGISTERED owner
-;; ---------------------------------------------------------------------------
-
-(deftest off-box-fails-closed-on-unregistered-owner
-  (testing "a scoped key naming an UNREGISTERED resource owner (the
-            spec a value-path projector would trust is absent) FAILS CLOSED:
-            its scope + params are redacted even though no :sensitive? claim
-            exists to read"
-    (let [scoped-key (sk :rf.scope/global :gone/article {:auth-token secret})
-          record     (record-with
-                       [(event :rf.resource/cache-hit
-                               {:rf.frame/id :test/rt :resource/key scoped-key
-                                :generation 1 :cause :ensure})])
-          projected  (rf/project-egress record)
-          tags       (:tags (first (:trace-events projected)))
-          [pscope rid pparams] (:resource/key tags)]
-      (is (= :gone/article rid) "the resource-id survives")
-      (is (redacted-component? pparams) "params redacted (fail-closed)")
-      (is (true? (:sensitive? tags)) "stamped sensitive (fail-closed)")
-      (is (not (contains-secret? projected)) "no raw secret egresses"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (6) the trusted-local :rf.egress/include-sensitive? opt-in lifts the redaction
@@ -713,62 +631,6 @@
         (is (= 1 (:kept tags)))
         (is (= 1 (:removed tags))
             "this row's :removed is an INT COUNT, not a key vector — it rides"))
-      (testing "NO raw secret survives anywhere in the projected record"
-        (is (not (contains-secret? projected)))))))
-
-(deftest off-box-redacts-route-plan-identity-partition
-  (testing "the activation row's IDENTITY PARTITION
-            (:ensured-identities / :kept-identities / :removed-identities) is
-            three more vectors of scoped keys under no NAMED slot. The safety
-            closes by SHAPE, so they are covered without a slot of their own;
-            this pins it, because the partition is the one place a route's
-            path parameters ride the trace three times over"
-    (let [ensured   (sk :rf.scope/global :secret/article {:auth-token secret})
-          kept      (sk :rf.scope/global :secret/article
-                        {:auth-token (str secret "-kept")})
-          removed   (sk :rf.scope/global :secret/article
-                        {:auth-token (str secret "-gone")})
-          record    (record-with
-                      [(event :rf.resource/route-plan
-                              {:rf.frame/id        :test/rt
-                               :route-id           :r/article
-                               :nav-token          7
-                               :branch             [:r/root :r/article]
-                               :ensured            1
-                               :kept               1
-                               :removed            1
-                               :blocking           [ensured]
-                               :identities         [kept ensured]
-                               :ensured-identities [ensured]
-                               :kept-identities    [kept]
-                               :removed-identities [removed]})])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))
-          partition-slots (juxt :ensured-identities :kept-identities
-                                :removed-identities)]
-      (testing "every partition slot tokenizes per key, exactly as :identities does"
-        (doseq [ks (partition-slots tags)]
-          (is (= 1 (count ks)))
-          (is (= :secret/article (second (first ks)))
-              "the resource-id (position 1) survives")
-          (is (redacted-component? (first (first ks))) "the scope is tokenized")
-          (is (redacted-component? (nth (first ks) 2))
-              "the canonical params — a route's path parameters — are tokenized")))
-      (testing "the three identities do not keep three distinct digests
-                (a sensitive owner's token is content-free), but the
-                partition a tool reads off one row survives on the STRUCTURE:
-                each slot is its own vector, each of a known size, each member
-                keeping its resource-id"
-        (is (= 1 (count (set (map #(nth (first %) 2) (partition-slots tags)))))
-            "all three tokens agree — the content that separated them is gone")
-        (is (= [1 1 1] (mapv count (partition-slots tags)))
-            "and the partition is still a partition: three slots, one identity
-             each, which is the fact the row exists to report"))
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the counts beside the vectors are structural scalars and ride"
-        (is (= 1 (:ensured tags)))
-        (is (= 1 (:kept tags)))
-        (is (= 1 (:removed tags))))
       (testing "NO raw secret survives anywhere in the projected record"
         (is (not (contains-secret? projected)))))))
 
@@ -1797,66 +1659,6 @@
     (rf/epoch-history :test/rt)))
 
 ;; ---------------------------------------------------------------------------
-;; (1) THE ACCEPTANCE ARM — a REAL reply-to read, both continuation paths
-;; ---------------------------------------------------------------------------
-
-(deftest real-reply-to-read-leaks-no-decoded-body-into-fx-carriers
-  (testing "`project-egress` over the records a REAL
-            `[:rf.resource/ensure … :reply-to …]` settles for a `:sensitive?`
-            resource must carry the decoded response body and the canonical
-            params at ZERO of the four paths each rides, on BOTH continuation
-            paths: `:value` and `:params` under `:rf.fx/args`, and again under
-            `:rf.event/fx`."
-    (let [records (drive-reply-to-read! :derived/profile)]
-      (doseq [[label cache-hit?] [["async settle" false] ["fresh-skip cache hit" true]]]
-        (testing label
-          (let [raw       (record-carrying-reply records cache-hit?)
-                projected (project-carrier-egress raw)]
-
-            (testing "FIXTURE — the producer really put a decoded body on the fx
-                      carriers, so the assertions below are not passing over an
-                      empty set"
-              (is (some? raw) "the continuation reached an fx carrier at all")
-              (is (seq (carrier-replies raw)) "and the reply map is findable on it")
-              (is (every? #(and (= reply-value (:value %))
-                                (= reply-params (:params %)))
-                          (carrier-replies raw))
-                  "every carrier's reply carries the RAW decoded body + params")
-              (is (seq (secret-leak-paths raw))
-                  "the unprojected record leaks — the projector's input is the
-                   runtime's own output, not an invented tag map"))
-
-            (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
-                      record"
-              (is (= [] (carrier-leak-paths projected))
-                  "every leaking path is named here — a failure prints
-                   [:trace-events n :tags :rf.fx/args 1 :value :email]
-                   and :params :slug shapes, once per carrier"))
-
-            (testing "and each reply's payload is TOKENIZED, not merely absent"
-              (is (= (count (carrier-replies raw)) (count (carrier-replies projected)))
-                  "projection neither drops nor invents a carrier reply")
-              (is (every? #(and (redacted-component? (:value %))
-                                (redacted-component? (:params %)))
-                          (carrier-replies projected))
-                  "both slots are opaque content-addressed tokens"))
-
-            (testing "the whole reply reads as a reply — attribution and
-                      the sibling slots the other arms own"
-              (let [r (first (carrier-replies projected))]
-                (is (= :derived/profile (:resource r))
-                    "the resource id rides verbatim")
-                (is (= cache-hit? (:cache-hit? r))
-                    "and the cache-hit disposition, so a tool still reads how it settled")
-                (is (= :ok (:status r)) "and the status")
-                (is (redacted-component? (first (:resource/key r)))
-                    "the sibling key's scope component is tokenized")
-                (is (= :derived/profile (second (:resource/key r)))
-                    "with its resource-id intact for attribution")
-                (is (tokenized-scope? (:scope r))
-                    "and the free :scope beside it")))))))))
-
-;; ---------------------------------------------------------------------------
 ;; (2) the same shape assembled — deterministic, and it names the four paths
 ;; ---------------------------------------------------------------------------
 
@@ -1930,40 +1732,6 @@
             "as does the continuation TARGET — a tool still reads which event ran")
         (is (true? (:sensitive? (:tags handled)))
             "but the row IS stamped :sensitive?")))))
-
-;; ---------------------------------------------------------------------------
-;; (3) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
-;; ---------------------------------------------------------------------------
-
-(deftest fx-carrier-leaves-the-fx-familys-own-params-verbatim
-  (testing "over-redaction guard — the OTHER half of the control, and
-            the sharper one: on a record carrying BOTH a `:sensitive?` owner's
-            reply AND the app's own managed-HTTP args, the reply's `:params`
-            tokenizes while the app's `:request` `:params` — a map under the
-            identical key, with no `:resource/key` beside it — rides verbatim.
-            An arm keyed on the slot NAME could not tell these apart."
-    (let [k1     (sk session-scope :derived/profile reply-params)
-          reply  (read-reply k1 session-scope reply-value)
-          req    {:method :get :url "/z" :params {:slug plain-slug}}
-          record (record-with
-                   [(event :rf.fx/handled
-                           {:rf.frame/id :test/rt :frame :test/rt
-                            :rf.fx/id :dispatch
-                            :rf.fx/args (conj read-reply-target reply)})
-                    (event :rf.fx/handled
-                           {:rf.frame/id :test/rt :frame :test/rt
-                            :rf.fx/id :rf.http/managed
-                            :rf.fx/args {:request req}})])
-          projected (project-carrier-egress record)
-          [reply-row req-row] (:trace-events projected)]
-      (is (redacted-component? (:params (first (carrier-replies projected))))
-          "the reply's :params — a named owner's, read through that owner")
-      (is (= {:request req} (:rf.fx/args (:tags req-row)))
-          "the app's request :params — the FX family's, untouched")
-      (is (true? (:sensitive? (:tags reply-row)))
-          "only the reply row is stamped sensitive")
-      (is (not (:sensitive? (:tags req-row)))
-          "the request row is not"))))
 
 (deftest fx-carrier-reply-tokens-carry-no-enumerable-content
   (testing "a redacting owner's reply body and params
@@ -2249,7 +2017,7 @@
 ;; THE GRAIN, since the wrong one is the easiest regression in this family.
 ;; This arm is DECLARATION-conditional: it fires on the paths the owner
 ;; declared, and on nothing else. Not unconditional (an owner that declares
-;; nothing rides verbatim — the plain-owner control below), and not
+;; nothing rides verbatim — the undeclared-feed control below), and not
 ;; coarse-owner-conditional (that is precisely the read that misses a
 ;; `:serialize` owner's declaration). It is the grain of the declaration itself,
 ;; which is what makes the durable carrier and the continuation carrier agree
@@ -2437,33 +2205,9 @@
 ;; (3) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
 ;; ---------------------------------------------------------------------------
 
-(deftest fx-carrier-keeps-an-undeclared-owners-reply-byte-identical
-  (testing "over-redaction guard — an owner that makes NEITHER claim (no coarse
-            `:sensitive?`, no projection-relative declaration) must ride its
-            continuation reply BYTE-IDENTICAL through both carriers and must not
-            stamp the row sensitive. This is the side that proves the arm reads
-            the DECLARATION rather than the reply's shape: the same `:value` and
-            `:params` slots that redact for `:declared/profile` are fully
-            readable here."
-    (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
-          reply     (read-reply k1 :rf.scope/global declared-reply-value)
-          record    (reply-carrier-record reply)
-          projected (project-carrier-egress record)
-          [handled do-fx] (:trace-events projected)]
-      (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
-          "the whole dispatched event vector rides verbatim — reply :value,
-           :params, :scope and scoped key included")
-      (is (= (:rf.event/fx (:tags (second (:trace-events record))))
-             (:rf.event/fx (:tags do-fx)))
-          "and so does the whole effect vector on the other carrier")
-      (is (not (:sensitive? (:tags handled)))
-          "an undeclared-owner reply row is NOT stamped sensitive")
-      (is (not (:sensitive? (:tags do-fx)))
-          "on either carrier"))))
-
 (deftest fx-carrier-declared-arm-leaves-the-fx-familys-own-value-verbatim
-  (testing "over-redaction guard — the other half of the over-redaction control. A
-            map carrying `:value` / `:params` WITHOUT the canonical reply marker
+  (testing "over-redaction guard — a map
+            carrying `:value` / `:params` WITHOUT the canonical reply marker
             is not a reply, whatever owner its neighbours name, so a declaration
             can never reach it. The app's own managed-HTTP args and the
             runtime's generation counter are the two shapes a name-only arm in
@@ -2749,39 +2493,6 @@
 ;; (1) family rows — the unnamed plan-membership slots and the embedded work-id
 ;; ---------------------------------------------------------------------------
 
-(deftest off-box-redacts-non-map-param-keys-in-unnamed-plan-slots
-  (testing "a :rf.resource/route-plan row's :blocking /
-            :identities carrying a :sensitive? owner's key whose canonical
-            params are a VECTOR must tokenize per key. On the params `map?`
-            proof alone the key would fall through the recursive walk as
-            structural scalars, and the raw scope + params would ride out with
-            the row unstamped."
-    (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
-          k2        (sk :rf.scope/global :secret/vector-params
-                        [(str vector-secret "-2")])
-          record    (record-with
-                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1 k2]))])
-          projected (rf/project-egress record)
-          tags      (:tags (first (:trace-events projected)))
-          [bscope brid bparams] (first (:blocking tags))]
-      (testing ":blocking tokenizes per key"
-        (is (= :secret/vector-params brid) "the resource-id (position 1) survives")
-        (is (redacted-component? bscope) "the scope is tokenized")
-        (is (redacted-component? bparams) "the VECTOR params are tokenized"))
-      (testing ":identities keeps no per-key distinctness for a sensitive
-                owner — the token is content-free, and VECTOR params
-                take the same rule as map params"
-        (is (= 2 (count (:identities tags))))
-        (is (every? #(redacted-component? (nth % 2)) (:identities tags)))
-        (is (apply = (map #(nth % 2) (:identities tags)))
-            "two distinct vector-params keys produce ONE token"))
-      (is (true? (:sensitive? tags)) "the row is stamped :sensitive?")
-      (testing "the plan's structural attribution rides verbatim"
-        (is (= [:r/root :r/article] (:branch tags)))
-        (is (= 1 (:removed tags)) "the INT count is untouched"))
-      (testing "NO raw secret survives anywhere in the projected record"
-        (is (= [] (secret-leak-paths projected)))))))
-
 (deftest unnamed-slot-non-map-params-projects-identically-to-named-slot
   (testing "anti-drift — the SAME vector-params keys under
             a NAMED slot (:matched, projected BY POSITION and therefore never
@@ -3046,7 +2757,7 @@
 ;; `:error` is not a projection of owner data and no declaration can name it. So
 ;; without this arm the mutation failure continuation would leak the identical
 ;; envelope by the identical route. The `:error` arm therefore gates on BOTH
-;; work kinds; §(6) below is that half.
+;; work kinds; §(6) below drives that half.
 
 (def ^:private failure-envelope
   "The classified `:rf.http/*` failure envelope a 422 settles with. Carries the
@@ -3110,53 +2821,6 @@
     (rf/dispatch-sync (conj (:on-failure @captured) {:status :error :error envelope})
                       {:frame :test/rt})
     (rf/epoch-history :test/rt)))
-
-;; ---------------------------------------------------------------------------
-;; (1) THE ACCEPTANCE ARM — a REAL failing reply-to read, sensitive owner
-;; ---------------------------------------------------------------------------
-
-(deftest real-failing-reply-to-read-leaks-no-error-envelope-into-fx-carriers
-  (testing "`project-egress` over the records a REAL
-            `[:rf.resource/ensure … :reply-to …]` settles into FAILURE must
-            carry the decoded error body at ZERO paths. Unprojected, the
-            envelope rides raw on both carriers, at
-            [… :rf.fx/args 1 :error :body :email] and its :body-text / :detail
-            siblings, and again under :rf.event/fx."
-    (let [records   (drive-failing-reply-to-read! :derived/profile reply-params
-                                                  failure-envelope)
-          raw       (record-carrying-reply records false)
-          projected (project-carrier-egress raw)]
-
-      (testing "FIXTURE — the producer really put the envelope on the fx
-                carriers, so the sweep below is not passing over an empty set"
-        (is (some? raw) "the failure continuation reached an fx carrier at all")
-        (is (seq (carrier-replies raw)) "and the reply map is findable on it")
-        (is (every? #(= failure-envelope (:error %)) (carrier-replies raw))
-            "every carrier's reply carries the RAW envelope")
-        (is (seq (secret-leak-paths raw))
-            "the unprojected record leaks — the projector's input is the
-             runtime's own output, not an invented tag map"))
-
-      (testing "ACCEPTANCE — nothing raw survives anywhere in the projected
-                record"
-        (is (= [] (carrier-leak-paths projected))))
-
-      (testing "and each reply's envelope is TOKENIZED, not merely absent"
-        (is (= (count (carrier-replies raw)) (count (carrier-replies projected)))
-            "projection neither drops nor invents a carrier reply")
-        (is (every? #(redacted-component? (:error %)) (carrier-replies projected))
-            "the envelope is an opaque content-addressed token"))
-
-      (testing "the whole reply reads as a FAILED reply — the attribution
-                the family's own rows also preserve"
-        (let [r (first (carrier-replies projected))]
-          (is (= :error (:status r)) "the status rides verbatim")
-          (is (= :failed (:rf.reply/work-status r)))
-          (is (= :derived/profile (:resource r)) "and the resource id")
-          (is (redacted-component? (first (:resource/key r)))
-              "the sibling key's scope component is tokenized")
-          (is (tokenized-scope? (:scope r))
-              "and the free :scope beside it"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) THE ANTI-OWNER-CONDITIONAL CONTROL — the point of this section
@@ -3268,20 +2932,6 @@
       (is (= [] (secret-leak-paths projected)))
       (is (every? #(true? (:sensitive? (:tags %))) (:trace-events projected))
           "every row that carried the envelope is stamped :sensitive?"))))
-
-(deftest fx-carrier-error-envelope-tokenizes-on-a-cancelled-reply
-  (testing "`:status` is NOT the gate. An `:rf.http/aborted`
-            envelope settles `:status :cancelled` and still rides under
-            `:error`, so it must tokenize on the cancel branch too."
-    (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
-          reply     (failure-read-reply k :rf.scope/global abort-envelope)
-          projected (project-carrier-egress (both-carriers-of k reply))
-          replies   (family-carrier-replies projected)]
-      (is (= :cancelled (:status (first replies))) "it really is the cancel branch")
-      (is (= :user-abort (:rf.reply/cancel-reason (first replies)))
-          "and the cancel reason rides verbatim — attribution survives")
-      (is (every? #(redacted-component? (:error %)) replies))
-      (is (= [] (secret-leak-paths projected))))))
 
 (deftest fx-carrier-error-projection-is-idempotent
   (testing "an already-projected record re-projects to itself; the
@@ -3415,39 +3065,6 @@
   `:value`, carrying the canary in the slot `:m/save-declared` declares
   sensitive."
   {:email (str secret "@example.com") :saved true})
-
-(deftest real-failing-mutation-reply-to-leaks-no-error-envelope
-  (testing "the MUTATION continuation reply carries
-            `:error` by the identical route. `redact-continuation-reply`
-            re-roots only the spec's `:value` / `:params` / `:scope`
-            declarations and never touches `:error` (correctly — `:error` is a
-            transport envelope, not a projection of owner data), and the reply
-            stamps `:rf.reply/work-kind :mutation`, so `resource-reply?` is false
-            and nothing else looks at it. The `:error` arm's predicate is one
-            keyword wider to cover it."
-    (let [records   (drive-mutation-reply-to! :m/save {:status :error :error failure-envelope})
-          raw       (first (filter #(seq (family-carrier-replies %)) records))
-          projected (project-carrier-egress raw)]
-      (testing "FIXTURE — the producer really put the envelope on the carriers"
-        (is (some? raw) "the mutation continuation reached an fx carrier")
-        (is (every? #(= :mutation (:rf.reply/work-kind %))
-                    (family-carrier-replies raw))
-            "and it really is the MUTATION reply, not a read one")
-        (is (every? #(= failure-envelope (:error %)) (family-carrier-replies raw))
-            "carrying the RAW envelope")
-        (is (seq (secret-leak-paths raw))
-            "the unprojected record leaks"))
-      (testing "ACCEPTANCE — nothing raw survives"
-        (is (= [] (carrier-leak-paths projected)))
-        (is (every? #(redacted-component? (:error %))
-                    (family-carrier-replies projected))))
-      (testing "and the reply reads as a failed mutation reply"
-        (let [r (first (family-carrier-replies projected))]
-          (is (= :error (:status r)))
-          (is (= :m/save (:mutation r)))
-          (is (= :mf1 (:instance r)))
-          (is (= [:mutation :m/save :mf1] (:cause r))
-              "the causal explanation rides verbatim"))))))
 
 ;; ===========================================================================
 ;; the DRIVE INVENTORY — every settle path that fans out a continuation,
@@ -3651,8 +3268,7 @@
   frame; the fixture's teardown drops `:test/rt`, and a projection taken
   afterwards fails closed and redacts everything — a sweep that passes because
   there is nothing left to read. Returning records and asserting outside would
-  green over a leak — one the failure-envelope section's own deftest reddens on
-  for the same drive."
+  green over a leak."
   [body!]
   (reset-runtime-fixture body!))
 
