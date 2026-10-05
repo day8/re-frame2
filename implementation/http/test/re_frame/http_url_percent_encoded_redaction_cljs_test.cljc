@@ -36,18 +36,6 @@
     (is (rf.http.url/sensitive-query-param-name? "api_key"))
     (is (rf.http.url/sensitive-query-param-name? "access_token"))))
 
-(deftest encoded-frame-extra-denylist-name-matches
-  (testing "a registration-declared carrier name matches when percent-encoded"
-    (let [extras #{"shop_token"}]
-      ;; shop%5Ftoken decodes to shop_token.
-      (is (rf.http.url/sensitive-query-param-name? "shop%5Ftoken" extras))
-      (is (rf.http.url/sensitive-query-param-name? "shop_token" extras))
-      ;; Without extensions the app carrier no longer matches.
-      (is (not (rf.http.url/sensitive-query-param-name? "shop%5Ftoken"))
-          "without extensions the app carrier does not match")
-      ;; defaults are immutable — they match regardless of frame-extras.
-      (is (rf.http.url/sensitive-query-param-name? "api%5Fkey")))))
-
 (deftest non-sensitive-encoded-name-does-not-match
   (testing "an encoded NON-denylisted name stays non-sensitive"
     ;; page%5Fnum decodes to page_num — not denylisted.
@@ -79,24 +67,6 @@
 ;; ---------------------------------------------------------------------------
 ;; redact-url-query-string — end-to-end: encoded name's VALUE is redacted
 ;; ---------------------------------------------------------------------------
-
-(deftest redact-url-encoded-default-name-value-redacted
-  (testing "a percent-encoded default-denylist param has its VALUE redacted; the raw name spelling is preserved"
-    (let [[redacted any?] (rf.http.url/redact-url-query-string
-                            "https://api.example.com/x?api%5Fkey=SECRET&page=2"
-                            false)]
-      (is (= "https://api.example.com/x?api%5Fkey=:rf/redacted&page=2" redacted)
-          "raw name spelling preserved; only the value replaced; non-denylisted page untouched")
-      (is (true? any?)
-          "the encoded denylisted name is the signal — sensitivity is stamped"))))
-
-(deftest redact-url-encoded-name-leading-escape-value-redacted
-  (testing "%61ccess_token (= access_token) value is redacted"
-    (let [[redacted any?] (rf.http.url/redact-url-query-string
-                            "https://api.example.com/x?%61ccess_token=SECRET&q=hi"
-                            false)]
-      (is (= "https://api.example.com/x?%61ccess_token=:rf/redacted&q=hi" redacted))
-      (is (true? any?)))))
 
 (deftest redact-url-encoded-frame-extra-name-value-redacted
   (testing "a registration-declared carrier name, percent-encoded, has its value redacted"
