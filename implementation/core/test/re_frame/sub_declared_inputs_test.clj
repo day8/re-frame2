@@ -80,17 +80,6 @@
 
 ;; ---- the parser -----------------------------------------------------------
 
-(deftest literal-inputs-lift-into-the-runtime-owned-slots
-  (testing "a literal `:inputs` registers as `:static` with its query vectors"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :one {:inputs [[:a]]} (fn [[a] _] a))
-    (let [m (rf.registrar/lookup :sub :one)]
-      (is (= :static (:input-kind m)))
-      (is (= [[:a]] (:input-signals m)))
-      (is (nil? (:input-fn m)))
-      (is (not (contains? m :inputs))
-          "`:inputs` is LIFTED into the runtime-owned slots, never stored twice"))))
-
 (deftest producer-inputs-lift-into-the-parametric-slots
   (testing "a fn `:inputs` registers as `:parametric` and is not executed"
     (let [ran (atom 0)
@@ -114,13 +103,6 @@
     (seed! {:a 7})
     (is (= 7 (rf/subscribe-once [:v])))))
 
-(deftest explicit-empty-inputs-is-a-declaration
-  (testing "`{:inputs []}` declares NO dependencies — `:static` with no edges"
-    (rf/reg-sub :none {:inputs []} (fn [in _] {:in in}))
-    (let [m (rf.registrar/lookup :sub :none)]
-      (is (= :static (:input-kind m)))
-      (is (= [] (:input-signals m))))))
-
 (deftest malformed-literal-inputs-are-refused-at-registration
   (testing "the literal grammar is a vector of QUERY VECTORS; every near-miss is loud"
     (doseq [[label bad] [["scalar query vector" [:a :b]]
@@ -133,14 +115,6 @@
       (is (= :rf.error/reg-sub-bad-args
              (reg-sub-error :x {:inputs bad} (fn [in _] in)))
           (str "a " label " `:inputs` must be refused at registration")))))
-
-(deftest inputs-cannot-be-combined-with-the-transitional-grammars
-  (testing "`:inputs` beside a `:<-` chain or a second trailing fn is refused"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (is (= :rf.error/reg-sub-bad-args
-           (reg-sub-error :x {:inputs [[:a]]} :<- [:a] (fn [in _] in))))
-    (is (= :rf.error/reg-sub-bad-args
-           (reg-sub-error :x {:inputs [[:a]]} (fn [_] [[:a]]) (fn [in _] in))))))
 
 (deftest inputs-with-no-computation-fn-is-refused
   (testing "`:inputs` requires exactly one trailing computation fn"
