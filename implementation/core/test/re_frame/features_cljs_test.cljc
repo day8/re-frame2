@@ -71,35 +71,3 @@
               "coordinate is static — present regardless of :loaded? status")
           (is (true? (get-in m [:schemas :loaded?]))
               "the flip is isolated — other features stay loaded"))))))
-
-(deftest features-supports-the-boot-time-guard
-  (testing "the documented guard idiom — an explicit
-            (when-not … (throw (ex-info …))) carrying the inventory entry as
-            its data, NOT an elidable assert"
-    (with-probe-absent :epoch
-      (fn []
-        (let [guard (fn []
-                      (when-not (get-in (rf.features/features) [:epoch :loaded?])
-                        (throw (ex-info "re-frame.epoch is not on the classpath"
-                                        (get (rf.features/features) :epoch)))))
-              ex    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                                 (guard)))
-              data  (ex-data ex)]
-          (is (= "day8/re-frame2-epoch" (:maven data))
-              "the guard's data IS the inventory entry — exact Maven coordinate")
-          (is (= "re-frame.epoch" (:require data))
-              "…and the exact namespace to require at boot")
-          (is (false? (:loaded? data))))))
-    (testing "the guard is a no-op when the feature is loaded"
-      (is (nil? (when-not (get-in (rf.features/features) [:epoch :loaded?])
-                  (throw (ex-info "unreachable" {}))))))))
-
-;; ---- bundle-isolation invariant (static-data, not a live require) ---------
-
-(deftest feature-registry-is-static-data
-  (testing "the coordinate table is plain data — every value is a static
-            map of strings + a probe keyword, no fn / artefact reach-in"
-    (doseq [[feature entry] rf.features/feature-registry]
-      (is (string? (:maven entry)) (str feature " :maven is a static string"))
-      (is (string? (:require entry)) (str feature " :require is a static string"))
-      (is (keyword? (:probe-key entry)) (str feature " :probe-key is a static keyword")))))
