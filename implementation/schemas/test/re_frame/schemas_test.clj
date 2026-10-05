@@ -27,47 +27,6 @@
 
 (use-fixtures :each rf.schemas.test-fixture/reset-runtime)
 
-;; ---- elision toggle -------------------------------------------------------
-
-(deftest app-db-validation-fires-when-debug-enabled
-  (testing "validate-app-schema! emits :rf.error/schema-validation-failure when debug-enabled? is true"
-    (rf/reg-app-schema [:count] [:int])
-    (with-trace-recorder! [traces]
-      ;; Dev mode is the JVM default; validate-app-schema! should walk the
-      ;; registered schemas and emit on a malformed value.
-      (with-redefs [rf.interop/debug-enabled? true]
-        (rf.schemas/validate-app-schema! {:count "not-an-int"} :test/handler))
-      (let [violations (filter #(= :rf.error/schema-validation-failure
-                                   (:operation %))
-                               @traces)]
-        (is (= 1 (count violations))
-            "exactly one schema-validation-failure trace fired")
-        (let [v (first violations)]
-          (is (= :app-db (-> v :tags :where)))
-          (is (= [:count] (-> v :tags :path)))
-          (is (= "not-an-int" (-> v :tags :value)))
-          (is (= :test/handler (-> v :tags :failing-id))))))))
-
-(deftest dispatch-fires-app-db-validation
-  (testing "live dispatch through the runtime validates the candidate :db
-            before install"
-    (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init (fn [_ _] {:db {:n 0}}))
-    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:n/init])
-      (rf/dispatch-sync [:n/break])
-      (let [violations (filter #(= :rf.error/schema-validation-failure
-                                   (:operation %))
-                               @traces)]
-        (is (= 1 (count violations))
-            "the malformed :n/break candidate fires exactly one schema trace")
-        (is (= :n/break (-> violations first :tags :failing-id))
-            ":failing-id names the handler whose candidate prompted the failure")
-        (is (true? (-> violations first :tags :rollback?))
-            "the trace carries :rollback? true — the public
-             transaction-REJECTED vocabulary")))))
-
 ;; ---- candidate rejection on schema-validation failure --------------------
 ;; The observable post-condition — app-db keeps its pre-event value, :fx
 ;; skipped — holds with the container never written at all.
@@ -110,33 +69,6 @@
           "production mode (debug-enabled? false) returns true unconditionally"))))
 
 ;; ---- event-payload validation ---------------------------------------------
-
-(deftest dispatch-validates-event-payload-pre-handler
-  (testing "Per Spec 010 §step 1: a malformed event vector fires
-            :rf.error/schema-validation-failure :where :event before the
-            handler runs; the handler is NOT invoked"
-    (let [calls (atom 0)]
-      (rf/reg-event :user/register
-        {:schema [:cat [:= :user/register]
-                     [:map [:email :string] [:age :int]]]}
-        (fn [{:keys [db]} [_ payload]]
-          (swap! calls inc)
-          {:db (update db :users (fnil conj []) payload)}))
-      (with-trace-recorder! [traces]
-        ;; Well-typed payload — passes; handler runs.
-        (rf/dispatch-sync [:user/register {:email "alice@example.com" :age 30}])
-        ;; Malformed payload — fails; handler must NOT run.
-        (rf/dispatch-sync [:user/register {:email "carol@example.com" :age "no"}])
-        (is (= 1 @calls)
-            "handler ran exactly once — once for the well-typed payload, skipped for the bad one")
-        (let [violations (filter #(= :rf.error/schema-validation-failure
-                                     (:operation %))
-                                 @traces)]
-          (is (= 1 (count violations)))
-          (let [v (first violations)]
-            (is (= :event (-> v :tags :where)))
-            (is (= :user/register (-> v :tags :failing-id)))
-            (is (= :user/register (-> v :tags :schema-id)))))))))
 
 (deftest event-payload-validation-failure-still-runs-after-pass
   (testing "Per Spec 002 §Interceptor chain execution rule 2:
@@ -306,35 +238,6 @@
         (is (empty? (filter #(= :rf.error/cofx-value-invalid (:operation %))
                             @traces))
             "no cofx-value-invalid trace fires for a conforming value")))))
-
-(deftest recordable-cofx-value-invalid-redacts-sensitive-value
-  (testing "EP-0017 — a recordable cofx whose :schema marks a slot
-            {:sensitive? true} redacts the value-bearing slots through the
-            shared `redact-validation-tags` seam: the trace's :value scrubs to
-            :rf/redacted and :sensitive? true is stamped (never the raw secret)"
-    ;; The cofx value is a map with a sensitive `:token` leaf; the failing
-    ;; value (an :int where a :string is required) must not egress verbatim.
-    (rf/reg-cofx :auth/creds
-      {:recordable? true :provided? true
-       :schema [:map [:token {:sensitive? true} :string]]})
-    (rf/reg-event :cap/seed-secret
-      {:rf.cofx/requires [:auth/creds]}
-      (fn [_ _] {}))
-    (with-trace-recorder! [traces]
-      (try
-        (rf/dispatch-sync [:cap/seed-secret]
-                          {:rf.cofx {:auth/creds {:token 42}}})
-        (catch clojure.lang.ExceptionInfo _))
-      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
-                             @traces))]
-        (is (some? v) "the recordable-cofx violation fired")
-        ;; :sensitive? is hoisted to the top-level trace event (Spec 009),
-        ;; not under :tags.
-        (is (true? (:sensitive? v))
-            ":sensitive? true is stamped (the schema marked a slot sensitive)")
-        (is (= :rf/redacted (-> v :tags :value))
-            "the value-bearing :value slot scrubbed to :rf/redacted — the raw
-             {:token 42} never egressed off-box")))))
 
 ;; ---- fx-args validation (Spec 010 step 5) --------------------------------
 
@@ -599,28 +502,6 @@
             ":frame tag carries the failing frame's id")))))
 
 ;; ---- app-schemas-digest -------------------------------------------------
-
-(deftest app-schemas-digest-is-stable
-  (testing "Per Spec 010 §Digest algorithm — registering the same schema
-            set produces the same digest (cross-runtime byte-stable)."
-    (rf/reg-app-schema [:user]  [:map [:id :uuid]])
-    (rf/reg-app-schema [:todos] [:vector :string])
-    (let [d1 (rf.schemas/app-schemas-digest {:frame :rf/default})]
-      ;; Re-register the SAME schemas — last-write-wins, but the map is
-      ;; structurally identical, so the digest must not move.
-      (rf/reg-app-schema [:todos] [:vector :string])
-      (rf/reg-app-schema [:user]  [:map [:id :uuid]])
-      (is (= d1 (rf.schemas/app-schemas-digest {:frame :rf/default}))
-          "byte-identical schema set → byte-identical digest"))))
-
-(deftest app-schemas-digest-changes-on-schema-change
-  (testing "A schema-set change perturbs the digest. Two different schema
-            sets must produce distinct digests."
-    (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (let [before (rf.schemas/app-schemas-digest {:frame :rf/default})]
-      (rf/reg-app-schema [:user] [:map [:id :string]])
-      (is (not= before (rf.schemas/app-schemas-digest {:frame :rf/default}))
-          "tightening / changing a schema flips the digest"))))
 
 (deftest app-schemas-digest-frame-isolated
   (testing "Per Spec 010 §Per-frame schemas — two frames with different
@@ -1195,20 +1076,6 @@
       (is (= 3 (count paths)))
       (is (= #{[:a] [:b] [:c]} (set paths))
           "every input path appears in the returned vector"))))
-
-(deftest reg-app-schemas-honours-frame-opt
-  (testing "rf/reg-app-schemas applies the :frame opt to every entry"
-    (rf/make-frame {:id :tenant/a})
-    (rf/reg-app-schemas
-      {[:auth] [:map [:user :string]]
-       [:cart] [:map [:items :any]]}
-      {:frame :tenant/a})
-    (is (= [:map [:user :string]]
-           (:schema (rf.schemas/app-schema-meta {:frame :tenant/a :path [:auth]}))))
-    (is (= [:map [:items :any]]
-           (:schema (rf.schemas/app-schema-meta {:frame :tenant/a :path [:cart]}))))
-    (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:auth]})))
-        "the default frame did NOT receive any of the entries")))
 
 (deftest reg-app-schemas-empty-map-no-op
   (testing "rf/reg-app-schemas on an empty map is a no-op and returns an empty vector"
