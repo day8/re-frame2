@@ -224,7 +224,6 @@ _SELFTEST_GOOD = (
     # R3: contract framings.
     "### L3 — MCP is the only skill-facing transport",
     "The bash shims under `scripts/` are retired from the skill's tool surface.",
-    "Bash shims — retired from the skill surface; on disk for the e2e harness only.",
 )
 
 
