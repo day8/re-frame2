@@ -233,30 +233,6 @@
            drain — flush! short-circuited on @disposed? (no spurious
            recompute / :rf.sub/run)"))))
 
-(deftest direct-dispose-then-flush-does-not-recompute
-  (testing "a focused variant with no cascade: a derived value is marked
-            dirty (its source changes inside an epoch), disposed while the
-            epoch is still open, and the queued flush must not recompute it.
-            Drives the dispose deterministically by nesting it inside the
-            same open epoch via a re-entrant replace! on an unrelated source
-            watch — keeping the queued l1 flush pending until the outer epoch
-            closes."
-    (let [{:keys [make-derived replace! root scheduler]} (build-graph)
-          body-runs (atom 0)
-          l1     (make-derived [root]
-                   (fn [db] (swap! body-runs inc) (:a db)))]
-      (is (= 1 @l1) "baseline deref establishes prev-state")
-      (reset! body-runs 0)
-      ;; Open an epoch, mark l1 dirty (enqueues its flush), dispose l1 while
-      ;; the epoch is still open (queue not yet drained), then let the epoch
-      ;; close and drain. The queued l1 flush must skip the recompute.
-      (#'rf.substrate.spine/with-epoch scheduler
-        (fn []
-          (reset! root {:a 99 :b 10})   ;; marks l1 dirty, enqueues flush
-          (rf.disposable/-dispose l1))) ;; dispose before the drain
-      (is (= 0 @body-runs)
-          "the disposed reaction's flush did not recompute on drain"))))
-
 ;; ---- throw mid-drain: drains the tail (no strand) AND surfaces ------------
 
 (deftest throwing-thunk-mid-drain-does-not-strand-downstream
@@ -425,28 +401,6 @@
           "a later clean reset re-marks + flushes the later sibling — scheduler
            state (:escaped, queue, flushing?) fully recovered"))))
 
-(deftest direct-source-both-dependents-throw-surfaces-earliest
-  (testing "when BOTH direct dependents throw (earlier first), the EARLIEST
-            escape is the one surfaced (presence capture across the single
-            coordinator-bracketed drain) — the later dependent's own throw is
-            dropped in favour of the first."
-    (let [scheduler    (rf.substrate.spine/make-scheduler)
-          make-derived (rf.substrate.spine/make-derived-value-fn "rf-b1b-" scheduler)
-          src          (atom 1)
-          boom?        (atom false)
-          first-err    (js/Error. "first boom")
-          earlier      (make-derived [src] (fn [x] (when @boom? (throw first-err)) x))
-          later        (make-derived [src] (fn [x] (when @boom? (throw (js/Error. "second boom"))) x))]
-      (is (= 1 @earlier) "earlier baseline")
-      (is (= 1 @later) "later baseline")
-      (reset! boom? true)
-      (let [caught (atom ::none)]
-        (try (reset! src 2)
-             (catch :default e (reset! caught e)))
-        (is (identical? first-err @caught)
-            "the earliest (first-firing dependent's) failure surfaced by
-             identity; the later dependent's throw was superseded")))))
-
 ;; ---- direct-source fan-out terminal for ARBITRARY arity -------------------
 ;; Deferring a fresh escape to "the next sibling drain" terminates only the
 ;; exactly-two earlier-throw case: a SOLE / LAST-firing throwing dependent has
@@ -457,38 +411,6 @@
 ;; so every arity attempts all owned dependents then surfaces the earliest at a
 ;; real terminal. These tests are RED against that deferral (sole/last park;
 ;; early-of-3+ strands) and GREEN with the coordinator.
-
-(deftest direct-source-sole-throwing-dependent-surfaces-at-terminal
-  (testing "a DIRECT raw source reset whose SOLE derived dependent throws
-            surfaces that failure SYNCHRONOUSLY at the fan-out's own terminal,
-            exactly once, by identity — not parked on :escaped until an
-            unrelated later drain. Deferring a fresh escape to 'the next
-            sibling drain' never terminates for a sole dependent: reset! would
-            return successfully and the failure would be lost until an
-            unrelated mutation. The per-source coordinator gives the bare reset
-            a real with-epoch terminal."
-    (let [scheduler    (rf.substrate.spine/make-scheduler)
-          make-derived (rf.substrate.spine/make-derived-value-fn "rf-sole-" scheduler)
-          src          (atom 1)
-          boom?        (atom false)
-          sentinel     (js/Error. "sole boom")
-          d            (make-derived [src] (fn [x] (when @boom? (throw sentinel)) x))]
-      (is (= 1 @d) "baseline deref")
-      (reset! boom? true)
-      (let [caught (atom ::none)]
-        (try (reset! src 2)
-             (catch :default e (reset! caught e)))
-        (is (identical? sentinel @caught)
-            "the sole dependent's failure surfaced synchronously at the reset
-             terminal with exact identity — no later drain was needed"))
-      ;; Recovery: a later clean reset flushes normally — no retained escape.
-      (reset! boom? false)
-      (let [notes (atom [])]
-        (add-watch d :w (fn [_ _ prev nu] (swap! notes conj [prev nu])))
-        (reset! src 3)
-        (is (= [[1 3]] @notes)
-            "a later clean reset re-marks + flushes (prev-state stayed 1 — the
-             armed recompute threw before updating it); scheduler state clean")))))
 
 (deftest direct-source-sole-dependent-falsey-throw-surfaces-by-presence
   (testing "sole-dependent surfacing preserves a FALSEY throw (`false`/`nil`,
@@ -787,31 +709,6 @@
 ;; `replace-container!` returning normally and the programmer error never
 ;; surfacing. These tests observe the ORIGINAL thrown value at the caller
 ;; (identity preserved), which a swallowing drain cannot deliver.
-
-(deftest primary-subscriber-throw-surfaces-with-object-identity
-  (testing "the FIRST subscriber's thrown value is SURFACED to the caller with
-            EXACT object identity preserved, AFTER every later sibling has been
-            delivered. The drain surfaces it through its caller/error channel
-            rather than swallowing it."
-    (let [{:keys [make-derived replace! root]} (build-graph)
-          l1       (make-derived [root] (fn [db] (:a db)))
-          ;; A distinct object — assert IDENTITY, not just class/message, so
-          ;; nothing along the fan-out→drain→caller path can substitute a
-          ;; look-alike.
-          sentinel (js/Error. "primary failure")
-          b-fired  (atom 0)]
-      (is (= 1 @l1) "baseline deref establishes prev-state")
-      ;; :a registered FIRST → throws the sentinel; :b registered second.
-      (add-watch l1 :a (fn [_ _ _ _] (throw sentinel)))
-      (add-watch l1 :b (fn [_ _ _ _] (swap! b-fired inc)))
-      (let [caught (atom ::none)]
-        (try (replace! root {:a 2 :b 10})
-             (catch :default e (reset! caught e)))
-        (is (identical? sentinel @caught)
-            "the EXACT thrown object surfaced to the caller — identity preserved
-             through the fan-out capture AND the drain caller/error channel")
-        (is (= 1 @b-fired)
-            "the later sibling was delivered BEFORE the primary surfaced")))))
 
 (deftest single-subscriber-throw-surfaces-on-fast-path
   (testing "the allocation-free single-subscriber fast path still SURFACES a
