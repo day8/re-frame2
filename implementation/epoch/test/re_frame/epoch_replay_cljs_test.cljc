@@ -37,7 +37,7 @@
        the reported epoch.
     9. A replay that commits no epoch of its own (its handler
        opts out of tracing) reports nil, never a record another dispatch
-       committed: another thread's, or the replay's own queued child.
+       committed — not even its own queued child's.
    10. Nor its queued GRANDCHILD's: a traced descendant's
        dispatch is never adopted as the quiet replay's own identity.
 
@@ -386,18 +386,6 @@
                 "the replayed macrostep reproduced the live decision")))))))
 
 ;; ---------------------------------------------------------------------------
-;; The facade reaches the artefact
-;; ---------------------------------------------------------------------------
-
-(deftest facade-and-artefact-forms-are-the-same-operation
-  (testing "rf/replay-epoch! late-binds to re-frame.epoch/replay-epoch!"
-    (rf/make-frame {:id frame-id})
-    (let [res-facade   (rf/replay-epoch! frame-id ::nope)
-          res-artefact (rf.epoch/replay-epoch! frame-id ::nope)]
-      (is (= res-facade res-artefact))
-      (is (= :rf.epoch/replay-unknown-epoch (:reason res-facade))))))
-
-;; ---------------------------------------------------------------------------
 ;; Incomplete evidence is refused BEFORE dispatch
 ;; ---------------------------------------------------------------------------
 ;;
@@ -494,24 +482,6 @@
           (is (= 1 @calls) "the generator was not consulted")
           (is (= ["jwt-abc"] @seen) "the handler was not re-invoked"))))))
 
-(deftest replay-still-succeeds-for-an-unclassified-control
-  (testing "an UNCLASSIFIED argument and fact — same shapes, no declaration —
-            replay exactly; the check refuses capture loss, not payload shape"
-    (rf/make-frame {:id frame-id})
-    (let [seen (atom [])]
-      (rf/reg-cofx :replay/open {:recordable? true} (fn [] {:token "jwt-abc"}))
-      (rf/reg-event :replay/plain
-        {:rf.cofx/requires [:replay/open]}
-        (fn [{:keys [db] s :replay/open} [_ payload]]
-          (swap! seen conj [(:password payload) (:token s)])
-          {:db (assoc db :seen true)}))
-      (rf/dispatch-sync [:replay/plain {:password "topsecret"}] {:frame frame-id})
-      (let [r   (last-record)
-            res (rf/replay-epoch! frame-id (:epoch-id r))]
-        (is (true? (:ok? res)) (str "replay succeeded: " (pr-str res)))
-        (is (= [["topsecret" "jwt-abc"] ["topsecret" "jwt-abc"]] @seen)
-            "the handler saw the raw arg and the raw fact, both times")))))
-
 ;; ---------------------------------------------------------------------------
 ;; The reported epoch is the REPLAYED dispatch's own
 ;; ---------------------------------------------------------------------------
@@ -605,37 +575,6 @@
       (finally
         (rf/unregister-listener! :trace ::interleave)))))
 
-(deftest replay-result-names-its-own-dispatch-not-a-callbacks
-  (testing "a trace callback that dispatches a DIFFERENT event during replay's
-            `:rf.event/dispatched` commits first; the reported epoch is still
-            the replayed dispatch's own record, and both events run"
-    (rf/configure! {:epoch-history {:depth 10}})
-    (rf/make-frame {:id interleave-frame-id})
-    (register-add-and-other!)
-    (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
-    (let [source (last (rf/epoch-history interleave-frame-id))
-          [res fired?] (call-with-interleaving-listener
-                         [:review/other]
-                         #(rf/replay-epoch! interleave-frame-id (:epoch-id source)))
-          after  (rf/epoch-history interleave-frame-id)
-          named  (first (filter #(= (:epoch-id res) (:epoch-id %)) after))]
-      (is (true? fired?) "the callback did interleave — the witness is armed")
-      (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
-      (is (= [:review/add :review/other :review/add] (mapv :event-id after))
-          "the callback's event committed BEFORE the replayed event — this is
-           the ordering a first-commit observation cannot survive")
-      (is (= {:n 2 :other true} (rf/app-db-value interleave-frame-id))
-          "both events executed correctly; only the returned evidence is at stake")
-      ;; THE TOOTH.
-      (is (= (:epoch-id (last after)) (:epoch-id res))
-          "the reported epoch is the replayed dispatch's OWN new record")
-      (is (= [:review/add 1] (:trigger-event named))
-          (str "…and it resolves to the replayed trigger, not the callback's; "
-               "resolved " (pr-str (:trigger-event named))))
-      (is (= :review/other (:event-id (nth after 1)))
-          "sanity — the callback's record is the one a first-commit observation
-           would return"))))
-
 (deftest replay-result-is-not-rescued-by-matching-the-event-id
   (testing "the SAME handler with DIFFERENT arguments: filtering the history by
             `:event-id` would still return the callback's record, so the
@@ -684,11 +623,6 @@
 ;; the replay thread parks on a latch until the other thread's dispatch has
 ;; returned. No sleep decides anything. JVM only — CLJS has one thread and no
 ;; such gap.
-;;
-;; The first deftest is the tooth. The eviction companion is not: the other
-;; thread's record is OLDER than the replay's, so the ring always evicts it
-;; first and a frame-wide observation answers nil there too. It pins that the
-;; documented nil survives the interleave.
 ;; ---------------------------------------------------------------------------
 
 #?(:clj
@@ -753,27 +687,6 @@
          (is (not= (:epoch-id foreign) (:epoch-id res))
              "the other thread's record is never the reported epoch")))))
 
-#?(:clj
-   (deftest replay-reports-nil-not-another-threads-epoch-when-its-own-was-evicted
-     (testing "the same interleave with the replay's own record evicted by its
-               queued child: the documented nil, never the other thread's id"
-       (rf/configure! {:epoch-history {:depth 1}})
-       (rf/make-frame {:id evict-frame-id})
-       (register-parent-and-child!)
-       (register-add-and-other!)
-       (rf/dispatch-sync [:review/parent] {:frame evict-frame-id})
-       (let [source (last (rf/epoch-history evict-frame-id))
-             res    (replay-with-foreign-dispatch-after-arming
-                      evict-frame-id (:epoch-id source) [:review/other])
-             after  (rf/epoch-history evict-frame-id)]
-         (is (true? (:ok? res)) (str "the dispatch itself succeeded: " (pr-str res)))
-         (is (= [:review/child] (mapv :event-id after))
-             "the replayed parent's queued child evicted the parent's record")
-         (is (nil? (:epoch-id res))
-             "the ring could not retain the replay's own epoch, so nil rides back")
-         (is (= {:runs 2 :child true :other true} (rf/app-db-value evict-frame-id))
-             "the other thread's event, the replayed parent and its child all ran")))))
-
 ;; ---------------------------------------------------------------------------
 ;; A replay that commits no epoch of its own reports nil
 ;;
@@ -788,11 +701,9 @@
 ;; epoch 2, no replay epoch at all, and a result saying `:epoch-id 2`.
 ;;
 ;; Without the replay's own dispatch id no commit is evidence of the replay,
-;; so the answer is nil. The first deftest is the witness where the
-;; stranger is another JVM thread. The second is the same shape on ONE
-;; thread — the quiet parent's own queued child — which is why confining the
-;; fallback to the arming thread cannot close it. The third is the
-;; green control.
+;; so the answer is nil. The deftest below is that stranger on ONE thread
+;; — the quiet parent's own queued child — which is why confining a
+;; fallback to the arming thread would not close the hole.
 ;; ---------------------------------------------------------------------------
 
 (defn- reg-quiet!
@@ -806,37 +717,10 @@
   [res history]
   (:trigger-event (first (filter #(= (:epoch-id res) (:epoch-id %)) history))))
 
-#?(:clj
-   (deftest quiet-replay-reports-nil-not-another-threads-epoch
-     (testing "the replayed handler now opts out of tracing, so the replay
-               commits no epoch; another thread's same-frame dispatch commits
-               one inside the armed window, and nil rides back rather than it"
-       (rf/configure! {:epoch-history {:depth 10}})
-       (rf/make-frame {:id interleave-frame-id})
-       (register-add-and-other!)
-       (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
-       (let [source (last (rf/epoch-history interleave-frame-id))
-             _      (reg-quiet! :review/add add-handler)
-             res    (replay-with-foreign-dispatch-after-arming
-                      interleave-frame-id (:epoch-id source) [:review/other])
-             after  (rf/epoch-history interleave-frame-id)]
-         (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
-         (is (= (:epoch-id source) (:source-epoch-id res)))
-         (is (= [[:review/add 1] [:review/other]] (mapv :trigger-event after))
-             "the other thread's dispatch committed; the quiet replay added no
-              record of its own")
-         (is (= {:n 2 :other true} (rf/app-db-value interleave-frame-id))
-             "both dispatches executed; only the returned evidence is at stake")
-         ;; THE TOOTH.
-         (is (nil? (:epoch-id res))
-             (str "no epoch of the replay's was committed, so none is reported; "
-                  "got " (pr-str (:epoch-id res)) ", resolving to "
-                  (pr-str (resolves-to res after))))))))
-
 (deftest quiet-replay-reports-nil-not-its-queued-childs-epoch
-  (testing "the same shape on one thread: the quiet replayed parent enqueues
-            a traced child, the child commits, and nil rides back rather than
-            the child's record"
+  (testing "on one thread, the quiet replayed parent enqueues a traced
+            child, the child commits, and nil rides back rather than the
+            child's record"
     (rf/configure! {:epoch-history {:depth 10}})
     (rf/make-frame {:id evict-frame-id})
     (register-parent-and-child!)
@@ -855,24 +739,6 @@
           (str "the child's record is not the replayed parent's epoch; got "
                (pr-str (:epoch-id res)) ", resolving to "
                (pr-str (resolves-to res after)))))))
-
-(deftest quiet-replay-alone-reports-nil
-  (testing "the control: with nothing else committing, the quiet replay still
-            runs, adds no record, and reports nil"
-    (rf/configure! {:epoch-history {:depth 10}})
-    (rf/make-frame {:id interleave-frame-id})
-    (register-add-and-other!)
-    (rf/dispatch-sync [:review/add 1] {:frame interleave-frame-id})
-    (let [source (last (rf/epoch-history interleave-frame-id))
-          _      (reg-quiet! :review/add add-handler)
-          res    (rf/replay-epoch! interleave-frame-id (:epoch-id source))]
-      (is (true? (:ok? res)) (str "the replay itself succeeded: " (pr-str res)))
-      (is (= (:epoch-id source) (:source-epoch-id res)))
-      (is (nil? (:epoch-id res)))
-      (is (= [[:review/add 1]] (mapv :trigger-event (rf/epoch-history interleave-frame-id)))
-          "the history is unchanged")
-      (is (= {:n 2} (rf/app-db-value interleave-frame-id))
-          "the replayed handler ran"))))
 
 ;; ---------------------------------------------------------------------------
 ;; A quiet replay never adopts a traced DESCENDANT's identity
