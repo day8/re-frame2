@@ -121,6 +121,48 @@
            (rf.ssr.hash/canonical-edn #'clojure.core/identity))
         "a Var reference keeps its stable #'ns/name print form")))
 
+;; ---- a raw-HTML value hashes as the map it answers for ---------------------
+;;
+;; A `.cljc` view a JVM server renders writes a raw-HTML prop as React's
+;; `{:__html s}` map on the JVM and as the Reagent bridge's tagged value on the
+;; client, `#?(:clj {:__html s} :cljs (r/unsafe-html s))`, because the tagged
+;; value cannot be built on the JVM. The emitter writes whatever the value
+;; answers for `:__html` as the body, so both forms render the same page and
+;; must hash the same, or the client reports a mismatch the page does not have.
+;; The tagged value is CLJS-only, so a value answering `:__html` through
+;; `ILookup` stands in for it here; `re-frame.adapter-unsafe-html-ssr-cljs-test`
+;; pins the same literal hash with the real one.
+
+(defn- lookup-html
+  "A value that is not a map and answers `s` for `:__html`, as the bridge's
+  `reagent.core/unsafe-html` value does once `re-frame.adapter.reagent` loads."
+  [s]
+  (reify clojure.lang.ILookup
+    (valAt [this k] (.valAt this k nil))
+    (valAt [_ k not-found] (if (= :__html k) s not-found))))
+
+(deftest a-raw-html-value-hashes-as-the-map-it-answers-for
+  (let [as-map   (fn [s] [:div {:dangerouslySetInnerHTML {:__html s}}])
+        as-value (fn [s] [:div {:dangerouslySetInnerHTML (lookup-html s)}])]
+    (testing "the map and a value answering :__html hash the same for the same markup"
+      (is (= "2525560c"
+             (rf.ssr.hash/render-tree-hash (as-map "<b>x</b>"))
+             (rf.ssr.hash/render-tree-hash (as-value "<b>x</b>"))))
+      (is (= "[:div {:dangerouslySetInnerHTML {:__html \"<b>x</b>\"}}]"
+             (rf.ssr.hash/canonical-edn (as-value "<b>x</b>")))))
+    (testing "no markup hashes as the map with a nil :__html, which nil pruning makes {}"
+      (is (= (rf.ssr.hash/render-tree-hash (as-map nil))
+             (rf.ssr.hash/render-tree-hash (as-value nil)))))
+    (testing "different markup hashes differently"
+      (is (not= (rf.ssr.hash/render-tree-hash (as-value "<b>x</b>"))
+                (rf.ssr.hash/render-tree-hash (as-value "<b>y</b>")))))
+    (testing "a lookup value with no :__html entry keeps its print form"
+      (is (= "#foo [1]" (rf.ssr.hash/canonical-edn (tagged-literal 'foo [1])))))
+    (testing "the emitter writes the same body for both forms"
+      (is (= "<div><b>x</b></div>"
+             (rf.ssr.emit/render-to-string (as-map "<b>x</b>") {})
+             (rf.ssr.emit/render-to-string (as-value "<b>x</b>") {}))))))
+
 ;; ---- whole-valued doubles canonicalise cross-runtime ----------------------
 
 (deftest whole-valued-doubles-canonicalise-hash-and-html-consistently
