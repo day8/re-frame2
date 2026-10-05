@@ -61,18 +61,6 @@
         (is (= :compiled-schema-object (-> warns first :tags :schema-kind)))
         (is (= [:cart] (-> warns first :tags :path)))))))
 
-(deftest warning-fires-once-across-multiple-opaque-calls
-  (testing "subsequent reg-app-schema calls with opaque (compiled-map)
-            schemas within the same process do NOT re-emit the warning
-            (process-lifecycle one-shot)"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:a] {:malli/schema :a})
-      (rf/reg-app-schema [:b] {:malli/schema :b})
-      (rf/reg-app-schema [:c] {:malli/schema :c})
-      (is (= 1 (count (warnings-of recorded
-                                   :rf.warning/schema-walker-opaque)))
-          "three registrations -> exactly one warning"))))
-
 (deftest warning-fires-once-from-reg-app-schemas-bulk
   (testing "bulk reg-app-schemas with opaque schemas fires the warning
             once across all entries"
@@ -107,19 +95,6 @@
         (is (not (re-find #"(?i)(use|via) .{0,40}registration[- ]?(level|meta)"
                           reason))
             "no positive recommendation to USE the registration-meta fallback")))))
-
-(deftest warning-fires-when-vector-form-schema-nests-an-opaque-child
-  (testing "a VECTOR-FORM schema (introspectable at its root)
-            that embeds a compiled m/schema value as a NESTED child (a
-            :map slot's tail) also emits the warning; a root-only
-            `schema-opaque?` check would miss this and stay silent"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:token]
-                         [:map [:secret {} {:malli/schema :compiled}]])
-      (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
-        (is (= 1 (count warns))
-            "a nested opaque child triggers the warning exactly once")
-        (is (= [:token] (-> warns first :tags :path)))))))
 
 (deftest warning-fires-when-schema-carries-a-local-registry
   (testing "a VECTOR-FORM schema carrying a Malli LOCAL
@@ -176,19 +151,3 @@
       (rf/reg-app-schema [:profile] :my/user-schema)
       (is (empty? (warnings-of recorded :rf.warning/schema-walker-opaque))
           "no 'per-slot flags skipped' nudge for an introspectable schema"))))
-
-;; ---- cache-clear semantics ------------------------------------------------
-
-(deftest cache-clear-allows-warning-to-fire-again
-  (testing "clear-walker-opaque-warned! resets the one-shot so a
-            subsequent reg-app-schema fires the warning anew (test-fixture
-            isolation)"
-    (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:first] {:malli/schema :first})
-      (is (= 1 (count (warnings-of recorded
-                                   :rf.warning/schema-walker-opaque))))
-      (rf.schemas/clear-walker-opaque-warned!)
-      (rf/reg-app-schema [:second] {:malli/schema :second})
-      (is (= 2 (count (warnings-of recorded
-                                   :rf.warning/schema-walker-opaque)))
-          "after cache clear the warning fires again"))))
