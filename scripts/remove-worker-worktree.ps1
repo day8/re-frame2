@@ -25,12 +25,14 @@
 #   has to run through.
 #
 # WHAT IT DOES, in the one order that is safe:
-#   1. Snapshot every real node_modules in the MAYOR checkout (the canary).
+#   1. Snapshot every real node_modules in the MAYOR checkout (the canary): a
+#      MANIFEST of every entry's relative path and kind. A scan that does not
+#      complete refuses the run here, before anything is touched.
 #   2. Find every node_modules under the worktree that is a LINK and remove
 #      the LINK ONLY - a NON-RECURSIVE delete, never Remove-Item -Recurse.
 #   3. Verify each link is actually gone before continuing.
 #   4. THEN `git worktree remove`.
-#   5. Re-snapshot the canary and FAIL LOUDLY if the signature moved.
+#   5. Re-snapshot the canary and FAIL LOUDLY if the manifest moved.
 #   Steps 2 and 4 are never chained into one command: the point is that the
 #   removal runs against a tree with no live reparse point left in it.
 #
@@ -61,10 +63,18 @@
 #
 # CONTRACT (identical to the POSIX primary; see its header for the full list).
 #   CANARY_BEFORE=/CANARY_AFTER= carry a <signature>, which is
-#   `<immediate-entries>/<recursive-files>/<sentinels-present>` e.g. `103/2933/2`.
-#   The recursive count and the sentinels are load-bearing: the immediate-entry
-#   count alone cannot see files vanishing from under packages whose
-#   directories survive.
+#     manifest=<sha256> counts=<immediate-entries>/<recursive-files>/<sentinels-present>
+#   or MISSING when the directory is gone, or INCOMPLETE when its scan did not
+#   finish. THE MANIFEST IS THE VERDICT: one `<kind> <relative path>` line per
+#   entry - kind d, f, l (a link, recorded and never followed) or o - recursive,
+#   hidden entries kept, sorted ordinally, hashed. The counts are diagnostics
+#   read off that same manifest and never decide, because a count misses a loss
+#   and a gain of the same size. The same tree gives the same digest here as
+#   from the POSIX primary.
+#   A moved canary prints CANARY_FAILED with the first entries lost and gained.
+#   A scan that did not complete prints CANARY_INCOMPLETE=<path> <reason> and
+#   exits 1: before the removal it refuses with nothing touched; after it, the
+#   run has no verdict.
 #
 #   A FAILED removal is classified rather than guessed at: a dirty tree read
 #   as file-locked would be waited out for ever, because no amount of waiting
@@ -214,34 +224,119 @@ function Invoke-SelfQuiet([string[]]$ScriptArgs) {
   }
 }
 
+# -SelfTest ONLY: deny (or, with -Restore, give back) the right to list a
+# directory, through a deny entry for Everyone, so a scan of its parent cannot
+# complete. The owner keeps the right to edit the ACL, so the restore works.
+function Set-ListingDenied([string]$Path, [switch]$Restore) {
+  $ErrorActionPreference = 'Continue'
+  if ($Restore) { $null = & icacls $Path /remove:d '*S-1-1-0' 2>&1 }
+  else { $null = & icacls $Path /deny '*S-1-1-0:(RD)' 2>&1 }
+}
+
 # Paths inside a node_modules whose disappearance is damage on its own, whatever
 # the counts say. Kept to two: one directory every install has, one package this
 # repo cannot build without.
-$script:NmSentinels = @('.bin', 'shadow-cljs\package.json')
+$script:NmSentinels = @('.bin', 'shadow-cljs/package.json')
 
-# A node_modules HEALTH SIGNATURE: <immediate-entries>/<recursive-files>/<sentinels>.
-# Returns the string MISSING when the directory is not there at all - MISSING
-# against a real "before" is itself a canary failure.
+# A node_modules SNAPSHOT: its MANIFEST (Lines) and its SIGNATURE,
+# `manifest=<sha256> counts=<entries>/<files>/<sentinels>`. The signature is
+# MISSING when the directory is not there at all - MISSING against a real
+# "before" is itself a canary failure - and INCOMPLETE, with the reason in
+# Error, when the scan did not finish: a partial manifest can hide a loss or
+# invent one, so it must never be compared.
 #
-# The immediate-entry count alone was the original canary and it is half-blind:
-# a partial recursive delete can empty the files *under* every package while
-# leaving all the top-level package directories standing, so before -eq after
-# reports healthy over material damage. The recursive file count sees exactly
-# that shape, and the sentinels see a targeted loss two counts could coincide
-# on. All three are cheap - 2933 files in 165ms over this repo's mayor
-# node_modules - so there is no reason to settle for the blind one.
+# THE ENUMERATION POLICY matches the POSIX primary's: recursive, hidden
+# entries kept, and a reparse point (junction or symlink) recorded as a link,
+# `l`, and never descended into. The walk is explicit rather than
+# Get-ChildItem -Recurse, so the never-follow rule is stated here rather than
+# inherited from a provider, and so an unreadable directory stops the scan
+# where -ErrorAction SilentlyContinue turns it into a quietly short count. The
+# parameterless EnumerateFileSystemInfos skips no attributes, so hidden and
+# system entries are listed, and it throws on a directory it cannot read.
+# Lines are `<kind> <relative/path>` with forward slashes, sorted ordinally
+# and hashed as UTF-8 with a newline after each - the bytes the primary hashes
+# (ordinal UTF-16 order and bytewise UTF-8 order agree for every name outside
+# the astral planes).
 #
-# -Recurse does not descend through reparse points without -FollowSymlink, so
-# the count cannot wander out of the directory it is measuring.
-function Get-NodeModulesSignature([string]$Path) {
-  if (-not (Test-Path -LiteralPath $Path)) { return 'MISSING' }
-  $entries = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue).Count
-  $files = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -File -ErrorAction SilentlyContinue).Count
-  $sentinels = 0
-  foreach ($s in $script:NmSentinels) {
-    if (Test-Path -LiteralPath (Join-Path $Path $s)) { $sentinels += 1 }
+# The manifest decides. A count misses a loss and a gain of the same size -
+# one package file deleted while another appears elsewhere reads healthy on
+# every count. The counts stay beside the digest because they say how much
+# moved, and they are read off the manifest, so they cannot disagree with it.
+function Get-NodeModulesSnapshot([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    return [pscustomobject]@{ Signature = 'MISSING'; Lines = @(); Error = '' }
   }
-  return "$entries/$files/$sentinels"
+  $lines = New-Object System.Collections.Generic.List[string]
+  $stack = New-Object System.Collections.Generic.Stack[object]
+  $stack.Push(@((New-Object System.IO.DirectoryInfo -ArgumentList $Path), ''))
+  try {
+    while ($stack.Count -gt 0) {
+      $frame = $stack.Pop()
+      foreach ($entry in $frame[0].EnumerateFileSystemInfos()) {
+        $rel = $frame[1] + $entry.Name
+        if (($entry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+          $lines.Add("l $rel")
+        }
+        elseif (($entry.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
+          $lines.Add("d $rel")
+          $stack.Push(@($entry, "$rel/"))
+        }
+        else {
+          $lines.Add("f $rel")
+        }
+      }
+    }
+  }
+  catch {
+    return [pscustomobject]@{ Signature = 'INCOMPLETE'; Lines = @(); Error = $_.Exception.Message }
+  }
+  $sorted = $lines.ToArray()
+  [System.Array]::Sort($sorted, [System.StringComparer]::Ordinal)
+  $text = New-Object System.Text.StringBuilder
+  $entries = 0
+  $files = 0
+  $sentinels = 0
+  foreach ($line in $sorted) {
+    [void]$text.Append($line).Append("`n")
+    $rel = $line.Substring(2)
+    if ($rel.IndexOf('/') -lt 0) { $entries += 1 }
+    if ($line[0] -ceq 'f') { $files += 1 }
+    if ($script:NmSentinels -ccontains $rel) { $sentinels += 1 }
+  }
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hash = $sha.ComputeHash((New-Object System.Text.UTF8Encoding -ArgumentList $false).GetBytes($text.ToString()))
+  }
+  finally { $sha.Dispose() }
+  $digest = ([System.BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+  return [pscustomobject]@{
+    Signature = "manifest=$digest counts=$entries/$files/$sentinels"
+    Lines     = $sorted
+    Error     = ''
+  }
+}
+
+function Get-NodeModulesSignature([string]$Path) {
+  return (Get-NodeModulesSnapshot $Path).Signature
+}
+
+# The counts half of a signature, `<entries>/<files>/<sentinels>`.
+function Get-SignatureCounts([string]$Signature) {
+  $at = $Signature.IndexOf('counts=')
+  if ($at -lt 0) { return '' }
+  return $Signature.Substring($at + 'counts='.Length)
+}
+
+# What moved between two manifests: how many entries each side alone holds,
+# and the first five of each.
+function Write-ManifestDelta([string[]]$Before, [string[]]$After) {
+  $beforeSet = [System.Collections.Generic.HashSet[string]]::new([string[]]@($Before), [System.StringComparer]::Ordinal)
+  $afterSet = [System.Collections.Generic.HashSet[string]]::new([string[]]@($After), [System.StringComparer]::Ordinal)
+  $lost = @($Before | Where-Object { -not $afterSet.Contains($_) })
+  $gained = @($After | Where-Object { -not $beforeSet.Contains($_) })
+  Write-Warning "  manifest entries lost: $($lost.Count), gained: $($gained.Count) (the first 5 of each)"
+  foreach ($l in @($lost | Select-Object -First 5)) { Write-Warning "    - $l" }
+  foreach ($g in @($gained | Select-Object -First 5)) { Write-Warning "    + $g" }
 }
 
 # What `git worktree remove` will refuse over: modified or untracked files.
@@ -601,13 +696,16 @@ function Write-RemoveFailure([string]$Path) {
 #   1. Builds a throwaway target with a known signature, junctions a
 #      node_modules at it, disarms, and requires BOTH: the link is gone AND
 #      the target is untouched.
-#   2. Proves the canary SEES the damage an immediate-entry count alone is
-#      blind to: files vanish from under every package while each package
-#      directory stays standing.
+#   2. Proves the canary SEES the damage a count is blind to: files vanishing
+#      from under packages whose directories stand, and a same-count swap -
+#      and that the manifest keeps hidden entries and records a junction
+#      without following it.
 #   3. Proves the husk DETECTOR against three husk shapes.
 #   4. Proves the later-invocation GUARD by invoking this script, for real,
 #      against fixtures a wrong answer would destroy - the negative direction
 #      first, because refusing is the behaviour under test.
+#   5. Proves an INCOMPLETE canary scan refuses the run before any target is
+#      examined.
 #
 # Never touches a real node_modules, and never this repository.
 # ---------------------------------------------------------------------------
@@ -649,17 +747,81 @@ if ($SelfTest) {
     Remove-Item -LiteralPath (Join-Path $stNested 'pkg-a\lib\index.js') -Force
     Remove-Item -LiteralPath (Join-Path $stNested 'pkg-b\lib\index.js') -Force
     $nAfter = Get-NodeModulesSignature $stNested
-    $shallowBefore = $nBefore.Split('/')[0]
-    $shallowAfter = $nAfter.Split('/')[0]
+    $shallowBefore = (Get-SignatureCounts $nBefore).Split('/')[0]
+    $shallowAfter = (Get-SignatureCounts $nAfter).Split('/')[0]
     if ($shallowBefore -ne $shallowAfter) {
       Write-Error "SELF_TEST=FAILED the fixture's own top-level entry count moved ($shallowBefore -> $shallowAfter); it no longer tests what it claims."
       exit 1
     }
-    if ($nBefore -eq $nAfter) {
+    if ($nBefore -ceq $nAfter) {
       Write-Error "SELF_TEST=FAILED the canary is blind to nested file loss: signature stayed $nBefore."
       exit 1
     }
     Write-Output "SELF_TEST nested_loss top_level_entries_unchanged=$shallowBefore signature $nBefore -> $nAfter"
+
+    # The SAME-COUNT SWAP: one file lost and a different one gained elsewhere,
+    # so every count matches on both sides. This is the shape a count canary
+    # calls healthy, and the reason the manifest, not the counts, is the
+    # verdict. A hidden entry rides along - a dotfile that also carries the
+    # Hidden attribute - because a scan that drops hidden entries turns the
+    # comparison into an offset that cancels a real loss of its own size.
+    $stSwap = Join-Path $stRoot 'swap'
+    foreach ($d in @('.bin', 'pkg-a\lib', 'pkg-b\lib')) {
+      New-Item -ItemType Directory -Force -Path (Join-Path $stSwap $d) | Out-Null
+    }
+    Set-Content -LiteralPath (Join-Path $stSwap 'pkg-a\lib\index.js') -Value 'x'
+    Set-Content -LiteralPath (Join-Path $stSwap 'pkg-b\lib\index.js') -Value 'x'
+    $hiddenEntry = Join-Path $stSwap '.hidden-entry'
+    Set-Content -LiteralPath $hiddenEntry -Value 'x'
+    $hiddenItem = Get-Item -LiteralPath $hiddenEntry -Force
+    $hiddenItem.Attributes = $hiddenItem.Attributes -bor [System.IO.FileAttributes]::Hidden
+    $swapBefore = Get-NodeModulesSnapshot $stSwap
+    if ($swapBefore.Lines -cnotcontains 'f .hidden-entry') {
+      Write-Error "SELF_TEST=FAILED the manifest dropped a hidden entry. Manifest: $($swapBefore.Lines -join '; ')"
+      exit 1
+    }
+    Remove-Item -LiteralPath (Join-Path $stSwap 'pkg-a\lib\index.js') -Force
+    Set-Content -LiteralPath (Join-Path $stSwap 'pkg-b\lib\other.js') -Value 'x'
+    $swapAfter = Get-NodeModulesSignature $stSwap
+    if ((Get-SignatureCounts $swapBefore.Signature) -cne (Get-SignatureCounts $swapAfter)) {
+      Write-Error "SELF_TEST=FAILED the swap fixture's own counts moved ($(Get-SignatureCounts $swapBefore.Signature) -> $(Get-SignatureCounts $swapAfter)); it no longer tests what it claims."
+      exit 1
+    }
+    if ($swapBefore.Signature -ceq $swapAfter) {
+      Write-Error "SELF_TEST=FAILED the canary is blind to a same-count swap: signature stayed $swapAfter."
+      exit 1
+    }
+    Write-Output "SELF_TEST same_count_swap counts_unchanged=$(Get-SignatureCounts $swapAfter) signature $($swapBefore.Signature) -> $swapAfter"
+
+    # A LINK INSIDE the tree is recorded as a link and never followed: what
+    # sits behind it is not enumerated, and changing it does not move the
+    # manifest.
+    $stLinks = Join-Path $stRoot 'links'
+    $stLinksTarget = Join-Path $stRoot 'links-target'
+    New-Item -ItemType Directory -Force -Path $stLinks | Out-Null
+    New-Item -ItemType Directory -Force -Path $stLinksTarget | Out-Null
+    Set-Content -LiteralPath (Join-Path $stLinksTarget 'inside.js') -Value 'x'
+    $stInnerLink = Join-Path $stLinks 'pkg-link'
+    New-Item -ItemType Junction -Path $stInnerLink -Target $stLinksTarget | Out-Null
+    $linkSnap = Get-NodeModulesSnapshot $stLinks
+    if ($linkSnap.Lines -cnotcontains 'l pkg-link') {
+      Write-Error "SELF_TEST=FAILED a junction was not recorded as a link. Manifest: $($linkSnap.Lines -join '; ')"
+      exit 1
+    }
+    if (@($linkSnap.Lines | Where-Object { $_.Contains('pkg-link/') }).Count -ne 0) {
+      Write-Error "SELF_TEST=FAILED the scan followed a junction. Manifest: $($linkSnap.Lines -join '; ')"
+      exit 1
+    }
+    Set-Content -LiteralPath (Join-Path $stLinksTarget 'added-behind-the-link.js') -Value 'x'
+    if ((Get-NodeModulesSignature $stLinks) -cne $linkSnap.Signature) {
+      Write-Error "SELF_TEST=FAILED a change behind a junction moved the manifest, so the scan followed it."
+      exit 1
+    }
+    if (-not (Disarm-Link $stInnerLink)) {
+      Write-Error "SELF_TEST=FAILED could not unlink the junction fixture: $stInnerLink"
+      exit 1
+    }
+    Write-Output "SELF_TEST link_in_manifest=yes (recorded as `"l pkg-link`"; its target never enumerated, and a change behind it left the signature at $($linkSnap.Signature))"
 
     # The HUSK detector, in a throwaway repo; never touches this one.
     #
@@ -962,6 +1124,54 @@ if ($SelfTest) {
       }
 
       Write-Output "SELF_TEST argument_contract=yes (a missing path, a non-directory and a bare name each exit 2 with REFUSED_BAD_ARGUMENT= and no tree examined; a well-formed path still clears the gate and is judged on its identity)"
+
+      # ---- AN INCOMPLETE SCAN IS REFUSED, NOT COMPARED ----
+      #
+      # A mayor node_modules holding a directory the scan cannot list. The
+      # signature must say INCOMPLETE rather than hash what it did see, and
+      # the run must refuse before it examines any target: CANARY_INCOMPLETE=
+      # present, and none of the per-target lines a run that carried on would
+      # print. The target is the ordinary directory from above, which a run
+      # that carried on would refuse too - so the exit code alone cannot tell
+      # the two apart, and the assertions are on the lines.
+      $incRoot = Join-Path $stRoot 'incomplete-mayor'
+      $incLocked = Join-Path $incRoot 'node_modules\locked'
+      New-Item -ItemType Directory -Force -Path $incLocked | Out-Null
+      Set-Content -LiteralPath (Join-Path $incLocked 'beyond-the-scan.js') -Value 'x'
+      Set-ListingDenied $incLocked
+      try {
+        $listable = $true
+        try { $null = @([System.IO.Directory]::EnumerateFileSystemEntries($incLocked)) } catch { $listable = $false }
+        if ($listable) {
+          Write-Error "SELF_TEST=FAILED could not make $incLocked unlistable, so the incomplete-scan refusal went untested."
+          exit 1
+        }
+        $incSig = Get-NodeModulesSignature (Join-Path $incRoot 'node_modules')
+        $g = Invoke-SelfQuiet @('-MayorRoot', $incRoot, $gPlain)
+      }
+      finally { Set-ListingDenied $incLocked -Restore }
+      $gText = ($g.Output -join "`n")
+      if ($incSig -cne 'INCOMPLETE') {
+        Write-Error "SELF_TEST=FAILED an unlistable directory still produced a signature ($incSig), so a partial scan would be compared."
+        exit 1
+      }
+      if ($g.ExitCode -ne 1) {
+        Write-Error "SELF_TEST=FAILED an incomplete canary scan exited $($g.ExitCode), want 1. Output: $gText"
+        exit 1
+      }
+      if ($gText -notmatch 'CANARY_INCOMPLETE=') {
+        Write-Error "SELF_TEST=FAILED an incomplete canary scan was not refused by name. Output: $gText"
+        exit 1
+      }
+      if ($gText -match '(DISARMED|NO_LINKS|REMOVED|REFUSED_UNREGISTERED|REFUSED_NOT_A_HUSK)=') {
+        Write-Error "SELF_TEST=FAILED an incomplete canary scan went on to examine a target. Output: $gText"
+        exit 1
+      }
+      if (-not (Test-Path -LiteralPath $gLink)) {
+        Write-Error "SELF_TEST=FAILED a run refused on an incomplete scan removed a junction: $gLink"
+        exit 1
+      }
+      Write-Output "SELF_TEST incomplete_scan=refused (signature INCOMPLETE; the run exited 1 with CANARY_INCOMPLETE= before examining any target)"
     }
     else {
       # NOT a SKIP - see the POSIX primary. The junction fixture above may
@@ -973,7 +1183,7 @@ if ($SelfTest) {
       exit 1
     }
 
-    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the canary caught nested-only loss, a husk is not mistaken for a clean tree, an unidentified directory is refused rather than condemned, and a bad argument is refused before any tree is examined."
+    Write-Output "SELF_TEST=PASSED link unlinked with its target intact ($after), the manifest caught nested-only loss and a same-count swap, kept a hidden entry, recorded a link without following it, an incomplete scan is refused, a husk is not mistaken for a clean tree, an unidentified directory is refused rather than condemned, and a bad argument is refused before any tree is examined."
     exit 0
   }
   finally {
@@ -1064,15 +1274,34 @@ Write-Output "MAYOR_ROOT=$mayorRootPath"
 
 # ---------------------------------------------------------------------------
 # CANARY, captured at runtime - never a committed number, which would rot.
-# Every REAL (non-link) node_modules in the mayor checkout, with its health
-# signature. A junction we failed to detect still shows up here as a drop.
+# Every REAL (non-link) node_modules in the mayor checkout, with its
+# signature, and its manifest kept for the re-check. A junction we failed to
+# detect still shows up here as a manifest that moved.
+#
+# A BEFORE scan that did not complete leaves nothing to compare against, so
+# the run refuses here - before any link is disarmed or any tree removed.
 # ---------------------------------------------------------------------------
 $canary = [ordered]@{}
+$canaryIncomplete = $false
 foreach ($nm in (Find-NodeModules $mayorRootPath)) {
   if (Test-IsLink $nm) { continue }   # a link in the MAYOR tree is not a canary
   $key = Normalize-Path $nm
-  $canary[$key] = Get-NodeModulesSignature $nm
-  Write-Output "CANARY_BEFORE=$key $($canary[$key])"
+  $canary[$key] = Get-NodeModulesSnapshot $nm
+  Write-Output "CANARY_BEFORE=$key $($canary[$key].Signature)"
+  if ($canary[$key].Signature -ceq 'INCOMPLETE') {
+    $canaryIncomplete = $true
+    Write-Warning "CANARY_INCOMPLETE=$key $($canary[$key].Error)"
+  }
+}
+
+if ($canaryIncomplete) {
+  foreach ($line in @(
+      'A node_modules in the MAYOR checkout could not be scanned completely, so there',
+      'is no manifest to compare the removal against and no verdict to give.',
+      'NOTHING WAS DISARMED OR REMOVED. Fix what the scan reported, then re-run.')) {
+    Write-Warning $line
+  }
+  exit 1
 }
 
 # The registered-worktree roster, normalised once.
@@ -1213,24 +1442,43 @@ foreach ($rawTarget in $Worktree) {
 }
 
 # ---------------------------------------------------------------------------
-# Re-check the canary. A drop means something deleted through a link.
+# Re-check the canary. A moved manifest means something wrote through a link.
+#
+# The whole signature is compared, and that is the manifest's verdict: its
+# counts are read off the same manifest, so they move only when it does.
 # ---------------------------------------------------------------------------
 $canaryBad = $false
+$canaryNoVerdict = $false
 foreach ($key in $canary.Keys) {
-  $after = Get-NodeModulesSignature $key
-  Write-Output "CANARY_AFTER=$key $after"
-  if ($after -ne $canary[$key]) {
+  $before = $canary[$key]
+  $afterSnap = Get-NodeModulesSnapshot $key
+  Write-Output "CANARY_AFTER=$key $($afterSnap.Signature)"
+  if ($afterSnap.Signature -ceq 'INCOMPLETE') {
+    $canaryNoVerdict = $true
+    Write-Warning "CANARY_INCOMPLETE=$key $($afterSnap.Error)"
+  }
+  elseif ($afterSnap.Signature -cne $before.Signature) {
     $canaryBad = $true
-    Write-Warning "CANARY_FAILED: $key went from $($canary[$key]) to $after (entries/files/sentinels)."
+    Write-Warning "CANARY_FAILED: $key went from $($before.Signature) to $($afterSnap.Signature)."
+    Write-ManifestDelta $before.Lines $afterSnap.Lines
   }
 }
 
 if ($canaryBad) {
   Write-Error @"
-A node_modules in the MAYOR checkout lost entries during this removal:
-something deleted THROUGH a link that was not disarmed. Recover with
+A node_modules in the MAYOR checkout changed during this removal:
+something wrote THROUGH a link that was not disarmed. Recover with
   npm ci --prefix implementation
-run from $mayorRootPath, then re-check the counts before dispatching anything.
+run from $mayorRootPath, then re-check it before dispatching anything.
+"@
+  exit 1
+}
+
+if ($canaryNoVerdict) {
+  Write-Error @"
+The AFTER scan of a node_modules in the MAYOR checkout did not complete, so
+this run has NO VERDICT on whether the removal preserved it. Check it by hand
+before dispatching anything.
 "@
   exit 1
 }
