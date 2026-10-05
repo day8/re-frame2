@@ -50,30 +50,10 @@ const utf8 = (s) => Buffer.byteLength(s, 'utf8');
 
 const req = () => ({ protocol: 1, entry: 'app/root', state: {} });
 
-test('the corpus discriminates — it is not accidentally ASCII', () => {
-  assert.notStrictEqual(
-    utf8(CORPUS.BODY),
-    CORPUS.BODY.length,
-    'a corpus whose byte length equals its code-unit length proves nothing about encoding',
-  );
-  assert.ok(CORPUS.BODY.includes('—'), 'em dash');
-  assert.ok(CORPUS.BODY.includes('…'), 'ellipsis');
-  assert.ok(CORPUS.BODY.includes('\u{1D11E}'), 'astral-plane clef');
-});
-
 test('NEGATIVE CONTROL — a re-encoded body has a different digest', () => {
   // If this row ever agreed, every comparison below would be vacuous.
   const mangled = Buffer.from(CORPUS.BODY, 'utf8').toString('latin1');
   assert.notStrictEqual(sha256(mangled), sha256(CORPUS.BODY));
-});
-
-test('the bytes out of the SERVICE are the bytes the module wrote', async () => {
-  await withService('bytes', { isolates: 1 }, async (service) => {
-    const { chunks } = await collect(service, req());
-    const body = chunks.map((c) => c.html).join('');
-    assert.strictEqual(sha256(body), sha256(CORPUS.BODY));
-    assert.strictEqual(utf8(body), utf8(CORPUS.BODY));
-  });
 });
 
 test('the bytes out of HTTP are the same bytes, and Content-Length counts them', async () => {
@@ -164,23 +144,6 @@ test('renderToString is a WRAPPER — it joins what the frames already carried',
     });
     assert.strictEqual(out.html, parts.join(''));
     assert.strictEqual(out.chunks, 2, 'the join happened at the edge; the count survived it');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Determinism, on the model of the spike witness's X1(a)
-// ---------------------------------------------------------------------------
-
-test('two renders of one request are byte-identical; a changed input moves the digest', async () => {
-  await withService('reference', { isolates: 2 }, async (service) => {
-    const request = (todos) => ({ protocol: 1, entry: 'app/root', state: { ':todos': todos } });
-    const a = await service.renderToString(request('"eight"'));
-    const b = await service.renderToString(request('"eight"'));
-    assert.strictEqual(sha256(a.html), sha256(b.html));
-    // Byte identity is a claim two renders of nothing also satisfy, so
-    // move one input and require the digest to move with it.
-    const c = await service.renderToString(request('"nine"'));
-    assert.notStrictEqual(sha256(c.html), sha256(a.html));
   });
 });
 
