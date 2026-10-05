@@ -195,9 +195,9 @@ const REPO_ROOT = IMPL_ROOT === null ? null : path.dirname(IMPL_ROOT);
 // THE BENCH LANE LIVES OUTSIDE THE PACKAGE: every rider of `fresco-bench`
 // sits under the bench project — its own `shadow-cljs.edn` and
 // `package.json`, in `bench/fresco/` beside `implementation/`. Both trees are
-// scanned, and the bench root is asserted found below for the same reason the
-// implementation root is: a gate that scanned one tree while its subjects sat
-// in the other would silently rescope itself.
+// scanned. A root that is not found leaves `fresco-bench` with no riders, which
+// `every declared shared build id really is shared` reports, so the gate cannot
+// silently rescope itself to one tree.
 const BENCH_ROOT = REPO_ROOT === null ? null : path.join(REPO_ROOT, 'bench', 'fresco');
 const SCAN_ROOTS = [IMPL_ROOT, BENCH_ROOT].filter((r) => r !== null && fs.existsSync(r));
 const FIXTURE_DIR = path.join(__dirname, 'lane_cache_fixtures');
@@ -473,26 +473,6 @@ const CHECKS = {
 // Every one of these exists because a discovery that quietly finds nothing is
 // the exact fail-open this lane is prone to: a scan whose pattern drifted
 // reports zero riders and every assertion below vacuously passes.
-
-test('the implementation root was found (a gate that scanned nothing is not a pass)', () => {
-  assert.ok(
-    IMPL_ROOT !== null,
-    'walked up from this file and never found a directory holding both ' +
-      'shadow-cljs.edn and package.json, so discovery had no tree to scan. ' +
-      'Repair the anchor — do not fall back to a relative depth.'
-  );
-});
-
-test('the bench project root was found (the riders live there, rf2-6c12m.1)', () => {
-  assert.ok(
-    BENCH_ROOT !== null &&
-      fs.existsSync(path.join(BENCH_ROOT, 'shadow-cljs.edn')) &&
-      fs.existsSync(path.join(BENCH_ROOT, 'package.json')),
-    'bench/fresco/ beside implementation/ does not hold a shadow-cljs.edn and ' +
-      'package.json, so the tree carrying every `fresco-bench` rider was not ' +
-      'scanned. Repair BENCH_ROOT — do not let discovery fall back to one tree.'
-  );
-});
 
 test('every candidate was readable (a file the scanner cannot read is unchecked)', () => {
   assert.deepStrictEqual(
