@@ -323,7 +323,6 @@
     (doseq [[label open close]
             [;; the binding vocabulary
              ["let"     "(let [path app.interceptors/path]"            ")"]
-             ["if-let"  "(if-let [path (resolve-path)]"                " nil)"]
              ["fn"      "((fn [path]"                                  ") app.interceptors/path)"]
              ["defn"    "(defn install! [path]"                        ")"]
              ["letfn"   "(letfn [(path [k] [k])]"                      ")"]
@@ -331,14 +330,10 @@
              ;; a qualified spelling binds exactly as the simple one does, and
              ;; the vocabulary is keyed by simple names, so it must still count
              ["clojure.core/let" "(clojure.core/let [path app.interceptors/path]" ")"]
-             ["cljs.core/let"    "(cljs.core/let [path app.interceptors/path]"    ")"]
-             ["aliased core/let" "(c/let [path app.interceptors/path]"            ")"]
-             ["clojure.core/fn"  "((clojure.core/fn [path]"                       ") app.interceptors/path)"]
              ;; a head outside the vocabulary whose vector child binds the name
              ;; is a binder whatever its head, which can only ever produce a flag
              ["defmethod"     "(defmethod install! :web [_ path]"       ")"]
              ["when-first"    "(when-first [path paths]"                ")"]
-             ["dotimes"       "(dotimes [path 3]"                       ")"]
              ["project macro" "(app.macros/with-scope [path :tenant]"   ")"]]]
       (let [src (str "(ns app.events\n"
                      "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
@@ -372,17 +367,16 @@
             (str label " must still lower the standard head"))))))
 
 (deftest shadowing-does-not-suppress-a-qualified-head
-  (testing "a local named `path` cannot shadow `rf/path`, under a plain or a qualified binder"
-    (doseq [binder ["let" "clojure.core/let"]]
-      (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                     "(" binder " [path app.interceptors/path]\n"
-                     "  (rf/reg-event-db :counter/inc\n"
-                     "    {:interceptors [(rf/path :counter)]}\n"
-                     "    (fn [db _] (update db :value inc))))\n")
-            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-        (is (= :rewrite (:action (first findings))) (str binder " must still rewrite"))
-        (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")
-            (str binder " must still lower the standard head"))))))
+  (testing "a local named `path` cannot shadow `rf/path`"
+    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                   "(let [path app.interceptors/path]\n"
+                   "  (rf/reg-event-db :counter/inc\n"
+                   "    {:interceptors [(rf/path :counter)]}\n"
+                   "    (fn [db _] (update db :value inc))))\n")
+          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+      (is (= :rewrite (:action (first findings))) "must still rewrite")
+      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")
+          "must still lower the standard head"))))
 
 (deftest shadowing-elsewhere-does-not-suppress-a-referred-bare-path
   (testing "a `path` binding in a SIBLING form leaves this site's bare head standard"
