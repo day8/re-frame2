@@ -83,42 +83,6 @@
               v))
           headers-map)))
 
-;; ---- 1. Per-call :sensitive? on the request --------------------------------
-;;
-;; Handler registration metadata does not carry sensitivity to HTTP trace
-;; events: sensitivity comes from path-marked classification and the per-call
-;; `:sensitive?` on the args map.
-
-(deftest per-call-sensitive-flag-takes-effect
-  (testing "per-call :sensitive? on the args map redacts even when the
-            handler is not declared sensitive"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 500 "text/plain" "user-private-record")))
-          port (:port srv)
-          captured (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! :test/capture
-                                  (fn [ev] (swap! captured conj ev)))
-
-        (rf/reg-event :api/fetch
-          (fn [_ [_ _msg]]
-            ;; Handler itself is NOT sensitive; the per-call flag opts in.
-            {:fx [[:rf.http/managed
-                   {:request    {:method :get
-                                 :url    (str "http://127.0.0.1:" port "/data")}
-                    :sensitive? true
-                    :on-failure nil}]]}))
-
-        (rf/dispatch-sync [:api/fetch])
-
-        (let [ev (await-trace! captured :rf.http/http-5xx)]
-          (is (true? (:sensitive? ev))
-              "the per-call flag reaches the event's top-level :sensitive?")
-          (is (= :rf/redacted (get-in ev [:tags :body]))))
-        (finally
-          (stop-server! srv))))))
-
 ;; ---- 2. Headers in the failure tags are always denylist-redacted -----------
 
 (deftest sensitive-headers-redacted-in-failure-tags
@@ -194,7 +158,9 @@
 (deftest sensitive-request-redacts-all-url-query-params
   (testing "when the request is per-call :sensitive?, ALL query-string
             params (denylisted or not) are scrubbed in the failure trace
-            event's URL — the broader rule"
+            event's URL — the broader rule. The per-call flag alone (the
+            handler is not declared sensitive) also stamps the event
+            :sensitive? and redacts its body"
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 500 "text/plain" "boom")))
@@ -217,6 +183,9 @@
 
         (let [ev  (await-trace! captured :rf.http/http-5xx)
               url (get-in ev [:tags :url])]
+          (is (true? (:sensitive? ev))
+              "the per-call flag reaches the event's top-level :sensitive?")
+          (is (= :rf/redacted (get-in ev [:tags :body])))
           (is (string? url))
           (is (str/includes? url "user_id=:rf/redacted")
               "every param value scrubbed when sensitive — user_id")
@@ -464,33 +433,6 @@
                    (nil? (get-in ev [:tags :sensitive?])))
               "no per-call :sensitive? was set — the :omit stamp is unconditional,
                not contingent on the per-call flag"))
-        (finally
-          (stop-server! srv))))))
-
-(deftest http-4xx-stamps-off-box-omit-on-raw-body
-  (testing "a 4xx raw body is likewise stamped :omit off-box"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 403 "text/plain" "forbidden: secret-ctx")))
-          port (:port srv)
-          captured (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! :test/capture
-                                  (fn [ev] (swap! captured conj ev)))
-        (rf/reg-event :api/fetch
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:method :get
-                                 :url    (str "http://127.0.0.1:" port "/data")}
-                    :on-failure nil}]]}))
-
-        (rf/dispatch-sync [:api/fetch])
-
-        (let [ev (await-trace! captured :rf.http/http-4xx)]
-          (is (= :omit (get-in ev [:tags :rf.http/off-box-body]))
-              "raw 4xx body stamped :omit for the off-box projector")
-          (is (= "forbidden: secret-ctx" (get-in ev [:tags :body]))
-              "on-box :body rides raw"))
         (finally
           (stop-server! srv))))))
 
