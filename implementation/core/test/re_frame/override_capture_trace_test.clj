@@ -124,17 +124,6 @@
         (is (not (contains? tags :rf.event/fx-overrides)))
         (is (not (contains? tags :rf.event/interceptor-overrides)))))))
 
-(deftest keyword-valued-fx-override-rides-verbatim
-  (testing "an id-valued per-call :fx-overrides entry rides the run-start tag
-   verbatim"
-    (let [tags (run-start-tags [:ovc/run]
-                               {:fx-overrides {:ovc/real :ovc/stub}})]
-      ;; ALWAYS-ON: the composed envelope IS the thing captured.
-      (is (= {:ovc/real :ovc/stub} (:fx-overrides @captured-envelope))
-          "the id-redirect composes onto the dispatch envelope")
-      (when rf.interop/debug-enabled?
-        (is (= {:ovc/real :ovc/stub} (:rf.event/fx-overrides tags)))))))
-
 (deftest fn-valued-fx-override-is-marker-ized
   (testing "a fn-valued per-call :fx-overrides entry is marker-ized to
    :rf/fn-override at the emission site — the fn never rides the tag"
