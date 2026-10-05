@@ -436,7 +436,9 @@
   (rf.story/reg-variant* :story.button/predicate predicate-body)
   (is (= :pass (:status @(rf.story/run-variant :story.button/predicate)))
       "precondition: Story itself runs the predicate form green")
-  (doseq [tool success-tools, dedup? [true false]]
+  ;; Only run-variant is dedup-eligible; the other three ignore `:dedup`, so
+  ;; a dedup=true row for them takes the dedup=false path.
+  (doseq [tool success-tools, dedup? (if (= tool "run-variant") [true false] [false])]
     (testing (str tool " dedup=" dedup?)
       (let [[line frame] (call-success-tool tool "story.button/predicate" dedup?)]
         (is (nil? (:error frame))
@@ -526,7 +528,7 @@
   ;; The reproducer, registered through Story's public surface.
   (rf.story/reg-story :story.audit {})
   (rf.story/reg-variant* :story.audit/record {:args record-args})
-  (doseq [dedup? [true false]]
+  (let [dedup? false]
     (testing (str "get-variant dedup=" dedup?)
       (let [[line frame] (call-success-tool "get-variant" "story.audit/record" dedup?)
             text         (result-text frame)]
