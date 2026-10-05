@@ -119,14 +119,11 @@
  {:id :experiment-loop
  :prompt "Iterate on the cart handler until expired coupons are rejected"
  :recipe-anchor "Experiment loop"
- ;; The anchor vocabulary is part of the op set: the
- ;; recipe must name the PRE-DISPATCH anchor and the baseline RESULT
- ;; epoch separately, or the loop teaches a confounded comparison.
+ ;; The PRE-DISPATCH anchor and the baseline RESULT epoch are pinned,
+ ;; in order, by `experiment-loop-rewinds-to-the-pre-dispatch-anchor`.
  :must-mention [["dispatch-and-collect"]
  ["restore-epoch"]
- ["reg-event"]
- ["pre-dispatch-epoch-id"]
- ["baseline-epoch-id"]]}
+ ["reg-event"]]}
 
  {:id :where-in-code
  :prompt "Where in the code does this button come from?"
@@ -651,11 +648,10 @@
 ;; LOOKS like a controlled experiment, which is what makes it expensive.
 ;;
 ;; That shape passes the table row above (it names `restore-epoch`), so the
-;; row alone cannot hold this. The row pins that both ids are NAMED; these
-;; assertions are the discriminating half: they pin which id the restore
-;; passes, pin the ORDER (anchor captured before the baseline dispatch), pin
-;; the honest refusal when no anchor exists, and pin the worked control's
-;; numbers.
+;; row alone cannot hold this. These assertions pin which id the restore
+;; passes, pin the ORDER (anchor captured before the baseline dispatch), which
+;; needs both ids named, pin the honest refusal when no anchor exists, and pin
+;; the worked control's numbers.
 
 (deftest experiment-loop-rewinds-to-the-pre-dispatch-anchor
   (let [section (section-from @recipes-md "Experiment loop")]
