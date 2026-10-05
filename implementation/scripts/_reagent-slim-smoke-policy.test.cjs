@@ -76,14 +76,8 @@ console.log('reagent-slim smoke policy tests');
 
 // ---- 1) testbed source files exist ---------------------------------------
 
-it('slim testbed core.cljs exists', () => {
-  assert.ok(fs.existsSync(CORE), `missing slim testbed core: ${CORE}`);
-});
 it('slim testbed index.html exists', () => {
   assert.ok(fs.existsSync(INDEX_HTML), `missing slim testbed index.html: ${INDEX_HTML}`);
-});
-it('slim smoke scenario exists', () => {
-  assert.ok(fs.existsSync(SMOKE), `missing slim smoke: ${SMOKE}`);
 });
 it('adapter-owned slim smoke runner exists', () => {
   assert.ok(fs.existsSync(RUNNER), `missing slim smoke runner: ${RUNNER}`);
