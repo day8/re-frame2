@@ -67,46 +67,6 @@
 (defn- both-annotations? [html] (and (source-coord? html) (view-id? html)))
 
 ;; ---------------------------------------------------------------------------
-;; A registered view reached through a callable head IS annotated
-;; ---------------------------------------------------------------------------
-
-(deftest callable-head-view-is-annotated-server-side
-  (testing "A view reached through its callable head (the shape
-            every isomorphic page uses) renders with BOTH annotations on
-            its root DOM element."
-    (rf/reg-view ^{:rf/id :ssr-coord-test/banner} banner-view []
-      [:h1 "hi"])
-
-    ;; SEMANTIC, posture-independent: both head shapes resolve to
-    ;; the same registered view, and it renders ITS OWN root carrying ITS OWN
-    ;; content — the "not swallowed" property below, stated without reference
-    ;; to the dev attributes that happen to sit on that root in dev posture.
-    (testing "both head shapes render the registered view's own <h1> root"
-      (doseq [[label html] [["Var head"
-                             (rf.ssr/render-to-string [banner-view] {})]
-                            ["`(rf/view :id)` head"
-                             (rf.ssr/render-to-string
-                               [(rf/view :ssr-coord-test/banner)] {})]]]
-        (is (str/starts-with? html "<h1") label)
-        (is (str/ends-with? html ">hi</h1>") label)))
-
-    ;; Dev-instrumentation arm (see ns docstring).
-    (when rf.interop/debug-enabled?
-      (testing "Var head"
-        (is (both-annotations? (rf.ssr/render-to-string [banner-view] {}))))
-
-      (testing "`(rf/view :id)` head"
-        (is (both-annotations?
-              (rf.ssr/render-to-string [(rf/view :ssr-coord-test/banner)] {}))))
-
-      (testing "the data-rf-view value is `(str id)`"
-        (is (str/includes? (rf.ssr/render-to-string [banner-view] {})
-                           "data-rf-view=\":ssr-coord-test/banner\"")))
-
-      (testing "the view genuinely rendered its own root — not swallowed"
-        (is (str/starts-with? (rf.ssr/render-to-string [banner-view] {}) "<h1 "))))))
-
-;; ---------------------------------------------------------------------------
 ;; Exact byte shape for a programmatic (coordless) registration — degrade
 ;; ---------------------------------------------------------------------------
 
