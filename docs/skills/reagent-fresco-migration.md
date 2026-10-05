@@ -66,7 +66,7 @@ No tool converts the views themselves; that is judgment. The skill runs the repo
 
 After the report, it converts one **closed subtree** at a time — a namespace, or a view and the views beneath it, leaf views first — so each pass ends compiling, rendering and tested. It converts or holds each view whole, so there is never a half-migrated view. The skill runs the compile and test gates itself and hands you the **render** check, because "compiles" is not done: the failures that cost most all compile clean. The procedure, the traps and the shipped shadow-comparison test kit are in [`references/procedure.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-fresco-migration/references/procedure.md).
 
-A converted view can also sit beneath a parent that remains on Reagent via `h/as-component`; the skill does not require a whole-app rewrite.
+A converted view can also sit beneath a parent that remains on Reagent via `h/as-element` in its child position, or `h/as-component` given raw props; the skill does not require a whole-app rewrite.
 
 When no Reagent view remains, it tells you the adapter choice is now open: Fresco's own adapter, `re-frame.fresco.substrate/adapter`, can replace `day8/re-frame2-reagent`. That choice stays yours. Dropping `reagent/reagent` also requires checking the rest of the repository for remaining uses, not just counting converted views.
 
@@ -77,6 +77,6 @@ When no Reagent view remains, it tells you the adapter choice is now open: Fresc
 - **A judgment call** — it decides with you before converting, then converts or holds the whole view.
 - **A Fresco function it would need is not in the shipped public namespace** — it names the gap and holds the view rather than copying a spelling from a guide page.
 
-A half-converted view fails at a different moment depending on what was left behind: a leftover `rf/subscribe` or `rf/dispatch` in the render raises `:rf.error/ambient-frame-refused` at render; a surviving `#(dispatch …)` closure renders fine and raises `:rf.error/no-frame-context` on click; an `h/sub` moved into a callback or timer raises `:rf.error/fresco-sub-outside-render` when it fires. Causes and fixes are in [`references/gotchas.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-fresco-migration/references/gotchas.md).
+A half-converted view fails at a different moment depending on what was left behind: a leftover `rf/subscribe` or `rf/dispatch` in the render raises `:rf.error/ambient-frame-refused` at render; a surviving ambient `#(dispatch …)` closure renders fine and raises `:rf.error/no-frame-context` on click; an `h/sub` moved into a callback or timer raises `:rf.error/fresco-sub-outside-render` when it fires. Causes and fixes are in [`references/gotchas.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-fresco-migration/references/gotchas.md).
 
 The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/reagent-fresco-migration/SKILL.md) contains the full workflow and links to its reference notes.

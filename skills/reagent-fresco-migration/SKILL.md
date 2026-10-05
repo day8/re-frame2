@@ -149,7 +149,7 @@ Split three ways by **what you do with the rule**, not by construct. Load the ti
 Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 
 1. **Run the reporter** and read both halves. That is the inventory the plan is built on.
-2. **Scope a closed subtree.** Convert leaf views first, closing bottom-up so each pass ends renderable and tested. Leaf-first is the clean default, not a wall — `h/as-component` mounts a converted view under a parent staying on Reagent, UIx or plain React when one is unavoidable.
+2. **Scope a closed subtree.** Convert leaf views first, closing bottom-up so each pass ends renderable and tested. Leaf-first is the clean default, not a wall — `h/as-element` in a Reagent parent's child position, or `h/as-component` through raw or foreign props, mounts a converted view under a parent staying on Reagent, UIx or plain React when one is unavoidable.
 3. **Assess the view first (rule 2).** Scan each candidate for D/R hits. An **R** hit → hold the whole view on Reagent. A **D** hit → decide it with the author, then convert the whole view or hold the whole view.
 4. **Apply the M-tier rewrites** to the clean views, atomically per view (a header change and all its call sites in one edit).
 5. **Fix the ns requires and the root last** (MIG-24, MIG-15): add `[re-frame.fresco :as h]`; drop `reagent.*` requires only when nothing in the namespace still needs them.

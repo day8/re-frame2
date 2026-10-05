@@ -121,7 +121,7 @@ Never half-migrate a view. A **hold** holds the **entire** view on Reagent; a
 **judgment call** is decided with the author, then the **whole** view converts or
 the **whole** view holds. Coherence over coverage. This is cardinal rule 2.
 
-Under Fresco this lock has teeth it did not have before: a leftover
+Under Fresco this lock has teeth it did not have before: a leftover ambient
 `#(dispatch …)` closure is passed to React **by identity** and fails only at
 click time, with core's `:rf.error/no-frame-context`. Nothing catches a
 half-migrated body earlier.
@@ -138,16 +138,18 @@ author's to write.
 ### L6 — Incremental, closed-subtree passes
 
 Migrate leaf → root, closing a subtree from the bottom up. A recommended default,
-not a hard wall: `h/as-component` bridges a converted view up to a parent staying
-on Reagent, UIx or plain React, so a stranded view is never un-renderable.
+not a hard wall: `h/as-element` in a Reagent parent's child position, or
+`h/as-component` through raw or foreign props, bridges a converted view up to a
+parent staying on Reagent, UIx or plain React, so a stranded view is never
+un-renderable.
 
 ### L7 — The skill runs the compile/test gates; the programmer owns visual confirmation
 
 The skill discovers and runs the nearest safe noninteractive gate itself. The
 done-bar for a subtree is compiles + tests pass + rendered, and "compiles"
 carries little weight: the three failures that bite hardest — a surviving
-closure, a surviving `^{:key …}`, a Reagent introspection call — all compile
-clean.
+ambient closure, a surviving `^{:key …}` in Fresco-lowered Hiccup, a Reagent
+introspection call — all compile clean.
 
 ### L8 — RETIRED: there is no compiled/interpreted split to manage
 
