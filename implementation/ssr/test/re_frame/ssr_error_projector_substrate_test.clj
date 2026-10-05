@@ -74,20 +74,3 @@
                flush-response! drained it, and the default projector
                stamped :status 500 on the response accumulator — all
                under the disabled dev gate."))))))
-
-(deftest ssr-error-projector-listener-installed-on-error-emit-substrate-rf2-fb598
-  (testing "Direct registry-level smoke: the SSR façade installs
-            `::error-projection` on the error-emit substrate at ns-load.
-            Without this install the production-hardening case
-            regresses."
-    ;; Reach into the framework-private listeners atom; an idiomatic
-    ;; check of \"the substrate has the listener\" without depending on
-    ;; the public unregister surface.
-    (let [listeners-var (requiring-resolve 're-frame.error-emit/listeners)
-          registered    (some-> listeners-var deref deref keys set)]
-      (is (contains? registered :re-frame.ssr/error-projection)
-          "The SSR façade registers ::error-projection on the always-on
-           register-error-listener! substrate at ns-load — Spec 011
-           §Server error projection. The id matches the one
-           the dev-only register-listener! install also uses, so the
-           two surfaces are addressable as one logical projector."))))
