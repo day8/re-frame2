@@ -157,7 +157,7 @@ Load a leaf when its phase or rule comes up; none needs reading up front.
 ## Done checklist
 
 - [ ] Phase 0a plan written: every v1 add-on (transitives, git-source and vendored included) and app feature inventoried, each add-on's source scanned, any re-frame-10x recorded as the Xray-swap deliverable, and every index rule recorded with its sites or an evidence-backed disposition ([Step 5](references/inventory-and-plan.md#step-5--the-per-rule-completeness-gate)).
-- [ ] Phase 0b floor gate cleared: React-lib compat audited; component-library React-19 support confirmed (declared release or empirical runtime pass); `ReactDOM.render` flagged; toolchain skew checked; CI browser bumped; go/no-go recorded.
+- [ ] Phase 0b floor gate cleared: React-lib compat audited; component-library React-19 support confirmed (declared release or empirical runtime pass); `ReactDOM.render` flagged; raw-HTML producers inventoried; toolchain skew checked; CI browser bumped; go/no-go recorded.
 - [ ] `re-frame/re-frame` removed from every dependency file; `day8/re-frame2` + adapter at one matching version.
 - [ ] The project compiles with re-frame2 on the classpath.
 - [ ] Every tripped M-rule applied (Type A) or decided by the author (Type B).

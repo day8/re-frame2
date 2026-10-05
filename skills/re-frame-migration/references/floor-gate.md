@@ -43,9 +43,9 @@ If the project leans on a **UI component library** — any Reagent-based or Reac
 
 This is the one check most likely to turn a "cheap coord swap" into a multi-week project — which is exactly why it runs before any edit.
 
-### Check 3 — Legacy React-API scan
+### Check 3 — Legacy React-API and raw-HTML scan
 
-Scan the source for **every** legacy mount call site — the Reagent-routed root mount as well as any surviving hand-rolled React-DOM one. Both migrate to the `createRoot` API in the same pass.
+Scan the source for **every** legacy mount call site — the Reagent-routed root mount as well as any surviving hand-rolled React-DOM one. Both migrate to the `createRoot` API in the same pass. The same scan inventories every raw-HTML producer, below.
 
 **The Reagent-routed mount is the common case, not the rare one — and it compiles clean.** Most v1 codebases mount through `reagent.dom/render` (or `reagent.core/render`), so this check normally *hits*; an empty result on a Reagent app means the pattern missed, not that there is nothing to do. Keep compile time and run time apart. On the classic bridge the Var still resolves, so the build is clean. But React 19 removed the `react-dom/render` beneath it, and at run time stock Reagent logs a console warning that the function doesn't exist and then calls it anyway: the call throws a `TypeError` (`… render is not a function`) and nothing mounts. `reagent.dom/unmount-component-at-node` has the same warn-then-throw shape over `unmountComponentAtNode`, and `reagent.core/render` throws Reagent's own "moved to reagent.dom" error without reaching React. The exception comes from the boot code, not from a handler, so there is no `:rf.error/*` trace: read the `TypeError` as this check's hit rather than an unrelated crash, and never read the missing framework diagnostic as a harmless no-op. (On the slim adapter the same call site fails loudly at compile time instead, as an unresolved var.) The hand-rolled `ReactDOM.render` / `ReactDOM.hydrate` / `ReactDOM.unmountComponentAtNode` sites are the rarer half — deprecated in React 18 and removed in React 19 — and a survivor throws the same `TypeError`, so sweep for both in one pass.
 
@@ -56,6 +56,14 @@ rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)|reagent\.(dom|core)/ren
 ```
 
 Flag each for the author, the test-harness mounts included. The rewrite itself — the adapter-owned `client-root` handle with `render!` / `unmount!` — belongs to **M-42**: [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). Don't re-derive it here.
+
+**Raw HTML admission is the quieter half of this scan, because nothing reports it.** Reagent 1.x handed a `:dangerouslySetInnerHTML {:__html s}` prop straight to React. Stock Reagent `2.0.1` — the bridge's pinned floor — keeps that prop only when its value is tagged with the public `reagent.core/unsafe-html`, and deletes it otherwise. The namespace compiles, the boot console stays clean, no `:rf.error/*` trace fires, and the element renders empty: a sanitized HTML body or an application-owned `<style>` sheet simply disappears. Reagent applies the filter wherever it converts hiccup props, DOM tags and `:>` interop alike, so `reagent.dom.server`'s `render-to-string` and `render-to-static-markup` lose the same content the mounted DOM does. Inventory every producer before the coordinate swap — mounted views, server-render and static-export paths, and any helper that builds the map:
+
+```bash
+rg -n 'dangerouslySetInnerHTML|__html|unsafe-html'
+```
+
+Record each producer with the consumer it feeds, and tag nothing here: establishing each producer's trust contract, and proving its output survived, is **M-42**'s raw-HTML item — [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim), item 4. On the slim adapter an untagged map still renders, so there the inventory is a trust record rather than a rewrite list.
 
 ### Check 4 — CLJS / shadow-cljs / Closure-compiler toolchain-skew check (hits almost every older shadow-cljs app)
 
@@ -91,7 +99,7 @@ Checks 1–4 clear the React deps and the build toolchain; this check clears the
 
 Decide and record the gate outcome before proceeding:
 
-- **GO** — React already at 19 (or cleanly bumpable), and every Check-1/Check-2 library has a React-19-compatible target **or an empirically-verified runtime pass** (Check-2 option 4), and Check-3 is empty or its call sites are slated for the `createRoot` rewrite, and Check-4's shadow-cljs/CLJS toolchain is current or slated to be bumped to the reference version, and Check-5's CI test-runner browser is at/above the React-19 floor or slated for a bump to current stable. Carry the React/Reagent bump, any component-lib bumps, and the shadow-cljs bump into the M-0 pass below — and bump the CI test-runner's pinned browser in the CI config alongside it — then continue. (For a project already on React 19 with a React-19-ready component library and a current toolchain, this is the fast path — the gate adds minutes, not weeks.)
+- **GO** — React already at 19 (or cleanly bumpable), and every Check-1/Check-2 library has a React-19-compatible target **or an empirically-verified runtime pass** (Check-2 option 4), and Check-3 is empty or its mount call sites are slated for the `createRoot` rewrite and its raw-HTML producers are inventoried for M-42 (a producer whose trust is unresolved is held for the author, not a NO-GO), and Check-4's shadow-cljs/CLJS toolchain is current or slated to be bumped to the reference version, and Check-5's CI test-runner browser is at/above the React-19 floor or slated for a bump to current stable. Carry the React/Reagent bump, any component-lib bumps, and the shadow-cljs bump into the M-0 pass below — and bump the CI test-runner's pinned browser in the CI config alongside it — then continue. (For a project already on React 19 with a React-19-ready component library and a current toolchain, this is the fast path — the gate adds minutes, not weeks.)
 - **NO-GO** — any Check-2 component library (or a load-bearing Check-1 dep) has no React-19 release **and** no empirical runtime pass. **Stop here.** Do not edit any dep coord. Report the blocker and the options to the author; the migration resumes once the blocker is resolved. (Neither Check-4 toolchain skew nor Check-5's stale CI-browser pin is a NO-GO — both are known, mechanical bumps (shadow-cljs carried into M-0; the CI-browser pin updated in the CI config); flag them so they aren't mistaken for a migration bug mid-compile or a flaky test-runner.)
 
 **The React/Reagent bump itself**, once the gate is GO. If `package.json` pins `react`/`react-dom` to 17 or 18, bump both to `^19` (Reagent users are simultaneously on Reagent 2.x — that rides in via the `day8/re-frame2-reagent` adapter, not a separate `package.json` pin unless the project pins Reagent directly):
