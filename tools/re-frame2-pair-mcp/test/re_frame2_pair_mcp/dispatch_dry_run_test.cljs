@@ -24,6 +24,7 @@
   exercised in the runtime tests at skills/re-frame2-pair/tests/runtime/,
   which run against a live shadow-cljs build with the preload installed)."
   (:require [cljs.test :refer-macros [deftest is async]]
+            [applied-science.js-interop :as j]
             [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
@@ -485,3 +486,133 @@
                      (is (= '(inc 41) (get-in opts [:rf.cofx :review/fact]))
                          "the simulated dispatch uses the fact the caller scripted"))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; An application-defined tag in the reply.
+;;
+;; The projected state can carry a value printed under a tag only the app's
+;; own reader registry knows. These rows stub `nrepl/cljs-eval` — one layer
+;; BELOW `cljs-eval-value` — so the real decoder reads the reply exactly as
+;; shadow-cljs delivers it: the runtime's printed EDN inside the outer
+;; `{:results [...]}` map.
+;; ---------------------------------------------------------------------------
+
+(defn- with-printed-reply!
+  "Answer the dry-run eval with `printed`, the runtime's printed reply, and
+  the raw-state signal with nil, through the real decoder."
+  [printed body-fn]
+  (let [orig  nrepl/cljs-eval
+        reply (fn [form-str]
+                (js/Promise.resolve
+                  {:value (pr-str {:results [(if (str/includes? form-str "configure-raw-state!")
+                                               "nil"
+                                               printed)]
+                                   :ns 'cljs.user})}))
+        stub  (fn
+                ([_conn _build-id form-str] (reply form-str))
+                ([_conn _build-id form-str _opts] (reply form-str)))]
+    (set! nrepl/cljs-eval stub)
+    (raw-state/reset-runtime-signal-cache!)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (tu/restore-cljs-eval! stub orig))))))
+
+(defn- read-tagged-text
+  "A result's EDN text read the way an EDN client with no application
+  readers reads it: unknown tags as tagged literals."
+  [r]
+  (cljs.reader/read-string {:default tagged-literal} (tu/extract-text r)))
+
+(def ^:private instant (tagged-literal 'instant "2026-01-01T00:00:00Z"))
+
+(deftest an-application-tag-does-not-discard-a-rolled-back-simulation
+  (async done
+    (let [env {:ok?                       true
+               :dry-run?                  true
+               :rolled-back?              true
+               :would-fire-effects        [{:fx-id :http :args :rf/redacted}]
+               :db-state-after-simulation {:sample instant
+                                           :nested (tagged-literal 'app/outer
+                                                                   {:inner (tagged-literal 'app/inner [1 2])})
+                                           :user   {:token :rf/redacted}
+                                           :blob   {:rf.size/large-elided {:bytes 99999 :type "string"}}}}]
+      (-> (with-printed-reply! (pr-str (wrap env 1))
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:toggle-dev-mode]"})))
+          (.then (fn [r]
+                   (is (not (err? r)) "a successful, rolled-back simulation reads as success")
+                   (let [edn (read-tagged-text r)
+                         db  (:db-state-after-simulation edn)]
+                     (is (true? (:ok? edn)))
+                     (is (true? (:rolled-back? edn)))
+                     (is (= instant (:sample db)) "the tag rides through as inert tagged data")
+                     (is (= (tagged-literal 'app/inner [1 2]) (get-in db [:nested :form :inner]))
+                         "a nested tag rides through too")
+                     (is (= :rf/redacted (get-in db [:user :token])) "redaction is preserved")
+                     (is (= :rf/redacted (get-in edn [:would-fire-effects 0 :args]))
+                         "fx-args redaction is preserved")
+                     (is (contains? (:blob db) :rf.size/large-elided) "the size-elision marker is preserved")
+                     (is (= 1 (:elided-large edn)) "the elided-large indicator still counts the marker"))
+                   (is (re-find #"#instant \"2026-01-01T00:00:00Z\"" (tu/extract-text r))
+                       "the canonical EDN keeps the tag")
+                   (is (= {"rf.mcp/tag" "instant" "rf.mcp/form" "2026-01-01T00:00:00Z"}
+                          (js->clj (j/get-in r [:structuredContent "db-state-after-simulation" "sample"])))
+                       "the structured slot carries the tag in its defined JSON form")
+                   (done)))))))
+
+(deftest a-failed-rollback-stays-a-failure-beside-an-application-tag
+  ;; The authoritative control fields are the envelope's own, even when a
+  ;; tagged value inside the state carries success-looking fields.
+  (async done
+    (let [env {:ok?                       true
+               :dry-run?                  true
+               :rolled-back?              false
+               :db-state-after-simulation {:sample instant
+                                           :opaque (tagged-literal 'app/result
+                                                                   {:ok? true :rolled-back? true})}}]
+      (-> (with-printed-reply! (pr-str (wrap env 0))
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:toggle-dev-mode]"})))
+          (.then (fn [r]
+                   (is (err? r) ":rolled-back? false is an error whatever the state carries")
+                   (let [edn (read-tagged-text r)]
+                     (is (false? (:rolled-back? edn))
+                         "the envelope's own rollback outcome rides through")
+                     (is (not= :unexpected-shape (:reason edn))
+                         "the failure is the rollback, not an undifferentiated shape failure"))
+                   (done)))))))
+
+(deftest a-reported-rollback-failure-beside-an-application-tag-keeps-its-reason
+  (async done
+    (let [env {:ok?          false
+               :reason       :rollback-failed
+               :dry-run?     true
+               :rolled-back? false
+               :event        [:toggle-dev-mode]
+               :frame        :rf/default
+               :at           instant}]
+      (-> (with-printed-reply! (pr-str (wrap env 0))
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:toggle-dev-mode]"})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (let [edn (read-tagged-text r)]
+                     (is (= :rollback-failed (:reason edn)))
+                     (is (false? (:rolled-back? edn))))
+                   (done)))))))
+
+(deftest a-malformed-reply-still-fails-as-unexpected-shape
+  ;; Control: malformed data is still a failure, tag or no tag.
+  (async done
+    (let [orig-err (.-error js/console)]
+      (set! (.-error js/console) (fn [& _] nil))
+      (-> (with-printed-reply! "{:value {:ok? true :rolled-back? true :sample #instant \"2026\""
+            (fn []
+              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:toggle-dev-mode]"})))
+          (.then (fn [r]
+                   (is (err? r))
+                   (is (= :unexpected-shape (:reason (read-tagged-text r)))
+                       "an unreadable reply never reads as a successful simulation")))
+          (.finally (fn []
+                      (set! (.-error js/console) orig-err)
+                      (done)))))))

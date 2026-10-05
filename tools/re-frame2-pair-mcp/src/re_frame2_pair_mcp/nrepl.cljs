@@ -791,8 +791,23 @@
                  :reason      :rf.error/pair-mcp-malformed-build-id
                  :build       (pr-str build-id)})))))
 
+(defn- inert-tag
+  "Reader `:default` for a tag this process has no reader for: keep the
+  value as an inert `tagged-literal`, tag and form intact, so it
+  re-prints as the EDN it arrived as. An app prints values under tags
+  only its own reader registry knows (a date library's `#instant`, say),
+  and this Node process is not that app; failing the read would discard
+  the whole reply around the one value. The reader-eval tag `#=` is
+  refused rather than kept."
+  [tag form]
+  (when (= '= tag)
+    (throw (js/Error. "Reader eval (#=) is refused.")))
+  (tagged-literal tag form))
+
 (defn- read-edn-safe
-  "Best-effort EDN read of the nREPL value string. On parse failure we
+  "Best-effort EDN read of the nREPL value string. The standard readers
+  apply; an unknown tag decodes as inert tagged data (`inert-tag`, per
+  read, so the global reader registry is untouched). On parse failure we
   return the raw string so the caller can decide what to do with the
   unparseable shape — but we log to stderr first because a silent
   drop-back hides genuine wire-shape regressions (a runtime that
@@ -800,7 +815,7 @@
   console, not by a mute branch)."
   [s]
   (try
-    (edn/read-string s)
+    (edn/read-string {:default inert-tag} s)
     (catch :default e
       (log! "read-edn-safe: parse failed —" (.-message e))
       s)))

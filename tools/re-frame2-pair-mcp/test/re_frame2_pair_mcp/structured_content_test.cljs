@@ -171,3 +171,27 @@
           "a scalar namespaced keyword value keeps its namespace")
       (is (= (pr-str payload) (content-text result))
           "EDN text slot unchanged — the canonical round-trip"))))
+
+(deftest tagged-values-have-a-defined-json-form
+  (testing "an inert tagged literal projects to a tag/form object at every depth"
+    ;; The decoder keeps an application-defined tag as a `tagged-literal`.
+    ;; `clj->js` would hand the bare TaggedLiteral instance to
+    ;; JSON.stringify, which serialises its implementation fields; the
+    ;; structured slot gives it one documented shape instead, while the EDN
+    ;; text slot keeps the tag verbatim.
+    (let [payload {:ok?   true
+                   :at    (tagged-literal 'instant "2026-01-01T00:00:00Z")
+                   :outer (tagged-literal 'app/outer {:k     :ns/v
+                                                      :inner (tagged-literal 'app/inner [1 :a/b])})}
+          result  (wire/ok-text payload)
+          json    (js->clj (js/JSON.parse (js/JSON.stringify (j/get result :structuredContent))))]
+      (is (= {"rf.mcp/tag" "instant" "rf.mcp/form" "2026-01-01T00:00:00Z"} (get json "at"))
+          "a tag becomes {\"rf.mcp/tag\" <tag> \"rf.mcp/form\" <form>}")
+      (is (= {"rf.mcp/tag"  "app/outer"
+              "rf.mcp/form" {"k"     "ns/v"
+                             "inner" {"rf.mcp/tag" "app/inner" "rf.mcp/form" [1 "a/b"]}}}
+             (get json "outer"))
+          "the form projects like any other value, nested tags and keyword namespaces included")
+      (is (= (pr-str payload) (content-text result))
+          "the EDN text slot keeps the tags verbatim")
+      (is (re-find #"#instant \"2026-01-01T00:00:00Z\"" (content-text result))))))
