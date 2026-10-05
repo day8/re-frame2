@@ -136,7 +136,7 @@ The classpath table, per-build-tool snippets, verification and MCP-server regist
 
 **Your read order, every session: `discover-app` → `orient` → a targeted slice.**
 
-After `discover-app` connects, your **first read is always `orient`** (`mcp__re-frame2-pair__orient {}`) — never a `snapshot`. `orient` returns a compact, one-round-trip app-shape summary: liveness, the app frames (reserved `:rf/*` tool frames excluded), each app frame's **top-level app-db keys only**, registry **counts**, and the navigable event / sub / fx / machine ids. Bounded by construction — it hands you the map without pulling any bulk, and omits the `:rf/xray` tool frame's contents.
+After `discover-app` connects, your **first read is always `orient`** (`mcp__re-frame2-pair__orient {}`) — never a `snapshot`. `orient` returns a one-round-trip app-shape summary: liveness, the app frames (reserved `:rf/*` tool frames excluded), each app frame's **top-level app-db keys only**, registry **counts** for every kind, and **up to 20 example ids** each of events, subs, fx and machines. A list it cut short gets a `:truncated` entry carrying its `:total` and the `:next` call that returns every id (`list-handlers` with that `kind`, plus the `frame` when the registry is a frame's), so the default budget holds on an app with hundreds of registrations and you fetch whole id lists only when you need one. It omits the `:rf/xray` tool frame's contents. Frame lists and top-level keys are not capped; on the rare app where those alone overflow, the overflow `:hint` names the reads that narrow it.
 
 Only **after** `orient` do you drill — into **slices**, never whole frames:
 

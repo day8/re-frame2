@@ -666,16 +666,27 @@ The summary shape:
  :app-db-top-keys {<app-frame-id> [<top-level key> ...]}
  :registry {:basis :frame|:process :frame <id>?  ; rf2-srobm0 — see below
             :counts {<kind> N ...}    ; every v1 registrar kind
-            :events [...] :subs [...] :fx [...]}  ; full ids for the 3 navigable kinds
- :machines [...]}
+            :events [...] :subs [...] :fx [...]}  ; the first 20 ids of each
+ :machines [...]                                  ; the first 20
+ :truncated [{:slot  [:registry :events]          ; only for a list cut short
+              :shown 20 :total N
+              :next  {:tool "list-handlers" :args {:kind "event" :frame ":rf/default"}}}
+             ...]}
 ```
 
-Compact + **summarized by design** (respects the wire cap): registrar
-**counts** for every v1 kind, the full sorted **id vectors** for the
-three most navigable kinds (`:event` / `:sub` / `:fx`), and per-app-frame
-app-db **top-keys** — *not* the full app-db. Drill via the existing
-`list-handlers` / `list-subscriptions` / `snapshot` / `get-path` /
-`read-sub` ops.
+**Bounded** for the default wire cap: registrar **counts** for every v1
+kind, the first 20 sorted ids of the three most navigable kinds
+(`:event` / `:sub` / `:fx`) and of the machines, and per-app-frame
+app-db **top-keys** — *not* the full app-db. The runtime composes the
+whole id vectors and the tool caps them, because on an app with hundreds
+of registrations they alone are several times the default budget. Each
+capped list gets a `:truncated` entry: its total, and in `:next` the
+`list-handlers` call that returns every id of the same registry (with
+the `:frame` when the registry is frame-based; machines never take one).
+`orient` has no narrowing argument, so its overflow hint names only
+`list-handlers` (`kind`, `frame`), `snapshot` (`path`) and `max-tokens`.
+Drill via the existing `list-handlers` / `list-subscriptions` /
+`snapshot` / `get-path` / `read-sub` ops.
 
 **Frame-rebased registry (EP-0023, rf2-srobm0).** The `:registry` slot is
 **re-based on the operating frame's resolved image generation** when a single
