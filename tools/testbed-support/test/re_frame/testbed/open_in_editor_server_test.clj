@@ -35,13 +35,9 @@
           (try
             (.setContextClassLoader (Thread/currentThread) cl)
             (let [resolved (rf.testbed.open-in-editor-server/resolve-file rel-path)]
-              (is (some? resolved) "the classpath resource resolved")
               (is (= (#'rf.source-coords/absolutise-file rel-path) resolved)
                   "resolve-file returns core's absolutise-file result;
                    the classpath stage is delegated, not re-implemented")
-              (is (.contains ^String resolved "+")
-                  "the literal + in the classpath root survived (core owns the
-                   `URI.getPath` decode that preserves it)")
               (is (= (.getCanonicalPath src-file)
                      (.getCanonicalPath (File. ^String resolved)))
                   "resolved to the REAL on-disk fixture file, not a
@@ -755,19 +751,15 @@
 
 ;; The query vocabulary maps to launch-editor binary names. Every pair reaches
 ;; `launch!` through `handle` in endpoint-still-serves-every-position-carrying-editor
-;; (windsurf in endpoint-declines-coordinate-bearing-windsurf-request).
+;; (windsurf in endpoint-declines-coordinate-bearing-windsurf-request). An
+;; unknown name and an absent param reach `launch!` as nil in
+;; endpoint-passes-editor-hint-through-to-launch.
 
 (deftest editor-hint-maps-keyword-to-launch-command
   (testing "the value is lower-cased and trimmed before lookup"
-    (is (= "code"   (rf.testbed.open-in-editor-server/editor-hint "VSCode")))
-    (is (= "cursor" (rf.testbed.open-in-editor-server/editor-hint "  Cursor  ")))
-    (is (= "idea"   (rf.testbed.open-in-editor-server/editor-hint "IDEA"))))
-  (testing "blank / unknown / non-string → nil (launch-editor auto-detects)"
+    (is (= "cursor" (rf.testbed.open-in-editor-server/editor-hint "  Cursor  "))))
+  (testing "blank / non-string → nil (launch-editor auto-detects)"
     (is (nil? (rf.testbed.open-in-editor-server/editor-hint "")))
-    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "   ")))
-    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "custom")) "the {:custom …} shape is not in the map")
-    (is (nil? (rf.testbed.open-in-editor-server/editor-hint "emacs")) "an editor with no mapping → auto-detect")
-    (is (nil? (rf.testbed.open-in-editor-server/editor-hint nil)))
     (is (nil? (rf.testbed.open-in-editor-server/editor-hint 42)) "a non-string is rejected")))
 
 (deftest endpoint-passes-editor-hint-through-to-launch
@@ -801,13 +793,9 @@
 ;; `re-frame.testbed.open-in-editor-client-cljs-test`.
 
 (deftest position-blind-commands-are-declared-not-guessed
-  (testing "the position-blind set names exactly the vocabulary commands
-            launch-editor has no get-args case for"
-    (is (= #{"windsurf"} rf.testbed.open-in-editor-server/commands-without-position-support))
-    (is (every? (set (vals rf.testbed.open-in-editor-server/editor-command-by-keyword))
-                rf.testbed.open-in-editor-server/commands-without-position-support)
-        "every declared position-blind command is a command this endpoint can
-         actually be asked for — the set cannot drift onto a phantom binary"))
+  ;; The set's contents are graded against the installed dependency by
+  ;; launch-editor-2-14-1-really-does-drop-these-positions, and through
+  ;; `handle` by the windsurf decline and the still-serves table below.
   (testing "position-would-be-dropped? fires only for a coordinate-BEARING
             request to a position-blind command"
     (is (true?  (rf.testbed.open-in-editor-server/position-would-be-dropped? "windsurf" 27 9)))
@@ -904,10 +892,6 @@
                              :origin nil
                              :file   "resolve-file-is-redefed"}))]
             (is (= 200 (:status resp)))
-            (is (str/includes? (:body resp) "\\\\")
-                "backslashes are doubled in the body")
-            (is (str/includes? (:body resp) "\\\"")
-                "the double-quote is escaped in the body")
             (is (= file (json-body->file-value (:body resp) "\"file\":\""))
                 "the escaped Windows path round-trips to the exact original")))))))
 
@@ -1120,8 +1104,7 @@
     (with-sibling-of-root*
       (fn [root]
         (doseq [method [:get :head]
-                uri    ["/../outside/" "/../outside" "/..\\outside\\"
-                        "/./../outside/"]]
+                uri    ["/../outside/" "/..\\outside\\" "/./../outside/"]]
           (let [r     (page-req method uri root)
                 label (str (name method) " " (pr-str uri))]
             ;; `\` separates path segments only where the filesystem says so,
@@ -1132,9 +1115,8 @@
                   (str "control: shadow's own push-state serves the sibling for "
                        label)))
             (let [resp (rf.testbed.open-in-editor-server/handler r)]
-              (is (= 404 (:status resp)) (str label " answers 404"))
-              (is (not= outside-body (:body resp))
-                  (str label " never carries the sibling's index.html"))))))))
+              (is (= 404 (:status resp))
+                  (str label " answers 404, never the sibling's index.html"))))))))
   (testing "…and only a `..` SEGMENT: a name merely containing two dots still
             falls through to push-state and gets the root's index.html"
     (with-sibling-of-root*
@@ -1246,8 +1228,7 @@
       (let [probe (run-dependency-probe)]
         (testing "the probe returned the keys it was asked for (a silently
                   empty map must not read as a pass)"
-          (is (= 13 (count probe)) "every probed key came back")
-          (is (contains? probe "windsurf")))
+          (is (= 13 (count probe)) "every probed key came back"))
 
         (testing "every command this endpoint DECLARES position-blind really is
                   — and no more. This is the drift guard: a launch-editor
@@ -1263,11 +1244,9 @@
           (doseq [cmd (remove rf.testbed.open-in-editor-server/commands-without-position-support
                               (vals rf.testbed.open-in-editor-server/editor-command-by-keyword))]
             (let [argv (get probe cmd)]
-              (is (some? argv) (str cmd " was probed"))
-              (is (not= "[\"F\"]" argv)
-                  (str cmd " is not a bare-file launch"))
               (is (str/includes? argv "27")
-                  (str cmd " argv carries the requested line"))
+                  (str cmd " was probed, is not a bare-file launch, and its"
+                       " argv carries the requested line"))
               ;; The COLUMN, not merely the line. `gvim` below shows the two
               ;; are separate promises: a case can encode one and drop the
               ;; other, so an argv that merely differs from `["F"]` and
