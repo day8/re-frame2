@@ -2,15 +2,14 @@
   "Focused tests for the pure navigation-planning seam
   `re-frame.routing.plan`.
 
-  The pre-commit navigation policy — fragment
-  normalisation, the `:rf.route/not-found` fallback shape + `:reason`
-  vocabulary, the identical-/fragment-only classification, and the
-  fail-closed telemetry intents — is shared by the programmatic
+  The pre-commit navigation policy is shared by the programmatic
   (`:rf.route/navigate`) and URL-driven
-  (`:rf.route/handle-url-change`) entry points. These tests pin the parity
-  cases directly at the seam: a planner bug fails here, localised, rather than
-  surfacing as a cross-entry-point asymmetry caught (or missed) by an
-  integration test.
+  (`:rf.route/handle-url-change`) entry points. These tests pin the
+  fragment-only classification, the fail-closed telemetry intents and the
+  scroll plan directly at the seam. Fragment normalisation, the
+  `:rf.route/not-found` fallback shape and `:reason` vocabulary, and the
+  identical-target no-op are pinned through both doors in
+  `routing-plan-seam-test` and `routing-navigation-test`.
 
   All functions under test are PURE — no registrar / runtime-db fixture
   needed except for `scroll-plan` (which reads a plain runtime-db map for
@@ -18,41 +17,6 @@
   `:saved-pos` lookup)."
   (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.routing.plan :as rf.routing.plan]))
-
-;; ---- empty-string fragment normalisation ---------------------------------
-
-(deftest normalize-fragment-collapses-empty-string
-  (testing "an explicit empty-string fragment collapses to nil (route-url emits no trailing #)"
-    (is (nil? (rf.routing.plan/normalize-fragment ""))
-        "\"\" → nil so the slice :fragment matches the pushed (fragment-less) URL"))
-  (testing "a non-empty fragment passes through unchanged"
-    (is (= "section-2" (rf.routing.plan/normalize-fragment "section-2"))))
-  (testing "nil passes through unchanged"
-    (is (nil? (rf.routing.plan/normalize-fragment nil)))))
-
-;; ---- not-found fallback shape + reason vocabulary ------------------------
-
-(deftest not-found-params-carries-the-url-and-the-shared-reason
-  (testing "the shared :reason vocabulary — both entry points stamp identical
-            fallback params, and a bare miss carries {:url url} with no :reason"
-    (are [url reason expected] (= expected (rf.routing.plan/not-found-params url reason))
-      "/nope" nil            {:url "/nope"}                       ;; bare miss
-      "/x"    :malformed-url {:url "/x" :reason :malformed-url}   ;; malformed percent-encoding
-      "/x"    :validation    {:url "/x" :reason :validation}      ;; schema-validation miss
-      "/x"    :match-error   {:url "/x" :reason :match-error})))  ;; unexpected match-url throw
-
-;; ---- identical navigation (Spec 012 §Per-route data loading rule 3) ------
-
-(deftest identical-route-target-detects-complete-no-op
-  (let [slice {:route-id :route/cart :params {} :query {:q "a"} :fragment "f"}]
-    (testing "id/params/query/fragment all equal → identical (complete no-op)"
-      (is (true? (rf.routing.plan/identical-route-target? slice :route/cart {} {:q "a"} "f"))))
-    (testing "a differing query is NOT identical"
-      (is (false? (rf.routing.plan/identical-route-target? slice :route/cart {} {:q "b"} "f"))))
-    (testing "a differing fragment is NOT identical (that's the fragment-only case)"
-      (is (false? (rf.routing.plan/identical-route-target? slice :route/cart {} {:q "a"} "g"))))
-    (testing "no prior slice → never identical (first nav)"
-      (is (false? (rf.routing.plan/identical-route-target? nil :route/cart {} {:q "a"} "f"))))))
 
 ;; ---- fragment-only navigation (Spec 012 §Fragments rules 3-4) ------------
 
@@ -138,16 +102,6 @@
           "forward default strategy is :top")
       (is (= {:id :route/cart} (:to (second scroll-fx)))
           ":to descriptor names the target route"))))
-
-(deftest scroll-plan-suppresses-fx-on-scroll-false
-  (testing ":scroll false in opts suppresses the scroll-fx (nil)"
-    (let [rdb {:rf.runtime/routing {:current {:route-id :route/home}}}
-          {:keys [scroll-fx]}
-          (rf.routing.plan/scroll-plan {:rdb rdb :route-meta nil :opts {:scroll false}
-                             :default-strategy :top
-                             :route-id :route/cart :params {} :query {}
-                             :fragment nil :url "/cart"})]
-      (is (nil? scroll-fx) ":scroll false → no fx emitted"))))
 
 (deftest scroll-plan-restore-strategy-reads-saved-position
   (testing ":restore strategy pulls the saved [x y] for the url from the
