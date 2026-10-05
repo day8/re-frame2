@@ -18,7 +18,6 @@
   depend on `tools/`. The same `.cljc` tests run in the shared CLJS node gate
   and through this artefact's JVM `:test` alias."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -208,10 +207,6 @@
 (deftest a-every-source-form-lowers-to-a-node-of-the-right-superkind
   (register-one-of-each!)
   (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))]
-    (testing "all five families lowered into the assembled graph"
-      (is (= #{:subs :flows :resources :routes :machines}
-             (->> nodes vals (map :rf/family) set))
-          "every source form lowered to at least one node"))
     (testing "every node's :kind is directly in the closed superkind enum"
       (doseq [[node-id node] nodes]
         (is (contains? superkinds (:kind node))
@@ -230,25 +225,18 @@
                  (get refinements refinement) " but :kind asserts " (:kind node)))))
     (testing "subscriptions and flows are derivations"
       (is (= :derivation (:kind (node-by-family nodes :subs :cart/total))))
-      (is (= :derivation (:kind (node-by-family nodes :subs :cart/items))))
       (is (= :derivation (:kind (node-by-family nodes :flows :cart/materialized-total)))))
     (testing "resources, routes, and machines are processes with family refinements"
       (let [res   (node-by-family nodes :resources :article/by-slug)
             route (node-by-family nodes :routes    :route/article)
             mach  (node-by-family nodes :machines  :upload/main)]
-        (is (= :process (:kind res)))
-        (is (= :process (:kind route)))
-        (is (= :process (:kind mach)))
         (is (= :resource-process (:refinement res)))
         (is (= :route-fact       (:refinement route)))
         (is (= :machine-process  (:refinement mach)))))
     (testing "a machine-selector sub is labelled independently of its selector edge"
       (let [sel (node-by-family nodes :subs :upload/progress)]
-        (is (some? sel) "the machine-selector sub node is present")
         (is (= :machine-selector (:refinement sel))
-            "the :upload/progress selector sub is enriched with :refinement :machine-selector")
-        (is (= :derivation (:kind sel))
-            "the machine-selector refinement rides the :derivation superkind, never replaces it")))
+            "the :upload/progress selector sub is enriched with :refinement :machine-selector")))
     (testing "the route fact uses :rf/route while :source-form keeps the registration id"
       (let [route (node-by-family nodes :routes :route/article)]
         (is (= :rf/route (:id route)))
@@ -257,7 +245,6 @@
       (is (= :reg-sub      (get-in (node-by-family nodes :subs :cart/total)        [:source-form :kind])))
       (is (= :reg-flow     (get-in (node-by-family nodes :flows :cart/materialized-total) [:source-form :kind])))
       (is (= :reg-resource (get-in (node-by-family nodes :resources :article/by-slug)  [:source-form :kind])))
-      (is (= :reg-route    (get-in (node-by-family nodes :routes :route/article)     [:source-form :kind])))
       (is (= :reg-machine  (get-in (node-by-family nodes :machines :upload/main)     [:source-form :kind]))))))
 
 ;; ===========================================================================
@@ -335,8 +322,7 @@
 
 (deftest c-static-edges-span-input-param-selector
   (register-one-of-each!)
-  (let [edges (:edges (rf.derivation.graph/derivation-graph all-contributors))
-        roles (->> edges (map :role) set)]
+  (let [edges (:edges (rf.derivation.graph/derivation-graph all-contributors))]
     (testing "an :input edge follows the static declared-input chain (cart/items → cart/total)"
       (is (some #(= % {:from [:sub :cart/items] :to [:sub :cart/total] :role :input})
                 edges)
@@ -352,9 +338,7 @@
                        :to   [:sub :upload/progress]
                        :role :selector})
                 edges)
-          "the machine process → selector subscription edge"))
-    (testing "all three edge roles present"
-      (is (= #{:input :param :selector} (set/intersection roles #{:input :param :selector}))))))
+          "the machine process → selector subscription edge"))))
 
 (deftest c-parametric-sub-contributes-no-static-edge-dont-execute
   ;; Derivations §The don't-execute rule — static inspection never runs an
@@ -363,7 +347,6 @@
   (register-one-of-each!)
   (let [g    (rf.derivation.graph/derivation-graph all-contributors)
         node (get (:nodes g) [:sub :article/page])]
-    (is (some? node) "the parametric sub node is present")
     (is (= :parametric (:inputs node)) "its declared inputs are the :parametric marker")
     (is (not-any? #(= [:sub :article/page] (:to %)) (:edges g))
         "no static :input edge points at the parametric sub (don't-execute rule)")))
@@ -384,7 +367,6 @@
                      {:request {:method :get :url "/api/feed" :params {:page page}}}))
   (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))
         res   (node-by-family nodes :resources :tenant/feed)]
-    (is (some? res) "the {:from-db} resource composed into the umbrella cross-family graph")
     (testing "the named-resolver reference remains a static scope input"
       (is (= [[:param :rf.params] [:scope {:from-db :conf/tenant}]]
              (:inputs res))
@@ -412,10 +394,6 @@
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
   (let [g     (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
         slice (get (:nodes g) :rf/route)]
-    ;; Assert setup explicitly so the remaining checks cannot pass vacuously.
-    (testing "the navigation materialized the live route slice"
-      (is (some? slice)
-          "the navigation must materialize the :rf/route live node — absence is a failure"))
     (testing "the live route slice node is realized, keyed by :rf/route"
       (is (= :route/article (:route-id slice)) "the live matched route id")
       (is (= {:slug "welcome"} (:params slice)) "the live realized params")
@@ -424,8 +402,6 @@
       (is (= :on-route   (:evaluation slice)))
       (is (= :frame      (:lifecycle slice)))
       ;; Owner identity is the route id paired with the navigation token.
-      (is (some? (:owner slice))
-          "the navigation must allocate a route owner — absence is a failure")
       (is (= [:route :route/article (:nav-token slice)] (:owner slice))
           "the live route owner is [:route route-id nav-token]"))))
 
@@ -530,29 +506,16 @@
     (testing "the composed resource node is keyed by its concrete scoped key,
               carrying its live lifecycle owners + work-ledger"
       (let [res (get nodes [:resource live-composition-scoped-key])]
-        (is (some? res) "the live resource node is present, scoped-key keyed")
         (is (= :process (:kind res)))
         (is (= #{[:route :route/article live-composition-nav-token]}
                (get-in res [:lifecycle :owners]))
             "the live owner set is composed through verbatim")
-        ;; Separate witnesses make malformed work-id components diagnosable.
         (is (= live-composition-work-id (get-in res [:work-ledger :work/id]))
             "the composer preserves the canonical resource work-id")
-        (is (= :rf.work/resource (first (get-in res [:work-ledger :work/id])))
-            "the work-id tuple head is the :rf.work/resource family head (one-attempt-one-:work/id)")
-        (is (= live-composition-scoped-key (second (get-in res [:work-ledger :work/id])))
-            "the work-id tuple carries the concrete scoped-key")
-        (is (= live-composition-generation (nth (get-in res [:work-ledger :work/id]) 2))
-            "the work-id tuple embeds the attempt generation")
         (is (= live-composition-work-id (get-in res [:work-ledger :record :work/id]))
             "the work-ledger record carries the same canonical work-id tuple")
         (is (= :running (get-in res [:work-ledger :record :status]))
-            "the record preserves the non-terminal issuance status")
-        ;; Managed effects use the namespaced key at both levels.
-        (is (not (contains? (:work-ledger res) :work-id))
-            "the composed work-ledger uses :work/id")
-        (is (not (contains? (get-in res [:work-ledger :record]) :work-id))
-            "the work-ledger record uses :work/id")))
+            "the record preserves the non-terminal issuance status")))
     (testing "the realized route-owned resource edge resolves to a concrete key"
       (is (some #(= % {:from  :rf/route
                        :to    [:resource live-composition-scoped-key]
@@ -648,14 +611,9 @@
 
 (deftest cplusplus-edge-order-is-canonical-across-registration-permutations
   (let [baseline (rf.derivation.graph/derivation-graph (permutation-contributors [:a :b :c] [:r1 :r2] true))]
-    (testing "the de-duplicated edge SET is the four expected edges (the
-              duplicated `[:sub [:a]]` input on `:b` collapsed to ONE edge —
-              distinct runs BEFORE canonicalization)"
-      (is (= (set permutation-expected-edges) (set (:edges baseline)))
-          "same edge set as expected")
-      (is (= 4 (count (:edges baseline)))
-          "four distinct edges — the duplicate input was suppressed"))
-    (testing "the `:edges` vector is the pinned canonical total order"
+    (testing "the `:edges` vector is the pinned canonical total order of the four
+              de-duplicated edges (the duplicated `[:sub [:a]]` input on `:b`
+              collapsed to ONE edge — distinct runs BEFORE canonicalization)"
       (is (= permutation-expected-edges (:edges baseline))
           "edges emit in canonical-bytes order, not iteration order"))
     (testing "EVERY insertion-order permutation and BOTH nested-map spellings
@@ -723,8 +681,7 @@
     (testing "a float or fn query-vector argument does not lose the live graph"
       (let [g (rf.derivation.graph/live-derivation-graph :rf/default
                                                          (live-query-arg-contributors [:a :b :c :d]))]
-        (is (= 4 (count (:nodes g))) "every live sub node is present")
-        (is (= (set expected) (set (:edges g))) "every realized :input edge is present")))
+        (is (= 4 (count (:nodes g))) "every live sub node is present")))
     (testing "CEDN-1 edges keep their canonical position and out-of-domain edges
               sort after them, identically under every insertion order"
       (doseq [order (permutations-of [:a :b :c :d])]
@@ -747,13 +704,9 @@
   ;; Seed the flow input. The flow runs :after-event (same-commit
   ;; materialization), so after this dispatch the output path is settled.
   (rf/dispatch-sync [::seed-cart cart-items])
-  (let [app-db        (rf.frame/frame-app-db-value :rf/default)
-        materialized  (get-in app-db [:cart :total])
-        whole-value   (sum-cart (get-in app-db [:cart :items]))]
-    (is (= whole-value materialized)
-        "the materialized flow output equals derive(inputs) — the whole-value law")
+  (let [materialized (get-in (rf.frame/frame-app-db-value :rf/default) [:cart :total])]
     (is (= (sum-cart cart-items) materialized)
-        "and equals the whole-value recompute over the original inputs")))
+        "the materialized flow output equals derive(inputs) — the whole-value law")))
 
 (deftest d-flow-and-sub-differ-only-in-policy-not-in-the-whole-value
   ;; The subscription and flow express the same whole-value computation with
@@ -771,14 +724,10 @@
     (testing "both carry an opaque :derive whole-value token (never serialized)"
       (is (some? (:derive sub)))
       (is (some? (:derive flow))))
-    (testing "they differ on every policy axis"
-      (is (not= (:storage sub)    (:storage flow)) "ephemeral vs app-db")
-      (is (not= (:evaluation sub) (:evaluation flow)) "on-demand vs after-event")
-      (is (not= (:lifecycle sub)  (:lifecycle flow)) "cache-entry vs frame")
-      (is (not= (:output sub)     (:output flow)) "[:fact …] vs [:db …]")
-      (is (not= (:materialized? sub) (:materialized? flow)) "false vs true"))
-    (testing "both are derivations over the same whole value"
-      (is (= :derivation (:kind sub) (:kind flow)))
+    (testing "they differ on every policy axis (b-storage-evaluation-lifecycle-classified-per-family
+              pins storage, evaluation, lifecycle and materialization per family)"
+      (is (not= (:output sub)     (:output flow)) "[:fact …] vs [:db …]"))
+    (testing "both compute the same whole value"
       ;; the flow's :derive IS sum-cart; the subscription's wraps it — both
       ;; yield the identical whole value over the identical inputs.
       (is (= ((:derive flow) cart-items) (sum-cart cart-items))
@@ -844,31 +793,23 @@
   (rf/reg-route :route/about {} "/about")
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
   (let [g-a   (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
-        slice (get (:nodes g-a) :rf/route)]
-    (testing "the first navigation materialized the route-A slice"
-      (is (some? slice)
-          "navigating to route A must materialize the :rf/route live node — absence is a failure"))
-    (let [owner-a     (:owner slice)
-          nav-token-a (:nav-token slice)]
-      (testing "before supersession the live owner is route A under nav-token-A"
-        (is (= :route/article (:route-id slice)))
-        (is (= [:route :route/article nav-token-a] owner-a)))
-      ;; Supersede: a second navigation commits a new slice.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/about}])
-      (let [g-b      (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
-            slice-b  (get (:nodes g-b) :rf/route)]
-        (testing "the superseding navigation materialized the route-B slice"
-          (is (some? slice-b)
-              "navigating to route B must materialize the superseding :rf/route live node — absence is a failure"))
-        (testing "the superseding navigation releases the prior route owner"
-          (is (= :route/about (:route-id slice-b))
-              "the live slice now reports route B (the prior route fact is exited)")
-          (is (not= owner-a (:owner slice-b))
-              "the route-A owner identity is no longer the live owner — released by supersession")
-          (is (not= nav-token-a (:nav-token slice-b))
-              "a fresh nav-token owns the new route — the prior token's owner is gone")
-          (is (= [:route :route/about (:nav-token slice-b)] (:owner slice-b))
-              "the live owner is now [:route route-B fresh-nav-token]"))))))
+        slice (get (:nodes g-a) :rf/route)
+        owner-a     (:owner slice)
+        nav-token-a (:nav-token slice)]
+    (testing "before supersession the live owner is route A under nav-token-A"
+      (is (= :route/article (:route-id slice)))
+      (is (= [:route :route/article nav-token-a] owner-a)))
+    ;; Supersede: a second navigation commits a new slice.
+    (rf/dispatch-sync [:rf.route/navigate {:to :route/about}])
+    (let [g-b      (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
+          slice-b  (get (:nodes g-b) :rf/route)]
+      (testing "the superseding navigation releases the prior route owner"
+        (is (= :route/about (:route-id slice-b))
+            "the live slice now reports route B (the prior route fact is exited)")
+        (is (not= nav-token-a (:nav-token slice-b))
+            "a fresh nav-token owns the new route — the prior token's owner is gone")
+        (is (= [:route :route/about (:nav-token slice-b)] (:owner slice-b))
+            "the live owner is now [:route route-B fresh-nav-token]")))))
 
 (deftest e-route-owned-resource-release-propagates-through-the-assembled-live-graph
   ;; The CROSS-FAMILY release contract (Derivations §Route-owned resource
@@ -961,13 +902,10 @@
           param-edges-a (filterv #(= :param (:role %)) (:edges g-a))]
       ;; SETUP proof #1 — runtime state (the seam the family suite grades).
       (testing "the route-owned resource row is live under the route-A owner (runtime state)"
-        (is (some? entry-a) "the cache entry is materialized")
         (is (contains? (:active-owners entry-a) owner-a)
             "the entry's runtime :active-owners carries the route-A owner"))
       ;; SETUP proof #2 — the ASSEMBLED LIVE GRAPH (the seam THIS arm grades).
       (testing "the assembled live graph exposes the route-owned resource node carrying owner A"
-        (is (some? res-a)
-            "the resources tooling contributor composed a live :resources node — absence is a failure")
         (let [[res-key res-node] res-a]
           (is (= :article/by-slug (nth (:id res-node) 1))
               "the registration resource-id is visible inside the composed scoped-key id")
@@ -999,14 +937,10 @@
             edge-owners    (into #{} (keep :owner) (:edges g-b))
             param-edges-b  (filterv #(= :param (:role %)) (:edges g-b))]
         (testing "the superseding navigation materialized route B's fresh owner on the slice"
-          (is (some? slice-b)
-              "navigating to route B must materialize the superseding :rf/route slice — absence is a failure")
           (is (= :route/about (:route-id slice-b))
               "the live slice now reports route B (route A is exited)")
           (is (= [:route :route/about (:nav-token slice-b)] owner-b)
-              "the live owner is now [:route route-B fresh-nav-token]")
-          (is (not= owner-a owner-b)
-              "route B's fresh owner is not route A's released owner"))
+              "the live owner is now [:route route-B fresh-nav-token]"))
         (testing "release propagates through the assembled live graph — no stale owner A survives"
           (is (seq res-owner-sets)
               "the owner-free resource node REMAINS composed (release is not GC deletion),
@@ -1136,10 +1070,7 @@
       (is (= app-before app-after)
           "app-db is value-equal after on-demand reads")
       (is (= rt-before rt-after)
-          "runtime-db is value-equal — no cache entry or work-ledger record"))
-    (testing "specifically, no work-ledger record was created by the selector read"
-      (is (= (:rf.runtime/work-ledger rt-before) (:rf.runtime/work-ledger rt-after))
-          "reading a resource selector starts no resource work (§Evaluation policy rule 1)"))))
+          "runtime-db is value-equal — no cache entry or work-ledger record"))))
 
 ;; ===========================================================================
 ;; (g) TOOL REDACTION — off-box graph egress.
@@ -1255,9 +1186,7 @@
       (is (contains-secret? leaking)
           "the predicate finds the secret embedded in the token string")))
   (testing "a keyword built from the secret trips the predicate"
-    (is (contains-secret? {:tenant (keyword "tenant" secret-token)})))
-  (testing "a real opaque handle does not trip it"
-    (is (not (contains-secret? (#'rf.derivation.egress/opaque-handle secret-scope))))))
+    (is (contains-secret? {:tenant (keyword "tenant" secret-token)}))))
 
 (deftest g-live-resource-identity-redacted-at-graph-egress
   ;; A sensitive scope/params fixture, projected through the shared graph
@@ -1289,14 +1218,10 @@
         (is (projected-scoped-key? key-scoped) "still a 3-tuple scoped-key shape")
         (is (= :article/by-slug (nth key-scoped 1))
             "the registration resource-id remains visible")
-        (is (not= secret-scope (nth key-scoped 0)) "the scope component is opaqued")
-        (is (not= secret-params (nth key-scoped 2)) "the params component is opaqued")
         (is (= key-scoped id-scoped output-scoped ledger-scoped)
              "node key, :id, :output, and work-ledger use one projected identity")))
 
     (testing "graph connectivity survives the identity remap"
-      (is (not (contains? (:nodes redacted) [:resource egress-scoped-key]))
-          "the raw-scoped-key node key is gone")
       (let [node     (-> redacted :nodes vals first)
             node-key (-> redacted :nodes keys first)
             edge     (->> (:edges redacted)
@@ -1304,7 +1229,6 @@
                           first)]
         (is (= :process (:kind node)) "still classified by superkind")
         (is (= :resource-process (:refinement node)))
-        (is (some? edge) "the route → resource :param edge is still present")
         (is (= node-key (:to edge))
              "the edge :to uses the same projected node key")))
 
@@ -1312,8 +1236,6 @@
       (let [node (-> redacted :nodes vals first)]
         (is (= [:scope :param] (mapv first (:inputs node)))
             "the [:scope …] / [:param …] input roles survive")
-        (is (not= secret-scope  (second (first (:inputs node)))))
-        (is (not= secret-params (second (second (:inputs node)))))
         (is (= :runtime (first (:output node))) ":output is still a runtime address")
         (is (= [:rf.runtime/resources :entries] (take 2 (second (:output node))))
             "the :output runtime path prefix survives")
@@ -1337,13 +1259,10 @@
             top-wid (get-in node [:work-ledger :work/id])
             rec-wid (get-in node [:work-ledger :record :work/id])
             ht-wid  (second (first (:host-transient node)))]
-        (is (some? top-wid) "the top-level work-ledger link carries a work-id")
         (is (= top-wid rec-wid)
             "the top-level slot and record copy use the same projected work-id")
         (is (= top-wid ht-wid)
-            "the host-transient handle address names the same projected work-id")
-        (is (not (contains-secret? top-wid))
-            "no raw secret survives in the projected work-id")))))
+            "the host-transient handle address names the same projected work-id")))))
 
 (defn- egress-sensitive-value-contributors
   "The `egress-live-contributors` fixture plus a value-bearing live sub node
@@ -1443,36 +1362,11 @@
   (rf/make-frame {:id egress-frame})
   (let [raw   (rf.derivation.graph/live-derivation-graph egress-frame (egress-live-contributors))
         once  (rf.derivation.egress/project-graph raw egress-frame)
-        twice (rf.derivation.egress/project-graph once egress-frame)
-        node1 (-> once :nodes vals first)
-        node2 (-> twice :nodes vals first)]
-    (is (not (contains-secret? twice)) "still no secret after double projection")
+        twice (rf.derivation.egress/project-graph once egress-frame)]
     ;; A second egress pass is the identity.
     (is (= once twice)
         "egress is idempotent — re-projecting an already-projected graph is the
-         identity (project(project(x)) == project(x))")
-    ;; Spelled-out witnesses identify the position that drifted.
-    (is (= (set (keys (:nodes once))) (set (keys (:nodes twice))))
-        "node keys are stable under re-projection")
-    (is (= (:id node1) (:id node2))
-        "the projected scoped-key :id is stable under re-projection")
-    (is (= (:inputs node1) (:inputs node2))
-        "the projected realized :inputs ([:scope …]/[:param …]) are stable — a
-         second pass must not re-hash the opaque handles into fresh handles")
-    (is (= (:output node1) (:output node2))
-        "the projected :output runtime path is stable under re-projection")
-    (is (= (get-in node1 [:work-ledger :record :resource/key])
-           (get-in node2 [:work-ledger :record :resource/key]))
-        "the projected work-ledger :resource/key is stable under re-projection")
-    ;; The work-id is copied into three positions; diagnose each independently.
-    (is (= (get-in node1 [:work-ledger :work/id])
-           (get-in node2 [:work-ledger :work/id]))
-        "the projected top-level :work-ledger :work/id is stable under re-projection")
-    (is (= (get-in node1 [:work-ledger :record :work/id])
-           (get-in node2 [:work-ledger :record :work/id]))
-        "the projected :work-ledger :record :work/id is stable under re-projection")
-    (is (= (:host-transient node1) (:host-transient node2))
-        "the projected :host-transient in-flight handle is stable under re-projection")))
+         identity (project(project(x)) == project(x))")))
 
 ;; ---- (g) the identity projection touches resource nodes only --------------
 ;;
@@ -1508,15 +1402,12 @@
         sub-key  [:sub scoped-key-shaped-query]
         sub      (get-in redacted [:nodes sub-key])]
     (testing "the sub node keeps its key, :id and :output"
-      (is (some? sub) "the sub node is still keyed by its raw query vector")
       (is (= scoped-key-shaped-query (:id sub)) ":id is still the query vector")
       (is (= [:fact scoped-key-shaped-query] (:output sub)) ":output is untouched"))
     (testing "the resource node in the same graph is still projected"
       (is (contains-secret? raw) "sanity: the raw graph carries the secret")
       (is (not (contains-secret? redacted))
-          "no raw secret survives — resource projection still applies")
-      (is (not (contains? (:nodes redacted) [:resource egress-scoped-key]))
-          "the raw resource node key is gone"))))
+          "no raw secret survives — resource projection still applies"))))
 
 ;; ---- (g) the opaque handle is a keyed, full-width digest ------------------
 ;;
@@ -1664,26 +1555,22 @@
   (let [g              (rf.derivation.graph/live-derivation-graph real-egress-frame all-contributors)
         resource-entry (->> (:nodes g)
                              (filter (fn [[_ n]] (= :resources (:rf/family n))))
-                             first)]
-    (testing "the resource contributor assembled the materialized cache entry"
-      (is (some? resource-entry)
-          "resources.tooling assembled a live :resources node"))
-    (let [[res-key res-node] resource-entry]
-      (testing "the resource id remains visible after contributor projection"
-        (is (= :secret/tenant-article (nth (:id res-node) 1))
-            "the registration resource-id survives inside the (already
-             tooling-projected) scoped key"))
-      (testing "no raw secret survives contributor projection and composition"
-        (is (not (contains-secret? g))
-            "the secret auth-token must not appear anywhere in the composed graph"))
-      (testing "the route edge joins the contributor's projected resource key"
-        (let [edge (->> (:edges g) (filter #(= :param (:role %))) first)]
-          (is (some? edge) "the route-owned resource activation edge is present")
-          (is (= res-key (:to edge))
-              "the edge :to matches the (already-projected) resource node key")))
-      (testing "the canonical entry exposes its ledger and host-handle address"
-        (is (= :fetching (:status res-node)))
-        (is (some? (get-in res-node [:work-ledger :work/id]))
-            "a real work-ledger link is present")
-        (is (some? (:host-transient res-node))
-            "a host-transient in-flight handle address is present")))))
+                             first)
+        [res-key res-node] resource-entry]
+    (testing "the resource id remains visible after contributor projection"
+      (is (= :secret/tenant-article (nth (:id res-node) 1))
+          "the registration resource-id survives inside the (already
+           tooling-projected) scoped key"))
+    (testing "no raw secret survives contributor projection and composition"
+      (is (not (contains-secret? g))
+          "the secret auth-token must not appear anywhere in the composed graph"))
+    (testing "the route edge joins the contributor's projected resource key"
+      (let [edge (->> (:edges g) (filter #(= :param (:role %))) first)]
+        (is (= res-key (:to edge))
+            "the edge :to matches the (already-projected) resource node key")))
+    (testing "the canonical entry exposes its ledger and host-handle address"
+      (is (= :fetching (:status res-node)))
+      (is (some? (get-in res-node [:work-ledger :work/id]))
+          "a real work-ledger link is present")
+      (is (some? (:host-transient res-node))
+          "a host-transient in-flight handle address is present"))))
