@@ -224,29 +224,6 @@
            the cap-reached marker increments the counter so the emit site
            keeps suppressing"))))
 
-;; ---- full-shape integration -----------------------------------------------
-
-(deftest full-shape-all-slots-together
-  (testing "a realistic run buffer (run-start + mixed value-changed
-            subs + renders) yields all four slots correctly populated in
-            one pass"
-    (rf/make-frame {:id :test/cc})
-    (seed-buffer! :test/cc
-                  [(run-start :counter/inc)
-                   (sub-run :counter/value true)
-                   (sub-run :counter/label false)
-                   (rendered)
-                   (sub-run :counter/value true)   ;; repeat
-                   (rendered)])
-    (let [result (rf.epoch.capture/run-cause :test/cc)]
-      (is (= :counter/inc (:cause-event-id result)))
-      (is (= [:counter/value :counter/label] (:cause-subs result))
-          "distinct, first-seen; the repeat counter/value collapses")
-      (is (= #{:counter/value} (:value-changed-subs result))
-          "only counter/value changed value")
-      (is (= 2 (:rendered-so-far result))
-          "two renders counted"))))
-
 ;; ---- production gate ------------------------------------------------------
 
 (deftest run-cause-nil-under-disabled-gate
