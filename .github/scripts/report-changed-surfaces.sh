@@ -669,7 +669,7 @@ else
     esac
 
     # The REVERSE edge into the MIG-23 SSR cold-start fixture.
-    # `reagent-migration-fixture-cold-start` is gated solely on
+    # `reagent-fresco-migration-fixture-cold-start` is gated solely on
     # `skills_structural`, which the skill trees themselves arm. Armed only
     # from there, the fixture would fire on a change to the RECIPE but never
     # on a change to the SUBSTRATE it pins the recipe against — a core
@@ -679,7 +679,7 @@ else
     # A skipped job is an accepted result, so the aggregator could not notice.
     #
     # The roster is the fixture's own declared classpath —
-    # `skills/reagent-migration/tests/fixture/deps.edn` resolves exactly these
+    # `skills/reagent-fresco-migration/tests/fixture/deps.edn` resolves exactly these
     # four artefacts as `:local/root`, and the job's cache key hashes the same
     # four `deps.edn` files. `src/*` + `deps.edn` rather than the whole tree
     # because a `:local/root` contributes the artefact's `:paths` and its
@@ -735,7 +735,7 @@ else
     #
     # The over-fire trade is the same one, and no larger: ssr and fresco
     # over-fire `re-frame2-pair-fixture-pure`, epoch/schemas/machines over-fire
-    # `reagent-migration-fixture-cold-start`, and all seven over-fire the cheap
+    # `reagent-fresco-migration-fixture-cold-start`, and all seven over-fire the cheap
     # Babashka `skills-structural` job. Still no output of its own.
     case "$file" in
       implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/fresco/src/*|implementation/fresco/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn|implementation/epoch/src/*|implementation/epoch/deps.edn|implementation/schemas/src/*|implementation/schemas/deps.edn|implementation/machines/src/*|implementation/machines/deps.edn)
@@ -2711,12 +2711,12 @@ else
         # `skills/re-frame2-pair/*` neighbour arms have nothing to do here.
         skills_structural=true
         ;;
-      skills/reagent-migration/*)
+      skills/reagent-fresco-migration/*)
         # The same silent hole as the pair-retro tree above: without this
         # arm, zero outputs.
         #
-        # `skills/reagent-migration/tests/fixture/` is what
-        # `reagent-migration-fixture-cold-start` runs — a MIG-23 SSR cold-start
+        # `skills/reagent-fresco-migration/tests/fixture/` is what
+        # `reagent-fresco-migration-fixture-cold-start` runs — a MIG-23 SSR cold-start
         # :node-test build — gated on this output. The
         # fixture is the skill's executable half: it pins the migrated output
         # against the real substrate, so an unclassified edit to it would merge
@@ -2724,7 +2724,7 @@ else
         #
         # ONE output, structural only, and the fixture is why that is not an
         # oversight: it resolves its own deps and builds its own :node-test, so
-        # `reagent-migration-fixture-cold-start` (which skills_structural gates)
+        # `reagent-fresco-migration-fixture-cold-start` (which skills_structural gates)
         # is the job that runs it. Arming `cljs_node_test` or `examples_compile`
         # instead would schedule the implementation's own heavy lanes for a diff
         # that cannot reach them, and still not run this fixture.

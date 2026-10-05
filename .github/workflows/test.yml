@@ -6163,9 +6163,9 @@ jobs:
       # package under skills/ that HAS a tests/ directory — is silently wrong
       # for two of the four packages that have one: re-frame2-pair keeps its
       # tests one level deeper (tests/prompts/, tests/runtime/), so a
-      # `tests/*_test.clj` glob matches NOTHING there, and reagent-migration's
+      # `tests/*_test.clj` glob matches NOTHING there, and reagent-fresco-migration's
       # tests/ is a shadow-cljs fixture built by a different job entirely
-      # (reagent-migration-fixture-cold-start), not a bb suite. A derived loop
+      # (reagent-fresco-migration-fixture-cold-start), not a bb suite. A derived loop
       # would therefore report success having run nothing for the package with
       # the most tests in it — the same fail-open shape this step exists to
       # close. The explicit list cannot do that: a package with no step visibly
@@ -6264,11 +6264,11 @@ jobs:
         run: npm run test:pure
 
   # ---------------------------------------------------------------------------
-  # reagent-migration MIG-23 SSR cold-start node-test.
+  # reagent-fresco-migration MIG-23 SSR cold-start node-test.
   #
-  # The reagent-migration skill's MIG-23 recipe tells a migrating app how to
+  # The reagent-fresco-migration skill's MIG-23 recipe tells a migrating app how to
   # install an adapter on BOTH cold halves — server render and client mount.
-  # `skills/reagent-migration/tests/fixture/` is the executable evidence that
+  # `skills/reagent-fresco-migration/tests/fixture/` is the executable evidence that
   # the recipe is right: a `:node-test` build whose negative controls prove a
   # never-initialized process raises `:rf.error/no-adapter-installed` at both
   # recipe entry points (`re-frame.fresco.server/render` and `rf/make-frame`),
@@ -6288,7 +6288,7 @@ jobs:
   # package.json), so `npm install` — not `npm ci` — bootstraps shadow-cljs.
   #
   # GATED ON `skills_structural`, which two directions arm. The skill tree
-  # itself (`skills/reagent-migration/*`) covers a change to the
+  # itself (`skills/reagent-fresco-migration/*`) covers a change to the
   # RECIPE. The fixture's four `:local/root` artefacts — core, ssr, fresco and
   # the stock Reagent adapter, at `src/*` + `deps.edn` — cover a change to the
   # SUBSTRATE the recipe is pinned against. Without that second
@@ -6297,15 +6297,15 @@ jobs:
   # result, so the aggregator could not tell. Both directions are pinned in
   # `implementation/scripts/_changed-surfaces.test.cjs`.
   # ---------------------------------------------------------------------------
-  reagent-migration-fixture-cold-start:
-    name: reagent-migration MIG-23 SSR cold-start node-test (rf2-vpdrf)
+  reagent-fresco-migration-fixture-cold-start:
+    name: reagent-fresco-migration MIG-23 SSR cold-start node-test (rf2-vpdrf)
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.skills_structural == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
       run:
-        working-directory: skills/reagent-migration/tests/fixture
+        working-directory: skills/reagent-fresco-migration/tests/fixture
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -6334,9 +6334,9 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-reagent-migration-fixture-${{ hashFiles('skills/reagent-migration/tests/fixture/deps.edn', 'skills/reagent-migration/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/ssr/deps.edn', 'implementation/fresco/deps.edn', 'implementation/adapters/reagent/deps.edn') }}
+          key: ${{ runner.os }}-reagent-fresco-migration-fixture-${{ hashFiles('skills/reagent-fresco-migration/tests/fixture/deps.edn', 'skills/reagent-fresco-migration/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/ssr/deps.edn', 'implementation/fresco/deps.edn', 'implementation/adapters/reagent/deps.edn') }}
           restore-keys: |
-            ${{ runner.os }}-reagent-migration-fixture-
+            ${{ runner.os }}-reagent-fresco-migration-fixture-
             ${{ runner.os }}-cljs-
 
       # No package-lock.json (dev-only fixture) — `npm install` bootstraps the
@@ -6720,11 +6720,11 @@ jobs:
       - skills-structural
       - re-frame2-pair-fixture-pure
       # Required, mirroring its pair sibling above. What it holds is
-      # the reagent-migration skill's MIG-23 cold-start promise: that ONE
+      # the reagent-fresco-migration skill's MIG-23 cold-start promise: that ONE
       # `rf/init!` per process boot arms both the server render and the client
       # mount. That promise is made to somebody else's migrating repository, and
       # advisory would leave it one `if:` from running only on demand.
-      - reagent-migration-fixture-cold-start
+      - reagent-fresco-migration-fixture-cold-start
       - tools-playground
     steps:
       # `needs.*.result` is the spread of every dependency's final result.

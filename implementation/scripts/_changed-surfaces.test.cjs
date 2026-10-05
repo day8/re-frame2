@@ -2621,7 +2621,7 @@ test('NON-preload re-frame2-pair skill file does NOT arm mcp_conformance (scope 
   assert.equal(classify('skills/re-frame2-pair/SKILL.md').mcp_conformance, 'false');
 });
 
-// `skills/re-frame2-pair-retro/**`, `skills/reagent-migration/**` and
+// `skills/re-frame2-pair-retro/**`, `skills/reagent-fresco-migration/**` and
 // `skills/re-frame2-improver/**` each need an arm of their own: the main case
 // carries no default arm, so a diff confined to a tree no arm names classifies
 // to ZERO outputs — not merely skills_structural=false.
@@ -2630,8 +2630,8 @@ test('NON-preload re-frame2-pair skill file does NOT arm mcp_conformance (scope 
 // is what schedules:
 //   - skills/re-frame2-pair-retro/tests/*_test.clj, looped by the pair-retro
 //     step in the `skills-structural` job.
-//   - skills/reagent-migration/tests/fixture/, whose MIG-23 SSR cold-start
-//     :node-test build runs in `reagent-migration-fixture-cold-start`.
+//   - skills/reagent-fresco-migration/tests/fixture/, whose MIG-23 SSR cold-start
+//     :node-test build runs in `reagent-fresco-migration-fixture-cold-start`.
 // Unarmed, each tree's own gate would be skipped on exactly the push that
 // could break it.
 //
@@ -2649,10 +2649,10 @@ const SKILLS_STRUCTURAL_ONLY_FILES = pinnedRoster('SKILLS_STRUCTURAL_ONLY_FILES'
   'skills/re-frame2-pair-retro/SKILL.md',
   'skills/re-frame2-pair-retro/tests/duplicate_search_test.clj',
   'skills/re-frame2-pair-retro/references/known-frictions.md',
-  'skills/reagent-migration/SKILL.md',
-  'skills/reagent-migration/references/procedure.md',
-  'skills/reagent-migration/tests/fixture/test/reagent_migration/mig23_cold_start_test.cljs',
-  'skills/reagent-migration/tests/fixture/shadow-cljs.edn',
+  'skills/reagent-fresco-migration/SKILL.md',
+  'skills/reagent-fresco-migration/references/procedure.md',
+  'skills/reagent-fresco-migration/tests/fixture/test/reagent_fresco_migration/mig23_cold_start_test.cljs',
+  'skills/reagent-fresco-migration/tests/fixture/shadow-cljs.edn',
   'skills/re-frame2-improver/SKILL.md',
   'skills/re-frame2-improver/tests/storage_materializer_test.clj',
   'skills/re-frame2-improver/references/schemaless-events.md',
@@ -2707,7 +2707,7 @@ test('skills/re-frame2-implementor/ does not inherit the improver arm (rf2-z65e)
 });
 
 // The REVERSE edge into the MIG-23 SSR cold-start fixture. The SKILL-tree arm
-// above fires `reagent-migration-fixture-cold-start` on a change to the
+// above fires `reagent-fresco-migration-fixture-cold-start` on a change to the
 // RECIPE; this is the other direction. The fixture pins the recipe against
 // four in-repo artefacts it resolves as `:local/root`, and if a change to any
 // of THOSE classified `skills_structural=false`, the only cross-artefact
@@ -2715,7 +2715,7 @@ test('skills/re-frame2-implementor/ does not inherit the improver arm (rf2-z65e)
 // could break it. A skipped job is an accepted result, so the aggregator would
 // stay green.
 //
-// The roster below IS `skills/reagent-migration/tests/fixture/deps.edn`'s
+// The roster below IS `skills/reagent-fresco-migration/tests/fixture/deps.edn`'s
 // `:deps` map, and the same four `deps.edn` files the job's cache key hashes.
 //
 // EVERY PATH HERE IS TRACKED, checked with `git ls-files`, not transcribed from
@@ -2737,7 +2737,7 @@ for (const file of MIG23_FIXTURE_LOCAL_ROOTS) {
       result.skills_structural,
       'true',
       `${file} is on the MIG-23 cold-start fixture's :local/root classpath; a change to it ` +
-        'must schedule reagent-migration-fixture-cold-start, the only cross-artefact witness ' +
+        'must schedule reagent-fresco-migration-fixture-cold-start, the only cross-artefact witness ' +
         'that the documented SSR cold start still works',
     );
   });
@@ -2886,10 +2886,10 @@ test('the MIG-23 reverse edge does not narrow core/ssr/reagent production routin
   }
 });
 
-test('reagent-migration-fixture-cold-start is job-level gated on skills_structural (rf2-bbe91)', () => {
+test('reagent-fresco-migration-fixture-cold-start is job-level gated on skills_structural (rf2-bbe91)', () => {
   const block = jobBlock(
     fs.readFileSync(WORKFLOW, 'utf8'),
-    'reagent-migration-fixture-cold-start',
+    'reagent-fresco-migration-fixture-cold-start',
   );
   assert.match(block, /needs: detect_changed_surfaces/);
   assert.match(
@@ -6654,10 +6654,10 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // and the two names share a
   // `skills/re-frame2-imp` prefix.
   //
-  // `skills/re-frame2-pair-retro` and `skills/reagent-migration`
+  // `skills/re-frame2-pair-retro` and `skills/reagent-fresco-migration`
   // are DELIBERATELY ABSENT from this table. Each has an executable half gated
   // on `skills_structural` (the pair-retro bb step in `skills-structural`, and
-  // `reagent-migration-fixture-cold-start`) and a case arm that schedules it.
+  // `reagent-fresco-migration-fixture-cold-start`) and a case arm that schedules it.
   // A tree that arms an output must not stay declared:
   // the `staleDeclarations` half of the check below fails on exactly that, so
   // adding either entry reds this suite rather than passing quietly.
