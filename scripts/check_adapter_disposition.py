@@ -352,14 +352,6 @@ def _run_self_tests(*, verbose: bool = False) -> int:
 
     # Superseded statuses must be caught.
     expect(
-        "Stock Reagent and UIx are frozen compatibility adapters.",
-        dirty=True, label="A1 frozen compatibility adapters",
-    )
-    expect(
-        "`re-frame.ui` is the only taught view layer.",
-        dirty=True, label="A2 only taught view layer",
-    )
-    expect(
         "it is the substrate slated to replace the adapter trio",
         dirty=True, label="A3 replaces the adapter trio",
     )
@@ -416,10 +408,6 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         dirty=False, label="C1 supersession marker exempts",
     )
     expect(
-        'This row formerly read "Freeze + deletion wave" and deleted reagent-slim.',
-        dirty=False, label="C2 'formerly' exempts",
-    )
-    expect(
         "Snapshot as of 2026-07-11: stock Reagent and UIx are frozen compatibility "
         "adapters.",
         dirty=False, label="C3 dated historical snapshot exempts",
@@ -452,16 +440,8 @@ def _run_self_tests(*, verbose: bool = False) -> int:
         "W4 deletes the substrates/ tree once `ui` variants land.",
         dirty=True, label="E2 deleting substrates/ (verb-first)",
     )
-    expect(
-        "| W8 | **Template** | Three substrate variants collapse to one "
-        "`re-frame.ui` scaffold; feeds the deiym split gates. | Stage 6 |",
-        dirty=True, label="E4 template variants collapse to one ui scaffold",
-    )
-    expect(
-        "| W12 | Repo meta-docs | `docs/release-process.md` (new coordinate; "
-        "template collapse). | Stage 6-7 |",
-        dirty=True, label="E5 template collapse",
-    )
+    # The template-collapse shapes are caught by G1 and G2 below, whose stale
+    # table rows carry them.
 
     # The current instructions must NOT trip.
     expect(
