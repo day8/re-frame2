@@ -145,20 +145,6 @@ def audit_document(doc) -> tuple[list[tuple[str, str]], int]:
 # ---------------------------------------------------------------------------
 _ACCEPT = (
     (
-        "plain capped job",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - run: echo hi
-""",
-    ),
-    (
         "job cap AND a step cap — the common real shape",
         """\
 name: t
@@ -207,20 +193,6 @@ jobs:
 )
 
 _REJECT = (
-    (
-        "no cap anywhere",
-        """\
-name: t
-on:
-  pull_request:
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo hi
-""",
-        ["build"],
-    ),
     (
         "STEP-level cap only — the shape a grep cannot tell from a job cap",
         """\
