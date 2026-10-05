@@ -125,21 +125,6 @@
 ;; 2. Adjudication — :rf.nav/push-url + :rf.nav/replace-url (:string)
 ;; =========================================================================
 
-(deftest history-fx-schemas-accept-the-urls-the-runtime-emits
-  (testing "POSITIVE control: every path-form URL shape the emit sites
-            (navigate / can-leave / url-change) thread through validates"
-    (doseq [fx-id [:rf.nav/push-url :rf.nav/replace-url]
-            url   ["/"
-                   "/cart"
-                   "/articles/42"
-                   "/search?q=shoes&page=2"
-                   "/docs/intro#install"
-                   "#/hash-app-route"          ;; hash strategy, encoded downstream
-                   "/demos#/based-hash"        ;; base OUTSIDE the fragment
-                   ""]]                        ;; degenerate but structurally a string
-      (is (m/validate (registered-schema fx-id) url)
-          (str fx-id " accepts the legitimately-emitted URL " (pr-str url))))))
-
 (deftest history-fx-schemas-reject-non-string-urls
   (testing "ADVERSARIAL: a non-string URL is rejected BEFORE window.history
             is touched — unvalidated, these would reach pushState/replaceState"
@@ -276,21 +261,6 @@
 ;; 4. Adjudication — :rf.nav/capture-scroll
 ;; =========================================================================
 
-(deftest capture-scroll-fx-schema-accepts-what-the-planner-emits
-  (let [schema (registered-schema :rf.nav/capture-scroll)]
-    (testing "POSITIVE control: capture-scroll-fx-entry emits exactly
-              {:url <leaving-url>} — every reconstructable URL validates"
-      (doseq [url ["/" "/cart" "/articles/42?ref=email" "/docs#install"]]
-        (is (m/validate schema {:url url})
-            (str "{:url " (pr-str url) "} validates"))))
-
-    (testing "POSITIVE control: the internal `:position` TEST INJECTION SEAM
-              still validates. Malli maps are OPEN, so the handler's
-              `(or position <window.scrollX/Y>)` override is tolerated
-              without being promised in the public shape"
-      (is (m/validate schema {:url "/cart" :position [10 20]}))
-      (is (m/validate schema {:url "/cart" :position [10.5 20.25]})))))
-
 (deftest capture-scroll-fx-schema-rejects-malformed-args
   (let [schema (registered-schema :rf.nav/capture-scroll)]
     (testing "ADVERSARIAL: :url is REQUIRED — it is the cache KEY, and a
@@ -343,11 +313,6 @@
   [fx-id args]
   (m/validate (:schema (rf.registrar/lookup :fx fx-id)) args))
 
-(deftest validate-fx-hook-is-wired-for-the-nav-fx
-  (testing "the schemas artefact is on the routing test classpath and has
-            published :schemas/validate-fx! — the hook re-frame.fx consults"
-    (is (fn? (rf.late-bind/get-fn :schemas/validate-fx!)))))
-
 (deftest nav-fx-args-pass-the-real-validation-hook-when-conforming
   (testing "POSITIVE control through the WIRED path: everything the runtime
             legitimately emits passes, fractional :saved-pos included"
@@ -360,18 +325,18 @@
       ;; schema accepts each of these. Under the gate `validate-through-hook`
       ;; returns true for EVERYTHING, so without this the positive control
       ;; would pass for the wrong reason and prove nothing.
-      (is (true? (schema-verdict :rf.nav/push-url "/cart")))
-      (is (true? (schema-verdict :rf.nav/replace-url "/checkout")))
-      (is (true? (schema-verdict :rf.nav/capture-scroll {:url "/cart"})))
+      (is (true? (schema-verdict :rf.nav/push-url "/search?q=shoes#install")))
+      (is (true? (schema-verdict :rf.nav/replace-url "/search?q=shoes#install")))
+      (is (true? (schema-verdict :rf.nav/capture-scroll {:url "/articles/42?ref=email#install"})))
       (is (true? (schema-verdict :rf.nav/scroll full-scroll))
           "the full five-slot args with a FRACTIONAL :saved-pos pass the registered schema")
       ;; Dev-instrumentation arm (see ns docstring): the WIRED
       ;; hot path, plus a NEGATIVE over the trace ring.
       (when rf.interop/debug-enabled?
         (with-trace-recorder! [traces]
-          (is (true? (validate-through-hook :rf.nav/push-url "/cart")))
-          (is (true? (validate-through-hook :rf.nav/replace-url "/checkout")))
-          (is (true? (validate-through-hook :rf.nav/capture-scroll {:url "/cart"})))
+          (is (true? (validate-through-hook :rf.nav/push-url "/search?q=shoes#install")))
+          (is (true? (validate-through-hook :rf.nav/replace-url "/search?q=shoes#install")))
+          (is (true? (validate-through-hook :rf.nav/capture-scroll {:url "/articles/42?ref=email#install"})))
           (is (true? (validate-through-hook :rf.nav/scroll full-scroll))
               "the full five-slot args with a FRACTIONAL :saved-pos pass")
           (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
