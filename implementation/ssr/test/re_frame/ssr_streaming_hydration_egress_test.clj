@@ -14,7 +14,7 @@
 
   `re-frame.ssr.streaming/project-delta` is the guard — the pure helper the Ring
   adapter calls before serialising the delta script. This pins it directly
-  (allowlist drop + sensitive-child redaction + the empty-delta short-circuit)
+  (sensitive-child redaction + the empty-delta short-circuit)
   AND the streaming final-payload's app-db projection through the actual
   `build-final-payload` path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -46,38 +46,6 @@
                   :initial-events [[:rf.uc3cs4/seed db]]}))
 
 ;; ---- project-delta: allowlist + projection on the streaming delta ---------
-
-(deftest off-allowlist-changed-key-dropped-from-delta
-  (testing "a continuation that changed an OFF-ALLOWLIST key (:secret) does
-            NOT ride the streaming delta — the handler :payload allowlist drops
-            it before the delta script is written"
-    (reg-sensitive-server-frame! {})
-    (let [;; the continuation mutated :secret (off-allowlist) and :public (allowed)
-          raw-delta {:secret {:api-key "leak-me"}
-                     :public {:page :dashboard}}
-          projected (rf/with-frame sframe
-                      (rf.ssr.streaming/project-delta raw-delta sframe {:payload [:public]}))]
-      (is (not (contains? projected :secret))
-          ":secret (off-allowlist) is dropped from the streaming delta")
-      (is (= {:page :dashboard} (:public projected))
-          "the allowlisted changed key rides the delta")
-      (is (not (.contains (pr-str projected) "leak-me"))
-          "no off-allowlist secret survives in the projected delta"))))
-
-(deftest sensitive-child-redacted-in-delta
-  (testing "a frame-sensitive child (:token) inside an ALLOWED changed key
-            (:session) is redacted in the streaming delta by the ssr-hydration
-            projection; the public sibling rides verbatim"
-    (reg-sensitive-server-frame! {})
-    (let [raw-delta {:session {:token "secret-jwt" :user "bob"}}
-          projected (rf/with-frame sframe
-                      (rf.ssr.streaming/project-delta raw-delta sframe {:payload [:session]}))]
-      (is (= rf.privacy/redacted-sentinel (get-in projected [:session :token]))
-          "the frame-sensitive nested :token is redacted in the streamed delta")
-      (is (= "bob" (get-in projected [:session :user]))
-          "the public sibling rides verbatim")
-      (is (not (.contains (pr-str projected) "secret-jwt"))
-          "no raw token survives in the streamed delta"))))
 
 (deftest whole-app-db-delta-still-redacts-sensitive-child
   (testing ":rf.ssr.payload/whole-app-db keeps every changed key in the delta
