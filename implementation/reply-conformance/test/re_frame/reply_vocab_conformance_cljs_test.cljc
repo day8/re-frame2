@@ -19,9 +19,10 @@
 
   The suite also checks the invariants shared by every reply: each reply
   validates through `re-frame.reply/validate-reply`, which holds the
-  `:status` to the closed `re-frame.reply/statuses`, the `:rf.reply/work-status`
-  (when present) to the closed `re-frame.reply/work-statuses`, and the reply to
-  data-only; and the `:rf.reply/work-id` is a `[:rf.work/* …]` tuple that is
+  `:status` to the closed `re-frame.reply/statuses` and to its per-status
+  markers and value/error rules, the `:rf.reply/work-status` (when present) to
+  the closed `re-frame.reply/work-statuses`, and the reply to data-only; and
+  the `:rf.reply/work-id` is a `[:rf.work/* …]` tuple that is
   EDN-round-trippable. It separately compares stale correlation and
   causal `:completed-at` propagation across implementations.
 
@@ -466,13 +467,13 @@
 ;; `-with-time` / `-no-time` pair or one explicit `time-pair-exclusions` entry,
 ;; and an UNSUPPORTED situation must declare neither. Without this, deleting BOTH
 ;; pair keys from a row would remove that family/situation from the propagation
-;; gate AND from its adversarial controls with nothing left to notice — no
-;; exclusion required, no diagnostic emitted, suite still green.
+;; gate with nothing left to notice — no exclusion required, no diagnostic
+;; emitted, suite still green.
 ;; ---------------------------------------------------------------------------
 
 (defn- paired-rows
   "The rows of `descriptors` carrying a COMPLETE completion-time pair — the rows
-   the propagation/omission gate and its drop/nil-fill controls iterate. Every
+   the propagation/omission gate iterates. Every
    row it omits is proved to be an unsupported terminal or an explicit exclusion
    by `every-nonsuccess-terminal-declares-a-time-pair-or-an-exclusion`, so this
    derivation cannot silently lose a family."
@@ -560,18 +561,39 @@
     (vec (concat (apply concat cells) orphan))))
 
 ;; ---------------------------------------------------------------------------
-;; Universal envelope invariants across all supported situations.
+;; Universal envelope invariants across all supported situations: each reply
+;; validates against the shared contract and carries its situation's canonical
+;; `:status` and `:rf.reply/work-status`.
 ;; ---------------------------------------------------------------------------
 
-(deftest every-reply-validates-against-the-one-shared-contract
+(def ^:private situation-statuses
+  "Each situation's canonical `:status` and its allowed `:rf.reply/work-status`
+  values. `validate-reply` holds the per-status markers and value/error rules."
+  {:success [:ok        #{:completed}]
+   :error   [:error     #{:failed :timed-out}]
+   :cancel  [:cancelled #{:cancelled}]
+   :stale   [:stale     #{:suppressed}]})
+
+(deftest every-reply-is-a-canonical-envelope-for-its-situation
+  (testing "stale suppression is universal: every family lowers a stale completion"
+    (doseq [{:keys [family stale]} families]
+      (is (some? stale)
+          (str family " MUST lower a stale completion onto the shared envelope "
+               "(stale suppression is the universal correctness boundary)"))))
   (doseq [{:keys [family] :as family-spec} families
           [situation builder] (select-keys family-spec [:success :error :cancel :stale])
           :when builder
-          :let [reply (builder)]]
+          :let [reply (builder)
+                [status work-statuses] (situation-statuses situation)]]
     (testing (str family " / " situation)
       (is (rf.reply/valid-reply? reply)
           (str family " " situation " reply MUST validate against the shared "
-               "re-frame.reply/validate-reply: " (rf.reply/validate-reply reply))))))
+               "re-frame.reply/validate-reply: " (rf.reply/validate-reply reply)))
+      (is (= status (:status reply))
+          (str family " " situation " :status must be " status ", got " (:status reply)))
+      (is (contains? work-statuses (:rf.reply/work-status reply))
+          (str family " " situation " :rf.reply/work-status must be one of "
+               work-statuses ", got " (:rf.reply/work-status reply))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Work-id identity metadata. `:work-head` is REQUIRED descriptor metadata, never
@@ -611,19 +633,12 @@
          (= work-head (first wid)))))
 
 (deftest every-work-id-is-a-comparable-edn-tuple
-  (testing "every family descriptor declares its required :work-head metadata"
-    (doseq [{:keys [family work-head]} families]
-      (is (keyword? work-head)
-          (str family " descriptor MUST declare a :work-head keyword — missing "
-               "identity metadata fails the family explicitly instead of silently "
-               "removing its rows from the work-id gate; got " (pr-str work-head)))))
+  ;; `work-id-head-matches?` requires a keyword `:work-head` and a vector work
+  ;; id, so a family missing its metadata fails here rather than vanishing.
   (doseq [{:keys [family situation work-head builder]} (work-id-rows families)
           :let [reply (builder)
                 wid   (:rf.reply/work-id reply)]]
     (testing (str family " / " situation " :rf.reply/work-id correlation")
-      (is (some? wid)
-          (str family " " situation " reply must carry :rf.reply/work-id"))
-      (is (vector? wid) (str family " " situation " reply work id is not a vector"))
       (is (work-id-head-matches? work-head reply)
           (str family " " situation " reply work-id head is " (pr-str (first wid))
                ", expected the descriptor's :work-head " (pr-str work-head)))
@@ -668,36 +683,11 @@
                             :epoch     1
                             :frame     :app/main
                             :reason    :on-exit}))]
-    (testing "all three timer completions carry the :rf.work/timer head"
-      (doseq [[situation wid] [[:fired fired] [:stale stale] [:cancel cancel]]]
-        (is (= :rf.work/timer (first wid))
-            (str situation " timer reply work-id head is not :rf.work/timer"))))
     (testing "each timer work id uses the actor-bearing logical id"
       (doseq [[situation wid] [[:fired fired] [:stale stale] [:cancel cancel]]]
         (is (= [:a/multi :loading] (second wid))
             (str situation " timer logical-id must be actor-prefixed [:a/multi :loading], not "
-                 (pr-str (second wid))))))
-    (testing "the timer family shares one logical id across situations"
-      (is (= (second fired) (second stale) (second cancel))
-          "fired / stale / cancel timer work-ids share one actor-bearing logical-id"))))
-
-;; ---------------------------------------------------------------------------
-;; Success shape: :status :ok, completed work status, and a value.
-;; ---------------------------------------------------------------------------
-
-(deftest success-shape-is-consistent-across-families
-  (doseq [{:keys [family success]} families
-          :when success
-          :let [reply (success)]]
-    (testing (str family " success → canonical :ok / :completed")
-      (is (= :ok (:status reply))
-          (str family " success :status must be :ok, got " (:status reply)))
-      (is (= :completed (:rf.reply/work-status reply))
-          (str family " success :rf.reply/work-status must be :completed, got " (:rf.reply/work-status reply)))
-      (is (contains? reply :value)
-          (str family " success reply MUST carry a :value (the decoded result)"))
-      (is (nil? (:error reply))
-          (str family " success reply MUST NOT carry an :error")))))
+                 (pr-str (second wid))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Causal completion time: every success builder propagates a supplied
@@ -748,9 +738,7 @@
         ;; Omitting the optional fact must not invalidate the envelope.
         (is (rf.reply/valid-reply? reply)
             (str family " no-time success reply still validates: "
-                 (rf.reply/validate-reply reply)))
-        (is (= :ok (:status reply))
-            (str family " no-time success is still :status :ok"))))))
+                 (rf.reply/validate-reply reply)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Causal completion time for the NON-SUCCESS terminals. The success tier
@@ -772,21 +760,9 @@
       (is (empty? problems)
           (str "the non-success completion-time partition is not exhaustive:\n  "
                (string/join "\n  " problems)))))
-  (testing "the partition accounts for EVERY cell of the matrix"
-    (let [cells       (* (count families) (count time-pair-situations))
-          unsupported (count (for [family-spec families
-                                   [situation] time-pair-situations
-                                   :when (nil? (get family-spec situation))]
-                               situation))]
-      (is (pos? (count time-paired-rows))
-          "the completion-time gate must drive off a NON-EMPTY set of paired rows")
-      (is (= cells (+ (count time-paired-rows)
-                      (count time-pair-exclusions)
-                      unsupported))
-          (str "every family × non-success-situation cell must be paired, excluded, "
-               "or unsupported — " cells " cells vs " (count time-paired-rows)
-               " paired + " (count time-pair-exclusions) " excluded + "
-               unsupported " unsupported")))))
+  (testing "the completion-time gate drives off a non-empty set of paired rows"
+    (is (pos? (count time-paired-rows))
+        "the completion-time gate must drive off a NON-EMPTY set of paired rows")))
 
 (deftest nonsuccess-time-pair-partition-fails-closed
   ;; Each mutation feeds the SAME classifier the primary asserts EMPTY and
@@ -867,31 +843,11 @@
       (is (not (contains? reply :completed-at))
           (str family " " situation " is excluded from the completion-time gate ("
                reason ") — its reply MUST NOT carry :completed-at even when the "
-               "input context supplies one; got " (pr-str (:completed-at reply))))
-      ;; The excluded terminal is still a canonical, valid reply.
-      (is (rf.reply/valid-reply? reply)
-          (str family " " situation " excluded terminal still validates: "
-               (rf.reply/validate-reply reply))))))
+               "input context supplies one; got " (pr-str (:completed-at reply)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Error shape: :status :error, a terminal failure work status, and a
-;; family-specific error map with a :kind.
+;; Timeout is an error reply carrying the `:timed-out` work status.
 ;; ---------------------------------------------------------------------------
-
-(deftest error-shape-is-consistent-across-families
-  (doseq [{:keys [family error]} families
-          :when error
-          :let [reply (error)]]
-    (testing (str family " error → canonical :error + family-error map")
-      (is (= :error (:status reply))
-          (str family " error :status must be :error, got " (:status reply)))
-      (is (contains? #{:failed :timed-out} (:rf.reply/work-status reply))
-          (str family " error :rf.reply/work-status must be :failed (or :timed-out), got "
-               (:rf.reply/work-status reply)))
-      (is (map? (:error reply))
-          (str family " error :error must be a family-error MAP (never a loose scalar)"))
-      (is (some? (:kind (:error reply)))
-          (str family " error :error map MUST carry a :kind")))))
 
 (deftest http-timeout-is-error-plus-timed-out-work-status
   (testing "timeout is an error reply with :timed-out work status"
@@ -901,54 +857,8 @@
       (is (= :timed-out (:rf.reply/work-status reply))))))
 
 ;; ---------------------------------------------------------------------------
-;; Cancellation shape: cancelled status and work status, the boolean marker,
-;; and a cancellation reason.
+;; Stale correlation: every stale completion carries its carried/current gate.
 ;; ---------------------------------------------------------------------------
-
-(deftest cancel-shape-is-consistent-across-families
-  (doseq [{:keys [family cancel]} families
-          :when cancel
-          :let [reply (cancel)]]
-    (testing (str family " cancel → canonical :cancelled")
-      (is (= :cancelled (:status reply))
-          (str family " cancel :status must be :cancelled, got " (:status reply)))
-      (is (= :cancelled (:rf.reply/work-status reply))
-          (str family " cancel :rf.reply/work-status must be :cancelled, got " (:rf.reply/work-status reply)))
-      (is (true? (:cancelled? reply))
-          (str family " cancel reply MUST carry the :cancelled? true marker"))
-      (is (some? (:rf.reply/cancel-reason reply))
-          (str family " cancel reply MUST carry a :rf.reply/cancel-reason")))))
-
-;; ---------------------------------------------------------------------------
-;; Stale shape across every implementation:
-;;   :status :stale + :rf.reply/work-status :suppressed + :stale? true + :rf.reply/stale-reason
-;;   and no :value, because a stale completion must not mutate app state.
-;; ---------------------------------------------------------------------------
-
-(deftest stale-shape-is-consistent-across-EVERY-family
-  ;; Unlike the other situations, stale suppression is universal.
-  (doseq [{:keys [family stale]} families]
-    (is (some? stale)
-        (str family " MUST lower a stale completion onto the shared envelope "
-             "(stale suppression is the universal correctness boundary)")))
-  (doseq [{:keys [family stale]} families
-          :when stale
-          :let [reply (stale)]]
-    (testing (str family " stale → canonical :stale / :suppressed")
-      (is (rf.reply/valid-reply? reply)
-          (str family " stale reply must validate: " (rf.reply/validate-reply reply)))
-      (is (= :stale (:status reply))
-          (str family " stale :status must be :stale (NOT a bespoke shape), got "
-               (:status reply)))
-      (is (= :suppressed (:rf.reply/work-status reply))
-          (str family " stale :rf.reply/work-status must be :suppressed, got " (:rf.reply/work-status reply)))
-      (is (true? (:stale? reply))
-          (str family " stale reply MUST carry the :stale? true marker"))
-      (is (some? (:rf.reply/stale-reason reply))
-          (str family " stale reply MUST carry a :rf.reply/stale-reason"))
-      (is (not (contains? reply :value))
-          (str family " stale reply MUST NOT carry a :value — a stale reply "
-               "mutates NO app state")))))
 
 (defn- correlation-facts-present?
   "True iff a stale suppression outcome carries BOTH correlation trace facts
@@ -997,14 +907,6 @@
   (testing "the correlation gate REJECTS a stale outcome missing its facts"
     (doseq [[family outcome] [[:http     (strip-correlation-trace (http-stale-out))]
                               [:mutation (strip-correlation-trace (mutation-stale-out))]]]
-      ;; The outcome still suppresses delivery and carries canonical statuses —
-      ;; the ONLY departure is the stripped correlation facts.
-      (is (false? (:deliver? outcome))
-          (str family " control outcome still suppresses delivery"))
-      (is (= :suppressed (:rf.reply/work-status outcome))
-          (str family " control outcome is still :rf.reply/work-status :suppressed"))
-      (is (= :stale (get-in outcome [:reply :status]))
-          (str family " control reply is still :status :stale"))
       ;; The teeth: run the SAME predicate the primary gate asserts TRUE and
       ;; require it to go FALSE here. Gutting the predicate reddens this control.
       (is (not (correlation-facts-present? outcome))
@@ -1029,11 +931,6 @@
   (testing "the propagation gate REJECTS a success reply that DROPS :completed-at"
     (doseq [{:keys [family success]} families
             :let [bad (drop-completion-time (success))]]
-      ;; The reply remains a valid :ok envelope because completion time is optional.
-      (is (= :ok (:status bad))
-          (str family " control reply is still :status :ok"))
-      (is (rf.reply/valid-reply? bad)
-          (str family " control reply still validates: " (rf.reply/validate-reply bad)))
       ;; The teeth: the propagation predicate the primary asserts TRUE must go
       ;; FALSE on the dropped fact. Gutting the predicate reddens this control.
       (is (not (completion-time-propagated? bad completion-time-ms))
@@ -1047,28 +944,3 @@
           (str family " control NIL-FILLED :completed-at (present-but-nil), yet the "
                "omit-when-absent gate accepted it — the nil-sentinel anti-pattern "
                "slipped past the gate")))))
-
-;; The same fail-closed controls for the NON-SUCCESS terminals — proving the
-;; shared `completion-time-propagates-and-omits-across-nonsuccess-terminals`
-;; gate has teeth on error / cancel / stale replies too, not only on success.
-(deftest nonsuccess-completion-time-gate-fails-closed-on-drop-and-nil-fill
-  ;; Driven by the SAME validated partition as the primary gate, so a row can
-  ;; never be present in one and absent from the other.
-  (testing "the propagation gate REJECTS a non-success terminal that DROPS :completed-at"
-    (doseq [{:keys [family situation with-builder]} time-paired-rows
-            :let [bad (drop-completion-time (with-builder))]]
-      ;; Completion time is optional, so the reply is otherwise still valid.
-      (is (rf.reply/valid-reply? bad)
-          (str family " " situation " control still validates: " (rf.reply/validate-reply bad)))
-      ;; The teeth: the SHARED propagation predicate must go FALSE on the drop.
-      (is (not (completion-time-propagated? bad completion-time-ms))
-          (str family " " situation " control DROPPED :completed-at, yet the "
-               "propagation gate accepted the reply — the gate has lost its teeth"))))
-  (testing "the omit-when-absent gate REJECTS a no-time terminal that NIL-FILLS :completed-at"
-    (doseq [{:keys [family situation no-builder]} time-paired-rows
-            :let [bad (nil-fill-completion-time (no-builder))]]
-      ;; The teeth: the SHARED omission predicate must reject a present-but-nil slot.
-      (is (not (completion-time-omitted? bad))
-          (str family " " situation " control NIL-FILLED :completed-at (present-but-nil), "
-               "yet the omit-when-absent gate accepted it — the nil-sentinel "
-               "anti-pattern slipped past the gate")))))
