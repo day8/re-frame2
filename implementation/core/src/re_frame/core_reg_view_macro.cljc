@@ -59,12 +59,12 @@
 #?(:clj
    (defn- reagent-slim-form-tag
      "Classify body shape (Form-1 / Form-2) at compile time when reagent-
-     slim is on the classpath. Returns a keyword form-tag or nil. The
-     compile-time fold sits in the canonical `reg-view`
-     macro (there is no separate `defview`); the runtime detection in `reagent2.
-     impl.component/wrap-render` is the load-bearing correctness path,
-     this tag is an additive perf hint. `requiring-resolve` keeps core
-     free of a static reagent-slim dep — UIx builds resolve nil."
+     slim is on the classpath. Returns a keyword form-tag or nil, which
+     `expand-reg-view` records in the registry slot's metadata. The
+     classification sits in the canonical `reg-view` macro (there is no
+     separate `defview`); `reagent2.impl.component/wrap-render` classifies
+     a mounted view at runtime. `requiring-resolve` keeps core free of a
+     static reagent-slim dep — UIx builds resolve nil."
      [body]
      (when-let [classifier (try (requiring-resolve
                                    'reagent2.impl.component/classify-form-body)
@@ -81,10 +81,15 @@
      CLJS, where `cljs.core/*ns*` is nil at runtime).
 
      When reagent-slim is on the classpath the body is classified
-     (Form-1 / Form-2) at expansion time and the wrapper fn is stamped
-     with `^{:reagent2/form ...}` meta — an additive perf hint; the
-     runtime detection in `reagent2.impl.component/wrap-render` remains
-     load-bearing for correctness."
+     (Form-1 / Form-2) at expansion time and the tag is recorded under
+     `:reagent2/form` in the registry slot's metadata. The render fn
+     itself carries no metadata. reagent-slim's `wrap-render` reads a
+     form tag off the fn it mounts, and on this path that is the head
+     `(rf/view id)` returns — the frame-aware wrapper, whose metadata is
+     `{:contextType …}` alone — so a tag on the render fn would reach
+     nothing, while making the ClojureScript analyzer wrap the `(fn …)`
+     form in `with-meta`, a `cljs.core/MetaFn`. `wrap-render` classifies
+     the mounted view at runtime."
      [form-meta current-ns-sym current-file sym more]
      (let [parsed   (parse-reg-view-args more)
            sym-meta (or (meta sym) {})
@@ -162,10 +167,6 @@
              `(if re-frame.interop/debug-enabled?
                 ~(rf.source-coords/coords-form form-meta current-file current-ns-sym)
                 nil)
-             ;; Wrapper fn carries form-tag on its own meta so renderers
-             ;; reaching it via `(rf/view :id)` see the tag without a
-             ;; registry-slot round-trip.
-             ;;
              ;; The reg-view injection is SUGAR
              ;; over a single `re-frame.capture-frame/make-capture-frame` (the
              ;; owned constructor behind `capture-frame`, off the
@@ -191,9 +192,7 @@
                                              :subscribe-call-site ~sub-coord-form})
                                ~'dispatch  (:dispatch handle#)
                                ~'subscribe (:subscribe handle#)]
-                           ~@body))
-             fn-form  (cond-> fn-body
-                        form-tag (with-meta {:reagent2/form form-tag}))]
+                           ~@body))]
          ;; Per Conventions §`reg-*` return-value: every reg-*
          ;; macro returns its primary id. The trailing `~id` is load-
          ;; bearing — without it the `def` would be the last form and the
@@ -208,7 +207,7 @@
             (binding [re-frame.source-coords/*pending-coords* ~coord-form]
               (re-frame.core/reg-view* ~id
                 ~full-slot-meta
-                ~fn-form))
+                ~fn-body))
             ~def-form
             ~id)))))
 

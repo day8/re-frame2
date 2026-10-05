@@ -534,12 +534,11 @@
 
 (defn- unwrapped-fn
   "The JS function to call for `f`: the fn a `cljs.core/MetaFn` wraps, or `f`
-  itself. A fn carrying Clojure metadata is a `MetaFn` — the `reg-view`
-  expansion stamps reagent-slim's form tag onto the render fn it registers
-  whenever reagent-slim is on the compile classpath — and `apply` on a
-  `MetaFn` past twenty arguments ends in its `.apply`, which fails the way
-  `build-frame-aware-view`'s docstring describes. Calling the wrapped fn is
-  exactly what calling the `MetaFn` does, without the arity table."
+  itself. A render fn handed to `reg-view*` may carry Clojure metadata, which
+  makes it a `MetaFn`, and `apply` on a `MetaFn` past twenty arguments ends in
+  its `.apply`, which fails the way `build-frame-aware-view`'s docstring
+  describes. Calling the wrapped fn is exactly what calling the `MetaFn` does,
+  without the arity table."
   [f]
   (if (instance? cljs.core/MetaFn f)
     (.-afn ^cljs.core/MetaFn f)
