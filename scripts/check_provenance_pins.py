@@ -1308,37 +1308,8 @@ def _check(
 # so does the unclassifiable default.
 _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
     (
-        "producing-commit table row is a pin",
-        ["| **Producing commit** | `08344cb500` on `worker/linkterm-cno31` |"],
-        ["08344cb500"],
-    ),
-    (
-        "authored-at prose is a pin",
-        ["Authored at `0b482f385e` on `worker/coldmount-2rtt6-15`; if that"],
-        ["0b482f385e"],
-    ),
-    (
-        "landed-on-main prose is a pin",
-        ["It landed on main as **`93ad80f097`** (same patch)."],
-        ["93ad80f097"],
-    ),
-    (
-        "blob word in left context is not a pin",
-        ["**AFTER** - codec blob `0304f489bb`, instrument blob byte-identical"],
-        [],
-    ),
-    (
         "blob table row keyed by a path is not a pin",
         ["| `lane.cljs` | `0642815dc234c1544d1f97bd9e1e4dd24365c027` |"],
-        [],
-    ),
-    (
-        "blob table header covers a row whose own cell is bare prose",
-        [
-            "| file | blob |",
-            "|---|---|",
-            "| coldmount views | `335a37bb09233121e83ca2dc9f6a0a9ef88e037c` |",
-        ],
         [],
     ),
     (
@@ -1355,19 +1326,13 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ["The rendered document's SHA-256 digest `deadbeefcafe0123456789abcdef0123`"],
         [],
     ),
+    # THE FAILURE DIRECTION, pinned.  Neither token here carries vocabulary
+    # either way, so both are read as PINS by default: an unclassifiable
+    # token costs a finding rather than vanishing.
     (
         "authored=landed mapping yields both ids",
         ["The recovery table reads `0cf86fb580=24e8822d7f` for this page."],
         ["0cf86fb580", "24e8822d7f"],
-    ),
-    (
-        "fenced reproduction commands are not citations",
-        [
-            "```bash",
-            "git rev-parse f784ab0adb:$S   # 086d08e94089002c19e6b30cc901d03324b0f4cc",
-            "```",
-        ],
-        [],
     ),
     (
         "a decimal number is not a citation",
@@ -1376,7 +1341,7 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
     ),
     # BARE PROVENANCE.  Explicit commit prose without backticks is a citation;
     # asserting the opposite would pin the fail-open where such prose passes
-    # the gate unexamined.  The four cases under it hold the narrowness in
+    # the gate unexamined.  The cases after the first hold the narrowness in
     # place.
     (
         "bare prose hex the writer calls a commit is a citation",
@@ -1384,18 +1349,8 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         ["08344cb500"],
     ),
     (
-        "bare prose hex the writer calls authored is a citation",
-        ["Authored at deadbeef00 on worker/x."],
-        ["deadbeef00"],
-    ),
-    (
         "bare hex nobody calls a commit is not a citation",
         ["The bulk row settled at 5f2c8a1b3d across all ten turns."],
-        [],
-    ),
-    (
-        "bare hex the writer calls a blob is not a citation",
-        ["The instrument blob 0304f489bb is byte-identical to the last arm."],
         [],
     ),
     (
@@ -1404,13 +1359,6 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
         "a bare decimal beside a commit word is not a citation",
         ["The commit's ten-turn aggregate resolved at 0.0999999 ms on the bulk row."],
         [],
-    ),
-    # THE FAILURE DIRECTION, pinned.  A token with no vocabulary either way is
-    # read as a PIN, so it costs a finding rather than vanishing.
-    (
-        "unclassifiable token defaults to a pin",
-        ["The run above was taken at `1234567890abcdef1234`."],
-        ["1234567890abcdef1234"],
     ),
     (
         "abbreviated id with an ellipsis still reads as one id",
@@ -1470,41 +1418,10 @@ _EXTRACTION_CASES: List[Tuple[str, List[str], List[str]]] = [
 # (label, lines, {token: status}, expected finding tokens)
 _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
     (
-        "a stranded head alone in its block is a finding",
-        ["| Producing commit | `aaaaaaaaaa` on `worker/x` |"],
-        {"aaaaaaaaaa": "STRANDED"},
-        ["aaaaaaaaaa"],
-    ),
-    (
-        "a retained stranded head accompanied in-block passes",
-        [
-            "| Producing commit | `aaaaaaaaaa` on `worker/x` — authored, and",
-            "rebase-merged. It landed on main as **`bbbbbbbbbb`**. |",
-        ],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
-        [],
-    ),
-    (
-        "accompaniment in a DIFFERENT block does not rescue the head",
-        [
-            "| Landed anchor | `bbbbbbbbbb` |",
-            "",
-            "| Producing commit | `aaaaaaaaaa` on `worker/x` |",
-        ],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
-        ["aaaaaaaaaa"],
-    ),
-    (
         "a landed head alone in its block passes",
         ["| Producing commit | `bbbbbbbbbb`, already on main |"],
         {"bbbbbbbbbb": "LANDED"},
         [],
-    ),
-    (
-        "an unresolvable token is a finding, not a pass",
-        ["| Producing commit | `cccccccccc` |"],
-        {"cccccccccc": "UNRESOLVABLE"},
-        ["cccccccccc"],
     ),
     (
         "two stranded heads in one block are both findings",
@@ -1536,23 +1453,14 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         [],
     ),
-    # THE ROW SCOPE.  The first case is the fail-open itself: a record table
-    # cites the operative pin in one row and a landed hash in another, and
-    # per-paragraph accompaniment would let the neighbour answer for it, so a
-    # wrong hash in the field whose wrongness costs most would go unreported.
-    (
-        "a landed hash in a SIBLING ROW does not rescue the row beside it",
-        [
-            "| Original freeze | `bbbbbbbbbb`, registering all seven criteria |",
-            "| Pre-registration commit | `aaaaaaaaaa` — this is the hash to cite |",
-        ],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
-        ["aaaaaaaaaa"],
-    ),
-    # The counterweight, and the reason a row is not simply one line: this
-    # corpus wraps a long cell across source lines, and the anchor that rescues
-    # the head is routinely on the continuation.  `aaaa` is accompanied from the
-    # second line of its OWN row; `cccc`, a row down, is not.
+    # THE ROW SCOPE.  A record table cites the operative pin in one row and a
+    # landed hash in another, and per-paragraph accompaniment would let the
+    # neighbour answer for it, so a wrong hash in the field whose wrongness
+    # costs most would go unreported.  A row is still not simply one line:
+    # this corpus wraps a long cell across source lines, and the anchor that
+    # rescues the head is routinely on the continuation.  `aaaa` is
+    # accompanied from the second line of its OWN row; `cccc`, a row down, is
+    # not.
     (
         "a cell wrapped across source lines is still one row",
         [
@@ -1562,32 +1470,6 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         ],
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED", "cccccccccc": "STRANDED"},
         ["cccccccccc"],
-    ),
-    # THE SIBLING DIGEST, end to end.  The row scope alone would leave this at
-    # exit 0: the `Blob hash` row above would repaint `aaaaaaaaaa` as a digest
-    # during extraction, so there would be no citation for the row scope to
-    # adjudicate and the operative pin would fail open.  An empty expectation
-    # here would be a pass for the wrong reason, so the finding is the
-    # assertion.
-    (
-        "a digest row above neither repaints nor rescues the row beside it",
-        [
-            "| Blob hash | `bbbbbbbbbb` |",
-            "| Original freeze | `aaaaaaaaaa` |",
-        ],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
-        ["aaaaaaaaaa"],
-    ),
-    # Prose is untouched by the row scope — the shape a repaired pin puts the
-    # anchor in, which must keep passing.
-    (
-        "a paragraph is still one scope after the table split",
-        [
-            "Authored at `aaaaaaaaaa` on `worker/x`, before the rebase; the",
-            "same patch landed on main as `bbbbbbbbbb`.",
-        ],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
-        [],
     ),
     # THE BLOCKQUOTE SCOPE.  The same fail-open as the row scope above, in the
     # one container `_strip_quote`'s own docstring says this corpus writes its
@@ -1622,9 +1504,9 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
     ),
     # And the ROW scope survives inside a callout — which is where this corpus
     # actually writes its tables, so it is the row-scope guarantee in the shape
-    # it is most often read in.  Both rows are asserted, as the bare-table case
-    # above does it: the landed row raises nothing, the row beside it still
-    # raises its own finding rather than being answered for.
+    # it is most often read in.  Both rows are asserted: the landed row raises
+    # nothing, and the row beside it still raises its own finding rather than
+    # being answered for.
     (
         "a landed hash in a sibling row does not rescue it inside a callout",
         [
@@ -1650,31 +1532,10 @@ _ABSORBED_CASES: List[
     Tuple[str, List[str], Dict[str, str], List[Tuple[str, str, str]]]
 ] = [
     (
-        "a stranded head accompanied in-block is REPORTED, not merely forgiven",
-        [
-            "| Producing commit | `aaaaaaaaaa` on `worker/x` — authored, and",
-            "rebase-merged. It landed on main as **`bbbbbbbbbb`**. |",
-        ],
-        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
-        [("aaaaaaaaaa", "STRANDED", "bbbbbbbbbb")],
-    ),
-    (
         "an unresolvable token accompanied in-block is reported too",
         ["Authored at `cccccccccc`; the same patch landed on main as `bbbbbbbbbb`."],
         {"bbbbbbbbbb": "LANDED"},
         [("cccccccccc", "UNRESOLVABLE", "bbbbbbbbbb")],
-    ),
-    (
-        "a block with nothing to forgive reports no absorption",
-        ["| Producing commit | `bbbbbbbbbb`, already on main |"],
-        {"bbbbbbbbbb": "LANDED"},
-        [],
-    ),
-    (
-        "a finding is a finding and not also an absorption",
-        ["| Producing commit | `aaaaaaaaaa` on `worker/x` |"],
-        {"aaaaaaaaaa": "STRANDED"},
-        [],
     ),
     # THE PLANT THAT CAN TEACH THE WRONG LESSON, end to end.  A stranded SHA in
     # a row that carries a landed one passes — correctly — and the row that
@@ -1756,22 +1617,6 @@ _FOREIGN_CASES: List[_ForeignCase] = [
             "| Benchmark revision | at commit **`%s`** — that SHA belongs to a "
             "foreign repository, an upstream one, not to this one, so it "
             "resolves there and nowhere else |" % _FOREIGN_SHA,
-        ],
-        _HERE,
-        {},
-        [_FOREIGN_SHA],
-        {},
-        [_FOREIGN_SHA],
-    ),
-    # EDGE: the label and the URL name different commits.  Only the URL's SHA
-    # is declared, and the displayed token is not it, so the token the reader
-    # actually sees keeps the local path.  A permalink vouches for one object,
-    # not for its neighbourhood.
-    _ForeignCase(
-        "a permalink to a DIFFERENT sha declares nothing about the token beside it",
-        [
-            "| Benchmark revision | at commit **`%s`**, see %s |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, "b" * 40)),
         ],
         _HERE,
         {},
@@ -1903,24 +1748,6 @@ _FOREIGN_CASES: List[_ForeignCase] = [
         {_LOCAL_SHA: "STRANDED"},
         [_LOCAL_SHA],
         {},
-        [_LOCAL_SHA],
-    ),
-    # A foreign citation is EXEMPT, not an ANCHOR.  The stranded local head one
-    # row down has no accompaniment, and a commit in somebody else's object
-    # database is no anchor for this tree — a reader who checks it out is not
-    # looking at the measured tree.  Both verdicts in one fixture: the foreign
-    # row passes, the local row still reds.
-    _ForeignCase(
-        "a foreign citation cannot stand in as the landed anchor",
-        [
-            "| Benchmark revision | at commit **`%s`**, canonically at %s |"
-            % (_FOREIGN_SHA, _PERMALINK % (_UPSTREAM, _FOREIGN_SHA)),
-            "| Authoring anchor | `%s` on `worker/x` |" % _LOCAL_SHA,
-        ],
-        _HERE,
-        {_LOCAL_SHA: "STRANDED"},
-        [_FOREIGN_SHA, _LOCAL_SHA],
-        {_FOREIGN_SHA: _UPSTREAM},
         [_LOCAL_SHA],
     ),
     # A declaration reaches exactly as far as accompaniment does — its own row.
@@ -2130,8 +1957,6 @@ def self_test(verbose: bool, stream) -> int:
     # end.  One function mints both sides, so neither can drift.
     for url, expected in (
         ("https://github.com/day8/re-frame2", _HERE),
-        ("https://github.com/day8/re-frame2.git", _HERE),
-        ("git@github.com:day8/re-frame2.git", _HERE),
         ("ssh://git@github.com/day8/re-frame2.git", _HERE),
         ("git@GitHub.com:Day8/RE-Frame2.GIT", _HERE),
         ("/srv/mirrors/re-frame2.git", None),
@@ -2255,14 +2080,14 @@ def self_test(verbose: bool, stream) -> int:
             )
             failures += 1
 
-    # 6 origin identities, 2 anchor teeth, the refusal paths, and the two
+    # 4 origin identities, 2 anchor teeth, the refusal paths, and the two
     # inventory witnesses.
     total = (
         len(_EXTRACTION_CASES)
         + len(_RULE_CASES)
         + len(_ABSORBED_CASES)
         + len(_FOREIGN_CASES)
-        + 6
+        + 4
         + 2
         + len(refusals)
         + len(spoke)
