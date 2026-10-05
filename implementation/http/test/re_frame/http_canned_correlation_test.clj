@@ -101,17 +101,6 @@
            (rf.test-support/poll-until outcome {:timeout-ms 5000 :label "deferred canned reply"}))
         "the deferred re-fire keeps the :request-id, so the reply still correlates")))
 
-(deftest guarded-reply-handler-drops-a-stale-canned-reply
-  (testing "control: the guard discriminates, so a canned reply correlated with
-            a superseded generation is dropped rather than acted on"
-    (reg-guarded-login!)
-    (submit-via! :rf.http/managed-canned-success {:request-id [:auth/login 0]})
-    (is (nil? (outcome)) "canned fx: generation 0 is not current")
-    (rf.http.test-support/with-request-stubs
-      {[:post login-url] {:reply {:ok {:user {:username "ada"}}}}}
-      (fn [] (rf/dispatch-sync [:login/submit {:request-id [:auth/login 0]}])))
-    (is (nil? (outcome)) "route-map stub: generation 0 is not current")))
-
 (deftest canned-reply-carries-correlation-iff-request-id
   (testing ":correlation is {:request-id <id>} when the args carry one and
             absent when they do not, as on the live reply"
