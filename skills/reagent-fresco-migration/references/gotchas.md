@@ -13,7 +13,7 @@ three places, which fail at three different **times** under three different ids:
 | The leftover | Fails at | Id |
 |---|---|---|
 | an ambient `@(rf/subscribe …)` or `(rf/dispatch …)` still inside the render extent — the body **or** a helper it inlines | RENDER | `:rf.error/ambient-frame-refused` |
-| a `#(rf/dispatch …)` closure surviving at an `:on-*` prop | CLICK | `:rf.error/no-frame-context` |
+| an ambient `#(rf/dispatch …)` closure surviving at an `:on-*` prop | CLICK | `:rf.error/no-frame-context` |
 | an `(h/sub …)` moved out into a callback, a timer or a promise | FIRE | `:rf.error/fresco-sub-outside-render` |
 
 **Row 1 — the render-time refusal.** A boundary body runs inside an extent that
@@ -30,7 +30,7 @@ straight through to React **by identity** — deliberately, so `React.memo` and
 every handler-identity bail-out keep working. So a surviving Reagent closure:
 
 ```clojure
-{:on-click #(dispatch [:save])}     ; converted view, un-lifted handler
+{:on-click #(dispatch [:save])}     ; converted view, un-lifted ambient handler
 ```
 
 is not refused at lowering, is not refused at render, and reaches React exactly
@@ -49,6 +49,12 @@ by clicking.** `#(`, `(fn [`, and any `subscribe` or `dispatch` inside a props
 map — or inside a helper the body inlines — are the search. The fix is MIG-04/05
 (a vector) or MIG-18 (`h/event`, which carries the frame it was lowered in), and
 this is what cardinal rule 2 — never half-migrate a view — protects you from.
+**Resolve each hit by its binding, not its spelling.** A plain callback over the
+queued `:dispatch` that `rf/capture-frame` took during render already carries
+its frame: it is the ordering-preserving escape in
+[`catalog-mechanical.md`](catalog-mechanical.md#the-lift-changes-when-the-event-drains--check-once-per-view)
+§MIG-04 / 05, and it stays — never convert it to a synchronous intent just to
+clear the grep.
 
 ## Reading a complaint
 
@@ -113,8 +119,10 @@ The presence overrides are the motion module's own keywords
 
 ## The other silent traps, each stated once in its rule
 
-- **A surviving `^{:key …}`** is an absent key — Fresco reads no metadata — and
-  a reorderable list then reconciles by position (MIG-07).
+- **A surviving `^{:key …}` in Hiccup Fresco lowers** is an absent key — Fresco
+  reads no metadata — and a reorderable list then reconciles by position
+  (MIG-07). Inside an `r/as-element` island the author kept, Reagent lowers the
+  Hiccup and reads the metadata, so that key stays.
 - **A string or symbol prop key** is a dead handler; a map at `:class` is not
   truthiness-filtered (MIG-11).
 - **A key map away from a keyboard event** raises

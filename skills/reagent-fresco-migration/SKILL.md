@@ -160,7 +160,7 @@ Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 
 The traps that mangle a view silently → [`references/gotchas.md`](references/gotchas.md). The one to internalise before anything else:
 
-**A half-converted view fails at three different times under three different ids**, and only the first is caught before a user finds it: a leftover ambient `rf/subscribe`/`rf/dispatch` in the body *or* a helper it inlines refuses at render (`:rf.error/ambient-frame-refused`); a surviving `#(dispatch …)` closure compiles, renders, and fails on click (`:rf.error/no-frame-context`), because Fresco hands a plain function to React untouched; an `h/sub` moved into a callback or timer fails when it fires (`:rf.error/fresco-sub-outside-render`). So grep converted bodies for `#(`, `(fn [`, `subscribe` and `dispatch` rather than finding them by clicking.
+**A half-converted view fails at three different times under three different ids**, and only the first is caught before a user finds it: a leftover ambient `rf/subscribe`/`rf/dispatch` in the body *or* a helper it inlines refuses at render (`:rf.error/ambient-frame-refused`); a surviving ambient `#(dispatch …)` closure compiles, renders, and fails on click (`:rf.error/no-frame-context`), because Fresco hands a plain function to React untouched; an `h/sub` moved into a callback or timer fails when it fires (`:rf.error/fresco-sub-outside-render`). So grep converted bodies for `#(`, `(fn [`, `subscribe` and `dispatch` rather than finding them by clicking, then resolve each hit by its binding: a plain callback over the queued `:dispatch` a render-time `rf/capture-frame` took is the deliberate ordering-preserving escape ([MIG-04/05](references/catalog-mechanical.md#the-lift-changes-when-the-event-drains--check-once-per-view)), and it stays.
 
 The rest — brackets versus parens, the bare-symbol trap, the `::h/…` keyword roster, and an index of the silent traps each rule carries — is in the gotchas file.
 
@@ -168,7 +168,7 @@ The rest — brackets versus parens, the bare-symbol trap, the `::h/…` keyword
 
 - [ ] The author requested or confirmed the optional Fresco rewrite; the app is already on re-frame2 and Fresco is reachable from its build.
 - [ ] The reporter was run and both halves of its report were read.
-- [ ] Each converted view is whole — no half-migrated bodies (rule 2), and no surviving `#(dispatch …)` closure.
+- [ ] Each converted view is whole — no half-migrated bodies (rule 2), and no surviving ambient `#(dispatch …)` closure. A plain callback over a render-time `rf/capture-frame`'s queued `:dispatch` is the kept ordering escape, not a survivor.
 - [ ] Every rewrite cites its `MIG-NN` id so the author can audit it.
 - [ ] The D-tier views were *decided with the author*, not silently rewritten.
 - [ ] The R-tier views were left on Reagent with an honest reason.

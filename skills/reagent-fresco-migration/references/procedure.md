@@ -184,13 +184,24 @@ remaining rewrites are order-free — deref-drop, dispatch lifts, the key-meta
 move, the `doall` strip, keystroke handlers. Cite the `MIG-NN` id for each
 change.
 
-Two things to do *before* you call a view converted:
+Two things to do *before* you call a view converted. Both are greps, and a hit
+is a question rather than a verdict: resolve it by what the closure is bound to,
+and by which renderer lowers the vector.
 
-- **Grep the body for surviving closures.** A `#(dispatch …)` that crosses to
-  React by identity fails at click time with `:rf.error/no-frame-context` and
-  nothing catches it earlier ([`gotchas.md`](gotchas.md)).
-- **Grep for `^{:key` in the view's lists.** Metadata is never read, so a
-  survivor is an absent key, not a tidy-up.
+- **Grep the body for surviving closures.** An ambient `#(dispatch …)` — one
+  still bound to `rf/dispatch` — that crosses to React by identity fails at
+  click time with `:rf.error/no-frame-context` and nothing catches it earlier
+  ([`gotchas.md`](gotchas.md)), so lift it (MIG-04/05). A plain callback over
+  the queued `:dispatch` that `rf/capture-frame` took in the render body is the
+  deliberate, ordering-preserving escape
+  ([`catalog-mechanical.md`](catalog-mechanical.md#the-lift-changes-when-the-event-drains--check-once-per-view)),
+  and it stays: never convert that captured queue to a synchronous intent just
+  to clear the grep.
+- **Grep for `^{:key` in the view's lists.** Fresco reads no metadata, so in
+  Hiccup Fresco lowers a survivor is an absent key, not a tidy-up — move it to
+  the `:key` prop (MIG-07). Hiccup inside an `r/as-element` island the author
+  chose to keep is lowered by Reagent, which does read `^{:key …}`, so that key
+  stays.
 
 ## Step 4 — Fix requires and the root last
 
@@ -220,8 +231,9 @@ there is no connected runtime to drive.
 
 **"Compiles" is necessary, not sufficient.** Fresco moves most view errors to
 run time by design, and the three that bite hardest all compile clean: a
-surviving `#(dispatch …)`, a surviving `^{:key …}`, and a Reagent introspection
-call (MIG-35). So the done-bar for a subtree is:
+surviving ambient `#(dispatch …)`, a surviving `^{:key …}` in Fresco-lowered
+Hiccup, and a Reagent introspection call (MIG-35). So the done-bar for a subtree
+is:
 
 1. it **compiles** (the skill runs this);
 2. it **renders** — the programmer boots a dev build and eyeballs the converted
