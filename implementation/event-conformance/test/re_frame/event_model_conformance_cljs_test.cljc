@@ -1,10 +1,11 @@
 (ns re-frame.event-model-conformance-cljs-test
   "Adversarial conformance for the public one-form event model.
 
-  Core's focused suites own individual `reg-event` and observability behaviour.
-  This cross-artefact suite locks the boundaries that are easiest to weaken while
-  those tests remain green: handlers receive coeffects and return a closed effect
-  map; recordable coeffects obey their host-read policy; registrations have one
+  Core's focused suites own individual `reg-event`, coeffect-policy and
+  observability behaviour. This cross-artefact suite locks the boundaries that
+  are easiest to weaken while those tests remain green: handlers receive the
+  canonical coeffects and return a closed effect map; supplied recordable
+  coeffects are validated at the durable boundary; registrations have one
   `:rf/event-handler` wrapper and no `:event/kind`; and the `^:no-doc` retired
   forms throw, register nothing, and notify the always-on error channel.
 
@@ -16,11 +17,10 @@
 
   The fixture supplies an ambient `:rf/default` frame and clears the always-on
   listener registries between cases. These `.cljc` tests run on both JVM and
-  CLJS; the JVM arm also verifies facade var metadata."
+  CLJS."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.cofx :as rf.cofx]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.late-bind :as rf.late-bind]
@@ -49,16 +49,6 @@
     (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) exception
       (:rf.error/id (ex-data exception)))))
 
-(defn- thrown-error-reason
-  "Call `thunk` and return the `:reason` text of the ExceptionInfo it raises, or
-  `:no-throw` if it did not throw."
-  [thunk]
-  (try
-    (thunk)
-    :no-throw
-    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) exception
-      (:reason (ex-data exception)))))
-
 (defn- interceptor-chain-ids
   "Return ids from a stored chain without resolving its interceptor references."
   [interceptor-chain]
@@ -72,23 +62,6 @@
         interceptor-chain))
 
 ;; One-form handler and coeffect contract.
-
-(deftest reg-event-has-reg-event-fx-semantics-coeffects-in-effects-out
-  (testing "reg-event receives coeffects and returns an explicit effects map"
-    (let [seen-coeffects (atom ::unset)]
-      (rf/reg-sub :evt-conf/count (fn [db _] (:count db 0)))
-      (rf/reg-event :evt-conf/bump
-        (fn [coeffects _]
-          (reset! seen-coeffects coeffects)
-          {:db (update (:db coeffects) :count (fnil inc 0))}))
-      (rf/dispatch-sync [:evt-conf/bump])
-      (rf/dispatch-sync [:evt-conf/bump])
-      (is (map? @seen-coeffects)
-          "the handler is handed the coeffects MAP, not a bare db value")
-      (is (contains? @seen-coeffects :db)
-          "`:db` is delivered IN the coeffects map (coeffects-in)")
-      (is (= 2 @(rf/subscribe [:evt-conf/count]))
-          "the `{:db …}` effect committed cumulatively (the db-write IS an effect)"))))
 
 (deftest reg-event-handler-receives-the-canonical-coeffect-keys
   (testing "handlers receive the canonical coeffect keys and the event vector, without an event-kind tag"
@@ -104,19 +77,13 @@
           "the 2nd handler arg is the full dispatched event vector")
       (let [coeffects @seen-coeffects]
         (is (contains? coeffects :db) "`:db` present in the coeffects map")
-        (is (contains? coeffects :event) "`:event` present in the coeffects map")
         (is (= [:evt-conf/inspect-cofx :payload] (:event coeffects))
             "`:event` is the dispatched event vector, the same value as the 2nd handler arg")
-        (is (contains? coeffects :rf.frame/id) "`:rf.frame/id` present in the coeffects map")
         (is (= :rf/default (:rf.frame/id coeffects))
             "the ambient frame id is delivered as `:rf.frame/id`")
         (is (contains? coeffects :rf.db/runtime) "`:rf.db/runtime` present in the coeffects map")
-        (is (contains? coeffects :rf.cofx)
-            "the canonical complete `:rf.cofx` record is reachable in the coeffects map")
         (is (map? (:rf.cofx coeffects))
             "`:rf.cofx` is the FLAT recordable-coeffect map (fact-name → value, no grouping sub-maps)")
-        (is (not (contains? coeffects :rf.world/inputs))
-            "the unsupported `:rf.world/inputs` key is absent from the coeffects baseline")
         (is (not (contains? coeffects :event/kind))
             "the coeffects map carries no `:event/kind` sub-tag (one form)")))))
 
@@ -160,168 +127,6 @@
             "the live coeffects carry NO nested `:cofx` successor (flat delivery only)")
         (is (= 1781078400123 (get (:rf.cofx coeffects) :rf/time-ms))
             "the canonical complete record under `:rf.cofx` is the FLAT recordable map (fact-name → value)")))))
-
-(deftest reg-event-rf-cofx-requires-one-arg-ambient-supplier-arg-path
-  (testing "a [cofx-id arg] requirement passes arg to an ambient supplier"
-    (let [seen-echo (atom ::unset)]
-      ;; The call-site-parameterized supplier is one-arg `(fn [arg] value)`
-      ;; (cofx.cljc §Supplier signatures), declared `[id arg]` in :rf.cofx/requires.
-      (rf/reg-cofx :evt-conf/echo (fn [arg] arg))
-      (rf/reg-event :evt-conf/read-echo
-        {:rf.cofx/requires [[:evt-conf/echo :hello]]}
-        (fn [{:keys [evt-conf/echo]} _] (reset! seen-echo echo) {}))
-      (rf/dispatch-sync [:evt-conf/read-echo])
-      (is (= :hello @seen-echo)
-          "the generator arg was threaded and the result delivered flat"))))
-
-(deftest reg-event-recordable-generator-mints-under-live-and-writes-back-to-the-record
-  (testing "live policy mints a missing recordable fact and writes it to the causal record"
-    (let [delivered-fact       (atom ::unset)
-          recorded-fact        (atom ::unset)
-          generator-call-count (atom 0)]
-      ;; A monotonic supplier makes an accidental second host read observable.
-      (rf/reg-cofx :evt-conf/mint-id
-        {:recordable? true}
-        (fn []
-          (swap! generator-call-count inc)
-          (str "id-" @generator-call-count)))
-      (rf/reg-event :evt-conf/uses-mint
-        {:rf.cofx/requires [:evt-conf/mint-id]}
-        (fn [{:keys [evt-conf/mint-id] :as coeffects} _]
-          (reset! delivered-fact mint-id)
-          (reset! recorded-fact (get (:rf.cofx coeffects) :evt-conf/mint-id))
-          {}))
-      (rf/dispatch-sync [:evt-conf/uses-mint])
-      (is (= "id-1" @delivered-fact)
-          "the recordable generator minted the absent fact under :live and delivered it flat")
-      (is (= "id-1" @recorded-fact)
-          "the generated value was WRITTEN BACK into the in-flight :rf.cofx record (the post-generation token the epoch captures)")
-      (is (= 1 @generator-call-count)
-          "the generator ran exactly once (the write-back, not a re-read, supplies the record)"))))
-
-(deftest reg-event-recordable-generator-emits-rf-cofx-generated-trace-op
-  (testing "recordable generation emits a self-describing :rf.cofx/generated trace"
-    (let [traces (atom [])]
-      (rf/reg-cofx :evt-conf/gen-fact
-        {:recordable? true}
-        (fn [] :minted-value))
-      (rf/reg-event :evt-conf/triggers-gen
-        {:rf.cofx/requires [:evt-conf/gen-fact]}
-        (fn [_ _] {}))
-      (rf/register-listener! :trace :evt-conf/gen-recorder
-        (fn [trace-event] (swap! traces conj trace-event)))
-      (rf/dispatch-sync [:evt-conf/triggers-gen])
-      (rf/unregister-listener! :trace :evt-conf/gen-recorder)
-      (let [generation-traces (filter #(= :rf.cofx/generated (:operation %)) @traces)]
-        (is (seq generation-traces)
-            "the generation step emits the :rf.cofx/generated trace op")
-        (is (= :evt-conf/gen-fact (get-in (first generation-traces) [:tags :rf.cofx/id]))
-            ":rf.cofx/id names the generated fact")
-        (is (= :minted-value (get-in (first generation-traces) [:tags :rf.cofx/value]))
-            "the op carries the produced value (fact-name + value, self-describing)")))))
-
-(deftest reg-event-strict-mint-policy-refuses-to-generate-and-raises-missing-required
-  (testing "strict policy rejects a missing recordable fact without reading the host"
-    (let [generator-call-count (atom 0)
-          handler-ran?         (atom false)]
-      (rf/reg-cofx :evt-conf/strict-fact
-        {:recordable? true}
-        (fn [] (swap! generator-call-count inc) :should-not-mint))
-      (rf/reg-event :evt-conf/needs-strict-fact
-        {:rf.cofx/requires [:evt-conf/strict-fact]}
-        (fn [_ _] (reset! handler-ran? true) {}))
-      (let [caught-error-id (thrown-error-id
-                              #(rf/dispatch-sync [:evt-conf/needs-strict-fact]
-                                                 {:rf.cofx/mint-policy :strict}))]
-        (is (= :rf.error/missing-required-cofx caught-error-id)
-            "a declared-absent generator-backed fact under :strict is :rf.error/missing-required-cofx (no mint, no host read)")
-        (is (zero? @generator-call-count)
-            "the generator NEVER ran under :strict (no silent host read on replay)")
-        (is (false? @handler-ran?)
-            "the handler never ran — missing-required halts the cascade before the handler")))))
-
-(deftest reg-event-explicit-live-mint-policy-overrides-a-strict-frame
-  (testing "the per-call :explicit-live opt is the DISCRIMINATOR: on a `:preset
-            :test` frame — whose mint policy defaults to :strict — the SAME
-            dispatch mints only when the opt rides it (EP-0017 §6). Dispatched
-            into the fixture's ambient :rf/default frame the row would pass
-            whether or not the opt was honoured, since that frame is already
-            :live."
-    (let [generator-call-count (atom 0)
-          delivered            (atom ::unset)]
-      (rf/make-frame {:id :evt-conf/escape-frame :preset :test})
-      (rf/reg-cofx :evt-conf/escape-fact
-        {:recordable? true}
-        (fn [] (swap! generator-call-count inc) :minted-under-escape))
-      (rf/reg-event :evt-conf/uses-escape-fact
-        {:rf.cofx/requires [:evt-conf/escape-fact]}
-        (fn [{:keys [evt-conf/escape-fact]} _] (reset! delivered escape-fact) {}))
-      (testing "CONTROL — the SAME dispatch WITHOUT the opt is refused by the
-                frame's :strict default: no mint, no host read, no delivery"
-        (is (= :rf.error/missing-required-cofx
-               (thrown-error-id
-                 #(rf/dispatch-sync [:evt-conf/uses-escape-fact]
-                                    {:frame :evt-conf/escape-frame})))
-            "without the opt the :test frame's :strict default refuses the declared-absent fact")
-        (is (zero? @generator-call-count)
-            "the generator NEVER ran under the frame's :strict default")
-        (is (= ::unset @delivered)
-            "the handler never ran — missing-required halted the cascade"))
-      (testing "the per-call :explicit-live opt ALONE flips that same dispatch
-                to exactly one mint plus flat delivery"
-        (rf/dispatch-sync [:evt-conf/uses-escape-fact]
-                          {:frame               :evt-conf/escape-frame
-                           :rf.cofx/mint-policy :explicit-live})
-        (is (= 1 @generator-call-count)
-            ":explicit-live overrode the frame's :strict — the generator ran exactly once")
-        (is (= :minted-under-escape @delivered)
-            "the minted fact was delivered flat (the declared-nondeterminism escape, NOT strict)")))))
-
-(deftest reg-event-typo-cofx-is-the-hard-error
-  (testing "requiring an unregistered coeffect is a hard error"
-    (rf/reg-event :evt-conf/bad-requires
-      {:rf.cofx/requires [:evt-conf/never-registered]}
-      (fn [_ _] {}))
-    (is (= :rf.error/unregistered-cofx
-           (thrown-error-id #(rf/dispatch-sync [:evt-conf/bad-requires])))
-        "an unregistered declared cofx raises :rf.error/unregistered-cofx")))
-
-(deftest reg-event-malformed-requires-is-cofx-request-invalid
-  (testing "malformed :rf.cofx/requires declarations fail at registration"
-    ;; A non-vector :rf.cofx/requires value.
-    (is (= :rf.error/cofx-request-invalid
-           (thrown-error-id
-             #(rf/reg-event :evt-conf/requires-not-vector
-                {:rf.cofx/requires :evt-conf/not-a-vector}
-                (fn [_ _] {}))))
-        "a non-vector :rf.cofx/requires is :rf.error/cofx-request-invalid at registration")
-    ;; A vector carrying a non-id (non-keyword, non-`[id arg]`) entry.
-    (is (= :rf.error/cofx-request-invalid
-           (thrown-error-id
-             #(rf/reg-event :evt-conf/requires-bad-entry
-                {:rf.cofx/requires [42]}
-                (fn [_ _] {}))))
-        "a non-id entry in :rf.cofx/requires is :rf.error/cofx-request-invalid at registration")))
-
-(deftest reg-cofx-malformed-grade-metadata-is-cofx-registration-invalid
-  (testing "contradictory coeffect grades fail at registration"
-    ;; (1) :provided? without :recordable?
-    (is (= :rf.error/cofx-registration-invalid
-           (thrown-error-id
-             #(rf/reg-cofx :evt-conf/provided-not-recordable {:provided? true})))
-        ":provided? without :recordable? is :rf.error/cofx-registration-invalid")
-    ;; (2) :provided? WITH a supplier (the silently-ignored contradiction).
-    (is (= :rf.error/cofx-registration-invalid
-           (thrown-error-id
-             #(rf/reg-cofx :evt-conf/provided-with-supplier
-                {:recordable? true :provided? true}
-                (fn [] :ignored))))
-        "a :provided? fact carrying a supplier is :rf.error/cofx-registration-invalid")
-    ;; (3) ambient (non-provided) fact with NO supplier.
-    (is (= :rf.error/cofx-registration-invalid
-           (thrown-error-id
-             #(rf/reg-cofx :evt-conf/ambient-no-supplier {:doc "no supplier"})))
-        "an ambient fact with no supplier is :rf.error/cofx-registration-invalid")))
 
 (deftest supplied-recordable-non-edn-value-is-cofx-value-invalid
   (testing "a host value cannot cross the durable recordable-coeffect boundary"
@@ -385,92 +190,6 @@
             (swap! rf.late-bind/hooks dissoc :schemas/explain-with-registered-fn))
           (rf.late-bind/invalidate-cache! :schemas/validate-with-registered-fn)
           (rf.late-bind/invalidate-cache! :schemas/explain-with-registered-fn))))))
-
-(deftest reg-event-registered-but-absent-provided-fact-is-missing-required-cofx
-  (testing "a missing provided fact fails before the handler without a host read"
-    (let [traces (atom [])
-          handler-ran? (atom false)]
-      (rf/reg-cofx :evt-conf/required-boundary
-        {:recordable? true :provided? true})
-      (rf/reg-event :evt-conf/needs-boundary
-        {:rf.cofx/requires [:evt-conf/required-boundary]}
-        (fn [_ _] (reset! handler-ran? true) {}))
-      (rf/register-listener! :trace :evt-conf/missing-recorder
-        (fn [trace-event] (swap! traces conj trace-event)))
-      ;; Dispatch WITHOUT supplying the provided fact on the token.
-      (let [caught-error-id (thrown-error-id
-                              #(rf/dispatch-sync [:evt-conf/needs-boundary]))]
-        (rf/unregister-listener! :trace :evt-conf/missing-recorder)
-        (is (false? @handler-ran?)
-            "the handler never ran — missing-required halts the cascade before the handler")
-        (is (= :rf.error/missing-required-cofx caught-error-id)
-            "a registered-but-absent provided fact raises :rf.error/missing-required-cofx")
-        (let [error-traces (filter #(= :rf.error/missing-required-cofx (:operation %))
-                                   @traces)]
-          (is (seq error-traces)
-              "the missing-required error fanned out on the trace bus")
-          (is (= :evt-conf/required-boundary
-                 (get-in (first error-traces) [:tags :rf.cofx/id]))
-              ":rf.cofx/id names the absent provided fact"))))))
-
-(deftest reg-event-framework-provided-rf-time-ms-declared-delivered-undeclared-absent
-  (testing "framework-stamped time is delivered only when declared"
-    (let [declared-time   (atom ::unset)
-          undeclared-has? (atom ::unset)]
-      ;; Leg 1 — DECLARED: the framework-stamped provided `:rf/time-ms` is
-      ;; delivered flat from the enqueue stamp, NO caller supply needed.
-      (rf/reg-event :evt-conf/declares-time
-        {:rf.cofx/requires [:rf/time-ms]}
-        (fn [{:keys [rf/time-ms]} _] (reset! declared-time time-ms) {}))
-      ;; Leg 2 — UNDECLARED: the same stamped fact is NOT staged.
-      (rf/reg-event :evt-conf/ignores-time
-        (fn [coeffects _]
-          (reset! undeclared-has? (contains? coeffects :rf/time-ms))
-          {}))
-      ;; Dispatch WITHOUT supplying `:rf/time-ms` — the enqueue stamp provides it.
-      (rf/dispatch-sync [:evt-conf/declares-time])
-      (rf/dispatch-sync [:evt-conf/ignores-time])
-      (is (number? @declared-time)
-          "the DECLARED framework-stamped :rf/time-ms arrived flat from the enqueue stamp (a provided fact, always present — never missing-required)")
-      (is (false? @undeclared-has?)
-          "the UNDECLARED handler never sees :rf/time-ms — no implicit time (declared-only delivery, the most-consumed fact gets no exemption)"))))
-
-(deftest reg-event-custom-provided-cofx-supplied-on-token-is-delivered-flat
-  (testing "a supplied custom provided fact is delivered flat without a host read"
-    (let [seen-session-token (atom ::unset)]
-      ;; A custom provided recordable fact — NO supplier (its owner stamps the
-      ;; token). The valid provided shape: `{:recordable? true :provided? true}`.
-      (rf/reg-cofx :evt-conf/session-token
-        {:recordable? true :provided? true
-         :doc "A boundary fact the dispatch site stamps onto the token."})
-      (rf/reg-event :evt-conf/reads-token
-        {:rf.cofx/requires [:evt-conf/session-token]}
-        (fn [{:keys [evt-conf/session-token]} _]
-          (reset! seen-session-token session-token)
-          {}))
-      ;; SUPPLY the provided fact's value on the dispatch token.
-      (rf/dispatch-sync [:evt-conf/reads-token]
-                        {:rf.cofx {:evt-conf/session-token "jwt-abc-123"}})
-      (is (= "jwt-abc-123" @seen-session-token)
-          "the SUPPLIED custom provided recordable fact arrived FLAT under its id from the token (supplied values win — no generator, no host read)"))))
-
-(deftest inject-cofx-is-off-the-public-facade-and-the-removal-is-a-hard-error
-  (testing "inject-cofx is absent from the facade and its tombstone points to :rf.cofx/requires"
-    ;; Leg 1 — OFF the public facade. JVM-only var-reflection probe: the
-    ;; public facade carries no `inject-cofx` var. (CLJS has no runtime vars;
-    ;; the CLJS publics surface is policed by the api-manifest --check gate.)
-    #?(:clj
-       (is (nil? (ns-resolve 're-frame.core 'inject-cofx))
-           "there is NO public re-frame.core/inject-cofx var — the facade does not carry it"))
-    ;; Leg 2 — the private thrower is the always-on hard error.
-    (is (= :rf.error/inject-cofx-removed
-           (thrown-error-id #(rf.cofx/inject-cofx :evt-conf/anything)))
-        "the private inject-cofx thrower raises :rf.error/inject-cofx-removed")
-    (let [reason (thrown-error-reason #(rf.cofx/inject-cofx :evt-conf/anything))]
-      (is (string? reason)
-          "the removal stub raises an ex-info carrying a :reason string")
-      (is (re-find #":rf.cofx/requires" reason)
-          "the replacement guidance names `:rf.cofx/requires` (the one declaration surface)"))))
 
 ;; Closed effect-map contract.
 
@@ -738,117 +457,26 @@
       (is (= :handler-ran @(rf/subscribe [:evt-conf/public-icpt-marker]))
           "the event handler ran after the public-registered interceptor"))))
 
-(deftest reg-event-path-interceptor-works-with-db-slice-return
-  (testing "a path interceptor splices an explicit :db slice effect into app-db"
-    (rf/reg-sub :evt-conf/counter (fn [db _] (:counter db)))
-    (rf/reg-event :evt-conf/inc-via-path
-      {:interceptors [[:rf.interceptor/path [:counter]]]}
-      ;; `db` here is the FOCUSED slice at [:counter], not the whole app-db;
-      ;; the return is `{:db <new-slice>}`.
-      (fn [{:keys [db]} _] {:db (update (or db {}) :value (fnil inc 0))}))
-    (rf/dispatch-sync [:evt-conf/inc-via-path])
-    (rf/dispatch-sync [:evt-conf/inc-via-path])
-    (is (= {:value 2} @(rf/subscribe [:evt-conf/counter]))
-        "the `{:db slice}` return was spliced back into app-db at [:counter]")))
-
-(deftest raw-context-work-is-expressible-via-an-interceptor
-  (testing "an interceptor can inspect context, skip the handler, and install effects"
-    (let [handler-ran? (atom false)]
-      (rf/reg-sub :evt-conf/guard-marker (fn [db _] (:guard-marker db)))
-      (rf/reg-interceptor :evt-conf/guard
-        {:before
-         (fn [ctx]
-           ;; Capture (read the full context) + short-circuit the
-           ;; handler + install an effect directly — context-level
-           ;; work is an interceptor concern.
-           (-> ctx
-               (assoc :rf/skip-handler? true)
-               (assoc-in [:effects :fx]
-                         [[:dispatch [:evt-conf/guard-fired]]])))})
-      (rf/reg-event :evt-conf/guard-fired
-        (fn [{:keys [db]} _] {:db (assoc db :guard-marker :fired)}))
-      (rf/reg-event :evt-conf/guarded
-        {:interceptors [:evt-conf/guard]}
-        (fn [_ _] (reset! handler-ran? true) {:db {:should :not-run}}))
-      (rf/dispatch-sync [:evt-conf/guarded])
-      (is (false? @handler-ran?)
-          "the interceptor short-circuited the handler via :rf/skip-handler?")
-      (is (= :fired @(rf/subscribe [:evt-conf/guard-marker]))
-          "the interceptor's directly-installed effect ran (no reg-event-ctx needed)"))))
-
 ;; Retired registration-form tombstones.
 
-(deftest retired-names-raise-their-exact-removal-errors
-  (testing "retired facade forms raise their specific removal errors"
-    (is (= :rf.error/reg-event-db-removed
-           (thrown-error-id #(rf/reg-event-db :evt-conf/via-db (fn [_ _] nil))))
-        "reg-event-db raises :rf.error/reg-event-db-removed")
-    (is (= :rf.error/reg-event-fx-removed
-           (thrown-error-id #(rf/reg-event-fx :evt-conf/via-fx (fn [_ _] nil))))
-        "reg-event-fx raises :rf.error/reg-event-fx-removed")
-    (is (= :rf.error/reg-event-ctx-removed
-           (thrown-error-id #(rf/reg-event-ctx :evt-conf/via-ctx (fn [_ _] nil))))
-        "reg-event-ctx raises :rf.error/reg-event-ctx-removed")))
-
-(deftest retired-names-are-resolvable-facade-vars
-  (testing "retired names are callable facade tombstones"
-    ;; Unlike `reg-event`, these are functions in both runtimes.
-    (is (fn? rf/reg-event-db)  "reg-event-db is a resolvable callable facade fn (the throwing stub)")
-    (is (fn? rf/reg-event-fx)  "reg-event-fx is a resolvable callable facade fn (the throwing stub)")
-    (is (fn? rf/reg-event-ctx) "reg-event-ctx is a resolvable callable facade fn (the throwing stub)")))
-
-(deftest retired-names-register-nothing-only-reg-event-commits
-  (testing "retired-form tombstones register nothing"
-    (rf/reg-sub :evt-conf/tally (fn [db _] (:tally db [])))
-    (rf/reg-event :evt-conf/live
-      (fn [{:keys [db]} _] {:db (update db :tally (fnil conj []) :reg-event)}))
-    (thrown-error-id #(rf/reg-event-db  :evt-conf/db-noreg  (fn [_ _] nil)))
-    (thrown-error-id #(rf/reg-event-fx  :evt-conf/fx-noreg  (fn [_ _] nil)))
-    (thrown-error-id #(rf/reg-event-ctx :evt-conf/ctx-noreg (fn [_ _] nil)))
-    (is (nil? (rf.registrar/lookup :event :evt-conf/db-noreg))
-        "reg-event-db registered nothing")
-    (is (nil? (rf.registrar/lookup :event :evt-conf/fx-noreg))
-        "reg-event-fx registered nothing")
-    (is (nil? (rf.registrar/lookup :event :evt-conf/ctx-noreg))
-        "reg-event-ctx registered nothing")
-    (rf/dispatch-sync [:evt-conf/live])
-    (is (= [:reg-event] @(rf/subscribe [:evt-conf/tally]))
-        "only the reg-event handler committed; the retired stubs registered nothing")))
-
-(deftest retired-name-error-fans-out-on-the-always-on-channel-before-throwing
-  (testing "retired-form errors reach the always-on channel before they throw"
+(deftest retired-forms-fan-out-throw-and-register-nothing
+  (testing "each retired form reaches the always-on channel, throws its removal
+            error, and registers nothing"
     (let [seen-errors (atom [])]
       (rf.error-emit/register-error-listener! :evt-conf/removal-recorder
         (fn [error-record] (swap! seen-errors conj (:error error-record))))
-      ;; The call throws; the listener must already have received the record.
-      (is (= :rf.error/reg-event-db-removed
-             (thrown-error-id #(rf/reg-event-db :evt-conf/fanned (fn [_ _] nil))))
-          "the call still throws the removal error")
-      (is (some #{:rf.error/reg-event-db-removed} @seen-errors)
-          "the removal error fanned out on the always-on channel before the throw")
-      ;; Reset + prove the same for the fx + ctx removals (one channel, three errors).
-      (reset! seen-errors [])
-      (thrown-error-id #(rf/reg-event-fx :evt-conf/fanned (fn [_ _] nil)))
-      (is (some #{:rf.error/reg-event-fx-removed} @seen-errors)
-          "reg-event-fx removal also fans out on the always-on channel")
-      (reset! seen-errors [])
-      (thrown-error-id #(rf/reg-event-ctx :evt-conf/fanned (fn [_ _] nil)))
-      (is (some #{:rf.error/reg-event-ctx-removed} @seen-errors)
-          "reg-event-ctx removal also fans out on the always-on channel"))))
-
-;; JVM-only metadata check; the CLJS manifest gate owns compile-time publics.
-
-#?(:clj
-   (deftest public-facade-no-doc-classification
-     (testing "reg-event is documented while retired facade tombstones are not"
-       (is (nil? (:no-doc (meta #'re-frame.core/reg-event)))
-           "reg-event is PUBLIC — it carries no :no-doc meta")
-       (is (true? (:no-doc (meta #'re-frame.core/reg-event-ctx)))
-           "the reg-event-ctx facade tombstone carries ^:no-doc")
-       (is (true? (:no-doc (meta #'re-frame.core/reg-event-db)))
-           "the reg-event-db facade tombstone carries ^:no-doc (off the public manifest)")
-       (is (true? (:no-doc (meta #'re-frame.core/reg-event-fx)))
-           "the reg-event-fx facade tombstone carries ^:no-doc (off the public manifest)"))))
+      (doseq [[form-name retired-form error-id event-id]
+              [["reg-event-db"  rf/reg-event-db  :rf.error/reg-event-db-removed  :evt-conf/db-noreg]
+               ["reg-event-fx"  rf/reg-event-fx  :rf.error/reg-event-fx-removed  :evt-conf/fx-noreg]
+               ["reg-event-ctx" rf/reg-event-ctx :rf.error/reg-event-ctx-removed :evt-conf/ctx-noreg]]]
+        (reset! seen-errors [])
+        ;; The call throws; the listener must already have received the record.
+        (is (= error-id (thrown-error-id #(retired-form event-id (fn [_ _] nil))))
+            (str form-name " throws " error-id))
+        (is (some #{error-id} @seen-errors)
+            (str form-name " fans its removal error out on the always-on channel before the throw"))
+        (is (nil? (rf.registrar/lookup :event event-id))
+            (str form-name " registered nothing"))))))
 
 ;; Always-on event channel.
 
