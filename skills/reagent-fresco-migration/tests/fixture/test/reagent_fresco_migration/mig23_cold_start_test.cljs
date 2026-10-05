@@ -1,4 +1,4 @@
-(ns reagent-migration.mig23-cold-start-test
+(ns reagent-fresco-migration.mig23-cold-start-test
   "COLD-START EVIDENCE for the MIG-23 SSR recipe.
 
   The skill's MIG-23 recipe stands up a Node rendering service — a
@@ -33,7 +33,7 @@
        at is `rf/make-frame`, and that is what is proven to advance
        here.
 
-  Run from skills/reagent-migration/tests/fixture/:
+  Run from skills/reagent-fresco-migration/tests/fixture/:
       npm install && npm run test:cold-start"
   (:require [cljs.test :refer [deftest testing is]]
             ["react-dom/server" :as react-server]

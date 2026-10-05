@@ -1,4 +1,4 @@
-# reagent-migration — Inputs
+# reagent-fresco-migration — Inputs
 
 > **Skill-internal meta-doc.** The canonical inputs the skill leans on — not
 > part of the skill contract. Not loaded during normal operation; a

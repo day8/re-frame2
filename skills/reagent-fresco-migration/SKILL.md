@@ -1,5 +1,5 @@
 ---
-name: reagent-migration
+name: reagent-fresco-migration
 description: >
   Rewrites Reagent view code into Fresco (`re-frame.fresco`, alias `h`),
   re-frame2's optional view layer: views become `h/defview`, `@(subscribe …)`
@@ -35,7 +35,7 @@ allowed-tools:
   - Glob
 ---
 
-# reagent-migration
+# reagent-fresco-migration
 
 Helps an author rewrite **Reagent view code into Fresco** — `re-frame.fresco`, conventionally aliased `h`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes an `h/defview` mounted in brackets; subscription derefs collapse to `(h/sub …)`; DOM handlers stop being closures and become data the tree retains; and the two things Reagent kept inside the component — local atoms and lifecycle — move to where re-frame can see them.
 

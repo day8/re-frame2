@@ -1,6 +1,6 @@
 # MIG-23 cold-start fixture
 
-Executable cold-start evidence for the reagent-migration skill's MIG-23
+Executable cold-start evidence for the reagent-fresco-migration skill's MIG-23
 SSR-then-hydrate recipe, in
 [`ssr-hydrate.md`](../../references/ssr-hydrate.md).
 
@@ -8,7 +8,7 @@ The recipe stands up a Node rendering service — a separate process from the
 browser — and both of its halves construct a frame. re-frame2 has no
 default-adapter registry, so frame construction raises
 `:rf.error/no-adapter-installed` in a never-initialized process. The suite in
-`test/reagent_migration/mig23_cold_start_test.cljs` proves, in one fresh Node
+`test/reagent_fresco_migration/mig23_cold_start_test.cljs` proves, in one fresh Node
 process:
 
 1. **Negative** (never-initialized): `server/render` and `rf/make-frame` —
@@ -52,10 +52,10 @@ npm run test:cold-start
 
 Exit 0 with `0 failures, 0 errors` is the pass.
 
-It also runs in CI, as the `reagent-migration-fixture-cold-start` job in
+It also runs in CI, as the `reagent-fresco-migration-fixture-cold-start` job in
 `.github/workflows/test.yml`. That job is gated on the `skills_structural`
 changed surface, which **two** directions arm: the skill tree itself
-(`skills/reagent-migration/*`), covering a change to the RECIPE; and the
+(`skills/reagent-fresco-migration/*`), covering a change to the RECIPE; and the
 fixture's four `:local/root` artefacts — core, ssr, fresco and the stock
 Reagent adapter — covering a change to the SUBSTRATE the recipe is pinned
 against. Both edges are pinned in

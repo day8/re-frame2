@@ -1,7 +1,7 @@
-# reagent-migration — Design
+# reagent-fresco-migration — Design
 
 > **Skill-internal meta-doc.** Design rationale + locked decisions for the
-> `reagent-migration` skill itself — not part of the user-facing or AI-facing
+> `reagent-fresco-migration` skill itself — not part of the user-facing or AI-facing
 > skill contract. Not loaded during normal skill operation; it exists to
 > re-author the skill from inputs. For the skill contract, see
 > [`SKILL.md`](../SKILL.md).
@@ -193,7 +193,7 @@ Design exploration happens in `ai/` (gitignored); never committed.
 ## 4. File structure (locked)
 
 ```
-skills/reagent-migration/
+skills/reagent-fresco-migration/
 ├── SKILL.md                       (router: the "do you need this" framing + reporter + mental model + cardinal rules + tier routing + procedure + gotchas + done)
 ├── README.md                      (human-facing intro; the optional-second positioning)
 ├── LICENSE                        (MIT)
@@ -211,7 +211,7 @@ skills/reagent-migration/
 ├── evals/
 │   └── evals.json                 (trigger fixtures + behavioural fixtures across the M/D/R tiers)
 ├── tests/
-│   └── fixture/                   (MIG-23's cold-start proof — a standalone shadow-cljs project, not a leaf; the required `reagent-migration-fixture-cold-start` job)
+│   └── fixture/                   (MIG-23's cold-start proof — a standalone shadow-cljs project, not a leaf; the required `reagent-fresco-migration-fixture-cold-start` job)
 └── spec/
     ├── design.md                  (this file — locked decisions)
     ├── inputs.md                  (the canonical inputs the skill leans on)
@@ -229,7 +229,7 @@ shadow-cljs project rather than a leaf: it resolves core, ssr, fresco and the
 stock Reagent adapter as `:local/root` deps and proves, in one fresh Node
 process, that [`ssr-hydrate.md`](../references/ssr-hydrate.md)'s MIG-23 recipe
 needs its boot-time `rf/init!` — the negative arm raises
-`:rf.error/no-adapter-installed`. The `reagent-migration-fixture-cold-start` job
+`:rf.error/no-adapter-installed`. The `reagent-fresco-migration-fixture-cold-start` job
 runs it on the `skills_structural` surface and `all-required-passed` requires it,
 so the recipe cannot drift from the shipped substrate unnoticed. Change the
 recipe and you change the fixture with it; re-authoring the skill leaves it

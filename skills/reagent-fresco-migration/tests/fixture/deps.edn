@@ -1,11 +1,11 @@
-;; reagent-migration MIG-23 cold-start fixture classpath.
+;; reagent-fresco-migration MIG-23 cold-start fixture classpath.
 ;;
 ;; Pulls the local re-frame2 artefacts in as :local/root entries so the
 ;; fixture runs against the exact tree-of-truth in this repo. Same idiom
 ;; as skills/re-frame2-pair/tests/fixture/deps.edn.
 ;;
 ;; Path math: this file lives at
-;; skills/reagent-migration/tests/fixture/deps.edn
+;; skills/reagent-fresco-migration/tests/fixture/deps.edn
 ;; so "../../../../implementation/<artefact>" lands in the right place.
 ;;
 ;; The fixture needs core (rf/init!, rf/make-frame, the adapter
