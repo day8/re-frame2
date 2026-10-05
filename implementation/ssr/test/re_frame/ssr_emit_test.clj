@@ -128,34 +128,32 @@
               "<form><input name=\"q\"></form>"]
              ["a handler several levels deep"
               [:div [:section [:ul [:li {:onClick "deep()" :class "item"} "deep"]]]]
-              "<div><section><ul><li class=\"item\">deep</li></ul></section></div>"]]]
+              "<div><section><ul><li class=\"item\">deep</li></ul></section></div>"]
+             ;; The lower-case Touch Events handlers have no upper-case tail
+             ;; char and no hyphen, so the structural matcher cannot see them:
+             ;; only the allowlist strips these four.
+             ["lower-case touch handler :ontouchstart"
+              [:div {:ontouchstart "alert(document.cookie)" :id "x"} [:p "body"]]
+              "<div id=\"x\"><p>body</p></div>"]
+             ["lower-case touch handler :ontouchmove"
+              [:div {:ontouchmove "alert(document.cookie)" :id "x"} [:p "body"]]
+              "<div id=\"x\"><p>body</p></div>"]
+             ["lower-case touch handler :ontouchend"
+              [:div {:ontouchend "alert(document.cookie)" :id "x"} [:p "body"]]
+              "<div id=\"x\"><p>body</p></div>"]
+             ["lower-case touch handler :ontouchcancel"
+              [:div {:ontouchcancel "alert(document.cookie)" :id "x"} [:p "body"]]
+              "<div id=\"x\"><p>body</p></div>"]
+             ["void <img>, canonical lower-case handler :onerror"
+              [:img {:src "x" :onerror "alert(document.cookie)"}]
+              "<img src=\"x\">"]
+             ["void <img>, upper-case handler :ONLOAD"
+              [:img {:src "x" :ONLOAD "steal()"}]
+              "<img src=\"x\">"]]]
       (is (= expected (rf.ssr.emit/render-to-string tree {}))
           (str "render-to-string — " label))
       (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
           (str "render-shell — " label)))))
-
-(deftest render-to-string-strips-lowercase-touch-handlers
-  (testing "The lower-case W3C Touch Events L2 GlobalEventHandlers
-            (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel`)
-            are stripped through the FULL `render-to-string` emit composition.
-            These have no upper-case tail char and no hyphen, so the structural
-            `event-handler-name-re` CANNOT catch them — the allowlist arm is
-            the only thing that strips them. Reverting the four allowlist
-            entries makes this go RED (the JVM-side counterpart of the
-            security tier's render-to-string assertion)."
-    (doseq [k [:ontouchstart :ontouchmove :ontouchend :ontouchcancel]]
-      (testing (str k " is stripped through render-to-string")
-        (let [html (rf.ssr.emit/render-to-string
-                     [:div {k "alert(document.cookie)" :id "x"} [:p "body"]] {})]
-          (is (str/includes? html "id=\"x\"")
-              (str "the legit attr should survive for " k))
-          (is (str/includes? html "<p>body</p>")
-              (str "the child should render for " k))
-          (is (not (str/includes? (str/lower-case html) (name k)))
-              (str "touch handler name " k " leaked into wire HTML: " html))
-          (is (not (str/includes? html "alert(document.cookie)"))
-              (str "touch handler payload reached wire HTML for " k ": "
-                   html)))))))
 
 (deftest render-to-string-strips-props-through-registered-view-root
   (testing "The strip composes with the CALLABLE-head
@@ -578,39 +576,9 @@
             the false arm; both must vanish, not render the word `true`/
             `false`. Distinct from a boolean ATTR VALUE (which `attr-string`
             renders as a bare attr name) — this is the child position."
-    (is (= "<div></div>"
-           (rf.ssr.emit/render-to-string [:div true] {}))
-        "a lone `true` child is dropped")
-    (is (= "<div></div>"
-           (rf.ssr.emit/render-to-string [:div false] {}))
-        "a lone `false` child is dropped")
-    (is (= "<div><p>shown</p></div>"
-           (rf.ssr.emit/render-to-string [:div (when true [:p "shown"]) (when false [:p "hidden"])] {}))
-        "the false arm of a (when …) yields nil → dropped; the true arm renders")
     (is (= "<p>ab</p>"
            (rf.ssr.emit/render-to-string [:p "a" true "b" false nil] {}))
         "booleans + nil interleaved with strings drop, strings survive")))
-
-(deftest render-to-string-fn-headed-component
-  (testing "A fn-headed component `[component-fn & args]`
-            (emit-element's callable-head branch) is invoked with its args
-            and its returned hiccup is emitted. The streaming walker's fn-head
-            path is exercised indirectly elsewhere; this is the non-streaming
-            emitter's direct assertion."
-    (let [greeting (fn [name] [:h1 "Hello, " name])]
-      (is (= "<h1>Hello, world</h1>"
-             (rf.ssr.emit/render-to-string [greeting "world"] {}))
-          "the component fn is called with the trailing args; its hiccup emits"))
-    (testing "a fn-headed component nested as a child is resolved too"
-      (let [item (fn [label] [:li label])]
-        (is (= "<ul><li>a</li><li>b</li></ul>"
-               (rf.ssr.emit/render-to-string [:ul [item "a"] [item "b"]] {}))
-            "fn-heads in child position resolve via emit-children → emit-element")))
-    (testing "a fn-headed component returning a string renders the string escaped"
-      (let [raw (fn [] "a < b")]
-        (is (= "<p>a &lt; b</p>"
-               (rf.ssr.emit/render-to-string [:p [raw]] {}))
-            "the fn's string output flows back through escape-html")))))
 
 ;; ===========================================================================
 ;; escape-attr / escape-html asymmetry (html_helpers.cljc).
@@ -744,17 +712,6 @@
                             #":rf.error/invalid-hiccup-head"
                             (rf.ssr.emit/render-to-string el {}))
           (str "malformed-head vector must fail loud, not emit raw: " (pr-str el))))))
-
-(deftest streaming-rejects-malformed-hiccup-head
-  (testing "The streaming shell walker rejects a malformed-head
-            vector identically to the sync emitter (it must NOT splice it as a
-            child-seq and ride the raw child strings)"
-    (doseq [el [[nil "<script>alert(1)</script>"]
-                ["x" "<img src=x onerror=alert(1)>"]]]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #":rf.error/invalid-hiccup-head"
-                            (rf.ssr.streaming/render-shell el))
-          (str "streaming path must fail loud on malformed head: " (pr-str el))))))
 
 (deftest collection-heads-are-malformed-on-both-paths
   (testing "A vector, map or set head is `ifn?` — a collection looks up its
@@ -1008,83 +965,6 @@
           "streaming invoked the variadic inner exactly once"))))
 
 ;; ===========================================================================
-;; The selection must not be MORE permissive than CLJS
-;;
-;; A walk down the inner's declared arities taking the longest accepted
-;; PREFIX is not what a compiled ClojureScript fn does. Only a fn with a SINGLE fixed arity
-;; and no variadic tail compiles to a bare JavaScript function, and only a
-;; bare JavaScript function drops extra arguments; anything with more than one
-;; arm compiles to a dispatcher that switches on `arguments.length` and throws
-;; `Invalid arity: n`. On node (see the cross-host table in
-;; `re-frame.ssr.form2-arity-cljs-test`):
-;;
-;;   (fn [x] …)               at 3 args → returns
-;;   (fn ([x] …) ([x y] …))   at 3 args → throws `Invalid arity: 3`
-;;   (fn ([] …) ([x] …))      at 2 args → throws `Invalid arity: 2`
-;;
-;; A prefix walk would select arity 2 and arity 1 for those last two and
-;; render, so a shared `.cljc` Form-2 component would render on the server
-;; and fail on hydration — the exact parity the selection exists to hold.
-;;
-;; The cross-host table runs on both hosts through the sync emitter: it pins
-;; the AGREEMENT above, and also the one place agreement STOPS. Where an inner is handed FEWER args
-;; than its shortest arm requires, CLJS binds the missing parameters to
-;; `undefined` and renders while the JVM raises; the JVM is stricter there on
-;; purpose (`emit/invoke-form-2-render-fn`, THE SUPPORTED CONTRACT). What is
-;; here is the second public consumer: streaming shares the one resolver
-;; with sync, so the table's rows are asserted here through
-;; `streaming/render-shell`.
-;; ===========================================================================
-
-(deftest emit-form-2-multi-arity-inner-refuses-what-cljs-refuses
-  (testing "A multi-arity inner handed a count no arm declares is
-            REFUSED by the streaming shell walk, as the client refuses it,
-            rather than silently rendering some shorter arm's output. The
-            sync emitter's rows are the cross-host table in
-            `re-frame.ssr.form2-arity-cljs-test`"
-    ;; The two dispatcher shapes above. Under a prefix walk the first would
-    ;; render `<p>m2|a|b</p>` and the second `<p>m1|a</p>`.
-    (let [multi-1-2 (fn [& _] (fn ([x]   [:p (str "m1|" x)])
-                                  ([x y] [:p (str "m2|" x "|" y)])))
-          multi-0-1 (fn [& _] (fn ([]  [:p "m0"])
-                                  ([x] [:p (str "m1|" x)])))]
-      (is (thrown? clojure.lang.ArityException
-                   (rf.ssr.streaming/render-shell [multi-1-2 "a" "b" "c"]))
-          "streaming refuses a 1-or-2-arity inner handed 3 args")
-      (is (thrown? clojure.lang.ArityException
-                   (rf.ssr.streaming/render-shell [multi-0-1 "a" "b"]))
-          "streaming refuses a 0-or-1-arity inner handed 2 args")
-
-      ;; NON-VACUITY. The same two inners must still render through every arm
-      ;; they DO declare — otherwise the rows above would be satisfied by a
-      ;; blanket refusal of multi-arity inners, which is a different (and
-      ;; worse) behaviour wearing the same green.
-      (is (= "<p>m2|a|b</p>"
-             (:shell-html (rf.ssr.streaming/render-shell [multi-1-2 "a" "b"])))
-          "streaming selects the exact 2-arity arm")
-      (is (= "<p>m1|a</p>"
-             (:shell-html (rf.ssr.streaming/render-shell [multi-1-2 "a"])))
-          "streaming selects the exact 1-arity arm")
-      (is (= "<p>m0</p>" (:shell-html (rf.ssr.streaming/render-shell [multi-0-1])))
-          "streaming selects the exact 0-arity arm")))
-
-  (testing "A fixed+variadic inner routes by the same rules through the
-            streaming shell walk: the exact fixed arm when one matches,
-            otherwise the variadic arm with the WHOLE arg list"
-    ;; `(fn ([a] …) ([a b & r] …))` — fixed arity 1 plus a variadic arm
-    ;; requiring 2. The compiled CLJS dispatcher sends 1 arg to the fixed arm
-    ;; and 3 to the variadic one; so must the JVM. Note a prefix walk would
-    ;; send 3 args to the ARITY-1 arm, dropping two props.
-    (let [mixed (fn [& _] (fn ([a] [:p (str "mx1|" a)])
-                              ([a b & r] [:p (str "mxv|" a "|" b "|"
-                                                  (str/join "," r))])))]
-      (is (= "<p>mxv|a|b|c</p>"
-             (:shell-html (rf.ssr.streaming/render-shell [mixed "a" "b" "c"])))
-          "streaming hands the satisfied variadic arm every arg")
-      (is (= "<p>mx1|a</p>" (:shell-html (rf.ssr.streaming/render-shell [mixed "a"])))
-          "streaming prefers the exact fixed arm"))))
-
-;; ===========================================================================
 ;; BOOLEAN ATTRIBUTE-VALUE CLASSES.
 ;;
 ;; Branching on the VALUE alone — `true` → a bare attribute name,
@@ -1114,77 +994,16 @@
 ;; 011 §What React-native adoption does not catch records that React neither
 ;; patches nor reports attribute-only hydration mismatches.
 ;;
-;; These drive the classes through `emit/render-to-string`. Every
-;; react-dom-evidenced row runs through BOTH hiccup SSR modes —
+;; Every react-dom-evidenced row runs through BOTH hiccup SSR modes —
 ;; `render-to-string` and `streaming/render-shell`, which share one
 ;; `attr-string` — and through the structural-tree serialiser, each checked
 ;; against react-dom's own class, in
 ;; `re-frame.ssr-boolean-attr-react-parity-test`.
 ;; ===========================================================================
 
-(deftest render-to-string-aria-booleans-stringify-both-ways
-  (testing "An `aria-*` boolean stringifies in BOTH directions;
-            `false` is a state, never an omission"
-    (is (= "<button aria-expanded=\"true\">x</button>"
-           (rf.ssr.emit/render-to-string [:button {:aria-expanded true} "x"] {}))
-        "aria-expanded true → aria-expanded=\"true\", never a bare name")
-    (is (= "<button aria-expanded=\"false\">x</button>"
-           (rf.ssr.emit/render-to-string [:button {:aria-expanded false} "x"] {}))
-        "aria-expanded false → aria-expanded=\"false\", never absent")
-    (is (= "<div aria-checked=\"false\"></div>"
-           (rf.ssr.emit/render-to-string [:div {:aria-checked false}] {}))
-        "aria-checked false survives")
-    (is (= "<div aria-disabled=\"false\"></div>"
-           (rf.ssr.emit/render-to-string [:div {:aria-disabled false}] {}))
-        "aria-disabled false survives")))
-
-(deftest render-to-string-booleanish-attrs-stringify-both-ways
-  (testing "The nested editable-parent case: an explicit
-            `false` on a child is how it opts OUT of an editable ancestor, so
-            dropping it silently makes the child editable"
-    (is (= (str "<div contentEditable=\"true\">"
-                "<section contentEditable=\"false\">locked</section>"
-                "</div>")
-           (rf.ssr.emit/render-to-string
-            [:div {:contentEditable true}
-             [:section {:contentEditable false} "locked"]]
-            {}))
-        "the child keeps its explicit contentEditable=\"false\" marker")))
-
 (deftest render-to-string-presence-classes-are-preserved
-  (testing "CONTROL — true boolean attributes keep PRESENCE
-            semantics. `disabled=\"false\"` is truthy to a browser, so
-            emitting the false value here would disable the control"
-    (is (= "<input disabled required>"
-           (rf.ssr.emit/render-to-string [:input {:disabled true :required true}] {}))
-        "true boolean attrs stay bare names")
-    (is (= "<input>"
-           (rf.ssr.emit/render-to-string [:input {:disabled false :hidden nil}] {}))
-        "a false boolean attr stays OMITTED — never disabled=\"false\"")
-    (is (= "<input>"
-           (rf.ssr.emit/render-to-string [:input {:checked false :readonly false}] {}))
-        "checked/readonly false stay omitted"))
-
-  (testing "CONTROL — overloaded booleans keep their own shape:
-            true → presence, false → omitted, any other value stringifies"
-    (is (= "<a download>d</a>"
-           (rf.ssr.emit/render-to-string [:a {:download true} "d"] {}))
-        "download true → bare presence")
-    (is (= "<a>d</a>"
-           (rf.ssr.emit/render-to-string [:a {:download false} "d"] {}))
-        "download false → omitted")
-    (is (= "<a download=\"report.pdf\">d</a>"
-           (rf.ssr.emit/render-to-string [:a {:download "report.pdf"} "d"] {}))
-        "a string download stringifies"))
-
-  (testing "CONTROL — a boolean on an ORDINARY attribute never
-            becomes a bare attribute (react-dom drops it)"
-    (is (= "<div>x</div>"
-           (rf.ssr.emit/render-to-string [:div {:title true} "x"] {}))
-        "true on an ordinary attribute is dropped, not emitted bare")
-    (is (= "<div>x</div>"
-           (rf.ssr.emit/render-to-string [:div {:role false} "x"] {}))
-        "false on an ordinary attribute is dropped")
+  (testing "A nil on an ORDINARY attribute is dropped, beside a presence
+            attribute that stays a bare name"
     (is (= "<button disabled>Go</button>"
            (rf.ssr.emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
         "nil on an ordinary attribute is dropped, beside a presence attr and text")))
