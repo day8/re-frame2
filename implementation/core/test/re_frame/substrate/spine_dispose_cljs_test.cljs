@@ -27,26 +27,6 @@
     {:root          root
      :unmount-count unmount-count}))
 
-(deftest dispose-drains-active-roots
-  (testing "dispose-adapter! calls .unmount on every tracked root and empties the cell"
-    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
-          warn-cache        (rf.substrate.spine/make-warn-once-cache)
-          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
-          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
-                              {:active-roots-cell active-roots-cell
-                               :warn-cache        warn-cache
-                               :emitter-cell      emitter-cell})
-          fake-a            (fake-root)
-          fake-b            (fake-root)]
-      (swap! active-roots-cell conj (:root fake-a) (:root fake-b))
-      (dispose-fn)
-      (is (= 1 @(:unmount-count fake-a))
-          "fake-a was unmounted by dispose-adapter!")
-      (is (= 1 @(:unmount-count fake-b))
-          "fake-b was unmounted by dispose-adapter!")
-      (is (empty? @active-roots-cell)
-          "active-roots cell drained to empty after dispose"))))
-
 (deftest dispose-drains-every-root-then-rethrows-the-unmount-throw
   (testing "one misbehaving root's unmount throw does not strand the rest of
   the drain, and the identical failure is rethrown once the drain finished
