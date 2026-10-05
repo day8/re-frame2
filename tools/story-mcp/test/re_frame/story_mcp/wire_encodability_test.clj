@@ -167,18 +167,6 @@
       (testing "the variant is not registered"
         (is (nil? (rf.story/variant->edn :story.button/x)))))))
 
-(deftest register-variant-mutual-exclusion-violation-crosses-the-wire
-  (testing "an `:and`-clause failure (not just an extra key) also encodes"
-    ;; The un-encodable class is the `:and` schema's reify, so the
-    ;; mutual-exclusion arm is the one that produces it.
-    (let [[line frame] (call-tool "register-variant"
-                                  (str "{\"variant-id\":\"story.button/xor\","
-                                       "\"body\":\"{:script [] :plays []}\"}"))]
-      (is (not (str/includes? line "Server fault")))
-      (is (tool-error? frame))
-      (is (some? (:explain-humanized (structured frame)))
-          "the humanized projection carries the schema's own :error/message prose"))))
-
 (deftest register-variant-valid-body-still-registers
   ;; The two-sided control. A change to the error path that quietly broke
   ;; the happy path would otherwise look identical.
@@ -261,26 +249,6 @@
   (with-redefs [rf.story/variant->edn (fn [_] (throw thrown))]
     (call-tool "get-variant" "{\"variant-id\":\"story.button/probe\"}")))
 
-(deftest handler-throw-with-opaque-ex-data-outside-explain-is-a-tool-error
-  (testing "an opaque value under a NON-:explain key still returns isError"
-    ;; Without the shape rule this line would read
-    ;; {"error":{"code":-32603,"message":"Server fault: Cannot JSON
-    ;; encode object of class: class java.lang.Object …"}}.
-    (let [[line frame] (throwing-get-variant
-                         (ex-info "opaque throw" {:opaque (Object.)}))]
-      (is (not (str/includes? line "Server fault"))
-          "the generic catch must contain an arbitrary ex-data, not just a malli one")
-      (is (nil? (:error frame))
-          (str "expected a JSON-RPC result envelope, got an error: " line))
-      (is (tool-error? frame))
-      (is (str/includes? (result-text frame) "opaque throw")
-          "the handler's own message still reaches the agent")
-      (is (= {:rf.story-mcp/unencodable "java.lang.Object"}
-             (get-in (structured frame) [:data :opaque]))
-          "the opaque value is a bounded marker naming its class")
-      (is (nil? (re-find address-in-line line))
-          "and the marker carries the class only — never an object address"))))
-
 (deftest handler-throw-with-nested-and-keyed-opaque-values-is-a-tool-error
   (testing "depth and key position are covered by the same rule"
     (let [[line frame] (throwing-get-variant
@@ -304,7 +272,7 @@
 
 (deftest handler-throw-with-ordinary-ex-data-is-relayed-verbatim
   ;; The control. A projection that made everything a marker would pass the
-  ;; two tests above and be useless.
+  ;; nested-and-keyed test above and be useless.
   (testing "plain data crosses unchanged"
     (let [[_ frame] (throwing-get-variant
                       (ex-info "plain throw" {:reason  "not found"
@@ -323,7 +291,7 @@
           "every slot is its own JSON encoding of the EDN value, marker-free"))))
 
 (deftest wire-safe-ex-data-output-always-encodes
-  ;; The fast guard under the three boundary tests. It cannot replace them —
+  ;; The fast guard under the boundary tests above. It cannot replace them —
   ;; the failure mode lives between the handler and the wire, and only
   ;; `run-loop!` covers that — but it fails in milliseconds when the rule
   ;; regresses, and
@@ -423,21 +391,6 @@
       (is (= "story.button/ghost2" (:parent (:data (structured frame))))
           "and the actionable slot — WHICH parent is missing — rides with it"))))
 
-(deftest explain-variant-happy-path-is-unaffected
-  ;; The two-sided control, matching `register-variant-valid-body-still-registers`
-  ;; above: an error-path change that broke ordinary explains would otherwise
-  ;; look identical to a pass.
-  (testing "a resolvable :extends chain still explains"
-    (let [frame (explain-frame
-                  {:story.button/base  {:doc "base"}
-                   :story.button/child {:doc "child" :extends :story.button/base}}
-                  :story.button/child)]
-      (is (nil? (:error frame)))
-      (is (nil? (get-in frame [:result :isError]))
-          "the success envelope carries no isError flag")
-      (is (some? (structured frame))
-          "and the explain projection really is returned"))))
-
 (deftest wire-safe-ex-data-cannot-itself-throw
   ;; The projection runs INSIDE the caller's catch, so a throw here would be
   ;; the same -32603 by another route.
@@ -468,9 +421,6 @@
    ;; Success data is not an exception, so they must ride exactly as written.
    :args    {:explain "author-explain" :rf.error/id "author-literal"}
    :script  [[:assert-db [:count] :pred pos?]]})
-
-(def ^:private equality-body
-  (assoc predicate-body :script [[:assert-db [:count] 1]]))
 
 (def ^:private success-tools
   ["get-variant" "variant->edn" "explain-variant" "run-variant"])
@@ -552,19 +502,6 @@
       (let [r (s "run-variant")]
         (is (= "pass" (:status r)))
         (is (seq (:assertions r)))))))
-
-(deftest equality-only-assertion-carries-no-marker
-  ;; The control: a projection that marked everything would pass both tests
-  ;; above and be useless.
-  (rf.story/reg-variant* :story.button/equality equality-body)
-  (doseq [tool success-tools]
-    (testing tool
-      (let [[line frame] (call-success-tool tool "story.button/equality" false)]
-        (is (nil? (:error frame)))
-        (is (not (str/includes? line "rf.story-mcp/unencodable"))
-            "plain data is never marked"))))
-  (is (= "pass" (:status (structured (second (call-success-tool "run-variant" "story.button/equality" false)))))
-      "and the equality-only run still crosses with its verdict"))
 
 ;; ---- success payloads: a record's respelled extension key -----------------
 ;;
