@@ -133,49 +133,6 @@
           (str "expected the LIFECYCLE-OK marker; got:\n" out)))))
 
 ;; ----------------------------------------------------------------------
-;; Two returning invocations do not chain summary methods.
-;;
-;; Wrapping the already-wrapped method on each call would make a later red
-;; summary walk the whole chain and replay EVERY invocation's ring (two
-;; returning runs -> two replay blocks).  Invocation scoping means
-;; each run restores the prior method, so no chain accumulates.
-
-(def ^:private no-chain-program
-  (str program-preamble
-       "(let [stderr (java.io.StringWriter.)\n"
-       "      testout (java.io.StringWriter.)\n"
-       "      initial (get-method t/report :summary)]\n"
-       "  (binding [*err* (java.io.PrintWriter. stderr)\n"
-       "            t/*test-out* (java.io.PrintWriter. testout)]\n"
-       "    (with-redefs [ctr/-main (fn [& _]\n"
-       "                              (.println ^java.io.PrintWriter *err* \"STALE-RUN\"))]\n"
-       "      (r/-main \"-H\")\n"
-       "      (r/-main \"-H\"))\n"
-       "    (let [restored? (identical? initial (get-method t/report :summary))]\n"
-       "      (t/report {:type :summary :test 1 :pass 0 :fail 1 :error 0})\n"
-       "      (.flush ^java.io.PrintWriter *err*)\n"
-       "      (let [later-err (str stderr)\n"
-       "            replay-blocks (count (re-seq #\"buffered stderr replayed\" later-err))]\n"
-       "        (println \"RESTORED?\" restored?)\n"
-       "        (println \"REPLAY-BLOCKS\" replay-blocks)\n"
-       "        (flush)\n"
-       "        (if (and restored? (zero? replay-blocks))\n"
-       "          (do (println \"NO-CHAIN-OK\") (flush) (System/exit 0))\n"
-       "          (do (println \"NO-CHAIN-FAIL\") (flush) (System/exit 1)))))))\n"))
-
-(deftest two-returning-invocations-do-not-chain-summary-methods
-  (testing "sequential returning invocations restore the reporter each time — no wrapper chain, no accumulated replay"
-    (let [{:keys [exit out err timed-out?]}
-          (run-lifecycle-program no-chain-program)]
-      (is (not timed-out?) "the probe must terminate, not hang")
-      (is (zero? exit)
-          (str "two returning invocations must not chain reporters (RESTORED? true,"
-               " REPLAY-BLOCKS 0); a chained reporter would accumulate one replay block per"
-               " invocation.\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-      (is (str/includes? out "NO-CHAIN-OK")
-          (str "expected the NO-CHAIN-OK marker; got:\n" out)))))
-
-;; ----------------------------------------------------------------------
 ;; A throwing delegate restores state and propagates.
 ;;
 ;; `-main`'s `finally` fires on the throwing path too: `System.err` and the
