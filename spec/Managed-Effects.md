@@ -89,7 +89,7 @@ The **app-facing authoring key is `:reply-to`** — the unified call-site spelli
 {:reply-to [:article/load-replied {:id 42}]}   ;; app authoring — normalizes to the internal :rf/reply-to descriptor
 ```
 
-On **live** completion the runtime dispatches the target event with the reply map appended as the final argument. The reply map carries the work identity under `:rf.reply/work-id` (the transient-envelope spelling; the same fact is `:work/id` on the durable ledger row — [§The reply map](#the-reply-map)):
+On **live** completion the runtime dispatches the target event with the reply map appended as the final argument. The append is to the app's target vector as written, so any metadata on that vector travels with the delivered event in every family, managed HTTP included; the runtime carries that metadata and reads none of it, because event-vector metadata is not an options channel ([002 §Routing: the dispatch envelope](002-Frames.md#routing-the-dispatch-envelope)). The reply map carries the work identity under `:rf.reply/work-id` (the transient-envelope spelling; the same fact is `:work/id` on the durable ledger row — [§The reply map](#the-reply-map)):
 
 ```clojure
 [:article/load-replied
