@@ -56,11 +56,9 @@
 ;; `cljs-digest-matches-canonical-literal`. THAT assertion is the whole
 ;; parity claim for the double case: the JVM pins the same string over a
 ;; genuine `1.0`, so a green here and a green there together say the two
-;; hosts agree. This host cannot assert the fixture still carries a
-;; double — it has one numeric type and the reader collapsed `1.0` to 1
-;; before the fixture was built — so the precondition that keeps the
-;; input honest is the JVM-side `float?` check, deliberately not
-;; duplicated here where it could only ever be vacuous.
+;; hosts agree. This host has one numeric type — the reader collapsed `1.0`
+;; to 1 before the fixture was built — so the double-versus-integer pin
+;; lives on the JVM side.
 
 (deftest cljs-fn-bearing-schema-digest-is-process-stable
   (testing "a schema carrying a bare predicate must serialise

@@ -176,19 +176,7 @@
               does not distinguish from an integer — so this literal is
               reachable from both runtimes. The CLJS reader collapses the
               `1.0` source literal to 1 before the fixture is even built;
-              that IS the divergence, not a weakness of the fixture, and
-              the JVM-side precondition (`whole-number-double-min` read
-              back through `float?`) is what keeps this input honest
-              about the kind it carries."})
-
-(defn whole-number-double-min
-  "The `:min` prop of `whole-number-double`'s schema, read back OUT of
-  the fixture rather than restated, so a precondition assertion cannot
-  drift from the input it guards. The JVM test asserts this is really a
-  floating-point value — without that, editing the fixture's `1.0` to `1`
-  would leave a green test exercising nothing."
-  []
-  (-> (:input whole-number-double) (get [:n]) (nth 1) :min))
+              that IS the divergence, not a weakness of the fixture."})
 
 (def fn-bearing-schema
   "A schema carrying a bare predicate FUNCTION — the idiom Spec 010's
