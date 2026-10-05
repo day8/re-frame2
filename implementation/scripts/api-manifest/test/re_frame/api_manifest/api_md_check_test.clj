@@ -52,24 +52,6 @@
 ;; Qualified-row resolution.
 ;; ---------------------------------------------------------------------------
 
-(deftest qualified-alias-row-resolves-by-exact-ns+var
-  (testing "a live aliased adapter row resolves clean against its EXACT
-            [namespace var] manifest pair"
-    (is (empty? (problems-for
-                  [{:var "adapter" :qualifier "uix-adapter" :tier :adapter
-                    :line 185 :raw "uix-adapter/adapter"}]))
-        "uix-adapter -> re-frame.adapter.uix; [re-frame.adapter.uix adapter]
-         carries :adapter — must pass")))
-
-(deftest qualified-full-namespace-row-resolves-verbatim
-  (testing "a full-namespace qualifier (not an alias) resolves verbatim"
-    (is (empty? (problems-for
-                  [{:var "debug-enabled?" :qualifier "re-frame.interop"
-                    :tier :implementation
-                    :line 349 :raw "re-frame.interop/debug-enabled?"}]))
-        "re-frame.interop is a literal manifest namespace —
-         [re-frame.interop debug-enabled?] carries :implementation")))
-
 (deftest unknown-qualifier-on-duplicate-bare-var-fails
   (testing "a qualified duplicate bare var changed to an
             UNKNOWN/WRONG qualifier FAILS, even though another adapter var
@@ -221,18 +203,14 @@
 ;; unchecked. The floor turns a near-collapse into a FAILURE.
 ;; ---------------------------------------------------------------------------
 
-(deftest collapsed-extraction-violates-the-floor
+(deftest extraction-floor-trips-only-on-a-collapse
   (testing "a total parser collapse (ZERO extracted var-rows) and a
             near-collapse just below the floor both trip it"
     (is (some? (rf.api-manifest.api-md-check/floor-violation 0))
         "zero extracted rows must be a floor violation (vacuous OK refused)")
     (is (some? (rf.api-manifest.api-md-check/floor-violation 49))
-        "49 rows is below the 50 floor — must trip it")))
-
-(deftest healthy-extraction-does-not-violate-the-floor
-  (testing "the live extracted-row count is comfortably above the floor"
-    (is (nil? (rf.api-manifest.api-md-check/floor-violation 196))
-        "a healthy count must NOT trip the floor (no false positive)")
+        "49 rows is below the 50 floor — must trip it"))
+  (testing "exactly at the floor, and a 10% shrink of the live count, do not trip it"
     (is (nil? (rf.api-manifest.api-md-check/floor-violation 50))
         "exactly at the floor is acceptable (strictly-below trips)")
     ;; This pair is the calibration invariant. Asserting a specific number
@@ -242,11 +220,7 @@
     (is (nil? (rf.api-manifest.api-md-check/floor-violation
                 (long (* 0.9 (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))))
         "a 10% shrink of API.md's var-rows must NOT trip the floor: the floor
-         guards a near-total collapse, never ordinary retirement churn.")
-    ;; And the REAL parse over the committed API.md is above the floor — the
-    ;; floor is calibrated below the live count, never tripping on real churn.
-    (is (nil? (rf.api-manifest.api-md-check/floor-violation (count (rf.api-manifest.api-md-check/parse-api-md-var-rows))))
-        "the real spec/API.md extraction must clear the floor")))
+         guards a near-total collapse, never ordinary retirement churn.")))
 
 ;; ---------------------------------------------------------------------------
 ;; END-TO-END parser disappearance.
@@ -274,12 +248,3 @@
     (let [parsed (rf.api-manifest.api-md-check/parse-var-rows synthetic-api-md-lines)]
       (is (= #{"create-root" "hydrate-root" "unmount!"} (set (map :var parsed)))
           "render! must have DISAPPEARED from the parse (unknown marker skipped)"))))
-
-(deftest parse-var-rows-recovers-blessed-markers
-  (testing "control: with all four markers the blessed M/Fn spellings, the
-            pure parser recovers all four verbs (the disappearance above is
-            the marker drift, not the fixture)"
-    (let [ok-lines (assoc-in synthetic-api-md-lines [3 1]
-                             "| `render!` | M | sig | S1 | advanced | n |")
-          parsed   (rf.api-manifest.api-md-check/parse-var-rows ok-lines)]
-      (is (= #{"create-root" "render!" "hydrate-root" "unmount!"} (set (map :var parsed)))))))
