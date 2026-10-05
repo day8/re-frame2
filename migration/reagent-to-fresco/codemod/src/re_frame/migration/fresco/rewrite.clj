@@ -139,6 +139,18 @@
     (let [h (sexpr-safe (element-at nd 0))]
       (when (symbol? h) h))))
 
+(defn call-form
+  "This node read as the call it writes, or the node itself.
+
+  An anonymous-fn literal is the one shape that writes a call without
+  being a list: `#(f x)` reads as `(fn* [] (f x))`, and the parser's
+  `:fn` node holds `f` and `x` directly as its children. The body is
+  always that one list, however many forms the literal holds, so the
+  literal reads as the list of its own children — head first, at the
+  literal's own position. Every other node comes back unchanged."
+  [nd]
+  (if (tag= nd :fn) (n/list-node (n/children nd)) nd))
+
 ;; ---------------------------------------------------------------------------
 ;; Inert source — the ONE spelling of "this never runs"
 ;; ---------------------------------------------------------------------------
@@ -172,10 +184,15 @@
   real sites and its `~unquote`s run at expansion. Neither is a
   `(when false …)`, a dead `cond` branch or an unreachable `defn` —
   deciding those is the general problem, and the tool stops at the three
-  shapes whose whole purpose is to not be code."
+  shapes whose whole purpose is to not be code.
+
+  The head is read through [[call-form]], so `#(quote …)` and
+  `#(comment …)` — an anonymous-fn literal whose body is one of those
+  forms — are inert too: the fn they make returns a list it never calls,
+  or `nil`."
   [nd]
   (or (contains? #{:uneval :quote} (n/tag nd))
-      (contains? inert-heads (head-symbol nd))))
+      (contains? inert-heads (head-symbol (call-form nd)))))
 
 (defn past-subtree
   "The next location a walk should visit AFTER this node's subtree, or
