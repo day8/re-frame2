@@ -95,14 +95,6 @@
 ;; that yields a literal value verbatim. These tests pin the realiser's
 ;; contract directly (the corpus fixtures exercise it end-to-end).
 
-(deftest return-raw-routes-through-event-fx
-  (testing "a body carrying :return-raw is realised as event-fx (so the raw
-            return reaches the fx shape-policing site, not event-db)"
-    (let [[kind _handler] (rf.conformance/realise-event-handler
-                            [[:return-raw {:db {:x 1}}]])]
-      (is (= :fx kind)
-          ":return-raw must force the event-fx handler shape"))))
-
 (deftest return-raw-returns-value-verbatim
   (testing "the realised event-fx handler returns the literal value verbatim"
     (let [handler (rf.conformance/realise-event-fx-handler [[:return-raw {:db {:x 1}}]])]
