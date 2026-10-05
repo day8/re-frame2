@@ -1,12 +1,17 @@
 (ns re-frame.flows-trace-test
   "JVM coverage for Spec 009 §Flow trace events / Spec 013 §Flow tracing
-  — verifies the five `:rf.flow/*` lifecycle events fire with the
-  documented payloads. The conformance fixture
-  `flow-lifecycle-emits-traces.edn` describes the same shapes as data and
-  is driven against the live runtime by `re-frame.flows-conformance-test`;
-  this file exercises them against the JVM reference implementation
-  directly so a regression surfaces as a plain unit-test failure rather
-  than only through the data-driven gate.
+  — the `:rf.flow/*` lifecycle trace contract: first-time-only and
+  per-frame registration evidence, the `:rf.flow/computed` / `:skip` /
+  `:failed` payloads, the error-emit routing of flow failures, atomicity
+  on a flow throw, and payload elision and privacy.
+
+  The conformance fixtures pin the rest as data, driven against the live
+  runtime by `re-frame.flows-conformance-test`:
+  `flow-lifecycle-emits-traces.edn` the registered / computed / skip
+  payloads, and `flow-eval-exception.edn` the throw stream's order, the
+  skipped `:fx` and the absent `:rf.event/db-changed`. The
+  `:rf.flow/cleared` payload is pinned on both hosts by
+  `re-frame.flows-replace-clear-trace-incarnation-cljs-test`.
 
   The `:flow` op-type and `:rf.flow/*` operation vocabulary back
   re-frame-10x v2's flow panel."
@@ -96,18 +101,6 @@
 ;; ---------------------------------------------------------------------------
 ;; 1. :rf.flow/registered fires after reg-flow successfully registers
 ;; ---------------------------------------------------------------------------
-
-(deftest reg-flow-emits-registered-trace
-  (testing "reg-flow fires :rf.flow/registered with :flow-id, :inputs, :path, :frame"
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* (or w 0) (or h 0))))
-    (let [evs (by-op :rf.flow/registered)]
-      (is (= 1 (count evs))
-          "exactly one :rf.flow/registered fired for the reg-flow call")
-      (let [tags (:tags (first evs))]
-        (is (= :area              (:flow-id tags))     ":flow-id in tags")
-        (is (= [[:w] [:h]]        (:inputs tags))      ":inputs in tags")
-        (is (= [:rect :area]      (:path tags))        ":path in tags")
-        (is (= :rf/default        (:frame tags))       ":frame in tags")))))
 
 (deftest reg-flow-registered-fires-first-time-only
   (testing ":rf.flow/registered fires only on first-time
@@ -247,39 +240,6 @@
       (is (= 20 (:result (:tags second-ev)))
           "second compute :result reflects the input change (5 * 4)"))))
 
-(deftest computed-before-across-cascading-flows
-  (testing ":before is captured against the in-drain accumulator so chained-flow :before reads its own slot, not :output-path overlap"
-    ;; :A writes [:a-out]. :B reads [:a-out] and writes [:b-out]. The
-    ;; cascade fires A then B in the SAME drain — :B's :before must
-    ;; reflect the pre-drain value at [:b-out] (here nil on first
-    ;; compute), NOT some intermediate state from :A's write. Each
-    ;; flow's :before is independent — captured against its own :output-path.
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 3}}))
-    (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-flow :A {:inputs [[:n]] :output-path [:a-out]} (fn [n] (* 2 n)))
-    (rf/reg-flow :B {:inputs [[:a-out]] :output-path [:b-out]} (fn [a] (str "B-saw-" a)))
-    (rf/dispatch-sync [:init])
-    (let [first-pass (by-op :rf.flow/computed)
-          a-first    (first (filterv #(= :A (:flow-id (:tags %))) first-pass))
-          b-first    (first (filterv #(= :B (:flow-id (:tags %))) first-pass))]
-      (is (nil? (:before (:tags a-first)))
-          ":A's first :before is nil — [:a-out] was unwritten")
-      (is (= 6 (:result (:tags a-first))))
-      (is (nil? (:before (:tags b-first)))
-          ":B's first :before is nil — [:b-out] was unwritten — NOT 6 from :A's just-completed write at [:a-out]")
-      (is (= "B-saw-6" (:result (:tags b-first)))))
-    (reset! *captured* [])
-    (rf/dispatch-sync [:bump])
-    (let [second-pass (by-op :rf.flow/computed)
-          a-second    (first (filterv #(= :A (:flow-id (:tags %))) second-pass))
-          b-second    (first (filterv #(= :B (:flow-id (:tags %))) second-pass))]
-      (is (= 6 (:before (:tags a-second)))
-          ":A's :before on the second drain is its prior :result (6)")
-      (is (= 8 (:result (:tags a-second))))
-      (is (= "B-saw-6" (:before (:tags b-second)))
-          ":B's :before on the second drain is its prior :result (the string B-saw-6) — NOT :A's intermediate value")
-      (is (= "B-saw-8" (:result (:tags b-second)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 3. :rf.flow/skip fires when value-equal input rewrite suppresses recompute
 ;; ---------------------------------------------------------------------------
@@ -319,22 +279,8 @@
             ":input-paths-unchanged enumerates BOTH declared input paths in order")))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. :rf.flow/cleared fires when clear-flow runs
+;; 4. :rf.flow/cleared is not emitted for an unknown id
 ;; ---------------------------------------------------------------------------
-
-(deftest clear-flow-emits-cleared-trace
-  (testing "clear-flow emits :rf.flow/cleared with :flow-id, :path, :frame"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:rect {:w 3 :h 4}}}))
-    (rf/reg-flow :area {:inputs [[:rect :w] [:rect :h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:seed])
-    (reset! *captured* [])
-    (rf/clear :flow :area)
-    (let [evs (by-op :rf.flow/cleared)]
-      (is (= 1 (count evs)))
-      (let [tags (:tags (first evs))]
-        (is (= :area         (:flow-id tags)))
-        (is (= [:rect :area] (:path tags)))
-        (is (= :rf/default   (:frame tags)))))))
 
 (deftest clear-flow-on-unknown-id-emits-nothing
   (testing "clear-flow on an unregistered id is a no-op and emits no trace"
@@ -550,47 +496,17 @@
               "exception ex-data carries :cycle — the closing-repeat chain tools render"))))))
 
 ;; ---------------------------------------------------------------------------
-;; 7. Wire-bearing flow trace payloads ride through `elide-wire-value`
-;;    (Spec 009 §Size elision in traces / §Privacy contract for the flow
-;;    trace surface).
-;;
-;; `:rf.flow/computed` carries `:input-values` and `:result`; `:rf.flow/failed`
-;; carries `:inputs`. Per Spec 009 the wire-bearing payload of every tracer
-;; surface passes through the elision walker (the single normative emission
-;; site for `:rf.size/large-elided` and `:rf/redacted`), so a flow reading or
-;; producing a large value is elided on the trace bus exactly as the sibling
-;; tracers (event-emit, error-emit, dispatch trace) do. These tests pin the
-;; routing.
-;; ---------------------------------------------------------------------------
-
-(deftest failed-trace-elides-inputs
-  (testing ":rf.flow/failed :inputs rides through elide-wire-value"
-    ;; Register the flow that will throw; the input path is frame-
-    ;; declared large so the walker substitutes the marker on emit.
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:payload {:big "value"}}}))
-    (rf/reg-flow :boom {:inputs [[:payload]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {}))))
-    (install-large! :rf/default [:payload])
-    (reset! *captured* [])
-    (rf/dispatch-sync [:init])
-    (let [ev   (last (by-op :rf.flow/failed))
-          tags (:tags ev)
-          [first-input] (:inputs tags)]
-      (is (some? ev) ":rf.flow/failed fired")
-      (is (vector? (:inputs tags))
-          ":inputs vector preserves the per-input slot shape")
-      (is (rf.elision/marker? first-input)
-          "the elided input-value is substituted with the wire marker"))))
-
-;; ---------------------------------------------------------------------------
 ;; 7b. Failed-flow cascade behaviour — atomicity contract.
 ;;
 ;; A flow throw is a PRE-INSTALL throw: it aborts the WHOLE event. There
 ;; is NO partial commit. The router's `flows-after-interceptor` DISCARDS
 ;; the pending `:db` effect on the throw, so app-db is left UNCHANGED —
 ;; neither the handler's write nor any prior successful flows' writes
-;; land, no `:rf.event/db-changed` is emitted, and `:fx` is skipped. This
-;; deftest pins that contract: nothing the flow drain (or its handler)
-;; produced survives the throw; downstream flows do not run.
+;; land, no `:rf.event/db-changed` is emitted, and `:fx` is skipped. The
+;; `flow-eval-exception.edn` fixture pins the skipped `:fx` and the absent
+;; `:rf.event/db-changed`; this deftest pins that nothing the flow drain
+;; (or its handler) produced survives the throw, and that downstream flows
+;; do not run.
 ;; ---------------------------------------------------------------------------
 
 (deftest failed-cascade-aborts-event-app-db-unchanged
@@ -689,46 +605,6 @@
 ;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
-;; 7d. A flow throw aborts the event — atomicity contract.
-;;
-;; A flow throw is a PRE-INSTALL throw: the event aborts wholesale. The
-;; router's `flows-after-interceptor` DISCARDS the pending `:db` effect
-;; (no install, app-db unchanged, no `:rf.event/db-changed`) and
-;; `commit-and-flow!` skips `:fx`. So when a handler emits
-;; `[:dispatch [:react-to-area-change]]` from `:fx` and the flow throws,
-;; the child dispatch must NOT fire (its side effects — HTTP, navigation,
-;; analytics — would escape) AND the handler's own `:db` write must NOT
-;; land (no partial commit).
-;;
-;; The flow transform is the outermost `:after`; on a throw it
-;; `dissoc`-es the pending `:db` effect and stashes `:rf/flow-error` on the
-;; context, so the install is a no-op and `commit-and-flow!` skips
-;; `run-fx-effects!`.
-;; ---------------------------------------------------------------------------
-
-(deftest fx-does-not-run-after-flow-throws
-  (testing "when a flow's :derive throws, the handler's :fx is skipped AND its :db does NOT land"
-    (let [child-fired? (atom false)]
-      (rf/reg-event :after-throw
-                       (fn [{:keys [db]} _] (reset! child-fired? true) {:db db}))
-      (rf/reg-event :run-with-throwing-flow
-                       (fn [_ _]
-                         {:db {:n 2}
-                          :fx [[:dispatch [:after-throw]]]}))
-      ;; Register a flow that throws. The flow runs as the outermost
-      ;; :after — after the handler, BEFORE :db install and BEFORE :fx
-      ;; walks; a throw aborts the event, so :after-throw must NOT dispatch
-      ;; and the handler's :db must NOT install.
-      (rf/reg-flow :boom {:inputs [[:n]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {:why :test}))))
-      (rf/dispatch-sync [:run-with-throwing-flow])
-      (is (false? @child-fired?)
-          "`:after-throw` did NOT dispatch — :fx was skipped because the flow threw")
-      ;; Atomicity contract: the handler's :db write was DISCARDED — the
-      ;; event aborted with no install (app-db unchanged).
-      (is (not (contains? (rf/app-db-value :rf/default) :n))
-          ":n absent — the handler's :db did NOT land; a flow throw aborts the event with no install"))))
-
-;; ---------------------------------------------------------------------------
 ;; 7e. An fx throw does NOT wind back app-db — the POST-commit boundary
 ;;     (atomicity contract).
 ;;
@@ -737,8 +613,8 @@
 ;; surfaces an error but MUST NOT roll back app-db — the fx side effects
 ;; (HTTP, navigation, dispatch) may already have fired and are
 ;; irreversible, so unwinding the db would desync state from the world.
-;; This is the mirror of `fx-does-not-run-after-flow-throws` (a PRE-commit
-;; throw aborts wholesale): a POST-commit throw leaves everything committed.
+;; It mirrors the PRE-commit abort `failed-cascade-aborts-event-app-db-unchanged`
+;; pins: a POST-commit throw leaves everything committed.
 ;; ---------------------------------------------------------------------------
 
 (deftest fx-throw-does-not-wind-back-handler-db-or-flow-output
@@ -770,49 +646,18 @@
              deferred install and survives the post-commit fx throw")))))
 
 ;; ---------------------------------------------------------------------------
-;; 7f. No spurious `:rf.event/db-changed` on a no-write event — the
-;;     deferred-install contract.
+;; 7. Wire-bearing flow trace payloads ride through `elide-wire-value`
+;;    (Spec 009 §Size elision in traces / §Privacy contract for the flow
+;;    trace surface).
 ;;
-;; A `reg-event` handler that returns NO `:db` (only `:fx`), whose
-;; flows' inputs are all unchanged (so every flow SKIPS), produces no
-;; `:db` effect at all → the deferred install is a no-op → ZERO
-;; `:rf.event/db-changed` must be emitted. A spurious db-changed on a
-;; no-op drain would mislead off-box monitors and trigger needless sub
-;; recompute.
+;; `:rf.flow/computed` carries `:input-values` and `:result`; `:rf.flow/failed`
+;; carries `:inputs`. Per Spec 009 the wire-bearing payload of every tracer
+;; surface passes through the elision walker (the single normative emission
+;; site for `:rf.size/large-elided` and `:rf/redacted`), so a flow reading or
+;; producing a large value is elided on the trace bus exactly as the sibling
+;; tracers (event-emit, error-emit, dispatch trace) do. The test below pins the
+;; routing of `:before`.
 ;; ---------------------------------------------------------------------------
-
-(deftest no-db-changed-on-no-write-event-with-stable-flows
-  (testing "a reg-event returning only :fx [] (no :db), with flows whose
-            inputs are unchanged, emits ZERO :rf.event/db-changed"
-    (rf/reg-fx :test/noop (fn [& _] nil))
-    ;; Seed :n so the flow computes once on the seed drain.
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 7}}))
-    ;; This handler writes NO :db — only an :fx that is a noop.
-    (rf/reg-event :no-write
-                     (fn [_ _] {:fx [[:test/noop true]]}))
-    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
-    ;; First drain seeds :n and computes the flow (outside the record
-    ;; window — we only care about the no-write drain's trace stream).
-    (rf/dispatch-sync [:seed])
-    (let [;; Dispatch the no-write event in its own record window so we
-          ;; isolate its trace stream from the seed drain.
-          evs (record-all-traces
-                (fn [] (rf/dispatch-sync [:no-write])))
-          ops (mapv :operation evs)]
-      ;; The handler returned no :db, and :n is unchanged → the flow skips,
-      ;; so the pending :db effect is empty → no install → no db-changed.
-      (is (not-any? #(= :rf.event/db-changed %) ops)
-          "ZERO :rf.event/db-changed — the no-write handler produced no :db
-           effect and the unchanged-input flow skipped (no install)")
-      ;; Sanity: the flow DID skip (proves the inputs were stable, so the
-      ;; absence of db-changed is the real no-op path, not a flow that
-      ;; never registered).
-      (is (some #(= :rf.flow/skip %) ops)
-          ":rf.flow/skip fired — the flow's inputs were value-equal, so it
-           contributed no write to the (empty) pending :db effect")
-      ;; And the cascade still completed cleanly (run-end fired).
-      (is (some #(= :rf.event/run-end %) ops)
-          ":rf.event/run-end still fires — the cascade completed normally"))))
 
 (deftest computed-trace-elides-large-before
   (testing ":rf.flow/computed :before rides through elide-wire-value just like :result"
@@ -840,99 +685,6 @@
             "before-marker carries the classified path")
         (is (= :effect (:reason marker))
             "before-marker carries :reason :effect")))))
-
-;; ---------------------------------------------------------------------------
-;; 7c. End-to-end: a REAL reg-flow classification mark REDACTS at egress.
-;;
-;; The wire-elision tests above (computed-trace-elides-large-before,
-;; failed-trace-elides-inputs) and the schema-scope inheritance tests seed the
-;; frame's classification via `install-large!` / `install-sensitive!`, which
-;; write `:source :effect` through `apply-classification-effects` — so the
-;; redaction CAUSE in those tests is a commit-plane effect, never the flow's
-;; OWN registration key. (`flows_destroy_frame_teardown_test` asserts a real
-;; reg-flow `:sensitive` mark is INSTALLED, but never that it REDACTS a value.)
-;;
-;; These tests pin flow-SOURCED classification
-;; end-to-end: a real `reg-flow` carrying a `:sensitive` / `:large?` output
-;; declaration (a `:source :flow` registry write, NOT an effect) drives
-;; redaction on BOTH observation channels —
-;;   (a) the `:rf.flow/computed` `:result` trace slot, and
-;;   (b) the app-db destination slot at `:output-path` through the SAME
-;;       registry (`elision/elide-wire-value`) —
-;; with the marker / declaration source-attributed `:reason :flow` (the large
-;; marker) and `:source :flow` (the sensitive declaration), distinguishing it
-;; from the `:source :effect` helper path the sibling tests exercise.
-;;
-;; A flow's claim is a standing `:source :flow` registry entry, and clears are
-;; source-scoped.
-
-(deftest reg-flow-large?-output-redacts-at-egress-reason-flow
-  (testing "a REAL reg-flow :large? whole-output declaration drives
-            redaction on BOTH channels — the :rf.flow/computed :result trace
-            slot carries the :rf.size/large-elided marker with :reason :flow,
-            AND the app-db destination slot projects the marker via the SAME
-            registry (elision/elide-wire-value)"
-    ;; A plain replacing :init handler is safe: a :db return replaces ONLY the
-    ;; app-db partition, so the flow's own :source :flow elision declaration —
-    ;; installed at reg-flow time into the runtime-db partition at
-    ;; [:rf.runtime/elision] — survives for the flow's evaluate-time + egress
-    ;; registry read.
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-flow :payload {:inputs [[:n]] :output-path [:derived :blob] :large? true} (fn [_] {:bytes "BIG"}))
-    ;; Precondition: the flow's own registration installed the :source :flow
-    ;; declaration (not a helper, not an effect).
-    (is (some #(= :flow (:source %)) (get (rf.elision/declarations :rf/default) [:derived :blob]))
-        "precondition: the reg-flow :large? mark stands as a :source :flow owner")
-    (reset! *captured* [])
-    (rf/dispatch-sync [:init])
-    ;; (a) the trace channel — :rf.flow/computed :result rides elide-wire-value.
-    (let [ev     (last (by-op :rf.flow/computed))
-          result (:result (:tags ev))]
-      (is (some? ev) ":rf.flow/computed fired")
-      (is (rf.elision/marker? result)
-          ":result is replaced by the :rf.size/large-elided marker")
-      (let [marker (:rf.size/large-elided result)]
-        (is (= [:derived :blob] (:path marker))
-            "marker carries the flow's output path")
-        (is (= :flow (:reason marker))
-            "marker carries :reason :flow — source-attributed to the reg-flow
-             declaration, NOT the :reason :effect of the install-large! helper path")))
-    ;; (b) the app-db destination channel — the slot at :output-path projects
-    ;; the marker through the SAME per-frame elision registry.
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))
-          slot (get-in wire [:derived :blob])]
-      (is (rf.elision/marker? slot)
-          "the app-db destination slot egresses as the large marker")
-      (is (= :flow (:reason (:rf.size/large-elided slot)))
-          "the app-db-slot marker is also :reason :flow (same flow-sourced declaration)"))))
-
-(deftest reg-flow-sensitive-output-redacts-at-egress-source-flow
-  (testing "a REAL reg-flow :sensitive output declaration drives
-            sensitive redaction on BOTH channels — the :rf.flow/computed
-            :result trace slot redacts to :rf/redacted, AND the app-db
-            destination slot projects :rf/redacted via the SAME registry —
-            from a :source :flow declaration, not the :source :effect helper"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n "raw-token"}}))
-    (rf/reg-flow :creds {:inputs [[:n]] :output-path [:auth :creds] :sensitive [[:secret]]} (fn [n] {:secret (str "Bearer-" n)}))
-    ;; Precondition: the sensitive sub-slot roots at :output-path ++ [:secret]
-    ;; and is a :source :flow declaration.
-    (is (some #(= :flow (:source %)) (get (rf.elision/sensitive-declarations :rf/default)
-                                          [:auth :creds :secret]))
-        "precondition: the reg-flow :sensitive mark stands as a :source :flow owner")
-    (reset! *captured* [])
-    (rf/dispatch-sync [:init])
-    ;; (a) the trace channel — :result's :secret sub-slot redacts (sensitive
-    ;; wins over large; the scalar :rf/redacted sentinel replaces the value).
-    (let [ev     (last (by-op :rf.flow/computed))
-          result (:result (:tags ev))]
-      (is (some? ev) ":rf.flow/computed fired")
-      (is (= rf.privacy/redacted-sentinel (:secret result))
-          ":result's sensitive sub-slot is redacted to :rf/redacted on the trace bus"))
-    ;; (b) the app-db destination channel — the destination sub-slot projects
-    ;; :rf/redacted through the SAME per-frame elision registry.
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
-      (is (= rf.privacy/redacted-sentinel (get-in wire [:auth :creds :secret]))
-          "the app-db destination sub-slot egresses as :rf/redacted (flow-sourced)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. `:sensitive?` inheritance on `:rf.flow/*` traces (Spec 013 §`:sensitive?`
@@ -994,26 +746,6 @@
       (is (not (contains? (set (tree-seq coll? seq tags)) "TOP-SECRET"))
           "the raw secret token does not appear anywhere in the failed-trace tags"))))
 
-(deftest flow-skip-trace-inherits-sensitive-from-schema-scope
-  (testing "Spec 013:242 — `:rf.flow/skip` is stamped `:sensitive?` when the
-            triggering handler's cascade is frame-sensitive"
-    (install-sensitive! :rf/default [:auth :token])
-    (rf/reg-flow :auth/derived-user {:inputs [[:auth :token]] :output-path [:auth :derived-user]} (fn [t] (str "user-of-" t)))
-    (rf/reg-event :auth/signed-in
-                     {:interceptors [[:rf.interceptor/path [:auth]]]}
-                     (fn [{:keys [db]} [_ token]] {:db (assoc db :token token)}))
-    ;; First sign-in computes; second sign-in with the SAME token leaves
-    ;; the input value-equal → `:rf.flow/skip` fires, still inside the
-    ;; frame-sensitive handler scope.
-    (rf/dispatch-sync [:auth/signed-in "secret-token"])
-    (reset! *captured* [])
-    (rf/dispatch-sync [:auth/signed-in "secret-token"])
-    (let [skips (by-op :rf.flow/skip)]
-      (is (= 1 (count skips))
-          "the value-equal rewrite produced one `:rf.flow/skip`")
-      (is (true? (:sensitive? (first skips)))
-          ":rf.flow/skip carries the top-level `:sensitive? true` stamp"))))
-
 (deftest flow-trace-NOT-sensitive-when-handler-not-sensitive
   (testing "Spec 013:242 negative — a flow recompute driven by a NON-sensitive
             handler does NOT carry the `:sensitive?` stamp (absent reads false)"
@@ -1060,63 +792,6 @@
           ":result value redacted on the wire — its :output-path is a sensitive slot")
       (is (= :rf/redacted (first (:input-values tags)))
           "the sensitive input value is redacted on the wire too"))))
-
-;; ---------------------------------------------------------------------------
-;; 8b. Strict trace-stream ordering on a flow throw — atomicity contract
-;;     (Spec 013 §Failure semantics / §Trace stream ordering on a flow throw).
-;;
-;; A flow throw is a PRE-INSTALL throw: the event aborts. The router
-;; DISCARDS the pending `:db` effect, so NO `:rf.event/db-changed` is
-;; emitted and app-db is UNCHANGED. The throw stream carries, in order,
-;; `:rf.flow/failed` → `:rf.error/flow-eval-exception` and STOPS — no
-;; `:rf.event/db-changed`, no `:rf.fx/handled` (the cascade halts; the
-;; :fx GAP is pinned by `fx-does-not-run-after-flow-throws` above).
-;; ---------------------------------------------------------------------------
-
-(deftest flow-throw-trace-stream-is-strictly-ordered
-  (testing "atomicity — flow/failed → flow-eval-exception, and
-            NO db-changed in the throw stream; app-db unchanged after the
-            throw"
-    (let [evs (record-all-traces
-                (fn []
-                  ;; The handler writes :n AND prior flow :ok writes :a-out,
-                  ;; so a :db effect + a prior-flow write both exist when
-                  ;; :boom throws — proving that EVEN THEN nothing installs.
-                  (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-                  (rf/reg-flow :ok {:inputs [[:n]] :output-path [:a-out]} (fn [n] (* 10 n)))
-                  (rf/reg-flow :boom {:inputs [[:a-out]] :output-path [:doomed]} (fn [_] (throw (ex-info "boom" {}))))
-                  (rf/dispatch-sync [:bump])))
-          ;; Restrict to the :bump cascade. Take everything from the
-          ;; :bump :run-start trace to the end.
-          evs-v       (vec evs)
-          bump-start  (->> (map-indexed vector evs-v)
-                           (filter (fn [[_ ev]]
-                                     (and (= :rf.event/run-start (:operation ev))
-                                          (= [:bump] (get-in ev [:tags :rf.event/v])))))
-                           (map first)
-                           last)
-          tail        (subvec evs-v bump-start)
-          ops         (mapv :operation tail)
-          ;; positions within the bump cascade
-          pos         (fn [op] (.indexOf ^java.util.List ops op))
-          p-failed    (pos :rf.flow/failed)
-          p-error     (pos :rf.error/flow-eval-exception)]
-      ;; NO db-changed in the throw stream — the event aborted before install.
-      (is (not-any? #(= :rf.event/db-changed %) ops)
-          "NO :rf.event/db-changed in the throw stream — the event aborted before install")
-      ;; Ordered: flow failure precedes the cascade-level error.
-      (is (and (<= 0 p-failed) (< p-failed p-error))
-          (str "ordered: :rf.flow/failed (" p-failed ") < :rf.error/flow-eval-exception ("
-               p-error ")"))
-      ;; app-db is UNCHANGED — nothing the aborted drain produced landed.
-      (is (= {} (rf/app-db-value :rf/default))
-          "app-db is unchanged (empty initial value) — no install on a flow throw:
-           not the handler's :n write, not the prior flow's :a-out write (no
-           partial commit), not the failing flow's own output")
-      ;; No :rf.fx/handled fires after the flow-eval-exception (cascade halt).
-      (let [after-error (subvec ops (inc p-error))]
-        (is (not-any? #(= :rf.fx/handled %) after-error)
-            "no :rf.fx/handled trace fires after the flow-eval-exception — cascade halts")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8c. Strict trace-stream ordering on the CLEAN (success) path — pins the
