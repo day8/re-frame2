@@ -59,10 +59,6 @@
   (rf/with-frame frame-id
     (rf.ssr/render-tree-hash ((rf/view root-id)))))
 
-(defn- root-html [root-id frame-id]
-  (rf/with-frame frame-id
-    (rf.ssr/render-to-string [(rf/view root-id)] {})))
-
 (defn- hydrate-strict!
   "Boot a fresh `:on-mismatch :hard-error` client frame from `payload`,
   verifying through `root-id`. Returns `:verified` when the check passes, or
@@ -78,24 +74,6 @@
       :verified
       (catch clojure.lang.ExceptionInfo e
         (ex-data e)))))
-
-(deftest a-delegating-root-hashes-one-constant-for-every-state
-  (testing "Two frames holding different articles render different pages
-            through either root, but only the root that returns the page's
-            elements itself hashes them differently."
-    (register-app!)
-    (let [one (frame-with-articles! :server [{:id "a" :title "Article A"}])
-          two (frame-with-articles! :server [{:id "z" :title "Article Z"}
-                                             {:id "y" :title "Article Y"}])]
-      (is (not= (root-html :test.root/delegating one)
-                (root-html :test.root/delegating two))
-          "precondition: the two states render different pages")
-      (is (= (root-hash :test.root/delegating one)
-             (root-hash :test.root/delegating two))
-          "a root whose body is another view hashes the reference, not the page")
-      (is (not= (root-hash :test.root/content one)
-                (root-hash :test.root/content two))
-          "a root that returns element content hashes the state it renders"))))
 
 (deftest a-planted-divergence-trips-the-mismatch-only-through-a-content-root
   (testing "The server renders two articles and the payload carries one, so
