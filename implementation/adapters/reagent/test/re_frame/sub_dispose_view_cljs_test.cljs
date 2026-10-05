@@ -14,9 +14,12 @@
        rendered child's cleanup fires evicts that sub and its inputs
        while a sub the surviving render still holds stays cached.
        Pinned by `conditional-teardown-unsubscribe-evicts-only-its-own-slots`.
-       Reagent's auto-track leg — a render reaction that stops
-       derefing the sub when a condition flips — is not exercised
-       here.
+    #6 an explicit hold → a render that stops reading a sub an
+       explicit `rf/subscribe` still holds, or a watch dropped from it,
+       keeps the slot until that subscribe's `rf/unsubscribe`, while a
+       render-only read is freed by the flip. Pinned by
+       `explicit-hold-survives-a-render-that-stops-reading` and the
+       deftests after it.
 
   Plus a multi-derefer negative control — two derefers, one drops →
   NO emit; only when the LAST drops does the slot evict.
@@ -56,7 +59,9 @@
   up; no DOM required (the contract under test is the substrate's
   ref-count machinery, not a React render)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [reagent.ratom :as ratom]
             [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support])
@@ -219,11 +224,11 @@
 ;; auto-track: nothing here is a reactive render that stops derefing the sub.
 
 (deftest reaction-disposal-fires-rf-sub-dispose
-  (testing "#1: disposing the cached Reagent reaction directly
-   via `interop/dispose!` (the substrate-side reactive-graph reap
-   pathway — what Reagent does when a render reaction loses its last
-   watcher on componentWillUnmount) drives the production teardown
-   sequence: `compute-and-cache!`'s `add-on-dispose!` callback fires,
+  (testing "#1: disposing the render reaction that reads a layer-2 sub —
+   what componentWillUnmount does — drops its watch on the sub's cached
+   Reagent reaction, which then disposes itself (the substrate-side
+   reactive-graph reap pathway). The render's reference is the only one,
+   so `compute-and-cache!`'s `add-on-dispose!` callback evicts the slot,
    input refs release, input slots evict + emit `:rf.sub/dispose`."
     (rf/reg-event :rf2-b2bxk/init (fn [{:keys [db]} _] {:db {:a 11 :b 13}}))
     (rf/reg-sub :rf2-b2bxk.rea/a (fn [db _] (:a db)))
@@ -234,26 +239,27 @@
     (rf/dispatch-sync [:rf2-b2bxk/init])
 
     (with-trace-recorder! [traces {:pred sub-dispose-pred}]
-      ;; "View" mounts: rf/subscribe returns the cached Reagent
-      ;; reaction. The cache layer registered an `add-on-dispose!`
-      ;; on this reaction in `compute-and-cache!` — the same callback
-      ;; Reagent's reactive-graph reaping fires when a render
-      ;; reaction holding the sub loses its last watcher.
-      (let [sum-rea (rf/subscribe [:rf2-b2bxk.rea/sum])]
-        (is (= 24 @sum-rea)
+      ;; "View" mounts: a render-shaped reaction derefs the sub, and its
+      ;; reference is the sub's only one. The cache layer registered an
+      ;; `add-on-dispose!` on the sub's reaction in `compute-and-cache!` —
+      ;; the callback Reagent's reactive-graph reaping fires when that
+      ;; reaction loses its last watcher.
+      (let [render (ratom/make-reaction
+                     (fn [] @(rf/subscribe [:rf2-b2bxk.rea/sum]))
+                     :auto-run true)]
+        (is (= 24 @render)
             "precondition: sub computes against the seeded app-db")
         (is (empty? @traces)
             "precondition: nothing evicted while the reaction is held")
 
-        ;; The reactive-graph teardown signal: dispose the reaction
-        ;; directly. This stands in for Reagent's reap of an unwatched
-        ;; reaction (componentWillUnmount → render reaction disposed
-        ;; → loses watcher on sum-rea → Reagent reaps sum-rea →
-        ;; add-on-dispose! callbacks fire). Mirrors the
-        ;; install-unmount-hook! test pattern, which similarly
-        ;; disposes the reaction directly to drive the on-dispose
+        ;; The reactive-graph teardown signal: dispose the render
+        ;; reaction (componentWillUnmount → render reaction disposed →
+        ;; loses its watch on the sub → Reagent reaps the sub's reaction
+        ;; → add-on-dispose! callbacks fire). Mirrors the
+        ;; install-unmount-hook! test pattern, which disposes the
+        ;; per-instance reaction directly to drive the on-dispose
         ;; callback chain headlessly.
-        (rf.interop/dispose! sum-rea)
+        (rf.interop/dispose! render)
 
         ;; The cache's `add-on-dispose!` cascade ran: each input was
         ;; `unsubscribe`d, dropping their ref-counts to 0, evicting
@@ -346,3 +352,135 @@
 
           (finally
             (rf/unsubscribe [:rf2-b2bxk.cond-rea/n])))))))
+
+;; ===========================================================================
+;; An explicit hold survives the render that stops reading it
+;; ===========================================================================
+;;
+;; An explicit `rf/subscribe` is a ref-counted hold on every adapter (Spec 006
+;; §Which lifetime governs a ratom adapter). A stock Reagent `Reaction` disposes
+;; itself the moment its last watcher drops, so a render that stops reading a
+;; sub, or a watch removed from it, reaches the cache's on-dispose hook while
+;; the explicit hold still counts. The hook keeps that slot, releasing only the
+;; render owner's reference, and re-arms itself, so the later `rf/unsubscribe`
+;; evicts the sub and cascades to its inputs. A render-only read holds nothing
+;; else, so the flip alone frees it.
+
+(defn- reg-sum-subs! []
+  (rf/reg-event ::init (fn [_ _] {:db {:a 3 :b 4}}))
+  (rf/reg-sub ::a (fn [db _] (:a db)))
+  (rf/reg-sub ::b (fn [db _] (:b db)))
+  (rf/reg-sub ::sum {:inputs [[::a] [::b]]} (fn [[a b] _] (+ a b)))
+  (rf/dispatch-sync [::init]))
+
+(defn- slot [query-v]
+  (get @(:sub-cache (rf.frame/frame :rf/default)) query-v))
+
+(defn- dispose-counts
+  "`{sub-id n}` over the recorded `:rf.sub/dispose` events."
+  [traces]
+  (frequencies (map #(-> % :tags :rf.sub/id) traces)))
+
+(defn- conditional-render
+  "A render-shaped reaction reading `[::sum]` while `read?` is true."
+  [read?]
+  (ratom/make-reaction
+    (fn [] (when @read? @(rf/subscribe [::sum])) :rendered)
+    :auto-run true))
+
+(deftest explicit-hold-survives-a-render-that-stops-reading
+  (testing "an explicit subscribe plus a render read; the render stops
+   reading: the slot is kept at ref-count 1 and nothing is evicted, and the
+   later rf/unsubscribe evicts the sub and both inputs, each exactly once"
+    (reg-sum-subs!)
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      (let [held   (rf/subscribe [::sum])
+            read?  (ratom/atom true)
+            render (conditional-render read?)]
+        (try
+          @render
+          (is (= 7 @held) "precondition: the sub computes")
+          (is (= 2 (:ref-count (slot [::sum])))
+              "precondition: the explicit hold plus the render's reference")
+          (reset! read? false)
+          (is (empty? @traces) "the flip evicted nothing")
+          (is (= 1 (:ref-count (slot [::sum])))
+              "the render's reference was released; the explicit hold remains")
+          (is (identical? held (:reaction (slot [::sum])))
+              "the kept slot serves the reaction the caller holds")
+          (is (= 7 @held) "the kept sub still reads")
+          (rf/unsubscribe [::sum])
+          (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
+              "the unsubscribe evicted the sub and both inputs, each exactly once")
+          (is (every? nil? (map slot [[::sum] [::a] [::b]]))
+              "no slot survives the unsubscribe")
+          (finally
+            (rf.interop/dispose! render)))))))
+
+(deftest explicit-hold-survives-a-dropped-watch
+  (testing "an explicit subscribe, then a watch added and removed: the slot
+   is kept at ref-count 1 and nothing is evicted, and the later
+   rf/unsubscribe evicts the sub and both inputs, each exactly once"
+    (reg-sum-subs!)
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      (let [held (rf/subscribe [::sum])]
+        (is (= 7 @held) "precondition: the sub computes")
+        (add-watch held ::w (fn [_ _ _ _] nil))
+        (remove-watch held ::w)
+        (is (empty? @traces) "dropping the last watch evicted nothing")
+        (is (= 1 (:ref-count (slot [::sum]))) "the explicit hold remains")
+        (rf/unsubscribe [::sum])
+        (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
+            "the unsubscribe evicted the sub and both inputs, each exactly once")
+        (is (every? nil? (map slot [[::sum] [::a] [::b]]))
+            "no slot survives the unsubscribe")))))
+
+(deftest render-only-read-is-freed-by-the-flip
+  (testing "control: with no explicit hold, the render that stops reading
+   evicts the sub and both inputs at once, each exactly once"
+    (reg-sum-subs!)
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      (let [read?  (ratom/atom true)
+            render (conditional-render read?)]
+        (try
+          @render
+          (is (= 1 (:ref-count (slot [::sum])))
+              "precondition: the render's reference is the only one")
+          (reset! read? false)
+          (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
+              "the flip evicted the sub and both inputs, each exactly once")
+          (is (every? nil? (map slot [[::sum] [::a] [::b]]))
+              "no slot survives the flip")
+          (finally
+            (rf.interop/dispose! render)))))))
+
+(deftest re-entrant-dispose-releases-the-render-reference-once
+  (testing "a dispose re-entered by a callback registered between the
+   cache's hook and the render's holding reaches the re-armed hook before
+   that holding is dropped; the render's reference is released once, so the
+   explicit hold keeps the slot at ref-count 1"
+    (reg-sum-subs!)
+    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
+      (let [held        (rf/subscribe [::sum])
+            re-entered? (atom false)
+            _           (rf.interop/add-on-dispose! held
+                          (fn [_]
+                            (when-not @re-entered?
+                              (reset! re-entered? true)
+                              (rf.interop/dispose! held))))
+            read?       (ratom/atom true)
+            render      (conditional-render read?)]
+        (try
+          @render
+          (is (= 2 (:ref-count (slot [::sum])))
+              "precondition: the explicit hold plus the render's reference")
+          (reset! read? false)
+          (is @re-entered? "precondition: the callback re-entered dispose")
+          (is (empty? @traces) "the re-entered dispose evicted nothing")
+          (is (= 1 (:ref-count (slot [::sum])))
+              "the render's reference was released once, not twice")
+          (rf/unsubscribe [::sum])
+          (is (= {::sum 1 ::a 1 ::b 1} (dispose-counts @traces))
+              "the unsubscribe evicted the sub and both inputs, each exactly once")
+          (finally
+            (rf.interop/dispose! render)))))))

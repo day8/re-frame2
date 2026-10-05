@@ -391,3 +391,105 @@
             "the parent layer-2 slot was evicted")
         (finally
           (rf/unregister-listener! :trace ::input-dispose-throw))))))
+
+;; ---- a substrate dispose of a slot an explicit subscribe still holds -------
+;;
+;; A ratom-family substrate disposes a cached reaction by its own route when
+;; its last watcher drops, without consulting `:ref-count` (Spec 006 §Which
+;; lifetime governs a ratom adapter). An explicit `subscribe` is a ref-counted
+;; hold on every adapter, so that dispose keeps a slot something still holds:
+;; the on-dispose hook releases only the render-owned share and registers
+;; itself again, and the `unsubscribe` that finally drives 1 -> 0 still
+;; releases the inputs and emits once per evicted layer. The JVM has no render
+;; owner, so the share is always zero here, and `rf.interop/dispose!` on the
+;; cached reaction is exactly the call that route makes.
+;;
+;; These pin the cache's lifetime, which ships, so they are untagged and run
+;; in the prod-gate lane too; their emit assertions sit behind
+;; `rf.interop/debug-enabled?`.
+
+(defn- reg-sum-subs! []
+  (rf/reg-event :init (fn [_ _] {:db {:a 2 :b 3}}))
+  (rf/reg-sub :sub/a (fn [db _] (:a db)))
+  (rf/reg-sub :sub/b (fn [db _] (:b db)))
+  (rf/reg-sub :sub/sum
+    {:inputs [[:sub/a] [:sub/b]]}
+    (fn [[a b] _] (+ a b)))
+  (rf/dispatch-sync [:init]))
+
+(defn- slot-ref-counts
+  "`{query-v ref-count}` for the three slots, nil for an evicted one."
+  [cache]
+  (into {}
+        (map (fn [q] [q (some-> (get @cache q) :ref-count)]))
+        [[:sub/sum] [:sub/a] [:sub/b]]))
+
+(defn- dispose-ids [acc]
+  (mapv #(-> % :tags :rf.sub/id) (dispose-events @acc)))
+
+(deftest substrate-dispose-keeps-a-held-slot-until-its-unsubscribe
+  (testing "disposing the cached reaction of an explicitly held layer-2 sub
+            keeps all three slots at ref-count 1 and emits nothing, twice
+            over; the later unsubscribe evicts every layer exactly once"
+    (reg-sum-subs!)
+    (let [acc   (collect-traces! ::held-substrate-dispose)
+          cache (:sub-cache (rf.frame/frame :rf/default))]
+      (try
+        (let [held (rf/subscribe [:sub/sum])]
+          (is (= 5 @held))
+          (is (= {[:sub/sum] 1 [:sub/a] 1 [:sub/b] 1} (slot-ref-counts cache))
+              "precondition: the explicit hold, and the parent's hold on each input")
+          (rf.interop/dispose! held)
+          (is (= {[:sub/sum] 1 [:sub/a] 1 [:sub/b] 1} (slot-ref-counts cache))
+              "the substrate's dispose evicted nothing the explicit hold keeps")
+          (is (identical? held (get-in @cache [[:sub/sum] :reaction]))
+              "the kept slot still serves the reaction the caller holds")
+          (is (= 5 @held) "the kept reaction still reads")
+          ;; A second substrate dispose reaches the hook the first one re-armed.
+          (rf.interop/dispose! held)
+          (is (= {[:sub/sum] 1 [:sub/a] 1 [:sub/b] 1} (slot-ref-counts cache))
+              "the re-armed hook keeps the slot again on the next dispose")
+          (when rf.interop/debug-enabled?
+            (is (empty? (dispose-events @acc))
+                "no :rf.sub/dispose while the explicit hold lives"))
+          (rf/unsubscribe [:sub/sum])
+          (is (= {[:sub/sum] nil [:sub/a] nil [:sub/b] nil} (slot-ref-counts cache))
+              "the unsubscribe evicted the parent and cascaded to both inputs")
+          (when rf.interop/debug-enabled?
+            (is (= {:sub/sum 1 :sub/a 1 :sub/b 1} (frequencies (dispose-ids acc)))
+                "one :rf.sub/dispose per evicted layer, at the unsubscribe")))
+        (finally
+          (rf/unregister-listener! :trace ::held-substrate-dispose))))))
+
+(deftest re-entrant-dispose-in-the-same-pass-keeps-a-held-slot
+  (testing "a callback registered after the cache's hook that re-enters
+            rf.interop/dispose! reaches the hook the first pass re-armed;
+            the slot stays held at ref-count 1, the callback fires once, and
+            the later unsubscribe still cascades exactly once"
+    (reg-sum-subs!)
+    (let [acc    (collect-traces! ::held-re-entrant-dispose)
+          cache  (:sub-cache (rf.frame/frame :rf/default))
+          fired  (atom 0)]
+      (try
+        (let [held (rf/subscribe [:sub/sum])]
+          (is (= 5 @held))
+          (rf.interop/add-on-dispose! held
+            (fn []
+              (swap! fired inc)
+              (rf.interop/dispose! held)))
+          (rf.interop/dispose! held)
+          (is (= 1 @fired) "the re-entering callback fired exactly once")
+          (is (= {[:sub/sum] 1 [:sub/a] 1 [:sub/b] 1} (slot-ref-counts cache))
+              "neither pass released the explicit hold or the input holds")
+          (when rf.interop/debug-enabled?
+            (is (empty? (dispose-events @acc))
+                "no :rf.sub/dispose while the explicit hold lives"))
+          (rf/unsubscribe [:sub/sum])
+          (is (= {[:sub/sum] nil [:sub/a] nil [:sub/b] nil} (slot-ref-counts cache))
+              "the unsubscribe evicted the parent and cascaded to both inputs")
+          (is (= 1 @fired) "the spent callback did not fire again")
+          (when rf.interop/debug-enabled?
+            (is (= {:sub/sum 1 :sub/a 1 :sub/b 1} (frequencies (dispose-ids acc)))
+                "one :rf.sub/dispose per evicted layer, at the unsubscribe")))
+        (finally
+          (rf/unregister-listener! :trace ::held-re-entrant-dispose))))))
