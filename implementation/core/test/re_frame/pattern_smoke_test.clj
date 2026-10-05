@@ -1,9 +1,11 @@
 (ns re-frame.pattern-smoke-test
-  "Per-pattern smoke tests. Each pattern doc proposes a canonical shape —
-  slice keys, status enum, lifecycle events, state-machine states. The
+  "Per-pattern smoke tests for the patterns whose canonical shape rides
+  framework machinery — state-machine states, transitions and timers. The
   examples and the conformance corpus exercise the substrate; this suite
-  pins each pattern's named shape so drift between the pattern doc and any
-  conforming implementation is caught directly.
+  pins each such pattern's named shape so drift between the pattern doc and
+  any conforming implementation is caught directly. A pattern that is a
+  plain `reg-event` slice (Pattern-Forms, Pattern-RemoteData) has no
+  framework behaviour of its own to pin here.
 
   One deftest per pattern. The docstring on each test cites the relevant
   Pattern-*.md section. Each test stays under ~50 lines — pin the shape,
@@ -52,73 +54,6 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- Pattern-Forms --------------------------------------------------------
-
-(deftest pattern-forms-shape
-  "Pattern-Forms §The form slice / §Standard events. Pins the seven slice
-  keys (:draft :submitted :submit-attempted? :status :errors :touched
-  :submit-error) and the seven-event lifecycle (initialise, edit-field,
-  blur-field, submit, submit-success, submit-error, reset)."
-  (testing "form slice transitions through documented states"
-    (let [defaults {:email "" :password ""}
-          slice    [:auth :login]]
-      (rf/reg-event :form.login/initialise
-        (fn [{:keys [db]} _]
-          {:db (assoc-in db slice {:draft defaults :submitted nil
-                              :submit-attempted? false :status :idle
-                              :errors {} :touched #{} :submit-error nil})}))
-      (rf/reg-event :form.login/edit-field
-        (fn [{:keys [db]} [_ field value]]
-          {:db (-> db (assoc-in (conj slice :draft field) value)
-                 (update-in (conj slice :touched) conj field))}))
-      (rf/reg-event :form.login/blur-field
-        (fn [{:keys [db]} [_ field]] {:db (update-in db (conj slice :touched) conj field)}))
-      (rf/reg-event :form.login/submit
-        (fn [{:keys [db]} _] {:db (-> db (assoc-in (conj slice :submit-attempted?) true)
-                          (assoc-in (conj slice :status) :submitting))}))
-      (rf/reg-event :form.login/submit-success
-        (fn [{:keys [db]} _] {:db (-> db (assoc-in (conj slice :status) :submitted)
-                          (assoc-in (conj slice :submitted)
-                                    (get-in db (conj slice :draft))))}))
-      (rf/reg-event :form.login/submit-error
-        (fn [{:keys [db]} [_ err]] {:db (-> db (assoc-in (conj slice :status) :error)
-                                (assoc-in (conj slice :submit-error) err))}))
-      (rf/reg-event :form.login/reset
-        (fn [{:keys [db]} _] {:db (assoc-in db slice {:draft defaults :submitted nil
-                                       :submit-attempted? false :status :idle
-                                       :errors {} :touched #{}
-                                       :submit-error nil})}))
-      ;; Lifecycle: init → :idle, edit/blur build up :touched, submit flips
-      ;; :submit-attempted? and :status, success snapshots :draft → :submitted,
-      ;; error sets :status :error + :submit-error, reset returns to :idle.
-      (rf/dispatch-sync [:form.login/initialise])
-      (let [s0 (get-in (rf/app-db-value :rf/default) slice)]
-        (is (= #{:draft :submitted :submit-attempted? :status :errors
-                 :touched :submit-error}
-               (set (keys s0))) "all seven canonical slice keys present")
-        (is (= :idle (:status s0)))
-        (is (false? (:submit-attempted? s0))))
-      (rf/dispatch-sync [:form.login/edit-field :email "a@b.c"])
-      (rf/dispatch-sync [:form.login/blur-field :password])
-      (let [s1 (get-in (rf/app-db-value :rf/default) slice)]
-        (is (= "a@b.c" (get-in s1 [:draft :email])))
-        (is (= #{:email :password} (:touched s1))))
-      (rf/dispatch-sync [:form.login/submit])
-      (is (= :submitting (get-in (rf/app-db-value :rf/default)
-                                 (conj slice :status))))
-      (is (true? (get-in (rf/app-db-value :rf/default)
-                         (conj slice :submit-attempted?))))
-      (rf/dispatch-sync [:form.login/submit-success])
-      (let [s2 (get-in (rf/app-db-value :rf/default) slice)]
-        (is (= :submitted (:status s2)))
-        (is (= "a@b.c" (get-in s2 [:submitted :email])) ":draft snapshotted to :submitted"))
-      (rf/dispatch-sync [:form.login/submit-error "network down"])
-      (let [s3 (get-in (rf/app-db-value :rf/default) slice)]
-        (is (= :error (:status s3)))
-        (is (= "network down" (:submit-error s3))))
-      (rf/dispatch-sync [:form.login/reset])
-      (is (= :idle (get-in (rf/app-db-value :rf/default) (conj slice :status)))))))
-
 ;; ---- Pattern-Boot ---------------------------------------------------------
 
 (deftest pattern-boot-shape
@@ -158,69 +93,6 @@
       (is (= :ready (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/machines :snapshots :app/boot :state]))
           "lifecycle events drove machine to :ready")
       (is (= {:url "/api"} (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/machines :snapshots :app/boot :data :config]))))))
-
-;; ---- Pattern-RemoteData ---------------------------------------------------
-
-(deftest pattern-remote-data-shape
-  "Pattern-RemoteData §The lifecycle slice / §The four standard events /
-  §`:loading` vs `:fetching`. Pins the 5-key slice (:status :data :error
-  :loaded-at :attempt), the status enum {:idle :loading :fetching :loaded
-  :error}, and the load / loaded / load-failed / reset event lifecycle."
-  (let [path [:articles]]
-    (rf/reg-event :articles/initialise
-      (fn [{:keys [db]} _] {:db (assoc-in db path {:status :idle :data nil :error nil
-                                    :loaded-at nil :attempt 0})}))
-    (rf/reg-event :articles/load
-      (fn [{:keys [db]} _]
-        {:db (let [has-data? (some? (get-in db (conj path :data)))]
-          (-> db
-              (assoc-in (conj path :status)  (if has-data? :fetching :loading))
-              (assoc-in (conj path :error)   nil)
-              (update-in (conj path :attempt) inc)))}))
-    (rf/reg-event :articles/loaded
-      (fn [{:keys [db]} [_ data]]
-        {:db (-> db (assoc-in (conj path :status) :loaded)
-               (assoc-in (conj path :data) data)
-               (assoc-in (conj path :loaded-at) 1234)
-               (assoc-in (conj path :error) nil))}))
-    (rf/reg-event :articles/load-failed
-      (fn [{:keys [db]} [_ err]]
-        {:db (-> db (assoc-in (conj path :status) :error)
-               (assoc-in (conj path :error) err))}))
-    (rf/reg-event :articles/reset
-      (fn [{:keys [db]} _] {:db (assoc-in db path {:status :idle :data nil :error nil
-                                    :loaded-at nil :attempt 0})}))
-    (rf/dispatch-sync [:articles/initialise])
-    (let [s0 (get-in (rf/app-db-value :rf/default) path)]
-      (is (= #{:status :data :error :loaded-at :attempt} (set (keys s0)))
-          "all five canonical slice keys present")
-      (is (= :idle (:status s0)))
-      (is (zero? (:attempt s0)) ":attempt 0 means never fetched"))
-    ;; Initial load: no prior :data → :loading; :attempt bumps to 1.
-    (rf/dispatch-sync [:articles/load])
-    (let [s1 (get-in (rf/app-db-value :rf/default) path)]
-      (is (= :loading (:status s1)) "initial load with no :data → :loading")
-      (is (= 1 (:attempt s1))))
-    (rf/dispatch-sync [:articles/loaded [{:id "a"}]])
-    (let [s2 (get-in (rf/app-db-value :rf/default) path)]
-      (is (= :loaded (:status s2)))
-      (is (= [{:id "a"}] (:data s2)))
-      (is (= 1234 (:loaded-at s2))))
-    ;; Revalidate over existing :data → :fetching (NOT :loading).
-    (rf/dispatch-sync [:articles/load])
-    (is (= :fetching (get-in (rf/app-db-value :rf/default)
-                             (conj path :status)))
-        "revalidate with existing :data → :fetching")
-    (is (= 2 (get-in (rf/app-db-value :rf/default) (conj path :attempt))))
-    (rf/dispatch-sync [:articles/load-failed "boom"])
-    (let [s3 (get-in (rf/app-db-value :rf/default) path)]
-      (is (= :error (:status s3)))
-      (is (= "boom" (:error s3)))
-      (is (= [{:id "a"}] (:data s3)) "prior :data preserved across :error"))
-    (rf/dispatch-sync [:articles/reset])
-    (is (= :idle (get-in (rf/app-db-value :rf/default)
-                         (conj path :status))))
-    (is (nil? (get-in (rf/app-db-value :rf/default) (conj path :data))))))
 
 ;; ---- Pattern-WebSocket ----------------------------------------------------
 
