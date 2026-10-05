@@ -82,9 +82,7 @@
             1-element vector)"
     (let [out (decode-headers {"Set-Cookie" ["only=1; Path=/"]})]
       (is (= "only=1; Path=/" (get out "set-cookie"))
-          "single cookie preserved as a string")
-      (is (string? (get out "set-cookie"))
-          "shape is string, not a 1-element vector"))))
+          "single cookie preserved as a string"))))
 
 (deftest multi-set-cookie-is-vector-of-verbatim-lines-cross-host
   (testing "TWO Set-Cookie lines decode to a 2-element vector of
@@ -99,7 +97,6 @@
           "multi-valued Set-Cookie MUST be a vector on both hosts — comma-
            folding violates RFC 6265 §3 (cookie values embed commas) and
            forEach-folding loses all but the last line")
-      (is (= 2 (count v)) "BOTH cookie lines survive (no dropped first cookie)")
       (is (= cookies v)
           "each line preserved verbatim — the comma inside Expires is intact,
            not interpreted as a separator, and the first line is not lost"))))
