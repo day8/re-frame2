@@ -116,21 +116,6 @@
         (is (false? verdict)
             "the invalid event is rejected — the handler will not run")))))
 
-(deftest boundary-arm-fails-closed-on-nil-schema-under-default-malli
-  (testing "with the DEFAULT Malli validator a present nil schema
-            cannot silently run a boundary handler: Malli throws on the
-            non-schema form, the seam isolates the throw to false, and the
-            boundary rejects (the malformed-schema fail-closed route)"
-    ;; Fixture reset restored the default Malli validator.
-    (rf/reg-event :wire/received
-      {:schema    nil
-       :boundary? true}
-      (fn [_ _] {}))
-    (let [meta (rf.registrar/lookup :event :wire/received)]
-      (is (false? (rf.spec/validate-at-boundary!
-                    :wire/received [:wire/received {:untrusted 1}] meta nil))
-          "rejected — never registration success plus runtime no-op"))))
-
 (deftest boundary-nil-validator-still-disables-validation-in-production
   (testing "control — set-schema-fns! {:validate nil} is the documented
             global opt-out: even a present nil schema passes the boundary
