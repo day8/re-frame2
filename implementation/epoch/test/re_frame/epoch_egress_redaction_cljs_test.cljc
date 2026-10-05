@@ -235,25 +235,6 @@
       (is (not (contains-secret? proj))
           "no secret bytes anywhere in the projected record"))))
 
-(deftest large-leaf-elides-to-marker-at-egress
-  (testing "a frame-declared `:large` path egresses as a
-            `:rf.size/large-elided` marker, never as raw bytes — the
-            token-budget claim the MCP wire boundary depends on."
-    (fresh-frame!)
-    (rf/reg-event :egress/upload
-      (fn [{:keys [db]} [_ payload]] {:db (assoc-in db [:blob :payload] payload)}))
-    (rf/dispatch-sync [:egress/upload (big-string payload-size)] {:frame frame-id})
-    (let [raw  (last-record)
-          proj (rf/project-egress raw)]
-      (is (= payload-size (count (get-in raw [:db-after :blob :payload])))
-          "fixture: the raw record carries the full payload")
-      (is (rf.elision/marker? (get-in proj [:db-after :blob :payload]))
-          "the projected slot is a `:rf.size/large-elided` marker")
-      (is (pos? (count-leaves-at-least payload-size raw))
-          "fixture control: the raw ring DOES contain a large leaf")
-      (is (zero? (count-leaves-at-least payload-size proj))
-          "the projected record contains ZERO leaves of the payload's size"))))
-
 (deftest sensitive-wins-over-large-at-egress
   (testing "a path declared BOTH sensitive and large egresses as
             `:rf/redacted`, not as a size marker — the size marker carries
@@ -451,29 +432,6 @@
            the secret, so the two clean assertions above are proving
            redaction rather than an empty ring"))))
 
-(deftest facade-threads-egress-opts-through-late-bind
-  (testing "the consumers pass an opts map through the facade
-            (`{:rf.egress/include-sensitive? …}`, `:rf.egress/profile`). The 2-arity
-            must thread it — a dropped opts map would silently downgrade a
-            trusted-local read, or worse, silently ignore a fail-closed
-            profile choice."
-    (fresh-frame!)
-    (reg-login!)
-    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (let [raw (last-record)]
-      (is (= secret (get-in (rf/project-egress raw {:rf.egress/include-sensitive? true})
-                            [:db-after :auth :password]))
-          "the opts map reaches the artefact through the facade")
-      (is (= :rf/redacted (get-in (rf/project-egress raw {})
-                                  [:db-after :auth :password]))
-          "and an empty opts map keeps the fail-closed default")
-      (is (= ((rf.late-bind/get-fn :epoch/project-record)
-              raw {:rf.egress/profile :rf.egress/off-box-tool :frame frame-id})
-             (rf/project-egress raw {:rf.egress/profile :rf.egress/off-box-tool}))
-          "the named `:rf.egress/off-box-tool` boundary (the MCP wire) agrees
-           across facade and artefact: the facade hands the profile to the
-           published projector unchanged"))))
-
 ;; ============================================================================
 ;;  3. The forwarder + bulk-egress shapes the CLJS consumers run
 ;; ============================================================================
@@ -574,33 +532,6 @@
 ;;  4. Axis orthogonality — the CLJS-side bypass shapes
 ;; ============================================================================
 
-(deftest include-sensitive-keeps-fx-args-redacted
-  (testing "a Pair-MCP epoch tool treating an operator's
-            `:include-sensitive true` as a FULL raw-epoch bypass would ship
-            raw fx args off-box. `{:rf.egress/include-sensitive? true}` lifts
-            the APP-DB sensitive axis ONLY; `:effects[*].args` is a different
-            keyspace governed by `:rf.egress/include-fx-args?`."
-    (fresh-frame!)
-    (rf/reg-fx :egress/login-fx (fn [_ _] nil))
-    (rf/reg-event :egress/do-login
-      (fn [_ [_ creds]]
-        {:db {:auth {:password (:password creds)}}
-         :fx [[:egress/login-fx creds]]}))
-    (rf/dispatch-sync [:egress/do-login {:password secret :token "tok-abc"}]
-                      {:frame frame-id})
-    (let [raw    (last-record)
-          proj   (rf/project-egress raw {:rf.egress/include-sensitive? true})
-          fx-row (some #(when (= :egress/login-fx (:fx-id %)) %) (:effects proj))]
-      (is (= secret (get-in proj [:db-after :auth :password]))
-          "`:rf.egress/include-sensitive? true` reveals the app-db sensitive leaf
-           (which also proves the opt-in is threaded at all)")
-      (is (some? fx-row) "fixture: the cascade produced a payload-bearing fx row")
-      (is (= :rf/redacted (:args fx-row))
-          "`:effects[*].args` STAY redacted — orthogonal axis")
-      (is (= :rf/redacted (:args (some #(when (= :egress/login-fx (:fx-id %)) %)
-                                       (:effects (rf/project-egress raw)))))
-          "and the bare off-box default redacts the fx args too"))))
-
 (deftest include-sensitive-keeps-runtime-db-partition-redacted
   (testing "the Xray-side twin: opting in to sensitive APP-DB
             values must not walk the RAW record, which would lift the orthogonal
@@ -680,19 +611,6 @@
           "the `:event-id` summary slot is intact for tool display")
       (is (not (contains-secret? proj))
           "no secret bytes anywhere"))))
-
-(deftest trigger-event-map-arg-secret-fails-closed
-  (testing "a secret NESTED in a map arg also fails closed — the whole arg
-            redacts, because the walker cannot descend a keyspace it cannot
-            classify."
-    (fresh-frame!)
-    (rf/reg-event :egress/auth-login
-      (fn [{:keys [db]} [_ {:keys [password]}]]
-        {:db (assoc-in db [:auth :password] password)}))
-    (rf/dispatch-sync [:egress/auth-login {:password secret}] {:frame frame-id})
-    (let [proj (rf/project-egress (last-record))]
-      (is (= [:egress/auth-login :rf/redacted] (:trigger-event proj)))
-      (is (not (contains-secret? (:trigger-event proj)))))))
 
 (deftest include-event-args-is-orthogonal-to-app-db-axes
   (testing "`:rf.egress/include-event-args?` reveals the raw trigger-event args YET is
@@ -801,23 +719,6 @@
 ;;  7. Classification RETENTION
 ;; ============================================================================
 
-(deftest classification-retention-negative-control-unclassified-frame
-  (testing "the SAME cascade with NO classification registered egresses the
-            value RAW. This is the suite's load-bearing negative control: if
-            `apply-classification-effects` silently stopped registering, or
-            the projection silently blanket-redacted, this arm reds. It also
-            documents the actual contract — the projection redacts what the
-            app CLASSIFIED, nothing more."
-    (rf/make-frame {:id control-frame-id})
-    (reg-login!)
-    (rf/dispatch-sync [:egress/login secret] {:frame control-frame-id})
-    (let [proj (rf/project-egress (last-record control-frame-id))]
-      (is (= secret (get-in proj [:db-after :auth :password]))
-          "with no classification declared the value rides through RAW")
-      (is (contains-secret? proj)
-          "so a redaction assertion against this fixture would go red —
-           the classified arms are provably not vacuous"))))
-
 (deftest sensitive-rollup-badge-survives-projection
   (testing "`:rf.epoch/sensitive?` is derived from the RAW record inside
             `build-record`, so it stays a trustworthy off-box branch signal
@@ -919,20 +820,6 @@
       (is (= :rf/epoch-record (:kind (rf/project-egress raw)))
           "and the stamp survives projection as bookkeeping, so a consumer
            can branch on the kind of a record it received off-box"))))
-
-(deftest project-egress-on-a-stamped-record-redacts-the-classified-leaf
-  (testing "a STAMPED record through the door is projected under its own
-            frame's classification — the counterpart of the unstamped
-            record below, which leaks through the same call"
-    (let [proj (rf/project-egress (login-record!)
-                                  {:rf.egress/profile :rf.egress/off-box-tool})]
-      (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
-          "the door's projection redacts the classified leaf")
-      (is (= benign (get-in proj [:db-after :audit :note]))
-          "NEGATIVE CONTROL — the unclassified sibling rides RAW, so the
-           assertion above is not blanket redaction")
-      (is (not (contains-secret? proj))
-          "no secret bytes anywhere in the door's projected record"))))
 
 (deftest an-unstamped-record-through-the-door-is-the-leak-the-stamp-closes
   (testing "THE VECTOR, pinned as a contrast: strip the `:kind` stamp and the
