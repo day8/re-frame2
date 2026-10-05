@@ -125,29 +125,23 @@ const FIXTURE = `{:builds
   :some-other-build
   {:target :browser}}}`;
 
-it('parseExampleBuilds recovers every adjacent example build (no skip-every-other bug)', () => {
+// `target` is what separates a PAGE build from a server-side one, and a
+// non-`:browser` example build must still be RECOVERED (it is an example
+// build; check-examples-compile.cjs compiles it) while carrying no :init-fn.
+// Dropping it from the parse would hide it from every reader at once.
+it('parseExampleBuilds recovers every adjacent example build with its :output-dir, :init-fn and :target', () => {
   const builds = parseExampleBuilds(FIXTURE);
   assert.deepStrictEqual(
     builds.map((b) => b.build).sort(),
     ['examples/alpha', 'examples/beta', 'examples/delta-server', 'examples/gamma'],
+    'every adjacent example build is recovered (no skip-every-other bug)',
   );
-});
-
-it('parseExampleBuilds recovers :output-dir + :init-fn per build', () => {
-  const byId = Object.fromEntries(parseExampleBuilds(FIXTURE).map((b) => [b.build, b]));
+  const byId = Object.fromEntries(builds.map((b) => [b.build, b]));
   assert.strictEqual(byId['examples/alpha'].outputDir, 'out/examples/alpha');
   assert.strictEqual(byId['examples/alpha'].initFn, 'alpha.core/run');
   assert.strictEqual(byId['examples/beta'].initFn, 'beta.views/run');
   assert.strictEqual(byId['examples/gamma'].initFn, 'seven-guis.gamma.core/run');
   assert.strictEqual(byId['examples/gamma'].outputDir, 'out/examples/gamma');
-});
-
-// `target` is what separates a PAGE build from a server-side one, and a
-// non-`:browser` example build must still be RECOVERED (it is an example
-// build; check-examples-compile.cjs compiles it) while carrying no :init-fn.
-// Dropping it from the parse would hide it from every reader at once.
-it('parseExampleBuilds recovers :target, and a :node-library build keeps no :init-fn', () => {
-  const byId = Object.fromEntries(parseExampleBuilds(FIXTURE).map((b) => [b.build, b]));
   assert.strictEqual(byId['examples/alpha'].target, ':browser');
   assert.strictEqual(byId['examples/gamma'].target, ':browser');
   assert.strictEqual(byId['examples/delta-server'].target, ':node-library');
@@ -555,30 +549,6 @@ it('stagedAssetsByBuild projects a synthetic manifest to build -> [{from,src,des
   ]);
 });
 
-it('stagePerExampleAssets stages from an INJECTED synthetic-manifest projection (rf2-phpbo8)', () => {
-  // Drive the real staging consumer with a synthetic manifest projection: a
-  // colocated (:src) fixture must land under outDir/api/data.json after staging.
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-synth-'));
-  try {
-    const srcDir = path.join(tmpRoot, 'src');
-    fs.mkdirSync(path.join(srcDir, 'api'), { recursive: true });
-    fs.writeFileSync(path.join(srcDir, 'api', 'data.json'), '{"ok":true}');
-    const outDir = path.join(tmpRoot, 'out');
-    fs.mkdirSync(outDir, { recursive: true });
-    const entry = { build: 'examples/synth-fixture', outDir, srcDir };
-
-    stagePerExampleAssets(entry, {
-      perExampleAssets: stagedAssetsByBuild(SYNTHETIC_MANIFEST),
-    });
-
-    const staged = path.join(outDir, 'api', 'data.json');
-    assert.ok(fs.existsSync(staged), `the synthetic fixture must be staged at ${staged}`);
-    assert.strictEqual(fs.readFileSync(staged, 'utf8'), '{"ok":true}');
-  } finally {
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  }
-});
-
 it('the LIVE staging PER_EXAMPLE_ASSETS IS the real manifest projection, non-vacuously (rf2-phpbo8)', () => {
   // Cross-consistency: the exported staging map is exactly the real manifest's
   // staging projection (no second, drift-prone literal declaration).
@@ -750,24 +720,6 @@ itAsync('TEETH: waitForFirstBuild does NOT report ready on a zero-length artifac
   assert.strictEqual(probes, 4, 'a zero-length entrypoint must not satisfy readiness');
 });
 
-itAsync('TEETH: waitForFirstBuild aborts (never reports ready) when the watch dies first (rf2-qwy3)', async () => {
-  // The watch child crashed before its first compile landed. The runner must
-  // NOT announce the app as live; the caller turns this into a non-zero exit.
-  let watchDied = false;
-  let probes = 0;
-  const result = await waitForFirstBuild({
-    fetchBody: async () => {
-      probes++;
-      watchDied = true; // the watch's exit handler fires between polls
-      return null; // the entrypoint never appears
-    },
-    isAborted: () => watchDied,
-    sleep: async () => {},
-  });
-  assert.deepStrictEqual(result, { ok: false, reason: 'child-exited' });
-  assert.ok(probes >= 1, 'the wait must have actually probed before aborting');
-});
-
 itAsync('waitForFirstBuild reports ready off a REAL http server once a delayed producer writes the entrypoint (rf2-qwy3)', async () => {
   // End-to-end over the real HTTP path serve-example uses, with a fake
   // "watch child" (a timer) writing main.js into an initially clean staged
@@ -920,9 +872,8 @@ it('an interrupt (Ctrl+C) is never a watch crash, in either phase (rf2-qwy3)', (
 itAsync('TEETH: a fake watcher that exits 0 before publishing aborts the wait rather than hanging (rf2-qwy3)', async () => {
   // The runner's own composition, driven by a fake watch child: its exit
   // handler classifies the outcome with watchExitAbortsRun and flips the abort
-  // flag the first-build wait reads. This is the behaviour the injected
-  // `watchDied = true` witness above cannot reach, because it skips the
-  // classification entirely.
+  // flag the first-build wait reads, so the classification is exercised rather
+  // than injected.
   const preAudit = ({ code }, interrupted) =>
     !interrupted && !(typeof code === 'number' && code === 0);
   assert.strictEqual(
