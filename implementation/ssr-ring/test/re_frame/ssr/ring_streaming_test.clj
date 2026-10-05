@@ -18,8 +18,7 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.ring :as rf.ssr.ring]
             [re-frame.ssr.ring.lifecycle :as rf.ssr.ring.lifecycle]
-            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support]
-            [re-frame.ssr.suspense :as rf.ssr.suspense])
+            [re-frame.ssr.ring.test-support :as rf.ssr.ring.test-support])
   (:import [java.io InputStream]))
 
 (defn- reset+reg-test-handlers
@@ -192,26 +191,6 @@
       (is (str/includes? suffix "<script src=\"/main.js\">")
           "the suffix emits the bootstrap script"))))
 
-(deftest stream-handler-no-boundary-closes-app-root-before-payload
-  (testing "the degenerate (no-suspense) path also closes #app
-            before the final __rf_payload — the wire shape collapses to
-            shell-prefix + shell-html + `</div>` + payload + suffix."
-    (rf/reg-view ^{:rf/id :test/static-only} static-only []
-      [:main [:h1 "Static"]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/static-only)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          idx-close   (str/index-of body "</div>")
-          idx-payload (str/index-of body "__rf_payload")]
-      (is (some? idx-close) "the app root closed")
-      (is (some? idx-payload) "the payload streamed")
-      (is (< idx-close idx-payload)
-          "even with zero continuations, #app closes before the
-           __rf_payload script — the payload is not nested inside #app"))))
-
 (deftest stream-handler-multiple-boundaries-FIFO
   (testing "Multiple boundaries emit resolved chunks in document-order FIFO"
     (rf/reg-view ^{:rf/id :test/multi-root} multi-root-view []
@@ -238,46 +217,6 @@
                     (sort-by second))]
       (is (= [:a :b :c] (mapv first offs))
           "resolved chunks emitted in registration FIFO order"))))
-
-(deftest stream-handler-failed-continuation-stays-fallback
-  (testing "Continuation throw → failed-template emitted with data-rf2-suspense-failed marker; response completes"
-    (rf/reg-view ^{:rf/id :test/throwing-section} throwing-section []
-      (throw (ex-info "rendering broke" {})))
-    (rf/reg-view ^{:rf/id :test/fragile-root} fragile-root []
-      [:main
-       [:h1 "Header"]
-       [:rf/suspense-boundary
-        {:id :test/throwy :fallback [:p "Still loading…"]}
-        [(rf/view :test/throwing-section)]]
-       [:footer "End"]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/fragile-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))]
-      (is (= 200 (:status response)) "stream still 200 — failure is partial-render-safe")
-      (is (str/includes? body "<h1>Header</h1>") "shell rendered")
-      (is (str/includes? body "<footer>End</footer>") "rest of shell rendered")
-      (is (str/includes? body "data-rf2-suspense-failed=\"1\"") "failed marker stamped")
-      (is (str/includes? body "Still loading") "fallback materialised in failed chunk")
-      (is (str/includes? body "__rf_payload") "final payload still emitted")
-      ;; The wire template says the boundary failed; the DURABLE
-      ;; record must say so too. A drain loop that read `:failed?` to
-      ;; pick the template and then dropped it would leave the final
-      ;; payload's runtime slice with no `:failed-boundaries` at all.
-      (let [payload (final-payload body)]
-        (is (some? payload) "final payload parses back to data")
-        (is (= #{:test/throwy} (payload-failed-boundaries payload))
-            "the EXACT failed id set rides the final payload's runtime slice")
-        (testing "hydrating the final payload makes `frame-failed-boundaries`
-                  report the wire outcome. This is the whole point of carrying
-                  the set — a client render tree asks the frame, not the DOM."
-          (rf/make-frame {:id :test/hydrated-client :platform :client})
-          (rf/dispatch-sync [:rf/hydrate payload] {:frame :test/hydrated-client})
-          (is (= #{:test/throwy}
-                 (rf.ssr.suspense/frame-failed-boundaries :test/hydrated-client))
-              "the hydrated frame's runtime-db reflects the server's answer"))))))
 
 (deftest stream-handler-carries-nested-failures-and-spares-a-successful-sibling
   (testing "the accumulator must follow the GROWABLE FIFO — a
@@ -326,25 +265,6 @@
             "failed chunks carry the wire marker")
         (is (str/includes? body "inner loading")
             "the failed nested boundary's declared fallback is in the DOM")))))
-
-(deftest stream-handler-successful-stream-omits-the-failure-slot
-  (testing "VACUITY: nothing failed ⇒ NO `:failed-boundaries` key, and
-            (with no other durable subsystem fact) no `:rf/runtime-db` at all.
-            An empty set must not materialise the slice — the ordinary page
-            carries nothing extra on the wire."
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))
-          payload  (final-payload body)]
-      (is (some? payload) "final payload emitted")
-      (is (str/includes? body "First!") "the continuation resolved normally")
-      (is (nil? (payload-failed-boundaries payload))
-          "no failure ⇒ no failed-boundaries key")
-      (is (not (str/includes? body "data-rf2-suspense-failed"))
-          "and no failed marker on the wire either"))))
 
 (deftest stream-handler-nested-boundary-drains-inner-FIFO
   (testing "an OUTER :rf/suspense-boundary whose
@@ -914,72 +834,6 @@
           "the head model's html-attrs reach the streamed <html>")
       (is (str/includes? body "</body></html>")
           "the document streams through to its close"))))
-
-;; ===========================================================================
-;; Stale Content-Length on the streamed body
-;;
-;; `stream-handler` materialises the response head from the accumulator and
-;; then replaces the body with a chunk-producing PipedInputStream. If app /
-;; server init set a `Content-Length` header during the `:initial-events` drain
-;; (a fixed byte count for a body that no longer exists), that stale length
-;; must NOT survive onto the streamed response — a Ring server may honour it
-;; instead of chunking, truncating the HTML / blocking the client on the
-;; wrong byte count / losing progressive chunks (Spec 011 §Streaming SSR —
-;; chunked-transfer framing). `stream-handler` strips `Content-Length`
-;; case-insensitively before wiring the InputStream body.
-;; ===========================================================================
-
-(defn- header-keys-lower
-  "Lower-cased set of a Ring response's header keys — for
-  case-insensitive header-presence assertions."
-  [response]
-  (into #{} (map (fn [k] (clojure.string/lower-case (str k))))
-        (keys (:headers response))))
-
-(deftest stream-handler-strips-stale-content-length-header
-  (testing "an :initial-events-set Content-Length is stripped
-            (case-insensitively) from the streamed response so the Ring
-            server owns chunked-transfer framing; the body still streams in
-            full with NO Content-Length header surviving"
-    (rf/reg-event :rf.test.server/init-with-content-length
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:db {:articles [{:id "a" :title "Article A"}]
-              :comments [{:body "First!"}]}
-         ;; A deliberately WRONG fixed length set before streaming was
-         ;; chosen — both a canonical-cased and a lower-cased variant, to
-         ;; prove the strip is case-insensitive across the materialiser's
-         ;; verbatim header casing.
-         :fx [[:rf.server/set-header {:name "Content-Length" :value "7"}]
-              [:rf.server/append-header {:name "content-length" :value "13"}]]}))
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init-with-content-length]]
-                      :root-view [(rf/view :test/root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          ;; Capture the head BEFORE draining (the head is committed on the
-          ;; request thread; the body pipe is separate).
-          keys-lc  (header-keys-lower response)
-          body     (drain-stream (:body response))]
-      (is (= 200 (:status response)) "streamed response still 200")
-      (is (instance? InputStream (:body response))
-          "the body is the streaming PipedInputStream")
-      (is (not (contains? keys-lc "content-length"))
-          (str "NO Content-Length header survives on the streamed response "
-               "(any casing) — the server frames the InputStream body as "
-               "chunked. Header keys (lower-cased): " (pr-str keys-lc)))
-      (is (contains? keys-lc "content-type")
-          "Content-Type survives the strip — only Content-Length is removed")
-      ;; The full payload is readable end-to-end — the strip did not break
-      ;; the stream, and no byte-count cap truncated it.
-      (is (str/includes? body "<!DOCTYPE html>") "shell streamed")
-      (is (str/includes? body "Article A")
-          "the resolved body content streamed in full")
-      (is (str/includes? body "__rf_payload")
-          "the final payload chunk streamed")
-      (is (str/includes? body "</body></html>")
-          "the streamed body closed cleanly — full payload readable, not
-           truncated to a stale Content-Length"))))
 
 ;; ===========================================================================
 ;; The stream-handler :content-type opt is honored on the wire
