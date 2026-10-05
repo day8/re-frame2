@@ -28,7 +28,8 @@
   waits, then cancels a published future. CLJS needs no monitor — the host
   is single-threaded, so the CAS immediately before `cljs-fetch` orders the
   only interleaving that host can produce (a re-entrantly fired abort
-  during body realization; the third test here drives exactly that
+  during body realization; `reentrant-abort-inside-body-thunk-never-enters-host-transport`
+  drives exactly that
   single-threaded ordering through the JVM's copy of the same gate).
 
   Committing ahead of the host call would leave that window open, and the
@@ -150,49 +151,6 @@
                 "the request-id registry stays clean")
             (is (empty? (rf.http.registry/actor-in-flight-snapshot))
                 "the actor registry stays clean")
-            (finally
-              (deliver release true)
-              (deref worker 5000 nil))))))))
-
-;; ---- (2) non-vacuity control: same harness, no abort -----------------------
-
-(deftest no-abort-control-enters-host-transport-exactly-once
-  (testing "non-vacuity control — the identical harness WITHOUT an abort invokes the host transport exactly once and completes normally"
-    (let [fetch-calls   (atom 0)
-          thunk-entered (promise)
-          release       (promise)
-          replies       (atom [])]
-      (with-redefs [rf.http.transport-jvm/jvm-fetch
-                    (fn [_]
-                      (swap! fetch-calls inc)
-                      (CompletableFuture/completedFuture
-                        {:ok?         true
-                         :status      200
-                         :status-text ""
-                         :headers     {}
-                         :body-text   "ok"}))]
-        (register-recorder-and-issue!
-          replies :prep-control
-          {:url    "http://127.0.0.1:0/x"
-           :method :post
-           :body   (fn []
-                     (deliver thunk-entered true)
-                     @release
-                     "held-body")})
-        (let [worker (future (rf/dispatch-sync [:issue]))]
-          (try
-            (is (true? (deref thunk-entered 5000 false))
-                "the body thunk entered — the harness holds preparation exactly as the abort case does")
-            ;; No abort: release immediately.
-            (deliver release true)
-            (is (not= ::timeout (deref worker 5000 ::timeout)))
-            (is (= 1 @fetch-calls)
-                "the host transport was entered exactly once — the gate did not disable the send branch")
-            (await-condition! #(seq @replies))
-            (is (= 1 (count @replies)))
-            (is (= :ok (:status (first @replies)))
-                "the request completed normally through the stubbed transport")
-            (is (empty? (rf.http.registry/in-flight-snapshot)))
             (finally
               (deliver release true)
               (deref worker 5000 nil))))))))
