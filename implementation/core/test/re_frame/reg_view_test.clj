@@ -13,6 +13,7 @@
   `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.core-reg-view-macro]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
@@ -170,7 +171,9 @@
 ;; lands in the registry slot meta) lives in
 ;; implementation/adapters/reagent-slim/test/. This file exercises the
 ;; absence-graceful path: when the helper is NOT on the classpath, the
-;; macro emits an unstamped expansion (UIx-only builds).
+;; macro emits an unstamped expansion (UIx-only builds). It also pins where a
+;; stamped expansion puts the tag, with the classifier stubbed so the row runs
+;; on either classpath.
 ;;
 ;; There is NO separate `defview` macro. The fold is
 ;; in `reg-view`'s expansion — that is the canonical view-registration
@@ -215,3 +218,29 @@
         ;; expansion stamps no :reagent2/form meta.
         (is (nil? (:reagent2/form slot-meta))
             "no form tag stamped — UIx-only build path")))))
+
+(deftest reg-view-form-tag-rides-the-slot-and-never-the-render-fn
+  (testing "with reagent-slim's classifier answering, the expansion records the
+            form tag in the registry slot's metadata and emits the render fn as
+            a bare `(fn …)` form. reagent-slim reads a form tag off the head it
+            mounts, and the head `(rf/view id)` returns is the frame-aware
+            wrapper, whose metadata is its own — so a tag on the render fn
+            reaches nothing, and metadata on a `(fn …)` form makes the
+            ClojureScript analyzer wrap it in `with-meta`, a `cljs.core/MetaFn`"
+    (with-redefs-fn {#'re-frame.core-reg-view-macro/reagent-slim-form-tag
+                     (constantly :reagent2/form-1)}
+      (fn []
+        (let [exp (rf/expand-reg-view {:line 1 :column 1} 'my.ns "my_ns.cljc"
+                                      'tagged '([n] [:p n]))
+              [_ id slot-meta fn-form]
+              (some #(when (and (seq? %) (= 're-frame.core/reg-view* (first %))) %)
+                    (tree-seq coll? seq exp))]
+          (is (= :my.ns/tagged id)
+              "precondition: the expansion's reg-view* call was found")
+          (is (= :reagent2/form-1 (:reagent2/form slot-meta))
+              "the registry slot's metadata carries the form tag")
+          (is (= 'clojure.core/fn (first fn-form))
+              "the render fn is emitted as a (fn …) form")
+          (is (nil? (meta fn-form))
+              "the (fn …) form carries no metadata, so it compiles to a plain JS
+               function rather than a MetaFn"))))))
