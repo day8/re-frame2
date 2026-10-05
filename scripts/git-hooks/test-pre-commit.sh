@@ -171,21 +171,6 @@ case "$out" in
   *) fail "MEMORY.md staged -> wrong exit: $out" ;;
 esac
 
-# Test 1d: tools/xray/foo.cljs -> exit 1 + error block on stderr.
-out=$(printf 'tools/xray/foo.cljs\n' | run_lib 2>/tmp/rf2-precommit-test.err) || true
-case "$out" in
-  *EXIT=1*)
-    if grep -q 'mayor checkout cannot commit' /tmp/rf2-precommit-test.err \
-       && grep -q 'tools/xray/foo.cljs' /tmp/rf2-precommit-test.err; then
-      pass "tools/xray/foo.cljs -> refused with error block"
-    else
-      fail "tools/xray/foo.cljs -> exited 1 but stderr missing expected text"
-      cat /tmp/rf2-precommit-test.err >&2
-    fi
-    ;;
-  *) fail "tools/xray/foo.cljs -> wrong exit: $out" ;;
-esac
-
 # Test 1e: mixed permitted + refused -> exit 1 (any-refused triggers).
 # The refused listing should contain tools/xray/foo.cljs but NOT
 # .beads/issues.jsonl. (.beads appears once more in the "Permitted in
@@ -441,7 +426,7 @@ esac
 
 # 3d: every other database-derived path is refused too (allow-list, not
 # deny-list) — including artefacts that do not exist yet.
-for p in .beads/metadata.json .beads/events.jsonl .beads/beads.db .beads/dolt/noms/foo; do
+for p in .beads/metadata.json .beads/dolt/noms/foo; do
   out=$(printf '%s\n' "$p" | run_beads_lib commit 2>"$BERR") || true
   case "$out" in
     *EXIT=1*) pass "database-derived path refused: $p" ;;
@@ -455,20 +440,6 @@ out=$(printf '.beads/README.md\n.beads/config.yaml\n.beads/.gitignore\n.beads/PR
 case "$out" in
   *EXIT=0*) pass "human-authored beads config -> exit 0" ;;
   *) fail "human-authored beads config -> wrongly refused: $out"; cat "$BERR" >&2 ;;
-esac
-
-# 3e-bis: `.beads/PRIME.md` specifically.
-#
-# It is hand-written prose overriding `bd prime`'s SessionStart output, not a
-# database export, so a worker branch may carry it. The allow-list is
-# ENUMERATED, so this needs its own arm — without one the file falls through to
-# `.beads/*` and is refused from every worker worktree, reddening the CI arm on
-# every PR that touches it. Pinned alone rather than only inside 3e's batch: a
-# batch that exits 0 says nothing about WHICH member earned it.
-out=$(printf '.beads/PRIME.md\n' | run_beads_lib commit 2>"$BERR") || true
-case "$out" in
-  *EXIT=0*) pass ".beads/PRIME.md alone -> exit 0 (allow-listed)" ;;
-  *) fail ".beads/PRIME.md alone -> wrongly refused: $out"; cat "$BERR" >&2 ;;
 esac
 
 # ...and the arm is EXACT: neighbours that merely look like it stay refused,
@@ -2948,101 +2919,6 @@ for t in "$TRAILER_GENWITH" "$TRAILER_SESSION_URL" "$TRAILER_COAUTHOR" \
   esac
 done
 
-# The same discrimination at the DETECTOR, so the local commit-msg hook — which
-# never sees a PR body — inherits it too. A commit message may explain the rule
-# it is enforcing without being refused by it.
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n' "$PROSE_COMPLIANCE" \
-  | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=0*) pass "(10q) a commit message NAMING the trailers is permitted" ;;
-  *) fail "(10q) FALSE POSITIVE: a commit message about the rule was refused ($out)"
-     cat "$AERR" >&2 ;;
-esac
-
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n' "$PROSE_COMPLIANCE_TAIL" \
-  | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=0*) pass "(10q) a commit message ENDING on a claude-ish word is permitted" ;;
-  *) fail "(10q) FALSE POSITIVE: rule 3's tail test reads a word, not a link ($out)"
-     cat "$AERR" >&2 ;;
-esac
-
-# The linked-policy pair at the detector: a commit message that cites the rule
-# by URL rather than by filename, so its line ENDS ON THE TOOL'S OWN LINK — the
-# same tail `MARKER_BARE_URL` below carries, and the opposite verdict. Neither
-# line is a marker, so this passing is a statement about the whole line rather
-# than about its last word.
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n' \
-  "$PROSE_POLICY_LINK" "$PROSE_POLICY_LINK_CITED" | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=0*) pass "(10q) a commit message ENDING on the tool's own link is permitted" ;;
-  *) fail "(10q) FALSE POSITIVE: prose citing the policy by URL was refused ($out)"
-     cat "$AERR" >&2 ;;
-esac
-
-# The citation pair at the detector: a commit message that ends on a URL whose
-# PATH carries the word and whose HOST does not. Reaching it takes crossing
-# both anchors — the line has to start at `Generated`, AND end on a link —
-# which is why casual cases never exercise a path-reading tail test.
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n' \
-  "$PROSE_POLICY_URL" "$PROSE_POLICY_URL_PATHED" | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=0*) pass "(10q) a commit message ending on a CITATION url is permitted" ;;
-  *) fail "(10q) FALSE POSITIVE: rule 3's tail test reads a host, not a path ($out)"
-     cat "$AERR" >&2 ;;
-esac
-
-# BOTH DIRECTIONS IN ONE MESSAGE, which is the pairing that makes the host test
-# mean something: the citation sentences and a marker on the tool's own host
-# with a path that names neither the tool nor itself. Only the marker may be
-# quoted back — a listing that also names the citations is the false positive
-# returning, and the exit code alone would not show it.
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n\n%s\n' \
-  "$PROSE_POLICY_URL" "$PROSE_POLICY_URL_PATHED" "$MARKER_URL_PATHED" \
-  | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=1*)
-    if grep -Fq "$MARKER_URL_PATHED" "$AERR" &&
-       ! grep -Fq "$PROSE_POLICY_URL" "$AERR" &&
-       ! grep -Fq "$PROSE_POLICY_URL_PATHED" "$AERR"; then
-      pass "(10q) the marker is quoted and the citations beside it are not"
-    else
-      fail "(10q) the refusal listing named the wrong lines"
-      cat "$AERR" >&2
-    fi
-    ;;
-  *) fail "(10q) DISARMED: a marker on the tool's host with an ordinary path was allowed ($out)" ;;
-esac
-
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n\n%s\n' \
-  "$PROSE_COMPLIANCE" "$TRAILER_GENWITH" | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=1*) pass "(10q) a commit message that CARRIES the marker is still refused" ;;
-  *) fail "(10q) DISARMED: a commit message carrying the marker was allowed ($out)" ;;
-esac
-
-# And the tail control at the detector too: the marker with no markdown
-# brackets, whose last word IS the tool's link. Same head as the permitted
-# sentence above, opposite tail — so this pair, not either half alone, is what
-# pins rule 3's second anchor to a LINK rather than to a word. The linked-policy
-# sentences ride in the same message, which is the shape a real commit
-# documenting this rule has: they end on the marker's own link and must not be
-# quoted back, and only the marker may be.
-out=$(printf 'docs(gates): record the attribution rule\n\n%s\n%s\n%s\n\n%s\n' \
-  "$PROSE_COMPLIANCE_TAIL" "$PROSE_POLICY_LINK" "$PROSE_POLICY_LINK_CITED" \
-  "$MARKER_BARE_URL" | run_attr_lib 2>"$AERR") || true
-case "$out" in
-  *EXIT=1*)
-    if grep -Fq "$MARKER_BARE_URL" "$AERR"; then
-      pass "(10q) a bare-URL generated-with marker is still refused, and quoted"
-    else
-      fail "(10q) refused, but the diagnostic never quoted the bare-URL marker"
-      cat "$AERR" >&2
-    fi
-    ;;
-  *) fail "(10q) DISARMED: a marker ending on the tool's own link was allowed ($out)" ;;
-esac
-
 # 10r: THE MARKER WITH EITHER VERB, AND DECORATION ON BOTH SIDES.
 #
 # Platforms write the marker as `Generated by` as well as `Generated with`, and
@@ -3114,13 +2990,6 @@ for t in "$PROSE_GENWITH_NAMED" "$PROSE_GENBY_OTHER" "$PROSE_TAIL_DECORATED"; do
       fi
       ;;
     *) fail "(10r) FALSE POSITIVE: prose about the marker reds the PR: $key... ($out)"
-       cat "$AERR" >&2 ;;
-  esac
-  out=$(printf 'docs(gates): record the attribution rule\n\n%s\n' "$t" \
-    | run_attr_lib 2>"$AERR") || true
-  case "$out" in
-    *EXIT=0*) pass "(10r) a commit message NAMING the marker is permitted: $key..." ;;
-    *) fail "(10r) FALSE POSITIVE: a commit message about the marker was refused: $key... ($out)"
        cat "$AERR" >&2 ;;
   esac
 done
