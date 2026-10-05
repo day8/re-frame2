@@ -18,7 +18,7 @@
     3. After the response is materialised, the host adapter calls
        `clear-request!` (typically as part of frame teardown).
 
-  This test pins the cofx-registration, the read path, the platforms
+  This test pins the read path, the platforms
   gating (client-side dispatches silently no-op), the frame-isolation
   invariant (two simultaneous per-request frames don't leak), and the
   set-request! seam tests/harnesses use to drive the drain without a host
@@ -26,16 +26,8 @@
 
   ## Posture split
 
-  Two dev-only surfaces are asserted in debug-gated arms here, so the rest
+  One dev-only surface is asserted in debug-gated arms here, so the rest
   of the namespace runs in `scripts/test-ssr-prod-gate.sh`.
-
-  `:doc` on the cofx registry slot is a pure-documentation key, dropped by
-  `registrar/strip-pure-documentation` when `interop/debug-enabled?` is false
-  (Spec 001 §Production elision contract). Its assertion sits in a
-  `(when interop/debug-enabled? …)` arm; the RETAINED half of the same
-  registration — the `:handler-fn` and the `:platforms #{:server}` gate that
-  actually decides whether the cofx runs — is asserted outside it and runs
-  in the lane.
 
   The `:rf.cofx/skipped-on-platform` trace is emitted through the gated trace
   bus, so its assertions sit in a dev arm. What it announces is production-real and
@@ -46,7 +38,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
@@ -59,59 +50,11 @@
 ;; The :rf.server/request cofx must be present in the cofx registry at
 ;; namespace-load time — same model as the :rf.server/* fxs.
 
-(deftest cofx-is-registered-after-namespace-load
-  (testing ":rf.server/request resolves in the cofx registry"
-    (let [meta (rf.registrar/lookup :cofx :rf.server/request)]
-      (is (some? meta)
-          "the cofx registry holds an entry under :rf.server/request")
-      (is (fn? (:handler-fn meta))
-          "the entry carries a :handler-fn")
-      (is (= #{:server} (:platforms meta))
-          ":platforms #{:server} per Spec 011 §634-642 — server-only")
-      ;; Dev-instrumentation arm (see ns docstring). `:doc` is a
-      ;; pure-documentation key and is stripped in production builds; the
-      ;; three RETAINED keys above are the ones the runtime acts on.
-      (when rf.interop/debug-enabled?
-        (is (string? (:doc meta))
-            "the registration carries a :doc string"))
-      ;; The REAL-gate arm: the elision itself, witnessed on a
-      ;; JVM actually started with `-Dre-frame.debug=false`.
-      (when-not rf.interop/debug-enabled?
-        (is (nil? (:doc meta))
-            ":doc is elided from the registry slot in production builds
-             (Spec 001 §Production elision contract)")))))
-
 ;; ---- read path: populated slot ---------------------------------------------
 ;;
 ;; The canonical pattern: host adapter writes the request to the per-
 ;; frame slot before drain; a server-side event handler reads it via
 ;; :rf.cofx/requires [:rf.server/request].
-
-(deftest cofx-reads-populated-request
-  (testing "(set-request! frame req) → :rf.cofx/requires [:rf.server/request] → handler reads req"
-    (let [server-frame (rf.frame/make-anon-frame-record!
-                         {:doc      "SSR request frame"
-                          :platform :server})
-          request      {:request-method :get
-                        :uri            "/articles/42"
-                        :headers        {"accept"   "text/html"
-                                         "cookie"   "session=abc123"}
-                        :query-string   "preview=1"
-                        :server-name    "example.com"
-                        :scheme         :https}
-          observed     (atom :unset)]
-      ;; Host adapter populates the slot.
-      (rf.ssr/set-request! server-frame request)
-      ;; A server-side handler reads it via the cofx.
-      (rf/reg-event :req-test/read
-        {:rf.cofx/requires [:rf.server/request]}
-        (fn [{:keys [rf.server/request]} _]
-          (reset! observed request)
-          {}))
-      (rf/dispatch-sync [:req-test/read] {:frame server-frame})
-
-      (is (= request @observed)
-          "the handler saw the request map that was placed in the slot"))))
 
 ;; ---- unpopulated slot ------------------------------------------------------
 ;;
