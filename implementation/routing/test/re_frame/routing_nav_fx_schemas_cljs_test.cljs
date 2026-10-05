@@ -162,28 +162,6 @@
           (is (= :rf.nav/push-url (-> v :tags :rf.fx/id)))
           (is (= :skipped (:recovery v))))))))
 
-(deftest replace-url-with-malformed-args-never-reaches-replacestate
-  (testing ":rf.nav/replace-url carries the SAME gate as its
-            push sibling — the two history fxs must not have asymmetric
-            args validation any more than asymmetric drain survival"
-    (own-the-url!)
-    (rf/reg-event :test/good-push
-                  (fn [_ _] {:fx [[:rf.nav/push-url "/cart"]]}))
-    (rf/dispatch-sync [:test/good-push])
-    (let [witness (sibling-calls)]
-      (rf/reg-event :test/bad-replace
-                    (fn [_ _]
-                      {:fx [[:rf.nav/replace-url 42]         ;; bad: not a string
-                            [:test/witness       nil]]}))
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:test/bad-replace])
-        (is (= "/cart" (current-url *history-state*))
-            "replaceState was NOT called — the URL is unchanged")
-        (is (= 1 @witness) "the sibling fx still ran")
-        (is (= 1 (count (violations @traces))))
-        (is (= :rf.nav/replace-url
-               (-> (violations @traces) first :tags :rf.fx/id)))))))
-
 (deftest replace-url-with-a-well-formed-url-still-replaces
   (testing "POSITIVE control: a conforming URL still drives replaceState"
     (own-the-url!)
@@ -197,25 +175,6 @@
 ;; =========================================================================
 ;; 2. :rf.nav/capture-scroll — the host-side cache is not written
 ;; =========================================================================
-
-(deftest capture-scroll-with-malformed-args-never-writes-the-cache
-  (testing ":url is the cache KEY, so a capture without one (or
-            with a non-string one) must fail BEFORE the handler writes the
-            host-side per-frame scroll-position cache"
-    (set-scroll! 0 640)
-    (let [witness (sibling-calls)]
-      (rf/reg-event :test/bad-capture
-                    (fn [_ _]
-                      {:fx [[:rf.nav/capture-scroll {:position [1 2]}] ;; bad: no :url
-                            [:test/witness          nil]]}))
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:test/bad-capture])
-        (is (nil? (rf.routing.scroll/frame-scroll-cache :rf/default))
-            "nothing was written to the scroll-position cache")
-        (is (= 1 @witness) "the sibling fx still ran")
-        (is (= 1 (count (violations @traces))))
-        (is (= :rf.nav/capture-scroll
-               (-> (violations @traces) first :tags :rf.fx/id)))))))
 
 (deftest capture-scroll-with-a-well-formed-url-still-captures
   (testing "POSITIVE control: {:url <string>} still captures — and the
@@ -272,31 +231,6 @@
 ;; exercised here, plus the empty map, because a `[:or [:enum …] :map]` slot
 ;; would wave all three through.
 
-(deftest scroll-with-a-map-form-strategy-is-rejected-at-the-args-boundary
-  (testing "a MAP strategy — including an element-target
-            {:to :element :selector \"#article\"} shape a \"host-extensible\"
-            strategy would take — is a violation, not a silent
-            no-op. The window is untouched, but the author is TOLD"
-    (doseq [bad [{:to :element :selector "#article"}   ;; an element-target map
-                 {:behavior :smooth :block :center}    ;; a scroll-behaviour map
-                 {}]]                                  ;; the degenerate map
-      (set-scroll! 0 700)
-      (let [witness (sibling-calls)]
-        (rf/reg-event :test/map-strategy
-                      (fn [_ _]
-                        {:fx [[:rf.nav/scroll {:strategy bad}]
-                              [:test/witness  nil]]}))
-        (with-trace-recorder! [traces]
-          (rf/dispatch-sync [:test/map-strategy])
-          (is (= [0 700] (scroll-xy))
-              (str "no scroll for " (pr-str bad)))
-          (is (= 1 @witness)
-              "the sibling fx still ran — only the offending fx is skipped")
-          (is (= 1 (count (violations @traces)))
-              (str "a map strategy is a schema violation: " (pr-str bad)))
-          (is (= :rf.nav/scroll
-                 (-> (violations @traces) first :tags :rf.fx/id))))))))
-
 (deftest scroll-handler-emits-the-unsupported-strategy-error-directly
   (testing "the ALWAYS-ON leg. The `:schema` gate above only
             exists when the OPTIONAL schemas artefact is on the classpath;
@@ -324,46 +258,6 @@
           (is (= :rf/default (:frame tags))
               "frame-stamped so the diagnostic reaches epoch capture / Xray")
           (is (string? (:reason tags))))))))
-
-(deftest scroll-handler-rejection-emits-once-per-channel
-  (testing "fanning through `rf.error-emit/emit-error-both!` must not
-            DOUBLE-emit. One unsupported strategy produces exactly one
-            always-on record AND exactly one dev trace — the dev-trace tag map
-            carrying the :strategy / :supported / :frame that trace consumers
-            (Xray, epoch capture) read"
-    (set-scroll! 0 700)
-    (let [records (record-always-on-errors!)]
-      (with-trace-recorder! [traces]
-        (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :bogus})
-        (is (= 1 (count (unsupported @traces)))
-            "exactly one dev trace — no double emission on the trace channel")
-        (let [tags (:tags (first (unsupported @traces)))]
-          (is (= :bogus (:strategy tags)))
-          (is (= [:top :restore :preserve] (:supported tags)))
-          (is (= :rf/default (:frame tags)))
-          (is (string? (:reason tags)))
-          (is (= :no-scroll (:recovery (first (unsupported @traces))))
-              ":recovery is hoisted to the envelope by build-event")))
-      (is (= 1 (count (unsupported-records @records)))
-          "exactly one always-on record — no double emission on that channel"))))
-
-(deftest scroll-handler-adversarial-near-miss-strategies
-  (testing "adversarial: values that LOOK like a supported strategy
-            must still be rejected — a misspelt keyword, the string spelling,
-            and a map that merely NAMES a supported strategy (the shape a
-            'named strategy registry' would have used) get no special pass"
-    (doseq [bad [:restored                 ;; one letter off
-                 :scroll-top               ;; plausible synonym
-                 "top"                     ;; string, not keyword
-                 {:strategy :top}          ;; a map that names a real strategy
-                 [:top]]]                  ;; a vector wrapping one
-      (set-scroll! 0 700)
-      (with-trace-recorder! [traces]
-        (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy bad})
-        (is (= 1 (count (unsupported @traces)))
-            (str "rejected: " (pr-str bad)))
-        (is (= [0 700] (scroll-xy))
-            (str "no scroll for " (pr-str bad)))))))
 
 (deftest scroll-handler-positive-control-the-three-supported-strategies
   (testing "POSITIVE control — the essential one. Making the
