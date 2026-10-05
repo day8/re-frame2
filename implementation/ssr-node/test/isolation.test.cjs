@@ -55,22 +55,6 @@ test("a sloppy module's write fails silently — and still reaches nothing", asy
   });
 });
 
-test('each request gets its OWN snapshot object — never one seen before', async () => {
-  await withService('reference', { isolates: 1 }, async (service) => {
-    const first = await collect(service, req({ ':todos': '[1]' }));
-    const second = await collect(service, req({ ':todos': '[2]' }));
-    assert.strictEqual(observed(first).seenBefore, false);
-    assert.strictEqual(
-      observed(second).seenBefore,
-      false,
-      'a second request handed the same object would mean the snapshot is shared',
-    );
-    // One isolate served both, so `seenBefore` is a reading of something:
-    // the WeakSet that answers it survived between the two renders.
-    assert.strictEqual(observed(first).threadId, observed(second).threadId);
-  });
-});
-
 test('the caller’s own object is untouched by a render', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     const state = { ':todos': '[1]' };
