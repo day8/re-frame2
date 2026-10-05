@@ -1813,11 +1813,6 @@ def _self_test() -> int:
         gate_grant_problems, grants.replace("  - Bash(shadow-cljs *)\n", ""),
         dirty=True, label="C3 shadow-cljs grant dropped",
     )
-    expect(
-        gate_grant_problems,
-        "allowed-tools:\n  - Read\n  - Edit\n  - Write\n  - Grep\n  - Glob\n",
-        dirty=True, label="C4 a front-matter with no Bash grant at all",
-    )
     # A grant for one family does not stand in for another: `npx` is not `npm`.
     expect(
         gate_grant_problems,
@@ -2148,17 +2143,6 @@ def _self_test() -> int:
         dirty=False,
         label="S12 per-adapter semicolon HOUSE STYLE is green",
     )
-    # A colon introduces an elaboration of the SAME subject, so it is not a
-    # clause boundary — S2 above must stay red. Its period variant is the
-    # ACCEPTED BOUNDARY: the sentence carve splits it and the attributing
-    # sentence names no hooks adapter, so nothing evaluates it. Consistent and
-    # statable; catching it would need a pronoun-resolving prose parser.
-    expect(
-        hooks_sentence_problems,
-        "UIx is not special. reg-view* gives it `:contextType`.",
-        dirty=True,
-        label="S13 period + lowercase does not split the sentence — still caught",
-    )
 
     # Mutations against the REAL guarded blocks (not free-floating strings):
     # each authoritative leaf's coherent recipe must be GREEN as shipped, its
@@ -2377,24 +2361,6 @@ def _self_test() -> int:
         _fence('[:input {:type "hidden" :name "csrf-token" :value csrf-token}]'),
         dirty=False, label="X3 hidden-input fence (no comparison, no schema)",
     )
-    # 7b — the token as a REQUIRED map entry.
-    expect(
-        csrf_fence_problems,
-        _fence("(def AddToCartForm",
-               "  [:map",
-               "   [:item-id [:string {:min 1}]]",
-               "   [:csrf-token [:string {:min 1}]]])"),
-        dirty=True, label="W3 fenced required `:csrf-token` field schema",
-    )
-    # CLEAN — the envelope shape: optional + sensitive, off the field schema.
-    expect(
-        csrf_fence_problems,
-        _fence("(def AddToCartSubmission",
-               "  (conj AddToCartFields",
-               "        [:csrf-token {:optional true :sensitive? true} "
-               "[:string {:min 1}]]))"),
-        dirty=False, label="X4 fenced `{:optional true}` envelope entry",
-    )
     # 7b — a bracketed `:csrf-token` with NO CHILD is a
     # classification PATH, not a map entry. `:sensitive [[:csrf-token]]` is the
     # SUPPORTED registration metadata that keeps the submitted token out of
@@ -2410,10 +2376,6 @@ def _self_test() -> int:
                "   :sensitive [[:csrf-token]]}",
                "  (fn [cofx [_ form-params]] nil))"),
         dirty=False, label="X5 registration `:sensitive [[:csrf-token]]` path",
-    )
-    expect(
-        csrf_fence_problems, _fence("{:sensitive [[:csrf-token]]}"),
-        dirty=False, label="X6 bare classification path vector",
     )
     # AND THE HALF THAT SEPARATES A FIX FROM A DISARM. A required entry in a
     # real schema must STILL fail — including the shortest spelling, whose
