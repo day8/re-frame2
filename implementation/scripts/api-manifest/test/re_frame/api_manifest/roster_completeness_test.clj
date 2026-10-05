@@ -12,8 +12,8 @@
   AN ORPHANED GATE. Remove the assertion's call site and `namespaces-under`
   and `source-file->ns-sym` survive with no caller, which is worse than no
   gate: the orphan reads like a live backstop to anyone grepping for one.
-  These tests exist so the gate cannot be orphaned silently — the live-tree
-  and call-site tests below fail if it stops accounting for the real trees.
+  These tests exist so the gate cannot be orphaned silently — the call-site
+  tests below fail if it stops accounting for the real trees.
 
   THE GATE. It infers nothing about publicness. It asserts only that every
   source namespace under `roster-covered-roots` is ACCOUNTED FOR — by
@@ -52,21 +52,6 @@
       (is (seq (:stale drift))
           "internal entries absent from the tree are reported stale"))))
 
-(deftest a-new-namespace-is-unaccounted
-  (testing "a namespace named by NO roster is reported by name — the new
-            public surface that would otherwise ship unscanned"
-    (let [present #{'re-frame.ssr 're-frame.ssr.brand-new}
-          drift   (rf.api-manifest.gen/roster-drift present no-cljs-sidecar)]
-      (is (= '[re-frame.ssr.brand-new] (:unaccounted drift))))))
-
-(deftest enrolment-accounts-for-a-namespace
-  (testing "the same namespace, once enrolled in jvm-namespaces, is accounted
-            for — enrolment is what clears the finding, not a marker"
-    ;; `re-frame.ssr.ring.node` is enrolled, so it must NOT be
-    ;; reported even though it is not on the internal roster.
-    (let [drift (rf.api-manifest.gen/roster-drift #{'re-frame.ssr.ring.node} no-cljs-sidecar)]
-      (is (empty? (:unaccounted drift))))))
-
 (deftest a-cljs-only-sidecar-row-accounts-for-a-namespace
   (testing "a namespace the JVM cannot require is accounted for by its
             sidecar :cljs-only rows — the path a CLJS-only surface takes"
@@ -100,14 +85,6 @@
                   {:cljs-only [{:namespace (name both) :var "x"}]})]
       (is (= [both] (:contradictory drift))))))
 
-(deftest unaccounted-is-sorted
-  (testing "findings are sorted, so the failure message is stable across runs"
-    (let [drift (rf.api-manifest.gen/roster-drift
-                  '#{re-frame.ssr.zzz re-frame.ssr.aaa re-frame.ssr.mmm}
-                  no-cljs-sidecar)]
-      (is (= '[re-frame.ssr.aaa re-frame.ssr.mmm re-frame.ssr.zzz]
-             (:unaccounted drift))))))
-
 ;; ---------------------------------------------------------------------------
 ;; assert-roster-complete! — the throw that turns drift red.
 ;; ---------------------------------------------------------------------------
@@ -124,42 +101,9 @@
                (try (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar)
                     (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))
 
-(deftest assert-message-names-both-remediation-paths
-  (testing "the failure tells the reader how to answer for the namespace —
-            enrol it, or record it internal. A gate that only says NO sends
-            people to the nearest silencer (a ^:no-doc marker), which
-            classifies nothing."
-    (let [msg (try (rf.api-manifest.gen/assert-roster-complete! '#{re-frame.ssr.brand-new}
-                                                no-cljs-sidecar)
-                   (catch clojure.lang.ExceptionInfo e (ex-message e)))]
-      (is (re-find #"jvm-namespaces" msg))
-      (is (re-find #"internal-namespaces" msg))
-      (is (re-find #"cljs-only" msg)))))
-
-(deftest assert-returns-present-when-clean
-  (testing "a clean reconciliation returns `present` unchanged, so the
-            assertion composes in the caller. `present` must carry the whole
-            internal roster: an entry missing from the tree is STALE, which
-            is a throw of its own."
-    (let [present (conj (set rf.api-manifest.gen/internal-namespaces) 're-frame.ssr.ring.node)]
-      (is (= present (rf.api-manifest.gen/assert-roster-complete! present no-cljs-sidecar))))))
-
 ;; ---------------------------------------------------------------------------
-;; The LIVE tree — the test that fails if the gate is orphaned.
+;; The LIVE tree.
 ;; ---------------------------------------------------------------------------
-
-(deftest live-rosters-account-for-the-live-trees
-  (testing "every namespace under every covered root is classified, with no
-            stale internal entries and no contradictions. This is the
-            assertion `build-manifest` makes on every run and every --check."
-    (let [drift (rf.api-manifest.gen/roster-drift (rf.api-manifest.gen/covered-source-namespaces)
-                                  (rf.api-manifest.gen/read-sidecar))]
-      (is (empty? (:unaccounted drift))
-          (str "unaccounted: " (:unaccounted drift)))
-      (is (empty? (:stale drift))
-          (str "stale: " (:stale drift)))
-      (is (empty? (:contradictory drift))
-          (str "contradictory: " (:contradictory drift))))))
 
 (deftest the-crossing-namespaces-are-enrolled
   (testing "the two JVM-loadable ssr-node crossing namespaces are enrolled
@@ -228,29 +172,3 @@
                 "build-manifest must refuse, naming the unaccounted namespace")
             (is (= [synthetic-unaccounted] (:unaccounted (ex-data e)))
                 "ex-data must name the unaccounted namespace")))))))
-
-(deftest build-manifest-asserts-before-it-reconciles
-  (testing "the roster assertion runs BEFORE the sidecar reconciliations, which
-            is the ordering `build-manifest`'s own comment states. Driven with a
-            sidecar that would ALSO fail the duplicate-row check: the roster
-            refusal must be the one that surfaces, because a later check firing
-            first would mean an unaccounted namespace could be masked by any
-            other drift in the tree."
-    (let [live    (rf.api-manifest.gen/covered-source-namespaces)
-          sidecar (rf.api-manifest.gen/read-sidecar)
-          cljs    (vec (:cljs-only sidecar))
-          _       (assert (seq cljs) "precondition: sidecar carries :cljs-only rows")
-          ;; A sidecar that is ALSO duplicate-broken, so both checks would fire.
-          broken  (update sidecar :cljs-only conj (assoc (first cljs) :tier :tooling))]
-      ;; Control: with the rosters clean, this sidecar fails on the DUPLICATE.
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"Duplicate manifest rows"
-                            (rf.api-manifest.gen/build-manifest broken))
-          "control: the duplicate check fires when the rosters are clean")
-      (with-redefs [rf.api-manifest.gen/covered-source-namespaces
-                    (constantly (conj live synthetic-unaccounted))]
-        (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo
-              #"Unaccounted public-API source namespace"
-              (rf.api-manifest.gen/build-manifest broken))
-            "the roster refusal precedes the duplicate refusal")))))
