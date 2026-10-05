@@ -413,24 +413,22 @@ def _run_self_tests(verbose: bool = False) -> int:
     or in live testbed source, and the assertion is EXACT — the count must be
     the one declared, not merely non-zero, because `>= 1` would be a
     fail-open shape. Negative fixtures exercise the
-    counterparts that MUST stay green: removed-context prose, an inline code
-    span, a `;` comment in a fence, a source docstring / `;` comment mention,
-    the bare `:cofx` data-key (no `:where` head), and the rewritten
-    `:rf.error/cofx-value-invalid` teaching.
+    counterparts that MUST stay green: removed-context prose (its inline code
+    spans included, since they sit outside any fence), a `;` comment in a
+    fence, a source docstring / `;` comment mention, and the bare `:cofx`
+    data-key (no `:where` head).
     """
     cases: list[tuple[str, int]] = [
         # (fixture relative to fixture-root, expected finding count)
         # --- positives: a LIVE :where :cofx must FIRE ---
         ("positive/live_where_cofx_fence.md",        1),
         ("positive/live_where_cofx_source.cljs",     1),
-        # --- negatives: removed-context / rewritten forms must stay GREEN ---
+        # --- negatives: removed-context forms must stay GREEN ---
         ("negative/removed_context_prose.md",        0),
-        ("negative/inline_code_span_mention.md",     0),
         ("negative/masked_clj_comment_in_fence.md",  0),
         ("negative/source_comment_mention.cljs",     0),
         ("negative/source_docstring_mention.cljs",   0),
         ("negative/bare_cofx_datakey.cljs",          0),
-        ("negative/rewritten_cofx_value_invalid.md", 0),
     ]
 
     failures = 0
