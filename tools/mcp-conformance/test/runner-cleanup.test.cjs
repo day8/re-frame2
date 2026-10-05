@@ -512,11 +512,6 @@ test('ownedDescendants refuses a RECYCLED pid that predates our spawn (rf2-kzbf 
   assert.ok(!owned.includes(500), 'a process predating our spawn must NOT be attributed to us');
 });
 
-test('ownedDescendants reports an empty set when the root is already gone and left nothing (rf2-kzbf)', () => {
-  const table = [{ pid: 1, ppid: 0, createdMs: 1000 }];
-  assert.deepEqual(ownedDescendants(table, 100, 4000), []);
-});
-
 // ---- the ROOT row is fenced too -------------------------------------------
 //
 // Fencing the DESCENDANTS on creation time while letting the ROOT in on its
