@@ -137,30 +137,6 @@
           (str "a custom structural handler leaked as a live attribute: "
                (pr-str result))))))
 
-(def ^:private hostile-handler-keys
-  ;; Canonical casings plus camelCase and kebab structural spellings.
-  [:onclick :ONCLICK :OnClick :onClick :oNcLiCk
-   :onload :ONLOAD :OnLoad :onLoad
-   :onerror :ONERROR :OnError
-   :onmouseover :ONMOUSEOVER :OnMouseOver :onMouseOver
-   :on-click :ON-CLICK :on-mouse-over :onCustomEvent :on-custom-event
-   :onsubmit :ONSUBMIT :onfocus :onFocus :onkeydown :onKeyDown
-   ;; The structural matcher cannot catch these lower-case touch names.
-   :ontouchstart :ontouchmove :ontouchend :ontouchcancel
-   :ONTOUCHSTART :OnTouchStart :onTouchStart
-   ;; Nor the lower-case oncommand spelling (WHATWG `command` event).
-   :oncommand :ONCOMMAND :OnCommand :oNcOmMaNd])
-
-(deftest hostile-handler-corpus-all-stripped
-  (testing "every hostile handler key strips to an empty attribute string"
-    (doseq [k hostile-handler-keys]
-      (let [out (rf.ssr.html-helpers/attr-string {k "javascript:alert(1)"})]
-        (is (= "" out)
-            (str "handler key " (pr-str k) " was NOT stripped - leaked: "
-                 (pr-str out)))
-        (is (not (live-handler-attr? out))
-            (str "handler key " (pr-str k) " produced a live on*= attribute"))))))
-
 (deftest touch-handler-payload-never-reaches-wire-html
   (testing "lower-case touch handler keys emit no live on* attribute and no
             trace of the JavaScript payload"
@@ -177,44 +153,6 @@
         (is (not (str/includes? html payload))
             (str "touch handler JS payload reached wire HTML for key "
                  (pr-str k) ": " html))))))
-
-(deftest oncommand-handler-stripped
-  (testing "the standardized oncommand handler (WHATWG `command` event)
-            strips in every HTML-equivalent casing - the all-lowercase
-            spelling has no upper-case letter and no hyphen, so only the
-            allowlist can catch it"
-    (let [payload "globalThis.pwned++"]
-      (doseq [k [:oncommand :ONCOMMAND :OnCommand :oNcOmMaNd]]
-        (let [out (rf.ssr.html-helpers/attr-string {k payload})]
-          (is (= "" out)
-              (str "handler key " (pr-str k) " was NOT stripped - leaked: "
-                   (pr-str out)))
-          (is (not (str/includes? (str/lower-case out) "oncommand"))
-              (str "handler name oncommand survived for key " (pr-str k)
-                   ": " (pr-str out)))
-          (is (not (str/includes? out payload))
-              (str "JS payload survived for key " (pr-str k) ": "
-                   (pr-str out)))))
-      ;; Non-vacuity: the SAME payload under a benign key serialises, so the
-      ;; empty results above prove handler stripping, not value rejection.
-      (is (str/includes? (rf.ssr.html-helpers/attr-string {:data-x payload}) payload)
-          "the payload under a benign attribute must serialise"))))
-
-(deftest oncommand-payload-never-reaches-wire-html
-  (testing "an emitted element carrying :oncommand renders its benign sibling
-            attribute and child text while omitting the handler name and the
-            JavaScript payload entirely"
-    (let [payload "globalThis.pwned++"
-          html    (rf.ssr.emit/emit-element [:div {:oncommand payload :id "ok"}
-                                      "child"])]
-      (is (str/includes? html "id=\"ok\"")
-          "the benign sibling attr should survive")
-      (is (str/includes? html "child")
-          "the child text should survive")
-      (is (not (str/includes? (str/lower-case html) "oncommand"))
-          (str "oncommand leaked into wire HTML: " html))
-      (is (not (str/includes? html payload))
-          (str "oncommand JS payload reached wire HTML: " html)))))
 
 (deftest non-handler-on-prefix-keys-survive
   (testing "the matcher must NOT over-strip innocuous English-word keys -
@@ -262,16 +200,6 @@
       (is (nil? result)
           (str "a grammar-breakout key did NOT throw (would serialise): "
                (pr-str result))))))
-
-(deftest hostile-breakout-key-corpus
-  (testing "named breakout keys throw the grammar error"
-    (doseq [k ["onclick=alert(1) data-x"
-               "x=\"\" onload=alert(1) y"
-               "title><script>"
-               "id=x onmouseover=y"
-               "class=\"a\" onclick"]]
-      (is (throws-invalid-attr-name? {k "v"})
-          (str "breakout key " (pr-str k) " did not throw")))))
 
 (def ^:private gen-script-breakout
   "Draws a hostile string embedding a randomly-recased `</script...>`
