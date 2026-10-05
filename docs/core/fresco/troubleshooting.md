@@ -539,9 +539,12 @@ head.
 <a id="fresco-test-bad-option"></a>
 #### `:rf.error/fresco-test-bad-option`
 
-You gave an L2 `tree` non-map options, or an option outside its closed roster
-`#{:subs}`. `hm/shadow!` raises it too, for options outside `:reference`,
-`:candidate`, `:initial-events` and `:script`, or a script step other than
+You gave a test-kit door non-map options, or an option outside its closed
+roster: `#{:subs}` for an L2 `tree`; `:initial-events`, `:images`,
+`:container` and `:clock` for `hm/mount!`; those and `:html` for
+`hm/hydrate!`, whose promise rejects with it rather than throwing; and
+`:reference`, `:candidate`, `:images`, `:initial-events` and `:script` for
+`hm/shadow!`. `hm/shadow!` also raises it for a script step other than
 `{:click selector}` or `{:type [selector text]}`. Remove the key or step the
 message names. `hm/advance-clock!` raises it on a handle whose `hm/mount!` or
 `hm/hydrate!` was not given `{:clock true}`, or whose mount has come down; pass
