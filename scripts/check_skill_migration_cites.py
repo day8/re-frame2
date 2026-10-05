@@ -487,6 +487,8 @@ def _self_test() -> int:
     )
 
     # Case F — clean: skill Type-B list contains every MIGRATION.md Type-B id.
+    # The M-99 on the next section's per-rule body line must stay out of the
+    # authoritative Type-B set; a leak would surface here as a TYPE-DRIFT.
     skill_clean = (
         "## Type A vs Type B — at a glance\n\n"
         "**Type A — apply automatically.** M-1, M-35.\n\n"
@@ -506,12 +508,6 @@ def _self_test() -> int:
     probs = find_type_drift(type_migration, skill_drift)
     if not any("TYPE-DRIFT" in p and "M-42" in p for p in probs):
         print(f"SELF-TEST FAIL (G type drift): expected TYPE-DRIFT on M-42, got {probs}")
-        failures += 1
-
-    # Case H — the M-99 in the NEXT section's per-rule body line must not leak
-    # into the authoritative Type-B set (section scoping).
-    if any("M-99" in p for p in find_type_drift(type_migration, skill_clean)):
-        print("SELF-TEST FAIL (H type scope): M-99 leaked across the section boundary")
         failures += 1
 
     # INDEX-COVERAGE fixtures.
