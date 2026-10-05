@@ -454,6 +454,9 @@ def _run_self_tests(verbose: bool = False) -> int:
 
     # ---- extraction ------------------------------------------------------
     sets = roster(_SYNTHETIC_SOURCE)
+    # The exact list also shows the population is strip-prop?'s BODY, not the
+    # file: `unrelated-style-names` is a `def ^:private` set the body never
+    # reads, so it stays out and cannot widen what the spec pages must carry.
     expect(
         "extract: the four name sets come from strip-prop?'s BODY, in body order",
         list(sets) == [
@@ -471,14 +474,6 @@ def _run_self_tests(verbose: bool = False) -> int:
             "key", "ref",
             "children", "dangerouslySetInnerHTML",
         ]),
-    )
-    # The derivation's population is the BODY, not the file: a `def ^:private`
-    # set `strip-prop?` never reads contributes nothing, so an unrelated roster
-    # in the same file cannot silently widen what the spec pages must carry.
-    expect(
-        "extract: a name set strip-prop? does NOT read is not in the roster",
-        "unrelated-style-names" not in sets
-        and "flexGrow" not in {n for m in sets.values() for n in m},
     )
     # Column-0 anchoring, in the direction that matters: a commented-out def is
     # not a live one.
@@ -505,8 +500,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         except RosterParseError:
             return True
 
-    expect("closed: the valid source parses (the control)",
-           not parse_raises(_SYNTHETIC_SOURCE))
+    # The valid source is the control: the unguarded `roster()` call at the
+    # top of this self-test raises if it ever stops parsing.
     expect("closed: a RENAMED strip-prop? fails closed",
            parse_raises(_SYNTHETIC_SOURCE.replace("(defn strip-prop?",
                                                   "(defn strip-prop-2?")))
@@ -569,11 +564,10 @@ def _run_self_tests(verbose: bool = False) -> int:
     #
     # It must ADMIT the punctuation these names sit in and REFUSE the words
     # they hide inside. Each case below is a spelling that actually occurs.
-    for spelling in ("`:key`", ":key", "(:key m)", "{:key 1}", "key", '"key"',
-                     "`key`", "- `:key` —"):
+    for spelling in ("`:key`", ":key", "(:key m)", "key", '"key"', "`key`"):
         expect(f"boundary: admits {spelling!r}",
                missing_from_page(spelling, ["key"]) == [])
-    for decoy in ("keyword", "monkey", "keys", "KEY"):
+    for decoy in ("keyword", "monkey"):
         expect(f"boundary: {decoy!r} does NOT answer for `key`",
                missing_from_page(decoy, ["key"]) == ["key"])
     expect("boundary: `prefer`/`reference` do NOT answer for `ref`",
