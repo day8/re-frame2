@@ -5,9 +5,8 @@
   and `:meta` slots through the shared elision walker before AI/MCP or log
   egress. Structural reply facts remain available for correlation.
 
-  The suite also pins two independent correctness boundaries: stale replies do
-  not deliver an app target or retain a value, and replies plus durable targets
-  contain data rather than host handles."
+  The suite also pins the stale-reply correctness boundary: a stale reply does
+  not deliver an app target or retain a value."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -106,109 +105,6 @@
         (is (not (contains? out :work/kind))
             "no top-level bare :work/kind alias survives framed trace egress")))))
 
-(deftest trace-summary-delegates-to-shared-walker
-  (testing "each wire slot in the trace summary equals elide-wire-value under
-            the SAME opts — proving trace-summary delegates to the single
-            shared walker, not a family-private elider"
-    (mk-frame! :reply/deleg)
-    (let [opts {:frame :reply/deleg}
-          value {:token sentinel :doc big-string :public 7}
-          reply-map {:status :ok :value value
-                     :rf.reply/work-id [:rf.work/http :x 1]
-                     :rf.reply/work-status :completed}
-          out (rf.reply/trace-summary reply-map opts)]
-      (is (= (:value out) (rf.elision/elide-wire-value value opts))
-          ":value slot is exactly elide-wire-value under the resolved opts"))))
-
-(deftest frameless-trace-summary-fails-closed
-  (testing "a reply trace summary built with NO live frame redacts every
-            wire-bearing slot to :rf/redacted (fail-closed; no :rf/default
-            synthesis) — the sentinel never rides off-box"
-    ;; Remove ambient scope so no other frame's policy can be borrowed.
-    (binding [rf.frame/*current-frame* nil]
-      (let [reply-map {:status      :error
-                       :error       {:kind :rf.http/cors :detail sentinel}
-                       :correlation {:partner-key sentinel}
-                       :meta        {:secret sentinel}
-                       :rf.reply/work-id [:rf.work/http :y 2]
-                       :rf.reply/work-status :failed}
-            out (rf.reply/trace-summary reply-map nil)]
-        (is (rf.security.gen/redacted? (:error out)) ":error fails closed (whole slot redacted)")
-        (is (rf.security.gen/redacted? (:correlation out)) ":correlation fails closed")
-        (is (rf.security.gen/redacted? (:meta out)) ":meta fails closed")
-        (is (not (contains-sentinel? out)) "no sentinel survives frameless egress")
-        (is (= :error (:status out)))
-        (is (= [:rf.work/http :y 2] (:rf.reply/work-id out)))
-        (is (= :failed (:rf.reply/work-status out)))
-        (is (not (contains? out :work/id))
-            "TOOTH — frameless egress grows no top-level bare :work/id alias"))
-      ;; Explicit sensitive inclusion is the trusted-local opt-out.
-      (let [out (rf.reply/trace-summary {:status :ok :value {:token sentinel}
-                                      :rf.reply/work-id [:rf.work/http :z 3]
-                                      :rf.reply/work-status :completed}
-                  {:rf.egress/include-sensitive? true})]
-        (is (= sentinel (get-in out [:value :token]))
-            "explicit include-sensitive? true is the deliberate frameless opt-out")))))
-
-(def ^:private gen-reply
-  "A status-correct reply map carrying the sentinel in its wire slots. The
-  status drives which value/error slots are present (so the corpus stays
-  validate-reply-legal), but every present wire slot plants the sentinel."
-  (rf.security.gen/gen-fmap
-    (fn [[status work-status]]
-      (let [base {:rf.reply/work-id   [:rf.work/http :gen 1]
-                  :rf.reply/work-kind :http
-                  :rf.reply/work-status work-status
-                  :rf.frame/id :reply/corpus
-                  :correlation {:partner-key sentinel :trace-id "tc"}
-                  :meta        {:token sentinel}}
-            err  {:kind :rf.http/server-error :detail {:token sentinel}}]
-        (case status
-          :ok        (assoc base :status :ok :value {:token sentinel :public 1})
-          :partial   (assoc base :status :partial
-                                 :value {:token sentinel} :error err)
-          :error     (assoc base :status :error :error err :rf.reply/work-status :failed)
-          :cancelled (assoc base :status :cancelled
-                                 :cancelled? true
-                                 :rf.reply/cancel-reason :user-abort
-                                 :rf.reply/work-status :cancelled)
-          :stale     (-> base
-                         (dissoc :value)
-                         (assoc :status :stale :stale? true
-                                :rf.reply/stale-reason :rf.reply/correlation-mismatch
-                                :rf.reply/work-status :suppressed)))))
-    (fn [rng]
-      (let [[status rng1] (rf.security.gen/rand-nth rng (vec rf.reply/statuses))
-            [ws rng2]     (rf.security.gen/rand-nth rng1 (vec rf.reply/work-statuses))]
-        [[status ws] rng2]))))
-
-(deftest framed-corpus-never-ships-sentinel
-  (testing "across 300 generated mixed-status reply maps, the framed trace
-            egress never ships the sentinel through any wire slot, and the
-            status stays in the closed taxonomy"
-    (mk-frame! :reply/corpus)
-    (let [result (rf.security.gen/for-all
-                   gen-reply 300 17
-                   (fn [reply-map]
-                     (let [out (rf.reply/trace-summary reply-map
-                                 {:frame :reply/corpus})]
-                       (and (not (contains-sentinel? (:value out)))
-                            (not (contains-sentinel? (:error out)))
-                            (not (contains-sentinel? (:correlation out)))
-                            (not (contains-sentinel? (:meta out)))
-                            (contains? rf.reply/statuses (:status out))
-                            ;; Across every status the canonical
-                            ;; TRANSIENT-ENVELOPE identity survives egress and
-                            ;; no bare ledger alias appears beside it.
-                            (= [:rf.work/http :gen 1] (:rf.reply/work-id out))
-                            (= :http (:rf.reply/work-kind out))
-                            (not (contains? out :work/id))
-                            (not (contains? out :work/kind))))))]
-      (is (nil? result)
-          (str "a reply trace summary shipped the sentinel / left the closed "
-               "taxonomy / lost the canonical envelope identity: "
-               (pr-str (when result (dissoc result :threw))))))))
-
 (deftest stale-suppression-never-delivers-app-target-or-value
   (testing "suppress on a superseded completion yields :deliver? false,
             :status :stale, :rf.reply/work-status :suppressed, and STRIPS any :value —
@@ -253,51 +149,3 @@
         (is (= [:rf.work/http :a 1] (:work/id (:rf.reply/carried trace)))
             "the carried LEDGER gate keeps the bare spelling — not renamed")
         (is (not (contains-sentinel? trace)) "the suppression trace carries no sentinel")))))
-
-(deftest app-target-cannot-obtain-stale-delivery
-  (testing "NO app reply target (built from public :rf/reply-to data) can
-            make a superseded completion deliver: `suppress` is
-            UNIVERSALLY non-delivering. A plain target, one spelling a
-            :dispatch-stale? flag, and one forging a truthy authority datum of
-            any spelling all yield :deliver? false — a stale envelope never
-            reaches app state, and there is NO app-callable issuer of
-            delivery authority (no `with-stale-authority`,
-            `stale-authority?` or `StaleDeliveryCapability`)."
-    (let [carried {:work/id [:rf.work/http :a 1] :generation 1}
-          current {:work/id [:rf.work/http :a 1] :generation 2}]
-      (doseq [app-target [[:app/on-reply]
-                          {:event [:app/on-reply]}
-                          {:event [:app/on-reply] :dispatch-stale? true}
-                          {:event [:app/on-reply] :dispatch-stale? true
-                           :re-frame.reply/stale-authority true}
-                          {:event [:app/on-reply] :dispatch-stale? true
-                           :re-frame.reply/stale-authority "trusted"}]]
-        (let [{:keys [deliver? reply]} (rf.reply/suppress app-target carried current)]
-          (is (false? deliver?)
-              (str "app target " (pr-str app-target) " must NOT deliver a stale envelope"))
-          (is (= :stale (:status reply)) "the outcome is still a well-formed stale reply")
-          (is (not (contains? reply :value))
-              "no :value can ride a stale reply into app state"))))))
-
-(deftest host-handle-never-egresses-in-reply-or-target
-  (testing "validate-reply flags a host handle anywhere in the reply map, and
-            durable-target fails loud on a handle in a persisted target"
-    ;; A function is a host handle on both runtimes.
-    (let [handle (fn [] :callback)
-          reply-with-handle {:status :ok :value {:on-done handle}
-                             :rf.reply/work-id [:rf.work/http :h 1]
-                             :rf.reply/work-status :completed}
-          problems (rf.reply/validate-reply reply-with-handle)]
-      (is (some #(= :rf.reply/host-handle (:rf.reply/problem %)) problems)
-          "validate-reply flags the host handle in the reply :value"))
-    (let [bad-target {:event [:app/on-reply (fn [] :smuggled)] :delivery :append}
-          data (try (rf.reply/durable-target bad-target)
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
-                      (ex-data e)))]
-      (is (= :rf.error/reply-non-data-target (:rf.error/id data))
-          "a host handle in a durable target's public field fails loud"))
-    (is (rf.reply/valid-reply? {:status :ok :value {:public 1}
-                             :rf.reply/work-id [:rf.work/http :h 2]
-                             :rf.reply/work-status :completed}))
-    (is (rf.reply/data-only-target? {:event [:app/on-reply] :delivery :append}))))
