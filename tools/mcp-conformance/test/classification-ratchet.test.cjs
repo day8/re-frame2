@@ -74,79 +74,37 @@ test('GREEN: the legitimate open/closed partition ⇒ no throw', () => {
   );
 });
 
-// --- the open-world complement: live-reaching tools MUST flag openWorldHint ---
+// --- one annotation regressed on one tool of the green set ---
+//
+// Live-reaching tools MUST flag openWorldHint:true whatever their posture,
+// inline tools MUST NOT claim reach, and the read-only / destructive posture
+// axis trips on its own. Each row regresses one tool and names it.
 
-test('RED: a read-only live tool that DROPS openWorldHint ⇒ throws + names it', () => {
-  const tools = greenTools();
-  // read-live reaches the runtime but the descriptor forgot openWorldHint.
-  tools[0].annotations = { readOnlyHint: true };
-  assert.throws(
-    () => assertClassificationRatchet(tools, FIXTURE),
-    /read-live is open-world[\s\S]*MUST be true[\s\S]*trust\/confirmation boundary/,
-  );
-});
-
-test('RED: a read-only live tool with openWorldHint:false ⇒ throws (mislabelled contained)', () => {
-  const tools = greenTools();
-  tools[0].annotations = { readOnlyHint: true, openWorldHint: false };
-  assert.throws(
-    () => assertClassificationRatchet(tools, FIXTURE),
-    /read-live is open-world[\s\S]*MUST be true/,
-  );
-});
-
-test('RED: a DESTRUCTIVE live tool that drops openWorldHint ⇒ throws (the trust-boundary case)', () => {
-  const tools = greenTools();
-  // write-live is destructive AND reaches the runtime; dropping the
-  // open-world hint on a live-reaching destructive tool must trip the gate.
-  tools[1].annotations = { destructiveHint: true };
-  assert.throws(
-    () => assertClassificationRatchet(tools, FIXTURE),
-    /write-live is open-world[\s\S]*MUST be true/,
-  );
-});
-
-test('RED: a `neither` live tool that drops openWorldHint ⇒ throws', () => {
-  const tools = greenTools();
-  tools[2].annotations = {}; // pin-live: no hints at all
-  assert.throws(
-    () => assertClassificationRatchet(tools, FIXTURE),
-    /pin-live is open-world[\s\S]*MUST be true/,
-  );
-});
-
-// --- the closed-world (false) side holds: inline tools MUST NOT claim reach ---
-
-test('RED: a closed-world tool that flips openWorldHint:true ⇒ throws', () => {
-  const tools = greenTools();
-  // read-inline ships inline content; it must NOT claim open-world reach.
-  tools[3].annotations = { readOnlyHint: true, openWorldHint: true };
-  assert.throws(
-    () => assertClassificationRatchet(tools, FIXTURE),
-    /read-inline is pinned closed-world[\s\S]*MUST be false/,
-  );
-});
-
-test('RED: a closed-world tool that drops openWorldHint ⇒ throws', () => {
-  const tools = greenTools();
-  tools[3].annotations = { readOnlyHint: true }; // missing openWorldHint
-  assert.throws(
-    () => assertClassificationRatchet(tools, FIXTURE),
-    /read-inline is pinned closed-world[\s\S]*MUST be false/,
-  );
-});
-
-// --- the read-only / destructive posture axis ---
-
-test('RED: a destructive tool re-labelled read-only ⇒ throws', () => {
-  const tools = greenTools();
-  // write-live keeps openWorldHint:true (so it clears the open-world side)
-  // but is mislabelled read-only — the posture axis must still trip.
-  tools[1].annotations = { readOnlyHint: true, openWorldHint: true };
-  assert.throws(
-    () => assertClassificationRatchet(tools, FIXTURE),
-    /write-live classification regressed[\s\S]*pins `destructive`/,
-  );
+test('RED: each single-tool annotation regression throws and names the tool', () => {
+  for (const [label, index, annotations, pattern] of [
+    // read-live reaches the runtime but the descriptor forgot openWorldHint.
+    ['read-only live tool drops openWorldHint', 0, { readOnlyHint: true },
+      /read-live is open-world[\s\S]*MUST be true[\s\S]*trust\/confirmation boundary/],
+    ['read-only live tool mislabelled contained', 0, { readOnlyHint: true, openWorldHint: false },
+      /read-live is open-world[\s\S]*MUST be true/],
+    // A live-reaching destructive tool is the trust-boundary case.
+    ['destructive live tool drops openWorldHint', 1, { destructiveHint: true },
+      /write-live is open-world[\s\S]*MUST be true/],
+    ['`neither` live tool carries no hints at all', 2, {},
+      /pin-live is open-world[\s\S]*MUST be true/],
+    // read-inline ships inline content; it must NOT claim open-world reach.
+    ['closed-world tool flips openWorldHint:true', 3, { readOnlyHint: true, openWorldHint: true },
+      /read-inline is pinned closed-world[\s\S]*MUST be false/],
+    ['closed-world tool drops openWorldHint', 3, { readOnlyHint: true },
+      /read-inline is pinned closed-world[\s\S]*MUST be false/],
+    // write-live keeps openWorldHint:true, so only the posture axis can trip.
+    ['destructive tool re-labelled read-only', 1, { readOnlyHint: true, openWorldHint: true },
+      /write-live classification regressed[\s\S]*pins `destructive`/],
+  ]) {
+    const tools = greenTools();
+    tools[index].annotations = annotations;
+    assert.throws(() => assertClassificationRatchet(tools, FIXTURE), pattern, label);
+  }
 });
 
 // --- a dangling `closed-world` entry is caught ---
