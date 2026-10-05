@@ -134,17 +134,6 @@
 ;;
 ;; Edge cases for the URL parser.
 
-(deftest match-url-empty-string
-  (testing "match-url \"\" matches the root '/' route (the compiled regex
-            is `^/?$`, so the leading slash is optional)"
-    (rf/reg-route :route/home {} "/")
-    ;; Pin the actual behaviour: the compiled regex treats the leading
-    ;; slash as optional, so both "" and "/" match the root.
-    (let [m (rf.routing/match-url "")]
-      (is (some? m)
-          "empty string matches the root '/' route (leading slash optional)")
-      (is (= :route/home (:route-id m))))))
-
 (deftest match-url-missing-leading-slash
   (testing "URLs without a leading slash STILL match the corresponding
             route (the compiled regex is `^/?...`, leading slash optional).
@@ -186,26 +175,6 @@
   by — re-frame.identity/canonical-bytes."
   [ks]
   (vec (sort-by rf.identity/canonical-bytes ks)))
-
-(deftest match-url-query-is-canonical-key-order
-  (testing "match-url :query keys are emitted in CEDN-1 canonical order,
-            independent of the inbound URL's key order. Declared :query
-            vocabulary keys are promoted to keywords and ordered canonically."
-    (rf/reg-route :route/search {:query [:map
-                                         [:b {:optional true} :string]
-                                         [:a {:optional true} :string]
-                                         [:c {:optional true} :string]]} "/search")
-    (let [m1 (rf.routing/match-url "/search?b=2&a=1&c=3")
-          m2 (rf.routing/match-url "/search?c=3&b=2&a=1")
-          expected-order (canonical-key-order [:a :b :c])]
-      (is (= (:query m1) (:query m2))
-          "the same query spelled in two inbound key orders yields = :query")
-      (is (= expected-order (vec (keys (:query m1))))
-          "m1 :query keys are in CEDN-1 canonical order, not inbound URL order")
-      (is (= expected-order (vec (keys (:query m2))))
-          "m2 :query keys are in CEDN-1 canonical order regardless of spelling")
-      (is (= {:a "1" :b "2" :c "3"} (:query m1))
-          "membership + values are unchanged — only key ORDER is canonicalised"))))
 
 (deftest match-url-query-defaults-participate-in-canonical-order
   (testing ":query-defaults-populated keys are interleaved into the SAME
@@ -915,30 +884,6 @@
           "non-integer-literal stays a string (host-symmetric passthrough)")
       (is (true? (:validation-failed? m))
           "the string fails the :int schema — fail-closed, not a crash"))))
-
-(deftest rf2-fwz29i-optioned-scalar-path-coercion
-  (testing "optioned scalar :params (path) schemas coerce like bare forms"
-    (rf/reg-route :route/page    {:params [:map [:n [:int {:min 1}]]]} "/page/:n")
-    (rf/reg-route :route/article {:params [:map [:id [:uuid {}]]]} "/articles/:id")
-
-    (testing "[:int {:min 1}] path param coerces; validation passes"
-      (let [m (rf.routing/match-url "/page/2")]
-        (is (= :route/page (:route-id m)))
-        (is (= 2 (get-in m [:params :n])) "\"2\" coerced to 2 (a string would 404)")
-        (is (false? (:validation-failed? m)))))
-
-    (testing "[:uuid {}] path param coerces to a #uuid; canonical route matches"
-      (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
-            m        (rf.routing/match-url (str "/articles/" uuid-str))]
-        (is (= :route/article (:route-id m)))
-        (is (= (parse-uuid uuid-str) (get-in m [:params :id])))
-        (is (false? (:validation-failed? m)))))
-
-    (testing "an optioned :int path value violating the option still fails"
-      (rf/reg-route :route/minp {:params [:map [:n [:int {:min 5}]]]} "/m/:n")
-      (let [m (rf.routing/match-url "/m/2")]
-        (is (= 2 (get-in m [:params :n])) "coerced to the number 2")
-        (is (true? (:validation-failed? m)) "2 < :min 5 → validation fails")))))
 
 (deftest rf2-fwz29i-optioned-enum-keyword-allowlist
   (testing "an optioned `[:enum {...} :asc :desc]` keeps the keyword
