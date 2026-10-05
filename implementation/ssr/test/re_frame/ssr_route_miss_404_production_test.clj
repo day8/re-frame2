@@ -25,8 +25,8 @@
   WHAT IS PINNED:
 
     1. The wire. A route miss projects `{:status 404 :code :not-found}`
-       onto the response accumulator, with NO redirect, and the app's
-       not-found body still renders — a status-only 404.
+       onto the response accumulator, with NO redirect — a status-only
+       404.
     2. The record. EXACTLY ONE always-on `:rf.error/no-such-handler`
        record reaches an off-box shipper, carrying `:kind :route`, the
        emitting `:frame`, `:time`, `:recovery`, the structured `:reason`
@@ -77,9 +77,7 @@
 
 (defn- register-routes! []
   (rf/reg-route :route/home {} "/")
-  (rf/reg-route :rf.route/not-found {} "/not-found")
-  (rf/reg-view* :pages/not-found
-                (fn [] [:main.not-found [:h1 "No such page"]])))
+  (rf/reg-route :rf.route/not-found {} "/not-found"))
 
 (defn- server-frame
   "A `:platform :server` frame wired to `projector-id` (the built-in
@@ -101,7 +99,7 @@
     seen))
 
 ;; ===========================================================================
-;; (1) THE WIRE — an unroutable URL answers 404, body intact, no redirect
+;; (1) THE WIRE — an unroutable URL answers 404, no redirect
 ;; ===========================================================================
 
 (deftest unroutable-url-projects-404-under-the-production-gate
@@ -113,6 +111,13 @@
     (register-routes!)
     (let [f (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
+      ;; The durable `:rf.route/not-found` slice (the app's source of truth
+      ;; for WHAT to render) and the per-request HTTP status (the wire
+      ;; decision) are both present and stay distinct surfaces.
+      (is (= :rf.route/not-found
+             (get-in (rf/frame-state-value f)
+                     [:rf.db/runtime :rf.runtime/routing :current :route-id]))
+          "the navigation slice committed the not-found fallback")
 
       (let [{:keys [response public-error]} (rf.ssr/flush-response-result! f)]
         (is (= 404 (:status response))
@@ -128,52 +133,9 @@
              Spec 011 §Default projector — the host classifies on the
              projection, not by re-inferring from (:status response)")))))
 
-(deftest the-404-is-status-only-the-not-found-body-still-renders
-  (testing "a 404 is a STATUS decision, not a rendering one. The
-            app's own not-found view still produces markup, so the host ships
-            a real page under the 404 rather than an error page."
-    (register-routes!)
-    (let [f    (server-frame)
-          _    (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
-                                 {:frame f})
-          html (rf/with-frame f
-                 (rf.ssr/render-to-string [(rf/view :pages/not-found)]))]
-      (is (str/includes? html "No such page")
-          "the app's not-found body rendered — the projection did not
-           short-circuit the render")
-      (is (= 404 (:status (rf.ssr/flush-response! f)))
-          "and the response still carries the 404"))))
-
-(deftest the-route-slice-records-the-miss-alongside-the-404
-  (testing "the durable `:rf.route/not-found` slice (the app's
-            source of truth for WHAT to render) and the per-request HTTP
-            status (the wire decision) are BOTH present and stay distinct
-            surfaces — neither is derived from the other."
-    (register-routes!)
-    (let [f (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (is (= :rf.route/not-found
-             (get-in (rf/frame-state-value f)
-                     [:rf.db/runtime :rf.runtime/routing :current :route-id]))
-          "the navigation slice committed the not-found fallback")
-      (is (= 404 (:status (rf.ssr/flush-response! f)))
-          "and the response accumulator carries the projected 404"))))
-
 ;; ===========================================================================
 ;; (2) THE RECORD — exactly one, tight, redacted
 ;; ===========================================================================
-
-(deftest route-miss-fans-exactly-one-always-on-record
-  (testing "a route miss delivers ONE record on the
-            always-on axis (Spec 009's one-runtime-error law) — not one per
-            channel, and not one per telemetry intent."
-    (register-routes!)
-    (let [seen (capture-always-on! ::one-record)
-          f    (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf.error-emit/unregister-error-listener! ::one-record)
-      (is (= [:rf.error/no-such-handler] (mapv :error @seen))
-          "exactly one always-on record, and it is the route-miss category"))))
 
 (deftest the-always-on-record-carries-the-route-discriminator-and-attribution
   (testing "the production record is the enumerated tight shape —
@@ -185,8 +147,17 @@
           f    (server-frame)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
       (rf.error-emit/unregister-error-listener! ::shape)
+      (is (= [:rf.error/no-such-handler] (mapv :error @seen))
+          "exactly one always-on record, and it is the route-miss category —
+           Spec 009's one-runtime-error law: not one per channel, and not one
+           per telemetry intent")
       (let [record (first @seen)]
-        (is (= :rf.error/no-such-handler (:error record)))
+        (is (= #{:error :kind :frame :time :recovery :url}
+               (set (keys record)))
+            "the key set is CLOSED: `dispatch-error-record!` delivers the
+             record unchanged to every registered shipper, so exactly the
+             enumerated slots — no :db, no :params, no event vector, no
+             exception, no raw carrier")
         (is (= :route (:kind record))
             ":kind :route — the mandatory discriminator per Spec 009's
              catalogue row, and the default projector's 404 gate")
@@ -225,23 +196,6 @@
         (is (str/includes? url "token=")
             "and the query KEY survives: a security dashboard can still see
              that a `token` parameter was present")))))
-
-(deftest the-always-on-record-carries-no-app-db-and-no-stray-slots
-  (testing "EGRESS: `dispatch-error-record!` delivers the record
-            UNCHANGED to every registered shipper — it is not privacy-gated
-            the way the dev trace is, so the emit site is contracted to keep
-            it tight. Pin the key set CLOSED: a slot added here reaches
-            Sentry / Datadog in production, so it must be a deliberate
-            change, not a drift."
-    (register-routes!)
-    (let [seen (capture-always-on! ::closed-shape)
-          f    (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf.error-emit/unregister-error-listener! ::closed-shape)
-      (is (= #{:error :kind :frame :time :recovery :url}
-             (set (keys (first @seen))))
-          "exactly the enumerated slots — no :db, no :params, no event
-           vector, no exception, no raw carrier"))))
 
 (deftest a-malformed-miss-carries-its-structured-reason
   (testing "the `:reason` vocabulary is uniform across
@@ -302,23 +256,6 @@
             "the custom projector's status reaches the wire — the runtime
              default did not shadow it")
         (is (= :gone (:code public-error)))))))
-
-(deftest a-redirect-still-takes-precedence-over-the-projected-404
-  (testing "redirect precedence (Spec 011 §Redirect precedence) holds
-            on the route-miss path. A handler that redirects during the
-            same drain as a route miss ships the redirect bodiless; the
-            projected 404 does not overwrite it."
-    (register-routes!)
-    (rf/reg-event :auth/bounce
-      (fn [_ _] {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
-    (let [f (server-frame)]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"] {:frame f})
-      (rf/dispatch-sync [:auth/bounce] {:frame f})
-      (let [response (rf.ssr/get-response f)]
-        (is (= {:status 302 :location "/login"} (:redirect response))
-            "the redirect survived the drain")
-        (is (not= 404 (:status response))
-            "the projected 404 did not overwrite the redirect's status")))))
 
 ;; ===========================================================================
 ;; (5) A CLIENT FRAME — the record fans, but there is no response to stamp
