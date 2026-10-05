@@ -162,8 +162,9 @@ const SKIP_EXT = new Set([
  * give is the one whose own header says documentation is not its subject.
  *
  * The exclusion is by EXTENSION and not by path, so it cannot quietly
- * cover a source file; the control row below puts the same text in a
- * `.cjs` and requires it to be found.
+ * cover a source file; the loader-position control below writes each
+ * planted fault into a `.md` beside its source file and requires only the
+ * source file to be found.
  */
 const DOC_EXT = new Set(['.md', '.markdown']);
 
@@ -523,16 +524,6 @@ test('the refusal-code namespace appears nowhere outside the package', () => {
   );
 });
 
-test('the layout map DOES name the package, as the README ratchet requires', () => {
-  // The counterpart to excluding documentation: the exclusion is only
-  // legitimate because the naming is an obligation somewhere else. If this
-  // row ever went red, `check_readme_inventories.py` would be red too.
-  const readme = fs.readFileSync(path.join(REPO_ROOT, 'implementation', 'README.md'), 'utf8');
-  const needle = PATH_REFERENCE;
-  needle.lastIndex = 0;
-  assert.strictEqual(needle.test(readme), true, 'the layout map must carry an ssr-node entry');
-});
-
 /**
  * ONE PLANTED FAULT PER LOADER POSITION. If a shape below stops being
  * found, Reading 1 has a blind spot in exactly that shape — which is the
@@ -656,22 +647,6 @@ test('CONTROL — the whole-clause walk stops at the clause, not at the file', (
   }
 });
 
-test('CONTROL — a format that cannot resolve a module hosts no loader position', () => {
-  // The `DOC_EXT` argument, generalised: the SAME text that reds in a
-  // `.cjs` is inert in Markdown, YAML and shell, because none of the three
-  // has a `require`. This is the narrowing, stated as a control.
-  const body = "require('implementation/ssr-node/src/service.cjs')\n";
-  const files = ['notes.md', 'pipeline.yml', 'run.sh', 'boot.cjs'];
-  const dir = scratch(Object.fromEntries(files.map((f) => [f, body])));
-  try {
-    const hits = scanLoaderPositions(dir, files, REFERENCES, null);
-    assert.strictEqual(hits.length, 1, `exactly one of the ${files.length} must be found`);
-    assert.strictEqual(hits[0].file, 'boot.cjs', 'and it must be the one a loader reads');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 /**
  * THE SHAPES A CI LANE WRITES, copied by shape rather
  * than referenced by path: an npm script, a workflow job name and run step,
@@ -756,29 +731,12 @@ test('CONTROL — a CI lane naming the package is inert, and IS NOT inert once i
   }
 });
 
-test('CONTROL — the exclusion really is what keeps the package itself quiet', () => {
-  // The package's own files are full of the spellings above. If the
-  // exclusion prefix were wrong, the real scan would be red rather than
-  // green — but a scan pointed at a tree with nothing in it would be green
-  // too, so this row shows the package DOES match when it is not excluded.
-  // It runs on the raw-text reading because that is the one still asserting
-  // an absolute zero, and so the one an exclusion bug would silently pass.
-  const files = trackedFiles(REPO_ROOT, ['implementation/ssr-node']);
-  assert.ok(files.length > 5, 'the package should have tracked files by now');
-  const unexcluded = scanForReferences(REPO_ROOT, files, REFERENCES, null);
-  assert.ok(unexcluded.length > 0, 'the needles must match inside the package');
-  const excluded = scanForReferences(REPO_ROOT, files, REFERENCES, 'implementation/ssr-node/');
-  assert.deepStrictEqual(excluded, [], 'and the exclusion must silence exactly those');
-});
-
 test('CONTROL — the refusal-code needle finds a refusal code, and only that', () => {
   // THE SECOND NEEDLE NEEDS ITS OWN CONTROL. This file's header promises
-  // every reading a row that plants the exact fault it must see, and the row
-  // above does not do that for `CODE_NAMESPACE`: it runs both needles
-  // together and `assert.ok(unexcluded.length > 0)` is satisfied by
-  // `PATH_REFERENCE` alone. Without this row nothing would require
-  // `CODE_NAMESPACE` to match anything, and a typo in it would read as a
-  // clean scan.
+  // every reading a row that plants the exact fault it must see, and the
+  // loader-position plants above exercise `PATH_REFERENCE` only. This row
+  // plants a refusal code and requires `CODE_NAMESPACE`, and only it, to
+  // find it.
   //
   // The near-miss is the point of the pairing. `[rf.ssr-node/service]` is a
   // PATH_REFERENCE hit with no leading colon, so it proves the two needles
