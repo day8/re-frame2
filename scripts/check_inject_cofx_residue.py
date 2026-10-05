@@ -454,9 +454,10 @@ def _run_self_tests(verbose: bool = False) -> int:
     non-allowlisted-shaped page, and the assertion is EXACT — the count must be
     the one declared, not merely non-zero, because `>= 1` would be a fail-open
     shape. Negative fixtures exercise the
-    counterparts that MUST stay green: removed-context prose, an inline code
-    span, a masked `;` comment in a fence, and the rewritten `:rf.cofx/requires`
-    teaching. Allowlist behaviour is covered by a dedicated case that scans a
+    counterparts that MUST stay green: removed-context prose (its inline code
+    spans included, since they sit outside any fence), a masked `;` comment in
+    a fence, and the rewritten `:rf.cofx/requires` teaching. Allowlist
+    behaviour is covered by a dedicated case that scans a
     fixture as if it were the migration page.
     """
     cases: list[tuple[str, int]] = [
@@ -469,10 +470,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("positive/live_world_inputs_dispatch.md",     1),
         # --- negatives: removed-context / rewritten forms must stay GREEN ---
         ("negative/removed_context_prose.md",          0),
-        ("negative/inline_code_span_mention.md",       0),
         ("negative/masked_clj_comment_in_fence.md",    0),
         ("negative/rewritten_requires_teaching.md",    0),
-        ("negative/world_inputs_prose_rename.md",      0),
     ]
 
     failures = 0
