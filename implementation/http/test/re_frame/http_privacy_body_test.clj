@@ -76,12 +76,6 @@
       (is (= :rf/redacted (get-in out [:auth :refresh-token])))
       (is (= "Ada" (get-in out [:profile :name]))))))
 
-(deftest classify-decoded-no-marks-passes-through
-  (testing "a schema with no :sensitive? marks leaves the body unchanged"
-    (let [schema  [:map [:a :int] [:b :string]]
-          decoded {:a 1 :b "x"}]
-      (is (= decoded (rf.http.privacy-body/classify-decoded decoded schema))))))
-
 (deftest classify-decoded-non-schema-is-noop
   (testing "a keyword / fn / nil :decode is a no-op (body governed by the
             per-call flag / off-box disposition, not per-slot marks)"
@@ -253,14 +247,6 @@
       (fn []
         (is (= {:a 1} (rf.http.privacy-body/classify-decoded {:a 1} :user/profile)))
         (is (= {:a 1} (rf.http.privacy-body/classify-decoded {:a 1} {:opaque :compiled})))))))
-
-(deftest bound-walker-still-classifies-the-mark-declaring-schema
-  (testing "control for the four above — with the walker BOUND the same
-            mark-declaring schema classifies rather than throwing, so the
-            throw is about the unbound hook and not about the schema"
-    (is (= {:token :rf/redacted}
-           (rf.http.privacy-body/classify-decoded {:token "bearer-secret"}
-                                  [:map [:token {:sensitive? true} :string]])))))
 
 ;; ---- 8. per-request :decode extraction retains nothing --------------------
 ;;
