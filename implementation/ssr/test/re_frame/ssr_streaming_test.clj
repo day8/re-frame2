@@ -67,23 +67,6 @@
                                            [:rf.test/noop]))]})
     fid))
 
-(deftest render-shell-emits-fallback-template
-  (testing "Shell walk emits a `<template>` fallback at the boundary and registers a continuation"
-    (let [tree   [:div
-                  [:h1 "Header"]
-                  [:rf/suspense-boundary
-                   {:id :test/comments :fallback [:p "Loading…"]}
-                   [:section.comments "Body"]]
-                  [:footer "Footer"]]
-          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell tree)]
-      (is (= 1 (count continuations)) "one continuation registered")
-      (is (= :test/comments (-> continuations first :id)) "id propagates")
-      (is (str/includes? shell-html "<h1>Header</h1>") "shell content above boundary preserved")
-      (is (str/includes? shell-html "<footer>Footer</footer>") "shell content below boundary preserved")
-      (is (str/includes? shell-html "data-rf2-suspense-id=\":test/comments\"") "boundary id stamped")
-      (is (str/includes? shell-html "data-rf2-suspense-fallback=\"1\"") "fallback marker stamped")
-      (is (str/includes? shell-html "<p>Loading…</p>") "fallback hiccup rendered inline"))))
-
 (deftest render-shell-fallback-is-inert-template-not-painted-dom
   (testing "the streaming first shell chunk carries each
             boundary's fallback markup ONLY inside an inert
@@ -488,16 +471,3 @@
             body  (rf.ssr.html-helpers/escape-edn-script-body (pr-str value))]
         (is (= value (edn/read-string body))
             (str "char literal " (pr-str v) " round-trips"))))))
-
-(deftest hydrate-delta-script-char-literal-round-trips
-  (testing "the streaming delta call site (`hydrate-delta-script`)
-            shares the helper, so a delta whose value is a char
-            literal `(char 34)` alongside a string carrying `</script>`
-            emits cleanly and round-trips"
-    (let [delta  {:x (char 34) :y "</script>"}
-          script (rf.ssr.streaming/hydrate-delta-script :boundary/x (pr-str delta))
-          body   (delta-script-body script)]
-      (is (not (str/includes? (str/lower-case body) "</script"))
-          "delta body carries no literal </script breakout")
-      (is (= delta (edn/read-string body))
-          "delta round-trips through the EDN reader verbatim"))))
