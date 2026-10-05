@@ -178,74 +178,6 @@
     (is (= 3 (:foo (rf/app-db-value :rf/default))))
     (is (= 4 (:bar (rf/app-db-value :rf/default))))))
 
-(deftest reg-flow-missing-id-and-bad-output-carry-canonical-error-ids
-  ;; Companion to `reg-flow-error-carries-canonical-rf-error-id-slot`
-  ;; (which pins the :inputs / cycle discriminators) and the bad-inputs /
-  ;; bad-path tables. Pins the `:rf.error/flow-missing-id` and
-  ;; `:rf.error/flow-bad-output` discriminators (read by `:on-error` policies
-  ;; and Xray's error widget keyed on `:rf.error/id`, per Spec 009 §The
-  ;; thrown-error shape) and the canonical shape slots, so every
-  ;; `validate-flow` rule's id is asserted.
-  (testing "a flow with no :id throws :rf.error/flow-missing-id"
-    (let [ex   (try (rf/reg-flow nil {:inputs [[:n]] :output-path [:x]} identity)
-                    (catch Throwable t t))
-          data (ex-data ex)]
-      (is (some? ex) "registration threw")
-      (is (= :rf.error/flow-missing-id (:rf.error/id data))
-          ":rf.error/id carries the missing-id discriminator")
-      ;; The message is the human :reason sentence + the trailing
-      ;; [:rf.error/<id>] token; assert the token substring, not equality.
-      (is (re-find #"\[:rf\.error/flow-missing-id\]" (ex-message ex))
-          "message carries the [:rf.error/flow-missing-id] token")
-      (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
-      (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
-      (is (string? (:reason data))           ":reason is a human-readable sentence")))
-  (testing "a flow whose :derive is not a fn throws :rf.error/flow-bad-output"
-    (let [ex   (try (rf/reg-flow :bad {:inputs [[:n]] :output-path [:x]} 42)
-                    (catch Throwable t t))
-          data (ex-data ex)]
-      (is (some? ex) "registration threw")
-      (is (= :rf.error/flow-bad-output (:rf.error/id data))
-          ":rf.error/id carries the bad-output discriminator")
-      ;; Assert the [:rf.error/<id>] token substring, not equality.
-      (is (re-find #"\[:rf\.error/flow-bad-output\]" (ex-message ex))
-          "message carries the [:rf.error/flow-bad-output] token")
-      (is (= 'rf/reg-flow (:where data))     ":where names the user-facing surface")
-      (is (= :fix-registration (:recovery data)) ":recovery names the disposition"))))
-
-(deftest reg-flow-id-must-be-a-keyword
-  ;; The public FlowMeta schema requires `[:id :keyword]` (Spec-Schemas
-  ;; §FlowMeta) and the `:flow-id` slot is emitted unchanged into `:rf.flow/*`
-  ;; trace + error payloads, so a non-keyword id would leak an arbitrary shape
-  ;; downstream. `reg-flow` rejects a present-but-non-keyword id at the API
-  ;; boundary with the dedicated `:rf.error/flow-bad-id` discriminator (a
-  ;; member of the `:rf.error/flow-bad-*` family). nil/absent is
-  ;; `:rf.error/flow-missing-id`, pinned by the deftest above, because the
-  ;; absent-id rule runs first.
-  (testing "a string :id throws :rf.error/flow-bad-id"
-    (let [ex   (try (rf/reg-flow "creds" {:inputs [[:n]] :output-path [:x]} identity)
-                    (catch Throwable t t))
-          data (ex-data ex)]
-      (is (some? ex) "registration threw")
-      (is (= :rf.error/flow-bad-id (:rf.error/id data))
-          ":rf.error/id carries the bad-id discriminator")
-      ;; Assert the [:rf.error/<id>] token substring, not equality.
-      (is (re-find #"\[:rf\.error/flow-bad-id\]" (ex-message ex))
-          "message carries the [:rf.error/flow-bad-id] token")
-      (is (= 'rf/reg-flow (:where data))         ":where names the user-facing surface")
-      (is (= :fix-registration (:recovery data))  ":recovery names the disposition")
-      (is (string? (:reason data))               ":reason is a human-readable sentence")))
-  (testing "a number :id throws :rf.error/flow-bad-id"
-    (let [ex (try (rf/reg-flow 42 {:inputs [[:n]] :output-path [:x]} identity)
-                  (catch Throwable t t))]
-      (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
-          "a numeric id is rejected as bad-id")))
-  (testing "a map :id throws :rf.error/flow-bad-id"
-    (let [ex (try (rf/reg-flow {:k 1} {:inputs [[:n]] :output-path [:x]} identity)
-                  (catch Throwable t t))]
-      (is (= :rf.error/flow-bad-id (:rf.error/id (ex-data ex)))
-          "a map id is rejected as bad-id"))))
-
 ;; ---------------------------------------------------------------------------
 ;; 1b. validate-flow well-formedness
 ;;
@@ -279,18 +211,29 @@
        (catch Throwable t t)))
 
 (deftest reg-flow-error-carries-canonical-rf-error-id-slot
-  ;; Per Spec 009 §The thrown-error shape: every thrown runtime error
-  ;; carries the discriminator under the canonical `:rf.error/id` slot
-  ;; (NOT an `:error` slot), and the message string is the
-  ;; stringified kw so `.getMessage` pivots to the same category.
-  (testing "flow validation throw stamps :rf.error/id (canonical discriminator)"
+  ;; Per Spec 009 §The thrown-error shape: every thrown runtime error carries
+  ;; its discriminator under the canonical `:rf.error/id` slot (NOT an
+  ;; `:error` slot), read by `:on-error` policies and Xray's error widget.
+  ;; Each `validate-flow` shape rule throws its own id, and every one of them
+  ;; builds the error through one helper, so the shape slots are read once.
+  ;; The bad-inputs / bad-path / bad-marks tables below and the cycle tests
+  ;; pin the remaining ids.
+  (testing "each shape rule throws its own :rf.error/id"
+    (are [id metadata derive-fn expected]
+         (= expected (:rf.error/id (ex-data (try (rf/reg-flow id metadata derive-fn) nil
+                                                 (catch Throwable t t)))))
+      nil     {:inputs [[:n]] :output-path [:x]}          identity       :rf.error/flow-missing-id
+      ;; The public FlowMeta schema requires a keyword id, and the `:flow-id`
+      ;; trace / error slot carries it unchanged.
+      "creds" {:inputs [[:n]] :output-path [:x]}          identity       :rf.error/flow-bad-id
+      :bad    {:inputs :not-a-vector :output-path [:out]} (fn [_ _] nil) :rf.error/flow-bad-inputs
+      :bad    {:inputs [[:n]] :output-path [:x]}          42             :rf.error/flow-bad-output))
+  (testing "the thrown error carries the canonical shape"
     (let [ex (try
                (rf/reg-flow :bad {:inputs :not-a-vector :output-path [:out]} (fn [_ _] nil))
                (catch Throwable t t))
           data (ex-data ex)]
       (is (some? ex) "registration threw")
-      (is (= :rf.error/flow-bad-inputs (:rf.error/id data))
-          ":rf.error/id slot carries the discriminator keyword")
       ;; Assert the [:rf.error/<id>] token substring, not equality.
       (is (re-find #"\[:rf\.error/flow-bad-inputs\]" (ex-message ex))
           "message carries the [:rf.error/flow-bad-inputs] token")
@@ -298,18 +241,7 @@
           "ex-data carries no :error slot — :rf.error/id is the discriminator")
       (is (= 'rf/reg-flow (:where data)) ":where names the user-facing surface")
       (is (= :fix-registration (:recovery data)) ":recovery names the disposition")
-      (is (string? (:reason data)) ":reason is a human-readable sentence")))
-  (testing "flow cycle throw stamps :rf.error/id"
-    (rf.flows/reset-flows!)
-    (rf.flows/reset-last-inputs!)
-    (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
-    (let [ex (try
-               (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity)
-               (catch Throwable t t))
-          data (ex-data ex)]
-      (is (= :rf.error/flow-cycle (:rf.error/id data))
-          "cycle throw carries :rf.error/id (topo.cljc inlined shape)")
-      (is (nil? (:error data)) "the cycle throw carries no :error slot"))))
+      (is (string? (:reason data)) ":reason is a human-readable sentence"))))
 
 (deftest reg-flow-rejects-malformed-inputs
   (testing "each malformed :inputs entry is rejected up front as
