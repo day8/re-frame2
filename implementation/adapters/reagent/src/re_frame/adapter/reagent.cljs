@@ -2,6 +2,7 @@
   "Default browser adapter, implementing the Spec 006 substrate contract
   with stock Reagent."
   (:require [reagent.core :as r]
+            [reagent.impl.template :as reagent.template]
             [reagent.ratom :as ratom]
             [reagent.dom.client :as rdc]
             [re-frame.substrate.spine :as rf.substrate.spine]
@@ -261,3 +262,22 @@
                                    (binding [ratom/*ratom-context* (js-obj)]
                                      @container)))
      :after-render      r/after-render}))
+
+;; ---- raw HTML: one form on the client and through re-frame.ssr ------------
+;;
+;; Stock Reagent 2 keeps a `:dangerouslySetInnerHTML` prop only when its value
+;; is the tagged value `reagent.core/unsafe-html` makes, and deletes any other
+;; value, React's own `{:__html s}` map included. `re-frame.ssr` writes the
+;; markup the prop's value answers for `:__html`, and requires no substrate to
+;; do it. So the tagged value answers `:__html` with its markup, and
+;; `(r/unsafe-html s)` is the one form a bridge app writes: Reagent keeps it on
+;; the client, `re-frame.ssr` renders the same body on a CLJS server, and
+;; hydration keeps that body. React 19 neither patches a raw body that differs
+;; at hydration nor keeps one the client does not render. Reagent's own prop
+;; conversion never looks the value up, so nothing it does changes.
+
+(extend-type reagent.template/UnsafeHTML
+  ILookup
+  (-lookup [this k] (-lookup this k nil))
+  (-lookup [this k not-found]
+    (if (keyword-identical? k :__html) (.-s this) not-found)))
