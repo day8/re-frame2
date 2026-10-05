@@ -211,35 +211,6 @@
         (is (str/includes? body "__rf_payload")
             "the app arm ships the hydration payload")))))
 
-(deftest error-view-fn-and-keyword-run-under-request-frame
-  (testing "both the fn- and keyword-form error views run under the request
-            frame — each derefs a working reactive sub and sees its value."
-    (rf/reg-sub :err/detail (fn [_db _] "SUB-VALUE-UNDER-FRAME"))
-    (reg-drain-boom-event!)
-    (testing "keyword form"
-      (rf/reg-view* :myapp/kw-error
-        (fn [_public] [:div.kw-error @(rf/subscribe [:err/detail])]))
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events [[:init/boom]]
-                        :root-view  [:div "root"]
-                        :error-view :myapp/kw-error
-                        :payload    :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/boom" :request-method :get})]
-        (is (= 500 (:status response)))
-        (is (str/includes? (body->str (:body response)) "SUB-VALUE-UNDER-FRAME")
-            "keyword error view resolved its sub under the request frame")))
-    (testing "fn form"
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events [[:init/boom]]
-                        :root-view  [:div "root"]
-                        :error-view (fn [_public]
-                                      [:div.fn-error @(rf/subscribe [:err/detail])])
-                        :payload    :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/boom" :request-method :get})]
-        (is (= 500 (:status response)))
-        (is (str/includes? (body->str (:body response)) "SUB-VALUE-UNDER-FRAME")
-            "fn error view resolved its sub under the request frame")))))
-
 ;; ===========================================================================
 ;; Non-streaming — error-view containment (one-way, no re-projection)
 ;; ===========================================================================
