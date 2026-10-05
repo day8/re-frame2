@@ -29,10 +29,10 @@
   ## Vacuity guard
 
   A refusal test passes for the wrong reason if `clear` is broken outright
-  (every call throwing would satisfy every `is` below). `valid-clear-still-clears`
-  is the positive control: the same `:sub` kind, cleared through the same
-  door with the arity these tests refuse opts on, must actually deregister
-  and return the id.
+  (every call throwing would satisfy every `is` below). The positive control
+  is `re-frame.sub-cache-test/clear-sub-id-leaves-cache-intact`: the same
+  `:sub` kind, cleared through the same door with the arity these tests
+  refuse opts on, must actually deregister.
 
   Per spec/API.md §Clearing registrations, spec/001-Registration.md's kind
   table, and Principles §No silent swallow."
@@ -143,18 +143,3 @@
       (is (re-find #":resource-scope" (str message))
           "the message spells the closed set out, so the caller does not have
            to read ex-data to learn the alternatives"))))
-
-;; ---------------------------------------------------------------------------
-;; Positive control — the refusals above are not a broken `clear`
-;; ---------------------------------------------------------------------------
-
-(deftest valid-clear-still-clears
-  (testing "the same kind, same door, correct arity: (rf/clear :sub id)
-            deregisters and returns the id"
-    (rf/reg-sub :guard/live (fn [db _] (:live db)))
-    (is (registered-sub? :guard/live) "precondition")
-    (is (= :guard/live (rf/clear :sub :guard/live))
-        "clear returns the id for every kind")
-    (is (not (registered-sub? :guard/live))
-        "the registration is gone — so the refusals above are refusals, not a
-         clear that throws unconditionally")))
