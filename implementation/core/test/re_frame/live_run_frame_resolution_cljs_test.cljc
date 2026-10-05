@@ -133,34 +133,8 @@
 ;; ===========================================================================
 ;; 1. THE ACCEPTANCE — a REAL frame-targeted dispatch resolves the event
 ;;    handler through the TARGET frame's image, not the global registrar.
+;;    Sections 3 and 5 run it against a same-id global handler.
 ;; ===========================================================================
-
-(deftest real-dispatch-resolves-event-handler-through-frame-image
-  (testing "a globally-registered [:counter/inc] writes :global; the frame's
-            IMAGE registers the SAME id writing :image. A REAL
-            (rf/dispatch-sync [:counter/inc] {:frame :counter/main}) runs the
-            IMAGE handler END-TO-END — proving process-event! wraps the run
-            with call-with-frame-resolution, NOT a manual binding."
-    ;; A runnable frame RECORD under :counter/main (EP-0013 substrate).
-    (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
-    ;; The GLOBAL handler — the value the run would write if it (wrongly)
-    ;; resolved through the global registrar.
-    (rf/reg-event :counter/inc
-      (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
-    ;; The frame's IMAGE registers the SAME id with a DIFFERENT impl.
-    (let [pool  [(event-desc "examples.counter" :counter/inc
-                             (fn [{:keys [db]} _] {:db (assoc db :written-by :image)}))]
-          img   (rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          ;; Register the live-frame OBJECT (carrying the image generation) under
-          ;; the SAME id as the runnable frame record.
-          _     (rf.live-frame/make-frame {:id :counter/main :images [img]} pool)]
-      ;; A REAL frame-targeted dispatch — no manual *generation* binding.
-      (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
-      (is (= :image (:written-by (rf/app-db-value :counter/main)))
-          "the IMAGE handler ran — the run resolved [:event :counter/inc]
-           through the target frame's resolved image generation, end-to-end")
-      (is (nil? rf.registrar/*generation*)
-          "the generation binding did NOT leak past the run"))))
 
 ;; ===========================================================================
 ;; 2. THE ACCEPTANCE — a REAL frame-targeted subscribe resolves the sub
