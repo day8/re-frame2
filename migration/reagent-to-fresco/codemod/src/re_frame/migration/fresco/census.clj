@@ -174,6 +174,13 @@
   [[summarise]] therefore emits `:mechanical 0` explicitly rather than
   leaving the key absent, so an empty bucket reads as a measurement.
 
+  `as-element` is `:human-decision`, not `:runtime-blocker`, because
+  whether it is a problem turns on whose heads it lowers: a Reagent island
+  the author keeps is right as it stands, and a Fresco view lowered by
+  Reagent is the unsafe bridge. Telling the two apart means resolving the
+  lowered heads, which this reader does not do, so the row is triage and
+  its recovery sentence names both cases.
+
   ## The roster covers every namespace the tool RECOGNISES, and that is a law
 
   A row here is looked up by NAME, while
@@ -225,7 +232,7 @@
     add-on-dispose!           {:class :cell-disposal           :verdict :human-decision}
     with-let                  {:class :with-let                :verdict :human-decision}
     create-class              {:class :lifecycle-class         :verdict :runtime-blocker}
-    as-element                {:class :as-element              :verdict :runtime-blocker}
+    as-element                {:class :as-element              :verdict :human-decision}
     reactify-component        {:class :outward-bridge          :verdict :human-decision}
     adapt-react-class         {:class :adapt-react-class       :verdict :human-decision}
     create-element            {:class :react-create-element    :verdict :human-decision}
@@ -384,10 +391,19 @@
         "host.")
 
    :as-element
-   (str "`r/as-element` lowers Hiccup for a foreign caller. Fresco's counterpart is "
-        "`h/as-element` under a declared `:render` callback contract — and the closure usually "
-        "runs OUTSIDE the owner's render window, when the library calls it, so this is not a "
-        "text substitution.")
+   (str "`r/as-element` lowers Hiccup through REAGENT, and whether that is right turns on whose "
+        "heads it lowers. The census does not resolve them, so this is triage rather than a "
+        "finding: sitting inside an `h/defview` settles nothing, and a dynamic or unresolved "
+        "target stays unsettled until someone reads it. A Reagent island the author KEEPS — every "
+        "head a Reagent component, such as a re-com `v-box` or a Reagent `reg-view` — stays as it "
+        "is: Reagent is its renderer, and swapping in `h/as-element` would send those heads into "
+        "Fresco's lowerer. A Fresco view, or Hiccup Fresco is meant to lower, handed to "
+        "`r/as-element` is the UNSAFE bridge, because Reagent then reads Fresco's heads and props "
+        "as its own. Cross that through Fresco's own doors: `h/as-element` for one element — in a "
+        "Reagent parent's child position, or at a foreign prop under a declared `:render` callback "
+        "contract, where the closure usually runs OUTSIDE the owner's render window, so it is not "
+        "a text substitution — or a stable top-level `h/as-component` for a view handed through "
+        "raw or foreign props.")
 
    :outward-bridge
    (str "`r/reactify-component` hands a Reagent component to React. The counterpart is "
