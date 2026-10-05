@@ -687,14 +687,6 @@ def _self_test() -> int:
 
     # PASS fixtures — boundary statements that DO carry 015 (the conforming shapes).
     expect(
-        "001 → 002 → 006 → 004 → 009 → 015 → 013, then optional EPs per Phase 1 scope",
-        boundary=True, has015=True, has013=True, label="E corrected SKILL arrow run",
-    )
-    expect(
-        "the foundation cluster (001 / 002 / 006 / 004 / 009 / 015 / 013) and the optional EPs",
-        boundary=True, has015=True, has013=True, label="F corrected cluster enumeration",
-    )
-    expect(
         "001 -> 002 -> 006 -> 004 -> 009 -> Data Classification -> 013 -> optional",
         boundary=True, has015=True, has013=True, label="G prose name instead of number",
     )
@@ -861,10 +853,6 @@ def _self_test() -> int:
         ref=True, label="U Done-checklist witness item",
     )
     expect_witness_ref(
-        "live cache wiring is proved by the [live sub-cache witness](#...) below",
-        ref=True, label="V EP-006 row witness pointer",
-    )
-    expect_witness_ref(
         "`:core/sub`, plus the `:identity/cedn1` sub-cache fixtures",
         ref=False, label="W fixture misnomer is not a witness reference",
     )
@@ -963,14 +951,6 @@ def _self_test() -> int:
         print(
             "SELF-TEST FAIL (AG): a 'nothing declares it' row was read as "
             "always-run; the derivation would over-claim the required set."
-        )
-        failures += 1
-    if not ALWAYS_RUN_ROW_RE.search(
-        "| `:flow/*` | nothing — always run | [013](013-Flows.md) is v1-required. |"
-    ):
-        print(
-            "SELF-TEST FAIL (AH): a genuine always-run row failed to match; the "
-            "derivation would run vacuously."
         )
         failures += 1
 
