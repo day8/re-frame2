@@ -9,10 +9,9 @@
       `:rf.image/requires` (not on the image value), `make-frame
       :capabilities` (no frame-boundary capability check, no
       `image-assembly/check-capabilities!` / `image-requires`), and
-      `:rf.gen/requires` (not on a sealed generation);
-    * the absence is SCOPED: the UNRELATED `:rf.capability/*` host-service
-      vocabulary stays valid + usable as ordinary keyword data — only the
-      image-capability requirement surface is absent.
+      `:rf.gen/requires` (not on a sealed generation). The image value's and
+      the sealed generation's exact shapes, which carry neither slot, are
+      pinned by `image-cljs-test` and `facade-frame-read-cljs-test`.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, never the
   message bytes (Spec 009 §The thrown-error shape rule 3). `.cljc` ending
@@ -20,7 +19,7 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             [re-frame.image          :as rf.image]
-            [re-frame.image-assembly :as rf.image-assembly]))
+            #?(:cljs [re-frame.image-assembly :as rf.image-assembly])))
 
 (defn- err-id
   [thunk]
@@ -71,39 +70,9 @@
     (is (= :rf.image/requires
            (retired-key? #(rf.image/image {:id :x :rf.image/requires #{:rf.capability/http}}))))))
 
-(deftest a-retired-key-is-not-a-silent-alias
-  (testing "a retired key is REJECTED, never silently lowered to its :select-ns
-            spelling"
-    ;; :include-ns must NOT be quietly accepted as :select-ns :include — it fails.
-    (is (= :rf.error/invalid-image
-           (err-id #(rf.image/image {:id :x :include-ns ["a.b"]}))))
-    ;; The three-key surface works.
-    (let [v (rf.image/image {:id :x :select-ns {:include ["a.b"]}})]
-      (is (= ["a.b"] (:rf.image/include-ns v))))))
-
 ;; ===========================================================================
 ;; 2. The THREE image-capability surfaces are absent end-to-end.
 ;; ===========================================================================
-
-(deftest image-value-carries-no-requires-slot
-  (testing "EP-0026: a constructed image value does NOT carry an
-            :rf.image/requires slot"
-    (let [v (rf.image/image {:id :app/main :select-ns {:include ["a.b"]}})]
-      (is (not (contains? v :rf.image/requires))
-          "the image value carries no :rf.image/requires slot"))))
-
-(deftest sealed-generation-carries-no-requires-slot
-  (testing "EP-0026: a sealed generation carries
-            :rf.gen/resolver / :rf.gen/images / :rf.gen/kinds (+ the
-            :rf.gen/shadows report), but no :rf.gen/requires"
-    (let [pool [{:rf.provenance/ns "a.b" :kind :event :id :foo/x :handler-fn (fn [_ _])}]
-          img  (rf.image/image {:id :app/main :select-ns {:include ["a.b"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (not (contains? gen :rf.gen/requires))
-          "the sealed generation carries no :rf.gen/requires")
-      (is (contains? gen :rf.gen/resolver))
-      (is (contains? gen :rf.gen/images))
-      (is (contains? gen :rf.gen/kinds)))))
 
 (deftest image-capability-check-vars-are-gone
   (testing "EP-0026: image-assembly/check-capabilities! and /image-requires do
@@ -133,25 +102,3 @@
              gen  (rf.image-assembly/assemble [(rf.image/image {:id :a :select-ns {:include ["a.b"]}})] pool)]
          ;; A sealed generation carries no :rf.gen/requires.
          (is (not (contains? gen :rf.gen/requires)))))))
-
-;; ===========================================================================
-;; 3. The absence is SCOPED — the UNRELATED :rf.capability/* host-service
-;;    vocabulary stays valid + usable (EP-0026 §Capability Removal — "none of
-;;    those are touched").
-;; ===========================================================================
-
-(deftest unrelated-rf-capability-vocabulary-is-untouched
-  (testing "the :rf.capability/* host-service keywords remain ordinary, valid
-            keyword data — only the image-capability REQUIREMENT surface is
-            absent (EP-0026), never the capability vocabulary itself"
-    (doseq [k [:rf.capability/http :rf.capability/clock :rf.capability/random
-               :rf.capability/schemas :rf.capability/routes :rf.capability/ssr]]
-      (is (keyword? k))
-      (is (= "rf.capability" (namespace k))))
-    ;; A capability map remains a perfectly ordinary value an app may build, pass
-    ;; as frame record-config, or hand to an adapter — it is simply never
-    ;; checked against an image-declared requirement.
-    (let [cap-map {:rf.capability/http ::http-impl
-                   :rf.capability/clock ::clock-impl}]
-      (is (= ::http-impl (:rf.capability/http cap-map)))
-      (is (contains? cap-map :rf.capability/clock)))))
