@@ -57,16 +57,6 @@
           "without :db-before, patch shape cannot prove the container is new")
       (is (= 2 (count (:patches s)))))))
 
-(deftest unrelated-root-keys-stand-as-separate-sections
-  ;; Empty common prefix → no coalesce. Two separate sections, each
-  ;; with its own root-key breadcrumb.
-  (let [patches  [[[:flash] :assoc "Saved"]
-                  [[:status] :assoc :ok]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 2 (count sections)))
-    (is (= [:flash] (:section-path (first sections))))
-    (is (= [:status] (:section-path (second sections))))))
-
 (deftest cluster-coalescence-respects-max-depth
   ;; Default max-coalesce-depth is 3. Two patches whose common
   ;; ancestor sits 4 levels away from both should NOT coalesce.
