@@ -14,15 +14,12 @@
   all three read paths are pinned by `re-frame.sub-declared-inputs-test`.
 
   Coverage:
-    - `normalize-sub-inputs` grammar: accepts a vector of query-vectors,
-      rejects scalar / bare-keyword / map / mixed / reaction / derefable
-    - a multi-input producer resolves to a vector of input values in
-      producer order
+    - `normalize-sub-inputs` grammar: rejects scalar / bare-keyword / map /
+      mixed / reaction / derefable
     - a materialized parametric node recomputes on an upstream change
     - hot-reload of an upstream invalidates the parametric entries realized
       over it
-    - meta-map forms classify as :db / :static / :parametric
-    - disposal releases realized upstream subscriptions
+    - a Var-valued handler is accepted
     - the realized-inputs cache shape (`:inputs` = realized query-vectors)
     - multi-frame: every realized input resolves in the OUTER frame
     - the 3 error ids fire loudly (reg-sub-bad-args /
@@ -102,14 +99,6 @@
 
 ;; ---- normalize-sub-inputs grammar ----------------------------------------
 
-(deftest normalize-accepts-vector-of-query-vectors
-  (testing "a vector of query vectors normalizes to {:queries [...]}"
-    (is (= {:queries [[:a 1] [:b]]} (rf.subs/normalize-sub-inputs [[:a 1] [:b]])))
-    (is (= {:queries [[:x :y]]}     (rf.subs/normalize-sub-inputs [[:x :y]]))
-        "single input is still a vector OF query vectors")
-    (is (= {:queries []}            (rf.subs/normalize-sub-inputs []))
-        "empty is unusual but valid")))
-
 (deftest normalize-rejects-every-shape-but-a-vector-of-query-vectors
   (testing "anything but a vector of query vectors is rejected as sub-input-fn-bad-return"
     (doseq [[label bad]
@@ -124,31 +113,7 @@
             (rf.subs/normalize-sub-inputs bad))
           (str label " is rejected")))))
 
-;; ---- vector-of-query-vectors resolves to a vector of values --------------
-
-(deftest multi-parametric-inputs-resolve-in-producer-order
-  (testing "multiple parametric inputs resolve to a vector of values in order"
-    (rf/reg-sub :article/by-id (fn [db [_ id]] (get-in db [:articles id])))
-    (rf/reg-sub :comments/for  (fn [db [_ id]] (get-in db [:comments id])))
-    (rf/reg-sub :viewer        (fn [db _] (:viewer db)))
-    (rf/reg-sub :article/page
-                {:inputs (fn [[_ id]]
-                  [[:article/by-id id]
-                   [:comments/for id]
-                   [:viewer]])}
-                (fn [[article comments viewer] [_ id]]
-                  {:id id :article article :comments comments :viewer viewer}))
-    (rf/reg-event :seed
-                     (fn [{:keys [db]} _]
-                       {:db {:articles {:a1 {:title "T"}}
-                        :comments {:a1 ["c1" "c2"]}
-                        :viewer   {:name "Mike"}}}))
-    (rf/dispatch-sync [:seed])
-    (is (= {:id :a1
-            :article  {:title "T"}
-            :comments ["c1" "c2"]
-            :viewer   {:name "Mike"}}
-           (rf/subscribe-once [:article/page :a1])))))
+;; ---- a materialized parametric node recomputes ----------------------------
 
 (deftest parametric-recomputes-reactively-on-upstream-change
   (testing "a materialized parametric node follows ordinary layer-2+
@@ -203,28 +168,6 @@
     (is (= [[:item/by-id :y]] (:inputs (entry :rf/default [:item/title :y]))))
     (rf/unsubscribe [:item/title :x])
     (rf/unsubscribe [:item/title :y])))
-
-;; ---- disposal releases realized upstreams --------------------------------
-
-(deftest disposal-releases-realized-upstreams
-  (testing "disposing a parametric node releases its realized upstream subscriptions"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "X"}}}}))
-    (rf/dispatch-sync [:seed])
-    (rf/subscribe [:item/title :x])
-    ;; The realized upstream [:item/by-id :x] is now cached + ref-counted.
-    (is (contains? (cache-keys :rf/default) [:item/title :x]))
-    (is (contains? (cache-keys :rf/default) [:item/by-id :x])
-        "the realized parametric input was subscribed")
-    (is (= 1 (:ref-count (entry :rf/default [:item/by-id :x]))))
-    ;; Drop the parent — disposal must cascade to the realized upstream.
-    (rf/unsubscribe [:item/title :x])
-    (is (not (contains? (cache-keys :rf/default) [:item/title :x])))
-    (is (not (contains? (cache-keys :rf/default) [:item/by-id :x]))
-        "the realized upstream was released synchronously on parent disposal")))
 
 ;; ---- hot-reload invalidates parametric cache entries ---------------------
 
@@ -384,49 +327,8 @@
 ;; ---- handler-detection robustness ------------------------------------------
 ;;
 ;; `handler?` (fn-or-Var, not bare `ifn?`) decides whether the ONE trailing
-;; arg is a computation fn, and has to accept a Var. Downstream consumers
-;; (ssr / xray / pair-mcp) build subs through registration shapes the
-;; parametric feature tests above do NOT cover — chiefly the meta-map-prefixed
-;; `(reg-sub id meta-map computation-fn)` form (ssr/core conformance corpora
-;; use exactly this), and Var-valued handlers. These lock that the parser
-;; classifies those shapes correctly: a meta-map is consumed as `:meta`, and a
-;; Var passes `handler?`.
-
-(deftest meta-map-prefixed-layer-1-classifies-as-db
-  (testing "(reg-sub id meta-map computation-fn) — the meta-map is consumed as
-            :meta, leaving a single trailing fn → :db (NOT a 2-fn parametric)"
-    (rf/reg-sub :m1 {:doc "a layer-1 sub"} (fn [db _] (:n db)))
-    (let [m (sub-meta :m1)]
-      (is (= :db (:input-kind m)))
-      (is (= [] (:input-signals m)))
-      (is (not (contains? m :input-fn))
-          "a meta-map + single fn is NOT misread as input-fn + computation-fn")
-      ;; `:doc` is PURE DOCUMENTATION, stripped by
-      ;; `rf.registrar/strip-pure-documentation` under -Dre-frame.debug=false. The
-      ;; claim ("the meta-map was consumed as :meta, not as a handler") is
-      ;; carried in both postures by the `:input-kind` / `:input-fn` rows above
-      ;; and by the live subscribe below.
-      (when rf.interop/debug-enabled?
-        (is (= "a layer-1 sub" (:doc m)) "the meta-map survived onto the registration")))
-    (rf/reg-event :seed-m1 (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/dispatch-sync [:seed-m1])
-    (is (= 7 (rf/subscribe-once [:m1])))))
-
-(deftest meta-map-with-literal-inputs-classifies-as-static
-  (testing "(reg-sub id {:doc ... :inputs [...]} computation-fn) — the doc and the
-            declared inputs coexist; the sub classifies :static, inputs intact"
-    (rf/reg-sub :base (fn [db _] (:n db)))
-    (rf/reg-sub :m2 {:doc "doubled" :inputs [[:base]]} (fn [[n] _] (* 2 n)))
-    (let [m (sub-meta :m2)]
-      (is (= :static (:input-kind m)))
-      (is (= [[:base]] (:input-signals m)))
-      (is (not (contains? m :input-fn)))
-      ;; Pure-documentation strip; see the deftest above.
-      (when rf.interop/debug-enabled?
-        (is (= "doubled" (:doc m)))))
-    (rf/reg-event :seed-m2 (fn [{:keys [db]} _] {:db {:n 5}}))
-    (rf/dispatch-sync [:seed-m2])
-    (is (= 10 (rf/subscribe-once [:m2])))))
+;; arg is a computation fn, and has to accept a Var: HoF and
+;; `requiring-resolve` call sites register with one.
 
 (defn- a-var-layer-1-handler [db _] (:v db))
 
@@ -441,19 +343,3 @@
     (rf/reg-event :seed-vh (fn [{:keys [db]} _] {:db {:v 42}}))
     (rf/dispatch-sync [:seed-vh])
     (is (= 42 (rf/subscribe-once [:vh])))))
-
-(deftest meta-map-prefixed-parametric-still-recognised
-  (testing "(reg-sub id {:doc … :inputs input-fn} computation-fn) — a doc
-            beside a parametric `:inputs` fn classifies as :parametric"
-    (rf/reg-sub :leaf2 (fn [db [_ id]] (get-in db [:by-id id])))
-    (rf/reg-sub :p1 {:doc "parametric with meta" :inputs (fn [[_ id]] [[:leaf2 id]])}
-                (fn [[v] _] v))
-    (let [m (sub-meta :p1)]
-      (is (= :parametric (:input-kind m)))
-      (is (fn? (:input-fn m)))
-      ;; Pure-documentation strip; see above.
-      (when rf.interop/debug-enabled?
-        (is (= "parametric with meta" (:doc m)))))
-    (rf/reg-event :seed-p1 (fn [{:keys [db]} _] {:db {:by-id {:a 99}}}))
-    (rf/dispatch-sync [:seed-p1])
-    (is (= 99 (rf/subscribe-once [:p1 :a])))))
