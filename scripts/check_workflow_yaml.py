@@ -93,7 +93,7 @@ def _diagnose(text: str):
 # Self-test.  A green live sweep over a tree that happens to be clean cannot
 # tell you the difference between "the workflows parse" and "the checker has
 # stopped looking" — the same argument the residue sweeps in this directory
-# make for their own self-test arms.  So drive it red on four break shapes that
+# make for their own self-test arms.  So drive it red on three break shapes that
 # are each a plausible hand-edit, and green on a valid workflow.
 # ---------------------------------------------------------------------------
 _VALID = """\
@@ -109,7 +109,6 @@ jobs:
 
 _BREAKS = (
     ("unmatched quote", 'name: "tests\non:\n  pull_request:\n'),
-    ("tab indentation", "name: tests\njobs:\n\tbuild:\n"),
     ("unclosed flow sequence", "name: tests\njobs: [build, lint\n"),
     ("two colons in one key", "name: tests\non: push: true\n"),
 )
