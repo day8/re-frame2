@@ -458,18 +458,18 @@ LAYOUT_CHECKS: tuple[LayoutCheck, ...] = (
         ignore=frozenset({"_shared"}),
     ),
     LayoutCheck(
-        readme="skills/reagent-migration/README.md",
+        readme="skills/reagent-fresco-migration/README.md",
         section="Layout",
-        base_dir="skills/reagent-migration",
+        base_dir="skills/reagent-fresco-migration",
         # The layout is declared LOCKED (spec/design.md §4) and tests/fixture/
         # is run by a required CI job, so an omission from the map matters.
         # No ignore set: every immediate dir is documented, and .claude-plugin/
         # is a dot-dir that the map parser and _disk_dirs both drop.
     ),
     LayoutCheck(
-        readme="skills/reagent-migration/spec/design.md",
+        readme="skills/reagent-fresco-migration/spec/design.md",
         section="4. File structure (locked)",
-        base_dir="skills/reagent-migration",
+        base_dir="skills/reagent-fresco-migration",
         # The re-author's inventory of record (spec/authoring-prompt.md:17).
     ),
 )

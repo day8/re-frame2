@@ -10,7 +10,7 @@ description: >
   reg-sub-raw, legacy sub sugar, ^:flush-dom, re-frame.alpha, re-frame-test, top-level
   :dispatch / :dispatch-n keys, http-fx / :http-xhrio, async-flow-fx,
   re-frame-10x. Not for new re-frame2 code (re-frame2), greenfield setup
-  (re-frame2-setup), Reagent-to-Fresco views (reagent-migration), or a running
+  (re-frame2-setup), Fresco views (reagent-fresco-migration), or a running
   app (re-frame2-pair).
 allowed-tools:
   - Bash(rg *)
@@ -166,7 +166,7 @@ Load a leaf when its phase or rule comes up; none needs reading up front.
 - [ ] For a 10x project, **both** halves of the Xray swap landed: 10x dependency + preload dropped at M-0, and Xray dependency + preload + `[data-rf-xray-host]` host + npm peer-deps (`@xyflow/react`, `elkjs`) wired after M-40, panel verified (`Ctrl+Shift+C`). Dropping the dead preload alone leaves the author with no devtools. (No 10x → nothing to check.)
 - [ ] Report written per `MIGRATION.md` Part 2 / [`output-format.md`](references/output-format.md), with every item held for the author listed.
 
-Report any unresolved Type B sites or pending smoke / clean-checkout / release checks as remaining work, with the next action; the migration remains incomplete. Once the [done checklist](#done-checklist) is satisfied, hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. If you want Fresco views, **`reagent-migration`** is the optional second step — staying on Reagent is a first-class, fully-supported choice. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
+Report any unresolved Type B sites or pending smoke / clean-checkout / release checks as remaining work, with the next action; the migration remains incomplete. Once the [done checklist](#done-checklist) is satisfied, hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. If you want Fresco views, **`reagent-fresco-migration`** is the optional second step — staying on Reagent is a first-class, fully-supported choice. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
 
 ## Anti-patterns
 

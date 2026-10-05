@@ -97,7 +97,7 @@ Everything above is the **adapter** story: re-frame2 drives a React view layer s
 
 Everything upstream of the view is unchanged — the same `reg-event`, `reg-sub`, app-db, effects, frames, machines and routing this skill teaches. Only the view spelling and its host move.
 
-Writing Fresco views is not this skill's surface. Porting existing Reagent views across is the [`reagent-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration) skill, which carries the verb roster, the judgment calls and the cases Fresco does not yet handle. Check a verb against that skill's roster before writing it, because the design corpus describes several that are not exported.
+Writing Fresco views is not this skill's surface. Porting existing Reagent views across is the [`reagent-fresco-migration`](https://github.com/day8/re-frame2/tree/main/skills/reagent-fresco-migration) skill, which carries the verb roster, the judgment calls and the cases Fresco does not yet handle. Check a verb against that skill's roster before writing it, because the design corpus describes several that are not exported.
 
 ## Common gotchas
 

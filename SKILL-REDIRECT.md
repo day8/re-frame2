@@ -51,7 +51,7 @@ Find your skill, scan the audience section for lines tagged with it.
 > Three of the nine skills are intentionally absent from this table:
 > `re-frame2-xray` cites its own spec tree (`tools/xray/spec/*`),
 > `re-frame2-improver` routes deep-dives to `skills/re-frame2/patterns/`
-> + `spec/`, and `reagent-migration` pins the pre-publication Fresco
+> + `spec/`, and `reagent-fresco-migration` pins the pre-publication Fresco
 > surface by checkout (`implementation/fresco/src/`, `docs/core/fresco/`).
 > None consumes the URLs below, so none gets a row here.
 > `re-frame2-implementor` keeps its row for the `[impl]` tags but
