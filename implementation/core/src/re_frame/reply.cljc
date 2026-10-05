@@ -213,7 +213,7 @@
   `:event`, carrying a non-vector / empty-vector / non-keyword-headed `:event`,
   or a non-vector/non-map target throws `ex-info`
   `:rf.reply/invalid-target` rather than letting a bogus `{}` / `{:event nil}` /
-  `{:event :x}` travel on to `complete` (which would `(vec event)` it into a
+  `{:event :x}` travel on to `complete` (whose append would turn it into a
   garbage dispatch shape). Validating here means EVERY downstream consumer
   (`complete`, `map-completed-event`, `durable-target`, `target->short-form`) inherits
   the guarantee — the target is either nil or a well-formed descriptor."
@@ -274,7 +274,10 @@
   For `:delivery :append` (the only public mode) the reply map is appended
   as the final argument of the target's event vector; then the target's
   composed event-transform (`::post`, identity when absent) is applied. The
-  result is the event vector ready to dispatch.
+  result is the event vector ready to dispatch. The append is to the target
+  vector as written (`normalize-target` guarantees `:event` is a vector), so
+  any metadata on it travels with the completed event, the same append
+  managed HTTP makes.
 
   This is the pure core the functor law is stated over:
 
@@ -287,7 +290,7 @@
   [target reply]
   (when-let [{:keys [event delivery] :as d} (normalize-target target)]
     (let [base (case delivery
-                 :append (conj (vec event) reply)
+                 :append (conj event reply)
                  ;; A non-:append delivery is a compatibility-adapter mode
                  ;; that lowers internally; an unknown one is a contract
                  ;; error rather than a silent fall-through.

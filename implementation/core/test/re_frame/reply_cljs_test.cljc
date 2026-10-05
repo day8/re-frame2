@@ -191,7 +191,7 @@
         "a descriptor with gates but no :event is still malformed"))
   (testing "a descriptor whose :event is nil / a bare keyword / not a vector is rejected"
     (is (invalid-target? #(rf.reply/normalize-target {:event nil}))
-        "{:event nil} would (vec nil) into a garbage event")
+        "{:event nil} has no event vector to append to")
     (is (invalid-target? #(rf.reply/normalize-target {:event :x}))
         "{:event :x} is a bare keyword, not an event-vector prefix")
     (is (invalid-target? #(rf.reply/normalize-target {:event "boom"})))
@@ -212,7 +212,7 @@
     (is (= {:event [:x] :delivery :append} (rf.reply/normalize-target {:event [:x]}))))
   (testing "the malformed-target rejection propagates through complete / target->short-form"
     (is (invalid-target? #(rf.reply/complete {:event :x} {:status :ok :value 1}))
-        "complete fails closed on a malformed descriptor (never (vec :x))")
+        "complete fails closed on a malformed descriptor (never appends to :x)")
     (is (invalid-target? #(rf.reply/target->short-form {})))))
 
 (deftest map-completed-event-preserves-nil-no-continuation
