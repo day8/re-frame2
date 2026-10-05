@@ -137,12 +137,17 @@ Skip this and the converted boot / login / wizard compiles, starts, and then **h
 
 The producers are **scattered, not co-located**: the `:async-flow` declaration lives in one `boot` / `init` namespace while its awaited events are produced across many namespaces, each with its own HTTP completion — and one event (`[:session-expired]`, `[:fetch-failed]`) is often awaited by several flows at once. So the retarget is a **wiring pass over the whole producer graph**, not a local edit. Before converting, enumerate it: for each awaited event, grep every site that dispatches it (`rg "\[:config-loaded"`) and record the file / handler it lives in. Then decide per site —
 
-- **Re-address** it to `[<machine-id> …]` when the machine is the event's sole consumer.
-- **Append the addressed dispatch to the event's existing handler** when the event must stay public for other listeners and already has a `reg-event` — usually the success handler that stores the payload. Keep its body, `:interceptors` and existing effect order, and append one `[:dispatch [<machine-id> ev]]` per awaiting machine. Never register a second handler under the same id beside it: registration holds one handler per `(kind, id)`, so the second **replaces** the first (from another file it also draws a dev-only `:rf.warning/registration-collision`) and the original `:db` update and effects stop running.
-- **Forward** it only when the event has **no** handler anywhere in the tree (it existed only for the flow to observe): then a one-line forwarding handler is its one registration — `(rf/reg-event :config-loaded (fn [_ ev] {:fx [[:dispatch [:app/boot ev]]]}))` — registered once, by whichever file the migration assigns it to.
-- **Or route the await through a child actor**: model the async work as a spawned child whose completion the runtime routes back to the parent, so no global event needs retargeting.
+- **Re-address** it to `[<machine-id> …]` when the machine is the event's sole consumer and only its own run's work produces it — a request that run issued. A producer that can fire with no run awaiting it (a push, a timer, a request something else issued) needs a handler that reads the run first, as in the next two bullets.
+- **Append the addressed dispatch to the event's existing handler** when the event must stay public for other listeners and already has a `reg-event` — usually the success handler that stores the payload. Keep its body, `:interceptors` and existing effect order, and append one addressed dispatch for each machine whose **current run awaits the event**, read when the handler runs — never one per machine unconditionally (see *Deliver only to a live, awaiting run* below). Never register a second handler under the same id beside it: registration holds one handler per `(kind, id)`, so the second **replaces** the first (from another file it also draws a dev-only `:rf.warning/registration-collision`) and the original `:db` update and effects stop running.
+- **Forward** it only when the event has **no** handler anywhere in the tree (it existed only for the flow to observe): then a forwarding handler is its one registration — the worked example's handler below with no body of its own, so it too forwards only to runs that await the event — registered once, by whichever file the migration assigns it to.
+- **Or route the await through a child actor**: model the async work as a spawned child whose completion the runtime routes back to the parent, so no global event needs retargeting — and the runtime drops that completion as stale once the parent run has ended, left the spawning state or re-entered it ([005 §Spawned-actor completion](../../spec/005-StateMachines.md#spawned-actor-completion)).
 
-**Worked example — two machines await an event that already has a handler.** v1's `:config-loaded` handler stores the config and applies the theme; after conversion both `:app/boot` and `:wizard/setup` await it. The handler keeps its one registration and appends one addressed dispatch per machine:
+**Deliver only to a live, awaiting run.** v1's flow observed the router only while it ran — from the `:async-flow` effect that started it to the `:halt?` rule that tore it down. An addressed dispatch to a singleton has no such window: when no run is live at the address — never started, or ended by a `:final?` state — the event synthesises an initial snapshot and starts a fresh run, initial `:entry` and all ([005 §Final states, D5 and D7](../../spec/005-StateMachines.md#sub-decisions-locked)). So an unconditional forward starts consumers that never started and restarts ones that finished. Guard it at both ends, because the two ends see different moments:
+
+- **At enqueue, the producer reads the run.** The handler reads each awaiting machine's snapshot with `(rf/subscribe-once [:rf/machine <machine-id>])` — the one-shot read for handler bodies ([API §Dispatch and subscribe](../../spec/API.md#dispatch-and-subscribe)) — and forwards only when that snapshot carries the [tag](../../spec/005-StateMachines.md#state-tags) the consumer puts on the states that await the event, stamping the forward with the run token from its `:data`. A never-started consumer has no snapshot, hence no tag, and is skipped. **Registration is not a run**: `reg-machine` installs a definition that outlives every run ([005 §Liveness is derived from runtime-db](../../spec/005-StateMachines.md#liveness-is-derived-from-runtime-db)), so `rf/registrations` and `rf/handler-meta` answer *creatable*, never *awaiting*. Never gate a forward on them, and never forward to every registered machine.
+- **At delivery, the consumer decides.** A plain handler's `:dispatch` joins the **back** of the queue ([002 §`:fx` ordering](../../spec/002-Frames.md#fx-ordering-and-atomicity-guarantees)), so events already queued run first and can end or restart the run before the forward arrives. What the producer read need not hold by then, and the consumer is the only code that runs at delivery, so it carries the other two pieces. **Terminal states without `:final?`** keep its snapshot alive past any forward still queued, so a late one lands on a state with no transition for it — a benign unhandled no-op ([005 §Transition resolution](../../spec/005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough)). A **run token** in `:data`, set by the event that starts or restarts the run, is compared by a guard on the awaiting transition with the token the forward carries, so a forward stamped for a superseded run is refused. Whatever starts the run mints the token and passes it in the start event.
+
+**Worked example — two machines await an event that already has a handler.** v1's `:config-loaded` handler stores the config and applies the theme; after conversion both `:app/boot` and `:wizard/setup` await it. The handler keeps its one registration and appends an addressed dispatch for each machine whose current run awaits it:
 
 ```clojure
 ;; Before (after M-73): the existing completion handler.
@@ -152,18 +157,52 @@ The producers are **scattered, not co-located**: the `:async-flow` declaration l
     {:db (assoc db :config config)
      :fx [[:dispatch [:theme/apply (:theme config)]]]}))
 
-;; After: the same registration — body, chain and effect order kept — with one
-;; addressed dispatch appended per awaiting machine.
+;; After: the same registration — body, chain and effect order kept — with an
+;; addressed dispatch appended for each machine whose current run awaits it,
+;; stamped with that run's token.
 (rf/reg-event :config-loaded
   {:interceptors [:app/log-timing]}
   (fn [{:keys [db]} [_ config :as ev]]
     {:db (assoc db :config config)
-     :fx [[:dispatch [:theme/apply (:theme config)]]
-          [:dispatch [:app/boot ev]]
-          [:dispatch [:wizard/setup ev]]]}))
+     :fx (into [[:dispatch [:theme/apply (:theme config)]]]
+               (keep (fn [machine-id]
+                       (let [snap (rf/subscribe-once [:rf/machine machine-id])]
+                         (when (contains? (:tags snap) :awaits/config)
+                           [:dispatch [machine-id (conj ev {:run (get-in snap [:data :run])})]]))))
+               [:app/boot :wizard/setup])}))   ;; the consumers the producer census found
 ```
 
-Each `[:config-loaded cfg]` still runs one handler, so the `:config` write and the `:theme/apply` dispatch happen exactly once, and each machine receives `[:config-loaded cfg]` at its own address. A forwarding `:config-loaded` registered beside it would instead replace this handler, and the config would never be stored. On a partitioned migration the handler's owning unit makes this edit, at the request of the units that own the machines.
+Each consumer tags the states that await the event, keeps a run token and a guard on it, and ends without `:final?`. Here `:wizard/setup`, which can be restarted:
+
+```clojure
+(rf/reg-machine :wizard/setup
+  {:initial :idle
+   :guards  {:this-run? (fn [{:keys [data event]}] (= (:run data) (:run (peek event))))}
+   :actions {:begin-run   (fn [{:keys [event]}] {:data {:run (:run (peek event))}})
+             :take-config (fn [{:keys [event]}] {:data {:config (second event)}})}
+   :states
+   {:idle            {:on {:wizard/begin {:target :awaiting-config :action :begin-run}}}
+    :awaiting-config {:tags #{:awaits/config}
+                      :on   {:config-loaded {:guard :this-run? :target :editing :action :take-config}
+                             :wizard/begin  {:target :awaiting-config :action :begin-run}
+                             :wizard/cancel :cancelled}}
+    :editing         {:on {:wizard/cancel :cancelled}}
+    :cancelled       {:on {:wizard/begin {:target :awaiting-config :action :begin-run}}}}})  ;; terminal, not :final?
+
+;; Each start or restart carries a fresh token, minted where the run is started:
+(rf/dispatch [:wizard/setup [:wizard/begin {:run (random-uuid)}]])
+```
+
+A consumer that runs once and is never restarted — a boot machine — can skip the token and its guard, but still keeps its terminal states without `:final?`; their `:entry` still runs once on arrival. Each `[:config-loaded cfg]` still runs one handler, so the `:config` write and the `:theme/apply` dispatch happen exactly once, whatever state the consumers are in. A forwarding `:config-loaded` registered beside it would instead replace this handler, and the config would never be stored. Walk the lifecycle cases through it:
+
+- **Never started.** No snapshot, so the read finds no tag and nothing is appended — nothing is dispatched to the address that could create a run.
+- **Completed.** The run rests in a terminal state without the tag, so nothing is appended; its snapshot stays, because that state is not `:final?`.
+- **Two independently active runs.** Each consumer's snapshot is read on its own, so each receives one forward, stamped with its own token.
+- **Queued after a halt.** The forward was appended while the run awaited, then an event already queued ahead of it moved the run to a terminal state. The snapshot is still live, that state has no `:config-loaded` transition, and delivery is an unhandled no-op. Had the state been `:final?`, the snapshot would be gone and the forward would start a fresh run — the read at enqueue alone cannot prevent that.
+- **A completion from a superseded run.** A restart queued ahead of the forward gave the run a new token; the forward still carries the old one, so `:this-run?` fails at delivery and the new run is not handed its predecessor's value. When a completion answers a request one particular run made, carry that run's token through the request and stamp the forward with it in place of the snapshot's, so a late answer to an old request is refused the same way.
+- **A repeated start** reaches a live snapshot, so it never re-creates the machine; whether it restarts the run is the consumer's own transition (`:wizard/begin` here), and a restart takes a fresh token.
+
+On a partitioned migration the handler's owning unit makes this edit, at the request of the units that own the machines; each machine's owning unit adds its tag, its token and its terminal states.
 
 Treat any awaited event you cannot trace to its producers as a **blocker** — an unretargeted producer is the silent stuck-boot, shipped. On a partitioned / incremental migration a producer's file is frequently converted **before** the consuming machine's await exists, so it ships in the plain global form — correct for its own file, un-addressed for a machine that is not there yet. Closing that ordering gap needs a deliberate **reconcile pass**: once the consuming machine lands, revisit every producer converted before its await existed and re-address it or append the addressed dispatch to its handler.
 
@@ -195,7 +234,7 @@ The translation is one rule at a time. For each rule:
 
 ### `:halt?`
 
-`:halt? true` rules become `:final?` states. The machine auto-destroys on entering a `:final?` state (per Spec 005 §Final states); the side effects async-flow ran (deregister handler, clear `:db-path` state, stop event observation) all happen as part of the runtime's auto-cleanup. If the halt rule dispatched an event (e.g. `:dispatch [:app/ready]`), put the dispatch in the `:final?` state's `:entry` action — the action runs once on entry, before auto-destroy.
+`:halt? true` rules become `:final?` states. The machine auto-destroys on entering a `:final?` state (per Spec 005 §Final states); the side effects async-flow ran (deregister handler, clear `:db-path` state, stop event observation) all happen as part of the runtime's auto-cleanup. If the halt rule dispatched an event (e.g. `:dispatch [:app/ready]`), put the dispatch in the `:final?` state's `:entry` action — the action runs once on entry, before auto-destroy. The exception is a machine that a public handler forwards to ([§Retarget the producers](#retarget-the-producers--the-1-silent-stall-hazard), *Deliver only to a live, awaiting run*): it keeps its terminal states **without** `:final?`, because a `:final?` singleton is re-created by the next event addressed to it and a forward can still be queued when the run ends.
 
 ### `:halt-fns?`
 
