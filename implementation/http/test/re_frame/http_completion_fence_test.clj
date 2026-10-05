@@ -31,7 +31,7 @@
   reply would vanish with nothing left behind, although Spec 014 §Failure mode
   promises the throw is surfaced \"observably\".
 
-  The last test pins that on the axis that
+  `re-frame.http-reply-tail-test` pins that on the axis that
   actually carries the promise: `register-error-listener!`, the ALWAYS-ON
   registry (surface #4), NOT `trace.tooling/register-listener!`. The dev-trace
   assertion cannot tell the two apart — it is green either way — so a pin
@@ -54,7 +54,6 @@
   fence would pass while exercising nothing."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.http.privacy-body :as rf.http.privacy-body]
             [re-frame.http.registry :as rf.http.registry]
             ;; Requiring the managed artefact publishes the `:rf.http/managed`
@@ -196,57 +195,3 @@
                 (is (nil? (:reply (rf/app-db-value :rf/default)))
                     "no reply landed (the completion cascade threw before any reply was built)")))))
         (finally (stop-server! srv))))))
-
-;; ===========================================================================
-;; The reply-tail error is observable in PRODUCTION
-;; ===========================================================================
-
-(deftest reply-tail-error-rides-the-always-on-axis
-  (testing ":rf.error/http-reply-tail-failed reaches the ALWAYS-ON
-            error-listener registry, not just the dev trace. Spec 014 §Failure
-            mode promises a response-side throw is surfaced observably; an emit
-            behind an outer interop/debug-enabled? gate would let a
-            production CLJS bundle lose the reply silently"
-    (let [hits     (AtomicInteger. 0)
-          records  (atom [])
-          srv      (start-counting-200-server! hits)]
-      (try
-        ;; The ALWAYS-ON axis — deliberately NOT trace.tooling/register-listener!.
-        ;; The dev-trace assertion is green even with a dev-gated emit, so a
-        ;; pin written against the trace bus proves nothing about production.
-        (rf.error-emit/register-error-listener!
-          ::recorder (fn [record] (swap! records conj record)))
-        (rf/reg-http-interceptor :boom-after
-          {:after (fn [_ctx _resp]
-                    (throw (ex-info "reply-tail kaboom" {:detail :synthetic})))})
-        (rf/reg-event :always-on/reply (fn [_ _] {}))
-        (rf/reg-event :always-on/load
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request  {:url (str "http://127.0.0.1:" (:port srv) "/x")}
-                    :decode   :json
-                    :reply-to [:always-on/reply]}]]}))
-        (rf/dispatch-sync [:always-on/load])
-
-        (let [tail? #(seq (filter (fn [r] (= :rf.error/http-reply-tail-failed (:error r)))
-                                  @records))
-              surfaced? (settled? tail? "always-on record for the reply-tail failure")]
-          ;; ---- PRECONDITION --------------------------------------------
-          ;; The request must actually have completed on the wire, so that the
-          ;; REPLY TAIL is what threw. A request that never reached the server
-          ;; could not have run an `:after` at all, and this pin would be
-          ;; asserting nothing.
-          (is (= 1 (.get hits))
-              "PRECONDITION: the request completed on the wire exactly once, so the
-               throw came from the reply tail of a SUCCEEDED request")
-
-          ;; ---- VERDICT -------------------------------------------------
-          (is surfaced?
-              "the reply-tail failure reached the ALWAYS-ON error-listener registry
-               — a dev-gated emit would leave this axis seeing nothing")
-          (let [recs (filter (fn [r] (= :rf.error/http-reply-tail-failed (:error r))) @records)]
-            (is (= 1 (count recs))
-                "exactly one always-on record (no doubled emission)")))
-        (finally
-          (rf.error-emit/unregister-error-listener! ::recorder)
-          (stop-server! srv))))))
