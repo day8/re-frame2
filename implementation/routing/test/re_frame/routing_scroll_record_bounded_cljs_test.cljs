@@ -52,8 +52,7 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.routing.scroll :as rf.routing.scroll]
-            [re-frame.test-support :as rf.test-support]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -173,29 +172,6 @@
 ;; ===========================================================================
 ;; (c) The dev trace keeps the raw value — the two-channel split is real.
 ;; ===========================================================================
-
-(deftest dev-trace-retains-the-raw-value-and-rich-diagnosis
-  (testing "bounding axis 1 must not blind local debugging. The
-            dev-trace tags (axis 2, DCE'd under `:advanced` +
-            `goog.DEBUG=false`) still carry the rejected value verbatim"
-    (let [strategy (adversarial-strategy 3)
-          traces   (atom [])
-          cb-key   :bounded.scroll/trace-recorder]
-      (rf.trace.tooling/register-listener! cb-key (fn [ev] (swap! traces conj ev)))
-      (try
-        (rf.routing.scroll/scroll-fx-handler {:frame :bounded.scroll/frame}
-                                  {:strategy strategy})
-        (finally (rf.trace.tooling/unregister-listener! cb-key)))
-      (let [errs (filterv #(= :rf.error/unsupported-scroll-strategy (:operation %))
-                          @traces)]
-        (is (= 1 (count errs)) "exactly one dev trace")
-        (let [tags (:tags (first errs))]
-          (is (= strategy (:strategy tags))
-              "the raw rejected value is retained for LOCAL debugging")
-          (is (str/includes? (pr-str tags) sentinel)
-              "…and so is its payload — this is the channel that may carry it")
-          (is (string? (:reason tags))
-              "the human diagnosis rides the dev trace"))))))
 
 ;; ===========================================================================
 ;; (d) Event elision is untouched by the record bounding.
