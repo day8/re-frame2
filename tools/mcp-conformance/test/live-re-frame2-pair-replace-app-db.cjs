@@ -197,9 +197,9 @@ function assertQuotedSymbolSurvived(text, where, sym = 'js/window') {
         'own payload to the frame get-path reads. Got: ' + text.slice(0, 400),
     );
   }
-  if (/#object\[/.test(text)) {
+  if (/#object\s*\[/.test(text)) {
     throw new Error(
-      where + ': the read-back carries a host `#object[...]` — the symbol ' +
+      where + ': the read-back carries a host `#object[...]` or `#object [...]` — the symbol ' +
         'resolved against the runtime instead of riding through as data. ' +
         'Got: ' + text.slice(0, 400),
     );
