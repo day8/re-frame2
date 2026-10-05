@@ -17,10 +17,10 @@
 
   ## Scope
 
-  Idempotence: a second destroy of the same frame-id is a no-op.
-  Composition and cross-frame isolation: one destroy of a fully-populated
-  frame A releases all four of its side-channels in one call and leaves
-  frame B's identically populated slots intact."
+  Composition, cross-frame isolation and idempotence: one destroy of a
+  fully-populated frame A releases all four of its side-channels in one
+  call and leaves frame B's identically populated slots intact, and a
+  second destroy of A is a no-op."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.ssr.error-listener :as rf.ssr.error-listener]
             [re-frame.ssr.install :as rf.ssr.install]
@@ -31,38 +31,8 @@
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ===========================================================================
-;; Idempotence — second destroy is a no-op
-;; ===========================================================================
-
-(deftest on-frame-destroyed-is-idempotent
-  (testing "The on-frame-destroyed! docstring promises
-            idempotence ('a second call against the same frame-id sees
-            the atoms already cleared and does nothing'). Pin that
-            promise — a host adapter that mistakenly invokes the hook
-            twice (e.g. via a defensive try/destroy AND a finally
-            destroy) MUST NOT throw or corrupt state."
-    (let [fid :rf.test/idempotence-target]
-      (rf.ssr.request/set-request! fid {:uri "/i" :request-method :get})
-      (rf.ssr.response/swap-response! fid (fn [r] (assoc r :status 201)))
-      (swap! rf.ssr.install/installed-payloads
-             assoc fid (rf.ssr.install/claim-record "digest-idem" :rf.test/root))
-
-      ;; First destroy releases everything.
-      (rf.ssr.request/on-frame-destroyed! fid)
-      (is (nil? (rf.ssr.request/get-request fid)))
-      (is (nil? (rf.ssr.install/installed-payload fid)))
-
-      ;; Second destroy MUST be a no-op — no throw, no spurious state
-      ;; change, no extra trace emission.
-      (is (nil? (rf.ssr.request/on-frame-destroyed! fid))
-          "second destroy returns nil cleanly")
-      (is (nil? (rf.ssr.request/get-request fid))
-          "request-slot still empty after second destroy")
-      (is (nil? (rf.ssr.install/installed-payload fid))
-          "payload claim still released after second destroy"))))
-
-;; ===========================================================================
-;; Cross-frame isolation — destroying A leaves B intact
+;; Cross-frame isolation and idempotence — destroying A leaves B intact,
+;; and a second destroy of A is a no-op
 ;; ===========================================================================
 
 (deftest on-frame-destroyed-isolates-across-frames
@@ -106,4 +76,16 @@
       (is (contains? @rf.ssr.error-listener/pending-error-traces fid-b)
           "fid-b's pending-error-traces survived fid-a's destroy")
       (is (some? (rf.ssr.install/installed-payload fid-b))
-          "fid-b's payload claim survived fid-a's destroy"))))
+          "fid-b's payload claim survived fid-a's destroy")
+
+      ;; Idempotence: the on-frame-destroyed! docstring promises a second
+      ;; call against the same frame-id sees the atoms already cleared and
+      ;; does nothing. A host adapter that invokes the hook twice (a
+      ;; defensive try/destroy AND a finally destroy) MUST NOT throw or
+      ;; corrupt state.
+      (is (nil? (rf.ssr.request/on-frame-destroyed! fid-a))
+          "second destroy returns nil cleanly")
+      (is (nil? (rf.ssr.request/get-request fid-a))
+          "request-slot still empty after second destroy")
+      (is (nil? (rf.ssr.install/installed-payload fid-a))
+          "payload claim still released after second destroy"))))
