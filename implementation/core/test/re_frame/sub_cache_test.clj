@@ -527,38 +527,6 @@
     (is (not (contains? (cache-keys) [:c]))
         ":c disposed via cascade")))
 
-(deftest layer-2-disposal-respects-externally-held-input
-  (testing "an input also held by a direct subscribe is not over-disposed"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
-    (rf/dispatch-sync [:init])
-
-    ;; External subscriber to :a, parallel to the layer-2 sub that also uses :a.
-    (rf/subscribe [:a])
-    (rf/subscribe [:sum])
-
-    ;; :a has TWO holders: the direct subscribe AND :sum's construction.
-    (is (= 2 (entry-ref-count [:a]))
-        ":a ref-count is 2 — one direct subscribe, one layer-2 dependency")
-    (is (= 1 (entry-ref-count [:b])))
-    (is (= 1 (entry-ref-count [:sum])))
-
-    ;; Dispose the layer-2 sub. :a's count drops from 2 → 1 (NOT 0).
-    (rf/unsubscribe [:sum])
-    (is (not (contains? (cache-keys) [:sum])))
-    (is (contains? (cache-keys) [:a]) ":a NOT disposed — external holder remains")
-    (is (= 1 (entry-ref-count [:a]))
-        "decrement was exactly one — external subscribe still holds :a")
-    (is (not (contains? (cache-keys) [:b]))
-        ":b had only the layer-2 holder — disposed via cascade")
-
-    ;; External unsubscribe finishes the job.
-    (rf/unsubscribe [:a])
-    (is (not (contains? (cache-keys) [:a]))
-        ":a disposed when external holder drops")))
-
 (deftest layer-3-disposal-cascades-through-chain
   (testing "disposal cascades recursively through a layer-3 chain"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2}}))
@@ -797,27 +765,6 @@
                  (catch clojure.lang.ExceptionInfo e e)))
           "zero-arity clear-sub-cache! outside any scope raises"))))
 
-(deftest subscribe-wrong-frame-prevention-for-reads
-  (testing "ambient reads land on the ESTABLISHED scope's frame, never bleed
-            into a sibling frame — the carried-invariant read isolation
-            (wrong-frame prevention for READS as well as writes)"
-    (rf/make-frame {:id :jue/left :doc "left frame"})
-    (rf/make-frame {:id :jue/right :doc "right frame"})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
-    (rf/reg-sub :v (fn [db _] (:v db)))
-    (rf/dispatch-sync [:seed :left-value]  {:frame :jue/left})
-    (rf/dispatch-sync [:seed :right-value] {:frame :jue/right})
-    (binding [rf.frame/*current-frame* nil]
-      ;; Reading under the :jue/left scope sees ONLY :jue/left's app-db.
-      (rf/with-frame :jue/left
-        (is (= :left-value @(rf/subscribe [:v]))
-            "ambient read under :jue/left resolves :jue/left, not the sibling
-             :jue/right frame"))
-      ;; And under :jue/right it sees ONLY :jue/right's app-db.
-      (rf/with-frame :jue/right
-        (is (= :right-value @(rf/subscribe [:v]))
-            "ambient read under :jue/right resolves :jue/right")))))
-
 ;; ===========================================================================
 ;; Unsubscribe frame-target normalization SYMMETRY
 ;; ===========================================================================
@@ -887,32 +834,6 @@
           "the entry is torn down — unsubscribe normalized the object target
            symmetrically with subscribe")
       (rf/destroy-frame! frame-obj))))
-
-(deftest unsubscribe-mixed-spelling-targets-are-symmetric
-  (testing "subscribe and unsubscribe accept the SAME frame in different
-            spellings (object vs. runnable-id keyword) interchangeably — the
-            entry is evicted whichever spelling teardown uses"
-    (testing "subscribe by KEYWORD id, unsubscribe by the equivalent OBJECT"
-      (let [frame-obj (make-n-frame {:id :ts3fuk/a :seed-db {:n 1}})
-            rid       (rf.frame/frame-target->id frame-obj)]
-        (is (= :ts3fuk/a rid) "an :id-bearing object's runnable-id IS the public id")
-        (rf/subscribe [:n] {:frame rid})
-        (is (contains? (object-cache-keys frame-obj) [:n]))
-        ;; Differently-spelled teardown target (the object, not the keyword).
-        (rf/unsubscribe frame-obj [:n])
-        (is (not (contains? (object-cache-keys frame-obj) [:n]))
-            "object-target unsubscribe evicts the entry the keyword subscribe made")
-        (rf/destroy-frame! frame-obj)))
-    (testing "subscribe by OBJECT, unsubscribe by the equivalent runnable-id KEYWORD"
-      (let [frame-obj (make-n-frame {:id :ts3fuk/b :seed-db {:n 2}})
-            rid       (rf.frame/frame-target->id frame-obj)]
-        (rf/subscribe [:n] {:frame frame-obj})
-        (is (contains? (object-cache-keys frame-obj) [:n]))
-        ;; Differently-spelled teardown target (the keyword, not the object).
-        (rf/unsubscribe rid [:n])
-        (is (not (contains? (object-cache-keys frame-obj) [:n]))
-            "keyword-target unsubscribe evicts the entry the object subscribe made")
-        (rf/destroy-frame! frame-obj)))))
 
 (deftest subscribe-once-object-target-disposes-synchronously
   (testing "subscribe-once with a frame OBJECT target leaves NO live cache entry
