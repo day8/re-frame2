@@ -47,13 +47,14 @@
   by design (boundary validation is itself production-elided, Spec 010
   §Production builds).
 
-  Tests (3) and (4) are the production-visible counterparts and run under
-  BOTH postures: they call `error-emit-projection-listener` DIRECTLY — the
+  Test (3) is the production-visible counterpart and runs under BOTH
+  postures: it calls `error-emit-projection-listener` DIRECTLY — the
   always-on path a `-Dre-frame.debug=false` JVM SSR host actually uses —
-  so the skip AND its control are adjudicated for real under the gate. (4)
-  is the one that stops the guard costing coverage: without a positive
-  control on the always-on axis, (3) alone would be a negative nobody had
-  proved could ever be positive."
+  so the skip is adjudicated for real under the gate. Its positive control
+  on the always-on axis is
+  `re-frame.ssr-error-projector-substrate-test`'s direct-substrate install
+  test, which drives a projection-eligible record through the same
+  listener to a 500."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -179,37 +180,3 @@
            buffered")
       (is (= 200 (:status (rf.ssr/get-response fid)))
           "status stays 200 on the production substrate too"))))
-
-;; ===========================================================================
-;; (4) Always-on CONTROL — the production counterpart of (2).
-;;     Without this, the guard on (2) would leave the always-on skip in (3)
-;;     as a negative nobody had proved could ever be positive: on a
-;;     `-Dre-frame.debug=false` JVM the dev bus is silent, so "the head
-;;     record was not buffered" is only meaningful next to "a
-;;     non-degradation record on the SAME listener WAS".
-;; ===========================================================================
-
-(deftest always-on-path-control-non-head-error-still-projects
-  (testing "control, always-on: a frame-stamped
-            NON-degradation category delivered to the ALWAYS-ON
-            `error-emit-projection-listener` IS buffered and projects a
-            non-200. `:rf.error/handler-exception` is used deliberately —
-            unlike the dev control's `:rf.error/schema-validation-failure`
-            it really does reach production (via `dispatch-on-error!`), so
-            this control has a live producer in the posture that ships."
-    (let [fid (make-server-frame)]
-      (rf.ssr.error-listener/error-emit-projection-listener
-        {:error      :rf.error/handler-exception
-         :event      [:load/article]
-         :event-id   :load/article
-         :frame      fid
-         :time       0
-         :exception  (ex-info "handler boom" {})
-         :elapsed-ms 0})
-      (is (seq (get @rf.ssr.error-listener/pending-error-traces fid))
-          "a non-degradation category IS buffered by the always-on listener")
-      (is (= 500 (:status (rf.ssr/get-response fid)))
-          "and it projects the default projector's generic 500 — the
-           always-on listener is doing real work in this posture, so the
-           head-category skip in (3) is a targeted skip and not a listener
-           that drops everything"))))
