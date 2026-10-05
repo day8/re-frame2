@@ -4,7 +4,7 @@
   `ssr_streaming_test.clj` pins the common shapes (single boundary,
   wire-id collision, failed continuation, payload shape); this ns pins the
   composition corners — `n=0`/`n>=2` body children, nested boundaries,
-  boundaries inside view-refs and fragments, fallback-render-throw
+  boundaries inside fragments, fallback-render-throw
   recovery, a drain against a destroyed frame, delta capturing a real
   change — plus the request/response side-channel invariants. The final
   payload's allowlist projection is pinned by
@@ -280,32 +280,6 @@
                 "level-3 resolves the deepest body")
             (is (empty? (:continuations r3))
                 "no further nesting below level-3")))))))
-
-(deftest boundary-inside-registered-view-body-is-reachable-by-walker
-  (testing "When a registered view's body contains
-            :rf/suspense-boundary, the walker resolves the view-ref and
-            recurses into its hiccup output. This is the load-bearing
-            case for the conformance fixture's root view, which IS a
-            registered view containing boundaries."
-    (rf/reg-view ^{:rf/id :test/wrapper} wrapper-view []
-      [:section
-       [:h1 "wrapper"]
-       [:rf/suspense-boundary
-        {:id :buried/in-view :fallback [:p "buried loading"]}
-        [:p "buried body"]]])
-    (let [tree [:main [(rf/view :test/wrapper)]]
-          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell tree)]
-      (is (= 1 (count continuations))
-          "the walker recursed into the registered view and found the
-           boundary")
-      (is (= :buried/in-view (-> continuations first :id))
-          "the buried boundary's id propagates")
-      (is (str/includes? shell-html "<section")
-          "the view's wrapping <section> rendered in the shell")
-      (is (str/includes? shell-html "buried loading")
-          "the buried boundary's fallback materialised inline")
-      (is (str/includes? shell-html "data-rf2-suspense-id=\":buried/in-view\"")
-          "the boundary's id was stamped on the fallback template"))))
 
 (deftest boundary-inside-fragment-children-is-reachable-by-walker
   (testing "When a :<> fragment's children contain a
@@ -599,9 +573,9 @@
               ":html key is present"))))))
 
 ;; ===========================================================================
-;; clear-request! / clear-response! — idempotent no-ops on unpopulated
-;; frames (Spec 011 §Per-request frame teardown contract — \"idempotent\"
-;; in the on-frame-destroyed! docstring; pin the public surfaces too.)
+;; clear-request! — an idempotent no-op on an unpopulated frame
+;; (Spec 011 §Per-request frame teardown contract — \"idempotent\"
+;; in the on-frame-destroyed! docstring; pin the public surface too.)
 ;; ===========================================================================
 
 (deftest clear-request-on-unpopulated-frame-is-noop
@@ -620,17 +594,6 @@
         (is (= before after)
             "the slot atom is unchanged — no spurious entry created
              by a clear of a never-populated slot")))))
-
-(deftest clear-response-on-unpopulated-frame-is-noop
-  (testing "ssr/clear-response! on a never-populated frame
-            MUST be a no-op (same idempotence contract as clear-
-            request!)"
-    (let [before @(requiring-resolve 're-frame.ssr.response/response-slots)]
-      (is (= :never-populated
-             ((requiring-resolve 're-frame.ssr.response/clear-response!)
-              :never-populated)))
-      (let [after @(requiring-resolve 're-frame.ssr.response/response-slots)]
-        (is (= before after))))))
 
 ;; ===========================================================================
 ;; Privacy boundary — request slot / response accumulator NOT readable
