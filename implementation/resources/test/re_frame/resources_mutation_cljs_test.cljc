@@ -1564,6 +1564,23 @@
       (is (map? (last ev)))
       (is (= :ok (:status (last ev)))))))
 
+(deftest reply-to-target-metadata-reaches-the-handler
+  ;; Managed-Effects §The reply target: the reply map is appended to the
+  ;; app's target vector as written, so the vector's metadata reaches the
+  ;; continuation handler, as it does on a managed HTTP reply.
+  (reg-capture-continuation!)
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (rf/dispatch-sync [:rf.mutation/execute
+                     {:mutation :m/save :params {:slug "w"} :instance :mc1
+                      :reply-to (with-meta [:test/save-replied {:kind :article}]
+                                  {:app/tag :article})}])
+  (reply-success! @last-managed-args {:ok true})
+  (testing "the continuation handler receives the target vector's metadata"
+    (let [ev (first @replied)]
+      (is (= 1 (count @replied)))
+      (is (= [:test/save-replied {:kind :article}] (butlast ev)))
+      (is (= {:app/tag :article} (meta ev))))))
+
 (deftest execute-rejects-malformed-reply-to-fails-closed
   ;; The call-site `:reply-to` is transport-payload-only, but it MUST be
   ;; data-only: the execute handler runs it through
