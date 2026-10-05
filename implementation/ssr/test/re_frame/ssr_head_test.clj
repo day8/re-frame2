@@ -442,12 +442,18 @@
             clojure.lang.ExceptionInfo #":rf\.error/invalid-json-ld-key"
             (rf.ssr/head-model->html {:json-ld [{nil "a"}]}))))))
 
-(deftest head-model->html-empty-model
-  (testing "an empty / minimal model emits nothing (no orphan tags)"
-    (is (= "" (rf.ssr/head-model->html {})))
-    (is (= "" (rf.ssr/head-model->html nil)))
-    (is (= "<head></head>"
-           (rf.ssr/head-model->html {} {:wrap? true})))))
+(deftest head-model->html-empty-model-and-wrap-opt
+  (testing "an empty / minimal model emits nothing (no orphan tags), and the
+            {:wrap? true} opt surrounds the output with <head></head>"
+    (doseq [[model opts expected]
+            [[{} nil ""]
+             [nil nil ""]
+             [{} {:wrap? true} "<head></head>"]
+             [{:title "Hi"} {:wrap? true} "<head><title>Hi</title></head>"]]]
+      (is (= expected (if opts
+                        (rf.ssr/head-model->html model opts)
+                        (rf.ssr/head-model->html model)))
+          (pr-str model opts)))))
 
 (deftest head-model->html-attr-name-validation
   (testing "attribute KEYS
@@ -498,13 +504,6 @@
           "title is HTML-escaped — no raw tag injection")
       (is (str/includes? html "content=\"&quot;weird&quot;\"")
           "attribute values are attribute-escaped"))))
-
-(deftest head-model->html-wraps-on-opt
-  (testing "the {:wrap? true} opt surrounds with <head></head>"
-    (let [html (rf.ssr/head-model->html {:title "Hi"} {:wrap? true})]
-      (is (str/starts-with? html "<head>"))
-      (is (str/ends-with? html "</head>"))
-      (is (str/includes? html "<title>Hi</title>")))))
 
 ;; ===========================================================================
 ;; full integration — reg-head + reg-route + head-model + html emission
