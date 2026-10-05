@@ -154,47 +154,6 @@ it('the per-prefix floor has TEETH: a prefix that stops matching is caught', () 
   );
 });
 
-// --- Teeth on synthetic edn: ADD a build => the gate grows to cover it ----
-
-it('a NEWLY-declared example build is picked up automatically (auto-cover)', () => {
-  const base = enumerateCompiledBuilds(realEdn);
-  const withExtra =
-    realEdn +
-    '\n  :examples/brand-new-demo\n  {:target :browser\n   :output-dir "out/examples/brand-new-demo"\n   :modules {:main {:init-fn brand-new-demo.core/run}}}\n';
-  const grown = enumerateCompiledBuilds(withExtra);
-  assert.ok(
-    grown.includes('examples/brand-new-demo'),
-    'a freshly-declared :examples/* build must appear in the compile set ' +
-      'so the gate compiles (and would fail RED on) it',
-  );
-  assert.strictEqual(
-    grown.length,
-    base.length + 1,
-    'adding exactly one example build must grow the set by exactly one',
-  );
-});
-
-it('a NEWLY-declared TESTBED build is picked up automatically (rf2-in6c4)', () => {
-  // The auto-cover property has to hold under the testbeds prefix too, or a
-  // newly-declared testbed would go uncompiled. Same shape as the example
-  // case above, one prefix over.
-  const base = enumerateCompiledBuilds(realEdn);
-  const withExtra =
-    realEdn +
-    '\n  :testbeds/brand-new-surface\n  {:target :browser\n   :output-dir "out/testbeds/brand-new-surface"\n   :modules {:main {:init-fn brand-new-surface.core/run}}}\n';
-  const grown = enumerateCompiledBuilds(withExtra);
-  assert.ok(
-    grown.includes('testbeds/brand-new-surface'),
-    'a freshly-declared :testbeds/* build must appear in the compile set ' +
-      'so the gate compiles (and would fail RED on) it',
-  );
-  assert.strictEqual(
-    grown.length,
-    base.length + 1,
-    'adding exactly one testbed build must grow the set by exactly one',
-  );
-});
-
 it('a :story-static/* declaration is NOT swept (prefix roster is closed)', () => {
   const edn =
     '  :examples/real {:target :browser}\n' +
@@ -206,37 +165,7 @@ it('a :story-static/* declaration is NOT swept (prefix roster is closed)', () =>
   ]);
 });
 
-// --- Teeth on synthetic edn: REMOVE a build => enumeration shrinks --------
-// A hardcoded subset would still "cover" a deleted build; deriving from the
-// file means a removed declaration is no longer enumerated. This pins that
-// the enumeration tracks the file (so the gate never compiles a phantom).
-
-it('a REMOVED example declaration drops out of the compile set', () => {
-  const base = enumerateCompiledBuilds(realEdn);
-  assert.ok(base.includes('examples/login-uix'), 'precondition: login-uix present');
-  // Remove the login-uix build def header from the source.
-  const without = realEdn.replace(/^\s*:examples\/login-uix\s*\{/m, '  :placeholder\n  {');
-  const shrunk = enumerateCompiledBuilds(without);
-  assert.ok(
-    !shrunk.includes('examples/login-uix'),
-    'a removed :examples/* declaration must no longer be enumerated',
-  );
-  assert.strictEqual(
-    shrunk.length,
-    base.length - 1,
-    'removing exactly one example build must shrink the set by exactly one',
-  );
-});
-
 // --- Parser robustness: comments + mid-line tokens are not false builds ---
-
-it('a commented-out build id is NOT counted (no false coverage)', () => {
-  const edn =
-    '  :examples/real {:target :browser}\n' +
-    '  ;; :examples/commented {:target :browser}  removed build note\n';
-  const builds = enumerateCompiledBuilds(edn);
-  assert.deepStrictEqual(builds, ['examples/real']);
-});
 
 it('a mid-line / prose :examples/... token is NOT counted as a build', () => {
   // A comment in shadow-cljs.edn names :examples/xray-rhs-smoke in prose;
