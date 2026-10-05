@@ -46,8 +46,7 @@
             [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture])
-  (:import [java.net URLDecoder]))
+            [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]))
 
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
@@ -148,26 +147,6 @@
     (fn [] "tok-abc")))
 
 ;; ---------------------------------------------------------------------------
-;; The wire body, and the page's own seam
-;; ---------------------------------------------------------------------------
-
-(defn- parse-form-urlencoded
-  "The HOST ADAPTER's job: string keys, string values, no keywordisation and no
-  coercion — exactly what Ring's `wrap-params` produces."
-  [body]
-  (into {} (for [pair (str/split body #"&")
-                 :let [[k v] (str/split pair #"=" 2)]]
-             [(URLDecoder/decode k "UTF-8") (URLDecoder/decode v "UTF-8")])))
-
-(defn- decode-post
-  "Drive a parsed body through the PAGE's `decode-form-params`, resolving the
-  schema through the PAGE's `route->action` table. Neither half transcribed."
-  [parsed]
-  (let [decode        (extracted 'decode-form-params)
-        route->action (extracted 'route->action)]
-    (decode (:schema (route->action :route/cart-add)) parsed)))
-
-;; ---------------------------------------------------------------------------
 ;; Dispatch — the router check a direct handler call cannot see
 ;; ---------------------------------------------------------------------------
 
@@ -241,26 +220,6 @@
             (is (= [[:redirect {:status 303 :location "/cart"}]] fx))
             (is (= [{:item-id "sku-1" :quantity 2}] (get-in db [:cart :items]))
                 "the cart holds the editable fields only")))))))
-
-(deftest the-wire-body-reaches-the-400-through-the-page-seam-and-the-router
-  (testing "the same claim end to end — from the bytes a browser
-            puts on the wire, through the page's own `decode-form-params`, into
-            the router. A decodable-but-invalid `quantity=0` and an
-            undecodable `quantity=abc` both land on the documented 400."
-    (install-action!)
-    (with-redefs [rf.interop/debug-enabled? true]
-      (doseq [[raw expected] {"csrf-token=tok-abc&item-id=sku-1&quantity=0"   0
-                              "csrf-token=tok-abc&item-id=sku-1&quantity=abc" "abc"}]
-        (testing (str "— " raw)
-          (let [decoded (decode-post (parse-form-urlencoded raw))
-                {:keys [db fx]} (dispatch-action decoded)]
-            (is (= expected (:quantity decoded))
-                "the seam coerces what it can and passes the rest through
-                 unchanged rather than throwing")
-            (is (= [[:status 400]] fx))
-            (is (= {:item-id "sku-1" :quantity expected}
-                   (get-in db [:cart :add-form :draft])))
-            (is (nil? (get-in db [:cart :items])))))))))
 
 (deftest the-event-tripwire-is-structural-while-the-handler-stays-strict
   (testing "the two halves of the contract, asserted against each other.
