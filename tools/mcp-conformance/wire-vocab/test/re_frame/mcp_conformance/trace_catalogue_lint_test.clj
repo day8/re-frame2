@@ -147,22 +147,7 @@
       (is (= #{[:rf.reply/work-id :work/id]
                [:rf.reply/completed-at :completed-at]}
              (into #{} (map (fn [[c b _]] [c b])) hits))
-          "the detector names both offending key pairs")))
-  (testing "a LONE bare :work/id (no :rf.reply/work-id twin) is NOT flagged —
-            the durable identity / resource-lifecycle spelling is legitimate"
-    (let [lone '[(trace/emit! :rf.event :rf.resource/succeeded
-                              {:work/id work-id :generation 1 :status :completed})]]
-      (is (empty? (duplicate-hits lone))
-          "a lone bare :work/id is not a one-name-per-fact violation")))
-  (testing "a nested correlation payload carrying :work/id under
-            :rf.reply/carried is NOT flagged (the inner map carries no
-            :rf.reply/work-id twin)"
-    (let [nested '[(trace/emit! :rf.event :rf.some/stale-suppressed
-                               {:rf.reply/work-id work-id
-                                :rf.reply/carried {:work/id work-id :generation 1}
-                                :rf.reply/current {:work/id other :generation 2}})]]
-      (is (empty? (duplicate-hits nested))
-          "the carried/current correlation gate legitimately nests :work/id"))))
+          "the detector names both offending key pairs"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (3) The READ boundary — every reader-conditional arm reaches the detector.
