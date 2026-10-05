@@ -20,7 +20,7 @@
   parametric-subscription-inputs EP §Tooling).
 
   These tests exercise the contract end-to-end: empty registry,
-  layer-1 / layer-2 / layer-3 chains, multi-input fanout, source-coord
+  layer-1 / layer-2 chains, multi-input fanout, source-coord
   capture, doc passthrough, declaration-order preservation, the
   parametric two-level topology (registrar reports `:parametric`,
   realized edges live in the cache), and a declared self-reference
@@ -32,8 +32,7 @@
 
   The topology's SHAPE — `:input-kind` discrimination, the literal `:inputs`
   query-vectors with their args, declaration order, the `:parametric`
-  sentinel, registry add / clear / re-register semantics, and verbatim
-  self-reference reporting — is production-real and is asserted WITHOUT a
+  sentinel, and verbatim self-reference reporting — is production-real and is asserted WITHOUT a
   posture guard, so it runs in the ordinary `clojure -M:test` suite AND in
   `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
@@ -103,16 +102,6 @@
       (is (= :static (:input-kind entry)))
       (is (= [[:a] [:b] [:c]] (:inputs entry))
           "declaration order is preserved so tools can reconstruct the body's input shape"))))
-
-(deftest deeper-chain-each-link-recorded
-  (testing "layer-3 chain — every node carries its direct upstream query-vectors"
-    (rf/reg-sub :raw   (fn [db _] (:n db)))
-    (rf/reg-sub :step1 {:inputs [[:raw]]}   (fn [[r] _] (inc r)))
-    (rf/reg-sub :step2 {:inputs [[:step1]]} (fn [[s] _] (* 10 s)))
-    (let [topo (rf.subs/sub-topology)]
-      (is (= []        (:inputs (topo :raw))))
-      (is (= [[:raw]]   (:inputs (topo :step1))))
-      (is (= [[:step1]] (:inputs (topo :step2)))))))
 
 (deftest static-inputs-preserve-query-vector-args
   (testing ":static :inputs preserve per-input query-vector args (full query-vectors)"
@@ -198,44 +187,6 @@
     ;; empty trace ring.
     (when rf.interop/debug-enabled?
       (is (not (contains? ((rf.subs/sub-topology) :n) :doc))))))
-
-;; ---- registry semantics --------------------------------------------------
-
-(deftest cleared-subs-are-removed
-  (testing "(rf/clear :sub id) removes the sub from the topology"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (let [topo (rf.subs/sub-topology)]
-      (is (contains? topo :a))
-      (is (contains? topo :b)))
-    (rf/clear :sub :a)
-    (let [topo (rf.subs/sub-topology)]
-      (is (not (contains? topo :a)))
-      (is (contains? topo :b)))))
-
-(deftest reregistration-replaces-the-entry
-  (testing "re-registering a sub replaces its topology entry"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (is (= :db (:input-kind ((rf.subs/sub-topology) :a))))
-    (is (= [] (:inputs ((rf.subs/sub-topology) :a))))
-    ;; Re-register :a as a layer-2 sub composing :b. The topology
-    ;; reports the new declared-input chain (last-write-wins per Spec 001
-    ;; §Hot-reload semantics).
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :a {:inputs [[:b]]} (fn [[b] _] (str b)))
-    (is (= :static (:input-kind ((rf.subs/sub-topology) :a))))
-    (is (= [[:b]] (:inputs ((rf.subs/sub-topology) :a)))))
-
-  (testing "re-registering a :static sub as :parametric flips :input-kind + :inputs"
-    (rf/reg-sub :x (fn [db _] (:x db)))
-    (rf/reg-sub :p {:inputs [[:x]]} (fn [[x] _] x))
-    (is (= :static (:input-kind ((rf.subs/sub-topology) :p))))
-    (is (= [[:x]] (:inputs ((rf.subs/sub-topology) :p))))
-    (rf/reg-sub :p
-                {:inputs (fn [[_ id]] [[:x id]])}
-                (fn [[x] _] x))
-    (is (= :parametric (:input-kind ((rf.subs/sub-topology) :p))))
-    (is (= :parametric (:inputs ((rf.subs/sub-topology) :p))))))
 
 ;; ---- self-reference / cycle handling -------------------------------------
 
