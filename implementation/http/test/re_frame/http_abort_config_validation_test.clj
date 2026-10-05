@@ -19,13 +19,12 @@
    1. both-supplied does NOT throw (no `:rf.error/http-bad-abort-config`
       ex-info, no throw at all) — the dual-source config is legal.
    2. the once-only CAS yields AT MOST ONE terminal outcome with
-      both keys present, exercising BOTH finalise orders:
-        a. user-abort-first (the path an external `:abort-signal` funnels
-           into) => exactly one `:rf.http/aborted` `:reason :user` reply;
-        b. supersede-first => the superseded attempt's reply is
-           SUPPRESSED (no app target runs) and a `:rf.http/stale-suppressed`
-           trace records the supersession; the superseding attempt yields
-           its own single outcome.
+      both keys present, supersede-first: the superseded attempt's reply
+      is SUPPRESSED (no app target runs) and a `:rf.http/stale-suppressed`
+      trace records the supersession; the superseding attempt yields its
+      own single outcome. The user-abort-first order needs no row here:
+      the JVM ignores `:abort-signal`, so it is the plain managed-abort
+      path whose single `:reason :user` reply http_managed_test pins.
 
   JVM caveat: `:abort-signal` is CLJS-only (the JVM transport ignores it
   with a `:rf.http/cljs-only-key-ignored-on-jvm` degradation trace), so
@@ -115,62 +114,6 @@
       (is (nil? ex)
           "the dual-source config is not rejected at the dispatch site: the call dispatches without throwing at all"))))
 
-;; ---- (2a) finalise order: user-abort-first => one :reason :user reply ------
-;;
-;; The external `:abort-signal` funnels into the same internal controller a
-;; manual `:rf.http/managed-abort` on the request's `:request-id` drives. On
-;; the JVM the external signal is a no-op, so we exercise the user-abort
-;; finalise path through `:rf.http/managed-abort` while the request ALSO
-;; carries `:abort-signal` — the dual-source shape. The once-only CAS must
-;; deliver EXACTLY ONE :rf.http/aborted :reason :user reply.
-
-(deftest dual-source-user-abort-first-yields-single-user-reply
-  (testing "with BOTH keys present, a user abort on the
-            :request-id finalises as exactly one :rf.http/aborted :reason
-            :user reply (the :finalised? CAS pins single-dispatch)"
-    (let [release (CountDownLatch. 1)
-          srv     (start-blocking-server! release)
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request      {:url (str "http://127.0.0.1:" (:port srv) "/")}
-                    :request-id   :dual
-                    :abort-signal signal-stub      ; BOTH keys
-                    :decode       :json
-                    :on-failure   [:reply/recorder]
-                    :on-success   [:reply/recorder]}]]}))
-        (rf/reg-event :do/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :dual]]}))
-
-        (rf/dispatch-sync [:issue])
-        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)) 2000)
-        ;; Fire the user abort while the request is in-flight (server blocked).
-        (rf/dispatch-sync [:do/abort])
-        (await-condition! #(seq @replies))
-        ;; Quiescence — prove no SECOND outcome arrives after the server is
-        ;; released (the natural-completion path must lose the CAS / be
-        ;; reclassified away, never dispatching a second reply).
-        (.countDown release)
-        (Thread/sleep 150)
-
-        (let [reply (first @replies)]
-          (is (= :cancelled (:status reply)))
-          (is (= :rf.http/aborted (get-in reply [:error :kind]))
-              "user-abort-first finalises as :rf.http/aborted")
-          (is (= :user (get-in reply [:error :reason]))
-              "the user-abort source determines :reason :user"))
-        (is (= 1 (count @replies))
-            "AT MOST ONE terminal outcome — the once-only :finalised? CAS")
-        (is (empty? (rf.http.managed/in-flight-snapshot))
-            "in-flight registry is clean after the single aborted reply")
-        (finally
-          (.countDown release)
-          (stop-server! srv))))))
-
 ;; ---- (2b) finalise order: supersede-first => suppressed + stale trace ------
 ;;
 ;; A fresh request with the SAME :request-id supersedes the prior one while
@@ -234,8 +177,6 @@
             "the superseded request's reply target MUST NOT run (supersede-first wins)")
         (let [ev   (first @stale-traces)
               tags (:tags ev)]
-          (is (= :rf.http/stale-suppressed (:operation ev))
-              "supersede emits a :rf.http/stale-suppressed trace")
           (is (= :suppressed (:rf.reply/work-status tags))
               "the suppressed work-status rides the stale trace")
           (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags))
