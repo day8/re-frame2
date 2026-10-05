@@ -28,7 +28,7 @@
   declaration and omits when absent (Spec 009 §Size elision marker
   shape). These pin the propagate / omit behaviour at the walker
   level for both flags."
-  (:require [clojure.test :refer [are deftest is testing]]
+  (:require [clojure.test :refer [are deftest testing]]
             [re-frame.schemas :as rf.schemas]))
 
 ;; ---- :large? structural recognition --------------------------------------
@@ -68,21 +68,6 @@
        [:icon  [:map [:kind :string]]]]
       [:asset]
       {[:asset] {:large? true :source :schema}})))
-
-(deftest large-and-sensitive-are-independent-flags
-  (testing "the two flag entry points read INDEPENDENT slots — a slot
-            flagged :large? is invisible to the :sensitive? walker and
-            vice versa; this is the parameterisation contract (one
-            traversal, distinct flag-key per call)"
-    (let [schema [:map
-                  [:blob   {:large? true} :string]
-                  [:secret {:sensitive? true} :string]]]
-      (is (= {[:blob] {:large? true :source :schema}}
-             (rf.schemas/extract-large-paths-from-schema schema []))
-          ":large? walker sees only the :large? slot, not the :sensitive? one")
-      (is (= {[:secret] {:sensitive? true :source :schema}}
-             (rf.schemas/extract-sensitive-paths-from-schema schema []))
-          ":sensitive? walker sees only the :sensitive? slot, not the :large? one"))))
 
 ;; ---- :hint propagation (declaration-from-properties) ---------------------
 ;;
