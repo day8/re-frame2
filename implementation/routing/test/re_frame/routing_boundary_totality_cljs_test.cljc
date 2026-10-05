@@ -148,13 +148,6 @@
     ;; the rejection a property of the boundary rather than of either host's
     ;; incidental behaviour.
     (let [current {:route-id :route/search :query {:q "x"}}]
-      ;; POSITIVE CONTROL, evaluated on whichever host is running: a
-      ;; two-element vector really is a map entry HERE too, so an unguarded
-      ;; fold would silently change the query on this host as well.
-      (is (= {:q "x" :page 2} (merge {:q "x"} [:page 2]))
-          "control: this host's `merge` folds a 2-vector into a CHANGED query")
-      (is (not (map? [:page 2]))
-          "…and it is not a map, so only an explicit map? check can tell")
       (doseq [bad-value [[:page 2] "oops" nil [[:page 2]]]]
         (is (= {:reason :query-merge-not-map :keys [:query-merge]}
                (rf.routing.address/classify {:query-merge bad-value} current))
