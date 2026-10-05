@@ -213,6 +213,21 @@
     #?(:clj  (.append ^StringBuilder accumulator \})
        :cljs (.push accumulator "}"))))
 
+(def ^:private no-raw-html
+  "The not-found value `raw-html-value?` looks `:__html` up with, which tells
+  a value answering a nil markup apart from one with no `:__html` entry."
+  #?(:clj (Object.) :cljs (js-obj)))
+
+(defn- raw-html-value?
+  "True when `value`, which is not a map, answers `:__html` — the Reagent
+  bridge's `reagent.core/unsafe-html` value once `re-frame.adapter.reagent`
+  has loaded. Only a value that supports lookup is looked up, so an ordinary
+  leaf pays one type test."
+  [value]
+  (and #?(:clj  (instance? clojure.lang.ILookup value)
+          :cljs (implements? ILookup value))
+       (not (identical? no-raw-html (get value :__html no-raw-html)))))
+
 (defn canonical-edn-into
   "Streaming canonical-EDN walker. Appends the canonical
   serialisation of `value` into the `accumulator` — a `StringBuilder`
@@ -282,6 +297,19 @@
            :cljs (.push accumulator (canonical-number value)))
         accumulator)
 
+    (raw-html-value? value)
+    ;; A raw-HTML value hashes AS the `{:__html …}` map it answers for. The
+    ;; emitter writes whatever a `:dangerouslySetInnerHTML` value answers for
+    ;; `:__html` as the element's body (`re-frame.ssr.emit/inner-html-body`),
+    ;; so React's map and the Reagent bridge's tagged value render the same
+    ;; page, and a `.cljc` view a JVM server renders writes the map there and
+    ;; the tag on the client, because the tag cannot be built on the JVM.
+    ;; Hashed by its print form, `#object[reagent.impl.template.UnsafeHTML]`,
+    ;; the tag would raise a `:rf.ssr/hydration-mismatch` on a page whose body
+    ;; matches — a throw under `:ssr {:on-mismatch :hard-error}` — and two tags
+    ;; carrying different markup would hash alike.
+    (do (append-map! accumulator {:__html (get value :__html)}) accumulator)
+
     ;; ---- the foreign crossing ---------------------------------------------
     ;;
     ;; A FOREIGN JS VALUE IS OPAQUE TO THIS WALK: it serialises to one
@@ -347,7 +375,10 @@
   free token (`#fn[]`) — its `.toString` is not cross-runtime stable;
   a Var reference keeps its `#'ns/name` print form (stable
   both runtimes). Numeric leaves are canonicalised via `canonical-number`
-  so whole-valued doubles / ratios agree cross-runtime. A
+  so whole-valued doubles / ratios agree cross-runtime. A value that is
+  not a map but answers `:__html` — the Reagent bridge's raw-HTML value —
+  serialises as the `{:__html …}` map it answers for, so it hashes as the
+  map a JVM server writes for the same markup. A
   foreign JS value (a plain object or a JS array) serialises to a fixed
   token — `#js{}` / `#js[]` — rather than being descended into, for the
   two reasons `canonical-edn-into`'s foreign branch gives:
