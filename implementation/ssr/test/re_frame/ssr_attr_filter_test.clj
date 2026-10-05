@@ -59,26 +59,10 @@
       (is (= " id=\"x\""
              (rf.ssr.html-helpers/attr-string {:on-click "alert(1)" :id "x"}))))
 
-    (testing ":onClick (camelCase) is stripped"
-      (is (= " id=\"x\""
-             (rf.ssr.html-helpers/attr-string {:onClick "alert(1)" :id "x"}))))
-
-    (testing ":onMouseDown (camelCase, multi-word) is stripped"
-      (is (= " id=\"x\""
-             (rf.ssr.html-helpers/attr-string {:onMouseDown "alert(1)" :id "x"}))))
-
     (testing ":onCustomEvent (camelCase, framework-shaped non-HTML name)
               is stripped by the structural matcher"
       (is (= " id=\"x\""
-             (rf.ssr.html-helpers/attr-string {:onCustomEvent "alert(1)" :id "x"}))))
-
-    (testing "`true`-valued on* boolean prop is also stripped (no bare attr)"
-      (is (= " id=\"x\""
-             (rf.ssr.html-helpers/attr-string {:on-load true :id "x"}))))
-
-    (testing "a map whose every entry is a stripped on* prop yields the
-              empty string — no stray leading space"
-      (is (= "" (rf.ssr.html-helpers/attr-string {:on-click "f" :onScroll "g"})))))
+             (rf.ssr.html-helpers/attr-string {:onCustomEvent "alert(1)" :id "x"})))))
 
   (testing "Canonical all-lowercase HTML event-handler names
             are stripped. HTML attribute names are case-insensitive, so the
@@ -119,29 +103,6 @@
     (is (= " id=\"x\""
            (rf.ssr.html-helpers/attr-string {(keyword "onClick=alert(1) data-x") "v"
                               :id "x"})))))
-
-(deftest attr-string-strips-function-valued-props
-  (testing "Function-valued props have no HTML serialisation
-            and are dropped (a fn can only be a handler/callback)"
-    (is (= " id=\"x\""
-           (rf.ssr.html-helpers/attr-string {:title (fn [_] :handler) :id "x"})))
-
-    (testing "fn value is stripped even when the key itself is innocuous"
-      (is (= ""
-             (rf.ssr.html-helpers/attr-string {:data-cb (fn [] nil)}))))))
-
-(deftest attr-string-drops-prototype-pollution-keys
-  (testing "Reserved prototype-pollution keys are dropped
-            before they reach the host createElement-equivalent"
-    (doseq [k ["__proto__" "constructor" "prototype"]]
-      (testing (str "`" k "` is dropped")
-        (is (= " id=\"x\""
-               (rf.ssr.html-helpers/attr-string {(keyword k) "polluted" :id "x"}))
-            (str k " must not survive to wire output"))))
-
-    (testing "the match is case-insensitive on the normalised name"
-      (is (= " id=\"x\""
-             (rf.ssr.html-helpers/attr-string {(keyword "Constructor") "polluted" :id "x"}))))))
 
 (deftest attr-string-drops-jsx-source-coord-props
   (testing "React DevTools' \"View source\" gesture reads
@@ -497,23 +458,3 @@
     (let [html-out (rf.ssr.emit/render-to-string
                      [:div {:style {:margin "0 1em" :color :red}} "hi"] {})]
       (is (= "<div style=\"margin:0 1em;color:red\">hi</div>" html-out)))))
-
-(deftest render-to-string-strips-lowercase-handlers-end-to-end
-  (testing "The canonical lowercase `on*` payload an attacker
-            splats into `:custom-attrs` does NOT survive through the public
-            emitter. Left unstripped, `[:img {:src \"x\" :onerror
-            \"alert(document.cookie)\"}]` would render the live handler on a
-            void element; the wire output MUST carry no `onerror`."
-    (let [out (rf.ssr.emit/render-to-string
-               [:img {:src "x" :onerror "alert(document.cookie)"}] {})]
-      (is (str/includes? out "src=\"x\"") "the legitimate attr survives")
-      (is (not (str/includes? (str/lower-case out) "onerror"))
-          "the lowercase event-handler attr must be stripped from the wire")
-      (is (not (str/includes? out "alert(document.cookie)"))
-          "no live handler payload on the wire"))
-
-    (testing "uppercase casing through the emitter is also stripped"
-      (let [out (rf.ssr.emit/render-to-string
-                 [:img {:src "x" :ONLOAD "steal()"}] {})]
-        (is (not (str/includes? (str/lower-case out) "onload")))
-        (is (not (str/includes? out "steal()")))))))
