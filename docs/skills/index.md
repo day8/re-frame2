@@ -12,7 +12,7 @@ Skills are for handing work to an agent. To learn re-frame2 yourself, read [the 
 | Writing or editing re-frame2 code, or adding re-frame2 to an existing app | [re-frame2](re-frame2.md) |
 | Asking for a review of existing re-frame2 code | [re-frame2-improver](re-frame2-improver.md) |
 | Moving a re-frame v1 codebase to re-frame2 | [re-frame-migration](re-frame-migration.md), then switch to `re-frame2` once the migration report is signed off |
-| On re-frame2 already and wanting Fresco for your Reagent views | [reagent-migration](reagent-migration.md) — optional; staying on the Reagent adapter is a complete, supported setup |
+| On re-frame2 already and wanting Fresco for your Reagent views | [reagent-fresco-migration](reagent-fresco-migration.md) — optional; staying on the Reagent adapter is a complete, supported setup |
 | Debugging or pairing with a running re-frame2 app | [re-frame2-pair](re-frame2-pair.md) |
 | Just finished a pairing session and hit friction | [re-frame2-pair-retro](re-frame2-pair-retro.md) |
 | Looking for the right tab or launch mode in the Xray devtools panel | [re-frame2-xray](re-frame2-xray.md) |
