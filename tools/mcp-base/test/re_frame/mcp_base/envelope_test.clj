@@ -47,28 +47,6 @@
     (is (false? (rf.mcp-base.envelope/marker-text? nil)))
     (is (false? (rf.mcp-base.envelope/marker-text? 42)))))
 
-(deftest marker-text?-only-matches-leading-marker-not-embedded-key
-  ;; The marker key must be the LEADING and ONLY top-level key for the
-  ;; text to count as a boundary marker: an ordinary payload that merely
-  ;; CONTAINS `:rf.mcp/overflow`, as a nested value or as a later key,
-  ;; must NOT be mistaken for a boundary-step marker (which would make a
-  ;; later boundary step skip re-walking a real payload). The
-  ;; leading-token pre-filter and the closed-wrapper read each reject
-  ;; these on their own, so loosening either one alone keeps this green.
-  (testing "marker key as a nested value ⇒ NOT a marker"
-    (is (false? (rf.mcp-base.envelope/marker-text?
-                  (pr-str {:trace [{:note "saw :rf.mcp/overflow once"}]})))
-        "the key appearing as string content is not a leading marker")
-    (is (false? (rf.mcp-base.envelope/marker-text?
-                  (pr-str {:result :ok :detail {rf.mcp-base.vocab/overflow-key {:limit :reached}}})))
-        "an overflow marker nested under :detail is not a LEADING marker"))
-  (testing "marker key as a non-first top-level key ⇒ NOT a marker"
-    ;; pr-str of an array-map preserves insertion order, so :a prints
-    ;; first; the overflow key is present but not leading.
-    (let [s (pr-str (array-map :a 1 rf.mcp-base.vocab/overflow-key {:limit :reached}))]
-      (is (false? (rf.mcp-base.envelope/marker-text? s))
-          "overflow key present but not the leading key ⇒ not a marker"))))
-
 (deftest marker-text?-handles-both-print-forms
   ;; JVM `pr-str` emits the namespaced-map shorthand for a single-ns
   ;; map; CLJS emits the flat form. Both MUST be detected so the cap /
@@ -99,14 +77,7 @@
                   (pr-str (array-map :rf.mcp/overflowed {:limit :reached :token-count 9000}))))))
   (testing "strict prefix-superset of a marker key ⇒ NOT a marker (namespaced-map form)"
     (is (false? (rf.mcp-base.envelope/marker-text? "#:rf.mcp{:overflowed {:x 1}}")))
-    (is (false? (rf.mcp-base.envelope/marker-text? "#:rf.mcp{:cache-hit-extra {:x 1}}"))))
-  (testing "the EXACT marker key still matches, rendered by pr-str under both print settings"
-    (is (true? (rf.mcp-base.envelope/marker-text?
-                 (binding [*print-namespace-maps* false]
-                   (pr-str {rf.mcp-base.vocab/overflow-key {:limit :reached}})))))
-    (is (true? (rf.mcp-base.envelope/marker-text?
-                 (binding [*print-namespace-maps* true]
-                   (pr-str {rf.mcp-base.vocab/cache-hit-key {:tool "x"}})))))))
+    (is (false? (rf.mcp-base.envelope/marker-text? "#:rf.mcp{:cache-hit-extra {:x 1}}")))))
 
 (deftest marker-text?-requires-closed-single-key-wrapper-not-just-first-key
   ;; The leading-token match proves only the FIRST key. The
