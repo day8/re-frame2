@@ -425,15 +425,6 @@ def self_test(verbose: bool) -> int:
           "run: npm run build:thing\n"
           "run: node teeth.cjs\n")
 
-    reached = scheduled_scripts(scripts, wf)
-    check("the closure walks through a chaining script",
-          reached == {"test:chain", "test:a", "test:b", "build:thing"},
-          repr(reached))
-    check("a prefix outside GATE_PREFIXES is never required to be scheduled",
-          not any("clean:thing" in p for p in audit(scripts, wf, {
-              "test:orphan": {"kind": "not-a-gate", "why": "x"},
-              "bench:thing": {"kind": "not-a-gate", "why": "x"}})))
-
     # `build:` IS asked the question — a `shadow-cljs release` that no
     # workflow reaches is an unscheduled gate one prefix over.
     build_orphan = audit({**scripts, "build:orphan": "shadow-cljs release orphan"},
@@ -447,9 +438,10 @@ def self_test(verbose: bool) -> int:
     check("an undeclared unscheduled gate FAILS",
           any("test:orphan" in p for p in bare) and any("bench:thing" in p for p in bare),
           repr(bare))
-    check("...and a scheduled gate does not",
-          not any(p.startswith("test:a") or p.startswith("test:chain") for p in bare))
 
+    # Every other script is undeclared, so a clean audit here also needs the
+    # prefix filter to skip `clean:thing` and the schedule to cover
+    # `test:chain`, `build:thing` and, through the closure, `test:a`/`test:b`.
     ok = audit(scripts, wf, {
         "test:orphan": {"kind": "covered-by", "by": "test:a", "why": "x"},
         "bench:thing": {"kind": "not-a-gate", "why": "x"}})
@@ -498,10 +490,7 @@ def self_test(verbose: bool) -> int:
                      "`npm run test:orphan` here.\n"
                      "      - name: something else\n"
                      "        run: node teeth.cjs\n")
-    check("a `npm run` in a COMMENT does not schedule a gate",
-          "test:orphan" not in scheduled_scripts(scripts, commented_out),
-          repr(scheduled_scripts(scripts, commented_out)))
-    check("...and that gate is then reported undeclared",
+    check("a gate named only in a COMMENT is reported undeclared",
           any("test:orphan" in p for p in audit(scripts, commented_out, declared)))
 
     other_field = ("      - name: npm run test:orphan\n"
@@ -540,6 +529,8 @@ def self_test(verbose: bool) -> int:
               {**declared,
                "test:orphan": {"kind": "ci-runs-it-directly",
                                "probe": "node teeth.cjs", "why": "x"}})))
+    # Every step here uses the `- run:` first-key form, so this case also
+    # pins that a dash-prefixed `run:` is read as executable text.
     with_args = ("      - run: npm run test:chain\n"
                  "      - run: npm run build:thing\n"
                  "      - run: node teeth.cjs --self-test\n")
@@ -567,10 +558,6 @@ def self_test(verbose: bool) -> int:
     check("a quoted inline run value schedules what it invokes",
           scheduled_scripts(scripts, quoted) == {"test:a"},
           repr(scheduled_scripts(scripts, quoted)))
-    dash_form = "      - run: npm run test:a\n"
-    check("the `- run:` first-key step form is executable text",
-          scheduled_scripts(scripts, dash_form) == {"test:a"},
-          repr(scheduled_scripts(scripts, dash_form)))
 
     # `run:` is also a MAPPING key under `defaults:`, whose children are
     # `shell:` / `working-directory:` — never a command.
