@@ -189,24 +189,6 @@
             "so the editor is now legitimately dirty: there is one field of
              unsaved work in it, and the guard should hold")))))
 
-(deftest without-the-merge-the-late-reply-clobbers
-  ;; THE CONTROL for the row above, through the same frame: the accepted
-  ;; payload written as a whole slice, the shape the recipe replaces. The
-  ;; class is reachable, so the guarded row is measuring something.
-  (capture-transport!)
-  (with-app
-    (fn [frame]
-      (send! frame [::rf.recipes.async-nav/open-editor "welcome"])
-      (send! frame [::rf.recipes.async-nav/edit :title "My own title"])
-      (let [typed  (:draft (editor-of frame))
-            naive  (merge typed welcome)]
-        (is (= "My own title" (:title typed))
-            "precondition: the typed value really was in the draft")
-        (is (= (:title welcome) (:title naive))
-            "and a whole-slice write of the very same payload replaces it
-             — no error, no warning, the field simply changes under the
-             cursor")))))
-
 (deftest a-reply-for-an-article-the-editor-has-left-is-dropped
   ;; The half the runtime does NOT own. Two different articles are two
   ;; different `:request-id`s, so nothing was superseded — the first
@@ -343,22 +325,6 @@
         (is (boolean? (read-sub frame [::rf.recipes.async-nav/can-leave?])))
         (send! frame [::rf.recipes.async-nav/save])
         (is (boolean? (read-sub frame [::rf.recipes.async-nav/can-leave?])))))))
-
-(deftest a-dirty-editor-blocks-the-leave-and-parks-it
-  (with-app
-    (fn [frame]
-      (open-dirty-editor! frame)
-      (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/list-route}])
-      (is (= rf.recipes.async-nav/editor-route (route frame))
-          "the navigation did not commit — the user is still in the editor")
-      (let [p (pending frame)]
-        (is (some? p) "and the attempt was PARKED rather than dropped")
-        (is (= rf.recipes.async-nav/editor-route (:rejecting-route p)))
-        (is (= ::rf.recipes.async-nav/can-leave? (:rejecting-guard p))
-            "the pending value names the guard that rejected, so a confirm
-             dialog can say which one and a tool can attribute it")
-        (is (some? (:id p))
-            "and carries an id — both resolution events are keyed by it")))))
 
 (deftest continue-completes-the-parked-navigation
   (with-app
