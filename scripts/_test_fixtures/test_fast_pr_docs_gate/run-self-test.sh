@@ -13,22 +13,23 @@
 # Cases:
 #   committed docs / staged code / unstaged docs / untracked docs  — the four
 #     git states the change-set gathering must handle deterministically;
-#   unknown surface                — conservative fallback runs the full runtime;
+#   unknown surface                — conservative fallback runs the full runtime
+#     (AB, whose script the classifier does not recognise);
 #   no changes                     — static checks only;
 #   no origin/main base            — conservative fallback (indeterminate);
 #   --all / RF2_FAST_PR_ALL / --with-docs / --no-docs — the overrides;
-#   gate-has-teeth (E/F)           — the doc validators exit non-zero on the
+#   gate-has-teeth (M/N)           — the doc validators exit non-zero on the
 #     bundled broken fixtures;
 #   slug shapes (O/P)              — a pymdownx `_1` suffix linked as `-1`,
 #     and an anchor missing a heading's suffix, trip check_doc_slugs.py;
 #   coverage-honesty note (Q/R)    — `--plan` must state what the JVM tier
 #     actually contains and point at the full JVM sweep;
-#   per-artefact JVM selection (S-V) — a diff under an artefact's tree adds
-#     that artefact's suite, a diff elsewhere does not pay for it, a roster
-#     entry matches on a path boundary, and a skipped tier selects nothing;
-#   mkdocs resolution (W-Y)        — the console script is preferred, an
-#     installed-as-a-module mkdocs is FOUND rather than soft-skipped, and
-#     a code-only diff never probes for it;
+#   per-artefact JVM selection (U/V) — a diff under an artefact's tree adds
+#     exactly that artefact's suite beside implementation/core, matching its
+#     roster entry on a path boundary, and a skipped tier selects nothing;
+#   mkdocs resolution (X/Y)        — an installed mkdocs, console script or
+#     module, is FOUND rather than soft-skipped, and a code-only diff never
+#     probes for it;
 #   the spine's own tree (Z-AB)    — a diff touching `scripts/test-fast-pr.sh`
 #     or this fixture tree arms the documentation tier and this self-test, and
 #     an ordinary `scripts/` change does not;
@@ -155,11 +156,6 @@ assert "C1 unstaged pinned spec prose → docs + JVM tier" \
 r="$tmp_root/untracked-docs"; mkrepo "$r"
 printf '# u\n' > "$r/NOTES.md"                                # untracked, never added
 assert "D untracked docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
-
-# ---- Case E: unknown surface → conservative full runtime ----
-r="$tmp_root/unknown"; mkrepo "$r"
-printf 'x\n' > "$r/weird.xyz"; git -C "$r" add weird.xyz
-assert "E unknown surface → conservative runtime" "PLAN docs=false jvm=true node=true" "$(plan "$r")"
 
 # ---- Case F: no changes vs origin/main, clean tree → static only ----
 r="$tmp_root/clean"; mkrepo "$r"
@@ -297,7 +293,7 @@ assert "R --plan points at the full JVM sweep" "yes" "$note_points_at_full"
 
 # ---------------------------------------------------------------------------
 # Per-artefact JVM selection.  `PLAN-JVM` is the machine-readable
-# list of artefact suites the run will execute.  The pins are both directions:
+# list of artefact suites the run will execute.  U's exact list pins both directions:
 # a diff under an artefact's tree must ADD that suite, and a diff elsewhere
 # must NOT pay for it.  `implementation/core` is on every list while the tier
 # runs — it is the substrate the others sit on.
@@ -305,16 +301,6 @@ assert "R --plan points at the full JVM sweep" "yes" "$note_points_at_full"
 plan_jvm() {
   bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-JVM' || printf 'PLAN-JVM <none>\n'
 }
-
-r="$tmp_root/jvm-routing"; mkrepo "$r"
-mkdir -p "$r/implementation/routing/src/re_frame"
-printf 'x\n' > "$r/implementation/routing/src/re_frame/routing.cljc"
-git -C "$r" add -A; git -C "$r" commit -q -m routing
-assert "S routing source → routing's own suite is added" \
-  "PLAN-JVM implementation/core implementation/routing" "$(plan_jvm "$r")"
-
-assert "T a core-only diff does not pay for routing" \
-  "PLAN-JVM implementation/core" "$(plan_jvm "$tmp_root/coverage-note")"
 
 # A roster entry must match on a path BOUNDARY: `implementation/adapters/reagent`
 # is a prefix of `implementation/adapters/reagent-slim` as a string, and arming
@@ -337,8 +323,9 @@ assert "V tier skipped → no artefact suite at all" "PLAN-JVM" "$(plan_jvm "$r"
 # `pip install --user`, console script off PATH — soft-skip the strict site
 # build on EVERY run and still print PASS.  `PLAN-MKDOCS` makes the
 # resolution observable without paying for a site build, and
-# these cases pin it: the console script wins when present, the module is
-# found when it is not, and a code-only diff never pays to look.
+# these cases pin it: an installed mkdocs is found, and a code-only diff never
+# pays to look.  That the console script wins when present is pinned
+# hermetically by AD below.
 # ---------------------------------------------------------------------------
 plan_mkdocs() {
   bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-MKDOCS' \
@@ -348,18 +335,6 @@ plan_mkdocs() {
 r="$tmp_root/mkdocs-docs"; mkrepo "$r"
 mkdir -p "$r/docs"; printf '# h\n' > "$r/docs/x.md"
 git -C "$r" add -A; git -C "$r" commit -q -m d
-
-# W — the console script is preferred when it is on PATH.  A stub suffices:
-# resolution must not depend on the real tool being installed.
-stub_bin="$tmp_root/stub-bin"; mkdir -p "$stub_bin"
-printf '#!/bin/sh\nexit 0\n' > "$stub_bin/mkdocs"
-chmod +x "$stub_bin/mkdocs"
-if PATH="$stub_bin:$PATH" command -v mkdocs >/dev/null 2>&1; then
-  assert "W console script on PATH → resolved as mkdocs" "PLAN-MKDOCS mkdocs" \
-    "$(PATH="$stub_bin:$PATH" plan_mkdocs "$r")"
-else
-  printf '  SKIP W: this shell cannot make a stub executable discoverable\n'
-fi
 
 # X — THE HOST SMOKE.  Wherever mkdocs is genuinely installed, the spine must
 # resolve it; `unresolved` there is the fail-open this case exists to catch.  On
@@ -435,7 +410,9 @@ assert "AA1 doc-gate fixture tree → the spine's own self-test is armed" \
 
 # AB — the NOT-widened pin.  `scripts/check_skill_mcp_drift.py` is an ordinary
 # always-on gate script: no doc gate reads it, so arming the documentation tier
-# for it would buy nothing and cost an mkdocs build on every such diff.
+# for it would buy nothing and cost an mkdocs build on every such diff.  Its
+# plan is also the unknown-surface fallback: the classifier recognises no
+# runtime surface in this script, so the JVM and node tiers run conservatively.
 r="$tmp_root/ordinary-script"; mkrepo "$r"
 mkdir -p "$r/scripts"; printf 'x\n' > "$r/scripts/check_skill_mcp_drift.py"
 git -C "$r" add -A; git -C "$r" commit -q -m ordinary
@@ -480,8 +457,8 @@ assert "AB2 the provenance-pin checker arms the docs tier only" \
 # here: `--plan` runs the real one.
 # ---------------------------------------------------------------------------
 
-# The docs-armed disposable repo cases W-Y already built: the mkdocs resolution
-# is only reached when the documentation tier would run.
+# The docs-armed disposable repo built for X above: the mkdocs resolution is
+# only reached when the documentation tier would run.
 r_docs_for_mkdocs="$tmp_root/mkdocs-docs"
 
 # $PATH with every entry that provides a bare `mkdocs` removed.  Globbing is
@@ -606,14 +583,15 @@ fi
 # ---------------------------------------------------------------------------
 # THE PINNED clj-kondo LANE.  `PLAN-KONDO` is its machine-readable
 # arming, and it is a FOURTH surface rather than a view of the three above: the
-# lane's roots come from lint.yml's own `--lint` list, which reaches trees no
-# runtime tier owns (`examples/`, `testbeds/`, `tools/*`) and misses trees the
-# runtime tiers do own.  Both directions are pinned: a gate that cannot fire
+# lane's roots come from lint.yml's own `--lint` list, plus the config and the
+# workflow the lane reads (`.clj-kondo/`, `lint.yml`), which no runtime tier
+# owns, and it misses trees the runtime tiers do own.  Both directions are
+# pinned: a gate that cannot fire
 # on the edit it polices is a defect, and a lane armed by everything would be
 # the same defect wearing the opposite coat.
 #
-# `PLAN` deliberately keeps three fields; a fourth would rewrite fourteen
-# assertions above to say nothing they do not already say.
+# `PLAN` deliberately keeps three fields; a fourth would rewrite every `PLAN`
+# assertion above to say nothing it does not already say.
 # ---------------------------------------------------------------------------
 plan_kondo() {
   bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-KONDO' \
@@ -628,14 +606,14 @@ git -C "$r" add -A; git -C "$r" commit -q -m src
 assert "AF fresco source → the pinned kondo lane is armed" \
   "PLAN-KONDO run" "$(plan_kondo "$r")"
 
-# AF1 — a root NO runtime tier owns.  `examples/` arms neither implementation_jvm
-# nor cljs_node_test, so without this lane a broken example would reach CI
-# unlinted.
+# AF1 — a root after the first.  `examples/` is the second `--lint` root in
+# lint.yml, so this proves the lane reads the whole list rather than only
+# `implementation`.
 r="$tmp_root/kondo-examples"; mkrepo "$r"
 mkdir -p "$r/examples/capabilities/resources/linearlite"
 printf 'x\n' > "$r/examples/capabilities/resources/linearlite/core.cljs"
 git -C "$r" add -A; git -C "$r" commit -q -m example
-assert "AF1 examples/ → armed, though no runtime tier owns it" \
+assert "AF1 examples/, a later --lint root → armed" \
   "PLAN-KONDO run" "$(plan_kondo "$r")"
 
 # AF2 — the shared config decides every finding's level without being linted.
