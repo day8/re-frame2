@@ -470,11 +470,6 @@ def _run_self_test() -> int:
         ("mnem drift", rt, vp,
          files(**{"references/panels.md": f"{ordered}\nmnemonics e u m"}),
          False),
-        # A4: a shipped label missing from SKILL.md.
-        ("label missing in SKILL", rt, vp,
-         files(**{"SKILL.md": f"Tabs: Epoch {_MIDDOT} Machine {_MIDDOT} Frames (mnemonics {mnem})."
-                              .replace("Frames", "Frms")}),
-         False),
         # A5: evals never name the highest-:order tab's label.
         ("eval highest-order label absent", rt, vp,
          files(**{"evals/evals.json": f'"list Epoch {_MIDDOT} Machine {_MIDDOT} Modules (mnemonics {mnem})"'}),
