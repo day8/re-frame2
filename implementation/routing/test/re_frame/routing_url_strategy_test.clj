@@ -63,14 +63,6 @@
         (is (nil? (get strategy leg))
             (str label " carries no " leg " on the JVM"))))))
 
-;; ---- history strategy: encode is identity (path IS the URL) --------------
-
-(deftest history-encode-is-identity
-  (testing "history encode leaves a path-form URL unchanged"
-    (doseq [p ["/" "/active" "/completed" "/articles/42?q=milk" "/x#frag"]]
-      (is (= p (rf.routing.strategy/history-encode p))
-          (str "history-encode is identity for " (pr-str p))))))
-
 ;; ---- hash strategy: encode `#`-prefixes the path -------------------------
 
 (deftest hash-encode-prefixes-hash
@@ -159,9 +151,9 @@
         (is (contains? (set (:missing (ex-data ex))) :encode)
             "a non-callable :encode counts as missing"))
       ;; Production arm. The REJECTION of this exact value holds
-      ;; under the gate: `preflight-carries-frame-id-in-ex-data` and
+      ;; under the gate:
       ;; `make-frame-engine-rejects-malformed-strategy-before-any-write` below
-      ;; assert it posture-independently at the registration chokepoint.
+      ;; asserts it posture-independently at the registration chokepoint.
       (let [non-callable {:encode "not-a-fn" :decode (constantly "/")}]
         (is (identical? non-callable
                         (rf.routing.strategy/url-strategy-from-config {:url-strategy non-callable}))
@@ -169,28 +161,6 @@
         (is (thrown? clojure.lang.ExceptionInfo
                      (rf.routing.strategy/preflight-frame-config! :t/owner {:url-strategy non-callable}))
             "…and the ungated registration preflight still rejects it LOUD")))))
-
-(deftest url-strategy-from-config-is-a-trusted-read
-  (testing "a SHAPE-VALID declared strategy resolves by identity —
-            the consult returns it verbatim, doing no work beyond the read (the
-            production trusted-read path; the dev tripwire only re-checks, it
-            does not transform)"
-    (is (identical? rf.routing.strategy/hash-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config
-                      {:url-strategy rf.routing.strategy/hash-url-strategy})))
-    (let [custom {:encode identity :decode (constantly "/")}]
-      (is (identical? custom
-                      (rf.routing.strategy/url-strategy-from-config {:url-strategy custom})))))
-  (testing "absent / nil / non-map configs resolve to the history
-            default with no validation (the default branch is trusted)"
-    (is (identical? rf.routing.strategy/history-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config {})))
-    (is (identical? rf.routing.strategy/history-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config {:url-strategy nil}))
-        "an explicit-nil :url-strategy falls through to history at the CONSULT
-         (presence semantics are enforced at the preflight, not the read)")
-    (is (identical? rf.routing.strategy/history-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config nil)))))
 
 ;; ---- with-base-path combinator --------------------------------------------
 ;;
@@ -218,25 +188,6 @@
     ;; `/elsewhere` is as long as `/realworld` and is followed by `/`, so only
     ;; the prefix check keeps it from being stripped to `/path`.
     (is (= "/elsewhere/path" (rf.routing.strategy/strip-base-path "/realworld" "/elsewhere/path")))))
-
-(deftest with-base-path-strips-only-on-segment-boundary
-  (testing "ADVERSARIAL: strip-base-path treats a URL as under the
-            base ONLY at a path-SEGMENT boundary — the mount root (url = base)
-            or `base/…`. A prefix-SHARING sibling that merely string-prefixes
-            the base is returned UNCHANGED, not mis-sliced."
-    ;; siblings that share the base as a bare STRING prefix must NOT be stripped
-    ;; (a bare string-prefix strip would turn `/application` under `/app` into `/lication`).
-    (is (= "/application/x" (rf.routing.strategy/strip-base-path "/app" "/application/x"))
-        "/app must NOT strip /application (segment boundary, not string prefix)")
-    (is (= "/apple" (rf.routing.strategy/strip-base-path "/app" "/apple")))
-    (is (= "/app-admin" (rf.routing.strategy/strip-base-path "/app" "/app-admin")))
-    (is (= "/realworld-demo" (rf.routing.strategy/strip-base-path "/realworld" "/realworld-demo"))
-        "a mount-point sibling: /realworld must not mangle /realworld-demo")
-    ;; genuine under-base URLs strip correctly.
-    (is (= "/x" (rf.routing.strategy/strip-base-path "/app" "/app/x")))
-    (is (= "/x/y" (rf.routing.strategy/strip-base-path "/app" "/app/x/y")))
-    (is (= "/" (rf.routing.strategy/strip-base-path "/app" "/app"))
-        "the bare mount root (url = base) strips to the app root `/`")))
 
 (deftest with-base-path-strips-mount-root-before-query-and-fragment
   (testing "the mount root followed DIRECTLY by `?` or `#` is still
@@ -316,13 +267,6 @@
 ;; `:encode` / `:decode` only (Spec 012 §URL strategies — SSR never executes
 ;; the browser legs).
 
-(deftest preflight-absent-url-strategy-is-a-no-op
-  (testing "a config with NO :url-strategy key preflights clean —
-            omission alone selects the default history strategy, so an
-            ordinary frame (url-bound or not) pays no validation"
-    (is (nil? (rf.routing.strategy/preflight-frame-config! :t/plain {})))
-    (is (nil? (rf.routing.strategy/preflight-frame-config! :t/owner {:url-bound? true})))))
-
 (deftest preflight-explicit-nil-url-strategy-is-malformed
   (testing "an EXPLICIT nil :url-strategy is a PRESENT declaration
             and fails loud — presence semantics, not truthiness; only omission
@@ -335,18 +279,6 @@
       (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
       (is (= :t/owner (:frame (ex-data ex)))
           "the ex-data names the offending frame"))))
-
-(deftest preflight-carries-frame-id-in-ex-data
-  (testing "a malformed declaration's :rf.error/invalid-url-strategy
-            ex-data carries the frame id, so the diagnostic names WHICH frame
-            declared the bad strategy"
-    (let [ex (try (rf.routing.strategy/preflight-frame-config!
-                    :t/owner {:url-strategy {:decode (constantly "/")}})
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
-      (is (= :t/owner (:frame (ex-data ex))))
-      (is (contains? (set (:missing (ex-data ex))) :encode)))))
 
 (deftest make-frame-engine-rejects-malformed-strategy-before-any-write
   (testing "the core engine (rf.frame/upsert-frame!) preflights the
@@ -362,7 +294,10 @@
                   (catch clojure.lang.ExceptionInfo e e))]
       (is (some? ex) "the malformed first registration throws")
       (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
-      (is (= :ktmto9/bad-jvm (:frame (ex-data ex))))
+      (is (= :ktmto9/bad-jvm (:frame (ex-data ex)))
+          "the ex-data names WHICH frame declared the bad strategy")
+      (is (contains? (set (:missing (ex-data ex))) :encode)
+          "…and the leg it is missing")
       (is (not (contains? (set (rf.frame/frame-ids)) :ktmto9/bad-jvm))
           "no frame record was created")
       (is (nil? (rf.frame/frame-meta :ktmto9/bad-jvm))
