@@ -2469,8 +2469,12 @@
 ;; FAIL-OPEN posture — hygiene, not a guarantee. A consumer that needs a value
 ;; redacted in a derived tree must classify its app-db PATH.
 ;;
-;; These tests pin the SHIPPED behavior: a re-keyed value ships raw
-;; (fail-open), and the `:include-sensitive` opt-out is a pass-through too.
+;; Core's `project-egress` owns the path walk; story-mcp owns the
+;; orchestration around it, which is what this file pins. An empty tree
+;; short-circuits on any frame, a re-keyed copy ships raw on a live frame (the
+;; `:large` case below, and the axe-node case in the read-a11y section), a
+;; non-live frame takes the named carve-out, and each handler slot redacts at
+;; a classified path unless the opt-in reaches it.
 ;; ---------------------------------------------------------------------------
 
 (defn- tree-contains?
@@ -2516,227 +2520,14 @@
     (is (= :rf/redacted (rf.story-mcp.tools.egress/scrub-rendered [{:token "SECRET"}] nil :no/such-frame-xyz false))
         "fail-closed still stands for a non-empty tree on a non-live frame")))
 
-(deftest run-variant-error-branch-keeps-empty-evidence-on-non-live-frame
-  ;; A throw BEFORE frame allocation (e.g. a plan-compile error in the variant
-  ;; body) is caught by tool-run-variant, which mints a unified result via
-  ;; `rf.story/run-result` — filling every evidence slot to `[]`.
-  ;; The frame was never allocated, so it is NON-LIVE at egress. Each `[]`
-  ;; slot must survive the egress projection as `[]` (a sequential), NOT be
-  ;; redacted to the `:rf/redacted` keyword the `[:sequential :any]` schema
-  ;; would reject.
-  (testing "run-variant catch branch on a non-live frame keeps [] evidence slots"
-    (with-clean-frame [vid :story.button/primary]
-      ;; Force the NON-LIVE-frame shape: a plan-compile-class error throws
-      ;; before run-variant would allocate the frame.
-      (destroy-variant-frame! vid)
-      (is (nil? (frame-container vid)) "precondition: the variant frame is non-live")
-      (with-redefs [rf.story/run-variant (fn [& _] (throw (ex-info "plan compile failed" {})))]
-        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :error (:status s)) "the throw surfaces as an :error verdict")
-          (doseq [slot [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
-            (is (= [] (get s slot))
-                (str slot " is the empty evidence [] the frozen [:sequential :any] schema requires — not :rf/redacted"))))))))
-
-(deftest scrub-rendered-re-keyed-sensitive-ships-raw-fail-open
-  (testing "EP-0025 FAIL-OPEN: a sensitive value RE-KEYED into a derived tree at a non-app-db position ships RAW — there is no value-match redaction"
-    (with-clean-frame [vid :story.button/primary]
-      (let [db    {:public "ok" :token "TOPSECRET"}
-            ;; A rendered hiccup tree that re-keys the sensitive value to a
-            ;; non-app-db position (an attribute value + a text node). The
-            ;; declared app-db path is [:token]; in the hiccup the value sits
-            ;; at [1 :value] / [2 2], which the PATH walker cannot reach.
-            hiccup [:div {:class "card"}
-                    [:input {:type "password" :value "TOPSECRET"}]
-                    [:span "label: " "TOPSECRET"]]]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (tree-contains? out "TOPSECRET")
-              "EP-0025 fail-open: the re-keyed value ships RAW (no value-match) — classify the app-db PATH to redact")
-          (is (not (tree-contains? out :rf/redacted))
-              "the path-based walk finds nothing to redact at the re-keyed positions — no sentinel")
-          (is (tree-contains? out "label: ")
-              "non-sensitive leaves are preserved")
-          (is (= "card" (get-in out [1 :class]))
-              "benign attribute values survive untouched"))))))
-
-(deftest scrub-rendered-value-at-classified-path-redacts
-  (testing "PATH-based redaction DOES hold: a derived tree that is itself the frame's app-db slice (the value at the classified PATH) redacts through the egress walk"
-    (with-clean-frame [vid :story.button/primary]
-      ;; When the derived tree carries the classified value AT its declared
-      ;; path (not re-keyed) — e.g. the egress projects the app-db slice — the
-      ;; PATH walker redacts it. This is the redaction story-mcp
-      ;; guarantees.
-      (let [db   {:public "ok" :auth {:token "TOPSECRET"}}]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:auth :token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              ;; The tree IS the app-db value — [:auth :token] is at its
-              ;; classified path, so the path walk reaches and redacts it.
-              out            (scrub-rendered db db vid false)]
-          (is (= :rf/redacted (get-in out [:auth :token]))
-              "a value at its declared app-db path redacts through the path walk")
-          (is (not (tree-contains? out "TOPSECRET"))
-              "the classified-path value MUST NOT survive")
-          (is (= "ok" (:public out))
-              "benign sibling slots survive untouched"))))))
-
-(deftest scrub-rendered-include?-true-forwards-raw-value
-  (testing ":include? true bypasses the redaction walk entirely"
-    (with-clean-frame [vid :story.button/primary]
-      (let [db     {:token "TOPSECRET"}
-            hiccup [:input {:value "TOPSECRET"}]]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid true)]
-          (is (identical? hiccup out)
-              "include? true returns the input tree unchanged (no walk), so the raw sensitive value crosses"))))))
-
-(deftest scrub-rendered-no-declarations-is-noop
-  (testing "with no declared-sensitive paths the tree's VALUE is unchanged (path walk finds nothing to redact)"
-    (with-clean-frame [vid :story.button/primary]
-      (let [db     {:public "ok"}
-            hiccup [:span "ok"]]
-        (seed-app-db! vid db)
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (= hiccup out)
-              "no declarations ⇒ the path walk redacts nothing; the tree value is unchanged"))))))
-
-;; ---------------------------------------------------------------------------
-;; EP-0025 FAIL-OPEN: no value-match ⇒ no over-scrub, no under-scrub.
-;;
-;; A value-based walk would substitute EVERY derived-tree leaf `=` a
-;; declared-sensitive value, and would need an over-scrub guard (a
-;; short/common scalar like `0` shipped at a benign path would have to leave
-;; the secret set so benign leaves equal to it survived). There is no
-;; value-match: a re-keyed copy ships RAW, so there is no over-scrub to guard
-;; against AND no under-scrub guarantee to keep. These tests pin that — benign
-;; leaves are never scrubbed (no value-match), and a uniquely-secret value
-;; re-keyed off its app-db path ships raw (fail-open; classify the PATH to
-;; redact).
-;; ---------------------------------------------------------------------------
-
-(deftest scrub-rendered-benign-leaf-equal-to-secret-is-never-scrubbed
-  (testing "EP-0025 fail-open: no value-match ⇒ a benign leaf that merely EQUALS a sensitive scalar is never scrubbed (no over-scrub, no heuristic)"
-    (with-clean-frame [vid :story.button/primary]
-      ;; :http-status is sensitive and holds 0; the derived tree has many
-      ;; benign 0 leaves (tab-index, aria level). A value-match would have to
-      ;; GUARD against scrubbing these; with no value-match they trivially
-      ;; survive.
-      (let [db     {:http-status 0          ; sensitive path
-                    :public      "ok"}
-            hiccup [:ul {:tabindex 0}
-                    [:li {:data-level 0} "first"]
-                    [:li {:data-level 0} "second"]]]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:http-status])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (not (tree-contains? out :rf/redacted))
-              "no value-match ⇒ no benign 0 leaf is scrubbed (no over-scrub)")
-          (is (= 0 (get-in out [1 :tabindex]))
-              "benign 0 attribute values survive untouched")
-          (is (= 0 (get-in out [2 1 :data-level]))
-              "benign 0 leaves deep in the tree survive"))))))
-
-(deftest scrub-rendered-uniquely-secret-scalar-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a uniquely-secret scalar RE-KEYED into a non-app-db tree position ships RAW — there is no value-match (taint)"
-    (with-clean-frame [vid :story.button/primary]
-      ;; 7 is unique to the sensitive path; in the hiccup it sits at [1 :value]
-      ;; (a non-app-db position). Value-match would redact it; the path
-      ;; walker is blind to the re-keyed copy and it ships raw.
-      (let [db     {:pin    7
-                    :public "ok"}
-            hiccup [:input {:type "password" :value 7}]]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:pin])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (= 7 (get-in out [1 :value]))
-              "fail-open: the re-keyed value ships raw — classify the app-db PATH to redact")
-          (is (not (tree-contains? out :rf/redacted))
-              "no value-match ⇒ the re-keyed leaf carries no sentinel"))))))
-
-(deftest scrub-rendered-genuine-long-secret-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: even a distinctive long secret re-keyed into a derived tree ships RAW — fail-open is value-class-agnostic"
-    (with-clean-frame [vid :story.button/primary]
-      (let [secret "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"
-            db     {:public "ok"
-                    :token  secret}
-            hiccup [:div {:class "card"}
-                    [:input {:type "password" :value secret}]
-                    [:span "token: " secret]]]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:token])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid false)]
-          (is (tree-contains? out secret)
-              "fail-open: the distinctive secret re-keyed off its path ships raw (no value-match)")
-          (is (not (tree-contains? out :rf/redacted))
-              "no sentinel — the path walk reaches none of the re-keyed positions")
-          (is (= "card" (get-in out [1 :class]))
-              "benign attribute values survive untouched"))))))
-
-;; ---------------------------------------------------------------------------
-;; Path-based :app-db egress redacts — the guarantee.
-;;
-;; There is no value-match, but the path-based :app-db egress holds. A value
-;; AT its declared :sensitive / :large app-db path is redacted / elided in
-;; the :app-db slice. These tests pin the redaction story-mcp guarantees —
-;; `elide-app-db` over the live frame slice.
-;; ---------------------------------------------------------------------------
-
-(deftest elide-app-db-sensitive-and-large-paths-redact-and-elide
-  (testing "PATH-based :app-db egress redacts a sensitive path and elides a large path (the path guarantee)"
-    (with-clean-frame [vid :story.button/primary]
-      (let [token  "sk-live-DISTINCTIVE-TOPSECRET-9f8a7b6c"
-            db     {:public "ok"
-                    :auth   {:token token}
-                    :cache  {:blob {:size 9001 :payload (vec (range 5000))}}}]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:auth :token])
-        (declare-large! vid [:cache :blob])
-        (let [elide-app-db (requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
-              wire-db      (elide-app-db db vid false)]
-          (is (= :rf/redacted (get-in wire-db [:auth :token]))
-              "the sensitive PATH is redacted in the wire :app-db")
-          (is (not (tree-contains? wire-db token))
-              "the token does not survive in the :app-db slot")
-          (is (contains? (get-in wire-db [:cache :blob]) :rf.size/large-elided)
-              "the :large PATH is replaced by the marker in the wire :app-db")
-          (is (= "ok" (:public wire-db))
-              "benign slots survive untouched"))))))
-
-(deftest elide-app-db-seq-indexed-sensitive-path-redacts
-  (testing "PATH-based :app-db egress redacts a seq-indexed :sensitive declaration [:tokens 0] (the path guarantee)"
-    (with-clean-frame [vid :story.button/primary]
-      (let [secret "uniq-seq-secret-TOPSECRET"
-            db     {:public "ok"
-                    :tokens (list secret "second-public-token")}]
-        (seed-app-db! vid db)
-        (declare-sensitive! vid [:tokens 0])
-        (let [elide-app-db (requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
-              wire-db      (elide-app-db db vid false)]
-          (is (not (tree-contains? wire-db secret))
-              "the seq-indexed secret at its declared path MUST NOT survive in :app-db")
-          (is (tree-contains? wire-db :rf/redacted)
-              "the matching leaf is replaced with the :rf/redacted sentinel")
-          (is (tree-contains? wire-db "second-public-token")
-              "the non-sensitive sibling element survives untouched"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; EP-0025 FAIL-OPEN — no :large derived-tree elision either.
 ;; There is no value-match on EITHER egress axis. A :large blob RE-KEYED
 ;; into :snapshot / evidence / an explain value slot at a
 ;; non-app-db position is structurally invisible to the PATH walker, so it
 ;; ships RAW too — same fail-open posture as the :sensitive axis. The :app-db
-;; PATH elision (where the blob is AT its declared path) holds and is tested
-;; above (`elide-app-db-sensitive-and-large-paths-redact-and-elide`).
+;; PATH elision (where the blob is AT its declared path) holds and is pinned
+;; by `run-variant-surfaces-elided-large-indicator`.
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-rendered-large-value-re-keyed-ships-raw-fail-open
@@ -2759,28 +2550,12 @@
           (is (tree-contains? out "label")
               "benign leaves are preserved"))))))
 
-(deftest scrub-re-keyed-runtime-large-value-re-keyed-ships-raw-fail-open
-  (testing "EP-0025 fail-open: the re-keyed-runtime scrub (scrub-re-keyed-runtime) ships a re-keyed :large value RAW under a LIVE frame"
-    (with-clean-frame [vid :story.button/primary]
-      (let [blob   (vec (range 5000))
-            db     {:public "ok" :blob blob}
-            ;; a captured-event-style payload that echoes the blob at a
-            ;; non-app-db position
-            tree   [[:evt/load {:payload blob}]]]
-        (seed-app-db! vid db)
-        (declare-large! vid [:blob])
-        (let [scrub-re-keyed-runtime (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-re-keyed-runtime)
-              out                    (scrub-re-keyed-runtime tree vid false)]
-          (is (tree-contains? out blob)
-              "fail-open: the re-keyed large blob ships raw in the captured payload")
-          (is (not (tree-contains-marker? out))
-              "no large-elided marker — the captured slot is not at the declared app-db path"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; The re-keyed-runtime egress exception:
 ;;
 ;;   `scrub-re-keyed-runtime` — axe DOM nodes.
-;;       LIVE frame ⇒ PATH-project (re-keyed copies fail-open, tested above);
+;;       LIVE frame ⇒ PATH-project (re-keyed copies fail-open, pinned through
+;;       the tool by `read-a11y-violations-re-keyed-html-ships-raw-fail-open`);
 ;;       NON-LIVE frame ⇒ RAW under the NAMED, narrow carve-out (the path-scrub
 ;;       is a no-op even live, so fail-closing would destroy the tool with zero
 ;;       leak-delta).
@@ -2805,13 +2580,12 @@
         (is (= tree out)
             "non-live re-keyed-runtime payload ships RAW under the named carve-out — NOT redacted to :rf/redacted")))))
 
-;; The integration tests below pin the WIRING — that `preview-variant`
+;; The integration test below pins the WIRING — that `preview-variant`
 ;; (`:effective-args` / `:snapshot`) and `run-variant` (`:snapshot` and the
-;; evidence slots, in the next section) route their derived trees through
-;; `scrub-rendered`. They `with-redefs` `rf.story/run-variant` to a controlled
-;; result that embeds the secret in the derived trees, so the assertion is
-;; independent of whatever the fixture would actually produce (the leak exists
-;; regardless of WHICH derived tree re-surfaces the secret).
+;; evidence slots) route their derived trees through `scrub-rendered`. It
+;; `with-redefs` `rf.story/run-variant` to a controlled result that embeds the
+;; secret in the derived trees, so the assertion is independent of whatever
+;; the fixture would actually produce.
 ;;
 ;; The stub deliberately carries ONLY slots a real `rf.story/run-variant` can
 ;; produce. `rendered_hiccup_retirement_test.clj` drives the REAL run through
@@ -2847,72 +2621,12 @@
    :warnings       [{:event :rf.trace/warn :data {:token "TOPSECRET"}}]
    :sub-runs       [{:sub [:auth/token] :value "TOPSECRET"}]})
 
-(deftest preview-variant-path-redacts-matching-slot-derived-trees-fail-open
-  (testing "EP-0025: preview-variant redacts a derived slot WHERE the value sits AT the classified path (:app-db, :effective-args :token), but ships values RE-KEYED to non-matching positions RAW (:snapshot)"
-    (with-clean-frame [vid :story.button/primary]
-      ;; The classified path is [:token]. A derived slot is path-walked at the
-      ;; frame's classification: a map carrying :token at the position the path
-      ;; reaches redacts; a value at a non-matching position ships raw.
-      (declare-sensitive! vid [:token])
-      (with-redefs [rf.story/run-variant
-                    (fn [_vk _opts]
-                      (java.util.concurrent.CompletableFuture/completedFuture
-                        (secret-bearing-run-result vid)))]
-        (let [r (invoke "preview-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db PATH-redaction holds — the path guarantee")
-          (is (= :rf/redacted (get-in s [:effective-args :token]))
-              "PATH works: :effective-args carries :token at the classified path, so it redacts")
-          ;; The snapshot nests the value under :db — not at the classified
-          ;; [:token] position, so the path walk is blind and it ships raw.
-          (is (tree-contains? (:snapshot s) "TOPSECRET")
-              "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
-
 ;; ---------------------------------------------------------------------------
-;; run-variant's :narrative / :warnings / :sub-runs evidence slots are
-;; PATH-projected at egress. :narrative is a two-level evidence tree whose
-;; inner beats carry FULL :db-before / :db-after app-db snapshots
-;; (evidence.cljc epoch-beat), so a declared-sensitive value — redacted in
-;; the top-level :app-db slot — sits OFF its classified path inside the
-;; narrative tree and ships RAW (EP-0025 fail-open). :warnings (trace-event
-;; records) and :sub-runs (sub :value) re-key it the same way. These pin
-;; that all three, and the :snapshot slot, ship re-keyed copies raw.
-;; ---------------------------------------------------------------------------
-
-(deftest run-variant-narrative-ships-re-keyed-secret-raw-fail-open
-  (testing "EP-0025 fail-open: run-variant's :narrative / :warnings / :sub-runs evidence trees re-key the secret off its app-db path, so it ships RAW"
-    (with-clean-frame [vid :story.button/primary]
-      (declare-sensitive! vid [:token])
-      (with-redefs [rf.story/run-variant
-                    (fn [_vk _opts]
-                      (java.util.concurrent.CompletableFuture/completedFuture
-                        (secret-bearing-run-result vid)))]
-        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db PATH-redaction holds — the path guarantee")
-          ;; The evidence beats embed the token at non-root positions
-          ;; (e.g. [0 :epochs 0 :db-before :token]); the path walk keyed at
-          ;; [:token] from the tree root never reaches them ⇒ fail-open.
-          (is (tree-contains? (:narrative s) "TOPSECRET")
-              "fail-open: :narrative beats re-key the secret, so it ships RAW")
-          (is (tree-contains? (:warnings s) "TOPSECRET")
-              "fail-open: :warnings trace-event data re-keys the secret, so it ships RAW")
-          (is (tree-contains? (:sub-runs s) "TOPSECRET")
-              "fail-open: :sub-runs subscription :value re-keys the secret, so it ships RAW")
-          (is (tree-contains? (:snapshot s) "TOPSECRET")
-              "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
-
-;; ---------------------------------------------------------------------------
-;; The `:include-sensitive` opt-in reaches every derived slot. The fail-open
-;; tests above use re-keyed copies, which ship raw with or without the
-;; opt-in, so they cannot see whether it is threaded through. Here each slot
-;; carries the secret AT a classified path — `[:token]` in the map slots,
-;; `[0 :token]` in the vector evidence slots — so it redacts unless the
-;; opt-in reaches that slot's projection.
+;; The `:include-sensitive` opt-in reaches every derived slot. A re-keyed copy
+;; ships raw with or without the opt-in, so it cannot show whether the opt-in
+;; is threaded through. Here each slot carries the secret AT a classified path
+;; — `[:token]` in the map slots, `[0 :token]` in the vector evidence slots —
+;; so it redacts unless the opt-in reaches that slot's projection.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private evidence-slots
@@ -2963,8 +2677,8 @@
 ;; declares them `[:optional true] [:sequential :any]`, so a present nil
 ;; violates it. The other way into the same canonical `error-outcome`,
 ;; `rf.story/run-variant` throwing synchronously, is pinned directly by
-;; `lifecycle-error-outcome-is-canonical` and through the handler by
-;; `run-variant-error-branch-keeps-empty-evidence-on-non-live-frame`.
+;; `lifecycle-error-outcome-is-canonical` and through both handlers by
+;; `lifecycle-error-outcome-surfaced-by-both-consumers`.
 ;; ---------------------------------------------------------------------------
 
 (deftest run-variant-synchronous-wait-is-bounded-and-honest
