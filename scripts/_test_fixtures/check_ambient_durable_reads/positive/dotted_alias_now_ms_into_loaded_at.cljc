@@ -1,6 +1,6 @@
 (ns fixtures.dotted-alias-now-ms-into-loaded-at
-  "POSITIVE fixture: the SAME anti-pattern as `now_ms_into_loaded_at.cljc`,
-  written in the canonical dotted require-alias dialect
+  "POSITIVE fixture: a resource reply handler reads `now-ms` while writing the
+  durable `:loaded-at` field, in the canonical dotted require-alias dialect
   (spec/Conventions.md §Require-alias dialect).
   A pattern that knew only the bare leaf `interop/` would read this as clean
   and wave the durable write through — fail-open, since this gate forbids a
