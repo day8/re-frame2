@@ -22,7 +22,7 @@ The migration story for React-19-removed Reagent surfaces (`reagent.dom/render`,
 
 ## Raw HTML — `reagent.core/unsafe-html`
 
-Stock Reagent 2 keeps a `:dangerouslySetInnerHTML` prop only when its value is `(reagent.core/unsafe-html s)`, and deletes any other value without a warning, the plain `{:__html s}` map included. So on this adapter write `{:dangerouslySetInnerHTML (r/unsafe-html s)}`. `re-frame.ssr` renders that same value's markup as the element's body, so a page rendered by `re-frame.ssr` in CLJS hydrates with its body intact. A JVM server has no Reagent, so a `.cljc` view gives it the plain map: `{:dangerouslySetInnerHTML #?(:clj {:__html s} :cljs (r/unsafe-html s))}`. The tag admits markup and does not sanitise it, so `s` must already be escaped, sanitised or your own. `day8/reagent-slim` ships no `unsafe-html` and takes the plain map on both sides.
+Stock Reagent 2 keeps a `:dangerouslySetInnerHTML` prop only when its value is `(reagent.core/unsafe-html s)`, and deletes any other value without a warning, the plain `{:__html s}` map included. So on this adapter write `{:dangerouslySetInnerHTML (r/unsafe-html s)}`. Once `re-frame.adapter.reagent` is loaded, `re-frame.ssr` renders that same value's markup as the element's body, so a page rendered by `re-frame.ssr` in CLJS hydrates with its body intact. A JVM server has no Reagent, so a `.cljc` view gives it the plain map: `{:dangerouslySetInnerHTML #?(:clj {:__html s} :cljs (r/unsafe-html s))}`. The tag admits markup and does not sanitise it, so `s` must already be escaped, sanitised or your own. `day8/reagent-slim` ships no `unsafe-html` and takes the plain map on both sides.
 
 ## Known limitation — a render React discards keeps its subscriptions
 
