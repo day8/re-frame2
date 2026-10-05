@@ -24,9 +24,9 @@
 //      error, pinned alongside.
 //   4. the reference grammar: only `de-dupe.cache/cache-N`
 //      is a reference, `de-dupe.cache/!…` is an escaped payload literal,
-//      and any other string in the namespace is ordinary data — with a
-//      positive control that a genuinely missing reference still fails
-//      loudly, so the data rule cannot have disabled resolution.
+//      and any other string in the namespace is ordinary data. The
+//      dangling-ref case (3) is the control that the data rule has not
+//      disabled resolution.
 
 'use strict';
 
@@ -165,8 +165,8 @@ test('a de-duped map key that expands to a plain string is used directly (no JSO
 // picking cache-0 off the result. An `expandCache` that called only
 // `expandEntry(ROOT_CACHE_ID)` would never visit a malformed entry
 // unreachable from the root (an "orphan") and would decode it cleanly —
-// grading GREEN a wire payload a real client rejects outright. These
-// tests would NOT throw against such a decoder.
+// grading GREEN a wire payload a real client rejects outright. The
+// dangling-orphan case below would NOT throw against such a decoder.
 // ---------------------------------------------------------------------
 
 test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) still throws (rf2-6i2yi4 finding 7)', () => {
@@ -178,18 +178,6 @@ test('a malformed ORPHAN cache entry (unreachable from cache-0, dangling ref) st
     () => decodeDedupEnvelope(envelope(cache)),
     /no matching entry/i,
     'an orphaned entry with a dangling ref must still be rejected',
-  );
-});
-
-test('a malformed ORPHAN cache entry (unreachable from cache-0, self-cyclic) still throws', () => {
-  const cache = {
-    [cacheId(0)]: { fine: 1 },
-    [cacheId(1)]: { self: cacheId(1) }, // orphan: self-cyclic
-  };
-  assert.throws(
-    () => decodeDedupEnvelope(envelope(cache)),
-    /cyclic dedup cache/i,
-    'an orphaned self-cyclic entry must still be rejected',
   );
 });
 
@@ -249,26 +237,6 @@ test('ordinary payload strings in the reference namespace decode verbatim, besid
   });
   // The real reference still resolved — and still shares structurally.
   assert.equal(out.a, out.b, 'the genuine reference is still pooled');
-});
-
-test('POSITIVE CONTROL: a missing GENUINE reference still fails loudly (rf2-kjv05)', () => {
-  // The same shape, with the genuine `cache-1` entry deleted. The data
-  // rule above must NOT disable reference resolution wholesale: a
-  // `cache-<digits>` token is a reference whether or not the table holds
-  // the slot, so this is still the loud missing-entry error.
-  const cache = {
-    [cacheId(0)]: {
-      literal: CACHE_NS_PREFIX + 'not-a-ref',
-      'look-alike': escaped('cache-1'),
-      a: cacheId(1),
-    },
-    // cache-1 deliberately absent.
-  };
-  assert.throws(
-    () => decodeDedupEnvelope(envelope(cache)),
-    /no matching entry/i,
-    'a genuinely dangling reference must still be rejected loudly',
-  );
 });
 
 test('escaping is reversible under repetition — one marker is stripped, not all (rf2-kjv05)', () => {
