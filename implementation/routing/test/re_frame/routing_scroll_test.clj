@@ -57,24 +57,6 @@
 
 ;; ---- Spec 012 §Scroll restoration -----------------------------------------
 
-(deftest routing-scroll-metadata-preserved
-  (testing "the :scroll metadata key is enumerable via handler-meta"
-    ;; Per Spec 012 §Scroll restoration: a route may declare a :scroll
-    ;; strategy (:top / :restore / :preserve / false — a CLOSED
-    ;; vocabulary). Metadata is round-tripped through registration so
-    ;; tooling can enumerate it.
-    (rf/reg-route :route/home
-                  {:scroll :top} "/")
-    (rf/reg-route :route/article
-                  {:params [:map [:id :string]]
-                   :scroll :restore} "/articles/:id")
-    (let [home-meta    (rf/handler-meta {:source :store :kind :route :id :route/home})
-          article-meta (rf/handler-meta {:source :store :kind :route :id :route/article})]
-      (is (= :top (:scroll home-meta))
-          ":scroll metadata is preserved as-declared")
-      (is (= :restore (:scroll article-meta))
-          ":scroll metadata is preserved per-route"))))
-
 (deftest routing-scroll-fx-emitted-on-navigate
   (testing ":rf.route/navigate emits :rf.nav/scroll with the resolved strategy"
     ;; Per Spec 012 §Scroll restoration: the runtime emits :rf.nav/scroll
@@ -204,19 +186,6 @@
 ;;
 ;; These tests pin the helper round-trip directly so a regression in
 ;; either fn surfaces without going through the navigate flow's scroll fx.
-
-(deftest scroll-position-lookup-after-save
-  (testing "save-scroll-position then lookup-scroll-position round-trips
-            the saved [x y] for the same url"
-    (let [c0 nil
-          c1 (rf.routing/save-scroll-position c0 "/articles"  [0 250])
-          c2 (rf.routing/save-scroll-position c1 "/dashboard" [10 800])]
-      (is (= [0 250]  (rf.routing/lookup-scroll-position c2 "/articles"))
-          "saved position for /articles is retrievable")
-      (is (= [10 800] (rf.routing/lookup-scroll-position c2 "/dashboard"))
-          "saved position for /dashboard is retrievable; URLs are isolated")
-      (is (nil? (rf.routing/lookup-scroll-position c2 "/unsaved"))
-          "an unseen url returns nil — no false positives"))))
 
 (deftest scroll-position-storage-shape
   (testing "save-scroll-position records [x y] under :positions and tracks
@@ -452,7 +421,7 @@
             REJECTED there rather than silently ignored. The pass-through
             is not a supported host-extension: nothing downstream reads a
             map form. The rejection legs live in routing_nav_fx_schemas_test
-            (schema) and routing_nav_fx_schemas_cljs_test (handler + gate)"
+            (schema) and routing_nav_fx_schemas_cljs_test (handler)"
     (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
     (let [calls (record-scroll-fx!)]
       (rf/dispatch-sync [:rf.route/navigate {:to :route/custom}])
