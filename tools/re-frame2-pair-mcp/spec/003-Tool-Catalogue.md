@@ -554,28 +554,33 @@ read-family ops (`orient`, `read-dom`, `read-ui`, `eval-cljs`) echo the
 resolved `:build` on their result so the operating target stays visible
 even when implicitly selected (rf2-fmho5).
 
-**Freshness / liveness token (rf2-ertqw, rf2-jkwu4, rf2-646lr).** Every
+**Freshness / liveness token.** Every
 `:ok? true` discover-app payload carries `:freshness {:liveness <verdict>
 :hint <str> …}` — the browser-half (runtime-instance-id + load time)
 merged with the JVM-half build-worker state (monotonic compile-cycle +
 last-flush + WS heartbeat age), cross-checked to one `:liveness` verdict:
-`:fresh` / `:stale-build` / `:no-runtime` / `:unknown`. The JVM-half read
-is **retried once** before a `:unknown` degrade — a nil first read is
-most often a transient socket hiccup, not a genuinely-unreadable old
-shadow (rf2-jkwu4). For every **non-`:fresh`** verdict the `:hint` is
-**actionable**: it names the EXACT `http://localhost:<port>` the human
-reloads (when discover-app was called with a `:port`, which also rides on
-the token). For `:unknown` the hint names the **dominant cause** —
-MULTIPLE / ZOMBIE shadow-cljs JVMs (rf2-646lr): a stale watch Ctrl-C'd
-without freeing its ports leaves an orphan JVM, and the nREPL socket can
-reach a runtime whose build worker lives in a *different* JVM, so the
-worker lookup misses even while reads still work. The remediation it
-names is `npx shadow-cljs stop` (which kills all shadow JVMs and frees
-the orphan ports, where Ctrl-C does not) followed by exactly **one**
-`shadow-cljs watch <build>`, a reload, and a re-run of discover-app. The
-agent cannot reload a browser or stop a JVM itself, so a non-`:fresh`
-verdict is an early, crisp human-in-the-loop instruction — relay the
-`:hint` rather than firing reads that will return blank. A `:stale-build`
+`:fresh` / `:stale-build` / `:no-runtime` / `:unknown`. The heartbeat
+comes from the shadow-cljs relay, which stamps every message a runtime
+sends, and only from the selected build's own runtimes: a relay client
+that is not one of them never counts, and the worker runtime's own
+`:last-pong` is read alongside it for a shadow-cljs that still writes
+one. Missing, non-numeric and future timestamps are dropped, so a
+connected runtime with no usable heartbeat reads `:unknown`, never
+`:fresh`. The JVM-half read is **retried once** before an
+unreadable-state `:unknown` — a nil first read is most often a transient
+socket hiccup. For every **non-`:fresh`** verdict the `:hint` is
+**actionable**: it names the EXACT `http://localhost:<port>` to reload
+(when discover-app was called with a `:port`, which also rides on the
+token). An `:unknown` token carries `:unknown-reason` —
+`:jvm-unreadable`, `:no-build-worker` or `:heartbeat-unavailable` —
+keeps whatever worker, build and runtime facts were read, and its hint
+names one bounded next step: re-run discover-app, then check the build
+id and which shadow-cljs process the nREPL port belongs to, or report a
+heartbeat Pair cannot read. It never prescribes stopping or restarting
+shadow-cljs processes, which nothing in the reply can identify. Whether
+the agent reloads a browser itself or asks the user is the skill's
+capability-and-ownership check; either way, take the `:hint` as the next
+step rather than firing reads that will return blank. A `:stale-build`
 verdict is also promoted to a top-level `:warning :stale-build`.
 
 **Id representation (rf2-cg37y).** Every build/frame id discover-app

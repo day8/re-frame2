@@ -465,29 +465,25 @@ the failure path and reports one of four specific reasons:
 The ladder costs one extra `jvm-eval` (active-builds enumeration) on
 the failure path; the probe cache means the success path stays free.
 
-### Persistent `:liveness :unknown` — the zombie-shadow case (rf2-646lr)
+### `:liveness :unknown` — what could not be read
 
 `discover-app`'s freshness token reports `:liveness :unknown` when it
-can't read the JVM-side build-worker state (so stale-build detection is
-blind), while reads themselves may still work. The dominant cause is
-multiple / zombie shadow-cljs JVMs: `Ctrl-C` of a `shadow-cljs
-watch` does not always free shadow's ports, so an orphan JVM lingers
-holding 9630–963x. The MCP server's nREPL socket then reaches a runtime
-whose build worker lives in a different JVM, and the worker lookup
-misses — for the whole session — even though evals and reads succeed.
+cannot verify the runtime is fresh, while reads themselves may still
+work. Treat reads as unverified, and read `:unknown-reason`:
 
-When `:liveness` stays `:unknown`, the token's `:hint` now names this
-case and the remediation directly:
+| `:unknown-reason` | What was missing | Next step the `:hint` names |
+|---|---|---|
+| `:jvm-unreadable` | The build state could not be read over the nREPL connection after one retry. | Re-run `discover-app`; if it persists, check which shadow-cljs process the nREPL port belongs to. |
+| `:no-build-worker` | The shadow-cljs process the nREPL port reaches runs no worker for the build. | Confirm the build id, and that its `shadow-cljs watch` runs in that process. |
+| `:heartbeat-unavailable` | Runtimes are connected and the build state was read, but none has a usable heartbeat timestamp. | Re-run `discover-app` once; if it persists, report it as a Pair compatibility gap. |
 
-```bash
-npx shadow-cljs stop      # kills ALL shadow JVMs and frees the orphan ports
-npx shadow-cljs watch app # start exactly ONE watch
-# then reload the app tab and re-run discover-app to confirm :liveness :fresh
-```
+The heartbeat is the relay's record of the last message each of the
+build's own runtimes sent, so `:heartbeat-unavailable` on a healthy tab
+means the running shadow-cljs keeps it somewhere Pair does not read.
 
-`npx shadow-cljs stop` is the operative move: it frees the ports that a
-bare `Ctrl-C` leaves held. Starting a single watch afterwards ensures
-the nREPL socket and the build worker live in the same JVM.
+None of these is evidence about any other shadow-cljs process, so do not
+answer an `:unknown` with `npx shadow-cljs stop`: it stops every
+shadow-cljs server on the machine, other projects' watches included.
 
 ## Spec
 

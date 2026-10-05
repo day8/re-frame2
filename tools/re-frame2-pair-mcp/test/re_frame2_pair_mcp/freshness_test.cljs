@@ -55,7 +55,18 @@
            [:fresh
             {:jvm-read? true :runtime-count 1 :heartbeat-age-ms 100
              :runtime-loaded-at 1000 :build-flushed-at nil}
-            "Missing :build-flushed-at can't prove staleness ⇒ :fresh"]]]
+            "Missing :build-flushed-at can't prove staleness ⇒ :fresh"]
+           [:unknown
+            {:jvm-read? true :runtime-count 1
+             :runtime-loaded-at 5000 :build-flushed-at 1000}
+            "A connected runtime with no heartbeat sample is unverified — missing data is never :fresh"]
+           [:stale-build
+            {:jvm-read? true :runtime-count 1
+             :runtime-loaded-at 1000 :build-flushed-at 5000}
+            "A missing heartbeat cannot hide a stale build: the flush/load comparison needs no heartbeat"]
+           [:unknown
+            {:jvm-read? true :worker? false :runtime-count 0}
+            "No build worker in the reached JVM ⇒ :unknown — the build's runtimes cannot be counted there"]]]
     (is (= expected (fresh/liveness-verdict input)) why)))
 
 ;; ---------------------------------------------------------------------------
@@ -142,38 +153,45 @@
 ;; Actionable liveness on a quiet runtime.
 ;;
 ;; A `:liveness :unknown` / `:no-runtime` verdict is the agent's ONLY
-;; early warning before a later read returns blank — and the agent can't
-;; reload a browser itself. So a non-fresh hint must name the EXACT next
-;; HUMAN step: reload `http://localhost:<port>` when the port is known,
-;; else restart `shadow-cljs watch <build>`. The `:port` rides into
-;; `assemble` (4-arity) / `token-from-health` (4-arity) via the opts map.
+;; early warning before a later read returns blank. So a non-fresh hint
+;; names the EXACT next step: reload `http://localhost:<port>` when the
+;; port is known, or the bounded check for what could not be read. The
+;; `:port` rides into `assemble` (4-arity) / `token-from-health` (4-arity)
+;; via the opts map.
 ;; ---------------------------------------------------------------------------
 
-(deftest unknown-hint-is-actionable-with-the-port
-  ;; MULTIPLE / ZOMBIE shadow-cljs JVMs holding the ports keep discover-app
-  ;; at :liveness :unknown — reads work (the socket reaches a runtime) but
-  ;; the build worker lives in a different JVM, so the worker lookup misses.
-  ;; The :unknown hint must NAME that case and recommend the `npx shadow-cljs
-  ;; stop` → single-watch remediation that frees the orphan ports.
+(defn- recommends-process-termination?
+  "True when `hint` tells the operator to stop, kill or restart shadow-cljs
+  processes wholesale. `npx shadow-cljs stop` stops EVERY shadow-cljs
+  server on the machine — unrelated projects' watches included — and an
+  unreadable build state is no evidence that any of them is a zombie."
+  [hint]
+  (boolean (or (re-find #"shadow-cljs stop" hint)
+               (re-find #"(?i)\bkill\b" hint)
+               (re-find #"(?i)zombie" hint)
+               (re-find #"(?i)\ball shadow" hint))))
+
+(deftest unknown-hint-is-bounded-and-never-stops-shadow
+  ;; A JVM half that cannot be read after the retry. The hint names what
+  ;; could not be read and one bounded next step, and never infers zombie
+  ;; JVMs or prescribes stopping shadow-cljs processes: nothing in an
+  ;; unreadable reply says another process is involved.
   (async done
     (-> (with-jvm-half! nil ; nil JVM half ⇒ :unknown
           (fn [] (fresh/assemble nil :examples/machine-epochs browser-half {:port 8033})))
         (.then
           (fn [token]
             (is (= :unknown (:liveness token)))
+            (is (= :jvm-unreadable (:unknown-reason token))
+                "the token names WHICH half could not be read")
             (is (= 8033 (:port token)) "port rides on the token for the agent to relay")
             (is (re-find #"LIVENESS UNKNOWN" (:hint token)))
             (is (re-find #"ACTION" (:hint token)) "the hint is explicitly actionable")
-            (is (re-find #"http://localhost:8033" (:hint token))
-                "names the EXACT URL the human reloads")
-            (is (re-find #"shadow-cljs watch" (:hint token))
-                "names the watch restart as the escalation")
-            (is (re-find #"(?i)zombie" (:hint token))
-                "names the multiple/zombie-shadow case as the dominant cause")
-            (is (re-find #"npx shadow-cljs stop" (:hint token))
-                "recommends the remediation that frees the orphan ports")
-            (is (re-find #"(?i)one" (:hint token))
-                "tells the operator to start exactly ONE watch")
+            (is (re-find #"discover-app" (:hint token)) "the next step is a bounded re-check")
+            (is (re-find #":examples/machine-epochs" (:hint token)) "names the build")
+            (is (not (recommends-process-termination? (:hint token)))
+                (str "an unreadable build state never prescribes stopping shadow-cljs: "
+                     (:hint token)))
             (done))))))
 
 (deftest no-runtime-hint-is-actionable-with-the-port
@@ -201,11 +219,12 @@
   ;; the port through to the hint.
   (async done
     (let [health {:ok? true :runtime-instance-id "uuid-q" :runtime-loaded-at 1 :read-at 2}]
-      (-> (with-jvm-half! nil
+      (-> (with-jvm-half! {:compile-cycle 3 :build-flushed-at 0
+                           :runtime-count 0}
             (fn [] (fresh/token-from-health nil :examples/machine-epochs health {:port 8033})))
           (.then
             (fn [token]
-              (is (= :unknown (:liveness token)))
+              (is (= :no-runtime (:liveness token)))
               (is (= 8033 (:port token)))
               (is (re-find #"http://localhost:8033" (:hint token)))
               (done)))))))
@@ -317,7 +336,8 @@
   (async done
     (let [seen (atom nil)
           orig nrepl/jvm-eval
-          payload {:compile-cycle 3 :build-flushed-at 100 :runtime-count 1 :heartbeat-age-ms 20}
+          payload {:worker? true :compile-cycle 3 :build-flushed-at 100
+                   :runtimes {7 {:last-pong nil}} :relay-clients {7 {:last-pong 980}} :now 1000}
           stub (fn
                  ([_c form] (reset! seen form)
                             (js/Promise.resolve {:value (pr-str payload)}))
@@ -339,6 +359,13 @@
                 (is (re-find #":flush-complete" form))
                 (is (re-find #":runtimes" form))
                 (is (re-find #":last-pong" form))
+                (is (re-find #":relay" form)
+                    "the heartbeat source is the relay, which stamps every message a runtime sends")
+                (is (re-find #":clients" form))
+                (is (not (re-find #"\(apply max" form))
+                    (str "the JVM form reduces nothing: an empty heartbeat sample there "
+                         "throws an ArityException the catch turns into nil, erasing the "
+                         "worker, build and runtime facts with it"))
                 (is (re-find #"System/currentTimeMillis" form))
                 (is (re-find #"catch Throwable" form)
                     "the form is defended so a missing worker collapses to nil, not a throw")
@@ -377,13 +404,15 @@
           (.then (fn [_] (done)))))))
 
 (deftest jvm-build-freshness-parses-a-success-payload-into-the-documented-shape
-  ;; A realistic JVM success payload must parse back into the four
-  ;; documented keys — proving `jvm-build-freshness-once`'s
-  ;; `(some-> (:value resp) cljs.reader/read-string)` + `map?` guard read
-  ;; the emitted form's return shape, not a degraded nil.
+  ;; A realistic JVM success payload — the raw facts the form projects —
+  ;; must parse back into the documented half, proving
+  ;; `jvm-build-freshness-once`'s `(some-> (:value resp) cljs.reader/read-string)`
+  ;; + `map?` guard read the emitted form's return shape, not a degraded nil.
   (async done
-    (let [payload {:compile-cycle 12 :build-flushed-at 1699999999999
-                   :runtime-count 2 :heartbeat-age-ms 42}
+    (let [payload {:worker? true :compile-cycle 12 :build-flushed-at 1699999999999
+                   :runtimes {4 {:last-pong nil} 5 {:last-pong nil}}
+                   :relay-clients {4 {:last-pong 1700000000958} 5 {:last-pong 1700000000900}}
+                   :now 1700000001000}
           orig nrepl/jvm-eval
           stub (fn
                  ([_c _form] (js/Promise.resolve {:value (pr-str payload)}))
@@ -392,7 +421,10 @@
       (-> (fresh/jvm-build-freshness (socket-conn) :app)
           (.then
             (fn [half]
-              (is (= payload half) "the four documented keys round-trip verbatim")
+              (is (= {:worker? true :compile-cycle 12 :build-flushed-at 1699999999999
+                      :runtime-count 2 :heartbeat-age-ms 42}
+                     half)
+                  "the facts become the documented half: the freshest of the build's own heartbeats")
               nil))
           (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
           (.then (fn [_] (done)))))))
@@ -423,8 +455,9 @@
   ;; not as a green wholesale stub.
   (async done
     (let [;; flush (500) < load (1000) ⇒ :fresh; runtime connected, hb recent.
-          payload {:compile-cycle 9 :build-flushed-at 500
-                   :runtime-count 1 :heartbeat-age-ms 100}
+          payload {:worker? true :compile-cycle 9 :build-flushed-at 500
+                   :runtimes {7 {:last-pong nil}} :relay-clients {7 {:last-pong 1900}}
+                   :now 2000}
           orig nrepl/jvm-eval
           stub (fn
                  ([_c _form] (js/Promise.resolve {:value (pr-str payload)}))
@@ -445,3 +478,151 @@
               nil))
           (.finally (fn [] (tu/restore-jvm-eval! stub orig)))
           (.then (fn [_] (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; The heartbeat belongs to the SELECTED build's own runtimes.
+;;
+;; The fixtures are shaped like shadow-cljs 3.4.10's own state. The build
+;; worker's `:runtimes` map is keyed by relay client id and holds each
+;; runtime's client-info; its `:last-pong` is written only by a
+;; `:cljs-repl-pong` reply, which that shadow-cljs never solicits, so it
+;; stays absent on a healthy tab. The relay's `:clients` map is keyed by
+;; the SAME client ids, holds every client the relay serves — other
+;; builds' tabs, tools, the CLJ runtime — and stamps `:last-pong` on every
+;; message a client sends, including its pongs to the relay's idle pings.
+;; `jvm-reply` projects the two exactly as `build-state-jvm-form` does on
+;; the JVM, so each row drives the real decode, match and verdict with
+;; only `nrepl/jvm-eval` stubbed.
+;; ---------------------------------------------------------------------------
+
+(def ^:private now-ms 1791177296969)
+
+(def ^:private flushed-at 1791176095823)
+
+(defn- browser-runtime
+  "A build worker `:runtimes` entry for a connected browser tab, as
+  shadow's `add-runtime` stores it: the client-info plus `:client-id`."
+  [client-id]
+  {:client-id  client-id
+   :host       :browser
+   :lang       :cljs
+   :build-id   :app
+   :proc-id    "8e55e886-374f-4cf6-9c12-09ea4611a749"
+   :user-agent "Chrome"})
+
+(defn- relay-client
+  "A relay `:clients` entry, as shadow's local relay stores it."
+  [client-id last-pong]
+  {:client-id   client-id
+   :client-info {:type :runtime :lang :cljs}
+   :last-ping   (- last-pong 3)
+   :last-pong   last-pong})
+
+(defn- worker-state
+  "A build worker's state-ref value carrying `runtimes`."
+  [runtimes]
+  {:build-state {:shadow.build/build-info {:compile-cycle 1 :flush-complete flushed-at}}
+   :runtimes    runtimes})
+
+(defn- jvm-reply
+  "What `build-state-jvm-form` evaluates to for a worker whose state-ref
+  holds `worker` (nil when the JVM has no worker for the build) and a
+  relay serving `clients`, read at `now-ms`."
+  [worker clients]
+  (let [pongs (fn [m] (into {} (map (fn [[id x]] [id {:last-pong (:last-pong x)}])) m))
+        info  (get-in worker [:build-state :shadow.build/build-info])]
+    {:worker?          (some? worker)
+     :compile-cycle    (:compile-cycle info)
+     :build-flushed-at (:flush-complete info)
+     :runtimes         (pongs (:runtimes worker))
+     :relay-clients    (pongs clients)
+     :now              now-ms}))
+
+(def ^:private live-browser
+  "A tab that loaded AFTER the last flush, so only the heartbeat decides."
+  {:runtime-instance-id "uuid-live"
+   :runtime-loaded-at   (+ flushed-at 600000)
+   :read-at             (- now-ms 5)})
+
+(defn- token-for
+  "The token `assemble` builds when the JVM answers `reply`."
+  [reply]
+  (let [orig nrepl/jvm-eval
+        resp {:value (pr-str reply)}
+        stub (fn
+               ([_c _form] (js/Promise.resolve resp))
+               ([_c _form _o] (js/Promise.resolve resp)))]
+    (set! nrepl/jvm-eval stub)
+    (-> (fresh/assemble (socket-conn) :app live-browser {:port 8280})
+        (.finally (fn [] (tu/restore-jvm-eval! stub orig))))))
+
+(def ^:private unrelated-client
+  "A relay client that is NOT one of this build's runtimes — another
+  build's tab or a tool — that answered moments ago."
+  (relay-client 9 (- now-ms 10)))
+
+(def ^:private heartbeat-rows
+  [["no build worker in the reached JVM"
+    (jvm-reply nil {9 unrelated-client})
+    {:liveness :unknown :unknown-reason :no-build-worker :runtime-count 0}]
+
+   ["a worker with zero runtimes"
+    (jvm-reply (worker-state {}) {9 unrelated-client})
+    {:liveness :no-runtime :runtime-count 0 :compile-cycle 1 :build-flushed-at flushed-at}]
+
+   ["one connected runtime with no heartbeat anywhere"
+    (jvm-reply (worker-state {7 (browser-runtime 7)}) {9 unrelated-client})
+    {:liveness :unknown :unknown-reason :heartbeat-unavailable
+     :runtime-count 1 :compile-cycle 1 :build-flushed-at flushed-at}]
+
+   ["one connected runtime without a worker :last-pong, matched to a recent relay heartbeat"
+    (jvm-reply (worker-state {7 (browser-runtime 7)})
+               {7 (relay-client 7 (- now-ms 2533)) 9 unrelated-client})
+    {:liveness :fresh :heartbeat-age-ms 2533 :runtime-count 1 :compile-cycle 1}]
+
+   ["a matched relay heartbeat older than the stale threshold"
+    (jvm-reply (worker-state {7 (browser-runtime 7)})
+               {7 (relay-client 7 (- now-ms 45000)) 9 unrelated-client})
+    {:liveness :no-runtime :heartbeat-age-ms 45000 :runtime-count 1}]
+
+   ["a fresh heartbeat on unrelated relay clients only"
+    (jvm-reply (worker-state {7 (browser-runtime 7)})
+               {9 unrelated-client 1 (relay-client 1 (- now-ms 2))})
+    {:liveness :unknown :unknown-reason :heartbeat-unavailable :runtime-count 1}]
+
+   ["future and non-numeric timestamps on the build's own runtime"
+    (jvm-reply (worker-state {7 (assoc (browser-runtime 7) :last-pong "soon")})
+               {7 (relay-client 7 (+ now-ms 60000))})
+    {:liveness :unknown :unknown-reason :heartbeat-unavailable :runtime-count 1}]
+
+   ["a worker :last-pong from a shadow-cljs that still writes one"
+    (jvm-reply (worker-state {7 (assoc (browser-runtime 7) :last-pong (- now-ms 800))}) {})
+    {:liveness :fresh :heartbeat-age-ms 800 :runtime-count 1}]])
+
+(deftest heartbeat-comes-only-from-the-selected-builds-runtimes
+  ;; A fresh heartbeat on a relay client that is not one of the build's
+  ;; runtimes says nothing about the build's tab, and a connected runtime
+  ;; with no usable heartbeat is unverified rather than fresh. Each row
+  ;; keeps the worker / build / runtime facts it has, and no non-fresh
+  ;; hint prescribes stopping shadow-cljs.
+  (async done
+    (-> (reduce
+          (fn [p [why reply expected]]
+            (.then p
+                   (fn [_]
+                     (.then (token-for reply)
+                            (fn [token]
+                              (doseq [[k v] expected]
+                                (is (= v (get token k)) (str why " — " k)))
+                              (when-not (contains? expected :heartbeat-age-ms)
+                                (is (not (contains? token :heartbeat-age-ms))
+                                    (str why " — no usable sample, so no age is reported")))
+                              (if (= :fresh (:liveness token))
+                                (is (nil? (:hint token))
+                                    (str why " — a fresh verdict carries no hint"))
+                                (is (not (recommends-process-termination? (str (:hint token))))
+                                    (str why " — " (:hint token)))))))))
+          (js/Promise.resolve nil)
+          heartbeat-rows)
+        (.catch (fn [e] (is false (str "assembling a token rejected: " e))))
+        (.then (fn [_] (done))))))
