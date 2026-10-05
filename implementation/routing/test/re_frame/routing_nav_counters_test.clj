@@ -33,27 +33,6 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- counters are NOT runtime-db state -----------------------------------
-
-(deftest counters-not-in-runtime-db-after-navigation
-  (testing "a navigation mints a nav-token but leaves NO
-            nav-token-counter / pending-nav-counter in the runtime-db
-            routing partition — the counters live host-side"
-    (rf/reg-route :route/a {} "/a")
-    (rf/reg-route :route/b {} "/b")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/a" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:rf.route/handle-url-change "/b" {:rf.route/cause :link}])
-    (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                             [:rf.runtime/routing])]
-      (is (= "nav-2" (get-in routing-rt [:current :nav-token]))
-          "the active token still rides the durable route slice")
-      (is (not (contains? routing-rt :nav-token-counter))
-          "the nav-token-counter is NOT a runtime-db key (it is host-side)")
-      (is (not (contains? routing-rt :pending-nav-counter))
-          "the pending-nav-counter is NOT a runtime-db key (it is host-side)"))
-    (is (= 2 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
-        "the nav-token high-water mark lives in the host-side cache")))
-
 ;; ---- restore-then-navigate: no token recycle across an epoch restore -----
 
 (deftest restore-then-navigate-allocates-fresh-token-from-host-cache
@@ -73,10 +52,19 @@
         "third navigation is the live nav-3")
     (is (= 3 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
         "host high-water mark reached 3")
+    (let [routing-rt (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                             [:rf.runtime/routing])]
+      (is (not (contains? routing-rt :nav-token-counter))
+          "the nav-token-counter is NOT a runtime-db key (it is host-side)")
+      (is (not (contains? routing-rt :pending-nav-counter))
+          "the pending-nav-counter is NOT a runtime-db key (it is host-side)"))
 
     ;; Capture the runtime-db AS IT WAS at nav-1 — the snapshot an epoch
     ;; restore replays. A slow in-flight continuation issued back at nav-1
     ;; (network already on the wire, uncancellable) still carries "nav-1".
+    ;; The snapshot also carries a STALE `:nav-token-counter 1`, shaped as
+    ;; though the counter lived in runtime-db: an allocator that read it
+    ;; would mint nav-2 below, recycling a pre-restore token.
     (let [restored-runtime-db
           {:rf.runtime/routing {:current {:route-id        :route/article
                                           :params    {:id "A"}
@@ -84,7 +72,8 @@
                                           :fragment  nil
                                           :transition :idle
                                           :error     nil
-                                          :nav-token "nav-1"}}}]
+                                          :nav-token "nav-1"}
+                                :nav-token-counter 1}}]
 
       ;; Epoch restore: replace the runtime-db partition WHOLESALE (the
       ;; mechanism `restore-epoch!` / time-travel uses — rf.frame/replace-
@@ -106,44 +95,6 @@
                           [:rf.runtime/routing :current :nav-token])]
         (is (= "nav-4" fresh)
             "post-restore navigation mints nav-4 — monotone past the high-water mark, so no pre-restore value is recycled")))))
-
-(deftest restore-rewinds-runtime-db-counter-would-recycle-without-the-move
-  (testing "control: a counter held IN the restored runtime-db would be
-            rewound by the restore, and the next allocation would recycle a
-            token. The host-side counter is consulted instead, so even a
-            restored runtime-db carrying a STALE counter cannot drive a
-            recycle"
-    (rf/reg-route :route/x {:params [:map [:id :string]]} "/x/:id")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/x/1" {:rf.route/cause :link}])  ;; nav-1
-    (rf/dispatch-sync [:rf.route/handle-url-change "/x/2" {:rf.route/cause :link}])  ;; nav-2
-
-    ;; A maliciously-stale restore even plants an old counter value in the
-    ;; runtime-db (a snapshot shaped as though the counter lived there). The
-    ;; handler ignores it — it reads
-    ;; the HOST counter — so no recycle.
-    (rf.frame/replace-runtime-db!
-      :rf/default
-      {:rf.runtime/routing {:current           {:route-id :route/x :params {:id "1"}
-                                                :query {} :fragment nil
-                                                :transition :idle :error nil
-                                                :nav-token "nav-1"}
-                            ;; stale counter planted in the restored slice
-                            :nav-token-counter 1}})
-
-    (rf/dispatch-sync [:rf.route/handle-url-change "/x/3" {:rf.route/cause :link}])
-    ;; The planted runtime-db `:nav-token-counter 1` would have driven the
-    ;; next alloc to "nav-2" if the allocator read runtime-db. It does NOT —
-    ;; it reads the HOST high-water mark (2), so the next token is "nav-3".
-    ;; Structurally, the runtime-db counter is irrelevant.
-    (is (= "nav-3" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/routing :current :nav-token]))
-        "the host high-water mark (2) drives the next alloc to nav-3, ignoring the planted stale runtime-db counter")
-    ;; The commit handler never WRITES the counter to runtime-db — the only
-    ;; runtime-db routing key it touches is :current (the slice). A stale
-    ;; planted key is left as-is (the handler is not responsible for
-    ;; scrubbing a malformed restore), but it carries no authority.
-    (is (= 3 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
-        "the host high-water mark advanced 2 → 3 (the planted runtime-db value never fed it)")))
 
 ;; ---- :pending-navigation stays subscribable; its counter is host-side ----
 
