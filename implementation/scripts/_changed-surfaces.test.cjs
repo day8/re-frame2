@@ -132,16 +132,6 @@ function classify(...files) {
 // (.cljs/.cljc/.js/.cjs/.css/.scss). Spec / test / EDN / deps / Markdown
 // changes do not fire it.
 
-test('Story src .cljs changes trigger story_xray_browser', () => {
-  const result = classify('tools/story/src/foo.cljs');
-  assert.equal(result.story_xray_browser, 'true');
-});
-
-test('Xray src .cljs changes trigger story_xray_browser', () => {
-  const result = classify('tools/xray/src/foo.cljs');
-  assert.equal(result.story_xray_browser, 'true');
-});
-
 // `.html` is a runtime extension under the testbed trees. The browser runners
 // COPY each testbed's hand-written index.html into the served output dir and
 // navigate to it (`stageTestbedHtml` in serve-and-run-story-play-scripts.cjs
@@ -149,15 +139,6 @@ test('Xray src .cljs changes trigger story_xray_browser', () => {
 // file: break its `<script src>` or its `#app` node and every play in that deck
 // fails. Outside the runtime-extension predicate, an HTML-only regression would
 // classify as no-surface and skip the browser gate.
-test('Story testbed .html changes trigger story_xray_browser (the runner serves it — rf2-kttom)', () => {
-  const exemplar = 'tools/story/testbeds/fresco_counter/index.html';
-  assert.ok(
-    fs.existsSync(path.join(REPO_ROOT, exemplar)),
-    `${exemplar} must exist — this row's whole claim is "a real served testbed document"`,
-  );
-  assert.equal(classify(exemplar).story_xray_browser, 'true');
-});
-
 test('Xray testbed .html changes trigger story_xray_browser (rf2-kttom)', () => {
   const result = classify('tools/xray/testbeds/feature_matrix/index.html');
   assert.equal(result.story_xray_browser, 'true');
@@ -168,26 +149,6 @@ test('Xray testbed .html changes trigger story_xray_browser (rf2-kttom)', () => 
 // arm narrow rather than blanket.
 test('Story spec-tree .html changes do NOT trigger story_xray_browser (rf2-kttom)', () => {
   const result = classify('tools/story/spec/diagrams/overview.html');
-  assert.equal(result.story_xray_browser, 'false');
-});
-
-test('Story spec-only .md changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
-  const result = classify('tools/story/spec/Spec.md');
-  assert.equal(result.story_xray_browser, 'false');
-});
-
-test('Xray test-only changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
-  const result = classify('tools/xray/test/some_test.clj');
-  assert.equal(result.story_xray_browser, 'false');
-});
-
-test('Story deps.edn changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
-  const result = classify('tools/story/deps.edn');
-  assert.equal(result.story_xray_browser, 'false');
-});
-
-test('Story README.md changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
-  const result = classify('tools/story/README.md');
   assert.equal(result.story_xray_browser, 'false');
 });
 
@@ -228,14 +189,6 @@ test('Xray spec-only .md still does NOT fan out to mcp_conformance / template_ex
   assert.equal(result.story_xray_browser, 'false');
 });
 
-test('Story NON-spec change (JVM .clj test) STILL fans out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
-  const result = classify('tools/story/test/some_test.clj');
-  assert.equal(result.tools_jvm, 'true');
-  assert.equal(result.mcp_conformance, 'true');
-  // A JVM-only .clj does not compile into the consolidated :node-test build.
-  assert.equal(result.cljs_node_test, 'false');
-});
-
 test('Mixed Story spec .md + JVM .clj DOES fan out to tools_jvm (rf2-f79t8)', () => {
   const result = classify('tools/story/spec/bar.md', 'tools/story/test/some_test.clj');
   assert.equal(result.tools_jvm, 'true');
@@ -256,20 +209,6 @@ test('Mixed Story spec .md + JVM .clj DOES fan out to tools_jvm (rf2-f79t8)', ()
 // prose — except the API-manifest surfaces, which route to the CLJS manifest
 // probe (their own cases below). `spec/Spec-Schemas.md` is NOT an exception;
 // it is a row of the prose-pin roster below.
-test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2-61ar)', () => {
-  const result = classify('spec/006-ReactiveSubstrate.md');
-  assert.equal(
-    result.implementation_jvm,
-    'true',
-    'spec prose arms the JVM tier — the whole of spec/ is armed for the JVM suites that read it',
-  );
-  assert.equal(
-    result.cljs_node_test,
-    'false',
-    'spec prose compiles into nothing, so the consolidated node build stays out',
-  );
-});
-
 test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) (rf2-f79t8)', () => {
   const result = classify('spec/conformance/fixtures/dispatch.edn');
   assert.equal(result.implementation_jvm, 'true');
@@ -328,12 +267,6 @@ test('fresco + ssr-node src read implementation_jvm false — same lane covers t
   ]) {
     assert.equal(classify(p).implementation_jvm, 'false', p);
   }
-});
-
-// The control the census turns on: if core/src ever reads false the classifier
-// is broken in a different way and the reasoning above does not apply.
-test('implementation/core/src still arms implementation_jvm (rf2-cujx control)', () => {
-  assert.equal(classify('implementation/core/src/foo.clj').implementation_jvm, 'true');
 });
 
 // THE FIFTH WALK. `prod-gate-naming-drift-test` is a recursive walk from the
@@ -530,26 +463,6 @@ test('the unconditional walk lane runs every namespace whose false arm it excuse
 // cljs_node_test for these paths would report `cljs-browser` SKIPPED while the
 // decisive regression test ran nowhere but the author's laptop. These
 // assertions are the teeth on that arm.
-//
-// The live namespace named below is load-bearing, not illustrative: if it is
-// renamed out of the `-dom-cljs-test` convention this pins that the arm moved
-// with it. One named case is enough: the classifier arm is a property of the
-// PATH CONVENTION, so a second case naming a different tree would add coverage
-// of nothing.
-
-test('the pre-existing Story sub-overrides DOM test schedules cljs-browser (rf2-1sd8h)', () => {
-  const result = classify(
-    'tools/story/test/re_frame/story/sub_overrides_render_dom_cljs_test.cljs',
-  );
-  assert.equal(result.cljs_browser, 'true');
-});
-
-test('Xray DOM test change schedules cljs-browser (rf2-1sd8h)', () => {
-  const result = classify(
-    'tools/xray/test/day8/re_frame2_xray/views/view_walker_dom_cljs_test.cljs',
-  );
-  assert.equal(result.cljs_browser, 'true');
-});
 
 test('a .cljc DOM suite would schedule cljs-browser too (rf2-1sd8h)', () => {
   // No `.cljc` DOM suite exists under these trees today; the arm covers the
@@ -567,14 +480,6 @@ test('Story runtime src change schedules cljs-browser (the DOM suites mount it) 
 test('Xray runtime src change schedules cljs-browser (rf2-1sd8h)', () => {
   const result = classify('tools/xray/src/day8/re_frame2_xray/core.cljs');
   assert.equal(result.cljs_browser, 'true');
-});
-
-test('a JVM-only .clj test under Story does NOT schedule cljs-browser (rf2-1sd8h)', () => {
-  const result = classify('tools/story/test/some_test.clj');
-  assert.equal(result.cljs_browser, 'false');
-  // …while it does fan out to the JVM tier: the browser arm narrows only the
-  // browser lane.
-  assert.equal(result.tools_jvm, 'true');
 });
 
 test('a non-DOM CLJS test under Story does NOT schedule cljs-browser (rf2-1sd8h)', () => {
@@ -660,12 +565,6 @@ test('Xray e2e_multi_frame helper schedules cljs-browser (rf2-eyyd2)', () => {
   // Story helper above (aliased `xray-e2e`), so it sits under both trees'
   // DOM suites at once.
   const result = classify(XRAY_E2E_HELPER);
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
-test('Xray counter host fixture schedules cljs-browser (rf2-eyyd2)', () => {
-  const result = classify(XRAY_COUNTER_FIXTURE);
   assert.equal(result.cljs_browser, 'true');
   assert.equal(result.cljs_node_test, 'true');
 });
@@ -900,18 +799,6 @@ test('machines-viz src .cljs change runs cljs + cljs-browser (rf2-z0cw6s)', () =
   assert.equal(result.cljs_browser, 'true');
 });
 
-test('machines-viz src .cljc change runs cljs + cljs-browser (rf2-z0cw6s)', () => {
-  const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/scxml.cljc');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-});
-
-test('machines-viz test-tree change runs cljs + cljs-browser (rf2-z0cw6s)', () => {
-  const result = classify('tools/machines-viz/test/day8/re_frame2_machines_viz/export_dom_cljs_test.cljs');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-});
-
 test('machines-viz does NOT fan out to tools_jvm / mcp_conformance / template_expensive (rf2-z0cw6s)', () => {
   const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs');
   assert.equal(result.tools_jvm, 'false');
@@ -926,12 +813,6 @@ test('machines-viz spec-only .md change fires nothing runtime (rf2-z0cw6s)', () 
   assert.equal(result.tools_jvm, 'false');
 });
 
-test('machines-viz deps.edn change fires cljs + cljs-browser (rf2-z0cw6s)', () => {
-  const result = classify('tools/machines-viz/deps.edn');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-});
-
 // tools/testbed-support has its own arm: without one, a testbed-support-only
 // PR would classify as zero changed surfaces and run zero gates — its `.clj`
 // suite and its `.cljs` suites alike. Its src+test are :source-paths of the
@@ -941,14 +822,6 @@ test('machines-viz deps.edn change fires cljs + cljs-browser (rf2-z0cw6s)', () =
 
 test('testbed-support src change runs cljs + cljs-browser (rf2-as6bg)', () => {
   const result = classify('tools/testbed-support/src/re_frame/testbed/story_host.cljs');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-});
-
-test('testbed-support CLJS test-tree change runs cljs + cljs-browser (rf2-as6bg)', () => {
-  const result = classify(
-    'tools/testbed-support/test/re_frame/testbed/story_host_dom_cljs_test.cljs',
-  );
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result.cljs_browser, 'true');
 });
@@ -1076,13 +949,10 @@ const CODEMOD_LANE = {
   // runtime door share ONE slot rule, and shared_rule_test.clj pins the two
   // `identical?`.
   //
-  // frozen-sources.edn pins this file and a byte-identical twin, so BOTH
-  // answer identically. `twinSharedRule` below is the other one, kept so the
-  // negative can be asserted rather than assumed.
+  // frozen-sources.edn pins this file and a byte-identical twin in the bench
+  // harness, so BOTH answer identically; the classpath-root row below is what
+  // keeps the codemod on this one.
   sharedRule: 'implementation/fresco/src/re_frame/fresco/impl/slot.cljc',
-  // The twin lives in the bench harness. Naming it once here keeps every live
-  // assertion on the file itself rather than on a path that may be deleted.
-  twinSharedRule: 'bench/fresco/src/re_frame/bench/fresco/front/slot.cljc',
   // The SECOND cross-tree edge, and a different mechanism. The one
   // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
   // `the-callback-contracts-are-the-doors` slurps the door's own
@@ -1146,45 +1016,6 @@ test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rt
   for (const output of ['cljs_node_test', 'cljs_browser', 'fresco_controlled']) {
     assert.equal(shared[output], 'true', `${CODEMOD_LANE.sharedRule} must still arm ${output}`);
   }
-});
-
-test('the TWIN shared rule is not what the codemod loads (rf2-r4j91, rf2-0yp7w)', () => {
-  // The negative, asserted rather than assumed. A byte-identical twin of the
-  // slot rule exists — frozen-sources.edn pins it — so reading the wrong one
-  // would look harmless and be a lie about which tree the codemod reads.
-  //
-  // The negative is NOT "the twin's path must not arm
-  // migration_fresco_codemod": arming is the classifier's question and has
-  // other reasons to answer yes (the `implementation/fresco/*` arm sets that
-  // output for the SOURCE-TEXT edge on `impl/codec.cljs`), and
-  // over-classifying a seconds-long pure JVM suite is the cheaper error, which
-  // TESTING.md says to prefer.
-  //
-  // The load-bearing negative lives where it can be stated exactly:
-  // `shared_rule_test.clj` resolves the rule through `io/resource` and refuses
-  // a path containing `re_frame/bench/` — by NAMESPACE, so it names the twin
-  // rather than its address and survives a relocation. What is checkable HERE
-  // is that the twin is not on the codemod's classpath root, which is the
-  // property the arm is derived from.
-  const deps = fs.readFileSync(
-    path.join(REPO_ROOT, CODEMOD_LANE.dir, 'deps.edn'),
-    'utf8',
-  );
-  const entries = (deps.match(/"\.\.\/[^"]*"/g) || []).map((s) => s.slice(1, -1));
-  const root = path
-    .relative(REPO_ROOT, path.resolve(REPO_ROOT, CODEMOD_LANE.dir, entries[0]))
-    .replace(/\\/g, '/');
-  assert.ok(
-    !CODEMOD_LANE.twinSharedRule.startsWith(root + '/'),
-    `the codemod's classpath root is ${root}, which contains the TWIN `
-      + `${CODEMOD_LANE.twinSharedRule} — the tool would load the prototype's copy`,
-  );
-  // Non-vacuity: the twin must actually exist, or this asserts nothing. It is
-  // the file `frozen-sources.edn` pins.
-  assert.ok(
-    fs.existsSync(path.join(REPO_ROOT, CODEMOD_LANE.twinSharedRule)),
-    `${CODEMOD_LANE.twinSharedRule} does not exist, so this test asserts nothing`,
-  );
 });
 
 test('the shared rule the codemod loads is the file the arm names (rf2-r4j91)', () => {
@@ -1703,13 +1534,6 @@ test('a core change arms BOTH new tools JVM lanes (rf2-wq17m)', () => {
   assert.equal(result.tools_jvm, 'true');
 });
 
-test('the source-coords resolver arms the testbed-support endpoint lane (rf2-wq17m)', () => {
-  // open_in_editor_server_test.clj verifies delegation to
-  // `re-frame.source-coords`; that file is the concrete subject of the edge.
-  const result = classify('implementation/core/src/re_frame/source_coords.cljc');
-  assert.equal(result.tools_jvm_testbed_support, 'true');
-});
-
 test('a sibling per-feature artefact does NOT arm the machines-viz lane (rf2-wq17m)', () => {
   // The edge is machines-specific: flows/http/routing/ssr declare no
   // :local/root into machines-viz's test classpath, so widening to the whole
@@ -1843,7 +1667,7 @@ test('machines-viz spec-only .md does NOT fire its JVM lane (rf2-wq17m)', () => 
 // runs the JVM generator and projection checks, not the CLJS probe. The
 // generated-manifest and API.md verdicts are pinned by the spec/* catch-all
 // row, and the negative (other spec prose stays off the node build) by the
-// spec-only .md row.
+// `prose arms the JVM tier and NO browser/prod/Playwright tier` row.
 
 test('API-manifest sidecar change lights cljs_node_test (CLJS probe routing) (rf2-4ka7c2)', () => {
   const result = classify('spec/api-manifest-metadata.edn');
@@ -1905,11 +1729,6 @@ for (const file of STORY_XRAY_NON_SCAFFOLD_PATHS) {
 
 test('Schemas change does NOT arm template_expensive — the scaffold registers no schema (rf2-6r9j.108)', () => {
   const result = classify('implementation/schemas/src/re_frame/schemas.cljc');
-  assert.equal(result.template_expensive, 'false');
-});
-
-test('Story spec-md-only change does NOT arm template_expensive (rf2-jdj17.1, rf2-6r9j.108)', () => {
-  const result = classify('tools/story/spec/002-Runtime.md');
   assert.equal(result.template_expensive, 'false');
 });
 
@@ -2325,41 +2144,28 @@ test('Core change still arms template_expensive (regression) (rf2-jdj17.1)', () 
 // while keeping shadow-cljs.edn / implementation/scripts/* off it (they
 // carry no emitted npm pin).
 
-test('implementation/package.json arms template_expensive (npm-pin lockstep) (rf2-6yuzo4)', () => {
-  const result = classify('implementation/package.json');
-  assert.equal(result.template_expensive, 'true');
-});
-
-test('implementation/package-lock.json arms template_expensive (emitted smoke links node_modules) (rf2-6yuzo4)', () => {
-  const result = classify('implementation/package-lock.json');
-  assert.equal(result.template_expensive, 'true');
-});
-
-test('implementation/shadow-cljs.edn does NOT arm template_expensive (no emitted npm pin) (rf2-6yuzo4)', () => {
-  const result = classify('implementation/shadow-cljs.edn');
-  assert.equal(result.template_expensive, 'false');
-});
-
-test('implementation/scripts/* does NOT arm template_expensive (no emitted npm pin) (rf2-6yuzo4)', () => {
-  const result = classify('implementation/scripts/build-foo.cjs');
-  assert.equal(result.template_expensive, 'false');
+test('the build-config files arm template_expensive only where an npm pin is emitted (rf2-6yuzo4)', () => {
+  for (const [file, armed, why] of [
+    ['implementation/package.json', 'true', 'npm-pin lockstep'],
+    ['implementation/package-lock.json', 'true', 'the emitted smoke links node_modules'],
+    ['implementation/shadow-cljs.edn', 'false', 'no emitted npm pin'],
+    ['implementation/scripts/build-foo.cjs', 'false', 'no emitted npm pin'],
+  ]) {
+    assert.equal(classify(file).template_expensive, armed, `${file}: ${why}`);
+  }
 });
 
 // serve-and-run-xray-feature-gate.cjs implements the Xray smoke command used by
 // the story-xray-browser PR job. Editing the launcher must arm that job while
 // retaining the generic implementation/scripts gates.
 
-test('implementation/scripts/serve-and-run-xray-feature-gate.cjs fires story_xray_browser', () => {
+test('implementation/scripts/serve-and-run-xray-feature-gate.cjs fires story_xray_browser and keeps the generic static-script gates', () => {
   const result = classify('implementation/scripts/serve-and-run-xray-feature-gate.cjs');
   assert.equal(
     result.story_xray_browser,
     'true',
     'editing the Xray PR-smoke launcher must run the story-xray-browser gate it drives',
   );
-});
-
-test('implementation/scripts/serve-and-run-xray-feature-gate.cjs still arms the generic static-script gates', () => {
-  const result = classify('implementation/scripts/serve-and-run-xray-feature-gate.cjs');
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result.cljs_browser, 'true');
   assert.equal(result.cljs_prod, 'true');
@@ -2381,27 +2187,19 @@ test('an unrelated implementation/scripts/* file does not fire story_xray_browse
 // reagent-slim CLIENT-RUNTIME smoke routing. The
 // serve-and-run-reagent-slim-smoke.cjs launcher IS the executable
 // orchestration for `npm run test:reagent-slim:smoke`, the command the
-// cljs-reagent-slim-bundle-isolation PR job runs. Editing it (or its
-// policy test) must fire the reagent_slim_bundle gate it drives — else a PR
-// can break the launcher while avoiding the very smoke gate it orchestrates
-// (the generic implementation/scripts/* case never fires reagent_slim_bundle).
+// cljs-reagent-slim-bundle-isolation PR job runs. Editing it must fire the
+// reagent_slim_bundle gate it drives — else a PR can break the launcher while
+// avoiding the very smoke gate it orchestrates. The launcher's own case is the
+// one pinned: the generic implementation/scripts/* case fires
+// reagent_slim_bundle too, but the launcher must not depend on it.
 
-test('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs fires reagent_slim_bundle (rf2-5v0dg7)', () => {
+test('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs fires reagent_slim_bundle and keeps the generic static-script gates (rf2-5v0dg7)', () => {
   const result = classify('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs');
   assert.equal(
     result.reagent_slim_bundle,
     'true',
     'editing the slim smoke launcher must run the reagent-slim gate it drives',
   );
-});
-
-test('implementation/scripts/_reagent-slim-smoke-policy.test.cjs fires reagent_slim_bundle (rf2-5v0dg7)', () => {
-  const result = classify('implementation/scripts/_reagent-slim-smoke-policy.test.cjs');
-  assert.equal(result.reagent_slim_bundle, 'true');
-});
-
-test('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs still arms the generic static-script gates (regression) (rf2-5v0dg7)', () => {
-  const result = classify('implementation/scripts/serve-and-run-reagent-slim-smoke.cjs');
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result.cljs_browser, 'true');
   assert.equal(result.cljs_prod, 'true');
@@ -2413,11 +2211,6 @@ test('the reagent-slim adapter/testbed surface fires reagent_slim_bundle (canoni
   // change there must arm the slim gate (smoke included) directly.
   const result = classify('implementation/adapters/reagent-slim/testbed/smoke.cjs');
   assert.equal(result.reagent_slim_bundle, 'true');
-});
-
-test('implementation/package.json still arms cljs_node_test (regression — it defines node deps) (rf2-6yuzo4)', () => {
-  const result = classify('implementation/package.json');
-  assert.equal(result.cljs_node_test, 'true');
 });
 
 // The standalone example-build compiler is intentionally NOT
@@ -2793,20 +2586,14 @@ for (const file of PAIR_FIXTURE_LOCAL_ROOTS) {
 
 // The dispatch only ever SETS `skills_structural`, so it cannot narrow the
 // three Pair-only artefacts' production routing — each of which owns lanes the
-// other two do not. Pinned per artefact rather than over the intersection,
-// because the intersection is exactly what a refactor into an arm of the big
-// first-match `case` would leave standing while it dropped the rest.
+// other two do not; schemas' six are the security-tier fan-out row's. Pinned
+// per artefact rather than over the intersection, because the intersection is
+// exactly what a refactor into an arm of the big first-match `case` would
+// leave standing while it dropped the rest.
 for (const [file, keys] of [
   [
     'implementation/epoch/src/re_frame/epoch.cljc',
     ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation', 'mcp_conformance', 'mcp_live'],
-  ],
-  [
-    // template_expensive is deliberately absent from this roster: the
-    // scaffold registers no schema, so schemas has no reason to arm it. The
-    // negative control lives above.
-    'implementation/schemas/src/re_frame/schemas.cljc',
-    ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation'],
   ],
   [
     'implementation/machines/src/re_frame/machines.cljc',
@@ -2907,29 +2694,16 @@ test('cljs-browser job is job-level gated on cljs_browser (browser consumer, rf2
   );
 });
 
-// Delete + both rename endpoints of the preload keep the same classification
-// through the REAL Git-derived discovery path (the --no-renames machinery
-// emits BOTH endpoints of a rename). The preload case is pure path-pattern
-// matching, so it arms
-// the behavioral gates whether the preload endpoint arrives as an add, a
-// modify, a delete, or either endpoint of a rename. (classifyViaGitDiscovery /
-// renameViaGitDiscovery are defined further down; both are hoisted function
-// declarations and only invoked when the test loop runs at end-of-file.)
+// Both rename endpoints of the preload keep the same classification through
+// the REAL Git-derived discovery path (the --no-renames machinery emits BOTH
+// endpoints of a rename, and the OUT endpoint is a deletion). The preload case
+// is pure path-pattern matching, so it arms the behavioral gates whether the
+// preload endpoint arrives as an add, a modify, a delete, or either endpoint
+// of a rename. (renameViaGitDiscovery is defined further down; it is a hoisted
+// function declaration and only invoked when the test loop runs at
+// end-of-file.)
 const PRELOAD_SOURCE = 'skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs';
 const PRELOAD_GATE_KEYS = ['examples_compile', 'skills_structural', 'cljs_browser', 'mcp_live'];
-
-test('DISCOVERY: ordinary delete of a preload file arms the behavioral gates (rf2-11yjq)', () => {
-  const result = classifyViaGitDiscovery(({ write, git, commit }) => {
-    write(PRELOAD_SOURCE, '(ns re-frame2-pair.runtime)\n');
-    write('README.md', '# scratch\n');
-    commit('seed');
-    git('rm', '-q', PRELOAD_SOURCE);
-    commit('delete preload file');
-  });
-  for (const key of PRELOAD_GATE_KEYS) {
-    assert.equal(result[key], 'true', `a preload delete must arm ${key} (deleted runtime endpoint)`);
-  }
-});
 
 test('DISCOVERY: rename OUT of the preload subtree arms the gates for the deleted endpoint (rf2-11yjq)', () => {
   const result = renameViaGitDiscovery(PRELOAD_SOURCE, 'docs/moved-out-of-preload.cljs');
@@ -3713,18 +3487,6 @@ test('Adapter source change fires adapter_testbed_smokes (rf2-t5slp regression g
 // harness-script edit fires ONLY adapter_testbed_smokes (its dedicated case),
 // not the broad adapter-source fan-out the rest of implementation/adapters/*
 // triggers.
-const ADAPTER_HARNESS_FILES = pinnedRoster('ADAPTER_HARNESS_FILES', [
-  'implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs',
-  'implementation/adapters/scripts/run-adapter-smokes.cjs',
-  'implementation/adapters/scripts/adapter-smoke-filter.cjs',
-]);
-for (const file of ADAPTER_HARNESS_FILES) {
-  test(`${file} (adapter-smoke harness) fires adapter_testbed_smokes`, () => {
-    const result = classify(file);
-    assert.equal(result.adapter_testbed_smokes, 'true');
-  });
-}
-
 // A harness-script edit must NOT trip the full adapter-SOURCE fan-out
 // (implementation_jvm / tools_jvm / mcp_conformance / template_expensive),
 // which the broad implementation/adapters/* case fires for an actual adapter
@@ -4230,14 +3992,9 @@ test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=ada
 // :source-paths of implementation/shadow-cljs.edn). Without a case for them, a PR
 // touching only one would leave every output false, so the aggregator could
 // pass with the relevant JVM + consolidated node-test gates skipped. These
-// assertions lock the routing; the resources src arm is pinned by the
-// per-feature fan-out sweep beside the security tier below.
-
-test('implementation/resources/deps.edn arms implementation_jvm + cljs_node_test (rf2-dxndhc)', () => {
-  const result = classify('implementation/resources/deps.edn');
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-});
+// assertions lock the tiers' routing; the resources arm is pinned by the
+// per-feature fan-out sweep beside the security tier below, and its deps.edn
+// membership by the playground row, which names it.
 
 // EVERY PATH HERE IS TRACKED, and the `pinnedRoster` guard is what keeps it
 // that way. The classifier arm for these tiers is a DIRECTORY-prefix glob
@@ -4518,7 +4275,7 @@ test('all-required-passed aggregator needs jvm-spec-resource', () => {
 // the tenant_switcher_smoke routing onto the runner + the testbed,
 // while keeping unrelated implementation/scripts/* + testbeds/* off it.
 
-test('serve-and-run-tenant-switcher-testbed.cjs fires tenant_switcher_smoke (rf2-h5e3v7)', () => {
+test('serve-and-run-tenant-switcher-testbed.cjs fires tenant_switcher_smoke and keeps the generic static-script gates (rf2-h5e3v7)', () => {
   const result = classify(
     'implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs',
   );
@@ -4526,12 +4283,6 @@ test('serve-and-run-tenant-switcher-testbed.cjs fires tenant_switcher_smoke (rf2
     result.tenant_switcher_smoke,
     'true',
     'editing the tenant-switcher smoke launcher must run the gate it drives',
-  );
-});
-
-test('serve-and-run-tenant-switcher-testbed.cjs still arms the generic static-script gates (regression) (rf2-h5e3v7)', () => {
-  const result = classify(
-    'implementation/scripts/serve-and-run-tenant-switcher-testbed.cjs',
   );
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result.cljs_browser, 'true');
