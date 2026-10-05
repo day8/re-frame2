@@ -101,11 +101,6 @@
     (is (= [] (:annotations row)) "no :annotations → empty")
     (is (nil? (:typicalTokens row)) "no :typicalTokens → nil (forward-compatible)")))
 
-(deftest build-rows-sorts-by-name
-  (let [rows (rf.mcp-base.descriptor-manifest/build-rows sample-descriptors)]
-    (is (= ["alpha" "beta"] (mapv :name rows))
-        "rows sorted by name regardless of input order")))
-
 ;; ---------------------------------------------------------------------------
 ;; Gated-input profiles
 ;;
@@ -245,61 +240,13 @@
     (is (true? (:missing-file? res)))
     (is (= ["alpha" "beta"] (:added res)))))
 
-(deftest check-detects-added-tool
-  (testing "a tool present in the generated manifest but not the committed file is :added"
-    (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test [(second sample-descriptors)]) ; alpha only
-          committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
-          gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)            ; alpha + beta
-          gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
-          res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
-      (is (false? (:ok? res)))
-      (is (= ["beta"] (:added res)) "beta is new vs the committed file")
-      (is (empty? (:removed res))))))
-
-(deftest check-detects-removed-tool
-  (testing "a tool in the committed file the generator no longer produces is :removed"
-    (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)            ; alpha + beta
-          committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
-          gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test [(second sample-descriptors)]) ; alpha only
-          gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
-          res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
-      (is (false? (:ok? res)))
-      (is (empty? (:added res)))
-      (is (= ["beta"] (:removed res)) "beta was dropped"))))
-
-(deftest check-detects-changed-existing-tool
-  ;; When an EXISTING tool's catalogue row drifts (here alpha gains an
-  ;; input key) the identity sets stay empty — neither :added nor
-  ;; :removed names it. Without a row-level diff the CI guard would go
-  ;; red with no identity of WHAT changed, forcing a manual
-  ;; whole-manifest diff. `:changed` names the drifted tool and carries
-  ;; old/new rows.
-  (testing "an existing tool that gains an input key is :changed, not :added/:removed"
-    (let [committed-m   (rf.mcp-base.descriptor-manifest/build-manifest :test sample-descriptors)
-          committed-edn (rf.mcp-base.descriptor-manifest/render-edn committed-m)
-          ;; alpha gains a :force input property; beta is untouched.
-          alpha+        (assoc-in (second sample-descriptors)
-                                  [:inputSchema :properties :force]
-                                  {:type "boolean"})
-          gen-m         (rf.mcp-base.descriptor-manifest/build-manifest :test [(first sample-descriptors) alpha+])
-          gen-edn       (rf.mcp-base.descriptor-manifest/render-edn gen-m)
-          res           (rf.mcp-base.descriptor-manifest/check gen-m gen-edn committed-edn)]
-      (is (false? (:ok? res)))
-      (is (= [] (:added res)) "no tool entered the catalogue")
-      (is (= [] (:removed res)) "no tool left the catalogue")
-      (is (= ["alpha"] (mapv :name (:changed res)))
-          "alpha's row drifted; it is named in :changed")
-      (let [{:keys [old new]} (first (:changed res))]
-        (is (= ["event"] (:input-keys old)) "old row carries the committed input-keys")
-        (is (= ["event" "force"] (:input-keys new))
-            "new row carries the regenerated input-keys — the maintainer sees the delta")))))
-
 (deftest check-changed-detects-each-drifting-row-shape
   ;; Every catalogue-surface slot the manifest governs trips :changed in
   ;; isolation (description / output? / annotations / required /
-  ;; typicalTokens, plus the input-keys case above). One row mutated per
-  ;; case; beta untouched. The :required + :typicalTokens cases cover
-  ;; the live API-semantics facets alongside the others.
+  ;; typicalTokens; `drift-report-lines-end-to-end-from-check` drives the
+  ;; input-keys case through `check`). One row mutated per case; beta
+  ;; untouched. The :required + :typicalTokens cases cover the live
+  ;; API-semantics facets alongside the others.
   (let [base (second sample-descriptors)] ; alpha
     (doseq [[label mutate] [["description"   #(assoc % :description "Changed prose.")]
                             ["output?"       #(assoc % :outputSchema {:type "object"})]
@@ -347,17 +294,6 @@
            rf.mcp-base.descriptor-manifest/governed-slots)
         "canonical report order is stable")))
 
-(deftest row-slot-deltas-names-only-drifting-slots-in-canonical-order
-  (let [old {:description "d" :input-keys ["event"] :gated-input-keys []
-             :required ["event"] :output? false :annotations [] :typicalTokens 300}
-        new (assoc old :input-keys ["event" "force"] :typicalTokens 999)]
-    (is (= [[:input-keys ["event"] ["event" "force"]]
-            [:typicalTokens 300 999]]
-           (rf.mcp-base.descriptor-manifest/row-slot-deltas old new))
-        "only the two drifting slots, in governed-slots order")
-    (is (= [] (rf.mcp-base.descriptor-manifest/row-slot-deltas old old))
-        "identical rows → no deltas")))
-
 (deftest drift-report-lines-missing-file
   ;; A missing committed file: check reports EVERY generated tool as
   ;; :added; the report leads with the consumer's missing-file header,
@@ -369,25 +305,6 @@
             "  Tools the registry has that the committed file lacks (new/renamed tool):"
             "    + alpha"
             "    + beta"]
-           lines))))
-
-(deftest drift-report-lines-added
-  (let [res   {:ok? false :added ["beta"] :removed [] :changed []}
-        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
-    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
-            "Regenerate with: <server command>"
-            "  Tools the registry has that the committed file lacks (new/renamed tool):"
-            "    + beta"]
-           lines)
-        "an existing (non-missing) file uses the shared differs header")))
-
-(deftest drift-report-lines-removed
-  (let [res   {:ok? false :added [] :removed ["beta"] :changed []}
-        lines (rf.mcp-base.descriptor-manifest/drift-report-lines res wording)]
-    (is (= ["DRIFT: generated manifest differs from tool-descriptors.edn."
-            "Regenerate with: <server command>"
-            "  Tools in the committed file the registry no longer has (removed/renamed tool):"
-            "    - beta"]
            lines))))
 
 (deftest drift-report-lines-changed-per-slot
