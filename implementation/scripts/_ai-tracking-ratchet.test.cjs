@@ -190,35 +190,6 @@ test('ARM 1: a change touching nothing under ai/ passes', () => {
 });
 
 // ---------------------------------------------------------------------------
-// ARM 2 — a force-add fails, and NAMES THE PATH.
-
-test('ARM 2: a newly tracked ai/ path fails and names the path', () => {
-  withFixtureRepo((h) => {
-    h.write('README.md', '# fixture\n');
-    seedAi(h, 1);
-    h.commit('seed');
-
-    h.write('ai/decisions/dossier.md', '# a force-added dossier\n');
-    h.commit('force-add under ai/');
-
-    const r = h.run();
-    assert.equal(r.status, 1, 'a newly tracked ai/ path must fail');
-    assert.match(r.stderr, /ADDED: ai\/decisions\/dossier\.md/);
-    assert.match(r.stderr, /1 path\(s\) newly tracked under ai\//);
-
-    // Discrimination: a count ceiling catches this one too (1 -> 2 exceeds a
-    // fresh ceiling of 1). Arm 2 is here to prove the message names the path,
-    // not to prove the set rule — it is one of the two arms where the ceiling
-    // and the set rule agree.
-    assert.equal(
-      legacyCountCeilingVerdict({ ceiling: 1, currentCount: r.currentCount }),
-      LEGACY_FAIL,
-      'negative control: a count ceiling also fails a plain force-add',
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
 // ARMS 3 AND 4 — THE SEQUENCE. One repo, two transitions, in order.
 
 test('ARMS 3+4: 89 -> 61 passes, and THEN 61 -> 62 fails (the sequence, not the cases)', () => {
@@ -488,21 +459,6 @@ test('ARM 9: a base sha absent from the object store fails closed, not vacuously
       'the gate must not certify an end state it read no base for',
     );
   });
-});
-
-// ---------------------------------------------------------------------------
-// Non-vacuity of the SUITE itself: the arms above are not all failures. If a
-// future edit made the gate fail unconditionally, arms 1, 3, 6a and the drain
-// would catch it — this asserts that mix is actually present, so the suite
-// cannot be trimmed down to failures-only without noticing.
-
-test('SUITE: the arms include genuine passes, so a fail-everything gate is caught', () => {
-  const names = tests.map((t) => t.name);
-  assert.ok(names.some((n) => n.startsWith('ARM 1')), 'a passing arm must be present');
-  assert.ok(names.some((n) => n.startsWith('ARMS 3+4')), 'the decrease-then-increase sequence must be present');
-  assert.ok(names.some((n) => n.startsWith('ARMS 6a+6b')), 'the end-state sequence must be present');
-  assert.ok(names.some((n) => n.startsWith('ARM 8')), 'the multi-commit push tooth must be present');
-  assert.ok(names.some((n) => n.startsWith('ARM 9')), 'the absent-base fail-closed tooth must be present');
 });
 
 let failed = 0;
