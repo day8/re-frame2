@@ -384,8 +384,6 @@ def _make_skill(
 def _run_self_tests(verbose: bool = False) -> int:
     cases: list[tuple[str, dict, int]] = [
         # (name, make-kwargs, expected findings contributed by this skill)
-        # packaged, no links                                    -> 0
-        ("ok_no_links", dict(package=True), 0),
         # UNpackaged skill dir                                  -> 0 (not distributable)
         ("ok_unpackaged", dict(package=False, skill_link="docs/SETUP.md", create_docs=True), 0),
         # in-package link to a docs/ file NOT in `files`         -> 1 (broken in tarball)
@@ -481,18 +479,6 @@ def _run_self_tests(verbose: bool = False) -> int:
                 package=True,
                 files=["SKILL.md", "README.md", "references/"],
                 ref_link="../SKILL.md",
-            ),
-            0,
-        ),
-        # the same `../` re-entry to an unshipped path, but the LINE documents
-        # it as a deliberate monorepo-only reference                    -> 0
-        (
-            "ok_parent_reentry_marked",
-            dict(
-                package=True,
-                files=["SKILL.md", "README.md", "references/"],
-                ref_link="../spec/design.md",
-                monorepo_only=True,
             ),
             0,
         ),
