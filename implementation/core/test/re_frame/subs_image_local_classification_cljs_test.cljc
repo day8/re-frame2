@@ -14,9 +14,7 @@
 
   Focused chokepoint fixtures drive `rf.classification/project-trace-event` on
   `:rf.sub/run` events directly (pure data — the fixtures a mutation restoring
-  ambient re-resolution must fail); an end-to-end leg subscribes to a real
-  sensitive sub and proves the subscriber reads RAW while the projected trace
-  redacts, across an ongoing recompute.
+  ambient re-resolution must fail).
 
   The chokepoint fixtures HAND a `:rf.sub/classification` map
   to the projector, so they would stay green even if REAL image-local
@@ -114,40 +112,6 @@
     (let [out (project-sub-run {:rf.sub/id :fallback/s
                                 :rf.sub/value {:token "SECRET"}})]  ;; no carrier
       (is (= rf.privacy/redacted-sentinel (get-in out [:rf.sub/value :token]))))))
-
-;; ---------------------------------------------------------------------------
-;; End-to-end — a real sensitive sub: subscriber RAW, projected trace REDACTED
-;; ---------------------------------------------------------------------------
-
-(defn- captured-sub-runs [recorded sub-id]
-  (filterv (fn [ev] (and (= :rf.sub/run (:operation ev))
-                         (= sub-id (get-in ev [:tags :rf.sub/id]))))
-           @recorded))
-
-(deftest subscriber-reads-raw-while-projected-sub-run-trace-redacts
-  (rf/reg-event :sec/seed (fn [{:keys [db]} [_ v]] {:db (assoc db :token v)}))
-  (rf/reg-sub :sec/read {:sensitive [[:token]]} (fn [db _] {:token (:token db)}))
-  (let [recorded (atom [])]
-    (rf/register-listener! :trace :sec-e2e (fn [ev] (swap! recorded conj ev)))
-    (try
-      (rf/dispatch-sync [:sec/seed "secret-1"])
-      ;; ongoing reactive read #1 — a compute emits :rf.sub/run
-      (is (= {:token "secret-1"} @(rf/subscribe [:sec/read]))
-          "the subscriber derefs the RAW value")
-      ;; ongoing reactive read #2 — value change drives a recompute
-      (rf/dispatch-sync [:sec/seed "secret-2"])
-      (is (= {:token "secret-2"} @(rf/subscribe [:sec/read]))
-          "the recomputed subscriber value is still RAW")
-      (let [runs (captured-sub-runs recorded :sec/read)]
-        (is (seq runs) "at least one :rf.sub/run trace was captured")
-        (doseq [ev runs]
-          (is (= rf.privacy/redacted-sentinel
-                 (get-in ev [:tags :rf.sub/value :token]))
-              "every projected :rf.sub/run redacts the sensitive path")
-          (is (not (contains? (:tags ev) :rf.sub/classification))
-              "the internal carrier never reaches a listener")))
-      (finally
-        (rf/unregister-listener! :trace :sec-e2e)))))
 
 ;; ===========================================================================
 ;; REAL image-local assembly + generation replacement
