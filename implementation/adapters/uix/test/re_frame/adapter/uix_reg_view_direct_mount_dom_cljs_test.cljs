@@ -6,10 +6,11 @@
   `rf/reg-view*` for registry-keyed view addressing, and Spec 001
   §`(re-frame.core/view id)` makes `(rf/view id)` the runtime handle for
   what was registered. Composing those two gives
-  `($ (rf/view ::row) {…})`, and that form has to mount. A head registered
-  as `(with-meta (fn frame-aware-view …) {:contextType …})` would not:
-  `cljs.core/with-meta` on a fn yields a `MetaFn`, an IFn OBJECT, which
-  React rejects as an element type before the registered view renders.
+  `($ (rf/view ::row) {…})`, and that form has to mount with its props
+  intact. The bare frame-aware wrapper `reg-view*` composes would not: it
+  carries no UIx component marker, so `$` would route its props through
+  `interpret-attrs`, which stringifies keyword values and drops their
+  namespaces.
 
   A mount that goes through a hand-written host component INVOKING the
   registered value cannot see that — it proves teardown and annotation
@@ -35,7 +36,7 @@
       `:adapter/componentize-view` is routed, so at registration it
       declines, and `rf/init!` seats the adapter without revisiting
       existing `:view` slots. The row asserts its own premise (no adapter at
-      registration; the reg-time head really is the MetaFn) before
+      registration; the reg-time head really is the unmarked wrapper) before
       mounting, so it cannot silently decay into a copy of the row above.
 
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` build
@@ -176,16 +177,17 @@
 ;; have installed an adapter first.
 ;;
 ;; `reg-view*` asks `:adapter/componentize-view` at registration; the hook is
-;; ROUTED, so with no adapter installed it declines, the slot keeps the
-;; `MetaFn`, and `init!` — which only seats the adapter — never revisits it.
+;; ROUTED, so with no adapter installed it declines, the slot keeps the bare
+;; frame-aware wrapper, and `init!` — which only seats the adapter — never
+;; revisits it.
 ;; What has to mount is the head `(rf/view id)` hands back after init. A row
 ;; that installs the adapter BEFORE registering (the two below, and the whole
 ;; shared suite) cannot see this ordering.
 ;;
 ;; `adapter-at-registration` and `head-at-registration` make the premise
 ;; CHECKABLE rather than assumed: the row asserts there really was no adapter
-;; at registration time, and that the reg-time answer really was the
-;; un-mountable `MetaFn`. Without those two, a bundle that happened to install
+;; at registration time, and that the reg-time answer really was the unmarked
+;; wrapper. Without those two, a bundle that happened to install
 ;; an adapter earlier would turn this row into a second copy of
 ;; `direct-mount-of-registered-view-head` while still reading as a boot-order
 ;; witness.
@@ -303,13 +305,11 @@
         (seed-world!)
         (rf/reg-view* :rf.uix-direct-mount/row probe-body)
         (let [head (rf/view :rf.uix-direct-mount/row)]
-          ;; `fn?` is NOT the discriminator here and would pass either way:
-          ;; `cljs.core/MetaFn` implements the `Fn` marker protocol, so
-          ;; `(fn? metafn)` is true while React still rejects the object.
-          ;; `instance? js/Function` is the property React actually needs.
+          ;; `instance? js/Function` rather than `fn?`, which is also true of
+          ;; an IFn OBJECT React rejects as an element type.
           (is (instance? js/Function head)
               "the registered head is a real JS function React can use as an
-               element type — NOT the MetaFn `with-meta` yields")
+               element type")
           (is (true? (.-uix-component? ^js head))
               "and it carries UIx's own component marker, which is what makes
                `$` route props through the lossless `argv` channel instead of
@@ -329,10 +329,10 @@
         (str "premise: no adapter was installed when this ns registered its"
              " view at load time — the canonical boot order; got "
              (pr-str adapter-at-registration)))
-    (is (not (instance? js/Function head-at-registration))
-        "premise: the reg-time head really was the un-mountable MetaFn, so the
-         head the row mounts below can only have come from a re-derivation
-         against the adapter `rf/init!` seated afterwards")
+    (is (not (true? (.-uix-component? ^js head-at-registration)))
+        "premise: the reg-time head really was the unmarked frame-aware
+         wrapper, so the marked head the row mounts below can only have come
+         from a re-derivation against the adapter `rf/init!` seated afterwards")
     (with-browser-act
       (fn [act-fn]
         (seed-world!)

@@ -477,16 +477,18 @@
   the substrate's own COMPONENT HEAD, given the fully-composed wrapper.
   Returns the head to register and hand back from `reg-view*`.
 
-  `build-frame-aware-view` returns `(with-meta (fn frame-aware-view …)
-  {:contextType frame-context})`, and `cljs.core/with-meta` on a fn yields a
-  `MetaFn` — an IFn OBJECT, not a JS function. Reagent's create-class /
-  fn-to-class machinery reads that meta and converts the MetaFn into a React
-  component type, so Reagent does NOT publish this hook and the head is
-  returned unchanged. A React-hook substrate has no such conversion: React
-  rejects the MetaFn as an element type, so without the hook `(rf/view id)` —
-  the value the public docs advertise as a UIx component head — would not
-  mount at all. Those adapters publish the hook and hand back a mountable,
-  marked shell that forwards to this wrapper.
+  `build-frame-aware-view` returns a JS function carrying
+  `{:contextType frame-context}` as its Clojure metadata. Reagent's
+  create-class / fn-to-class machinery reads that meta and converts the fn
+  into a React component type, so Reagent does NOT publish this hook and the
+  head is returned unchanged. A React-hook substrate has no such conversion:
+  React would mount the bare wrapper as an ordinary function component that
+  carries none of the substrate's own component marker, so the substrate's
+  element macro would convert the props on the way in — stringifying keyword
+  values and dropping their namespaces — rather than carry the CLJS props
+  map through its lossless channel. `(rf/view id)` is the value the public
+  docs advertise as a UIx component head, so those adapters publish the hook
+  and hand back a marked shell that forwards to this wrapper.
 
   Consulted LAST, after the substrate wrap and the frame-aware wrapper have
   been composed, so the shell is the OUTERMOST layer and every inner
@@ -530,6 +532,19 @@
       ;; dependency and disposes it (firing the unmount emit) on teardown.
       (when (some? rea) @rea))))
 
+(defn- unwrapped-fn
+  "The JS function to call for `f`: the fn a `cljs.core/MetaFn` wraps, or `f`
+  itself. A fn carrying Clojure metadata is a `MetaFn` — the `reg-view`
+  expansion stamps reagent-slim's form tag onto the render fn it registers
+  whenever reagent-slim is on the compile classpath — and `apply` on a
+  `MetaFn` past twenty arguments ends in its `.apply`, which fails the way
+  `build-frame-aware-view`'s docstring describes. Calling the wrapped fn is
+  exactly what calling the `MetaFn` does, without the arity table."
+  [f]
+  (if (instance? cljs.core/MetaFn f)
+    (.-afn ^cljs.core/MetaFn f)
+    f))
+
 (defn- build-frame-aware-view
   "Build the per-render wrapped fn that ties view registration into
   Reagent: each render binds `*render-key*`, `*handler-scope*` and the
@@ -547,10 +562,23 @@
 
   The returned fn carries `{:contextType frame-context}` meta so
   Reagent's create-class / fn-to-class machinery hooks it up to the
-  React frame-context (note the camelCase static-field name)."
+  React frame-context (note the camelCase static-field name).
+
+  It is a REAL JS function with that meta `specify!`'d onto it, never a
+  `with-meta` result, because the head must take ANY number of arguments.
+  `with-meta` on a fn yields a `cljs.core/MetaFn`, an IFn OBJECT whose
+  `.call` / `.apply` dispatch through a fixed arity table: under shadow-cljs
+  a twenty-first argument is read as a rest seq and a twenty-second throws
+  `Invalid arity`. Stock Reagent passes a component's argv through `.apply`,
+  and reagent-slim through `apply`, which falls back to `.apply` past twenty
+  arguments, so a keyword-variadic view called with fifteen key/value pairs
+  would fail before it rendered. A JS function's own `.apply` takes any
+  count. `render-fn` is called through `unwrapped-fn` for the same reason."
   [id render-fn view-scope coord-attr wrap-applied?]
-  (let [wrapped
-        (with-meta
+  (let [render    (unwrapped-fn render-fn)
+        head-meta {:contextType frame-context}
+        wrapped
+        (specify!
           (fn frame-aware-view [& args]
             (let [tok        (rf.views.provider/reagent-component-token)
                   render-key [id tok]
@@ -586,15 +614,16 @@
                       ;; perf flag enabled produce a `rf:render:<view-id>`
                       ;; measure entry. Default-off; under :advanced +
                       ;; `re-frame.performance/enabled?=false` the bracket DCEs
-                      ;; and the form collapses to the bare `(apply render-fn
+                      ;; and the form collapses to the bare `(apply render
                       ;; args)` call.
                       ;;
                       ;; `apply` HERE IS LOAD-BEARING — do not rewrite it as a
-                      ;; direct call, and do not reach for `(.apply render-fn
+                      ;; direct call, and do not reach for `(.apply render
                       ;; nil …)`. The DIRECT Form-3 shape that
                       ;; `re-frame.core/reg-view*` advertises — a `create-class`
                       ;; result handed straight in, with no outer callable —
-                      ;; arrives here AS `render-fn`, because a class is `fn?`
+                      ;; arrives here AS `render` (`unwrapped-fn` passes a
+                      ;; class through untouched), because a class is `fn?`
                       ;; and nothing upstream discriminates the registered
                       ;; INPUT. It mounts correctly regardless, and only
                       ;; because of how `cljs.core/apply` binds `this`:
@@ -618,7 +647,7 @@
                       ;; rather than "too late"; no input-side special case is
                       ;; wanted here.
                       (let [out        (rf.performance/mark-and-measure :render id
-                                         (apply render-fn args))
+                                         (apply render args))
                             elapsed-ms (when rf.interop/debug-enabled?
                                          (- (rf.interop/now-ms) t0))]
                         ;; Emit AFTER the render so the deref sink is
@@ -638,7 +667,8 @@
                           (rf.views.source-coord-annotation/inject-source-coord-attr id coord-attr
                                                                  out)
                           out))))))))
-          {:contextType frame-context})]
+          IMeta
+          (-meta [_] head-meta))]
     ;; Stamp the React `displayName` to the
     ;; registered view-id so React DevTools shows `<cart/total-line>` in the
     ;; component tree rather than the CLJS-munged fn name
@@ -690,9 +720,11 @@
 ;; `run` would escape, and nothing asks authors to do that. The two hooks
 ;; would fail differently:
 ;;
-;;   * componentize — `(rf/view id)` would hand back the `MetaFn` wrapper,
-;;     which React rejects as an element type, so the advertised
-;;     `($ (rf/view ::row) …)` mount would fail outright.
+;;   * componentize — `(rf/view id)` would hand back the bare frame-aware
+;;     wrapper, which carries no UIx component marker, so the advertised
+;;     `($ (rf/view ::row) …)` mount would convert its props on the way in
+;;     and the registered view would never see the CLJS props map it was
+;;     written against.
 ;;   * wrap — with no substrate wrap, `build-frame-aware-view` falls through
 ;;     to the inline hiccup walk, and that walk classes a React element as a
 ;;     non-DOM root. So `data-rf2-source-coord` and `data-rf-view` would go
