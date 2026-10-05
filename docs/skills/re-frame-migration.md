@@ -35,7 +35,7 @@ Use it when you have a re-frame v1 codebase to move to re-frame2, when you want 
 
 For related work:
 
-- Rewriting Reagent views into Fresco once you are on re-frame2 (optional) → [reagent-migration](reagent-migration.md).
+- Rewriting Reagent views into Fresco once you are on re-frame2 (optional) → [reagent-fresco-migration](reagent-fresco-migration.md).
 - Writing new code once the migration report is signed off → [re-frame2](re-frame2.md).
 
 ## What completion includes

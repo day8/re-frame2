@@ -24,7 +24,7 @@ The skill runs the setup commands itself:
 
 A successful compile proves the build; the starter-test result proves the tested event and subscription behaviour. Open the reported URL and click `+1` to confirm the count advances from 0 to 1. Also check that saving a view repaints without losing the count and that `#/stories` opens the counter story. The handoff separates the verified build, test and server results from these browser checks, which remain unverified until observed.
 
-Nothing else is set up on day one: schemas, Xray and the rest attach later, on request, and writing further tests, schemas or features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request. Fresco is not a scaffold option: a new project starts on an adapter and can move its views later with [reagent-migration](reagent-migration.md).
+Nothing else is set up on day one: schemas, Xray and the rest attach later, on request, and writing further tests, schemas or features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request. Fresco is not a scaffold option: a new project starts on an adapter and can move its views later with [reagent-fresco-migration](reagent-fresco-migration.md).
 
 ## Existing build configuration
 

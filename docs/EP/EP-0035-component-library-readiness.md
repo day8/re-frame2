@@ -237,7 +237,7 @@ reopened: deltas #4/#5 entered under the freeze's own delta protocol.
 > read "the migration skill's `swap!` rewrite retargets to `update!`, retiring
 > its MANUAL flag on multi-writer idioms." The MANUAL-flag language described the
 > retired codemod-era plan; the shipped Reagent→`re-frame.ui` migration skill
-> (W1, `skills/reagent-migration` — EP-0030) is an AI skill that reasons through
+> (W1, `skills/reagent-fresco-migration` — EP-0030) is an AI skill that reasons through
 > judgment cases with the author and emits no MANUAL flag. The `swap!`→`update!`
 > migration fact is unchanged and preserved above; only the retired flag
 > language is corrected. Meaning frozen, not bytes (EP-0009, rf2-r7ahi).

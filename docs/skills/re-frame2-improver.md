@@ -31,7 +31,7 @@ For related work:
 
 - Writing new code → [re-frame2](re-frame2.md).
 - A retrospective on a pair session, rather than a review of source → [re-frame2-pair-retro](re-frame2-pair-retro.md).
-- *Porting* Reagent views to Fresco → [reagent-migration](reagent-migration.md). Reviewing existing Reagent-view code against the catalogue stays here.
+- *Porting* Reagent views to Fresco → [reagent-fresco-migration](reagent-fresco-migration.md). Reviewing existing Reagent-view code against the catalogue stays here.
 
 ## When it stops
 

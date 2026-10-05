@@ -195,7 +195,7 @@ platform-scale features — the rule that keeps resumability research-tier.
 
 The library alone is not the program. Fifteen workstreams decompose everything
 beyond it: the Reagent→`re-frame.ui` migration skill (W1 — an AI skill,
-`skills/reagent-migration`, not a codemod tool; the former W2 sibling migration
+`skills/reagent-fresco-migration`, not a codemod tool; the former W2 sibling migration
 skill is absorbed into this single skill), the authoring skills (W6), the
 additive `docs/core/re-frame.ui` guide (W3 — its wholesale docs rewrite
 superseded by the shipped additive guide, later growth demand-driven), examples
@@ -376,7 +376,7 @@ baseline is a recorded comparison, not a standing gate.
   W7b sequences behind `->react` landing (S6). Recorded on `rf2-4rwtd` and in
   the S6 epic ruling.
 - **Migration ships as an AI skill (2026-07-20).** W1 is the
-  Reagent→`re-frame.ui` migration skill (`skills/reagent-migration`), not a
+  Reagent→`re-frame.ui` migration skill (`skills/reagent-fresco-migration`), not a
   codemod tool; the skill's rule table and fixture corpus carry the mechanical
   tier and reason through the judgment tiers with the author. W1 absorbed the
   former W2 into this single sibling skill of the existing v1 migration skill
@@ -405,7 +405,7 @@ baseline is a recorded comparison, not a standing gate.
   for review. W2 lands as a sibling skill of the existing v1 migration skill
   rather than an extension of it." **Current disposition (W numbers preserved,
   no renumber):** W2 is **absorbed into W1** — the Reagent→`re-frame.ui`
-  migration ships as the single sibling AI skill `skills/reagent-migration`
+  migration ships as the single sibling AI skill `skills/reagent-fresco-migration`
   (rf2-3bjvs, #6543); the former W2 second skill (closed rf2-nwgzha) is
   superseded, not redispatched. W3's **wholesale docs rewrite and
   `guide/`→`docs/guide` move are superseded** by the additive

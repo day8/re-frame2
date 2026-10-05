@@ -32,7 +32,7 @@ For related work:
 - Code still on re-frame v1 → [re-frame-migration](re-frame-migration.md). re-frame2 removed `reg-event-db`, `reg-event-fx` and `reg-event-ctx`: a leftover call raises `:rf.error/reg-event-db-removed` (or its `-fx-` / `-ctx-` twin) naming `reg-event`. Other v1-only names, such as `reg-sub-raw` and `re-frame.db`, no longer exist, and `^:flush-dom` metadata is ignored.
 - A review of code you already have → [re-frame2-improver](re-frame2-improver.md).
 - A question about the running app → [re-frame2-pair](re-frame2-pair.md).
-- Rewriting existing Reagent views into Fresco → [reagent-migration](reagent-migration.md).
+- Rewriting existing Reagent views into Fresco → [reagent-fresco-migration](reagent-fresco-migration.md).
 
 ## Completion and limits
 
