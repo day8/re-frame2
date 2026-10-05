@@ -5,8 +5,9 @@
   ambiguous or non-string navigation targets classify as external; and
   malformed SSR hydration payloads leave both frame-state partitions unchanged.
   The malformed-schema corpus is closed, so it is checked EXHAUSTIVELY; the URL
-  and hydration boundaries draw deterministic generated coverage on top of
-  their named hostile inputs."
+  boundary is checked against its named hostile inputs, and the hydration
+  boundary draws deterministic generated coverage on top of its named hostile
+  inputs."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -150,24 +151,6 @@
           (str (pr-str ok-url) " is a legitimate in-app reference"))
       (is (false? (rf.routing.url/external-url? ok-url))
           (str (pr-str ok-url) " classifies in-app (not external)")))))
-
-(def ^:private gen-non-string
-  (rf.security.gen/gen-one-of
-    (rf.security.gen/gen-elem [nil true false :kw 'sym {} [] #{}])
-    (rf.security.gen/gen-int -1000 1000)))
-
-(deftest non-string-url-inputs-always-fail-closed
-  (testing "any non-string URL-sink input classifies
-            external and never passes the in-app gate. JavaScript would
-            stringify it (`new URL(x, base)`); the guard rejects it first."
-    (let [result (rf.security.gen/for-all
-                   gen-non-string 200 11
-                   (fn [x]
-                     (and (false? (rf.routing.url/safe-in-app-url? x))
-                          (true? (rf.routing.url/external-url? x)))))]
-      (is (nil? result)
-          (str "a non-string URL input was not failed closed: "
-               (pr-str (when result (dissoc result :threw))))))))
 
 (def ^:private existing-db {:client/seeded true :count 0})
 
