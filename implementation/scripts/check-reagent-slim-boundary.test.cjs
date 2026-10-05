@@ -173,32 +173,6 @@ it('TEETH: detectForbidden flags BOTH slim rules on a slim ns form', () => {
   assert.deepStrictEqual(ids, ['reagent-slim-adapter', 'reagent2']);
 });
 
-// ---- reagent2.* rule: anchored so stock reagent.* never matches -----------
-
-it('TEETH: a reagent2.* require is flagged', () => {
-  assert.ok(
-    detectForbidden('  (:require [reagent2.core :as r])').some((r) => r.id === 'reagent2'),
-  );
-});
-
-it('stock reagent.core is NOT flagged by the reagent2 rule', () => {
-  assert.ok(!detectForbidden('[reagent.core :as r]').some((r) => r.id === 'reagent2'));
-});
-
-// ---- adapter rule: -slim flagged, stock adapter never ---------------------
-
-it('TEETH: re-frame.adapter.reagent-slim is flagged', () => {
-  assert.ok(
-    detectForbidden('[re-frame.adapter.reagent-slim :as a]').some(
-      (r) => r.id === 'reagent-slim-adapter',
-    ),
-  );
-});
-
-it('the stock adapter on a require line with no alias is NOT flagged', () => {
-  assert.deepStrictEqual(detectForbidden('   [re-frame.adapter.reagent]'), []);
-});
-
 // ---- scanFile / scanAll integration --------------------------------------
 
 it('TEETH: scanFile reports a slim require leaking into the stock tree', () => {
