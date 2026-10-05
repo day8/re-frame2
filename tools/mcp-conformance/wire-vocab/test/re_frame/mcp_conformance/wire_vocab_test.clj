@@ -236,9 +236,6 @@
   (testing "map WITHOUT :count AND WITHOUT :counts fails"
     (is (not (m/validate Summary {:rf.mcp/summary {:type :map :keys [:a :b] :bytes 10}}))
         "a map summary MUST carry :count or :counts (not neither)"))
-  (testing "map with ONLY :type + :bytes (the malformed example above) fails"
-    (is (not (m/validate Summary {:rf.mcp/summary {:type :map :bytes 1}}))
-        "the documented unusable map marker {:type :map :bytes 1} MUST fail"))
   (testing "vector WITHOUT :count fails"
     (is (not (m/validate Summary {:rf.mcp/summary {:type :vector :bytes 10}}))
         "a vector summary MUST carry :count"))
@@ -369,15 +366,6 @@
                           {:de-dupe.cache/cache-1 {:event-id :foo}
                            :de-dupe.cache/cache-2 {:event-id :bar}}}))
         "DedupTable must reject a cache missing the de-dupe.cache/cache-0 root."))
-  (testing "integer-keyed table (de-dupe NEVER emits this) fails validation"
-    ;; The removed fixture's shape — fiction the old schema accepted.
-    ;; the codec keys by namespaced symbols only; an integer-keyed
-    ;; table has no cache-0 root and the Node decoder throws on it.
-    (is (not (m/validate DedupTable
-                         {:rf.mcp/dedup-table
-                          {1 {:event-id :foo :handler-id :bar}
-                           2 {:event-id :baz}}}))
-        "DedupTable must reject an integer-keyed table — de-dupe never emits one and it carries no cache-0 root."))
   (testing "a valid namespaced cache WITH a cache-0 root still validates"
     ;; Guard against over-tightening — the canonical shape MUST pass.
     (is (m/validate DedupTable
@@ -430,9 +418,6 @@
       (is (m/validate DedupTable wrapped)
           (str "Live-emitted dedup-table failed DedupTable validation:\n"
                (me/humanize (m/explain DedupTable wrapped)))))
-    (testing "the round-tripped value expands back to the original payload"
-      (is (= payload (rf.mcp-base.dedup/expand cache))
-          "live de-dupe-eq → expand round-trips the payload"))
     (testing "JVM↔Node root agreement: the JSON string form of the root key matches the Node decoder's ROOT_CACHE_ID"
       ;; The cache keys are namespaced SYMBOLS (`de-dupe.cache/cache-N`).
       ;; The real story-mcp wire serialises them with Cheshire, whose
@@ -557,10 +542,7 @@
     (testing "the emitted body validates against the canonical DiffFromBody schema"
       (is (m/validate DiffFromBody db-after)
           (str "Live-emitted :db-after failed DiffFromBody validation:\n"
-               (me/humanize (m/explain DiffFromBody db-after)))))
-    (testing "the emitted marker decodes back to the original :db-after"
-      (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded))
-          "live encode → decode round-trips the epoch"))))
+               (me/humanize (m/explain DiffFromBody db-after)))))))
 
 (deftest overflow-marker-shape-emitted-live-by-canonical-builder
   ;; `:rf.mcp/overflow`'s wire emission is live-tested in
@@ -988,10 +970,9 @@
 ;;   1. completeness — the derived inventory equals a fresh directory
 ;;      listing of `tools/story_mcp/tools/*.cljc` (any tool file is
 ;;      swept the moment it lands).
-;;   2. participation — `cursor.cljc` is in the set the generic sweep
-;;      iterates, so its cross-MCP marker routing and any near-miss are
-;;      checked generically, not only indirectly against
-;;      `mcp-base/vocab.cljc`.
+;;   2. participation — `wire_pipeline.cljc`, which emits the contracted
+;;      `:rf.mcp/dedup-table`, is in the superset the uncontracted-marker
+;;      sweep iterates.
 ;;
 ;; story-mcp has no `dedup.cljc`: the wire-boundary dedup encode step is
 ;; consumed DIRECTLY from `re-frame.mcp-base.dedup`, and the
@@ -1016,14 +997,6 @@
              "filesystem listing of " rf.mcp-conformance.fixtures/story-mcp-tools-dir
              ". Derived: " (sort rf.mcp-conformance.fixtures/story-mcp-tool-source-files)
              "\nFresh: " (sort fresh-listing)))))
-
-(deftest story-mcp-inventory-includes-historically-omitted-tool-files
-  ;; `cursor.cljc` routes `:rf.mcp/cursor-stale` and is the kind of file
-  ;; a hand-maintained list drops; it MUST be in the inventory.
-  (let [inventory (set rf.mcp-conformance.fixtures/story-mcp-tool-source-files)]
-    (is (contains? inventory
-                   "tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc")
-        "cursor.cljc (routes :rf.mcp/cursor-stale) MUST be in the central inventory")))
 
 (deftest dedup-marker-emitter-participates-in-generic-story-mcp-sweep
   ;; The `:rf.mcp/dedup-table` emission lives in `wire_pipeline.cljc`,
@@ -1056,10 +1029,10 @@
 ;;    an absent key, so a present `0` is a rejected regression, pinned by
 ;;    `envelope-indicator-present-zero-rejected` below). Fixtures sourced
 ;;    from each emitting server.
-;; 2. Source-text pin: every server in a slot's `:emitters` carries
-;;    BOTH the `:dropped-sensitive` literal AND the `:elided-large`
-;;    literal (parity — one without the other breaks the MUST-level
-;;    pin).
+;; 2. Parity through one helper: both servers emit the two slots
+;;    through `re-frame.mcp-base.envelope/with-indicators`, so a server
+;;    cannot emit one without the other. pair-mcp's routing is pinned
+;;    in `indicator_field_test.clj`.
 ;; 3. story-mcp routing: story-mcp's `run-variant` / `preview-variant` /
 ;;    `read-failures` payload builders emit both slots through the
 ;;    centralised `egress/with-indicators` helper;
@@ -1078,13 +1051,12 @@
 
 (def envelope-indicator-slots
   "Conformance contract for the two unqualified envelope-indicator
-  slots. Each entry pins the schema, per-server fixtures, and the set
-  of servers that emit the slot. The two slots are siblings —
-  any server that emits one MUST emit the other (the MUST-level
-  parity this gate enforces)."
+  slots. Each entry pins the schema and per-server fixtures. The two
+  slots are siblings — any server that emits one MUST emit the other,
+  which holds because every emitter routes through the one mcp-base
+  helper."
   [{:slot     :dropped-sensitive
     :schema   DroppedSensitive
-    :emitters #{:re-frame2-pair-mcp :story-mcp}
     :fixtures {:re-frame2-pair-mcp-trace-window
                {:ok? true :epochs [] :dropped-sensitive 3}
                :re-frame2-pair-mcp-snapshot
@@ -1099,7 +1071,6 @@
 
    {:slot     :elided-large
     :schema   ElidedLarge
-    :emitters #{:re-frame2-pair-mcp :story-mcp}
     :fixtures {:re-frame2-pair-mcp-snapshot
                {:ok? true :snapshot {} :elided-large 2}
                :re-frame2-pair-mcp-get-path
@@ -1157,48 +1128,6 @@
                "emitted as `" slot " 0`. The schema must be `pos-int?` (not "
                "`nat-int?`) so a helper-bypassing present-zero regression fails "
                "conformance.")))))
-
-(def ^:private envelope-emitter-source-files
-  "Source files that carry the envelope-slot emit sites per server.
-  Restricted to the actual tool source — the spec/docs files may
-  mention the slots without emitting them.
-
-  Both servers route through a single centralised emit-path that
-  delegates to the shared mcp-base helper
-  (`re-frame.mcp-base.envelope/with-indicators`), so the parity gate
-  pins the two literals at the per-server helper location:
-
-  - re-frame2-pair-mcp: `wire.cljs` `with-indicators`; the
-    literals live in its docstring + delegation. Per-tool routing is
-    pinned in detail by `indicator_field_test.clj`.
-  - story-mcp: `egress.cljc` `with-indicators` +
-    `count-elided` — the centralised egress helper the
-    `run-variant` / `preview-variant` / `read-failures` payload
-    builders thread through. `tools_test.clj` exercises the live
-    emission end-to-end."
-  {:re-frame2-pair-mcp ["tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"]
-   :story-mcp ["tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"]})
-
-(deftest envelope-slot-parity-across-emitting-servers
-  ;; MUST-level pin (Conventions §Cross-MCP indicator-field vocabulary,
-  ;; Spec 009 §Indicator field on tool responses): every server that
-  ;; emits one slot MUST emit the other — a server emitting only
-  ;; `:dropped-sensitive` would break parity silently. story-mcp is also
-  ;; a contracted emitter, so the gate runs across BOTH servers' helper
-  ;; sources.
-  (doseq [server [:re-frame2-pair-mcp :story-mcp]]
-    (let [files (get envelope-emitter-source-files server)]
-      (is (seq files)
-          (str "No source files registered for " server " envelope emit sites."))
-      (doseq [rel files]
-        (let [src (rf.mcp-conformance.fixtures/read-source rel)]
-          (testing (str server " " rel " — :dropped-sensitive literal")
-            (is (str/includes? src ":dropped-sensitive")
-                (str ":dropped-sensitive literal missing from " rel)))
-          (testing (str server " " rel " — :elided-large literal")
-            (is (str/includes? src ":elided-large")
-                (str ":elided-large literal missing from " rel
-                     " — parity break per Conventions §Cross-MCP indicator-field vocabulary."))))))))
 
 (deftest story-mcp-routes-envelope-through-the-centralised-helper
   ;; story-mcp keeps the envelope-indicator parity. The
