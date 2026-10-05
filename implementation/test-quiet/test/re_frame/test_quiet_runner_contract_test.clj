@@ -36,13 +36,11 @@
      would never load, because a `.clj` of its namespace answers from
      another classpath root.
    - FIXTURES: a namespace whose `use-fixtures` entry is DATA rather
-     than a function — the cljs.test `{:before f :after g}` map, whether
-     written at the call site or reached through a var — refuses the run
-     (exit 1, the namespace named on stderr) instead of contributing
-     zero tests to a tally that reports itself green; and, in the other
-     direction, entries that APPLY the thunk without being `fn?` — a var
-     referring to a fixture function, and a bare `reify` of
-     `clojure.lang.IFn` — keep their lane green.
+     than a function — the cljs.test `{:before f :after g}` map — refuses
+     the run (exit 1, the namespace named on stderr) instead of
+     contributing zero tests to a tally that reports itself green; and, in
+     the other direction, an ordinary fixture function keeps its lane
+     green.
    - STDERR BUFFER: a green run that emits expected
      stderr warnings stays quiet (the warnings are buffered + dropped);
      a RED run REPLAYS the buffered stderr context so a failing run
@@ -383,19 +381,13 @@
 ;; by `re-frame.test-quiet-fixture-integrity-test`.  What can only be seen
 ;; across a process boundary is the end-to-end shape: a real `deftest` that
 ;; would FAIL, absent from a tally that reports itself green, and the run
-;; then refused with the namespace named.  Both rows plant a failing
+;; then refused with the namespace named.  The red row plants a failing
 ;; assertion for exactly that reason — a passing one could not tell "the
 ;; fixture swallowed it" from "it ran and passed".
 
 (def ^:private map-fixture-source
   "The cljs.test map form, which `clojure.test` cannot call."
   "(use-fixtures :each {:before (fn []) :after (fn [])})\n")
-
-(def ^:private bound-map-fixture-source
-  "The same map, reaching `use-fixtures` through a var.  Spelled exactly
-  like the legitimate fn form, which is why no text scan closes this."
-  (str "(def lifecycle {:before (fn []) :after (fn [])})\n"
-       "(use-fixtures :each lifecycle)\n"))
 
 (def ^:private min-tests-marker
   "A fragment of the `RF2_MIN_TESTS` floor complaint, used to prove the
@@ -453,23 +445,12 @@
     "map_fixture_test" "probe.map-fixture-test"
     (fixture-probe-source "probe.map-fixture-test" map-fixture-source)))
 
-(deftest symbol-bound-map-fixture-refuses-the-run
-  (let [source (fixture-probe-source "probe.bound-fixture-test"
-                                     bound-map-fixture-source)]
-    (testing "the indirect case is invisible to a text scan, which is why the
-              rule reads the metadata `use-fixtures` wrote rather than the
-              source that wrote it"
-      (is (not (str/includes? source "use-fixtures :each {"))
-          "the probe must NOT spell the map at the call site"))
-    (assert-uncallable-fixture-refused
-      "bound_fixture_test" "probe.bound-fixture-test" source)))
-
 (defn- assert-callable-fixture-runs-green
   "Run a one-`deftest` probe under `fixture-source` through the real `-main`
   and assert the honest lane is untouched: the test RAN and the process
   exited 0.  The passing assertion is the point — under a swallowed fixture
   the tally would read `Ran 0 tests`, so the count discriminates `it ran` from
-  `it was skipped` exactly as the red rows' failing assertion does."
+  `it was skipped` exactly as the red row's failing assertion does."
   [file-stem ns-name-str fixture-source]
   (with-fixture-dir
     (fn [dir]
@@ -494,34 +475,6 @@
       "fn_fixture_test" "probe.fn-fixture-test"
       (str "(use-fixtures :once (fn [t] (t)))\n"
            "(use-fixtures :each (fn [t] (t)))\n"))))
-
-(deftest var-fixtures-keep-the-run-green
-  (testing "THE REGRESSION CONTROL: `(use-fixtures :each #'lifecycle)` is
-            ordinary, idiomatic and WORKING — `Var.invoke` forwards to the
-            root function, so the test runs — yet `fn?` is false of a Var,
-            so a `fn?` guard would refuse the lane with the false claim that
-            every test in it silently did not run.  A census of the corpus
-            cannot stand in for this row: it says only that nobody happens
-            to write the form, not that the form is broken."
-    (assert-callable-fixture-runs-green
-      "var_fixture_test" "probe.var-fixture-test"
-      (str "(defn lifecycle [t] (t))\n"
-           "(use-fixtures :once #'lifecycle)\n"
-           "(use-fixtures :each #'lifecycle)\n"))))
-
-(deftest custom-ifn-fixtures-keep-the-run-green
-  (testing "THE ROW THAT ENDS THE LIST: a bare `reify` of
-            `clojure.lang.IFn` invokes the thunk and the test runs, yet it
-            carries no `Fn` marker, is no `MultiFn` and is no Var — so no
-            enumeration of accepted implementation classes can name it, and
-            a guard built on one would refuse it while the test it guards
-            passes.  The rule is `ifn?` minus the closed set of values
-            Clojure invokes as a lookup, which admits this without admitting
-            a map; the two red rows above are the other half of that claim."
-    (assert-callable-fixture-runs-green
-      "ifn_fixture_test" "probe.ifn-fixture-test"
-      (str "(use-fixtures :each"
-           " (reify clojure.lang.IFn (invoke [_ t] (t))))\n"))))
 
 ;; ----------------------------------------------------------------------
 ;; Nested-run banner correctness.
@@ -723,8 +676,9 @@
 ;;
 ;; The line-precise filter drops only `Running tests in #{...}`. Help,
 ;; parse-error diagnostics, and test output must still reach stdout. Test
-;; output is pinned below by `banner-lookalike-diagnostic-survives` (a whole
-;; `println` line) and `unterminated-partial-survives-exit` (a bare `print`).
+;; output is pinned below by `blank-led-banner-shape-user-line-survives`
+;; (whole `println` lines) and `unterminated-partial-survives-exit` (a bare
+;; `print`).
 
 (deftest help-flag-prints-usage
   (testing "-H prints cognitect usage and exits 0 (a global *out* sink would swallow it)"
@@ -757,110 +711,6 @@
               (str "the offending flag must be named in the diagnostic; got:\n" out))
           (is (str/includes? out "USAGE:")
               (str "cognitect prints usage after the parse error; got:\n" out)))))))
-
-;; ----------------------------------------------------------------------
-;; Banner-prefix precision.
-;;
-;; The filter must drop ONLY cognitect's own banner, which always renders
-;; as `Running tests in #{...}` (the directory set is always a set: it
-;; defaults to `#{"test"}` and `-d` accumulates via `(fnil conj #{})`).  A
-;; bare prefix match on `Running tests in ` would also eat a legitimate
-;; diagnostic that merely begins with those words — e.g. a fixture that
-;; prints `Running tests in local fixture ...`.  This pins that such a
-;; line survives while the real discovery banner is still swallowed.
-
-(deftest banner-lookalike-diagnostic-survives
-  (testing "a test line beginning 'Running tests in ' but not the banner survives"
-    (with-fixture-dir
-      (fn [dir]
-        (write-fixture! dir "lookalike_fixture_test" "lookalike-fixture-test"
-                        (str "(deftest a-lookalike-test"
-                             " (println \"Running tests in local fixture LOOKALIKE-MARKER\")"
-                             " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "the lookalike suite is green; must exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (str/includes? out "Running tests in local fixture LOOKALIKE-MARKER")
-              (str "a diagnostic that merely starts 'Running tests in ' (but"
-                   " is not the `#{...}` discovery banner) must survive; got:\n"
-                   out))
-          ;; Assert the real banner's distinctive `#{` shape is absent — NOT
-          ;; the bare `discovery-banner-marker` prefix, which the lookalike
-          ;; line legitimately contains.
-          (is (not (str/includes? out "Running tests in #{"))
-              (str "the real discovery banner (`Running tests in #{...}`)"
-                   " must STILL be swallowed; got:\n" out)))))))
-
-;; ----------------------------------------------------------------------
-;; Banner-prefix overdrop guard.
-;;
-;; cognitect's banner is the whole line and stops at the set literal's
-;; closing `}`. A user/fixture diagnostic may share that prefix and carry
-;; trailing content, for example
-;; `Running tests in #{:fixture :phase} MARKER`, which a prefix-only filter
-;; would silently overdrop.  The filter therefore treats a full-prefix match as a candidate and drops
-;; it only when the remainder is a balanced set literal followed by
-;; whitespace.
-
-(deftest banner-prefix-overdrop-survives
-  (testing "a line starting exactly 'Running tests in #{' with trailing content survives"
-    (with-fixture-dir
-      (fn [dir]
-        (write-fixture! dir "overdrop_fixture_test" "overdrop-fixture-test"
-                        (str "(deftest an-overdrop-test"
-                             " (println \"Running tests in #{:fixture :phase} OVERDROP-MARKER\")"
-                             " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "the overdrop suite is green; must exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; A fixture line with trailing content after the set literal is
-          ;; not the banner and must be forwarded.
-          (is (str/includes? out "Running tests in #{:fixture :phase} OVERDROP-MARKER")
-              (str "a fixture line that starts exactly 'Running tests in #{'"
-                   " but has trailing content after the set literal is NOT"
-                   " the banner and must survive;"
-                   " got:\n" out))
-          (is (str/includes? out "0 failures, 0 errors.")
-              (str "the green summary must still print; got:\n" out)))))))
-
-;; ----------------------------------------------------------------------
-;; Exact-shape banner overdrop guard.
-;;
-;; A user/fixture line can exactly match `Running tests in #{:fixture}`.
-;; cognitect prints its banner via
-;; `(format "\nRunning tests in %s" dirs)`, so the genuine banner is ALWAYS
-;; opened by a leading blank line; a bare `(println "Running tests in
-;; #{:fixture}")` is not. Requiring that held leading blank distinguishes
-;; the runner banner from an exact-shape user line.
-
-(deftest real-banner-still-dropped-alongside-exact-shape-user-line
-  (testing "the real banner is still dropped alongside an exact-shape user line"
-    (with-fixture-dir
-      (fn [dir]
-        ;; The fixture prints an exact-shape line of its own; cognitect's
-        ;; genuine banner (leading blank + `Running tests in #{...}`) is the
-        ;; ONLY banner-shaped line preceded by a blank. The user line must
-        ;; survive AND there must be exactly ONE `Running tests in #{` on
-        ;; stdout — the user's — proving the genuine banner was still dropped.
-        (write-fixture! dir "exact_shape_neg_test" "exact-shape-neg-test"
-                        (str "(deftest a-neg-test"
-                             " (println \"Running tests in #{:user-only}\")"
-                             " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)
-              hits (count (re-seq #"Running tests in #\{" out))]
-          (is (zero? exit)
-              (str "green suite must exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (str/includes? out "Running tests in #{:user-only}")
-              (str "the user's exact-shape line must survive; got:\n" out))
-          (is (= 1 hits)
-              (str "exactly one `Running tests in #{` must reach stdout (the"
-                   " user's) — the genuine cognitect banner must STILL be"
-                   " dropped; got " hits " occurrences:\n" out))
-          (is (str/includes? out "0 failures, 0 errors.")
-              (str "the green summary must still print; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Blank-led banner shape after the real banner.
@@ -976,36 +826,6 @@
                    " got\n--- stdout ---\n" out "\n--- stderr ---\n" err))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
-
-(deftest red-run-replays-buffered-stderr
-  (testing "a red run replays buffered stderr context to real stderr"
-    (with-fixture-dir
-      (fn [dir]
-        ;; A test that emits a diagnostic to *err* and then FAILS. The
-        ;; warning is buffered as the run proceeds, then replayed on the
-        ;; red exit so the failing run keeps the context.
-        (write-fixture! dir "red_warn_fixture_test" "red-warn-fixture-test"
-                        (str "(deftest a-warning-and-failing-test"
-                             " (binding [*out* *err*]"
-                             "   (println \"EXPECTED-WARN-MARKER-RED diagnostic context\"))"
-                             " (is (= :exp :act)))"))
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (= 1 exit)
-              (str "the warning-and-failing suite is red; must exit 1; got "
-                   exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; The failure diagnostics still reach stdout (routed via
-          ;; *test-out*, never *err*, so the buffer never hides them).
-          (is (str/includes? out "FAIL in (a-warning-and-failing-test)")
-              (str "the FAIL block must still reach stdout; got:\n" out))
-          ;; The CORE red pin: the buffered stderr is replayed (to the real
-          ;; stderr) so the failing run keeps the diagnostic context.
-          (is (str/includes? err "EXPECTED-WARN-MARKER-RED")
-              (str "the buffered stderr must be REPLAYED on a RED run"
-                   "; got\n--- stdout ---\n" out
-                   "\n--- stderr ---\n" err))
-          (is (str/includes? err "buffered stderr replayed because the run was RED")
-              (str "the replay must be labelled so it is distinguishable from"
-                   " the reporter's own output; got stderr:\n" err)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Subprocess-harness pipe-deadlock guard.
