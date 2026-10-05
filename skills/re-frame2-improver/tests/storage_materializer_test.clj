@@ -69,17 +69,14 @@
   (let [hits (filter #(str/includes? % needle) (clojure-blocks @leaf-md))]
     (when (= 1 (count hits)) (first hits))))
 
+;; nil when the After block is missing or duplicated, which makes every
+;; After-block test below error.
 (def ^:private after-block  (delay (block-containing "rf/reg-cofx :session/stored")))
 (def ^:private before-block (delay (block-containing "untrusted body read")))
 
 ;; ---------------------------------------------------------------------------
 ;; The materializer is total over absent AND unusable storage
 ;; ---------------------------------------------------------------------------
-
-(deftest after-block-is-found
-  (testing "exactly one fenced block registers the :session/stored cofx"
-    (is (some? @after-block)
-        "the canonical After block is missing, renamed, or duplicated")))
 
 (deftest after-block-is-total
   (let [block @after-block]
