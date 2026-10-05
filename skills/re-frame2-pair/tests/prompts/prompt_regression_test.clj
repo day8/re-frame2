@@ -1087,16 +1087,9 @@
              "; only in the server manifest: "
              (pr-str (sort (remove skill server)))
              ". A kind the skill advertises and the parser refuses returns "
-             ":reason :invalid-kind to an agent following the catalogue."))))
-
-(deftest flow-and-frame-are-not-offered-as-registrar-kinds
-  ;; `flow` and `frame`, pinned by name so offering either is loud: both are
-  ;; reserved-but-empty registrar slots, and each has a real door.
-  (let [skill (ops-row-kinds)]
-    (is (not (contains? skill "flow"))
-        "ops.md must not offer `flow` as a list-handlers kind — flows read through re-frame.flows")
-    (is (not (contains? skill "frame"))
-        "ops.md must not offer `frame` as a list-handlers kind — frames read through frames/list / rf/frame-ids")
+             ":reason :invalid-kind to an agent following the catalogue."))
+    ;; The parser refuses `flow` and `frame`, so the parity above keeps both
+    ;; off the row; the row must still name the flow door it routes to.
     (is (str/includes? @ops-md "flows-snapshot")
         "ops.md must name the real flow door where it declines the kind")))
 
