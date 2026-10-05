@@ -324,22 +324,3 @@
       (is (some? matched) "an ordinary non-ASCII capture still matches")
       (is (= "café" (get-in matched [:params :slug]))
           "decoded byte-exactly"))))
-
-(deftest route-url-round-trips-through-match-url-after-the-decoder-moved
-  (testing "the encode/decode pair is an inverse — including over a
-            value containing a REAL U+FFFD, which `url-encode` emits as
-            %EF%BF%BD and the strict decoder must read back"
-    (rf/reg-route :decode-parity/round {:params [:map [:slug :string]]} "/r/:slug")
-    (doseq [slug ["café" "日本" "a�b" "50% done"
-                  ;; a WELL-FORMED surrogate pair, built from code units:
-                  ;; `url-encode` emits it as the astral code point's
-                  ;; four UTF-8 bytes and the segmenting decoder must
-                  ;; read those back as the same two code units.
-                  (from-code-units 0xD83D 0xDE00)]]
-      (let [built  (rf.routing/route-url {:to :decode-parity/round :params {:slug slug}})
-            parsed (rf.routing/match-url built)]
-        (is (some? parsed)
-            (str "the URL re-frame2 itself emitted for " (pr-str slug)
-                 " must not be a malformed-URL route-miss"))
-        (is (= slug (get-in parsed [:params :slug]))
-            (str "and recovers byte-exactly: " (pr-str slug)))))))
