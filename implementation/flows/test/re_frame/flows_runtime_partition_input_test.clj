@@ -4,37 +4,33 @@
   `read-inputs` / `elide-inputs` that only fires when `run-flows-on-db` is
   driven with a NON-nil `runtime-db`.
 
-  Why this file exists: elsewhere the runtime-qualified input is tested only
+  Why this file exists: elsewhere the runtime-qualified input is tested
   STATICALLY — the algebra-view projection lowering
   (`flow_algebra_view_test.clj` §runtime-qualified-input-lowers-to-a-runtime-read)
   and the negative output-path reservation (`flows_test.clj`
-  §reg-flow-rejects-runtime-partition-rooted-output-path) — and the other DIRECT
-  drive of `run-flows-on-db` (`flows_per_frame_last_inputs_test.clj`) passes
-  `nil` for `runtime-db`, so without this file the RUNTIME partition branch
-  would never execute under test. A regression that read a
-  runtime input from app-db, failed to strip the `:rf.db/runtime` partition key,
-  or omitted the resolved runtime value from the dirty-check vector would ship
-  GREEN.
+  §reg-flow-rejects-runtime-partition-rooted-output-path) — or only as the
+  trigger of a user-fx settle. These tests pin what a regression in the
+  runtime branch breaks: reading a runtime input from app-db, failing to strip
+  the `:rf.db/runtime` partition key, or omitting the resolved runtime value
+  from the dirty-check vector.
 
-  These tests drive `run-flows-on-db` with a non-nil `runtime-db` and pin, all
+  They drive `run-flows-on-db` with a non-nil `runtime-db` and pin, all
   adversarially:
 
-    1. `resolve-input`'s runtime branch reads the input VALUE from `runtime-db`
-       at the STRIPPED path (never app-db, and never the un-stripped path);
-    2. the EP-0001 §542-544 dirty-check-on-BOTH-partitions contract — a
+    1. the EP-0001 §542-544 dirty-check-on-BOTH-partitions contract — a
        runtime-only change (app-db VALUE-IDENTICAL between drains) forces a
        recompute, and a runtime value-equal re-drive skips;
-    3. mixed app-db + runtime inputs resolve in DECLARATION ORDER, each against
-       its own partition;
-    4. `elide-inputs` seeds the STRIPPED declaration path, so a runtime-qualified
+    2. mixed app-db + runtime inputs resolve in DECLARATION ORDER, each against
+       its own partition — the runtime one from `runtime-db` at the STRIPPED
+       path;
+    3. `elide-inputs` seeds the STRIPPED declaration path, so a runtime-qualified
        input elides on the `:rf.flow/computed` `:input-values` trace against the
        runtime-db slot's declaration (a raw `[:rf.db/runtime …]` seed would miss
        the declaration and surface the value RAW).
 
   JVM-only (`.clj`) — mirrors the sibling flows JVM tests; `run-flows-on-db` is
-  driven directly (as `flows_per_frame_last_inputs_test` does) rather than
-  through a full dispatch, so the runtime partition value is supplied
-  explicitly."
+  driven directly rather than through a full dispatch, so the runtime
+  partition value is supplied explicitly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -90,41 +86,7 @@
     (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec paths)}))))
 
 ;; ---------------------------------------------------------------------------
-;; 1. resolve-input's runtime branch — reads the VALUE from runtime-db at the
-;;    STRIPPED path, never app-db, never the un-stripped path.
-;;
-;; Adversarial decoys are seeded at BOTH the stripped path AND the raw
-;; `[:rf.db/runtime …]` path INSIDE app-db, so each regression lands on a
-;; distinct wrong value:
-;;   - reading app-db at the stripped path         → :APP-DECOY-stripped
-;;   - reading app-db at the raw partition path     → :APP-DECOY-raw
-;;   - reading runtime-db WITHOUT stripping         → nil (no such key there)
-;;   - CORRECT: runtime-db at the stripped path     → :the-real-runtime-value
-;; ---------------------------------------------------------------------------
-
-(deftest resolve-input-runtime-branch-reads-stripped-path-from-runtime-db
-  (testing "a [:rf.db/runtime …] input resolves its VALUE against runtime-db at the stripped path"
-    (rf/reg-flow :route-flow
-      {:inputs      [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
-       :output-path [:out]}
-      (fn [route-id] route-id))
-    (let [app-db     {;; decoy at the STRIPPED path inside app-db — a resolver
-                      ;; that forgot the runtime branch would read this
-                      :rf.runtime/routing {:current {:route-id :APP-DECOY-stripped}}
-                      ;; decoy at the RAW partition-qualified path inside app-db —
-                      ;; a resolver that read app-db verbatim would read this
-                      :rf.db/runtime      {:rf.runtime/routing {:current {:route-id :APP-DECOY-raw}}}}
-          runtime-db {:rf.runtime/routing {:current {:route-id :the-real-runtime-value}}}
-          out        (rf.flows/run-flows-on-db :rf/default app-db runtime-db)]
-      (is (= :the-real-runtime-value (get-in out [:out]))
-          (str "resolve-input must read runtime-db at the STRIPPED path "
-               "[:rf.runtime/routing :current :route-id]; got "
-               (pr-str (get-in out [:out])) " — :APP-DECOY-stripped means it read "
-               "app-db, :APP-DECOY-raw means it read app-db verbatim (no routing "
-               "to runtime), nil means it forgot to strip the partition key")))))
-
-;; ---------------------------------------------------------------------------
-;; 2. EP-0001 §542-544 — the dirty-check keys on BOTH partitions.
+;; 1. EP-0001 §542-544 — the dirty-check keys on BOTH partitions.
 ;;
 ;; app-db is passed VALUE-IDENTICAL (literally the same map) across all three
 ;; drains; ONLY runtime-db changes. A runtime-only change MUST force a recompute
@@ -179,7 +141,7 @@
             "drain 3 returned the passed app-db value unchanged (skip does not re-write)")))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. Mixed app-db + runtime inputs resolve in DECLARATION ORDER, each against
+;; 2. Mixed app-db + runtime inputs resolve in DECLARATION ORDER, each against
 ;;    its own partition. `read-inputs` maps `resolve-input` over `:inputs` in
 ;;    order; the resolver picks the partition per path. An out-of-order or
 ;;    partition-swapped resolution changes the vector handed to `:derive`.
@@ -202,7 +164,7 @@
                "(:R), app-db :app-last (:B). Got " (pr-str (get-in out [:combined])))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. elide-inputs seeds the STRIPPED declaration path.
+;; 3. elide-inputs seeds the STRIPPED declaration path.
 ;;
 ;; A runtime-qualified input `[:rf.db/runtime :rt :val]` reads its value from
 ;; runtime-db at `[:rt :val]`, and the frame's elision registry keys its
