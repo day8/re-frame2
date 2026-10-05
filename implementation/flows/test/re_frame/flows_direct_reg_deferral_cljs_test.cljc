@@ -4,9 +4,8 @@
   This file pins an ASYMMETRY, and it exists because that asymmetry looks like
   an oversight. The plain function call `(rf/clear :flow id)` settles
   before it returns; the plain `reg-flow` deliberately does NOT. The tests
-  below fix the deferral as intended behaviour and, more importantly, make its
-  REASON executable — so an attempt to \"restore symmetry\" fails here, loudly,
-  with a name that says why, rather than being discovered by the errors it
+  below fix the deferral as intended behaviour, so an attempt to \"restore
+  symmetry\" fails here, loudly, rather than being discovered by the errors it
   causes elsewhere in this suite.
 
   ## The asymmetry, and why it is principled
@@ -36,8 +35,10 @@
 
   The `:rf.fx/reg-flow` route settles, and must — but NOT because a drain
   makes the hazard above impossible. It does not: a drain evaluates against
-  the EVENT'S OWN pending `app-db`, which may be empty. The last two tests in
-  this file are that measurement. The real difference is RESPONSIBILITY: an effect registration is issued from inside
+  the EVENT'S OWN pending `app-db`, which may be empty. The last test in this
+  file is that measurement, and `re-frame.flows-settle-on-dispatch-test` pins
+  the same route over an event that seeds its inputs first. The real
+  difference is RESPONSIBILITY: an effect registration is issued from inside
   an event, so that event is the place to establish the inputs, and it
   REQUESTS evaluation now — a failure there is an ordinary event failure at
   the effect's explicit settle boundary. A direct registration has no such
@@ -155,37 +156,6 @@
                    "dead instrument")))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE REASON, made executable
-;; ---------------------------------------------------------------------------
-
-(deftest direct-cold-reg-flow-does-not-evaluate-derive-against-an-unseeded-db
-  (testing "registering at boot — before app-db is seeded — does not run the
-            :derive, so a derive that is undefined on absent inputs is not
-            forced to be total on nil"
-    ;; THIS is why the deferral exists, and the assertion a symmetry fix
-    ;; breaks first. The direct form is documented for boot code, tests and
-    ;; per-tenant setup, which run BEFORE the seeding events. A settle at
-    ;; registration would evaluate this `:derive` against an absent `[:n]` and
-    ;; throw :rf.error/flow-eval-exception out of `reg-flow` itself.
-    (let [derives (atom 0)]
-      (is (= :boot/doubled
-             (rf.flows/reg-flow :boot/doubled
-               {:inputs [[:n]] :output-path [:doubled]}
-               (fn [n] (swap! derives inc) (* 2 n))))
-          "registration against an unseeded app-db returns the flow-id and does not throw")
-      (is (zero? @derives)
-          "the :derive — which would throw on the absent input — was never called")
-
-      ;; Seeding drains, and only now does the flow evaluate, against real
-      ;; inputs, exactly as the registrant intended.
-      (rf/reg-event :seed (fn [_ _] {:db {:n 21}}))
-      (rf/dispatch-sync [:seed])
-      (is (= {:n 21 :doubled 42} (rf/app-db-value :rf/default))
-          "the first evaluation happens on the seeding drain, against present inputs")
-      (is (= 1 @derives)
-          "and it evaluated exactly once"))))
-
-;; ---------------------------------------------------------------------------
 ;; The replacement case — stale but OWNED, which is why it may wait
 ;; ---------------------------------------------------------------------------
 
@@ -233,7 +203,7 @@
             event, against whatever app-db that event leaves — so an effect
             registration whose declared inputs are not yet present evaluates
             the :derive on their absence and can fail normally"
-    ;; This is a CAVEAT on the section above. It is tempting to explain the
+    ;; This is a CAVEAT on the deferral above. It is tempting to explain the
     ;; effect route's safety by saying it runs inside a drain, where app-db is
     ;; by construction the application's live seeded state, so the hazard
     ;; cannot arise. A drain guarantees no such thing: it is simply the
@@ -292,28 +262,3 @@
         (is (= :derive (:phase record))
             "and to the authored callback, which is where the reader should
              look")))))
-
-(deftest effect-reg-flow-succeeds-when-its-own-event-seeds-first
-  (testing "the same effect registration on an event that establishes the
-            inputs materialises the initial output on that event — which is
-            what makes the caveat above a caveat rather than a defect"
-    ;; The other half of the caveat, and the reason it is no lifecycle
-    ;; defect: the effect route's immediacy is the feature. An event that
-    ;; seeds and registers in one go gets the initial output committed by the
-    ;; time the dispatch returns, exactly as Spec 013 §Sequencing requires.
-    (rf/reg-event :seed-and-register
-      (fn [_ _]
-        {:db {:n 21}
-         :fx [[:rf.fx/reg-flow
-               [:audit/double
-                {:inputs [[:n]] :output-path [:out]}
-                (fn [n]
-                  (if (nil? n)
-                    (throw (ex-info "derive is not total on an absent input"
-                                    {:input n}))
-                    (* 2 n)))]]]}))
-    (rf/dispatch-sync [:seed-and-register])
-    (is (= {:n 21 :out 42} (rf/app-db-value :rf/default))
-        "the initial output is materialised by the time the dispatching event
-         settles — the caller establishes the inputs, and the effect route
-         evaluates against them")))
