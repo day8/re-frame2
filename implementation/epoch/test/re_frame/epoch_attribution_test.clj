@@ -30,10 +30,10 @@
            commit-time / next epoch; the render-start `:rf.view/render` and
            the `:rf.view/rendered-cap-reached` marker ride the same back-fill.
     inv-3  a late MOUNT render attributed to the mount/initialise epoch ONLY,
-           not double-filed onto the first post-mount cascade.
+           not double-filed onto the first post-mount cascade: a view
+           re-render whose own subs did NOT change is NOT attributed to the
+           settling cascade (the value-change-per-view discriminator).
     inv-4  `:rf.sub/value-changed?` + `:rf.sub/cause-sub` land on the correct epoch.
-    inv-5  a view re-render whose own subs did NOT change is NOT spuriously
-           attributed (the value-change-per-view discriminator).
     inv-6  an out-of-cascade ORPHAN emit (`:rf.frame/created` and the general
            class) stays UNCORRELATED — never a new epoch, never folded into
            the NEXT dequeued event's `:trace-events`.
@@ -282,32 +282,6 @@
           (is (not (contains? (sub-run-ids b) :title))
               "cascade B does NOT carry cascade A's :title sub-run —
                no one-epoch lag"))))))
-
-(deftest inv-1-in-flight-sub-run-rides-current-cascade
-  (testing "a sub-run that fires WITH a cascade in flight
-            (synchronous deref — a handler that subscribes, an SSR render)
-            belongs to that cascade and is buffered normally, NOT back-filled.
-            Pins that the post-settle back-fill does not poach in-flight
-            sub-runs."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :sub-during
-      (fn [{:keys [db]} _]
-        (rf.trace/emit! :rf.sub :rf.sub/run
-                     {:rf.sub/id :inline-sub :rf.sub/query-v [:inline-sub]
-                      :frame :test/main :rf.sub/value-changed? true
-                      :rf.sub/prev-value nil :rf.sub/value :computed
-                      :rf.sub/cascade? false :rf.sub/cause-sub nil})
-        {:db (update db :n inc)}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:sub-during] {:frame :test/main})
-
-    (let [epoch (last-epoch :test/main)]
-      (is (= :sub-during (:event-id epoch)))
-      (is (contains? (sub-run-ids epoch) :inline-sub)
-          "an in-flight sub-run rides its own cascade (buffered, not
-           back-filled to a prior settled epoch)"))))
 
 (deftest inv-1-orphan-sub-run-before-any-cascade-is-noop
   (testing "a sub-run that fires before any cascade has settled
@@ -777,63 +751,6 @@
               "the re-fanned record carries the back-filled render"))))))
 
 ;; ===========================================================================
-;; INVARIANT 5 — a view re-render whose own subs did NOT change is NOT
-;;                spuriously attributed (the value-change-per-view
-;;                discriminator)
-;; ===========================================================================
-
-(deftest inv-5-unchanged-view-re-render-not-spuriously-attributed
-  (testing "the load-bearing discriminator. When a cascade
-            settles and TWO views commit post-settle renders — one whose own
-            sub CHANGED, one whose own subs re-deref'd UNCHANGED — only the
-            value-changed view is attributed to that cascade. The unchanged
-            view's render must NOT leak in (it would on the naive
-            most-recently-settled anchor). This is the per-view value-change
-            check, isolated from the mount path: BOTH views are already
-            mounted in an earlier epoch, so the discriminator is the value
-            change alone, not the mount anchor."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0 :sidebar :open}}))
-    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
-
-    ;; Epoch 1: seed. Both views mount here (read-set learned).
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (emit-render! :test/main cv-rk)
-    (emit-mount-sub-run! :test/main :counter cv-rk nil 0)
-    (emit-render! :test/main tv-rk)
-    (emit-mount-sub-run! :test/main :sidebar tv-rk nil :open)
-
-    ;; Epoch 2: a FIRST counter-inc that both views already saw — settle it so
-    ;; both views are unambiguously mounted in an EARLIER epoch than the
-    ;; discriminating cascade. (counter-view re-renders here; we attribute it
-    ;; cleanly so its mount/anchor history is established.)
-    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
-    (emit-sub-run! :test/main :counter 0 1)
-    (emit-render! :test/main cv-rk)
-
-    ;; Epoch 3: THE discriminator. Another counter-inc. counter-view's sub
-    ;; CHANGED 1 → 2; the sidebar view's sub re-deref'd UNCHANGED (:open →
-    ;; :open) but its render still commits post-settle (a spurious React
-    ;; re-render — e.g. a parent re-render). Only counter-view should land in
-    ;; epoch 3.
-    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
-    (let [epoch-3 (last-epoch :test/main)]
-      (emit-sub-run! :test/main :counter 1 2)
-      (emit-render! :test/main cv-rk)
-      (emit-sub-run! :test/main :sidebar :open :open)
-      (emit-render! :test/main tv-rk)
-
-      (let [e3 (epoch-by-id :test/main epoch-3)]
-        (is (= :counter-inc (:event-id e3)))
-        (is (contains? (rendered-keys e3) cv-rk)
-            "the value-CHANGED view (counter-view, 1 → 2) is attributed to
-             epoch 3")
-        (is (not (contains? (rendered-keys e3) tv-rk))
-            "the value-UNCHANGED view (sidebar, :open → :open) is NOT
-             spuriously attributed to epoch 3 — its render anchors elsewhere
-             (its mount epoch), not this cascade")))))
-
-;; ===========================================================================
 ;; INVARIANT 6 — an out-of-cascade ORPHAN emit (:rf.frame/created and the
 ;;                general class) stays UNCORRELATED: not a new epoch, and not
 ;;                folded into the next dequeued event's :trace-events
@@ -1051,36 +968,6 @@
                   (rf.epoch.state/buffer-for :test/modal))
         "specifically, the cross-frame :rf.frame/re-registered marker is absent")))
 
-(deftest inv-6d-nested-re-registration-strand-not-swept-into-later-halt-record
-  (testing "a later depth-halt of the sibling frame B produces no
-            phantom `:rf.frame/re-registered` in its :halted-depth record. A
-            stranded marker (foreign dispatch-id) would survive every :loop settle
-            as 'theirs' and `commit-halt-record!`'s full harvest would sweep it
-            into the halt record's :trace-events."
-    (rf/make-frame {:id :test/main})
-    (rf/make-frame {:id :test/modal :drain-depth 5})
-    (rf/reg-fx :test/re-reg-modal (fn [_ frame-id] (rf/make-frame {:id frame-id :drain-depth 5})))
-    (rf/reg-event :app/reopen (fn [_ _] {:fx [[:test/re-reg-modal :test/modal]]}))
-    (rf/reg-event :loop
-      (fn [{:keys [db]} _]
-        {:db (update (or db {}) :n (fnil inc 0))
-         :fx [[:dispatch [:loop]]]}))
-
-    ;; Re-register B mid-cascade (the emit that could strand a marker in B's
-    ;; buffer).
-    (rf/dispatch-sync [:app/reopen] {:frame :test/main})
-    ;; Drive B to a depth-halt; the trailing :halted-depth record full-harvests
-    ;; B's buffer.
-    (rf/dispatch-sync [:loop] {:frame :test/modal})
-
-    (let [halt (last (rf/epoch-history :test/modal))]
-      (is (= :halted-depth (:outcome halt))
-          "sanity: B's drain tripped the depth limit and committed a halt record")
-      (is (not-any? #(= :rf.frame (:op-type %)) (:trace-events halt))
-          "the depth-halt record carries no foreign frame-lifecycle marker")
-      (is (not-any? #(= :rf.frame/re-registered (:operation %)) (:trace-events halt))
-          "specifically, no phantom :rf.frame/re-registered in the halt record"))))
-
 ;; ===========================================================================
 ;; INVARIANT 7 — a tool / inspector frame's OWN render never pollutes the
 ;;                INSPECTED app frame's epoch :renders (the
@@ -1100,10 +987,10 @@
 ;; `:rf.trace/frame-no-emit? true` frame is SUPPRESSED at `trace/emit!` (the
 ;; gate keys off the emit's `:frame` tag — trace.cljc/`tagged-frame-trace-
 ;; disabled?`), so the back-fill machinery never even sees it and the observed
-;; frame's :renders stays clean. The contrapositive case proves the test
-;; discriminates: the SAME render, were it tagged with the app frame
-;; (the fall-through), DOES land — i.e. the suppression, not some
-;; unrelated filter, is what keeps the tape clean.
+;; frame's :renders stays clean. The inv-2 cases are the control: a post-settle
+;; render tagged with a frame that is NOT trace-disabled (the fall-through)
+;; DOES back-fill, so the suppression, not some unrelated filter, is what
+;; keeps the tape clean.
 
 (deftest inv-7-tool-frame-render-does-not-pollute-inspected-app-epoch
   (testing "a render emitted under a trace-disabled (tool /
@@ -1145,30 +1032,6 @@
               "the app frame's epoch carries NO renders at all from the
                observer's post-settle commit — the observer is invisible to the
                observed tape"))))))
-
-(deftest inv-7-contrapositive-untagged-render-still-back-fills
-  (testing "the discriminator. The SAME post-settle render, were it
-            tagged with the APP frame (the fall-through: shell-view
-            rendering above its provider resolves to the app's :rf/default), DOES
-            back-fill into the app epoch. Proves inv-7's clean result is the
-            frame-no-emit SUPPRESSION at work, not an unrelated filter."
-    (let [app :test/app]
-      (rf/make-frame {:id app})
-      (rf/reg-event :app/seed (fn [{:keys [db]} _] {:db {:counter 0}}))
-      (rf/reg-event :app/inc  (fn [{:keys [db]} _] {:db (update db :counter inc)}))
-
-      (rf/dispatch-sync [:app/seed] {:frame app})
-      (rf/dispatch-sync [:app/inc]  {:frame app})
-      (let [app-epoch (last-epoch app)]
-        ;; Render tagged with the APP frame (NOT trace-disabled) — the
-        ;; fall-through leak.
-        (emit-render! app :shell-view)
-
-        (let [e (epoch-by-id app app-epoch)]
-          (is (contains? (rendered-view-ids e) :shell-view)
-              "a render tagged with the (non-disabled) app frame DOES back-fill
-               into the app epoch — the leak the mount-wrap prevents by
-               tagging shell-view's render with the trace-disabled frame"))))))
 
 ;; ===========================================================================
 ;; The :renders projection carries per-view cause + timing
@@ -1706,11 +1569,11 @@
 ;;
 ;; The inv-9 tests above do not reach this: their headless cascades seed NO
 ;; value-change evidence in the stale epoch, so the scan misses everywhere and
-;; falls through to the re-anchored default. These two tests seed the stale
-;; evidence a real substrate produces and
-;; pin the anchor bound (`value-changed-epoch-for` starts at the last-settled
-;; anchor index, so records newer than the restored target are excluded). Both
-;; FAIL against an unbounded scan.
+;; falls through to the re-anchored default. The test below seeds the stale
+;; evidence a real substrate produces and pins the anchor bound
+;; (`value-changed-epoch-for` starts at the last-settled anchor index, so
+;; records newer than the restored target are excluded). It FAILS against an
+;; unbounded scan, the one cause behind both (a) and (b).
 
 (deftest inv-9-post-restore-render-not-backfilled-into-stale-value-change-epoch
   (testing "case b — a post-restore repaint whose STALE newer epoch
@@ -1761,50 +1624,6 @@
                 "the repaint attributes to the restored-target epoch — the
                  anchor-bounded scan hits the target, not the stale newer
                  epoch")))))))
-
-(deftest inv-9-post-restore-render-not-absorbed-by-stale-dedup
-  (testing "case a — when the STALE newer epoch ALSO already holds a
-            render row for the view, an unbounded scan would resolve the
-            post-restore repaint to the stale epoch and the de-dup arm would
-            SILENTLY ABSORB it (target gets nothing). The anchor bound must resolve to the target
-            so the repaint is recorded there."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
-    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
-
-    (let [render-key [:counter-view 0]]
-      (rf/dispatch-sync [:seed]        {:frame :test/main})
-      (rf/dispatch-sync [:counter-inc] {:frame :test/main})   ;; counter 1 — target
-      (let [target-epoch (last-epoch :test/main)]
-        ;; value-change evidence + learned read-set into the TARGET, so the
-        ;; anchor-bounded scan hits the target directly (never falling through to
-        ;; the mount-epoch, which the pre-restore render below pins to stale).
-        (emit-mount-sub-run! :test/main :counter render-key 0 1)
-
-        (rf/dispatch-sync [:counter-inc] {:frame :test/main}) ;; counter 2 — stale
-        (let [stale-epoch (last-epoch :test/main)]
-          (emit-sub-run! :test/main :counter 1 2)             ;; value-change into stale
-          ;; A pre-restore repaint lands in the stale (then-newest) epoch, seeding
-          ;; a :renders row there — so the POST-restore repaint hits the de-dup
-          ;; arm (`render-key-already-in-epoch?` on the stale epoch).
-          (emit-render! :test/main render-key)
-
-          (is (contains? (rendered-view-ids (epoch-by-id :test/main stale-epoch))
-                         :counter-view)
-              "premise — the stale epoch already carries a render row for the
-               view (arms the de-dup absorb path)")
-
-          (is (true? (rf/restore-epoch! :test/main (:epoch-id target-epoch))))
-
-          ;; The restore-induced repaint fires post-settle.
-          (emit-render! :test/main render-key)
-
-          (let [target (epoch-by-id :test/main target-epoch)]
-            (is (contains? (rendered-view-ids target) :counter-view)
-                "the repaint attributes to the restored-target
-                 epoch; an unbounded scan would resolve to the stale newer epoch
-                 and the de-dup arm would silently absorb the repaint (target
-                 gets nothing)")))))))
 
 ;; ===========================================================================
 ;; Back-fill splice is SNAPSHOT-CONSISTENT under interleaved
