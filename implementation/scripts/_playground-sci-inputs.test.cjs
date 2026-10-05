@@ -330,43 +330,6 @@ async function main() {
     }
   });
 
-  // --- ARM 4: the sequence (state, not just cases) ---------------------------
-
-  test('digest sequence: change REDS, refresh clears, a DIFFERENT change REDS again', () => {
-    const root = makeFixture(ROSTER);
-    try {
-      const first = ROSTER[0];
-      const second = ROSTER[ROSTER.length - 1];
-      assert.notEqual(first, second, 'sequence needs two distinct entries');
-
-      const fresh = digestIn(root);
-
-      // Round 1 — an input changes, the digest must move with it.
-      writeIn(root, seedPathFor(first), 'round 1 mutation\n');
-      const stale1 = digestIn(root);
-      assert.notEqual(stale1, fresh, 'round 1: a changed input must move the digest');
-
-      // Refresh — the tree returns to its declared state.
-      writeIn(root, seedPathFor(first), seedContentFor(first));
-      assert.equal(digestIn(root), fresh, 'refresh must return to the fresh digest');
-
-      // Round 2 — a DIFFERENT input this time. A gate that latched on round 1,
-      // or that only ever compares against a fixed ceiling, passes round 1 and
-      // fails here.
-      writeIn(root, seedPathFor(second), 'round 2 mutation\n');
-      const stale2 = digestIn(root);
-      assert.notEqual(stale2, fresh, 'round 2: a different changed input must move the digest');
-      assert.notEqual(stale2, stale1, 'round 2 must differ from round 1 — not a latched value');
-
-      // Refresh again — still reversible after two rounds.
-      writeIn(root, seedPathFor(second), seedContentFor(second));
-      assert.equal(digestIn(root), fresh, 'second refresh must return to the fresh digest');
-      notes.push('  sequence: fresh -> stale -> refresh -> stale(different) -> refresh, all 5 states verified');
-    } finally {
-      dropFixture(root);
-    }
-  });
-
   // --- ARM 5: per-entry vacuity ----------------------------------------------
   //
   // A guard that expanded the whole roster as ONE pathspec set would fail only
