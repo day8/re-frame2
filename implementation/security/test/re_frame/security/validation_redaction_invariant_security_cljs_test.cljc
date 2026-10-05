@@ -87,7 +87,7 @@
 ;; reset fixture establishes no ambient scope, so the outer fixture below
 ;; pins `:rf/default` as the carried scope for the test body — the
 ;; carried-invariant equivalent of `(with-frame :rf/default …)`. Without it
-;; `app-db-validation-redacts-sensitive` raises `:rf.error/no-frame-context`
+;; the app-db row below raises `:rf.error/no-frame-context`
 ;; at `reg-app-schema`. Binding the dynamic var is sufficient: the scope
 ;; reader reads the var and `reg-app-schema` keys only the schemas
 ;; side-table — no registered frame / container needed (so no adapter, and
