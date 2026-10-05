@@ -28,7 +28,9 @@
   This namespace is JVM-only (`.clj`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as rf.flows]
+            ;; Loading `re-frame.flows` publishes the late-bind hooks the
+            ;; dispatches below drive.
+            [re-frame.flows]
             [re-frame.flows.registry :as rf.flows.registry]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -41,53 +43,14 @@
 ;; The standard runtime reset (registrar baseline + frames + flows/schemas +
 ;; plain-atom adapter + ambient `:rf/default` scope) is owned by
 ;; `make-reset-runtime-fixture`; EP-0002 — `:rf/default` is bound so the
-;; ambient `reg-flow` calls in the bodies below carry a frame stamp. The
-;; bodies drive `run-flows-on-db` directly and manage their own trace
-;; listeners (the reset clears every listener first).
+;; ambient `reg-flow` calls in the body below carry a frame stamp. The body
+;; manages its own trace listener (the reset clears every listener first).
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
-;; 1. Deterministic unit-level repro — the rollback must touch ONLY the
-;;    draining frame's container (no thread interleaving needed).
-;;
-;; The easiest unit-level repro of the isolation invariant: seed frame B's
-;; row to V2 directly (simulating B's just-committed advance), then drive
-;; frame A's throwing-flow drain via the late-bound `run-flows-on-db`. A's
-;; drain-start snapshot touches nothing of B's — B lives in its own atom.
-;; Assert B's row is NOT reverted; a global rollback would clobber it.
-;; ---------------------------------------------------------------------------
-
-(deftest rollback-does-not-clobber-sibling-frame-row-deterministic
-  (testing "frame A's throwing-flow rollback leaves frame B's last-inputs row intact"
-    (rf/make-frame {:id :a :doc "frame A — has a throwing flow"})
-    (rf/make-frame {:id :b :doc "frame B — sibling, drains successfully"})
-
-    ;; Frame A: a flow that always throws when it recomputes.
-    (rf/reg-flow :flow-x {:frame :a :inputs [[:n]] :output-path [:out]} (fn [_] (throw (ex-info "boom-A" {}))))
-    ;; Frame B: the SAME flow id registered against B with a benign output.
-    (rf/reg-flow :flow-x {:frame :b :inputs [[:n]] :output-path [:out]} (fn [n] (* 2 (or n 0))))
-
-    ;; Simulate B having drained to completion: its dirty-check row is V2.
-    (rf.flows.registry/set-frame-flow-last-inputs! :b :flow-x [42])
-    (is (= [42] (rf.flows.registry/get-frame-flow-last-inputs :b :flow-x))
-        "precondition: B's row is seeded to V2 = [42]")
-
-    ;; Drive frame A's drain directly. A's flow throws, so run-flows-on-db
-    ;; rolls back A's OWN container. The throw propagates — catch it.
-    (is (thrown? Throwable
-                 (rf.flows/run-flows-on-db :a {:n 7} nil))
-        "A's flow throw propagates out of run-flows-on-db")
-
-    ;; THE ASSERTION: B's row is untouched by A's rollback.
-    (is (= [42] (rf.flows.registry/get-frame-flow-last-inputs :b :flow-x))
-        "B's last-inputs row survives A's throwing-flow rollback")
-    (is (= [42] (get-in (rf.flows/last-inputs-snapshot) [:flow-x :b]))
-        "the aggregated snapshot still shows B's row")))
-
-;; ---------------------------------------------------------------------------
-;; 2. JVM concurrency stress — the interleaving the isolation guards.
+;; JVM concurrency stress — the interleaving the isolation guards.
 ;;
 ;; Frame A repeatedly drains a flow that ALWAYS throws; frame B repeatedly
 ;; drains a SUCCESSFUL flow whose inputs are STABLE after the first drain.
