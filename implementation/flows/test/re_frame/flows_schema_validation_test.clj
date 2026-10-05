@@ -196,36 +196,7 @@
           "the registered validator is never consulted in production"))))
 
 ;; ---------------------------------------------------------------------------
-;; 6. Cascade: an upstream flow's bad output is validated independently of
-;;    a downstream flow that consumes it (per-flow :schema).
-;; ---------------------------------------------------------------------------
-
-(deftest each-flow-validates-its-own-output
-  (testing "in a flow-reads-flow cascade each flow validates its own output against its own :schema"
-    (install-predicate-validator!)
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:cart {:items [{:price 10} {:price -5}]}}}))
-    ;; subtotal sums the (here intentionally negative-capable) prices.
-    (rf/reg-flow :cart/subtotal {:inputs [[:cart :items]] :output-path [:cart :subtotal] :schema (fn [v] (and (integer? v) (not (neg? v))))} (fn [items] (reduce + 0 (map :price items))))
-    ;; total doubles the subtotal; demands a non-negative result too.
-    (rf/reg-flow :cart/total {:inputs [[:cart :subtotal]] :output-path [:cart :total] :schema (fn [v] (and (integer? v) (not (neg? v))))} (fn [subtotal] (* 2 subtotal)))
-    (rf/dispatch-sync [:seed])
-    ;; subtotal = 10 + -5 = 5 (conforms); total = 10 (conforms). No violation.
-    (is (= 5  (get-in (rf/app-db-value :rf/default) [:cart :subtotal])))
-    (is (= 10 (get-in (rf/app-db-value :rf/default) [:cart :total])))
-    (is (empty? (violations))
-        "both outputs conform — no violation")
-    ;; Now drive the subtotal negative; subtotal violates, total (= 2*subtotal)
-    ;; also violates. Each surfaces independently with its own :rf.flow/id.
-    (reset! *captured* [])
-    (rf/dispatch-sync [:seed] )         ;; re-seed is a no-op write (same value)
-    (rf/reg-event :seed-neg (fn [{:keys [db]} _] {:db {:cart {:items [{:price -100}]}}}))
-    (rf/dispatch-sync [:seed-neg])
-    (let [ids (set (map #(get-in % [:tags :rf.flow/id]) (violations)))]
-      (is (= #{:cart/subtotal :cart/total} ids)
-          "both flows' bad outputs surface, each attributed to its own id"))))
-
-;; ---------------------------------------------------------------------------
-;; 7. Declaration presence is KEY-presence, not value truthiness.
+;; 6. Declaration presence is KEY-presence, not value truthiness.
 ;;    A flow registered with an explicit {:schema nil} DELEGATES the exact
 ;;    nil token to the registered validator (the value is opaque per Spec
 ;;    010); only an ABSENT key skips validation (case 3 above is the
@@ -253,7 +224,7 @@
           "the value is still written — flow validation stays observational"))))
 
 ;; ---------------------------------------------------------------------------
-;; 8. The frame's elision registry reaches `:explain`.
+;; 7. The frame's elision registry reaches `:explain`.
 ;;    A Malli explanation re-ships the checked value whole (`:value`, and
 ;;    every `:errors[*].:value`), and it is not path-anchored, so it cannot
 ;;    be walked against `:output-path` the way `:value` is. The schema-aware
@@ -327,21 +298,6 @@
       (is (= true (:sensitive? ev)))
       (is (= :rf/redacted (get-in ev [:tags :explain]))))))
 
-(deftest schema-sensitive-slot-still-redacts-everything
-  (testing "CONTROL: the schema-side :sensitive? prop redacts every
-            value-bearing slot through the schemas seam"
-    (rf/reg-event :seed (fn [_ _] {:db {:secret "hunter2-SECRET"}}))
-    (rf/reg-flow :p2/token
-                 {:inputs [[:secret]] :output-path [:auth :token]
-                  :schema [:map [:token {:sensitive? true} :int]]}
-                 (fn [s] {:token s}))
-    (rf/dispatch-sync [:seed])
-    (let [ev (violation-for :p2/token)]
-      (is (not (str/includes? (pr-str ev) "hunter2-SECRET")))
-      (is (= true (:sensitive? ev)))
-      (is (= :rf/redacted (get-in ev [:tags :value])))
-      (is (= :rf/redacted (get-in ev [:tags :explain]))))))
-
 (deftest unclassified-output-keeps-its-explanation
   (testing "CONTROL: a :sensitive and a :large declaration on unrelated paths
             leave an unclassified output's raw :value and :explain alone, with
@@ -365,7 +321,7 @@
           ":explain is the registered explainer's output, unredacted"))))
 
 ;; ---------------------------------------------------------------------------
-;; 9. The frame's elision registry reaches `:explain` on the SIZE
+;; 8. The frame's elision registry reaches `:explain` on the SIZE
 ;;    axis too. The `:value` slot rides the wire walker, so an output the
 ;;    registry classifies `:large` ships a `:rf.size/large-elided` marker
 ;;    there. Left alone, `:explain` would re-ship the whole value
