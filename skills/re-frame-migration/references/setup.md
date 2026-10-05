@@ -1,6 +1,6 @@
 # setup
 
-Operational detail for **M-0 — the dep-coord swap**, the precondition for every other rule. Clear the [React-19 / Reagent-2 floor gate](floor-gate.md) first; then apply the coord swap; then verify the project compiles; *then* sweep for breakage.
+Operational detail for **M-0 — the dep-coord swap**, the precondition for every other rule. Clear the [React-19 / Reagent-2 floor gate](floor-gate.md) first; then apply the coord swap and the plan's approved forced blocker fixes, and prove the classpath clean; then make one diagnostic compile attempt; *then* sweep for breakage. That attempt need not pass — [`sequencing.md` §The first compile](sequencing.md#the-first-compile) is the contract.
 
 ## Contents
 
@@ -250,4 +250,4 @@ Only once the check shows a single source of `re-frame.core` (v2) is it safe to 
 
 ---
 
-**Stop after M-0.** Do not start sweeping for other M-rules until you've tried a compile and seen what — if anything — breaks. The expected result for most codebases is that the dep swap is the entire migration. Verify that before sweeping.
+**Stop and compile after M-0.** Once the classpath check passes and the plan's approved forced blocker fixes are in, make the first compile attempt before starting the rule sweep, and read what — if anything — breaks. For most codebases the dep swap does most of the work, and the attempt shows how much is left. It need not pass: a failure holds only the rows its errors touch, and the planned sweep proceeds ([`sequencing.md` §The first compile](sequencing.md#the-first-compile)).

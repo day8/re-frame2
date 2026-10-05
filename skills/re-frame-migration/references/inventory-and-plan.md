@@ -1,6 +1,6 @@
 # inventory-and-plan
 
-Phase 0a — the **inventory-and-plan pre-flight**. Run it **before** any dep edit, before any compile, before the React-19 floor gate (Phase 0b) and M-0 (Phase 2). The output is a single written table: every v1 re-frame add-on library and every v1 re-frame feature the app uses, each mapped to its disposition + the rule(s) that govern it + whether acting is forced or optional. The migrator then acts in **one planned sweep** instead of marching the wall.
+Phase 0a — the **inventory-and-plan pre-flight**. Run it **before** any dep edit, before any compile, before the React-19 floor gate (Phase 0b) and M-0 (Phase 2). It is read-only: it reads the dependency tree and source and searches with `rg`, and it rewrites nothing and builds nothing. The output is a single written table: every v1 re-frame add-on library and every v1 re-frame feature the app uses, each mapped to its disposition + the rule(s) that govern it + whether acting is forced or optional. The migrator then acts in **one planned sweep** instead of marching the wall.
 
 ## Why a complete inventory comes first
 
@@ -138,4 +138,4 @@ The whole point is the difference between *"I scanned for the surfaces I found"*
 
 ## What the plan unblocks
 
-With the table in hand the migrator runs M-0 + the React-19 bump, applies every **forced** PATCH/DROP/CONVERT in one sweep, and only then compiles. The expected result is the compile passes (or surfaces only genuinely-novel breakage) instead of marching one broken namespace at a time. The plan also becomes the spine of the Phase-6 report — every disposition is already written down.
+With the table in hand the migrator runs M-0 + the React-19 bump, applies every **forced** row whose disposition is settled (PATCH, DROP, CONVERT, FIX-IN-PLACE …), and then makes the first compile attempt; the rest of the plan is swept after it, whether or not it passes ([`sequencing.md` §The first compile](sequencing.md#the-first-compile)). The expected result is an attempt that passes or surfaces only genuinely-novel breakage, instead of marching one broken namespace at a time. The plan also becomes the spine of the Phase-6 report — every disposition is already written down.
