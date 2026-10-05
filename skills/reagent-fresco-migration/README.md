@@ -1,4 +1,4 @@
-# reagent-migration
+# reagent-fresco-migration
 
 > ↑ [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) — index of all re-frame2 skills.
 
@@ -56,7 +56,7 @@ Pre-alpha, like the view layer it migrates to. The skill is authored; it has not
 ## Layout
 
 ```
-skills/reagent-migration/
+skills/reagent-fresco-migration/
 ├── SKILL.md
 ├── README.md
 ├── LICENSE
@@ -82,13 +82,13 @@ skills/reagent-migration/
     └── authoring-prompt.md    # one-shot reauthor prompt
 ```
 
-`evals/`, `spec/` and `tests/` are all outside the distributable skill package (`package.json` `files` omits them); a packaged consumer runs the skill, they do not re-run its gates. `evals/` and `spec/` are authoring-time scaffolding — the skill's own design docs and eval fixtures. `tests/fixture/` is executable evidence: a standalone shadow-cljs project that runs [`ssr-hydrate.md`](references/ssr-hydrate.md)'s MIG-23 SSR-then-hydrate recipe against the shipped core, ssr, fresco and Reagent-adapter artefacts in one fresh Node process, as the required `reagent-migration-fixture-cold-start` CI job. It is maintained with the recipe, not regenerated with the skill; reach its own `README.md` from a monorepo clone.
+`evals/`, `spec/` and `tests/` are all outside the distributable skill package (`package.json` `files` omits them); a packaged consumer runs the skill, they do not re-run its gates. `evals/` and `spec/` are authoring-time scaffolding — the skill's own design docs and eval fixtures. `tests/fixture/` is executable evidence: a standalone shadow-cljs project that runs [`ssr-hydrate.md`](references/ssr-hydrate.md)'s MIG-23 SSR-then-hydrate recipe against the shipped core, ssr, fresco and Reagent-adapter artefacts in one fresh Node process, as the required `reagent-fresco-migration-fixture-cold-start` CI job. It is maintained with the recipe, not regenerated with the skill; reach its own `README.md` from a monorepo clone.
 
-This skill also has a published **mirror page** outside this tree, at [`docs/skills/reagent-migration.md`](https://github.com/day8/re-frame2/blob/main/docs/skills/reagent-migration.md). It is an entry ramp and carries no leaf roster and no copied procedure, so a leaf change never reaches it. Nothing reconciles the two, so a rewrite of this skill's *purpose or kickoff* still has to carry the mirror by hand or it silently goes stale.
+This skill also has a published **mirror page** outside this tree, at [`docs/skills/reagent-fresco-migration.md`](https://github.com/day8/re-frame2/blob/main/docs/skills/reagent-fresco-migration.md). It is an entry ramp and carries no leaf roster and no copied procedure, so a leaf change never reaches it. Nothing reconciles the two, so a rewrite of this skill's *purpose or kickoff* still has to carry the mirror by hand or it silently goes stale.
 
 ## Install
 
-`reagent-migration` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. Link the skill from a full monorepo clone into `~/.claude/skills/` (the repo-root `scripts/install-skills.sh` / `scripts/install-skills.ps1` link every skill at once). Link, never copy — a `cp -r` snapshot drifts from the maintained source. The `package.json` + `.claude-plugin/plugin.json` packaging metadata names no live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest (`plugin.json` carries `"status": "pre-alpha"`).
+`reagent-fresco-migration` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. Link the skill from a full monorepo clone into `~/.claude/skills/` (the repo-root `scripts/install-skills.sh` / `scripts/install-skills.ps1` link every skill at once). Link, never copy — a `cp -r` snapshot drifts from the maintained source. The `package.json` + `.claude-plugin/plugin.json` packaging metadata names no live channel: the `package.json` is marked `private`, and the repo carries no plugin marketplace manifest (`plugin.json` carries `"status": "pre-alpha"`).
 
 ## Source of truth
 
