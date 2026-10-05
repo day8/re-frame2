@@ -18,9 +18,6 @@
 
 const { encode } = require('../observations.cjs');
 
-/** Object identities this isolate has already been handed. */
-const seen = new WeakSet();
-
 /** Live renders in this isolate, and the high-water mark. Guarantee 3. */
 let inFlight = 0;
 let overlapMax = 0;
@@ -45,9 +42,6 @@ globalThis[BOOTS] ??= 0;
 // `runtime` defaults for the in-process CONTROLS that call `render`
 // directly with a state-only call; through the service it always arrives.
 function observe({ entry, state, runtime = {}, args }) {
-  const seenBefore = seen.has(state);
-  seen.add(state);
-
   let mutationThrew = false;
   try {
     // The snapshot is frozen; in strict mode this throws.
@@ -59,7 +53,6 @@ function observe({ entry, state, runtime = {}, args }) {
   return {
     entry,
     args: args ?? null,
-    seenBefore,
     frozen: Object.isFrozen(state),
     mutationThrew,
     // What the module actually READ — so a test can prove one request
