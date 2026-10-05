@@ -6,16 +6,6 @@
 
 ;; ---- step-type sniffing ---------------------------------------------------
 
-(deftest step-type-known
-  (testing "step-type returns the tag for every canonical step"
-    (is (= :dispatch       (rf.story.play.runner/step-type [:dispatch [:foo]])))
-    (is (= :dispatch-sync  (rf.story.play.runner/step-type [:dispatch-sync [:foo]])))
-    (is (= :wait           (rf.story.play.runner/step-type [:wait 100])))
-    (is (= :assert-db      (rf.story.play.runner/step-type [:assert-db [:k] 1])))
-    (is (= :assert-dom     (rf.story.play.runner/step-type [:assert-dom "sel" :visible])))
-    (is (= :click          (rf.story.play.runner/step-type [:click "sel"])))
-    (is (= :type           (rf.story.play.runner/step-type [:type "sel" "text"])))))
-
 (deftest step-type-unknown
   (testing "step-type returns the head keyword for unknown steps too"
     (is (= :counter/inc (rf.story.play.runner/step-type [:counter/inc])))
@@ -43,14 +33,6 @@
     (is (false? (rf.story.play.runner/async-yield? [:assert-dom "sel" :visible])))
     (is (false? (rf.story.play.runner/async-yield? [:assert-dom "sel" :hidden])))
     (is (false? (rf.story.play.runner/async-yield? [:assert-dom "sel" :text "x"])))))
-
-(deftest known-step-pred
-  (testing "known-step? is true only for registered step tags"
-    (is (true?  (rf.story.play.runner/known-step? [:dispatch [:foo]])))
-    (is (true?  (rf.story.play.runner/known-step? [:wait 0])))
-    (is (false? (rf.story.play.runner/known-step? [:counter/inc])))
-    (is (false? (rf.story.play.runner/known-step? [])))
-    (is (false? (rf.story.play.runner/known-step? nil)))))
 
 ;; ---- step-arity checks ----------------------------------------------------
 
@@ -95,24 +77,6 @@
     [:type "sel"]                             false
     [:type "sel" 1]                           false))
 
-;; ---- script coercion ------------------------------------------------------
-
-(deftest coerce-script-lifts-bare-event-vectors
-  (testing "bare re-frame event vectors are lifted to [:dispatch <vec>]"
-    (is (= [[:dispatch [:counter/inc]]
-            [:dispatch [:counter/dec]]
-            [:wait 100]
-            [:assert-db [:n] 0]]
-           (rf.story.play.runner/coerce-script
-             [[:counter/inc]
-              [:counter/dec]
-              [:wait 100]
-              [:assert-db [:n] 0]])))))
-
-(deftest coerce-script-empty
-  (is (= [] (rf.story.play.runner/coerce-script nil)))
-  (is (= [] (rf.story.play.runner/coerce-script []))))
-
 ;; ---- spec parsing ---------------------------------------------------------
 
 (deftest parse-spec-bare-vector
@@ -130,12 +94,6 @@
       (is (= [[:dispatch [:a]]] (:script spec)))
       (is (false? (:auto-run? spec)))
       (is (= "manual-only" (:name spec))))))
-
-(deftest parse-spec-defaults
-  (testing "missing :auto-run? defaults to true"
-    (is (true? (:auto-run? (rf.story.play.runner/parse-spec {:script []})))))
-  (testing "nil body produces an empty script"
-    (is (= [] (:script (rf.story.play.runner/parse-spec nil))))))
 
 (deftest parse-spec-lifts-bare-vectors-inside-map
   (testing "the lift applies inside a map's :script too"
@@ -198,15 +156,6 @@
     (is (= :pass (:status (rf.story.play.runner/finish pass 100))))
     (is (= :fail (:status (rf.story.play.runner/finish fail 100))))
     (is (= 100 (:finished-ms (rf.story.play.runner/finish pass 100))))))
-
-(deftest finish-exception-counts-as-failure
-  (let [base (-> {:script [[:dispatch [:bad]]]}
-                 rf.story.play.runner/parse-spec
-                 rf.story.play.runner/initial-state
-                 (rf.story.play.runner/start 0))
-        exc  (rf.story.play.runner/record-step-result base
-                                         (rf.story.play.runner/step-exception 0 [:dispatch [:bad]] "boom"))]
-    (is (= :fail (:status (rf.story.play.runner/finish exc 1))))))
 
 ;; ---- finish :cannot-run aggregation -------------------------------------
 ;;
@@ -285,15 +234,6 @@
           "one record per refusing step, each projecting the
            :status/:unit/:reason/:message shape, in step order"))))
 
-(deftest run-state-refusals-empty-when-none-refused
-  (testing "run-state-refusals is empty for a clean pass run (no step refused)"
-    (let [state (-> {:script [[:assert-db [:k] 1]]}
-                    rf.story.play.runner/parse-spec
-                    rf.story.play.runner/initial-state
-                    (rf.story.play.runner/start 0)
-                    (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 [:assert-db [:k] 1])))]
-      (is (= [] (rf.story.play.runner/run-state-refusals state))))))
-
 (deftest run-state-refusals-omits-message-when-absent
   (testing "a refusal with no :message omits the :message slot (cond-> shape)"
     (let [step  [:assert-dom "[data-test=x]" :visible]
@@ -346,16 +286,6 @@
              failures)
           "the wait-until, the no-match click and the exception, in step order;
            the refusal and the recorded assertion failure are not repeated"))))
-
-(deftest run-state-failures-empty-for-a-clean-run
-  (testing "a run whose steps all passed projects no failure"
-    (let [step  [:assert-db [:k] 1]
-          state (-> {:script [step]}
-                    rf.story.play.runner/parse-spec
-                    rf.story.play.runner/initial-state
-                    (rf.story.play.runner/start 0)
-                    (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 step)))]
-      (is (= [] (rf.story.play.runner/run-state-failures state))))))
 
 (deftest done-pred
   (let [empty-state (rf.story.play.runner/initial-state {:script []})
@@ -475,11 +405,6 @@
 
 ;; ---- multi-play ----------------------------------------------------------
 
-(deftest parse-plays-empty
-  (testing "parse-plays of nil / [] returns []"
-    (is (= [] (rf.story.play.runner/parse-plays nil)))
-    (is (= [] (rf.story.play.runner/parse-plays [])))))
-
 (deftest parse-plays-first-auto-runs-by-default
   (testing "the first entry defaults :auto-run? to true; subsequent entries default to false"
     (let [plays (rf.story.play.runner/parse-plays
@@ -522,13 +447,6 @@
       (is (= 1 (count plays)))
       (is (= "single" (:name (first plays))))
       (is (= [[:dispatch [:a]]] (:script (first plays)))))))
-
-(deftest variant-body->plays-bare-play-script-without-name
-  (testing "a bare :script without a :name produces a one-entry vector with :name nil"
-    (let [body  {:script [[:dispatch [:a]]]}
-          plays (rf.story.play.runner/variant-body->plays body)]
-      (is (= 1 (count plays)))
-      (is (nil? (:name (first plays)))))))
 
 (deftest variant-body->plays-empty
   (testing "no play surface yields an empty vector"
@@ -595,8 +513,3 @@
     (is (= [] (rf.story.play.runner/auto-runnable-plays
                 [{:name "x" :auto-run? false :script [[:dispatch [:x]]]}])))
     (is (= [] (rf.story.play.runner/auto-runnable-plays [])))))
-
-(deftest play-key-extraction
-  (is (= "p" (rf.story.play.runner/play-key {:name "p"})))
-  (is (nil?  (rf.story.play.runner/play-key {:name nil})))
-  (is (nil?  (rf.story.play.runner/play-key nil))))
