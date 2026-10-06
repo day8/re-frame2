@@ -68,8 +68,10 @@ contributes no edge. Dynamic query args pass through: `(h/sub [:item id])`.
 
 Two shapes are *not* this rule. A `subscribe` that is *stored* rather than
 deref'd is derived state (MIG-19). A read that runs **after** the render — in a
-callback, a timer, a foreign listener — is MIG-26: hoist it to render time and
-close over the value.
+callback, a timer, a foreign listener — is MIG-26, which routes it by what runs
+it: a hoisted value or a snapshot when the callback renders nothing, and a
+registered view that owns the read when its result renders as a retained
+Reagent tree.
 
 There is no grouped-read form. A view reading several subscriptions is several
 `h/sub` calls, one per read site — that is the whole translation.
