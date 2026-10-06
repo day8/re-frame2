@@ -120,9 +120,9 @@
   (filterv #(and (string? %) (re-find pattern %)) messages))
 
 ;; The two diagnostics this file guards. `invalid-element-type-re` is what
-;; React raises when handed a `MetaFn`. `hook-boundary-re` covers the other
-;; failure: a head that mounts but owns no genuine React component boundary
-;; makes every hook below it an invalid call.
+;; React raises when the head it is handed is not a valid element type.
+;; `hook-boundary-re` covers the other failure: a head that mounts but owns no
+;; genuine React component boundary makes every hook below it an invalid call.
 (def ^:private invalid-element-type-re #"(?i)element type is invalid|not a valid (react )?(element|component)")
 (def ^:private hook-boundary-re        #"(?i)invalid hook call|hooks can only be called|rendered more hooks|order of Hooks")
 

@@ -2476,16 +2476,6 @@
           ;; developer one identifier; `(str id)` would keep a keyword's colon
           ;; and so publish a second spelling.
           ;;
-          ;; This stamp is NOT redundant behind the outer `views.cljs` one.
-          ;; That wrapper is `(with-meta (fn …) {:contextType …})`, and
-          ;; `cljs.core/with-meta` on a fn yields a `MetaFn` — an IFn, not a
-          ;; JS function — so React cannot use it as an element type. Reagent
-          ;; converts it (its class machinery reads `.-displayName` off the
-          ;; input and forwards it); a React-hook substrate has no such
-          ;; conversion, so the component head it mounts is THIS fn, and this
-          ;; is the stamp React DevTools reads. `wrap-view` is published for
-          ;; exactly that use (`re-frame.adapter.uix/wrap-view`).
-          ;;
           ;; The assignment sits inside the `rf.interop/debug-enabled?` arm so the
           ;; name and the assignment elide in production builds.
           (set! (.-displayName ^js wrapped) (rf.performance/entry-id id))
@@ -2494,16 +2484,17 @@
 
 ;; ---- registered-view component head — substrate-agnostic CORE -------------
 ;;
-;; `views/reg-view*` composes its wrappers and hands back
-;; `(with-meta (fn frame-aware-view …) {:contextType frame-context})`. On
-;; Reagent that MetaFn IS the right head: Reagent's create-class / fn-to-class
-;; machinery reads the `:contextType` meta for the React static field and
-;; converts the IFn into a component type. A React-hook substrate has no such
-;; conversion — `cljs.core/with-meta` on a fn yields a `MetaFn` OBJECT, which
-;; `React.createElement` rejects as an element type — so `(rf/view id)`, the
-;; value the public docs advertise as a UIx component head, could not be
-;; mounted at all. Coverage that mounts it only through a hand-written host
-;; component that INVOKES it proves teardown below that workaround rather
+;; `views/reg-view*` composes its wrappers into `frame-aware-view`, a JS
+;; function carrying `{:contextType frame-context}` as its Clojure metadata.
+;; On Reagent that function IS the right head: Reagent's create-class /
+;; fn-to-class machinery reads the `:contextType` meta for the React static
+;; field and converts the fn into a component type. A React-hook substrate has
+;; no such conversion, so React would mount the bare wrapper as an ordinary
+;; function component carrying none of the substrate's own component marker,
+;; and `(rf/view id)`, the value the public docs advertise as a UIx component
+;; head, would reach the registered view through the substrate's
+;; props-CONVERTING path. Coverage that mounts it only through a hand-written
+;; host component that INVOKES it proves teardown below that workaround rather
 ;; than the advertised head.
 ;;
 ;; Seam placement mirrors the `frame-provider` split above, for the same
@@ -2513,9 +2504,9 @@
 ;; mount, forwarding to the composed wrapper — and each adapter stamps it with
 ;; its own substrate's component marker so `$` routes props through the
 ;; LOSSLESS channel (UIx's `argv`) rather than converting them to JS props and
-;; dropping keyword namespaces. Merely stripping the meta would produce a
-;; mountable head on the CONVERTING path, which is the silent-mangling class
-;; the provider seam closes.
+;; dropping keyword namespaces. The bare wrapper mounts too, but on the
+;; CONVERTING path, which is the silent-mangling class the provider seam
+;; closes.
 
 (defn- react-props?
   "True when `x` is the props OBJECT React passes a function component, and
@@ -3804,8 +3795,8 @@
 ;;     `(rf/view id)` is directly usable as a `$` / createElement component
 ;;     type and its props reach the registered view through the substrate's
 ;;     lossless channel. Not published by Reagent, whose class machinery
-;;     already converts the `:contextType` MetaFn; the absent-hook fallback
-;;     in `views/reg-view*` keeps that head unchanged.
+;;     already converts the `:contextType`-carrying wrapper; the absent-hook
+;;     fallback in `views/reg-view*` keeps that head unchanged.
 ;;   :adapter/wrap-view — substrate-side source-coord injection
 ;;     via React.cloneElement (the views.cljs inline hiccup-walk would
 ;;     mis-classify React-element output as a non-DOM root). Production-
