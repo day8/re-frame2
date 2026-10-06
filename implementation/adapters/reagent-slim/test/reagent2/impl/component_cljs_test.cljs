@@ -4,7 +4,6 @@
   Per IMPL-SPEC §5 + §6 + §12.1 + §12.5 R-002 + R-003. Covers:
 
     - Form-1/Form-2/Form-3 detection (runtime path).
-    - Compile-time form-tag fast path (the reg-view fold).
     - 7-key cap enforcement: out-of-cap keys throw
       :rf.error/create-class-key-unsupported.
     - Lifecycle key -> React lifecycle method mapping.
@@ -146,65 +145,6 @@
     (let [outer (fn [_a _b _c] (fn [a b c] [:i a b c]))
           c     (fake-instance [outer 1 2 3])]
       (is (= [:i 1 2 3] (component/wrap-render c outer))))))
-
-;; ---------------------------------------------------------------------------
-;; Compile-time form-tag fast path (the reg-view fold)
-;;
-;; The runtime cond covers correctness for any fn. The fast path lets
-;; reg-view's expansion stamp `^{:reagent2/form ...}` meta and skip
-;; the cond. We exercise both positive (tag matches) and negative
-;; (no tag → cond runs) cases.
-;; ---------------------------------------------------------------------------
-
-(deftest wrap-render-form-1-tag-fast-path
-  (testing "render-fn with :reagent2/form-1 meta dispatches without classification"
-    (let [render-fn (with-meta (fn [n] [:tag/form-1 n])
-                               {:reagent2/form :reagent2/form-1})
-          c         (fake-instance [render-fn 42])]
-      (is (= [:tag/form-1 42] (component/wrap-render c render-fn))))))
-
-(deftest wrap-render-form-1-tag-returning-fn-recalls-as-form-2
-  (testing "a render-fn TAGGED :reagent2/form-1 whose body returns a FN (the
-  idiomatic `(let [s (r/atom 0)] (fn [] …))` stateful Form-2 shape that
-  classify-form-body mis-tags Form-1, since its last form is a `let`) is
-  recalled as Form-2 — wrap-render must return the inner fn's HICCUP, not the
-  bare function (React rejects a function as a child)"
-    (let [setup-calls  (atom 0)
-          render-calls (atom 0)
-          render-fn (with-meta
-                      (fn [n0]
-                        (swap! setup-calls inc)
-                        (let [local n0]
-                          (fn [n]
-                            (swap! render-calls inc)
-                            [:tag/form-1-fn (+ local n)])))
-                      {:reagent2/form :reagent2/form-1})
-          c (fake-instance [render-fn 10])]
-      (let [out (component/wrap-render c render-fn)]
-        (is (vector? out) "returns hiccup, not a bare function")
-        (is (not (fn? out)))
-        (is (= [:tag/form-1-fn 20] out))
-        (is (= 1 @setup-calls))
-        (is (= 1 @render-calls)))
-      ;; Inner fn now cached — a subsequent render hits the Form-2 hot path.
-      (set! (.-cljsArgv c) [render-fn 5])
-      (is (= [:tag/form-1-fn 15] (component/wrap-render c render-fn)))
-      (is (= 1 @setup-calls) "outer NOT re-run — inner cached like any Form-2"))))
-
-(deftest wrap-render-form-2-tag-fast-path
-  (testing "render-fn with :reagent2/form-2 meta dispatches without classification"
-    (let [setup-calls (atom 0)
-          render-fn   (with-meta
-                        (fn [_n0]
-                          (swap! setup-calls inc)
-                          (fn [n] [:tag/form-2 n]))
-                        {:reagent2/form :reagent2/form-2})
-          c           (fake-instance [render-fn 1])]
-      (is (= [:tag/form-2 1] (component/wrap-render c render-fn)))
-      (set! (.-cljsArgv c) [render-fn 2])
-      (is (= [:tag/form-2 2] (component/wrap-render c render-fn)))
-      (is (= 1 @setup-calls)
-          "outer ran once; cached inner serviced the second render"))))
 
 ;; ---------------------------------------------------------------------------
 ;; create-class produces a working React class

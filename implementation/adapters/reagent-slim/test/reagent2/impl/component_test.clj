@@ -1,45 +1,13 @@
 (ns reagent2.impl.component-test
-  "JVM-side tests for the compile-time form-classification helpers in
-  reagent2.impl.component.
-
-  The helper is a pure CLJ fn (`classify-form-body`) consumed by
-  `re-frame.core/expand-reg-view` via `requiring-resolve`. The fold
-  sits in the canonical `reg-view` macro — there is no separate
-  `defview` macro.
+  "JVM-side pin that reagent-slim detects a view's shape only at render
+  time, in `reagent2.impl.component/wrap-render`.
 
   These tests run on the JVM. The CLJS-side runtime tests for
   wrap-render / create-class* / fn-to-class live in
   reagent2/impl/component_cljs_test.cljs."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk]
-            [reagent2.impl.component :as component]
             [re-frame.core :as rf]))
-
-;; ---------------------------------------------------------------------------
-;; classify-form-body — Form-1 / Form-2 detection at compile time
-;; ---------------------------------------------------------------------------
-
-(deftest classify-form-body-classifies-by-the-literal-last-form
-  (doseq [[why body expected]
-          [["a body returning a hiccup vector is Form-1"
-            '([:p "x"])                                  :reagent2/form-1]
-           ["several body expressions whose last is hiccup is Form-1"
-            '((let [x 1] nil) [:p :y])                   :reagent2/form-1]
-           ["a body whose last form is a literal (fn ...) is Form-2"
-            '((fn [n] [:p n]))                           :reagent2/form-2]
-           ["fn*, the desugared form, is recognised too"
-            '((fn* [n] [:p n]))                          :reagent2/form-2]
-           ["setup expressions before the inner fn leave it Form-2"
-            '((let [setup-state (atom 0)] nil)
-              (fn [n] [:p n]))                           :reagent2/form-2]
-           ;; The runtime fn? check in wrap-render handles this shape; the
-           ;; compile-time classifier is conservative.
-           ["a non-literal last form (a let returning a fn) is Form-1"
-            '((let [f (fn [n] [:p n])] f))               :reagent2/form-1]
-           ["an empty body is Form-1 (degenerate)"
-            '()                                          :reagent2/form-1]]]
-    (testing why
-      (is (= expected (component/classify-form-body body))))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-view's expansion is the same with reagent-slim on the classpath

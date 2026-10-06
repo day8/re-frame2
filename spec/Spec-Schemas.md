@@ -468,12 +468,11 @@ The metadata map accepted by `reg-view` / `reg-view*` (the stock-Reagent compati
   [:merge
    RegistrationMetadata
    [:map
-    [:reagent2/form {:optional true} [:enum :reagent2/form-1 :reagent2/form-2]] ;; compile-time Reagent form-shape tag; stamped by the `reg-view` macro ONLY when reagent-slim is on the classpath (an additive perf hint — the runtime detection in `reagent2.impl.component/wrap-render` is the load-bearing path). Absent on UIx builds and on the `reg-view*` plain-fn surface. Form classification is binary — there is no `:reagent2/form-3`.
     [:rf/props      {:optional true} :any]                                     ;; Malli schema for the view's props (when the author attaches it as symbol metadata, e.g. `^{:rf/props S}`); the canonical props-schema slot, resolved first-match over `[:rf/props :schema]` (not composed — `:rf/props` wins outright over `:schema` for the view-args boundary) per [010](010-Schemas.md)
     ]])
 ```
 
-`:reagent2/form` is stamped by the `reg-view` macro at expansion time *only when reagent-slim is on the classpath* — `expand-reg-view` classifies the body via `reagent2.impl.component/classify-form-body` (`requiring-resolve`d, so core carries no static reagent-slim dep) and stamps `{:reagent2/form :reagent2/form-1|:reagent2/form-2}` onto the slot. UIx-only builds and the `reg-view*` plain-fn surface stamp no form tag. `:rf/props` is an optional user-supplied props schema (attached as symbol metadata and surviving into the slot); in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
+`:rf/props` is an optional user-supplied props schema (attached as symbol metadata and surviving into the slot); in dynamic hosts the framework can validate props against it at render-time-boundary in dev builds (per [010](010-Schemas.md)).
 
 **Note — `:schema` is canonical.** Both Story and the framework read the `:schema` key (there is no `:spec` alias). See [MIGRATION §M-54](../migration/from-re-frame-v1/README.md#m-54-schema-vocabulary-unification--spec--schema) for the v1→v2 rename.
 

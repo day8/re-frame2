@@ -255,10 +255,10 @@
       (finally
         (.componentWillUnmount inst)))))
 
-(deftest untagged-component-sequence-output-renders-siblings-rf2-fzbj-30
-  (testing "an untagged component returning a list renders sibling
-            children through the runtime classification path — keyed
-            elements, an empty sequence and text siblings alike"
+(deftest component-sequence-output-renders-siblings-rf2-fzbj-30
+  (testing "a component returning a list renders sibling children
+            through the runtime classification path — keyed elements, an
+            empty sequence and text siblings alike"
     (is (= "<span>a</span><span>b</span>" (static-markup [seq-rows]))
         "keyed element siblings, with no wrapper element")
     (is (= "<div></div>" (static-markup [:div [seq-empty]]))
@@ -272,20 +272,17 @@
           "each child keeps its :key"))))
 
 (deftest sequence-output-agrees-across-form-shapes-rf2-fzbj-30
-  (testing "controls: a tagged Form-1, a Form-2 inner renderer and a direct
-            as-element of the same sequence render the same siblings, and a
-            hiccup vector still means ONE element"
-    (let [tagged-form-1 (with-meta (fn [] (seq-rows)) {:reagent2/form :reagent2/form-1})
-          form-2        (fn [] (fn [] (seq-rows)))
+  (testing "controls: a Form-2 inner renderer and a direct as-element of
+            the same sequence render the same siblings, and a hiccup
+            vector still means ONE element"
+    (let [form-2        (fn [] (fn [] (seq-rows)))
           vector-form-1 (fn [] [:span "one"])]
-      (is (= "<span>a</span><span>b</span>" (static-markup [tagged-form-1]))
-          "compile-time-tagged Form-1")
       (is (= "<span>a</span><span>b</span>" (static-markup [form-2]))
           "Form-2 inner renderer")
       (is (= "<span>a</span><span>b</span>" (static-markup (seq-rows)))
           "direct as-element of the sequence")
       (is (= "<span>one</span>" (static-markup [vector-form-1]))
-          "an untagged component returning a hiccup vector still renders one element"))))
+          "a component returning a hiccup vector still renders one element"))))
 
 ;; ---------------------------------------------------------------------------
 ;; warn-once-keyword-prop! — one-shot DEBUG warning contract
