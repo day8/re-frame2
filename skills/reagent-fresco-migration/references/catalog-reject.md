@@ -85,7 +85,12 @@ must, and the census reports them as `:component-introspection` and
 Some of it dissolves rather than migrating: `props` and `children` are the props
 map the view already receives (children arrive at `:children`), `dom-node` is
 a callback ref (MIG-17), `force-update` has no meaning under memoised
-boundaries, and an `r/flush` in a test becomes the test kit's `hm/settle!`.
+boundaries, and in a test of an all-Fresco tree an `r/flush` becomes the test
+kit's `hm/settle!`. That door commits only what has already reached React, so a
+mounted tree that still holds a retained Reagent renderer keeps `r/flush` for
+that renderer's own queue, called inside `react-dom/flushSync`
+([`procedure.md`](procedure.md#settling-a-tree-that-still-holds-a-reagent-renderer)
+Step 5 works one through).
 
 **The schedulers are not a callback ref.** `next-tick` / `after-render` are
 one-shot render-queue callbacks that fire around a flush even when nothing

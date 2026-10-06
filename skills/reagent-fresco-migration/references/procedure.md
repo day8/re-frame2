@@ -362,6 +362,77 @@ For a small application this is over-engineering: run the reporter, port by
 hand, review the handful of screens. Spend identity-proof effort on the screens
 that must not change.
 
+### Settling a tree that still holds a Reagent renderer
+
+`hm/settle!` is the empty `flushSync`: it commits what React already holds and
+nothing else. In an all-Fresco tree that is all a stimulus leaves behind, so it
+is the whole settle. A tree that still mounts a retained Reagent component — a
+reactified original, an `r/as-element` island, a Reagent library under a
+converted parent — has a second queue: Reagent batches a dirty component's
+re-render onto its own animation-frame tick, and no Fresco door drains it.
+
+So name what a step is waiting for before choosing the door:
+
+| Pending work | Who holds it | The door |
+|---|---|---|
+| an event the router enqueued (a route-link click, an async reply) | the router's next-turn task | `hm/settle-until!` with a condition |
+| a measurement the page has not delivered (a `ResizeObserver` callback) | the browser, after layout | a condition with a deadline; nothing drives it |
+| a re-render of a retained Reagent component | Reagent's render queue | `(react-dom/flushSync (fn [] (r/flush)))` |
+| an update React has already scheduled | React | `hm/settle!` |
+
+`r/flush` drains Reagent's queue, re-rendering each dirty component through
+`forceUpdate`, and inside `flushSync` those updates commit before it returns.
+Called bare, whether they commit at once depends on whether some Reagent root
+has already rendered on the page — Reagent makes its drain synchronous only
+from its own root render, and a Fresco mount is not one — so a bare call passes
+or fails by test order. `re-frame.adapter.reagent/flush-views!` drains the same
+queue inside React's `act`, which this kit deliberately does not use.
+
+A converted report hosts a retained Reagent grid that sizes its row window from
+a `ResizeObserver` and keeps the result in its own `r/atom`:
+
+```clojure
+(defn- drain-reagent!                             ; Reagent's queue, committed now
+  []
+  (react-dom/flushSync (fn [] (r/flush))))
+
+(deftest the-grid-shows-its-total-once-laid-out
+  (async done
+    (let [box (js/document.createElement "div")]
+      (set! (.. box -style -height) "480px")      ; real CSS: the browser lays it out
+      (.append js/document.body box)
+      (let [m (hm/mount! [views/report {}]
+                         {:container box :initial-events [[:report/seed]]})]
+        (-> (hm/settle-until! m
+                              #(do (drain-reagent!)
+                                   (some? (.querySelector box ".grid-total")))
+                              {:timeout-ms 2000
+                               :label      "the grid's first layout reaching its window"})
+            (.then (fn [m]
+                     (is (= "Total 1,204"
+                            (.-textContent (.querySelector box ".grid-total"))))))
+            (.catch (fn [e] (is false (ex-message e)) nil))
+            (.then (fn [_]
+                     (-> (hm/unmount! m)
+                         (hm/assert-clean!)
+                         (.then (fn [_] (.remove box) (done)))))))))))
+```
+
+Each poll drains the retained queue and then looks, so the condition holds once
+the browser has delivered the grid's first measurement and the grid has
+re-rendered from it. If layout never arrives, the deadline fails the run with
+`:rf.error/poll-until-timeout` carrying the label. The container is the test's
+own, so the test removes it after `hm/unmount!` empties it; the grid
+disconnects its own observer when React unmounts it.
+
+Four things keep it honest. Wait on the condition, never on a number of
+animation frames: a count that worked once is evidence about that boundary in
+that runner, not a recipe. Let the browser measure — no stubbed observer and no
+size handed to the grid. Keep the original assertion: it fails without the
+drain and passes with it, and that difference is the evidence. And layout needs
+a page that renders: a background tab that delivers no frames delivers no
+`ResizeObserver` callbacks either, which the deadline then reports.
+
 ## Step 6 — Apply the mechanical codemod, and re-prove
 
 Re-run Step 0's command, on the same coordinate (pinned or `:local/root`),
