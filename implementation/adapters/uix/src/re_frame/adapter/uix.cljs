@@ -282,9 +282,10 @@
 ;;
 ;; `views/reg-view*` hands its composed wrapper to `:adapter/componentize-view`
 ;; and registers whatever comes back, so `(rf/view id)` is what a caller mounts.
-;; Without this the registered value would be a `MetaFn` (the `:contextType`
-;; meta Reagent's class machinery reads), which React rejects as an element
-;; type — the documented `($ (rf/view ::row) props)` form could not mount at all.
+;; Without this the registered value would be the bare frame-aware wrapper: a
+;; JS function carrying the `:contextType` meta Reagent's class machinery reads
+;; and no UIx component marker, so the documented `($ (rf/view ::row) props)`
+;; form would mount it with its props converted on the way in.
 ;;
 ;; The spine builds the mountable shell; the ONE substrate-native step is
 ;; stamping UIx's own component marker on it, and it belongs here for exactly
@@ -294,9 +295,8 @@
 ;; trailing `$` children onto `:children` — the lossless channel. Unmarked, `$`
 ;; would fall through to `react-component-element` → `interpret-attrs`, which
 ;; stringifies keyword prop values and drops their namespaces (`:frame`
-;; silently becoming `:rf/default`). So stripping the meta alone would produce
-;; a head React could mount and then mangle its props; the marker is the half
-;; that makes the mount CORRECT.
+;; silently becoming `:rf/default`). So the bare wrapper is a head React can
+;; mount and then mangle its props; the marker is what makes the mount CORRECT.
 ;;
 ;; Not a `defui`: `defui` glues `argv` into a CLJS map for its own body, and
 ;; this shell must hand the props object DOWN untouched so the registered

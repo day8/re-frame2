@@ -636,8 +636,8 @@
       ;; — what the DEFAULT-tree row above can use, because the default tree
       ;; carries no inspector at all — is wrong here in the permissive
       ;; direction AND the strict one: a reg-view head IS a fn value on CLJS
-      ;; (`build-frame-aware-view` returns `(with-meta (fn …) {:contextType …})`,
-      ;; a `cljs.core.MetaFn`), and so is a Fresco boundary, by
+      ;; (`build-frame-aware-view` returns a JS function carrying
+      ;; `{:contextType …}` metadata), and so is a Fresco boundary, by
       ;; `codec/boundary-head?`'s own definition. And `(some? (meta head))`
       ;; reads NIL on a boundary: a boundary is a plain React function
       ;; component carrying a JS own-property and no Clojure metadata at all.
