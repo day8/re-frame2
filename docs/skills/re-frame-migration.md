@@ -15,7 +15,7 @@ The session loads the skill and walks the whole workflow on its own, coming back
 Fill in two values; the skill stops and asks if either is missing:
 
 - **A pinned local checkout of re-frame2** — a path, and the commit or tag it should be at. The skill reads the rules from that checkout, never from GitHub at runtime. Before reading, it runs three read-only `git` checks: that `HEAD` matches the pin, that `origin` names `day8/re-frame2`, and that the pinned commit has the current multi-artefact layout (`implementation/core/deps.edn`, `implementation/adapters`), which an older single-artefact commit fails.
-- **The re-frame2 version to land on** — used verbatim in every dependency coordinate; the skill never picks "latest". Until re-frame2 is on Clojars, give it a route instead: a `:git/sha` of a pushed commit, or a local checkout path for `:local/root`, which resolves only on your machine, so CI needs the `:git/sha`. The migration then runs exactly as it would against a release; the skill stops only when it has no route at all.
+- **The re-frame2 version to land on** — used verbatim in every dependency coordinate; the skill never picks "latest". Until re-frame2 is on Clojars, give it a route instead: a `:git/sha` of a pushed commit, or a local checkout path for `:local/root`, which CI resolves only as a relative path over a sibling checkout the runner provisions at a pinned SHA; otherwise CI needs the `:git/sha`. The migration then runs exactly as it would against a release; the skill stops only when it has no route at all.
 
 ## What it does
 
@@ -40,7 +40,7 @@ For related work:
 
 ## What completion includes
 
-Expect the migration report to record the rewrites, Type B decisions, dependency coordinates and exact check results. Completion includes a clean boot smoke-test, the optimized/release compile, and CI green on a clean checkout. Local `:local/root` dependencies can help during development, but the final dependencies must resolve on that clean runner. Tests must pass or have only the same failures recorded before migration.
+Expect the migration report to record the rewrites, Type B decisions, dependency coordinates and exact check results. Completion includes a clean boot smoke-test, the optimized/release compile, and CI green on a clean checkout. The final dependencies must resolve on that clean runner, so a `:local/root` dependency counts only as a relative path over a sibling checkout the runner provisions at a pinned SHA. Tests must pass or have only the same failures recorded before migration.
 
 If the app used re-frame-10x, the report also accounts for its replacement with Xray: removing the old preload is only the first half; the Xray panel must be wired and verified after the app boots.
 
