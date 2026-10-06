@@ -352,16 +352,61 @@ later, a foreign listener.
 `rf/subscribe` / `rf/dispatch` in a body **or a helper it inlines** refuses at
 render; an ambient `rf/dispatch` in a callback fails at click; an `h/sub` moved
 into a callback fails when it fires — three ids, tabled with the complaint
-shape in [`gotchas.md`](gotchas.md) §Three leftovers, three ids. Route each
-site in this order:
+shape in [`gotchas.md`](gotchas.md) §Three leftovers, three ids.
 
-1. **It runs during render** → leave it in the helper, deref-dropped to
-   `h/sub`; that is the supported shape.
-2. **It runs later** → hoist the read to render time and pass the value into
-   the callback. `rf/subscribe-once` is the sanctioned snapshot for handler and
-   utility code that genuinely needs current state.
-3. **The callback must act** → return an intent vector from an `h/event`, the
+Classify each site by three facts before you route it: **which renderer runs
+it**, and inside whose render (a Fresco body, a retained Reagent component, or
+no render at all); **when it is invoked and when it reads**; and whether the
+behaviour wants **a snapshot or ongoing updates**. Then route it in this order:
+
+1. **It runs during a Fresco render** → leave it in the helper, deref-dropped
+   to `h/sub`; that is the supported shape.
+2. **It runs later and renders nothing** — an event callback, a timer, a
+   foreign listener → it wants a snapshot. Hoist the read to render time and
+   pass the value in only when the value as of the last render is what the
+   callback meant, because hoisting moves the read. Where it needs the value
+   at the moment it fires, `rf/subscribe-once` against the frame taken during
+   render is the deliberate snapshot.
+3. **It runs later and its result renders as a retained Reagent tree** — a
+   provider calls it after the Fresco render has unwound and mounts what it
+   returns → it wants ongoing updates, and a hoisted value or a snapshot
+   freezes the read, so the retained tree stops following app-db. Return a
+   component that owns the read, registered with `rf/reg-view`: it resolves its
+   frame from React context each time it renders, and Reagent re-renders it
+   when the read changes. Keep `h/sub` out of that tree; it is not a Fresco
+   render.
+4. **The callback must act** → return an intent vector from an `h/event`, the
    frame-carrying spelling.
+
+```clojure
+;; (a) A Fresco render: the helper runs inside the body that calls it.
+(defn price-text [id] (str "$" (h/sub [:item/price id])))
+
+;; (b) Nothing renders, and the read happens when it fires: a snapshot.
+(h/defview copy-link [_]
+  (let [frame (rf/current-frame-id)]                ; taken during render
+    [:button {:on-click (fn [_]
+                          (.writeText js/navigator.clipboard
+                                      (rf/subscribe-once [:share/url] {:frame frame})))}
+     "Copy link"]))
+
+;; (c) A retained Reagent chart calls :render-tooltip later and mounts what
+;;     it returns. The returned component owns the read, so it keeps updating.
+(defn tooltip [{:keys [value]}]                     ; the legacy callback, unchanged
+  [:span (.toFixed value @(rf/subscribe [:chart/precision]))])
+
+(rf/reg-view retained-result [{:keys [render props]}]
+  (render props))                                   ; reads under this view's frame
+
+(def tooltip-result                                 ; once, at top level
+  (fn [props] [retained-result {:render tooltip :props props}]))
+
+;; In the Fresco body: [:> chart* {:id id :render-tooltip tooltip-result}]
+```
+
+In (c) the callback keeps its original arguments and the chart sees one stable
+function. Under two frames each tooltip follows its own, because `h/frame-root`
+and `h/frame-provider` write the same frame context a registered view reads.
 
 ## MIG-23 — SSR-then-hydrate
 

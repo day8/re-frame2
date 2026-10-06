@@ -40,9 +40,13 @@ dispatch has no frame to resolve against, and it raises
 for Fresco diagnostics will not find it either.
 
 **Row 3 — the over-correction**, reached by fixing row 1 or row 2 too
-enthusiastically. `h/sub` is legal only *during* a body run: hoist the **read**
-to render time and close over the **value**, and where handler code genuinely
-needs current state, `rf/subscribe-once` is the sanctioned snapshot.
+enthusiastically. `h/sub` is legal only *during* a body run, so a read that
+happens later is routed by what runs it
+([`catalog-judgment.md`](catalog-judgment.md#mig-26--ambient-subscribedispatch-in-a-plain-defn)
+MIG-26). A callback that renders nothing takes a hoisted **value** or a
+deliberate `rf/subscribe-once` snapshot; a callback whose result renders as a
+retained Reagent tree returns a registered view that owns the read, so the tree
+keeps updating.
 
 **So grep the converted bodies for surviving closures rather than finding them
 by clicking.** `#(`, `(fn [`, and any `subscribe` or `dispatch` inside a props
