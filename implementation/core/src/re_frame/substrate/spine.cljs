@@ -2430,14 +2430,17 @@
   "Return a `wrap-view` fn parameterised on the substrate's per-adapter
   `warn-fn` (typically built via `make-warn-non-dom-root-fn`). The
   returned fn has the standard 3-arg shape `(id metadata user-fn) ->
-  wrapped-user-fn` and produces a function component that injects
+  wrapped-user-fn` and produces a render fn that injects
   both `data-rf2-source-coord` (Spec 006 §Source-coord annotation) and
   `data-rf-view` (Spec 006 §View tagging contract) on the rendered
   root DOM element, AND appends a no-DOM unmount-sentinel child so the
   view instance fires `:rf.view/unmounted` on teardown (React-hook
   parity for the Reagent family's reaction-dispose unmount hook), all
   when `rf.interop/debug-enabled?` is true. Production builds elide via
-  `rf.interop/debug-enabled?` per Spec 009 §Production builds.
+  `rf.interop/debug-enabled?` per Spec 009 §Production builds. The
+  registered head calls the wrapped fn inside its own render rather than
+  handing it to React as a component, so the head carries the
+  `displayName` and the wrapped fn carries none.
 
   The sentinel is appended as a CHILD (via `cloneElement`) rather than
   hooks called inline in the wrapped fn: the wrapped fn is also INVOKED
@@ -2466,19 +2469,6 @@
                                  annotated (inject-source-coord-attr warn-fn id coord-attr
                                                                      view-attr out)]
                              (append-unmount-sentinel unmount-sentinel id frame-id annotated)))]
-          ;; Stamp the React `displayName` to
-          ;; the registered view-id so React DevTools shows `<cart/total-line>`
-          ;; rather than the CLJS-munged fn name or an anonymous wrapper.
-          ;;
-          ;; ONE SPELLING, `rf.performance/entry-id` — the same fn `build-name`
-          ;; calls to build `rf:render:<id>`. Spec 009 §Naming convention makes
-          ;; the measure's `<id>` and the id the substrate publishes to the
-          ;; developer one identifier; `(str id)` would keep a keyword's colon
-          ;; and so publish a second spelling.
-          ;;
-          ;; The assignment sits inside the `rf.interop/debug-enabled?` arm so the
-          ;; name and the assignment elide in production builds.
-          (set! (.-displayName ^js wrapped) (rf.performance/entry-id id))
           wrapped)
         user-fn))))
 
@@ -2557,7 +2547,7 @@
   namespaced keyword survives the mount by construction.
 
   `displayName` is stamped from `rf.performance/entry-id` — the same single
-  source `wrap-view` and `build-name` use, so the name React DevTools shows
+  source `build-name` uses, so the name React DevTools shows
   for the mounted registry head is the `<id>` of its own `rf:render:<id>`
   measure (Spec 009 §Naming convention). Dev-only: the shell
   itself is a CORRECTNESS seam and is built in production too, but the name

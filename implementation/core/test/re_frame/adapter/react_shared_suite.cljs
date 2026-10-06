@@ -495,20 +495,21 @@
 ;; ===========================================================================
 
 (defn assert-display-name-matches-render-measure
-  "The spine's `wrap-view` names its component head with
-  `rf.performance/entry-id` — the same builder `rf.performance/build-name` calls —
-  so the DevTools name and the `rf:render:` measure are ONE identifier.
+  "The registered head `(rf/view id)`, the component React mounts, is named
+  with `rf.performance/entry-id` — the same builder `rf.performance/build-name`
+  calls — so the DevTools name and the `rf:render:` measure are ONE identifier.
   Headless (node-safe); the mounted counterpart is
   `assert-mounted-display-name-is-devtools-visible`.
 
-  cfg keys: :substrate-kw, :name, :wrap-view."
-  [{:keys [substrate-kw name wrap-view]}]
+  cfg keys: :substrate-kw, :name."
+  [{:keys [substrate-kw name]}]
   (testing (str name " — displayName is the entry-id projection, equal to the rf:render: id")
     (let [id      (mint-kw substrate-kw "display-name-one-identifier")
-          head    (wrap-view id {} (fn [] (React/createElement "span" #js {} "hi")))
+          _       (rf/reg-view* id (fn [] (React/createElement "span" #js {} "hi")))
+          head    (rf/view id)
           visible (.-displayName ^js head)]
       (is (= (rf.performance/entry-id id) visible)
-          "the component head is named by rf.performance/entry-id")
+          "the registered head is named by rf.performance/entry-id")
       (is (not (str/starts-with? visible ":"))
           (str "no leading colon survives into the published name; got " (pr-str visible)))
       (is (= (rf.performance/build-name :render id)
@@ -7228,31 +7229,27 @@
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-mounted-display-name-is-devtools-visible
-  "Mount the spine's `wrap-view` head as a real React component
-  and read the name the way React DevTools does — off the committed fiber's
+  "Mount the registered head `(rf/view id)` as a real React component and
+  read the name the way React DevTools does — off the committed fiber's
   `type` — rather than off the fn property. Spec 006 item 1 is a claim about
   what a developer READS in the component tree; pinning the stamp alone
   never exercises the mount.
 
-  `wrap-view` is the head this row mounts because it is the surface whose
-  OWN stamp is under test: `wrap-view` is published for direct use by
-  code-gen and library scaffolding (`re-frame.adapter.uix/wrap-view`), so
-  its `displayName` has to be right independently of the registry. A
-  REGISTERED view's mounted head is instead the adapter's
-  `componentize-view` shell, which carries the same
-  `rf.performance/entry-id` stamp from the same single source; the registry
-  path's own direct mount is covered by
+  On UIx the mounted head is the adapter's `componentize-view` shell, which
+  carries the `rf.performance/entry-id` stamp; the registry path's
+  props-preserving direct mount is covered by
   `re-frame.adapter.uix-reg-view-direct-mount-dom-cljs-test`.
 
   Browser-DOM gate (real createRoot); skipped on node-test via
-  `with-browser-act`. cfg keys: :substrate-kw, :name, :wrap-view."
-  [{:keys [substrate-kw name wrap-view]}]
+  `with-browser-act`. cfg keys: :substrate-kw, :name."
+  [{:keys [substrate-kw name]}]
   (testing (str name " — the MOUNTED component's DevTools name is the colon-free projection")
     (with-browser-act
      (fn [act-fn]
       (let [id         (mint-kw substrate-kw "display-name-mounted")
-            head       (wrap-view id {} (fn [] (React/createElement
+            _          (rf/reg-view* id (fn [] (React/createElement
                                                  "span" #js {"data-testid" "rf-dn-mounted"} "hi")))
+            head       (rf/view id)
             expected   (rf.performance/entry-id id)
             mount-node (make-mount-node!)
             root       (react-dom-client/createRoot mount-node)]
