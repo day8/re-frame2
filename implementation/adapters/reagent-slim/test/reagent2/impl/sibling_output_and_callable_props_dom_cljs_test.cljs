@@ -4,7 +4,7 @@
 
   1. A component whose render returns a SEQUENCE commits sibling children:
      no wrapper element and no `:rf.error/template-bad-tag`. Coercing the
-     seq with `vec` in `wrap-render`'s untagged arm would make
+     seq with `vec` in `wrap-render`'s classification cond would make
      `as-element` read the first child as a hiccup HEAD.
   2. A metadata-bearing callback (`cljs.core/MetaFn`, what `with-meta`
      returns for a fn) reaches React DOM as a real JS function, so a click
@@ -46,7 +46,7 @@
 (defn- text-rows [] (list "a" "b"))
 
 (deftest sequence-output-commits-sibling-children
-  (testing "reagent-slim — an untagged component returning a sequence commits its items as siblings"
+  (testing "reagent-slim — a component returning a sequence commits its items as siblings"
     (if-not (browser?)
       (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
       (with-attached-root

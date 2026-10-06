@@ -87,7 +87,7 @@
     [counter-buttons]))
 
 ;; A FORM-2 subscribing reg-view: the body's last form is a
-;; literal `(fn ...)`, so `reg-view` classifies it Form-2 — the outer body
+;; literal `(fn ...)`, so the view is Form-2 — the outer body
 ;; runs once as setup, the inner closure is the live render. The inner
 ;; closure derefs `@(subscribe ...)`. A static renderer that called the
 ;; view head once and recursed on the bare inner render fn it got back

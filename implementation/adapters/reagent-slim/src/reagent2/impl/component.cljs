@@ -19,20 +19,9 @@
     get-children         ;; Form-3 accessor: rest after props
     state-atom           ;; Form-3 state cell
 
-  Compile-time fold: the runtime detection in `wrap-render`
-  is the load-bearing correctness mechanism. Per IMPL-SPEC §14.1
-  `re-frame.core/reg-view`'s expansion adds
-  a compile-time form-tag (the `:reagent2/form` meta stamped onto the
-  wrapped fn, built at that expansion site from
-  `reagent2.impl.component/classify-form-body`'s verdict), letting
-  `wrap-render` skip the runtime
-  classification on the hot path. The runtime path is load-bearing
-  for plain `(reg-view* :id (fn ...))` callers and for paths where the
-  fold isn't applied — i.e. correctness does not depend on the macro.
-
-  No separate `defview` macro is shipped.
-  Users who want compile-time dispatch use `reg-view`; that is the
-  single canonical view-registration surface.
+  Shape detection happens at render time, in `wrap-render`, and only
+  there: every render fn takes the same path, whoever registered it.
+  Nothing tags a fn with its shape at compile time (IMPL-SPEC §5.2).
 
   Form-1: `(fn [args] hiccup)` — pure render fn.
   Form-2: `(fn [args] (fn [args] hiccup))` — outer fn is setup, inner
@@ -236,11 +225,6 @@
 ;;             fn ran once and produced the live render closure).
 ;;             We cache the inner fn on `.-cljsRenderFn` and recall it
 ;;             with the current argv on subsequent renders.
-;;
-;; The compile-time fold lets `reg-view`'s expansion stamp
-;; `:reagent2/form` meta on the user fn — when present, `wrap-render`
-;; skips the classification cond and dispatches directly. The runtime
-;; cond is load-bearing for plain `(reg-view* :id (fn ...))` calls.
 ;; ---------------------------------------------------------------------------
 
 (defn- argv-args
@@ -250,14 +234,6 @@
   [^js c]
   (when-some [argv (.-cljsArgv c)]
     (rest argv)))
-
-(defn- form-tag
-  "Read the compile-time form-tag stamped onto `render-fn` by
-  `reg-view`'s expansion. Returns `:reagent2/form-1`,
-  `:reagent2/form-2`, or nil when the fn carries no tag (plain
-  `(reg-view* :id (fn ...))` callers, or a non-folding macro path)."
-  [render-fn]
-  (some-> render-fn meta :reagent2/form))
 
 (defn- class-mounting-render-fn
   "Wrap a factory-returned Reagent class `klass` in a render fn that MOUNTS
@@ -303,13 +279,6 @@
   single `fn?` test on the first-call return value — same shape as
   stock Reagent's `reagent.impl.component:wrap-render`.
 
-  Compile-time fold: when `render-fn` carries the
-  `:reagent2/form` meta stamped by `reg-view`'s expansion, we
-  short-circuit the classification cond and dispatch directly. The
-  runtime cond is load-bearing for plain `(reg-view* :id (fn ...))`
-  callers and other paths where the fold isn't applied — correctness
-  does not depend on the macro.
-
   Form-3 dispatches via the `:reagent-render` key in the spec map and
   reaches this fn directly with the user's render fn (the spec's
   `:reagent-render` value).
@@ -327,28 +296,6 @@
       ;; Form-2 hot path: inner fn already cached. Recall with current args.
       (some? cached)
       (apply cached args)
-
-      ;; Compile-time-tagged Form-2: skip the classification cond.
-      (= :reagent2/form-2 (form-tag render-fn))
-      (let [inner (apply render-fn args)]
-        (set! (.-cljsRenderFn c) inner)
-        (apply inner args))
-
-      ;; Compile-time-tagged Form-1: skip the full classification cond, but keep
-      ;; the runtime fn? fallback. `classify-form-body` tags a body Form-1
-      ;; whenever its LAST form is not a literal `(fn …)` — which includes the
-      ;; idiomatic stateful Form-2 shape `(let [s (r/atom 0)] (fn [] …))` (last
-      ;; form is a `let`). Such a body returns the inner render CLOSURE, so
-      ;; without this fn? check `wrap-render` would return a function as hiccup
-      ;; and React errors ("Functions are not valid as a React child"). Treat a
-      ;; returned fn as Form-2 — cache and recall — exactly as the :else path.
-      (= :reagent2/form-1 (form-tag render-fn))
-      (let [out (apply render-fn args)]
-        (if (fn? out)
-          (let [inner (form-2-inner-fn out)]
-            (set! (.-cljsRenderFn c) inner)
-            (apply inner args))
-          out))
 
       :else
       (let [out (apply render-fn args)]

@@ -57,22 +57,6 @@
        (str "a " (.getSimpleName ^Class (type x)) " — " (pr-str x)))))
 
 #?(:clj
-   (defn- reagent-slim-form-tag
-     "Classify body shape (Form-1 / Form-2) at compile time when reagent-
-     slim is on the classpath. Returns a keyword form-tag or nil, which
-     `expand-reg-view` records in the registry slot's metadata. The
-     classification sits in the canonical `reg-view` macro (there is no
-     separate `defview`); `reagent2.impl.component/wrap-render` classifies
-     a mounted view at runtime. `requiring-resolve` keeps core free of a
-     static reagent-slim dep — UIx builds resolve nil."
-     [body]
-     (when-let [classifier (try (requiring-resolve
-                                   'reagent2.impl.component/classify-form-body)
-                                 (catch Exception _ nil))]
-       (when (bound? classifier)
-         (classifier body)))))
-
-#?(:clj
    (defn expand-reg-view
      "Build the expansion form for a `reg-view` macro call. `form-meta` is
      `(meta &form)`; `current-ns-sym` is `(ns-name *ns*)`; `current-file`
@@ -80,16 +64,11 @@
      form does not reference `*ns*` / `*file*` at runtime (required for
      CLJS, where `cljs.core/*ns*` is nil at runtime).
 
-     When reagent-slim is on the classpath the body is classified
-     (Form-1 / Form-2) at expansion time and the tag is recorded under
-     `:reagent2/form` in the registry slot's metadata. The render fn
-     itself carries no metadata. reagent-slim's `wrap-render` reads a
-     form tag off the fn it mounts, and on this path that is the head
-     `(rf/view id)` returns — the frame-aware wrapper, whose metadata is
-     `{:contextType …}` alone — so a tag on the render fn would reach
-     nothing, while making the ClojureScript analyzer wrap the `(fn …)`
-     form in `with-meta`, a `cljs.core/MetaFn`. `wrap-render` classifies
-     the mounted view at runtime."
+     The expansion classifies nothing: the render fn is a bare `(fn …)`
+     form and the slot metadata is the author's own, because a
+     Reagent-family substrate detects Form-1 vs Form-2 when it renders the
+     view. Metadata on the `(fn …)` form would make the ClojureScript
+     analyzer wrap it in `with-meta`, a `cljs.core/MetaFn`."
      [form-meta current-ns-sym current-file sym more]
      (let [parsed   (parse-reg-view-args more)
            sym-meta (or (meta sym) {})
@@ -134,13 +113,11 @@
                        :got            (first more)
                        :args-after-sym (vec more)}}))
        (let [{:keys [docstring args body]} parsed
-             form-tag (reagent-slim-form-tag body)
              def-form (if docstring
                         `(def ~sym ~docstring (re-frame.core/view ~id))
                         `(def ~sym (re-frame.core/view ~id)))
              full-slot-meta (cond-> slot-meta
-                              docstring (assoc :doc docstring)
-                              form-tag  (assoc :reagent2/form form-tag))
+                              docstring (assoc :doc docstring))
              ;; Production elision: the view's dev source-
              ;; coord literal (WITH `:column`, via `coords-form`), reused
              ;; for the `*pending-coords*` binding in the `do` form below.
