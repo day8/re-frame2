@@ -178,9 +178,10 @@ mount" desktop-only guard; none shipped, so all three were trimmed.)
 ### Inline host CSS variables
 
 The default true-inline host (`[data-rf-xray-host]`) is sized and
-themed via two host-readable CSS custom properties. Xray never reads
-or writes these from CLJS — the host's stylesheet is the single
-source of truth.
+themed via two host-readable CSS custom properties, both set by the
+host's stylesheet. Xray never reads either and never writes
+`--rf-xray-accent`; it writes `--rf-xray-inline-width` only as the
+resize setting's override on `<html>` (§Resize affordance).
 
 | Property | Default | Purpose |
 |---|---|---|
@@ -214,9 +215,11 @@ panel's outer edge (left edge when docked `:right-rail`; the default per
 - Reset to default width on double-click
 
 The CSS-variable cascade (`--rf-xray-inline-width` on the host's
-`flex-basis`) continues to work unchanged — the handle simply drives
-the same custom property reactively, so a `:root { --rf-xray-inline-
-width: 720px; }` override and a user drag write to the same surface.
+`flex-basis`) continues to work unchanged — the handle drives the
+same custom property as an inline override on `<html>`, never on the
+host element, and a reset to the default width removes it, so a
+`:root { --rf-xray-inline-width: 720px; }` baseline and a user drag
+write to the same surface.
 
 No textual affordance accompanies the handle (cursor change is sufficient
 signal per [`Conventions.md`](./Conventions.md) §UI text — silent by
