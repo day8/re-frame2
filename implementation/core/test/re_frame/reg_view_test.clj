@@ -163,84 +163,35 @@
               (rf/reg-view ret-doc "the doc" [n] [:p n])]]]
       (is (= expected ret) shape))))
 
-;; ---- compile-time component-shape fold -----------------------------------
+;; ---- the component shape is detected at render time ----------------------
 ;;
-;; reagent-slim's `reagent2.impl.component` ships a `classify-form-body`
-;; helper consumed by `expand-reg-view` via `requiring-resolve`. The
-;; integration test for end-to-end fold (helper on classpath → form-tag
-;; lands in the registry slot meta) lives in
-;; implementation/adapters/reagent-slim/test/. This file exercises the
-;; absence-graceful path: when the helper is NOT on the classpath, the
-;; macro emits an unstamped expansion (UIx-only builds). It also pins where a
-;; stamped expansion puts the tag, with the classifier stubbed so the row runs
-;; on either classpath.
-;;
-;; There is NO separate `defview` macro. The fold is
-;; in `reg-view`'s expansion — that is the canonical view-registration
-;; surface.
+;; `reg-view`'s expansion carries no component-shape tag, whatever is on the
+;; classpath: the registry slot's metadata holds what the author attached, and
+;; the render fn is a bare `(fn …)` form. A Reagent-family substrate detects
+;; Form-1 vs Form-2 when it renders the view, and metadata on a `(fn …)` form
+;; would make the ClojureScript analyzer wrap it in `with-meta`, a
+;; `cljs.core/MetaFn`.
 
-(defn- reagent-slim-classifier-present?
-  "True iff `reagent2.impl.component/classify-form-body` is resolvable on the
-  CURRENT classpath — the exact precondition `expand-reg-view` keys its
-  compile-time fold on (`requiring-resolve` of the same symbol). Mirrors the
-  macro's own probe so this test reasons about the same classpath fact the
-  macro does."
-  []
-  (boolean
-    (when-let [v (try (requiring-resolve
-                        'reagent2.impl.component/classify-form-body)
-                      (catch Exception _ nil))]
-      (bound? v))))
-
-(deftest reg-view-fold-graceful-without-reagent-slim
-  ;; This test pins the classpath-sensitive fold contract of `expand-reg-view`
-  ;; It is conditioned on a CLASSPATH PRECONDITION rather than
-  ;; assuming one: the canonical per-artefact core gate has
-  ;; reagent-slim ABSENT, but the combined `implementation/deps.edn` `:test`
-  ;; alias puts `day8/reagent-slim` on the classpath — under which the
-  ;; macro DOES (and must) stamp the form tag, so a blanket
-  ;; `(nil? (:reagent2/form ...))` assertion would fire a phantom failure. We
-  ;; branch on the live precondition so the test asserts the correct half of
-  ;; the contract under EITHER classpath, losing no coverage: absence ⇒
-  ;; no tag stamped; presence ⇒ a tag stamped.
-  (rf/reg-view fold-no-rs [n] [:p n])
-  (let [slot-meta (rf.registrar/lookup :view
-                    :re-frame.reg-view-test/fold-no-rs)]
-    (is (some? slot-meta) "the view is registered")
-    (if (reagent-slim-classifier-present?)
-      (testing "reagent-slim ON classpath — expand-reg-view folds the form
-                shape into the slot meta (combined-alias / reagent-slim build)"
-        (is (some? (:reagent2/form slot-meta))
-            "form tag stamped when reagent2.impl.component is resolvable"))
-      (testing "reagent-slim ABSENT — expand-reg-view emits a form-tag-free
-                expansion (core / UIx-only build path)"
-        ;; expand-reg-view's requiring-resolve returns nil, so the
-        ;; expansion stamps no :reagent2/form meta.
-        (is (nil? (:reagent2/form slot-meta))
-            "no form tag stamped — UIx-only build path")))))
-
-(deftest reg-view-form-tag-rides-the-slot-and-never-the-render-fn
-  (testing "with reagent-slim's classifier answering, the expansion records the
-            form tag in the registry slot's metadata and emits the render fn as
-            a bare `(fn …)` form. reagent-slim reads a form tag off the head it
-            mounts, and the head `(rf/view id)` returns is the frame-aware
-            wrapper, whose metadata is its own — so a tag on the render fn
-            reaches nothing, and metadata on a `(fn …)` form makes the
-            ClojureScript analyzer wrap it in `with-meta`, a `cljs.core/MetaFn`"
-    (with-redefs-fn {#'re-frame.core-reg-view-macro/reagent-slim-form-tag
-                     (constantly :reagent2/form-1)}
-      (fn []
-        (let [exp (rf/expand-reg-view {:line 1 :column 1} 'my.ns "my_ns.cljc"
-                                      'tagged '([n] [:p n]))
-              [_ id slot-meta fn-form]
-              (some #(when (and (seq? %) (= 're-frame.core/reg-view* (first %))) %)
-                    (tree-seq coll? seq exp))]
-          (is (= :my.ns/tagged id)
-              "precondition: the expansion's reg-view* call was found")
-          (is (= :reagent2/form-1 (:reagent2/form slot-meta))
-              "the registry slot's metadata carries the form tag")
-          (is (= 'clojure.core/fn (first fn-form))
-              "the render fn is emitted as a (fn …) form")
-          (is (nil? (meta fn-form))
-              "the (fn …) form carries no metadata, so it compiles to a plain JS
-               function rather than a MetaFn"))))))
+(deftest reg-view-expansion-carries-no-form-tag
+  (testing "the registered slot carries no :reagent2/form key"
+    (rf/reg-view plain-shape [n] [:p n])
+    (let [slot-meta (rf.registrar/lookup :view
+                      :re-frame.reg-view-test/plain-shape)]
+      (is (some? slot-meta) "the view is registered")
+      (is (not (contains? slot-meta :reagent2/form))
+          "no form tag in the registry slot's metadata")))
+  (testing "the expansion's reg-view* call carries no form tag and a bare (fn …) form"
+    (let [exp (rf/expand-reg-view {:line 1 :column 1} 'my.ns "my_ns.cljc"
+                                  'plain '([n] [:p n]))
+          [_ id slot-meta fn-form]
+          (some #(when (and (seq? %) (= 're-frame.core/reg-view* (first %))) %)
+                (tree-seq coll? seq exp))]
+      (is (= :my.ns/plain id)
+          "precondition: the expansion's reg-view* call was found")
+      (is (not (contains? slot-meta :reagent2/form))
+          "no form tag in the slot metadata the expansion passes")
+      (is (= 'clojure.core/fn (first fn-form))
+          "the render fn is emitted as a (fn …) form")
+      (is (nil? (meta fn-form))
+          "the (fn …) form carries no metadata, so it compiles to a plain JS
+           function rather than a MetaFn"))))
