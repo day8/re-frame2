@@ -192,10 +192,13 @@ mechanisms, both writing the same `flex-basis` slot:
    double-click to reset. This is the path for "I want a bit more room for the
    Epoch panel right now."
 
-The two cooperate cleanly. The variable establishes the initial
-size; a drag overrides it (and persists); reload restores the
-persisted width unless a fresh `--rf-xray-inline-width` override up
-the cascade has shifted the default.
+The two cooperate cleanly: the variable establishes the initial
+size, a drag overrides it and persists, and a reload restores the
+persisted width. A `:root` override does not shift that width,
+because Xray's inline value on `<html>` outranks a stylesheet
+declaration on the same element; a declaration on the host itself,
+or on any ancestor of it below `<html>`, does beat the drag, and
+the handle then cannot move that width.
 
 ##### Yield-to-consumer
 
