@@ -64,8 +64,9 @@ rule reads `var(--rf-xray-inline-width, 560px)` for its
 `flex-basis` so developers can resize the inline panel by
 overriding a single CSS custom property anywhere up the cascade
 (rf2-um813; default bumped 420 → 560 under rf2-9ovfb). Xray itself
-does not read or set the property — the host's stylesheet is the
-single source of truth for inline width.
+never reads the property; its resize setting overrides the host's
+baseline on `<html>`, and a reset to the default width removes the
+override (see `011-Launch-Modes.md` §Inline-style cascade contract).
 
 The recommended snippet also publishes `--rf-xray-accent` (default
 `#539bf5` — the GitHub-blue brand accent) on `:root` so host stylesheets can

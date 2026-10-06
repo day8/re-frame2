@@ -61,9 +61,10 @@
 ;; panel. App content to the right (`#app { flex: 1; min-width: 0 }`)
 ;; remains in normal flow — no hit-test occlusion, no overlay.
 ;;
-;; The contract is intentionally JS-free: the host CSS is the single
-;; source of truth for sizing. Xray itself does NOT read the variable
-;; (the panel fills its host) — the variable is the host's knob.
+;; The host CSS owns the layout and the baseline width. Xray itself does
+;; NOT read the variable (the panel fills its host); its resize setting
+;; overrides it on `<html>` (`settings.effects/apply-panel-width!`),
+;; never on the host element, and the default width removes that override.
 
 (def default-layout-host-css-var
   "Name of the CSS custom property the recommended host snippet reads
@@ -73,8 +74,10 @@
 
       :root { --rf-xray-inline-width: 720px; }
 
-  Xray never reads this property — sizing is owned by the host's
-  layout rule (per spec/011-Launch-Modes.md §Layout host contract).
+  Xray never reads this property. The host's layout rule owns the
+  baseline (per spec/011-Launch-Modes.md §Layout host contract), and
+  Xray's resize setting overrides it on `<html>`
+  (`settings.effects/apply-panel-width!`).
   The constant is published so tooling (story-mode chrome, docs
   generators) can refer to the exact spelling without forking the
   string."

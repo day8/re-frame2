@@ -180,9 +180,9 @@ The recommended CSS reads `--rf-xray-inline-width` for its
 Both mechanisms write the same `flex-basis` slot. Consumers that
 prefer the browser-native handle opt out by setting `resize:
 horizontal` on the host; Xray detects that via `getComputedStyle` at
-render time and yields (no double-handle). Xray MUST NOT set the
-variable from CLJS — the host's stylesheet is the single source of
-truth for the *initial* width.
+render time and yields (no double-handle). The host's stylesheet owns
+the *initial* width; Xray writes the variable only as the drag
+handle's override on `<html>`, and a reset removes it.
 
 ### Suppress auto-open
 

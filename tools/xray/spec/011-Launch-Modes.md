@@ -111,8 +111,9 @@ custom property — `--rf-xray-inline-width` — for its `flex-basis`,
 so developers can resize the inline Xray panel without forking the
 host rule or falling back to overlay / body-padding dock modes.
 
-The contract is **JS-free** and **host-owned**: Xray itself does not
-read the property; the host's stylesheet does. The host's
+The host's stylesheet owns the layout and the baseline width. Xray
+never reads the property; it writes it only as the resize setting's
+override on `<html>` (§Inline-style cascade contract below). The host's
 `[data-rf-xray-host]` rule uses the variable with a default fallback
 that matches Xray's recommended default (560px per rf2-9ovfb):
 
@@ -161,10 +162,10 @@ nothing in the page becomes unclickable.
 The property name and default are published as
 `day8.re-frame2-xray.config/default-layout-host-css-var` and
 `default-layout-host-width` so tooling and story-mode chrome can
-refer to them without forking the string. Xray MUST NOT introduce
-a runtime API that sets the property
-from CLJS — the host's stylesheet is the single source of truth for
-sizing; introducing a CLJS setter would split that source.
+refer to them without forking the string. They are constants, not
+setters. The user-draggable resize below is the only CLJS path that
+writes the property, and Xray MUST NOT add another, so the property
+stays the panel's single sizing channel.
 
 ### User-draggable resize
 
@@ -272,10 +273,10 @@ any ancestor of the consumer rule:
 The property name and default are published as
 `day8.re-frame2-xray.config/default-accent-css-var` and
 `default-accent` so tooling and docs generators can refer to them
-without forking the string. As with
-`--rf-xray-inline-width`, Xray MUST NOT introduce a CLJS API that
-*sets* this property from the runtime — the host's stylesheet is the
-single source of truth.
+without forking the string. Unlike `--rf-xray-inline-width`, which
+Xray's resize setting overrides on `<html>`, this property has no
+runtime writer: Xray MUST NOT introduce a CLJS API that *sets* it —
+the host's stylesheet is the single source of truth.
 
 ### Install
 

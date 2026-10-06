@@ -238,9 +238,9 @@
   mounts that may not be inside the inline shell root still inherit).
 
   No-op when neither element is present (test runtimes without a
-  `document`). Matches the `apply-text-size!` / `apply-theme!` /
-  `apply-panel-width!` write pattern — write to both roots so every
-  Xray-owned surface (inline, popout, fullscreen) honours the knob."
+  `document`). Matches the `apply-text-size!` / `apply-theme!` write
+  pattern — write to both roots so every Xray-owned surface (inline,
+  popout, fullscreen) honours the knob."
   [density]
   (let [value (str (density->px density) "px")]
     (when-let [root (shell-root-element)]
@@ -382,8 +382,9 @@
   "Name of the CSS custom property the resize handle drives. Mirrors
   `config/default-layout-host-css-var` — the inline-host snippet
   reads `var(--rf-xray-inline-width, 560px)` for its `flex-basis`,
-  so writing to this property on `:root` (and the host element)
-  resizes the panel in lockstep. Published here as a constant so the
+  so writing to this property on `<html>` resizes the panel in
+  lockstep through inheritance; `apply-panel-width!` never writes it
+  on the host element. Published here as a constant so the
   apply fn + tests reference one spelling."
   "--rf-xray-inline-width")
 
@@ -420,10 +421,9 @@
     selector-based rule, including `:root { ... }` in `<style>`.
 
   No-op when `<html>` is absent (test runtimes without a `document`
-  root). Matches the apply-text-size! / apply-theme! pattern, except
-  for the default-as-clear behaviour, which is unique to this
-  property because only this property is part of a documented
-  consumer-cascade contract.
+  root). Unlike apply-text-size! / apply-theme!, it writes `<html>`
+  alone (see below) and clears on the default, because only this
+  property is part of a documented consumer-cascade contract.
 
   ## Why we do NOT also write to the host element
 
