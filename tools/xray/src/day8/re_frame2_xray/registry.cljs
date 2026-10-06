@@ -589,9 +589,10 @@
     ;; `:rf.xray/set-panel-width-px` is the drag handle's write
     ;; surface — clamps to [min, viewport×0.9], persists through the
     ;; same Settings round-trip every other `:rf.xray/settings-
-    ;; update` uses, AND applies the CSS var to the host immediately
-    ;; via `settings-effects/apply-panel-width!`. `:rf.trace/no-emit?`
-    ;; matches the modal-positioning handler — drag events fire at
+    ;; update` uses, AND sets the CSS var on `<html>` immediately
+    ;; via `settings-effects/apply-panel-width!`, and the host
+    ;; inherits it from there. `:rf.trace/no-emit?` matches the
+    ;; modal-positioning handler — drag events fire at
     ;; mousemove cadence (one dispatch per pixel of drag) and emitting
     ;; them would flood the trace buffer with shape that no panel
     ;; consumes. The clamp is applied at write-time so the persisted

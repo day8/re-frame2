@@ -3279,8 +3279,8 @@
     ;; `position: relative` in :inline so the handle's anchor
     ;; resolves correctly. The handle's drag math writes through
     ;; `:rf.xray/set-panel-width-px`, which clamps + persists +
-    ;; pushes `--rf-xray-inline-width` onto the layout host so the
-    ;; host's `flex-basis` re-evaluates this paint.
+    ;; sets `--rf-xray-inline-width` on `<html>`; the layout host
+    ;; inherits it, so its `flex-basis` re-evaluates this paint.
     (resize-handle/Handle mode)
     ;; Mode-aware surface. The composer reads
     ;; `:rf.xray/mode` and renders either the Dynamic 4-layer
