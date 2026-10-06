@@ -42,45 +42,35 @@
       (is (= expected (component/classify-form-body body))))))
 
 ;; ---------------------------------------------------------------------------
-;; End-to-end fold integration: reg-view's expansion stamps the tag
+;; reg-view's expansion is the same with reagent-slim on the classpath
 ;;
-;; When reagent-slim is on the classpath (as it is here),
-;; `re-frame.core/expand-reg-view` consults
-;; `reagent2.impl.component/classify-form-body` via requiring-resolve
-;; and threads the form-tag through:
-;;
-;;   1. The registry slot's metadata (under `:reagent2/form`).
-;;   2. The wrapper fn-form's meta (so renderers reading the fn alone,
-;;      e.g. via `(rf/view :id)`, can still observe the tag).
-;;
-;; These tests inspect the macroexpansion shape directly without
-;; running through the full reg-view runtime (which would require
-;; rf/init! on a frame, etc).
+;; reagent-slim detects a view's shape when it renders it, so
+;; `re-frame.core/expand-reg-view` emits no form tag here either: none in the
+;; registry slot's metadata, and none on the render fn.
 ;; ---------------------------------------------------------------------------
 
-(defn- find-form-tag-in-expansion
-  "Walk `expansion` looking for a `:reagent2/form` key in any map.
-  Returns the value or nil. Used to assert the expansion stamped the
-  tag without coupling the test to the precise expansion shape."
+(defn- form-tags-in-expansion
+  "Every `:reagent2/form` value in `expansion`, whether a key of a map or of a
+  form's metadata."
   [expansion]
-  (let [seen (atom nil)]
+  (let [seen (atom [])]
     (clojure.walk/prewalk
       (fn [x]
-        (when (and (map? x) (contains? x :reagent2/form))
-          (reset! seen (:reagent2/form x)))
+        (doseq [m [x (meta x)]]
+          (when (and (map? m) (contains? m :reagent2/form))
+            (swap! seen conj (:reagent2/form m))))
         x)
       expansion)
     @seen))
 
-(deftest reg-view-expansion-carries-the-form-tag
-  (doseq [[why coords sym tail expected]
-          [["a Form-1 body stamps :reagent2/form-1"
-            {:line 1 :column 1} 'widget-1 '([n] [:p n])               :reagent2/form-1]
-           ["a Form-2 body (last form a literal fn) stamps :reagent2/form-2"
-            {:line 1 :column 1} 'widget-2 '([_n0] (fn [n] [:p n]))    :reagent2/form-2]
-           ["a docstring slot does not disturb the stamp"
-            {}                  'docced   '("doc" [n] [:p n])         :reagent2/form-1]]]
+(deftest reg-view-expansion-carries-no-form-tag
+  (doseq [[why coords sym tail]
+          [["a body returning hiccup"
+            {:line 1 :column 1} 'widget-1 '([n] [:p n])]
+           ["a body whose last form is a literal fn"
+            {:line 1 :column 1} 'widget-2 '([_n0] (fn [n] [:p n]))]
+           ["a docstring slot"
+            {}                  'docced   '("doc" [n] [:p n])]]]
     (testing why
-      (is (= expected
-             (find-form-tag-in-expansion
-               (rf/expand-reg-view coords 'my.ns "my_ns.cljc" sym tail)))))))
+      (is (empty? (form-tags-in-expansion
+                    (rf/expand-reg-view coords 'my.ns "my_ns.cljc" sym tail)))))))
