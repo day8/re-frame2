@@ -259,9 +259,9 @@ it directly, and a stub under MIG-24 keeps the rule complete.
 - **Fewer leaves.** The domain is narrower (view tier only).
 - **Honest scoping is a first-class deliverable.** `catalog-reject.md` is not a
   footnote. It is deliberately **short** now — Fresco has a first-class
-  foreign-React door, callback refs, an error boundary, portals, an
-  ephemeral-state sugar and a real test kit — and a short honest list is worth
-  more than a long stale one.
+  foreign-React door, callback refs, an error boundary, portals,
+  instance-keyed app-db state sugar (`h/reg-state`) and a real test kit — and a
+  short honest list is worth more than a long stale one.
 
 ## 6. Open questions (deferred to Mike)
 
