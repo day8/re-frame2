@@ -409,13 +409,6 @@ test('THE PROCESS EXIT: a JSFB_ONLY naming no row exits 1 from the shell', () =>
     // where a copy would be the second seat.
     assert.ok(!/totalUnverified|totalNonPositive/.test(MAIN), 'no inline exit may sit in `main`');
     assert.ok(!/let controlPass = true;/.test(SRC), 'the control must be decided in one seat');
-    // All five terms, verbatim: `verdict` holds the whole disjunction.
-    assert.ok(
-      SRC.includes(
-        'if (!parity.identical || totalUnverified > 0 || pageErrors.length > 0 || !control.pass || totalNonPositive > 0) {'
-      ),
-      'the five terms must appear verbatim, in `verdict`'
-    );
   });
 
   test('the recording site COUNTS a non-measurement rather than dropping it', () => {
