@@ -27,7 +27,7 @@
 ;; provides no `js/document`, so here it would create nothing and every
 ;; row depending on it would assert inside a nil binding.
 ;; `remove-stub-shell-root!` serves the fixture and the missing-root
-;; tests below, and it is a no-op on node by design.
+;; test below, and it is a no-op on node by design.
 
 (defn- remove-stub-shell-root! []
   (when (exists? js/document)
