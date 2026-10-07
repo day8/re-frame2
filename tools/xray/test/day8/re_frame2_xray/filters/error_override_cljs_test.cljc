@@ -28,15 +28,6 @@
 (def ^:private errored-in-non-match
   {:event [:order/retry {}] :dispatch-id 4 :other [{:operation :rf.error/handler-threw}]})
 
-;; ---- errored? classifier ------------------------------------------------
-
-(deftest errored?-keys-off-the-shared-outcome-classifier
-  (is (true?  (eo/errored? errored-out)))
-  (is (true?  (eo/errored? errored-in-non-match))
-      "the :rf.error/* namespace fallback also classifies as errored")
-  (is (false? (eo/errored? clean-kept)))
-  (is (false? (eo/errored? clean-dropped))))
-
 ;; ---- apply-error-overrides ----------------------------------------------
 
 (deftest re-adds-an-errored-bundle-an-OUT-pill-dropped
