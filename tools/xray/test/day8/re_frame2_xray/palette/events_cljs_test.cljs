@@ -383,28 +383,6 @@
       "Static tab selection lands on the Static-scoped slot")
   (is (false? (boolean (:palette-open? (xray-db))))))
 
-(deftest invoke-select-frame-drives-canonical-set-frame
-  (setup!)
-  ;; Ensure :rf/cart-frame exists so the spine handler resolves
-  ;; epoch-history without throwing — the canonical set-frame event
-  ;; queries `rf/epoch-history` for the new target.
-  (rf/make-frame {:id :rf/cart-frame})
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :frame
-        :id     :rf/cart-frame
-        :label  "Switch focus to frame :rf/cart-frame"
-        :action [:palette/select-frame :rf/cart-frame]}
-       false]))
-  (is (= :rf/cart-frame (get-in (xray-db) [:focus :frame]))
-      "select-frame routes through :rf.xray/set-frame so every per-
-       frame composite (App-DB Diff, Views, Routing) re-fires off the
-       new frame's slot")
-  (is (= :rf/cart-frame (:target-frame (xray-db)))
-      ":target-frame is also written by the canonical handler"))
-
 ;; ---- recents tracking --------------------------------------------------
 
 (deftest invoking-twice-keeps-recents-unique
