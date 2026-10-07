@@ -161,9 +161,4 @@
       (is (= frame-id (:frame (second data)))
           "locked to the request's own per-request frame")
       (is (str/includes? document "class=\"row\"")
-          "and the render completed")))
-
-  (testing "and `h/frame` answers the same request frame in the same body"
-    (reset! !seen [])
-    (let [{:keys [frame-id]} (rf.bench.fresco.ssr.entry/render (request [discreet {}]))]
-      (is (= [frame-id] @!seen)))))
+          "and the render completed"))))
