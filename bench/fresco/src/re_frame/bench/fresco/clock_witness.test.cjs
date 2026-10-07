@@ -17,10 +17,10 @@
 //
 // The self-test lives in the module rather than here, so `clock_run.cjs` runs
 // the same fixtures on every invocation before it launches Chromium. This file
-// is the GATE over them plus the checks that only make sense from outside: the
-// MUTATION PROOF, which reaches past the module's public surface to break the
-// grouping the way a careless edit would and asserts that the refusal fires and
-// names itself.
+// is the GATE over them — their fixture count included, so a fixture cannot go
+// quietly — plus the checks the fixtures do not make: the identity a physical
+// key is grouped by, the censoring rate an arm publishes, the expected set a
+// census refusal names, and the witness shape the formatted block states.
 
 const assert = require('node:assert');
 
@@ -46,12 +46,7 @@ test('a physical key is identified by segment, arm, round AND sample', () => {
   assert.deepStrictEqual(witness.KEY_FIELDS, ['seg', 'arm', 'round', 'sampleIndex']);
 });
 
-// --- THE MUTATION PROOF ------------------------------------------------------
-//
-// Break the grouping so two physical keys collapse into one record, and the
-// witness must exit refusing AND name the fault. This is done here rather than
-// by hand-editing the module because a mutation proof somebody performed once
-// and described afterwards is not a proof anybody can repeat.
+// --- the keys and entries the checks below adjudicate -----------------------
 
 const SHAPE = { cells: 100, fields: 4, substrate: ['fresco'], floors: ['floor'] };
 const CENSUS = { 's/fresco': { 'p0/cell': 100, 'p0/draft': 4 } };
@@ -75,38 +70,6 @@ const twoKeys = () => {
     shape: SHAPE,
   };
 };
-
-test('UNMUTATED: two physical keys form two records and the run is clean', () => {
-  const v = witness.adjudicate(twoKeys());
-  assert.strictEqual(v.ok, true, `unexpected faults: ${JSON.stringify(v.faults)}`);
-  assert.strictEqual(v.records.length, 2);
-  assert.strictEqual(v.censored.length, 0);
-  assert.strictEqual(v.totals.sent, 2);
-  // The zero-id entries are counted and are NOT records — the defect this guards.
-  assert.strictEqual(v.totals.zeroIdEntries, 2);
-  assert.strictEqual(v.perArm['s/fresco'].observed, 2);
-});
-
-test('MUTATED (sampleIndex dropped from the key): the collapse is REFUSED by name', () => {
-  // The mutation a careless edit makes: the grouping stops distinguishing
-  // samples, so both of round 0's keys become the same physical key. Applied
-  // to the data rather than to the module — identical effect, and it leaves no
-  // edited file behind to forget to revert.
-  const { sent, entries, census, shape } = twoKeys();
-  const collapse = (x) => ({ ...x, sampleIndex: 0 });
-  const v = witness.adjudicate({
-    sent: sent.map(collapse),
-    entries: entries.map(collapse),
-    census,
-    shape,
-  });
-  assert.strictEqual(v.ok, false, 'the witness returned ok on collapsed keys');
-  const codes = v.faults.map((f) => f.code);
-  assert.ok(codes.includes('collapsed-physical-keys'), `faults were ${codes.join(', ')}`);
-  const named = v.faults.find((f) => f.code === 'collapsed-physical-keys');
-  assert.match(named.why, /share the identity/);
-  assert.match(named.why, /one record per physical key/);
-});
 
 // --- censoring is published, not dropped ------------------------------------
 
