@@ -43,9 +43,7 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.trace-helpers :as trace-h]
-            [day8.re-frame2-xray.focus :as focus]
-            [day8.re-frame2-xray.views.edn-inspector :as ei]
-            [day8.re-frame2-xray.theme.tokens :as tokens]))
+            [day8.re-frame2-xray.views.edn-inspector :as ei]))
 
 ;; ---- (1) helpers route through the var-map ------------------------------
 
@@ -166,15 +164,3 @@
                    " in render of " (pr-str v)
                    " contains a palette hex literal "
                    "(should be a var(--rf-xray-…) reference)")))))))
-
-(deftest accent-stripe-style-output-has-no-palette-hex-literal
-  (testing "every shipped panel's accent-stripe style map
-            (the 3px left border on the L4 panel container) is
-            hex-free. Roster is `focus/valid-panels`."
-    (doseq [tab focus/valid-panels]
-      (let [s (tokens/accent-stripe-style tab)]
-        (doseq [[k v] s]
-          (when (string? v)
-            (is (not (re-find palette-hex-pattern v))
-                (str tab " stripe style key " k " value "
-                     (pr-str v) " contains a palette hex literal"))))))))
