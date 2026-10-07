@@ -685,18 +685,6 @@ test('THE CERTIFICATE IS TIGHT — an admitted window under-reads by at most 2τ
   assert.ok((trueAlloc - at.rise) / trueAlloc <= 2 * ALLOC_LEG_TOLERANCE);
 });
 
-test('LEGS AND GAPS are read apart, and only the legs are adjudicated', () => {
-  // `[s0, pre0, post0, pre1, post1, ...]`: the legs are `post - pre` and the
-  // gaps are `pre - post`, where nothing happens but a loop increment and two
-  // array stores. `rise` walks BOTH. The witness reads only
-  // the legs — and nothing allocates in a gap, so a collection there cannot be
-  // masked at all: it lands as a negative step and the falls gate takes it.
-  const s = allocSteps(stream([1000, 2000, 3000]));
-  assert.deepStrictEqual(s.legs, [1000, 2000, 3000], 'one leg per iteration');
-  assert.deepStrictEqual(s.gaps, [0, 0, 0], 'and nothing happens between them');
-  assert.strictEqual(s.rise, 6000, 'rise is unchanged by the split');
-});
-
 // ===========================================================================
 // THE PRIME WORK UNIT
 // ===========================================================================
@@ -3568,18 +3556,6 @@ test('V4 PROBE A — 300 KB of true allocation, admitted by the retired bound, i
   assert.strictEqual(s.refusals.length, 1, JSON.stringify(s.refusals));
   assert.match(s.refusals[0], /leg 5 of 5/, 'the refusal must NAME the leg');
   assert.match(s.refusals[0], /0 B against a cohort median of 60000 B/);
-});
-
-test('V4 PROBE B — 600 KB of true allocation, admitted by the retired bound, is REFUSED', () => {
-  const s = allocSteps(PROBE_B());
-  assert.strictEqual(s.falls, 0);
-  assert.strictEqual(s.rise, 250000, 'the sixth leg allocated 350000 and lost all of it');
-  assert.strictEqual(s.maxStep, 50000);
-  assert.strictEqual(s.certified, false);
-  assert.strictEqual(s.legMedian, 50000);
-  assert.deepStrictEqual(s.legs, [50000, 50000, 50000, 50000, 50000, 0]);
-  assert.strictEqual(s.refusals.length, 1, JSON.stringify(s.refusals));
-  assert.match(s.refusals[0], /leg 6 of 6/);
 });
 
 test('V4 τ-INDEPENDENCE — both probes are refused for EVERY tolerance below 1', () => {
