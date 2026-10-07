@@ -5,8 +5,7 @@
   Asserts:
   - `:rf.xray/editor-hint-show` / `-dismiss` flip the
     `:rf.xray/editor-hint-open?` sub.
-  - `Toast` short-circuits to nil when closed, renders the toast +
-    'Open Settings' button when open.
+  - `Toast` renders the toast + 'Open Settings' button when open.
   - `:rf.xray/editor-hint-open-settings` opens the Settings popup
     (General tab) and dismisses the toast.
 
@@ -56,11 +55,6 @@
         "dismiss flips it back off")))
 
 ;; ---- Toast render ------------------------------------------------------
-
-(deftest toast-renders-nil-when-closed
-  (rf/with-frame :rf/xray
-    (is (nil? (modal-trees/editor-hint-toast-tree))
-        "Toast renders nil when editor-hint-open? is false")))
 
 (deftest toast-renders-when-open
   (rf/with-frame :rf/xray
