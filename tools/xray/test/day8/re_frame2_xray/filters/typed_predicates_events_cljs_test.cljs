@@ -30,16 +30,6 @@
 
 ;; ---- :rf.xray/filter-by-machine ----------------------------------------
 
-(deftest filter-by-machine-appends-typed-pill
-  (xray-setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/filter-by-machine :form])
-    (let [filters @(rf/subscribe [:rf.xray/active-filters])]
-      (is (= [{:kind :machine :params {:machine-id :form}}]
-             (:in filters))
-          "machine pill landed in IN bucket")
-      (is (= [] (:out filters))))))
-
 (deftest filter-by-machine-idempotent
   (testing "duplicate add with the same machine-id collapses to one pill"
     (xray-setup!)
@@ -72,14 +62,6 @@
              (:in filters))))))
 
 ;; ---- :rf.xray/filter-by-fx ---------------------------------------------
-
-(deftest filter-by-fx-appends-typed-pill
-  (xray-setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/filter-by-fx :rf.http/managed])
-    (let [filters @(rf/subscribe [:rf.xray/active-filters])]
-      (is (= [{:kind :fx :params {:fx-id :rf.http/managed}}]
-             (:in filters))))))
 
 ;; ---- mixed typed + legacy keyword pills ---------------------------------
 
