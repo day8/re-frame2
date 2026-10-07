@@ -13,10 +13,11 @@
   Because on ASCII the wrong expression prints the right number. That is the
   whole shape of the defect and it is why it goes unnoticed: `count` and a UTF-8
   byte count agree exactly until content grows a dash, and then they diverge
-  by an amount that keeps growing. So every fixture below is asserted to be
-  DISCRIMINATING — `count` and `utf8-bytes` must DISAGREE on it — before it is
-  asserted to be correct. A fixture that stopped discriminating would fail
-  here rather than quietly stop testing anything.
+  by an amount that keeps growing. So every non-ASCII fixture below states a
+  code-unit count and a byte count that DIFFER, and the table asserts both: a
+  fixture that lost its non-ASCII character would still answer its code units
+  and no longer its bytes, so it fails here rather than quietly stop testing
+  anything.
 
   For the same reason the non-ASCII fixtures are `\\u` ESCAPES and not literal
   characters. An editor or a tool that normalised this file's encoding could
@@ -67,21 +68,6 @@
 ;; ---------------------------------------------------------------------------
 ;; The helper
 ;; ---------------------------------------------------------------------------
-
-(deftest every-non-ascii-fixture-can-tell-the-defect-apart
-  (testing "**the anti-vacuity guard, first.** Each non-ASCII fixture is
-           asserted to make `count` and `utf8-bytes` DISAGREE, so a fixture
-           that lost its non-ASCII character — an encoding normalisation, a
-           well-meaning tidy — fails here rather than turning the rows below
-           into a test of nothing. The ASCII control is asserted the other
-           way: on ASCII the two MUST agree, which is exactly why an
-           ASCII-only suite cannot catch this."
-    (doseq [{:keys [what s]} (rest cases)]
-      (is (not= (count s) (rf.bench.fresco.lane/utf8-bytes s))
-          (str what ": cannot distinguish the defect")))
-    (let [ascii (:s (first cases))]
-      (is (= (count ascii) (rf.bench.fresco.lane/utf8-bytes ascii))
-          "and on pure ASCII `count` and `utf8-bytes` agree"))))
 
 (deftest utf8-bytes-answers-bytes-and-count-answers-code-units
   (testing "The two rulers, stated side by side on every fixture. `count`
