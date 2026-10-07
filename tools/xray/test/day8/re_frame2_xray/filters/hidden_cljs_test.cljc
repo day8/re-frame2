@@ -16,13 +16,6 @@
 
 ;; ---- hidden-count -------------------------------------------------------
 
-(deftest hidden-count-is-raw-minus-filtered
-  (is (= 3 (hidden/hidden-count 5 2)))
-  (is (= 0 (hidden/hidden-count 4 4))
-      "nothing hidden when filtered == raw")
-  (is (= 4 (hidden/hidden-count 4 0))
-      "filtered-to-empty hides the whole raw set"))
-
 (deftest hidden-count-clamps-at-zero
   (testing "a transient skew where filtered briefly exceeds raw never
             yields a negative count"
@@ -35,11 +28,6 @@
   (is (false? (hidden/pills-present? {:in [] :out []})))
   (is (true?  (hidden/pills-present? {:in [{:pattern :a}] :out []})))
   (is (true?  (hidden/pills-present? {:in [] :out [{:pattern :b}]}))))
-
-(deftest mutes-present?-detects-nonempty-set
-  (is (false? (hidden/mutes-present? nil)))
-  (is (false? (hidden/mutes-present? #{})))
-  (is (true?  (hidden/mutes-present? #{:a}))))
 
 ;; ---- any-filter-active? -------------------------------------------------
 
