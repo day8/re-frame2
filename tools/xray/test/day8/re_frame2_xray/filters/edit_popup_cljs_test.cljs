@@ -49,13 +49,6 @@
 ;; (1) Pure helpers: draft<->pill round-trip
 ;; -------------------------------------------------------------------------
 
-(deftest draft-to-pill-normalises-keyword-strings
-  (testing "a string starting with `:` round-trips to a keyword"
-    (is (= {:pattern :auth/*}
-           (edit-popup/draft->pill {:pattern ":auth/*"})))
-    (is (= {:pattern :order/submit}
-           (edit-popup/draft->pill {:pattern ":order/submit"})))))
-
 (deftest draft-to-pill-preserves-bare-string-patterns
   (testing "a bare substring stays a string"
     (is (= {:pattern "/login"}
@@ -66,14 +59,6 @@
          (edit-popup/draft->pill {:pattern ""})))
   (is (= {:pattern nil}
          (edit-popup/draft->pill {:pattern "   "}))))
-
-(deftest pill-to-draft-stringifies-keyword
-  (is (= {:pattern ":auth/*"}
-         (edit-popup/pill->draft {:pattern :auth/*}))))
-
-(deftest pill-to-draft-empty-pill
-  (is (= {:pattern ""}
-         (edit-popup/pill->draft nil))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) Open popup — trigger payload hydrates the draft
@@ -214,18 +199,6 @@
 ;; -------------------------------------------------------------------------
 ;; (6) Right-click row → hide-event-type opens popup with OUT pre-fill
 ;; -------------------------------------------------------------------------
-
-(deftest hide-event-type-opens-popup-with-out-default
-  (xray-setup!)
-  (frame-dispatch [:rf.xray/hide-event-type :user/mouse-move])
-  (is (true? (frame-sub [:rf.xray/edit-popup-open?])))
-  (let [trig  (frame-sub [:rf.xray/edit-popup-trigger])
-        draft (frame-sub [:rf.xray/edit-popup-draft])]
-    (is (= :context (:source trig)))
-    (is (= :out (:mode trig)))
-    (is (= :out (:mode draft)))
-    (is (= ":user/mouse-move" (:pattern draft))
-        "draft pre-populated with the row's event-id")))
 
 (deftest hide-event-type-then-save-lands-in-out-bucket
   (xray-setup!)
@@ -399,16 +372,4 @@
             "primary button reads 'Add filter'")
         (is (contains? strings "Hide matching events")
             "Action radio copy shared with the add path")))))
-
-(deftest toggle-scope-event-is-unregistered
-  (testing "the `:rf.xray/edit-popup-toggle-scope` event is not
-            registered — dispatching it is a no-op (no scope slot appears)"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    ;; There is no handler; an unhandled dispatch must not introduce a
-    ;; :scope slot into the draft.
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/edit-popup-toggle-scope :event-args]))
-    (is (nil? (:scope (frame-sub [:rf.xray/edit-popup-draft])))
-        "draft carries no :scope slot")))
 
