@@ -773,8 +773,11 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
 1. Force `:include-sensitive false` on every call. Caller-supplied
    `:include-sensitive true` is dropped before reaching the walker —
    declared-sensitive slots in `:app-db` / `:sub-cache` reads (and
-   `dispatch-dry-run`'s `:db-state-after-simulation` /
-   `:would-fire-effects[*].args`) return the `:rf/redacted` sentinel.
+   `dispatch-dry-run`'s `:db-state-after-simulation`) return the
+   `:rf/redacted` sentinel. Dry-run's `:would-fire-effects[*].args` are
+   a separate channel: `:rf/redacted` by default on every launch,
+   revealed only by `include-fx-args true` under the gate, never by
+   `include-sensitive`.
    The `:cascade-summary` `:event-vector` slot — which copies
    the epoch's raw `:trigger-event` — FAILS CLOSED on its ARGS: the head
    `<event-id>` keyword is retained while every arg redacts to
