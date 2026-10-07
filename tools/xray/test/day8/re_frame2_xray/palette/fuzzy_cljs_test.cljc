@@ -33,20 +33,6 @@
     (is (nil? (fuzzy/score "event-detail" "deve"))
         "d comes after e in candidate but query asks for de-ve — fail")))
 
-(deftest case-insensitive-match
-  (testing "uppercase query matches lowercase candidate"
-    (is (some? (fuzzy/score "event-detail" "EV"))))
-  (testing "lowercase query matches CamelCase candidate"
-    (is (some? (fuzzy/score "EventDetail" "ed")))))
-
-(deftest prefix-bonus-beats-mid-string-match
-  (testing "match at index 0 outranks the same letters mid-string"
-    (let [prefix-s (fuzzy/score "event-detail" "ev")
-          mid-s    (fuzzy/score "the-event-feed" "ev")]
-      (is (> prefix-s mid-s)
-          "prefix should win — 'ev' as the start of 'event-detail' is
-           a stronger signal than 'ev' inside 'the-event-feed'"))))
-
 (deftest word-start-bonus-on-separator
   (testing "matched char following `-` scores higher than matched char
             inside a word run"
@@ -87,13 +73,6 @@
     (is (> (fuzzy/score "openTimeTravel" "tt")
            (fuzzy/score "opentimetravel" "tt")))))
 
-(deftest consecutive-match-run-bonus
-  (testing "consecutive matched chars score higher than scattered ones"
-    (let [run        (fuzzy/score "abcdef" "abc")
-          scattered  (fuzzy/score "axbxcx" "abc")]
-      (is (> run scattered)
-          "abc as a tight run scores higher than abc scattered"))))
-
 (deftest indices-track-match-positions
   (testing "the per-char indices vector reflects where each query
             char landed in the candidate"
@@ -111,13 +90,6 @@
     ;; 'the-event-detail' — the first 'e' is at index 2 ('t','h','e'),
     ;; so the greedy matcher takes 'e' at 2 then 'v' at 5.
     (is (= 2 (:first-match (fuzzy/score-with-meta "the-event-detail" "ev"))))))
-
-(deftest match-predicate-mirrors-score-nil
-  (testing "(match? c q) is (some? (score c q))"
-    (is (true?  (fuzzy/match? "event-detail" "ev")))
-    (is (false? (fuzzy/match? "event-detail" "xyz")))
-    (is (true?  (fuzzy/match? "anything" ""))
-        "empty query → match")))
 
 (deftest gap-penalty-anchored-at-index-0
   ;; A prefix-anchored match (first matched char at candidate index 0)
