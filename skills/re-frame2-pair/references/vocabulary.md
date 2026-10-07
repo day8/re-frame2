@@ -120,7 +120,10 @@ self-hosted server inside a private network). Launch with
 `--allow-sensitive-reads`; then the per-call `:include-sensitive true`
 passes through on the structured tools. (`:elision false`, the size
 override, needs no launch flag — it is honoured on every launch, and
-declared-sensitive slots still redact under it.) The gate does **not**
+declared-sensitive slots still redact under it.) On `dispatch-dry-run`
+neither knob reaches the raw effect args (`:would-fire-effects[*].args`,
+`:rf/redacted` by default): those need their own `:include-fx-args true`,
+under the same gate. The gate does **not**
 change the `eval-cljs` posture. State the trade-off
 plainly when proposing it — not a knob to flip casually. Same flag name carries on story-mcp.
 
