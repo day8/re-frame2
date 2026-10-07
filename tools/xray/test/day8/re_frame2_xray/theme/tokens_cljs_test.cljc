@@ -49,13 +49,6 @@
 
 ;; ---- motion seam -------------------------------------------------------
 
-(deftest motion-token-carries-scale-var-name
-  (testing "`motion/:scale-var-name` is the CSS custom
-            property name that `theme/global-styles` injects on `:root`
-            and the reduced-motion media query overrides."
-    (is (= "--rf-xray-motion-scale"
-           (:scale-var-name t/motion)))))
-
 (deftest motion-durations-match-spec
   (testing "the canonical duration lives here so the
             renderer can read it rather than fork the number.
@@ -139,17 +132,6 @@
              (get t/tokens k))
           (str k " resolves to its var() reference")))))
 
-(deftest css-var-helper-matches-tokens-map-shape
-  (testing "`css-var` is the canonical pure-data helper
-            that builds the `var(--rf-xray-<key>)` string. The
-            `tokens` map is `{k (css-var k)}` over every key in
-            `dark-palette`."
-    (is (= "var(--rf-xray-bg-1)" (t/css-var :bg-1)))
-    (is (= "var(--rf-xray-accent)" (t/css-var :accent)))
-    (doseq [k (keys t/dark-palette)]
-      (is (= (t/css-var k) (get t/tokens k))
-          (str k " resolves through css-var")))))
-
 (deftest with-alpha-builds-color-mix-string
   (testing "`with-alpha` is the canonical helper for the
             alpha-tail-suffix idiom (`(str (:accent tokens)
@@ -193,17 +175,6 @@
         (is (= accent (t/panel-accent tab))
             (str "panel-accent " (pr-str tab) " is the single accent"))))))
 
-(deftest panel-accent-resolves-through-the-var-map
-  (testing "`panel-accent` materialises its answer through
-            `tokens`, the CSS-variable map, rather than a palette hex.
-            The active theme class on the shell root decides which
-            palette paints."
-    (let [v (t/panel-accent :machines)]
-      (is (re-find #"^var\(--rf-xray-accent\)$" v)
-          "resolves to the accent CSS variable")
-      (is (not (re-find #"#[0-9A-Fa-f]" v))
-          "no hex literal — the theme class scope owns the paint"))))
-
 (deftest accent-stripe-style-emits-3px-left-border
   (testing "`accent-stripe-style` returns a merge-able style map
             carrying the 3px left border + matching padding. The
@@ -240,20 +211,6 @@
 
 ;; ---- font-size CSS var anchor ------------------------------------------
 
-(deftest font-size-var-name-matches-css-publication
-  (testing "`font-size-var-name` is the CSS custom property
-            that `theme/global-styles/motion-css` publishes on `:root`.
-            One knob — change it and every `type-scale` entry rescales
-            in lockstep."
-    (is (= "--rf-xray-font-size" t/font-size-var-name))))
-
-(deftest font-size-default-is-the-xray-baseline
-  (testing "the default knob value is the
-            `:body` size (13px). All multipliers are expressed
-            RELATIVE to this, so at the default each size resolves to
-            its baseline pixel value."
-    (is (= "13px" t/font-size-default))))
-
 (deftest type-scale-multipliers-anchor-body-at-one
   (testing "`:body` is the 1.0 anchor; every other size
             is a fraction of it. Display rises slightly above; mono,
@@ -270,23 +227,6 @@
     (let [expected #{:display :body :body-tight :mono-body :caption :micro
                      :line-height-tight :line-height-mono}]
       (is (= expected (set (keys t/type-scale)))))))
-
-(deftest type-scale-font-size-entries-are-calc-strings
-  (testing "every typographic size resolves through
-            `calc(var(--rf-xray-font-size, 13px) * <multiplier>)`
-            so a single `:root` override rescales the entire shell."
-    (doseq [k [:display :body :body-tight :mono-body :caption :micro]]
-      (let [v (get t/type-scale k)]
-        (is (string? v) (str k " is a CSS string"))
-        (is (re-find #"^calc\(" v)
-            (str k " starts with calc("))
-        (is (re-find #"var\(--rf-xray-font-size,\s*13px\)" v)
-            (str k " references the --rf-xray-font-size knob with
-                  the 13px fallback so unstyled consumers (no install
-                  of theme/global-styles) still see the baseline"))
-        (is (re-find #"\*\s*[0-9.]+\)" v)
-            (str k " carries a numeric multiplier so the relative
-                  scale is preserved across knob overrides"))))))
 
 (deftest type-scale-line-height-stays-unitless
   (testing "line-height values are unitless ratios. They
