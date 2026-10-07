@@ -23,10 +23,13 @@
 
   ## Anti-vacuity
 
-  [[the-two-loops-really-do-visit-something]] runs first. Two empty
-  answers are `=` and would carry the whole file green over a
-  `rounds-async!` that measured nothing at all — which is exactly what a
-  promise chain that dropped its tail would produce."
+  Two empty answers are `=`, so the equalities below could carry the whole
+  file green over a `rounds-async!` that measured nothing at all — which is
+  exactly what a promise chain that dropped its tail would produce. They
+  cannot: `lane-schedule-cljs-test` pins how many visits and samples the
+  synchronous loop makes at every arm count, and
+  [[a-plain-value-from-measure-one-is-accepted]] counts the async loop's
+  banked samples directly."
   (:require [cljs.test :refer-macros [async deftest is testing]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 
@@ -83,25 +86,6 @@
                                    (.then (js/Promise.resolve nil)
                                           (fn [_] (swap! in-fl dec) i)))))
            (fn [out] (assoc out :truth @truth :overlaps @overlaps)))))
-
-;; ---------------------------------------------------------------------------
-;; Anti-vacuity, first
-;; ---------------------------------------------------------------------------
-
-(deftest the-two-loops-really-do-visit-something
-  (testing "Two empty answers are `=`. Unless the async loop actually
-           executes the whole plan, every equality below is an assertion
-           about nothing."
-    (async done
-      (let [n 4]
-        (.then (async-run n)
-               (fn [a]
-                 (is (= (* rounds (+ (:warmup sampling) (:samples sampling)) n)
-                        (count (:truth a)))
-                     "every visit in the plan ran")
-                 (is (= (* rounds (:samples sampling) n) (count (:samples a)))
-                     "and the measured ones were banked")
-                 (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The claim
