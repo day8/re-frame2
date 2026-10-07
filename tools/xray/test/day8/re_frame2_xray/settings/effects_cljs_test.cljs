@@ -81,13 +81,11 @@
 ;; such rows here would execute in NEITHER lane. The sibling's name ends
 ;; `-dom-cljs-test`, which BOTH builds select.
 ;;
-;; THREE TESTS KEEP A HOST-FREE HALF HERE, because they mix DOM claims
-;; with assertions that really do run on node:
-;; `apply-use-system-colors-handles-missing-shell-root`,
-;; `update-event-applies-use-system-colors-effect` and
-;; `update-event-applies-density-font-size-effect` keep their host-free
-;; halves below; their DOM halves live in the sibling. That keeps the
-;; live assertions ON the node lane.
+;; ONE TEST KEEPS A HOST-FREE HALF HERE, because it mixes a DOM claim
+;; with an assertion that really does run on node:
+;; `apply-use-system-colors-handles-missing-shell-root` keeps its
+;; host-free half below; its DOM half lives in the sibling. That keeps
+;; the live assertion ON the node lane.
 
 ;; ---- filters ------------------------------------------------------------
 ;;
