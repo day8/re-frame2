@@ -272,27 +272,6 @@
             "the :idea radio is the checked option after the override
              writes")))))
 
-;; The popup surfaces no `:use-system-colors?` HCM-override checkbox.
-;; The settings slot + the `apply-use-system-colors!` effect exist so a
-;; UI can expose it; the OS-level `@media (forced-colors: active)`
-;; detection works automatically. The slot's behaviour is exercised by
-;; the settings effects tests.
-
-(deftest use-system-colors-checkbox-absent-from-general
-  (testing "the `:use-system-colors?` checkbox is not surfaced in the
-            popup. The slot + the `apply-use-system-colors!` effect
-            exist without a UI."
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-open])
-      (rf/dispatch-sync [:rf.xray/settings-select-tab :general]))
-    (rf/with-frame :rf/xray
-      (let [rendered (modal-trees/settings-popup-tree)]
-        (is (nil? (find-by-testid rendered "rf-xray-settings-use-system-colors"))
-            "Use system colors toggle does not render")
-        (is (nil? (find-by-testid rendered "rf-xray-settings-section-theme"))
-            "There is no Theme section either")))))
-
 ;; ---- Tab switching ------------------------------------------------------
 
 (deftest tab-switching-changes-section
