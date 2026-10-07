@@ -8,9 +8,9 @@
 > surface that has not shipped (cardinal rule 6).
 >
 > The list is deliberately **short**. Fresco has a first-class foreign-React
-> door, a callback ref, an error boundary, portals, an ephemeral-state sugar and
-> a real test kit, so most Reagent constructs convert. Three things genuinely
-> do not.
+> door, a callback ref, an error boundary, portals, instance-keyed app-db state
+> sugar (`h/reg-state`) and a real test kit, so most Reagent constructs convert.
+> Three things genuinely do not.
 
 ## MIG-36 — the prev-props / prev-state update protocol
 
