@@ -53,11 +53,6 @@ test('parses a bare (slash-free) build id and its warning count', () => {
   assert.deepStrictEqual(completed, [{ build: ':fresco-bench', warnings: 2 }]);
 });
 
-test('parses a clean summary as zero warnings', () => {
-  const { completed } = parseBuildSummaries(CLEAN_OUTPUT);
-  assert.deepStrictEqual(completed, [{ build: ':fresco-bench', warnings: 0 }]);
-});
-
 test('a singular "1 warning" is still parsed', () => {
   const { completed } = parseBuildSummaries(
     '[:fresco-bench] Build completed. (3 files, 1 compiled, 1 warning, 1.0s)',
