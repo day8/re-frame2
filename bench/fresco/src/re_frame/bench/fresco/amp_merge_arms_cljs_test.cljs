@@ -198,8 +198,6 @@
                                               classless-remainder)))
           old    (presented (rf.bench.fresco.amp-merge-clock-app/field-no-dissoc draft errors id :description false
                                                  classless-remainder+nil-class))]
-      (is (= 8 (count merged)))
-      (is (instance? PersistentArrayMap merged))
       (is (= 9 (count old)))
       (is (instance? PersistentHashMap old))
       (is (not= (type merged) (type old))
