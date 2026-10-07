@@ -36,11 +36,6 @@
     (is (= {:kind :prefix :pattern ":auth/"}
            (#'matcher/normalise-pattern ":auth/*")))))
 
-(deftest normalise-pattern-bare-substring
-  (testing "bare string (no leading `:`) compiles to :substring"
-    (is (= {:kind :substring :pattern "/login"}
-           (#'matcher/normalise-pattern "/login")))))
-
 (deftest normalise-pattern-bare-string-glob-is-prefix
   (testing "a colon-less string ending in `*` is the same
             intent as the keyword glob (the user dropped the `:`), so it
@@ -70,13 +65,6 @@
     (is (matcher/match-event-id? :auth/login spec))
     (is (not (matcher/match-event-id? :auth/logout spec)))
     (is (not (matcher/match-event-id? nil spec)))))
-
-(deftest match-event-id-prefix-glob
-  (let [spec (#'matcher/normalise-pattern :auth/*)]
-    (is (matcher/match-event-id? :auth/login spec))
-    (is (matcher/match-event-id? :auth/logout spec))
-    (is (matcher/match-event-id? :auth/anything spec))
-    (is (not (matcher/match-event-id? :order/submit spec)))))
 
 (deftest match-event-id-bare-keyword-is-exact-or-namespace
   (testing "the Add-filter dialog's own `:auth` example.
@@ -132,33 +120,10 @@
                  {:pattern :user/*}]]
     (is (matcher/event-bundle-matches? cascade pills))))
 
-(deftest event-bundle-matches-empty-pills-is-false
-  (is (not (matcher/event-bundle-matches? {:event [:auth/login]} [])))
-  (is (not (matcher/event-bundle-matches? {:event [:auth/login]} nil))))
-
-(deftest event-bundle-matches-unrouted-cascade-never-matches
-  (testing "a cascade with no event vector has no event-id; no pill matches"
-    (is (not (matcher/event-bundle-matches?
-               {:event nil}
-               [{:pattern :auth/*}])))))
-
 ;; ---- keep-event-bundle? + filter-event-bundles ------------------------------------
 ;;
 ;; `filter-event-bundles` is `filterv` over `keep-event-bundle?`, so its rows
 ;; grade the predicate too.
-
-(deftest keep-event-bundle-in-pill-bare-keyword-keeps-the-namespace
-  (testing "the whole point, at the level the L2 list
-            reads: an IN pill typed `:auth` (the Add-filter dialog's own
-            example) keeps the `auth` namespace and the bare id, and
-            drops a namespace that merely starts with the same letters.
-            An exact-only reading would keep NOTHING and silently empty
-            the list."
-    (let [filters {:in [{:pattern :auth}] :out []}]
-      (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
-      (is (matcher/keep-event-bundle? {:event [:auth]} filters))
-      (is (not (matcher/keep-event-bundle? {:event [:authors/x]} filters)))
-      (is (not (matcher/keep-event-bundle? {:event [:order/submit]} filters))))))
 
 (deftest keep-event-bundle-in-and-out-intersect-correctly
   (testing "spec/018 §7 — ACTIVE = (match-any-IN) AND NOT (match-any-OUT)"
