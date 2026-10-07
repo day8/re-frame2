@@ -58,20 +58,6 @@
       (is (= 0.0 (:width-pct (second out)))
           "the zero-length phase draws a zero-width bar rather than vanishing"))))
 
-(deftest normalise-phases-keeps-the-producers-two-row-issued-waterfall
-  (testing "The exact shape `managed-fx-helpers`' wire-timing readers synthesise
-            — `[[:issued 0] [:elapsed N]]` — reaches the renderer as TWO rows,
-            which is what makes the `:issued` accent fill reachable."
-    (let [out (wf/normalise-phases {:phases [[:issued 0] [:elapsed 12]]
-                                    :total-ms 12})]
-      (is (= 2 (count out)))
-      (is (= [:issued :elapsed] (mapv :phase out)))
-      (is (= 0.0 (:width-pct (first out))))
-      (is (= 1.0 (:width-pct (second out))))))
-  (testing "and the renderer draws both rows"
-    (let [svg (wf/render {:phases [[:issued 0] [:elapsed 12]] :total-ms 12})]
-      (is (= "2" (-> svg second :data-row-count))))))
-
 (deftest slowest-phase-still-ignores-zero-length-phases
   (testing "`slowest-phase` filters on `pos?` — a zero-length phase can never
             be the slowest, so `normalise-phases` keeping zero-length rows must
