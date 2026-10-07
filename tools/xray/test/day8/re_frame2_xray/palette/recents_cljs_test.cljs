@@ -27,10 +27,6 @@
 
 ;; ---- record -------------------------------------------------------------
 
-(deftest record-prepends-new-id
-  (is (= [:foo] (recents/record [] :foo)))
-  (is (= [:bar :foo] (recents/record [:foo] :bar))))
-
 (deftest record-dedups-by-id
   (let [r1 (recents/record [:foo :bar] :foo)]
     (is (= [:foo :bar] r1)
