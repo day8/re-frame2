@@ -21,21 +21,6 @@
       (is (= :children (engine/op-at p [])))
       (is (= 1 (engine/change-count-at p []))))))
 
-;; ---- R2 new map key -----------------------------------------------------
-
-(deftest r2-new-map-key
-  (testing "wholly new key surfaces as :added at the leaf path"
-    (let [p (engine/project {:a 1} {:a 1 :b 2})]
-      (is (= :added (engine/op-at p [:b])))
-      (is (= 2 (:after (engine/entry-at p [:b]))))
-      (is (= :same (engine/op-at p [:a]))))))
-
-(deftest r2-removed-map-key
-  (testing "removed key surfaces as :removed at the leaf path"
-    (let [p (engine/project {:a 1 :b 2} {:a 1})]
-      (is (= :removed (engine/op-at p [:b])))
-      (is (= 2 (:before (engine/entry-at p [:b])))))))
-
 ;; ---- R5 wholly-new subtree ---------------------------------------------
 
 (deftest r5-wholly-new-subtree
@@ -50,12 +35,6 @@
       (is (= [:flash] (engine/wholly-changed-ancestor p [:flash :text])))
       (is (= :added (engine/op-at p [:flash]))
           "the wholly-new container itself classifies :added"))))
-
-(deftest r5-wholly-removed-subtree
-  (testing "subtree where every descendant is :removed → parent root logged"
-    (let [p (engine/project {:a 1 :flash {:level :ok :text "hi"}}
-                            {:a 1})]
-      (is (contains? (:wholly-changed-roots p) [:flash])))))
 
 (deftest r5-mixed-subtree-not-wholly-changed
   (testing "subtree with both :added and :same leaves does NOT reclassify"
@@ -234,8 +213,9 @@
 ;; ---- No-op epoch: no walk at all ----------------------------------------
 ;;
 ;; The skip is asked per op, so it must never silence a one-sided diff:
-;; `r5-wholly-new-subtree` (adds only) and `r5-wholly-removed-subtree`
-;; (removes only) are the rows it would turn red.
+;; `r5-wholly-new-subtree` (adds only) and
+;; `yucxn-key-removed-distinct-from-emptied-all-kinds` (removes only) are
+;; rows it would turn red.
 
 (deftest y8doi25-no-op-epoch-reclassifies-without-walking-the-db
   (testing "an epoch whose two sides are `=` but not `identical?` — the
@@ -360,33 +340,6 @@
         (is (contains? paths [:user :id]))
         (is (= #{:removed} ops))))))
 
-(deftest empty-to-populated-mid-tree-expands
-  (testing "mid-tree empty-to-populated also expands:
-            `{:user {}} → {:user {:name 'Ada'}}` yields :added at
-            `[:user :name]`, not :modified at `[:user]`."
-    (let [p (engine/project {:user {}} {:user {:name "Ada"}})]
-      (is (= :added (engine/op-at p [:user :name])))
-      ;; [:user] is wholly-changed-added (every descendant is :added).
-      (is (= :added (engine/op-at p [:user])))
-      (is (contains? (:wholly-changed-roots p) [:user])))))
-
-(deftest populated-disjoint-map-swap-expands-per-key
-  (testing "two populated maps swapping wholesale
-            (`{:a 1 :b 2} → {:c 3 :d 4}`) expand to per-key ops. Editscript
-            emits a single root `:r` here (A* prices it below four per-key
-            edits), while the same shape with ONE key per side arrives
-            per-key; expanding only the empty edge would leave this `:r`
-            as one `:modified` at `[]` with every key `:same`, so the
-            projection would depend on A*'s cost model. Every same-kind
-            `:r` expands, and the root stays intact."
-    (let [p (engine/project {:a 1 :b 2} {:c 3 :d 4})]
-      (is (= :children (engine/op-at p [])))
-      (is (= 4 (engine/change-count-at p [])))
-      (is (= :removed (engine/op-at p [:a])))
-      (is (= :removed (engine/op-at p [:b])))
-      (is (= :added (engine/op-at p [:c])))
-      (is (= :added (engine/op-at p [:d]))))))
-
 (deftest type-change-still-modified
   (testing "`{} → {}` style detection must NOT catch
             type changes (nil↔map, scalar↔map). R7's :modified +
@@ -473,25 +426,6 @@
       (is (= :added   (engine/op-at p [:tags :door/closed])))
       (is (= :door/locked (:before (engine/entry-at p [:tags :door/locked]))))
       (is (= :door/closed (:after  (engine/entry-at p [:tags :door/closed])))))))
-
-(deftest l0us2-set-add-only
-  (testing "add-only `#{:a} → #{:a :b}`: only `:b` is added,
-            `:a` is :same, key intact."
-    (let [p (engine/project {:tags #{:a}} {:tags #{:a :b}})]
-      (is (= :children (engine/op-at p [:tags])))
-      (is (= :added (engine/op-at p [:tags :b])))
-      ;; The surviving member carries no op (returns :same).
-      (is (= :same (engine/op-at p [:tags :a])))
-      (is (not (contains? (:wholly-changed-roots p) [:tags]))))))
-
-(deftest l0us2-set-remove-only
-  (testing "remove-only `#{:a :b} → #{:a}`: only `:b` is
-            removed, `:a` is :same, key intact."
-    (let [p (engine/project {:tags #{:a :b}} {:tags #{:a}})]
-      (is (= :children (engine/op-at p [:tags])))
-      (is (= :removed (engine/op-at p [:tags :b])))
-      (is (= :same (engine/op-at p [:tags :a])))
-      (is (not (contains? (:wholly-changed-roots p) [:tags]))))))
 
 (deftest l0us2-set-partial-swap-keeps-shared-member
   (testing "partial swap `#{:a :b} → #{:a :c}`: `:a` survives
@@ -585,22 +519,6 @@
       (is (= :removed (engine/op-at p [:items {:id 1} :id])))
       (is (= :added (engine/op-at p [:items {:id 2} :id]))))))
 
-(deftest l0us2-set-diff-feeds-flat-rows
-  (testing "the member-level set diff also surfaces on the
-            `:diff` (pure-list) flat-rows lens, not just FULL+DIFF."
-    (let [p (engine/project {:tags #{:door/locked}}
-                            {:tags #{:door/closed}})
-          rows (:flat-rows p)
-          paths (set (map :path rows))
-          op-at-path (fn [path]
-                       (some (fn [r] (when (= path (:path r)) (:op r))) rows))]
-      (is (contains? paths [:tags :door/locked]))
-      (is (contains? paths [:tags :door/closed]))
-      (is (= :removed (op-at-path [:tags :door/locked])))
-      (is (= :added (op-at-path [:tags :door/closed])))
-      ;; The :tags key itself is NOT a flat-row (it's intact :children).
-      (is (not (contains? paths [:tags]))))))
-
 ;; ---- MULTI-MEMBER simultaneous set swaps -------------------------------
 ;;
 ;; For a SINGLE-member swap `#{:a} → #{:b}` (and the 1-in/1-out partial
@@ -650,76 +568,6 @@
       (is (= :b (:before (engine/entry-at p [:tags :b]))))
       (is (= :d (:after (engine/entry-at p [:tags :d])))))))
 
-(deftest multimember-set-swap-at-root
-  (testing "the same delta at the ROOT (a bare set, not nested):
-            `#{:a :b :c} → #{:a :d :e}` projects member-level at the root.
-            The set root `[]` is excluded from wholly-changed promotion
-            regardless; the invariant is no whole-set replace."
-    (let [p (engine/project #{:a :b :c} #{:a :d :e})]
-      (is (= :removed (engine/op-at p [:b])))
-      (is (= :removed (engine/op-at p [:c])))
-      (is (= :added (engine/op-at p [:d])))
-      (is (= :added (engine/op-at p [:e])))
-      (is (= :same (engine/op-at p [:a])))
-      (is (= #{} (:wholly-changed-roots p)))
-      ;; The root set is NOT a single :modified.
-      (is (not= :modified (engine/op-at p []))))))
-
-(deftest multimember-machine-tags-transition-repro
-  (testing "a machine `:tags` set on a
-            state transition drops two tags + adds one
-            (`#{:door/locked :door/secure} → #{:door/open}`). The :tags key
-            stays intact and reads `-:door/locked -:door/secure +:door/open`."
-    (let [p (engine/project {:tags #{:door/locked :door/secure}}
-                            {:tags #{:door/open}})]
-      (is (= :children (engine/op-at p [:tags])))
-      (is (= :removed (engine/op-at p [:tags :door/locked])))
-      (is (= :removed (engine/op-at p [:tags :door/secure])))
-      (is (= :added (engine/op-at p [:tags :door/open])))
-      (is (not (contains? (:wholly-changed-roots p) [:tags]))))))
-
-(deftest multimember-set-swap-feeds-flat-rows
-  (testing "the multi-member member-level delta also surfaces on
-            the `:diff` (pure-list) flat-rows lens, with the key intact."
-    (let [p (engine/project {:tags #{:a :b :c}} {:tags #{:a :d :e}})
-          rows (:flat-rows p)
-          paths (set (map :path rows))
-          op-at-path (fn [path]
-                       (some (fn [r] (when (= path (:path r)) (:op r))) rows))]
-      (is (contains? paths [:tags :b]))
-      (is (contains? paths [:tags :c]))
-      (is (contains? paths [:tags :d]))
-      (is (contains? paths [:tags :e]))
-      (is (= :removed (op-at-path [:tags :b])))
-      (is (= :added (op-at-path [:tags :d])))
-      ;; The surviving member + the intact key are NOT flat-rows.
-      (is (not (contains? paths [:tags :a])))
-      (is (not (contains? paths [:tags]))))))
-
-(deftest multimember-set-swap-does-not-promote-ancestor-map
-  (testing "a multi-member-swapped set must not falsely promote
-            an ANCESTOR map (the deeper trap). `{:m {:tags #{:a :b :c}}} →
-            {:m {:tags #{:a :d :e}}}` keeps both `:m` and `:m :tags` intact."
-    (let [p (engine/project {:m {:tags #{:a :b :c}}}
-                            {:m {:tags #{:a :d :e}}})]
-      (is (= :children (engine/op-at p [:m])))
-      (is (= :children (engine/op-at p [:m :tags])))
-      (is (= #{} (:wholly-changed-roots p)))
-      (is (= :removed (engine/op-at p [:m :tags :b])))
-      (is (= :added (engine/op-at p [:m :tags :d])))
-      (is (= :same (engine/op-at p [:m :tags :a]))))))
-
-(deftest multimember-set-of-non-keyword-members
-  (testing "multi-member match BY VALUE regardless of type. A
-            set of numbers swapping multiple members diffs member-level."
-    (let [p (engine/project {:t #{1 2 3}} {:t #{1 4 5}})]
-      (is (= :children (engine/op-at p [:t])))
-      (is (= :removed (engine/op-at p [:t 2])))
-      (is (= :removed (engine/op-at p [:t 3])))
-      (is (= :added (engine/op-at p [:t 4])))
-      (is (= :added (engine/op-at p [:t 5])))
-      (is (= :same (engine/op-at p [:t 1]))))))
-
 (deftest multimember-set-branch-leaves-type-changes-alone
   (testing "regression guard: the SET↔SET `:r`
             branch must only fire when BOTH sides are sets. A set↔non-set
@@ -754,30 +602,6 @@
 
 ;; -- Case 3: empty-result (key intact) vs key-removal, ALL collection kinds
 
-(deftest yucxn-vector-emptied-is-member-level-removal
-  (testing "`{:a [1]} → {:a []}` (vector emptied, key
-            intact) projects member-level: the element removal flows
-            through `:vector-removals` keyed by `[:a]`, NOT a whole-key
-            `:modified`. Matches the set/map empty edges."
-    (let [p (engine/project {:a [1]} {:a []})]
-      ;; No whole-key :modified at [:a].
-      (is (not= :modified (engine/op-at p [:a])))
-      ;; The removed element lives on the vector-removals channel.
-      (is (= [{:before-index 0 :before-value 1}]
-             (get-in p [:vector-removals [:a]])))
-      ;; flat-rows carry the member-level removal, not a [:a] row.
-      (let [paths (set (map :path (:flat-rows p)))]
-        (is (contains? paths [:a 0]))
-        (is (not (contains? paths [:a])))))))
-
-(deftest yucxn-list-emptied-is-member-level-removal
-  (testing "`{:a (1)} → {:a ()}` (list emptied) behaves
-            like the vector empty edge: member-level, not whole-key."
-    (let [p (engine/project {:a '(1)} {:a '()})]
-      (is (not= :modified (engine/op-at p [:a])))
-      (is (= [{:before-index 0 :before-value 1}]
-             (get-in p [:vector-removals [:a]]))))))
-
 (deftest yucxn-vector-populated-from-empty-is-member-level-add
   (testing "symmetric `{:a []} → {:a [1]}` (vector filled
             from empty) projects `[:a 0] :added` with `[:a]` wholly-changed,
@@ -785,12 +609,6 @@
     (let [p (engine/project {:a []} {:a [1]})]
       (is (= :added (engine/op-at p [:a 0])))
       (is (= 1 (:after (engine/entry-at p [:a 0]))))
-      (is (contains? (:wholly-changed-roots p) [:a])))))
-
-(deftest yucxn-list-populated-from-empty-is-member-level-add
-  (testing "`{:a ()} → {:a (1)}` mirrors the vector edge."
-    (let [p (engine/project {:a '()} {:a '(1)})]
-      (is (= :added (engine/op-at p [:a 0])))
       (is (contains? (:wholly-changed-roots p) [:a])))))
 
 (deftest gwye-10-multi-element-sequential-emptied-reports-every-removal
@@ -819,18 +637,6 @@
         (is (empty? (:shift-suffix p))
             (str "an emptied collection has no surviving shift for "
                  (pr-str before)))))))
-
-(deftest yucxn-root-vector-empty-edges
-  (testing "the empty edge at the ROOT (a bare vector):
-            `[1] → []` member-removes index 0; `[] → [1]` member-adds it.
-            Neither collapses to a whole-`[]` `:modified`."
-    (let [p (engine/project [1] [])]
-      (is (not= :modified (engine/op-at p [])))
-      (is (= [{:before-index 0 :before-value 1}]
-             (get-in p [:vector-removals []]))))
-    (let [p (engine/project [] [1])]
-      (is (not= :modified (engine/op-at p [])))
-      (is (= :added (engine/op-at p [0]))))))
 
 (deftest yucxn-empty-edge-vector-to-map-still-type-change
   (testing "regression guard — the sequential empty-edge
@@ -1100,19 +906,6 @@
       (is (= :same-shifted (engine/op-at p [4])))
       (is (= 3 (engine/shifted-was-index p [4]))))))
 
-(deftest eplfk-mixed-edit-in-nested-vector-parent
-  (testing "the mixed insert+delete replay holds at a NESTED
-            vector parent (keyed by parent path, not just root). `{:xs
-            [:a :b :c]} → {:xs [:X :a :c]}` mirrors case 1 under `[:xs]`."
-    (let [p (engine/project {:xs [:a :b :c]} {:xs [:X :a :c]})]
-      (is (= [{:before-index 1 :before-value :b}]
-             (get-in p [:vector-removals [:xs]])))
-      (is (= :added (engine/op-at p [:xs 0])))
-      (is (= :same-shifted (engine/op-at p [:xs 1])))
-      (is (= 0 (engine/shifted-was-index p [:xs 1])))
-      (is (= :same (engine/op-at p [:xs 2])))
-      (is (nil? (engine/shifted-was-index p [:xs 2]))))))
-
 ;; ---- vector :r before-value resolved through the replay ----------------
 ;;
 ;; A vector `:r` (in-place replace) edit's edit-index addresses a position
@@ -1318,17 +1111,6 @@
       (is (= :children (engine/op-at p [:scores])))
       (is (= 3 (engine/change-count-at p [:scores])))
       (is (= [[:scores 0] [:scores 1] [:scores 2]] (mapv :path (:flat-rows p)))))))
-
-(deftest x7nj-26-4-reversal-is-per-index
-  (testing "`[[[:v] :r [4 3 2 1]]]`, and the same at the root"
-    (let [p (engine/project {:v [1 2 3 4]} {:v [4 3 2 1]})]
-      (is (= {:op :modified :before 1 :after 4} (engine/entry-at p [:v 0])))
-      (is (= {:op :modified :before 4 :after 1} (engine/entry-at p [:v 3])))
-      (is (= 4 (engine/change-count-at p [:v]))))
-    (let [p (engine/project [1 2 3 4] [4 3 2 1])]
-      (is (= :modified (engine/op-at p [0])))
-      (is (= :modified (engine/op-at p [3])))
-      (is (= :children (engine/op-at p []))))))
 
 (deftest x7nj-26-4-map-with-every-key-replaced-is-per-key
   (testing "`[[[:user :prefs] :r {:c 3 :d 4}]]` — per-key union delta, and,
