@@ -15,11 +15,11 @@
   and `19.05`. A row that quoted one under the other's name would be
   wrong by less than a rounding error and unfalsifiable by inspection.
 
-  Every case below therefore follows `lane_bytes_cljs_test`'s discipline
-  — **assert the fixture DISCRIMINATES before asserting it is correct**.
-  A fixture on which the two conventions agree tests the arithmetic and
-  says nothing about the definition, and a fixture that quietly stopped
-  discriminating would fail here rather than go on passing.
+  Every case below therefore pins its answer on a fixture where the
+  conventions DISAGREE, so the expected value itself discriminates: `p95`
+  of `1..20` is `19.05` here and `19` by nearest rank. A fixture on which
+  the two conventions agreed would test the arithmetic and say nothing
+  about the definition.
 
   ## The one consistency that matters more than the choice
 
@@ -55,31 +55,17 @@
   [a b]
   (< (js/Math.abs (- (double a) (double b))) eps))
 
-(defn- nearest-rank
-  "The OTHER convention, present only so the fixtures can be shown to
-  discriminate between it and the lane's. Never called by the lane."
-  [xs q]
-  (let [v (vec (sort xs))
-        r (js/Math.ceil (* (double q) (count v)))]
-    (nth v (max 0 (min (dec (count v)) (dec (int r)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; The definition
 ;; ---------------------------------------------------------------------------
 
 (deftest quantile-is-linear-interpolation-at-h-of-n-minus-one-q
-  (testing "the fixture DISCRIMINATES — the two conventions disagree on it"
+  (testing "the answer is the interpolated one, 19.05, where nearest rank
+           answers 19"
     (let [xs (vec (range 1 21))]                            ; 1..20, n = 20
-      (is (not (close? (rf.bench.fresco.lane/quantile xs 0.95) (nearest-rank xs 0.95)))
-          "if these agree the case below has stopped testing the definition")))
-
-  (testing "and the answer is the interpolated one, not the nearest rank"
-    (let [xs (vec (range 1 21))]
       ;; h = (20-1)*0.95 = 18.05 -> v[18] + (v[19] - v[18]) * 0.05
       ;;                          = 19   + 1 * 0.05 = 19.05
-      (is (close? 19.05 (rf.bench.fresco.lane/quantile xs 0.95)))
-      (is (= 19 (nearest-rank xs 0.95))
-          "the convention NOT taken, stated so the difference is on the page")))
+      (is (close? 19.05 (rf.bench.fresco.lane/quantile xs 0.95)))))
 
   (testing "q = 0 is the minimum and q = 1 is the maximum, exactly"
     (let [xs [7.5 2.25 9.0 4.0]]
@@ -143,10 +129,9 @@
     (let [xs  (vec (range 1 21))
           p99 (rf.bench.fresco.lane/quantile xs 0.99)]
       ;; h = 19*0.99 = 18.81 -> 19 + (20-19)*0.81 = 19.81
-      (is (close? 19.81 p99))
-      (is (< 19 p99 20) "strictly between the second-largest and the largest")
-      (is (not (some #(close? % p99) xs))
-          "no member of the sample took this value — this is the caveat")))
+      (is (close? 19.81 p99)
+          "strictly between the top two readings, so no member of the sample
+           took this value — this is the caveat")))
 
   (testing "a quantile never exceeds the maximum, however short the sample"
     (doseq [n [1 2 3 5 20 101]]
