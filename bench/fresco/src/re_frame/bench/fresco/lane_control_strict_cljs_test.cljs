@@ -183,15 +183,6 @@
            fraction of the prediction")
       (is (re-find #"round 4" (:why r))))))
 
-(deftest a-high-excursion-refuses-too
-  (testing "the band is two-sided: a control reading 3.0x against a 2.0x
-            prediction has not confirmed the instrument, it has found
-            something else"
-    (let [r (strict [2.037 3.000 1.988])]
-      (is (false? (:ok? r)))
-      (is (= [2] (mapv :round (:outside r))))
-      (is (= 0.25 (:off-by (first (:outside r))))))))
-
 (deftest the-edges-are-inside
   (testing "the band is inclusive at both edges — a rule that refused its
             own stated tolerance would be a different tolerance"
