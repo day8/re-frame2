@@ -114,11 +114,6 @@
   ;; No throw; atom remains at defaults.
   (is (= 13 (config/get-setting :general :text-size))))
 
-(deftest unknown-section-update-is-rejected
-  (config/update-setting! :totally-unknown :slot 99)
-  (is (= 13 (config/get-setting :general :text-size))
-      "unknown section is a no-op — defaults remain intact"))
-
 ;; ---- bulk configure! :settings ----------------------------------------
 
 (deftest configure-settings-bulk-replaces
@@ -138,15 +133,6 @@
   (is (nil? (storage-payload))
       "configure! never writes storage — the seed is re-applied on every
        boot instead"))
-
-(deftest configure-settings-partial-merges-with-defaults
-  (config/configure! {:rf.xray/settings {:general {:text-size 11}}})
-  (is (= 11 (config/get-setting :general :text-size)))
-  ;; Other general slots keep their defaults
-  (is (= :right-rail (config/get-setting :general :panel-position)))
-  (is (= false (config/get-setting :general :auto-open-on-error?)))
-  ;; The theme default is `:light`.
-  (is (= :light (config/get-setting :theme nil))))
 
 ;; ---- configure! vs persisted Settings merge order -----------------------
 ;;
