@@ -285,7 +285,11 @@ sensitive slots redact and large slots elide before any payload crosses
 the LLM-facing wire. Published builds ship with the gate off:
 
 - a caller's `:include-sensitive true` is overridden to `false`.
-- a caller's `:elision false` is overridden to `true`.
+- `dispatch-dry-run`'s `:include-fx-args true` is overridden to `false`,
+  so its `:would-fire-effects[*].args` stay `:rf/redacted`.
+- a caller's `:elision false` is not overridden: it is the size
+  override, honoured on every launch, and declared-sensitive slots
+  still redact under it.
 - the preload runtime's `app-db-reset!` taps default-elide both
   `:previous` and `:next` payloads through `re-frame.core/project-egress`
   before any tap consumer sees them. The `configure-raw-state!` signal
