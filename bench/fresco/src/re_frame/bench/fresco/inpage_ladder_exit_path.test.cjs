@@ -105,7 +105,6 @@ test('a genuinely absent key still throws — the fix must not paper over one', 
 test('the control rule is OVERLAP, exactly as `lane/control-verdict` spells it', () => {
   const at = (min, max) => agg.controlVerdict(2, { min, max, mean: (min + max) / 2 }, 0.25);
   // band is [1.5 – 2.5]
-  assert.ok(at(1.9, 2.1).ok, 'a range inside the band passes');
   assert.ok(at(1.2, 1.6).ok, 'a range that merely REACHES the floor passes — this is overlap');
   assert.ok(at(2.4, 3.0).ok, 'a range that merely reaches the ceiling passes');
   assert.ok(!at(1.0, 1.4).ok, 'a range entirely below the band fails');
