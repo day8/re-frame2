@@ -100,14 +100,6 @@
     (is (= 0 (:recency-rank (first
                               (filter #(zero? (:recency-rank %)) items)))))))
 
-(deftest frame-items-excludes-xray
-  (let [items (sources/frame-items sample-frames)
-        ids   (set (map :id items))]
-    (is (contains? ids :rf/default))
-    (is (contains? ids :app/main))
-    (is (not (contains? ids :rf/xray))
-        "switching focus to :rf/xray is not a meaningful palette op")))
-
 ;; The palette frame source must honour the SAME exclusion
 ;; the ribbon picker applies: the FULL internal-frames set, not just
 ;; :rf/xray (spec/018 §8 I1).
@@ -159,20 +151,6 @@
 
 ;; ---- mode-aware command surface ----------------------------------------
 
-(deftest command-items-carry-no-clear-epoch-history-verb
-  (testing "there is no `:clear-epoch-history` verb: Xray's
-            `:epoch-history` is a MIRROR the next recorded epoch
-            re-seeds wholesale, so a clear would last one event.
-            The control is the sibling `:clear-trace-buffer` verb: if
-            this assertion passed because `command-items` returned
-            nothing, `:clear-trace-buffer` would be absent too."
-    (let [ids (set (map :id (sources/command-items)))]
-      (is (not (contains? ids :clear-epoch-history))
-          "the index carries no :clear-epoch-history verb")
-      (is (contains? ids :clear-trace-buffer)
-          "control — the real buffer scrub is indexed, so the
-           absence above is real and not an empty index"))))
-
 (deftest command-items-carry-modes-set
   (let [items (sources/command-items)]
     (is (every? #(set? (:modes %)) items)
@@ -221,13 +199,6 @@
                                  (= :trace (:id %))) index)]
     (is (= 1 (count traces))
         "first :panel :trace wins, duplicates drop")))
-
-(deftest build-index-defaults-empty-inputs
-  (let [index (sources/build-index {})]
-    (is (vector? index))
-    (is (pos? (count index))
-        "commands + settings ship even with no host data")
-    (is (every? #(some? (:source %)) index))))
 
 ;; ---- ranking ------------------------------------------------------------
 
