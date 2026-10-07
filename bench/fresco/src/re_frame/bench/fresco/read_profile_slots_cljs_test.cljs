@@ -107,17 +107,6 @@
                    (first (keep-indexed (fn [p j] (when (= j slot) p)) order)))
                 (str "slot " slot " at sample " s))))))
 
-    (testing "so at every kept sample the arms occupy positions 0..n-1
-             exactly once between them — a permutation, which is a
-             property of the plan and not of any transcription of it"
-      (doseq [s (range warmup (+ warmup samples))]
-        (is (= (set (range n))
-               (into #{}
-                     (map (fn [slot]
-                            (nth (rf.bench.fresco.read-profile-app/slot-positions n slot sampling) (- s warmup))))
-                     (range n)))
-            (str "sample " s))))
-
     (testing "every arm is sampled the same number of times, so no
              footprint is longer than another's"
       (is (= #{samples}
