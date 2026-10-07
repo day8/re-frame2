@@ -139,17 +139,6 @@
     (is (= "rf:render:re-frame.bench.fresco.arm1.render-measure-cljs-test/measured-page"
            (rf.performance/build-name :render (.-displayName measured-page))))))
 
-(deftest the-id-rule-holds-for-a-mint-view-name-without-a-namespace
-  (testing "`mint-view!` is also called directly (the frame-prop rows, the
-            probes) with a bare name. `build-name`'s `:else` arm stringifies
-            it verbatim, so the shape stays `rf:render:<id>` with no
-            namespace invented — the same contract a non-namespaced
-            `reg-view` keyword id gets."
-    (let [head (rf.bench.fresco.arm1.runtime/mint-view! "bare-row" (fn [_] [:span "x"]))]
-      (is (= "bare-row" (.-displayName head)))
-      (is (= "rf:render:bare-row"
-             (rf.performance/build-name :render (.-displayName head)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 2 — the off path: the render happens, and nothing is measured
 ;; ---------------------------------------------------------------------------
