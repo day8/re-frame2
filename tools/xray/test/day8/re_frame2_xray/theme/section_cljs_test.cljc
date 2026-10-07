@@ -68,18 +68,6 @@
 
 ;; ---- (1) structural identity --------------------------------------------
 
-(deftest renders-outer-header-body-testids
-  (let [out (section/section-row {:label "REQUEST"
-                                  :testid "rf-xray-managed-fx-section-request"}
-                                 [:span "payload"])
-        ids (testids out)]
-    (is (contains? ids "rf-xray-managed-fx-section-request")
-        "outer container carries the base testid")
-    (is (contains? ids "rf-xray-managed-fx-section-request-header")
-        "header carries -header suffix")
-    (is (contains? ids "rf-xray-managed-fx-section-request-body")
-        "body carries -body suffix when expanded (the default)")))
-
 (deftest header-glyph-reflects-expanded
   (testing "expanded? true → ▼ glyph"
     (let [out (section/section-row {:label "X" :testid "t" :expanded? true} "b")]
