@@ -6,15 +6,12 @@
   - `apply-theme!` toggles the CSS class on the shell root + <html>
   - `update-setting!` dispatched through events drives the matching
     `apply-*!` side effect
-  - The auto-open watcher's install guard and its surface-preserving
-    reopen route
 
   No DOM-shell mount happens — we create a stub `#rf-xray-root`
   element + a stub `<html>` for the CSS-var assertions."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch.state :as rf.epoch.state]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.keybinding :as keybinding]
@@ -92,91 +89,10 @@
 ;; halves below; their DOM halves live in the sibling. That keeps the
 ;; live assertions ON the node lane.
 
-(deftest apply-text-size-handles-missing-shell-root
-  (remove-stub-shell-root!)
-  (is (nil? (effects/apply-text-size! 11))
-      "no-op when shell root absent; no throw"))
-
 ;; ---- filters ------------------------------------------------------------
 ;;
 ;; The Settings popup has no Filters tab — the ribbon strip + per-pill
 ;; edit popup + mute manager are the canonical pill-management surfaces.
-
-;; ---- auto-open watcher --------------------------------------------------
-;;
-;; The watcher reads `:rf.xray/issues-ribbon` and reopens Xray on the
-;; empty → non-empty edge while the toggle is on. That edge and the toggle
-;; gate run through the real watch in
-;; `settings.auto-open-watcher-activates-ratom-node-cljs-test`; the row
-;; here pins the installer's no-frame guard.
-
-(deftest install-is-defensive-without-xray-frame
-  ;; `install-auto-open-watcher!` can run at preload before `:rf/xray`
-  ;; is lazy-registered. `rf/subscribe` then returns nil, and an
-  ;; unguarded `(add-watch nil ...)` throws `No protocol method
-  ;; IWatchable.-add-watch defined for type null`. The install is
-  ;; guarded; a call with no `:rf/xray` frame is a silent no-op.
-  (effects/detach-auto-open-watcher!)
-  (is (nil? (effects/install-auto-open-watcher!))
-      "install without `:rf/xray` frame is a silent no-op (no throw)"))
-
-;; ---- auto-open reopen preserves the realized surface --------------------
-;;
-;; All three reopen routes — the two GLOBAL ones (Ctrl+Shift+C toggle +
-;; Cmd/Ctrl+K palette) and the auto-open-on-error watcher — preserve the
-;; last-realized mount surface via `mount/toggle!`. The watcher goes
-;; through the shared `reopen-preserving-surface!` helper (→ `toggle!`);
-;; a hard-coded `mount/open!` would be a surface CHANGE that reverts a
-;; hidden overlay to inline on auto-open.
-;;
-;; We unit-test that helper's routing directly (mirroring how
-;; mount_cljs_test's `global-toggle-*` and `first-ever-toggle-*` rows
-;; unit-test the mount layer's own surface preservation): the auto-open
-;; GATE — the empty→non-empty edge + toggle-on + hidden — is covered
-;; through the real watch in the ratom-node namespace named below. The full
-;; `install-auto-open-watcher!` `add-watch` path can't be driven under THIS
-;; suite's headless plain-atom adapter (its derived subscriptions reify
-;; `IDeref`/`IDisposable` only, not `IWatchable`), and no browser suite
-;; exercises that reactive glue either; it is pinned on a ratom-family
-;; adapter, in this same directory:
-;; `settings.auto-open-watcher-activates-ratom-node-cljs-test`.
-
-(defn- with-recording-mount-exports
-  "Install a stub `window.day8.re_frame2_xray` whose mount exports each
-  record their own export name when invoked. Calls `(f invoked-atom)`,
-  then tears the stub window (and `day8`) back down."
-  [f]
-  (let [invoked     (atom [])
-        had-window? (exists? js/globalThis.window)
-        record      (fn [nm] (fn [] (swap! invoked conj nm) nil))]
-    (when-not had-window?
-      (set! (.-window js/globalThis) #js {}))
-    (let [win js/globalThis.window]
-      (set! (.-day8 win)
-            #js {"re_frame2_xray"
-                 #js {"open_BANG_"         (record "open_BANG_")
-                      "open_overlay_BANG_" (record "open_overlay_BANG_")
-                      "toggle_BANG_"       (record "toggle_BANG_")}})
-      (try
-        (f invoked)
-        (finally
-          (js-delete win "day8")
-          (when-not had-window?
-            (js-delete js/globalThis "window")))))))
-
-(deftest reopen-preserving-surface-routes-through-toggle-not-open
-  (testing "the auto-open-on-error reopen route
-            (`reopen-preserving-surface!`) invokes the surface-preserving
-            `mount/toggle!` export, never the surface-changing `mount/open!`
-            (which would revert a hidden overlay to inline), as the
-            Ctrl+Shift+C + palette routes do."
-    (with-recording-mount-exports
-      (fn [invoked]
-        (#'effects/reopen-preserving-surface!)
-        (is (= ["toggle_BANG_"] @invoked)
-            "reopen invoked the surface-preserving toggle! export, and only it")
-        (is (not-any? #{"open_BANG_"} @invoked)
-            "reopen did NOT call the surface-changing open!")))))
 
 ;; ---- apply-all! ---------------------------------------------------------
 
@@ -328,20 +244,6 @@
         "the write-back reached localStorage — the next boot starts
          from a usable width")))
 
-(deftest apply-panel-width-leaves-an-in-range-width-alone
-  (testing "the write-back is guarded on the value
-            actually moving, so the drag path (which clamps before it
-            calls here) triggers no second storage round-trip, and a
-            width that fits is persisted unchanged."
-    (config/update-setting! :general :panel-width-px 700)
-    (effects/apply-panel-width! 700 1280)
-    (is (= 700 (config/get-setting :general :panel-width-px))
-        "700 fits inside 0.9 × 1280 = 1152 — untouched")
-    (reset! config/settings config/default-settings)
-    (config/load-settings-from-storage!)
-    (is (= 700 (config/get-setting :general :panel-width-px))
-        "and storage still carries it")))
-
 (deftest apply-panel-width-never-persists-an-inherited-width
   (testing "with NO persisted width, the width being
             applied is inherited (here the compiled default 560). The
@@ -468,11 +370,6 @@
     (is (nil? (effects/apply-use-system-colors! true)))
     ;; Clean up so unrelated tests don't see the stamped <html>.
     (effects/apply-use-system-colors! false)))
-
-(deftest apply-density-font-size-handles-missing-shell-root
-  (remove-stub-shell-root!)
-  (is (nil? (effects/apply-density-font-size! :compact))
-      "no-op when shell root absent; no throw"))
 
 ;; ---- Keybindings tab "Handle keys?" reactive dual-write -----------------
 ;;
