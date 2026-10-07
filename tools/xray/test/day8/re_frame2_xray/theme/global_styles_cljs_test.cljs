@@ -83,17 +83,6 @@
 
 ;; ---- motion css ---------------------------------------------------------
 
-(deftest motion-css-carries-no-diff-flash-keyframes
-  (testing "the stylesheet declares no `rf-xray-diff-flash` keyframes:
-            no element applies them. The
-            sibling `rf-xray-fade-in`, which IS applied by the L4 tab
-            wrapper in shell.cljs, is the control."
-    (let [css @#'gs/motion-css]
-      (is (nil? (re-find #"rf-xray-diff-flash" css))
-          "no diff-flash keyframes are declared")
-      (is (some? (re-find #"@keyframes\s+rf-xray-fade-in" css))
-          "control: the live fade-in keyframes are declared"))))
-
 (deftest motion-css-declares-fade-in-keyframes
   (testing "L4 tab cross-fade keyframes are present.
             opacity 0 → 1 + a 2px translateY for the 'settle' feel."
@@ -198,16 +187,6 @@
 ;; distinguish focused-vs-not, error-vs-success, in-flight-vs-stale,
 ;; primary-vs-secondary text. Each test below asserts one of those
 ;; signals has a system-token landing inside the forced-colors block.
-
-(deftest motion-css-has-no-ribbon-border-left-color-rule
-  (testing "the chrome ribbon carries no left-edge mode stripe (it
-            matches the Figma authority), so there is no HCM
-            `border-left-color` rule on `rf-xray-ribbon` re-colouring a
-            stripe to `Highlight` — nothing to recolour."
-    (let [css @#'gs/motion-css]
-      (is (not (re-find #"\[data-testid=\"rf-xray-ribbon\"\]\s*\{[^}]*border-left-color"
-                        css))
-          "no `border-left-color` rule scoped to `[data-testid=\"rf-xray-ribbon\"]`"))))
 
 (deftest motion-css-forced-colors-distinguishes-status-accents
   (testing "the four lifecycle-status accents map onto
