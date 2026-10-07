@@ -3696,7 +3696,7 @@ function fixtureRoundsTask(over) {
 // calibration's own fence, not a preferred answer.
 {
   const {
-    STANDARD, checkStandard, checkStandardSelfTest, classOf,
+    STANDARD, checkStandard, checkStandardSelfTest,
   } = require('./clock_check_standard.cjs');
   const {
     checkStandardFor, pairedLogRatios, effectInterval, effectVerdict, EFFECT, reportable,
@@ -5125,7 +5125,6 @@ function fixtureRoundsTask(over) {
   const {
     checkStandardFor, pairedLogRatios, effectInterval, reportable, refusals,
   } = require('./clock_readjudicate.cjs');
-  const { reportability } = require('./clock_run.cjs');
   const t = (what, fn) => test(`rf2-8a746 audits #7698/#7700: ${what}`, fn);
   const RJ = path.join(__dirname, 'clock_readjudicate.cjs');
   const ROWS_WITH_STANDARD = ['bulk300', 'bulk100', 'narrow', 'M1'];
