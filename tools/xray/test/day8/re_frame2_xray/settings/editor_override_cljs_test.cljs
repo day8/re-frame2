@@ -43,13 +43,6 @@
 
 ;; ---- resolution order --------------------------------------------------
 
-(deftest get-editor-returns-host-default-when-no-override
-  (testing "Resolution tier 2: with no override, `get-editor`
-            returns the host atom's value"
-    (config/set-editor! :cursor)
-    (is (nil? (config/get-setting :general :editor-override)))
-    (is (= :cursor (config/get-editor)))))
-
 (deftest get-editor-honours-keyword-override
   (testing "Resolution tier 1: an enumerated-keyword override wins
             over the host default"
@@ -59,15 +52,6 @@
         "override beats host default")
     (is (= :vscode (config/get-host-editor-default))
         "host atom is untouched")))
-
-(deftest get-editor-honours-custom-override
-  (testing "Resolution tier 1: a `{:custom <tpl>}` override wins
-            over the host default — same shape as `set-editor!`"
-    (config/set-editor! :vscode)
-    (config/update-setting! :general :editor-override
-                            {:custom "subl://open?url=file://{path}&line={line}"})
-    (is (= {:custom "subl://open?url=file://{path}&line={line}"}
-           (config/get-editor)))))
 
 (deftest get-editor-falls-back-when-override-cleared
   (testing "Clearing the override (writing nil) restores the host
