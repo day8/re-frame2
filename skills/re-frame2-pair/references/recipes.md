@@ -268,11 +268,18 @@ mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}
 Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabulary for both) plus:
 
 - `:rolled-back? true` — the frame is unchanged after the simulation (the replacement reinstated the captured frame-state, both partitions).
-- `:would-fire-effects [{:fx-id :http :args {...}} {:fx-id :navigate :args [...]}]` — the real-world impact, enumerated. Narrate this: *"checkout would POST to `/orders` and navigate to `:order-confirmation` — nothing has actually happened yet."*
+- `:would-fire-effects [{:fx-id :http :args :rf/redacted} {:fx-id :navigate :args :rf/redacted}]` — the real-world impact, enumerated: `:fx-id` names each effect, and its raw `:args` stay redacted unless you opt in (see **Privacy** below). Narrate this: *"checkout would fire an `:http` request and a `:navigate` — nothing has actually happened yet."*
 - `:db-state-after-simulation {...}` — the would-be app-db (what state the cascade *would* have committed).
 - `:cascade-summary {:db-diff {...} :outcome :ok\|:error ...}` — a schema violation surfaces as `:outcome :error`; the rollback still fires.
 
-**Privacy.** Dry-run IS an AI-facing read surface — `:db-state-after-simulation` and each `:would-fire-effects[*].args` slot are elided server-side under the same `--allow-sensitive-reads` posture as `snapshot` / `get-path` (gate OFF by default — see [`vocabulary.md` §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out)). That makes dry-run the **safer** path than a raw `eval-cljs` "what would happen?" loop for sensitive events.
+**Privacy.** Dry-run IS an AI-facing read surface, and its two payloads egress under different policies. `:db-state-after-simulation` is the would-be app-db, so it runs through the elision walker exactly like `snapshot` / `get-path`: declared-sensitive slots → `:rf/redacted` (lifted by `include-sensitive: true`, honoured only under the `--allow-sensitive-reads` gate, OFF by default — see [`vocabulary.md` §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out)), large slots → `:rf.size/large-elided` (lifted by `elision: false` on any launch). The raw effect args are not rooted at app-db, so the walker cannot prove them safe: every `:would-fire-effects[*].args` reads `:rf/redacted` by default. To see them, opt in with `include-fx-args: true`, valid only when the server was launched with `--allow-sensitive-reads` (without the gate it is silently forced off and the args stay redacted):
+
+```
+mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]", include-fx-args: true}
+;; => :would-fire-effects [{:fx-id :http :args {...}} {:fx-id :navigate :args [...]}]
+```
+
+`include-sensitive` and `elision` do not unlock the effect args; they govern the app-db slot only. Either way, dry-run is the **safer** path than a raw `eval-cljs` "what would happen?" loop for sensitive events.
 
 Dry-run does **not** accept `:fx-overrides` (it rejects them with `:reason :fx-overrides-unsupported`): the effect sink records + skips every fx *before* override resolution, so an override could only "compose realistic conditions" by executing a body — the exact thing dry-run must not do. To simulate a canned http response you must `dispatch` (not dry-run) with `:fx-overrides` and roll back yourself. Use dry-run in place of the *baseline → restore → modify → re-dispatch* experiment loop when you only need to **read** the consequence once, not iterate on a handler.
 
