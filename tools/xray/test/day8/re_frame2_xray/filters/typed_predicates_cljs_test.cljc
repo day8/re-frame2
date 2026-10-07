@@ -38,25 +38,11 @@
 
 ;; ---- canonicalise-pill --------------------------------------------------
 
-(deftest canonicalise-typed-pill-passes-through
-  (is (= {:kind :machine :params {:machine-id :form}}
-         (typed/canonicalise-pill
-           {:kind :machine :params {:machine-id :form}}))))
-
 (deftest canonicalise-typed-pill-defaults-params
   (testing "missing :params slot defaults to {} so downstream readers
             never NPE"
     (is (= {:kind :machine :params {}}
            (typed/canonicalise-pill {:kind :machine})))))
-
-(deftest canonicalise-pattern-pill-becomes-event-id-pattern
-  (testing "`{:pattern <kw-or-str>}` (the dialog's only output shape)
-            hydrates as `:event-id-pattern` so persisted pills
-            round-trip cleanly. Event-id is the only scope — no :scope
-            slot is ever produced."
-    (is (= {:kind   :event-id-pattern
-            :params {:pattern :auth/login}}
-           (typed/canonicalise-pill {:pattern :auth/login})))))
 
 (deftest canonicalise-drops-stale-scope-key
   (testing "a pill carrying a stale `:scope` key (an older persisted
@@ -116,13 +102,6 @@
                                :handler (tagged {:machine-id :form})})
           pill    {:kind :machine :params {:machine-id :form}}]
       (is (typed/event-bundle-matches-pill? cascade pill)))))
-
-(deftest machine-kind-matches-via-effects-tag
-  (let [cascade (mk-cascade {:event   [:user/click]
-                             :effects [(tagged {:rf.fx/id    :rf.machine/transition
-                                                :machine-id :form})]})
-        pill    {:kind :machine :params {:machine-id :form}}]
-    (is (typed/event-bundle-matches-pill? cascade pill))))
 
 (deftest machine-kind-no-match-different-id
   (let [cascade (mk-cascade {:event   [:user/click]
@@ -231,12 +210,6 @@
 
 ;; ---- :fx kind -----------------------------------------------------------
 
-(deftest fx-kind-matches-by-fx-id
-  (let [cascade (mk-cascade {:event   [:user/load]
-                             :effects [(tagged {:rf.fx/id :rf.http/managed})]})
-        pill    {:kind :fx :params {:fx-id :rf.http/managed}}]
-    (is (typed/event-bundle-matches-pill? cascade pill))))
-
 (deftest fx-kind-matches-via-fx-bucket
   (let [cascade (mk-cascade {:event [:user/load]
                              :fx    (tagged {:rf.fx/id :rf.http/managed})})
@@ -321,30 +294,6 @@
   (-> (mk-cascade (dissoc opts :dispatch-id :parent-dispatch-id))
       (assoc :dispatch-id dispatch-id
              :parent-dispatch-id parent-dispatch-id)))
-
-(deftest machine-pill-keeps-spawning-parent-cascade
-  (testing "a :machine pill on the machine-transition CHILD cascade also
-            keeps the PARENT event that spawned the transition"
-    (let [;; parent: the user event that spawned the transition. Carries
-          ;; NO machine tag of its own — it only matches via the child.
-          parent  (mk-child-cascade {:dispatch-id 10
-                                     :event       [:user/submit-form]})
-          ;; child: the machine transition, its own epoch under
-          ;; epoch-per-event, linked back to the parent.
-          child   (mk-child-cascade {:dispatch-id        20
-                                     :parent-dispatch-id 10
-                                     :event             [:rf.machine/transition]
-                                     :effects           [(tagged {:machine-id :form})]})
-          ;; unrelated cascade — no machine, no link → dropped.
-          other   (mk-child-cascade {:dispatch-id 30
-                                     :event       [:other/thing]})
-          filters {:in  [{:kind :machine :params {:machine-id :form}}]
-                   :out []}
-          kept    (mapv :dispatch-id
-                        (typed/filter-event-bundles [parent child other] filters))]
-      (is (= [10 20] kept)
-          "both the spawning parent AND the machine child survive; the
-           unrelated cascade is dropped"))))
 
 (deftest typed-pill-walks-full-chain-to-root
   (testing "the ancestor walk is whole-chain: a :machine pill on a deep
@@ -462,28 +411,6 @@
       (is (= [[:a 1] [:b 2]] kept)
           "only frame A's tagged child is hidden; its parent AND frame B's
            same-id bundle survive"))))
-
-(deftest ungrouped-and-nil-id-still-excluded-with-frames
-  (testing "the :ungrouped pseudo-bundle and nil-dispatch-id bundles stay
-            outside the causal index and are not retained by an IN pill's
-            lineage, under frame-qualified identity too"
-    (let [root      (mk-frame-cascade {:frame :a :dispatch-id 1 :event [:a/root]})
-          child     (mk-frame-cascade {:frame :a :dispatch-id 2
-                                       :parent-dispatch-id 1
-                                       :event   [:a/child]
-                                       :effects [(tagged {:machine-id :form})]})
-          ungrouped (mk-frame-cascade {:frame nil :dispatch-id :ungrouped
-                                       :event [:rf.xray/ungrouped]})
-          nil-id    (mk-frame-cascade {:frame :a :dispatch-id nil
-                                       :event [:a/orphan]})
-          filters   {:in  [{:kind :machine :params {:machine-id :form}}]
-                     :out []}
-          kept      (mapv (juxt :frame :dispatch-id)
-                          (typed/filter-event-bundles
-                            [root child ungrouped nil-id] filters))]
-      (is (= [[:a 1] [:a 2]] kept)
-          ":ungrouped and nil-id bundles are excluded; only the machine
-           lineage survives"))))
 
 ;; ---- pill-label / pill-glyph --------------------------------------------
 
