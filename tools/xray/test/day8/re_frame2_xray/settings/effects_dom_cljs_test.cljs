@@ -237,8 +237,6 @@
       (effects/apply-use-system-colors! false))))
 
 (deftest update-event-applies-use-system-colors-effect
-  ;; The sibling's test of the same name holds the host-free
-  ;; settings-atom half; the attribute claims live here.
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
     (testing "dispatching `:rf.xray/settings-update :general
@@ -305,8 +303,6 @@
           "a persisted :comfy writes the cosy 13px the density sub reports"))))
 
 (deftest update-event-applies-density-font-size-effect
-  ;; The sibling's test of the same name holds the host-free
-  ;; settings-atom half; the CSS-var claims live here.
   (if-not (browser?)
     (is true "skipped: no DOM (node lane — see ns docstring)")
     (testing "Dispatching `[:rf.xray/settings-update :general :density
