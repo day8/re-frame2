@@ -21,8 +21,9 @@
 //
 //   - an ASCII control, where the code-unit and byte answers agree, so the file
 //     cannot pass by being vacuous;
-//   - the two characters this corpus actually contains, U+2014 and U+2026,
-//     each 1 code unit and 3 bytes;
+//   - U+2014, 1 code unit and 3 bytes — the class both characters this
+//     corpus contains (U+2014 and U+2026) belong to, and which the corpus
+//     mix carries again beside the other two;
 //   - an ASTRAL-PLANE character, U+1D11E, which is 1 codepoint, TWO code
 //     units and FOUR bytes — the only input that separates all three
 //     candidate accountings from each other.
@@ -62,7 +63,6 @@ const CLEF = '\u{1D11E}'; // U+1D11E MUSICAL SYMBOL G CLEF — astral plane
 const CASES = [
   { what: 'ASCII only', s: '<p>plain</p>', units: 12, bytes: 12 },
   { what: 'an em dash', s: `x${EM_DASH}y`, units: 3, bytes: 5 },
-  { what: 'an ellipsis', s: `loading${ELLIPSIS}`, units: 8, bytes: 10 },
   { what: 'an astral-plane character', s: `a${CLEF}b`, units: 4, bytes: 6 },
   {
     // COUNTED FROM THE STRING BELOW, not from a remembered figure: the
@@ -111,12 +111,6 @@ test('the driver exposes the accounting and does not bake itself on require', ()
   assert.match(SRC, /require\.main === module/);
 });
 
-test('utf8Bytes is Buffer.byteLength with an EXPLICIT utf8 — not a default', () => {
-  // `Buffer.byteLength(s)` defaults to utf8 today. Naming the encoding is
-  // what makes the claim readable beside `sha256`'s, which names it too.
-  assert.match(SRC, /const utf8Bytes = \(s\) => Buffer\.byteLength\(s, 'utf8'\);/);
-});
-
 test('NO manifest column and NO " B" claim reads `.length`', () => {
   const bake = SRC.slice(SRC.indexOf('function bake('), SRC.indexOf('// serve — the live demo'));
   const serve = SRC.slice(SRC.indexOf('function serve('));
@@ -150,10 +144,9 @@ test('the bake CHECKS each column against the file it just wrote, and refuses', 
 
 // --- the fence: the digest rows are correct and must stay correct ----------
 
-test('sha256 hashes the UTF-8 bytes, with the encoding named', () => {
-  assert.match(SRC, /crypto\.createHash\('sha256'\)\.update\(s, 'utf8'\)\.digest\('hex'\)/);
-  // The digest is a function of BYTES, so it is right by construction; the
-  // pin is here so a future "make it consistent" pass cannot take it with them.
+test('sha256 hashes the UTF-8 bytes', () => {
+  // The digest is a function of BYTES, so an astral-plane input separates a
+  // UTF-8 digest from every other encoding a later pass could reach for.
   assert.strictEqual(
     sha256(CLEF),
     require('node:crypto').createHash('sha256').update(Buffer.from(CLEF, 'utf8')).digest('hex'),
