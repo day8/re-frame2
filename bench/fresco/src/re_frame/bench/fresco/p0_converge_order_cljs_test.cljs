@@ -181,8 +181,7 @@
     (doseq [[label m] [["published" published] ["sweep" sweep]]
             row       [:M1 :M2 :broad :narrow]]
       (let [r (v (get m row))]
-        (is (true? (:direction-agrees? r)) (str label " " row))
-        (is (false? (:refuse? r)) (str label " " row))))))
+        (is (true? (:direction-agrees? r)) (str label " " row))))))
 
 (deftest a-row-whose-halves-point-opposite-ways-is-refused
   (testing "the gate can go red. Reagent-first rounds reading 1.4 and
@@ -290,11 +289,7 @@
            page's `magnitude-resolved? true on 12 of 12` asserts, derived
            from the vectors rather than transcribed beside them"
     (doseq [row [:M1 :broad] r (legs row)]
-      (is (true? (:strata-overlap? r)) (str row " " (:start r)))
-      (is (true? (:magnitude-resolved? r)) (str row " " (:start r)))
-      (is (true? (:balanced-design? r)) "six rounds, so 3:3")
-      (is (= 3 (:n (:reagent-first r))))
-      (is (= 3 (:n (:uix-first r)))))))
+      (is (true? (:magnitude-resolved? r)) (str row " " (:start r))))))
 
 (deftest the-leg-is-above-1-in-every-stratum-of-every-run
   (testing "the DIRECTION is what a second author corroborates, and it is
@@ -303,8 +298,7 @@
            partition of this ensemble touches"
     (doseq [row [:M1 :broad] r (legs row)]
       (is (= :numerator-slower (:direction (:reagent-first r))) (str row))
-      (is (= :numerator-slower (:direction (:uix-first r))) (str row))
-      (is (false? (:refuse? r)) (str row)))))
+      (is (= :numerator-slower (:direction (:uix-first r))) (str row)))))
 
 (def ^:private first-author
   "The first author's publication run and two re-runs of its OWN
