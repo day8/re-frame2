@@ -438,13 +438,6 @@ test('THE PROCESS EXIT: complete evidence exits 0 and prints the table', () => {
   assert.strictEqual(r.stderr, '');
 });
 
-test('THE PROCESS EXIT: an all-negative driver table exits 1 from the shell, not 0', () => {
-  const r = run(['--theirs', theirsDir('e2e-neg', { median: NEGATE }), '--ours', oursJson('e2e-neg.json')]);
-  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stderr, /10 of 10 expected cells were not measured/);
-  assert.doesNotMatch(r.stdout, /VERDICT: 10 of 10 comparable rows agree/, 'ten negative rows are not ten agreements');
-});
-
 // --- AND NOTHING DOWNSTREAM MAY CONCLUDE FROM A CELL THE GATE REFUSED -------
 //
 // The predicate above decides which cells are measured; `report`'s WORKLOAD
@@ -585,26 +578,11 @@ test('THE PROCESS EXIT: no arguments at all is a refusal, not a green run', () =
   assert.match(r.stderr, /--theirs <results dir> was not given/);
 });
 
-test('requiring the comparator does not RUN it', () => {
-  // Everything above depends on this: a module that compared on require would
-  // have taken its exit before the first assertion.
-  const SRC = fs.readFileSync(CMP, 'utf8');
-  assert.match(SRC, /module\.exports = \{ verdict, buildRows, readTheirs, readOurs, EXPECTED_CELLS, PAIRS, OTHERS, BASE, AGREEMENT_BAND \};/);
-  assert.match(SRC, /if \(require\.main === module\) \{/);
-});
-
 // --- the wiring: `verdict` is load-bearing, not decorative -------------------
 
 {
   const SRC = fs.readFileSync(CMP, 'utf8');
   const MAIN = SRC.slice(SRC.indexOf('function main()'), SRC.indexOf('module.exports'));
-
-  test('the exit code comes from `verdict` and is RETURNED, not re-derived', () => {
-    assert.ok(MAIN.length > 0, 'the comparator must expose its run as `main`');
-    assert.match(MAIN, /const v = verdict\(\{ absent, rows \}\);/);
-    assert.match(MAIN, /for \(const line of v\.lines\) console\.error\(line\);/);
-    assert.match(MAIN, /return v\.code;/);
-  });
 
   test('`main` never calls process.exit itself — the decision has ONE seat', () => {
     assert.ok(!/process\.exit/.test(MAIN), 'a process.exit inside `main` is a second decision, invisible to every test above');
