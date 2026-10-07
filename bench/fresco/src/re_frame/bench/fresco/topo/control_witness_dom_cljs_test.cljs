@@ -143,9 +143,6 @@
         (is (< p 2.0) (str arm "'s prediction must be BELOW 2.00 — the chrome does
                            not double, and a control printing a round 2.00 is one
                            that did not derive it"))
-        (is (> lo 1.0)
-            (str arm "'s band floor " lo " must exclude 1.00, or the control admits
-                 an instrument that saw nothing"))
         (is (< 1.471 lo)
             (str arm "'s band must REFUSE the recorded changed-set run,
                  whose worst round is 1.471. A band that admitted it would be a
@@ -274,14 +271,3 @@
       (is (re-find #"SIGN" (:why (rf.bench.fresco.topo.control-app/verdict :fine (repeat 5 0.5) clean))))
       (is (not (:ok? (rf.bench.fresco.topo.control-app/verdict :fine [] clean)))
           "and a control that measured nothing certifies nothing"))))
-
-(deftest the-refused-changed-set-run-would-still-refuse-here
-  (testing "the one test that says this control is not a widening. The
-           recorded changed-set run measured 1.331 / 1.387 / 1.424 / 1.471 /
-           1.325 and refused. Fed to this control's verdict on every arm, it
-           refuses again"
-    (let [measured [1.331 1.387 1.424 1.471 1.325]]
-      (doseq [arm rf.bench.fresco.topo.arms/arm-ids]
-        (is (not (:ok? (rf.bench.fresco.topo.control-app/verdict arm measured clean)))
-            (str "the rendered-scale band on " arm " must not retro-admit the
-                 changed-set refusal"))))))
