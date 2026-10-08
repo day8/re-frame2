@@ -1,20 +1,13 @@
 (ns re-frame.examples-test
-  "Integration tests against the example apps in ../examples/. Each test
-  exercises the full event → state → render pipeline as a real user would
-  wire it, catching API ergonomics regressions that pure unit tests miss.
-
-  Examples are grouped by concept; the example sources (`ssr.core`,
-  `ssr-streaming.core`, `resources-ssr.core`,
-  `state-machine-walkthrough.core`) live under
+  "Integration tests against the example apps under ../examples/, driving the
+  event → state → render pipeline the way a user wires it, which catches API
+  ergonomics regressions unit tests miss. The example sources (`ssr.core`,
+  `ssr-streaming.core`, `resources-ssr.core`, `state-machine-walkthrough.core`)
+  live under
   ../examples/capabilities/{ssr/ssr,ssr/ssr_streaming,ssr/resources_ssr,machines/state_machine_walkthrough}/
-  on disk. The example source a learner reads is pure demonstrative code —
-  the example tree is test-free by convention (no test/ or *.spec.cjs
-  under examples/).
-
-  Each example's tests live INLINE here as the `deftest` bodies; there is
-  no sibling test ns or test source dir under examples/. Each test
-  re-`require`s only the production example source (so its ns-load registrations fire against the
-  reset registrar) and exercises it directly."
+  and stay test-free: their tests live here, and each test re-`require`s only
+  the production example source, so its ns-load registrations fire against the
+  reset registrar."
   (:require [clojure.set]
             [clojure.string]
             [clojure.edn :as edn]
@@ -26,16 +19,10 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
-            ;; The resources artefact (Spec 016) — TEST-ONLY dep on the core
-            ;; test classpath (deps.edn `:test` alias). Loading it registers
-            ;; the resource registrar kind, the `:rf.resource/*` events/subs,
-            ;; and the late-bound SSR runtime-db projection + hydration
-            ;; reconcile hooks the `resources-ssr` example drives.
+            ;; the resources artefact (Spec 016), a test-only dep on the core
+            ;; test classpath: the resource kind, the `:rf.resource/*`
+            ;; events/subs, and the SSR projection / hydration hooks
             [re-frame.resources]
-            ;; Byte `key-id` + client refetch-plan helpers — the
-            ;; `resources-ssr` static-payload hydration regression asserts the
-            ;; baked `:entries` are keyed on `state/key-id` and that a fresh
-            ;; hydrated entry issues no client refetch.
             [re-frame.resources.state :as rf.resources.state]
             [re-frame.resources.ssr :as rf.resources.ssr]
             [re-frame.ssr :as rf.ssr]
@@ -50,542 +37,87 @@
   (reset! rf.frame/frames {})
   (rf.flows/reset-flows!)
   (rf.schemas/clear-schemas-by-frame!)
-  ;; Cold-start the adapter slot, then seat plain-atom. The destroy is load-
-  ;; bearing rather than tidy-up: the SSR examples below swap in
-  ;; `re-frame.ssr/adapter` (see `init-ssr!`), and `init!` is idempotent only
-  ;; for the adapter it already seated — so re-seating plain-atom over a live
-  ;; SSR adapter raises `:rf.error/adapter-already-installed` rather than
-  ;; silently doing nothing. Destroying first is what makes every test in this namespace start
-  ;; from the substrate it asks for, whatever its predecessor left seated.
+  ;; `init!` is idempotent only for the adapter already seated, and the SSR
+  ;; tests seat `re-frame.ssr/adapter`, so destroy first: every test starts on
+  ;; the substrate it asks for, whatever its predecessor left
   (rf/destroy-adapter!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; clear-all! also drops the framework's ONE built-in coeffect registration
-  ;; (`:rf/time-ms` — recordable, provided; registered by a toplevel `reg-cofx`
-  ;; form in re-frame.cofx). The resources example's `handle-request` dispatches
-  ;; `:rf.resource/ensure`, whose handler DECLARES `:rf.cofx/requires
-  ;; [:rf.resource/generation-allocation :rf/time-ms]` — so the
-  ;; framework cofx must be present in the registrar or declared-only delivery
-  ;; raises `:rf.error/unregistered-cofx`. Transitive require is idempotent once
-  ;; loaded, so reload here to re-fire the registration body (mirrors the
-  ;; http/machines/ssr reloads below).
+  ;; `clear-all!` also drops what framework namespaces register at load time,
+  ;; and requiring an already-loaded namespace does not re-run it, so reload
+  ;; each one the examples reach:
+  ;;   re-frame.cofx               `:rf/time-ms`, which `:rf.resource/ensure` declares
+  ;;   re-frame.http.managed       `:rf.http/managed`, which the examples override
+  ;;   re-frame.http.test-support  the canned-success / canned-failure stubs
+  ;;   re-frame.machines           `:rf/machine`, which the walkthrough's subs chain off
+  ;;   re-frame.ssr                `:rf/hydrate`, the `:rf.ssr/*` / `:rf.server/*` fxs
+  ;;                               and cofx, and the late-bind hooks
+  ;;                               (`:ssr/on-frame-destroyed` releases the request slot)
+  ;;   re-frame.resources          the resource kind, events, subs and SSR hooks
   (require 're-frame.cofx :reload)
-  ;; clear-all! also drops the framework-shipped fxs that register at
-  ;; namespace load time (e.g. :rf.http/managed and its canned-stub
-  ;; siblings). Reload the relevant ns so the toplevel reg-fx forms run
-  ;; again and the framework substrate is back in place — the examples
-  ;; routinely route :rf.http/managed via :fx-overrides to those stubs
-  ;; (Spec 014 §Testing).
   (require 're-frame.http.managed :reload)
-  ;; The canned-stub fxs (`:rf.http/managed-canned-success`,
-  ;; `:rf.http/managed-canned-failure`) register from
-  ;; re-frame.http.test-support, NOT re-frame.http.managed. Reload to
-  ;; re-fire the registration body after clear-all!. The transitive
-  ;; require from each example ns wouldn't re-evaluate the body (Clojure
-  ;; require is idempotent without :reload-all), so reload here.
   (require 're-frame.http.test-support :reload)
-  ;; clear-all! also drops the framework-shipped `:rf/machine` /
-  ;; `:rf.machine/has-tag?` subs, which register at re-frame.machines load
-  ;; time (see re-frame.machines §framework-shipped subs). The state-machine-
-  ;; walkthrough example's `:walkthrough.login/state` / `:walkthrough.login/error` named
-  ;; subs CHAIN off `:rf/machine` (`{:inputs [[:rf/machine :walkthrough.login/flow]]}`), so
-  ;; their input sub must be present in the registrar. The transitive require
-  ;; from the example ns wouldn't re-fire re-frame.machines' toplevel reg-sub
-  ;; forms once the ns is already loaded (Clojure require is idempotent), so
-  ;; reload here — exactly as the machines ns header anticipates. Without
-  ;; this, whether the smw drain test is green depends on whether some
-  ;; earlier-loaded ns happened to (re-)register `:rf/machine` since the last
-  ;; clear-all! — an ordering-dependent flake.
   (require 're-frame.machines :reload)
-  ;; clear-all! also drops the SSR registrations that fire at re-frame.ssr
-  ;; load time — the `:rf/hydrate` event, the `:rf.ssr/check-*` fxs, the six
-  ;; `:rf.server/*` fxs, the `:rf.server/request` cofx — AND the late-bind
-  ;; hooks (`:ssr/on-frame-destroyed`, `:ssr/reg-error-projector`,
-  ;; `:ssr/reg-head`). The ssr example's client-hydration tests
-  ;; dispatch `:rf/hydrate` and its lifecycle tests rely on `destroy-frame!`
-  ;; firing `:ssr/on-frame-destroyed` to release the per-request request slot;
-  ;; both need these resurrected. Transitive require from the example ns is
-  ;; idempotent (won't re-fire the toplevel forms once loaded), so reload here
-  ;; — mirroring the http / machines reloads above.
   (require 're-frame.ssr :reload)
-  ;; clear-all! also drops the resources artefact's registrar kind +
-  ;; `:rf.resource/*` events/subs AND its late-bind hooks
-  ;; (`:ssr/extend-runtime-db-projection`, `:resources/hydrate-runtime-db`)
-  ;; — the `resources-ssr` example's `handle-request` ensures + drains a
-  ;; resource and its client hydrate reconciles the resource projection, so
-  ;; both surfaces need resurrecting. Transitive require from the example ns
-  ;; is idempotent once loaded, so reload here (mirrors the http/machines/ssr
-  ;; reloads above).
   (require 're-frame.resources :reload)
-  ;; Reset the SSR per-frame side-channel atoms (request slots, response
-  ;; accumulators, pending error traces) between tests. These are `defonce`
-  ;; tables keyed by frame-id, OUTSIDE app-db, so neither `clear-all!` nor
-  ;; the `rf.frame/frames` reset touches them. Tests that drive the server flow
-  ;; without destroying the frame (e.g. `ssr-example-runs-end-to-end` sets a
-  ;; request slot and never tears the frame down) leak a slot that would
-  ;; otherwise bleed into the per-request-lifecycle teardown assertions
-  ;; Clearing here gives each test a clean side-channel slate.
+  ;; The SSR side-channel tables (request slots, response accumulators,
+  ;; pending error traces, the hydration-payload install ledger) are
+  ;; `defonce`s keyed by frame id outside app-db. This fixture wipes
+  ;; `rf.frame/frames` without `destroy-frame!`, so nothing releases them, and
+  ;; a leftover install claim would make the next test's hydrate read as a
+  ;; conflicting sibling root (`:rf.error/frame-payload-conflict`).
   (reset! rf.ssr.request/request-slots {})
   (reset! rf.ssr.response/response-slots {})
   (reset! rf.ssr.error-listener/pending-error-traces {})
-  ;; The hydration-payload install ledger is a fourth table
-  ;; of that same class: `defonce`, keyed by payload id (which IS a frame id,
-  ;; 004C §6), outside app-db. In production a claim is released by
-  ;; `re-frame.ssr/on-frame-destroyed!` off the `:ssr/on-frame-destroyed`
-  ;; late-bind hook, which `rf.frame/destroy-frame!` fires. This fixture never
-  ;; goes through `destroy-frame!` — it wipes `rf.frame/frames` wholesale — so
-  ;; nothing releases the claim, and the NEXT test's first `rf.ssr/hydrate!`
-  ;; into a freshly `make-frame`d `:rf/default` meets the previous test's
-  ;; digest and reads as a sibling root arriving with a different payload
-  ;; (`:rf.error/frame-payload-conflict`). Clear it so each test hydrates as
-  ;; the first root on its own page.
   (rf.ssr.install/reset-installed-payloads!)
-  ;; Drop any cached require of the example namespaces so each test
-  ;; re-evaluates their namespace-level handlers against a fresh registrar.
+  ;; each test re-evaluates the examples' handlers against the fresh registrar
   (remove-ns 'ssr.core)
   (remove-ns 'ssr-streaming.core)
   (remove-ns 'resources-ssr.core)
   (remove-ns 'state-machine-walkthrough.core)
-  ;; EP-0002: `init!` does not synthesise `:rf/default`; framework operation
-  ;; surfaces require a carried frame stamp. Register `:rf/default` + pin it
-  ;; as the body's ambient scope (the carried-invariant equivalent of
-  ;; `(with-frame :rf/default …)`); explicit `{:frame …}` opts in the test
-  ;; bodies win. A top-level `make-frame …:initial-events` drain
-  ;; synchronously — the lifecycle
-  ;; async/sync split keys off `*handler-scope*` (a real cascade), not
-  ;; this ambient scope.
+  ;; EP-0002: `init!` synthesises no `:rf/default`; register it and pin it as
+  ;; the body's ambient scope (explicit `{:frame …}` opts win)
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
+;; ---- shared helpers ----------------------------------------------------------
+
 (defn- init-ssr!
-  "Seat the SSR adapter, replacing the plain-atom one `reset-runtime` installs.
-
-  These SSR examples exercise the SERVER flow, so they want
-  `re-frame.ssr/adapter` (`:kind :rf.adapter/ssr`) — the headless adapter that
-  binds its own `render-to-string` — rather than the plain-atom default the
-  shared fixture seats for the rest of this namespace.
-
-  A bare `(rf/init! rf.ssr/adapter)` would raise
-  `:rf.error/adapter-already-installed` with plain-atom already in the slot:
-  `init!` is idempotent only for the adapter already seated. Destroy first,
-  then seat — the swap `init!`'s error tells you to make."
+  "Seat `re-frame.ssr/adapter`, the headless adapter the server flow wants, in
+  place of the fixture's plain-atom one. `init!` over a different seated
+  adapter raises `:rf.error/adapter-already-installed`, so destroy first."
   []
   (rf/destroy-adapter!)
   (rf/init! rf.ssr/adapter))
 
-;; ============================================================================
-;; ssr — exercises the server flow (per-request frame → :rf/server-init →
-;; managed-HTTP via the canned stub → render to string → render-hash).
-;; JVM-only: the server render path runs under Clojure.
-;; ============================================================================
-
-(deftest ssr-example-runs-end-to-end
-  (testing "examples/capabilities/ssr/ssr — the server flow renders the loaded articles"
-    (require 'ssr.core :reload)
-    ;; Swap the fixture's plain-atom adapter for the SSR one. `re-frame.ssr`
-    ;; exports its own `adapter` var (the JVM-side counterpart of the
-    ;; reagent/uix adapters); `init-ssr!` destroys first, because `init!` is
-    ;; idempotent only for the adapter it already seated.
-    (init-ssr!)
-    ;; Stub `:rf.http/managed` so the test doesn't make real network
-    ;; calls. The per-frame `:fx-overrides` redirect `:rf.http/managed`
-    ;; to a per-test stub that delegates to the framework-shipped
-    ;; `:rf.http/managed-canned-success` (Spec 014 §Testing) with a
-    ;; canned `:value` payload — the same reply shape a live request
-    ;; would produce.
-    (rf/reg-fx :ssr.http/canned-articles
-      {:platforms #{:server :client}}
-      (fn [frame-ctx args-map]
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx
-                (assoc args-map
-                       :value [{:id "a" :title "Article A" :body "Body A"}
-                               {:id "b" :title "Article B" :body "Body B"}])))))
-    (let [fid          (keyword "rf.frame" (str (gensym "")))
-          _            (rf.ssr/set-request! fid {:uri "/articles"})
-          f            (rf/make-frame {:id fid :doc          "ssr-example test frame"
-                                       :platform     :server
-                                       :initial-events [[:rf/server-init]]
-                                       :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
-          final-db     (rf/app-db-value f)
-          ;; The root view's body subscribes, so it is called under
-          ;; `with-frame f`: its subs read f's app-db, not :rf/default's.
-          hiccup      (rf/with-frame f ((rf/view :app/root)))
-          ;; One walk, two channels — the shape the example itself uses.
-          render-hash (rf.ssr/render-tree-hash hiccup)
-          html        (rf/with-frame f
-                        (rf.ssr/render-to-string hiccup {:render-hash render-hash}))]
-      ;; State was loaded.
-      (is (= 2 (count (:articles final-db))))
-      ;; HTML contains the article titles.
-      (is (clojure.string/includes? html "Article A"))
-      (is (clojure.string/includes? html "Article B"))
-      ;; HTML round-trips via render-to-string without needing React/JSDOM.
-      (is (clojure.string/includes? html "<h1>"))
-      ;; render-hash is a structural marker (lowercase-hex FNV-1a per
-      ;; Spec 011); the client recomputes it and the runtime emits a
-      ;; :rf.ssr/hydration-mismatch trace event on disagreement.
-      (is (re-matches #"[0-9a-f]{8}" render-hash))
-      (is (clojure.string/includes? html "data-rf-render-hash"))
-      ;; The hash covers the page the root renders, not a view reference:
-      ;; the ambient :rf/default frame holds no articles, so its render of
-      ;; the same root hashes differently.
-      (is (not= render-hash (rf.ssr/render-tree-hash ((rf/view :app/root))))
-          "the root view's render hash tracks the state it renders"))))
-
-;; ============================================================================
-;; ssr — per-request frame lifecycle. The example's
-;; `handle-request` wraps its render in `try`/`finally` and calls
-;; `rf/destroy-frame!` so a long-running server leaks neither the
-;; generated per-request frame nor its SSR request side-channel slot.
-;; Spec 011 §Per-request frame teardown contract: the destroy step is
-;; load-bearing for memory hygiene, and render-only assertions would be a
-;; false-green for lifecycle correctness, so these tests pin teardown on
-;; BOTH the success and throw paths.
-;; ============================================================================
-
-(defn- install-canned-articles-stub!
-  "Register the per-test `:rf.http/managed` redirect the ssr example's
-  `handle-request` routes through `:fx-overrides` — a canned-success stub
-  yielding two articles. Mirrors `ssr-example-runs-end-to-end`."
-  []
-  (rf/reg-fx :ssr.http/canned-articles
+(defn- reg-canned-fx!
+  "Register `fx-id` as a `:rf.http/managed` stand-in delegating to the
+  framework's canned `stub-id` (Spec 014 §Testing) with `extra` merged into the
+  request args — the reply shape a live request produces, with no network."
+  [fx-id stub-id extra]
+  (rf/reg-fx fx-id
     {:platforms #{:server :client}}
     (fn [frame-ctx args-map]
-      (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-        (stub frame-ctx
-              (assoc args-map
-                     :value [{:id "a" :title "Article A" :body "Body A"}
-                             {:id "b" :title "Article B" :body "Body B"}]))))))
+      ((rf.registrar/handler :fx stub-id) frame-ctx (merge args-map extra)))))
 
-(deftest ssr-example-handle-request-tears-down-per-request-frame
-  (testing "examples/capabilities/ssr/ssr — handle-request leaves no per-request frame
-            in the registry and no SSR request slot after it returns
-            (Spec 011 §Per-request frame teardown contract)"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (install-canned-articles-stub!)
-    ;; The example's `:rf/server-init` fires `:rf.http/managed`; redirect it
-    ;; to the canned stub via the lexical-scope `with-fx-overrides` so the
-    ;; per-request frame's `:initial-events` drain (which runs synchronously
-    ;; inside `make-frame`, inside this dynamic scope) routes through the stub
-    ;; — no real network traffic. (The same seam the state-machine example
-    ;; test uses; we don't redefine the `make-frame` macro.)
-    (let [handle-request (resolve 'ssr.core/handle-request)
-          frames-before  (set (keys @rf.frame/frames))
-          resp           (rf/with-fx-overrides
-                           {:rf.http/managed :ssr.http/canned-articles}
-                           (handle-request {:uri "/articles"}))]
-      ;; The request still rendered correctly (state loaded, HTML emitted).
-      (is (= 200 (:status resp)))
-      (is (clojure.string/includes? (:body resp) "Article A"))
-      ;; …and the per-request frame + its request slot are GONE.
-      (let [frames-after (set (keys @rf.frame/frames))
-            new-frames   (clojure.set/difference frames-after frames-before)]
-        (is (empty? new-frames)
-            (str "handle-request must destroy its per-request frame; "
-                 "leaked frames: " (pr-str new-frames)))
-        ;; The request side-channel slot table holds no leftover entry (the
-        ;; :ssr/on-frame-destroyed hook drops the per-frame slot on
-        ;; destroy-frame!). request-slots is keyed by frame-id; an empty
-        ;; table proves the gensym'd per-request slot was released.
-        (is (empty? @rf.ssr.request/request-slots)
-            (str "no request slot survives for the per-request frame; "
-                 "leftover slots: " (pr-str (keys @rf.ssr.request/request-slots))))))))
+(def ^:private two-articles
+  [{:id "a" :title "Article A" :body "Body A"}
+   {:id "b" :title "Article B" :body "Body B"}])
 
-(deftest ssr-example-handle-request-tears-down-on-throw
-  (testing "examples/capabilities/ssr/ssr — handle-request destroys the per-request
-            frame even when the render path throws, so a failing request
-            leaks nothing (Spec 011 §Per-request frame teardown contract —
-            cleanup runs on the throw path too)"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (install-canned-articles-stub!)
-    (let [handle-request (resolve 'ssr.core/handle-request)
-          frames-before  (set (keys @rf.frame/frames))]
-      (with-redefs [;; Force the render to throw AFTER the frame + request
-                    ;; slot were allocated, exercising the `finally` path.
-                    rf.ssr/render-to-string
-                    (fn [& _] (throw (ex-info "boom — render failure" {})))]
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (rf/with-fx-overrides
-                       {:rf.http/managed :ssr.http/canned-articles}
-                       (handle-request {:uri "/articles"})))
-            "the render throw propagates (the example does not swallow it)")
-        (let [frames-after (set (keys @rf.frame/frames))
-              new-frames   (clojure.set/difference frames-after frames-before)]
-          (is (empty? new-frames)
-              (str "the `finally` must destroy the per-request frame on the "
-                   "throw path; leaked frames: " (pr-str new-frames)))
-          (is (empty? @rf.ssr.request/request-slots)
-              (str "the throw-path teardown must release the request slot; "
-                   "leftover slots: " (pr-str (keys @rf.ssr.request/request-slots)))))))))
+(defn- install-canned-articles-stub! []
+  (reg-canned-fx! :ssr.http/canned-articles :rf.http/managed-canned-success {:value two-articles}))
 
-;; ============================================================================
-;; ssr — per-request schema validation.
-;;
-;; The example holds the app schema as a value (`ArticlesSchema`) and
-;; registers it explicitly against EACH frame family — the per-request server
-;; frame in `handle-request` (BEFORE `:initial-events` fires `:rf/server-init`)
-;; and the fixed client hydration frame in `run`. A bare ns-load registration
-;; would either raise `:rf.error/no-frame-context` or (under a naive
-;; `with-frame :rf/default`) bind the schema to the client frame ONLY,
-;; leaving the per-request SERVER frame — where the server-side `:articles`
-;; commit actually validates — UNSCHEMA'd, so server-side validation would
-;; silently never run (masked precisely because no schema applied).
-;;
-;; The handle-request tests exercise this implicitly. This test
-;; locks it EXPLICITLY: the per-request server frame carries the `:articles`
-;; schema (NOT `:rf/default`), the server-init commit's articles PASS
-;; validation on THAT frame, and a malformed `:articles` value FAILS
-;; validation on THAT frame — proving validation is live + frame-scoped on
-;; the per-request frame, not routed around. Requiring `re-frame.schemas`
-;; (above) wires the default Malli validator, so validation is
-;; genuinely live here.
-;; ============================================================================
+(defn- handle!
+  "Call the example's `handle-request` with `:rf.http/managed` routed to `fx-id`.
+  The per-request frame's `:initial-events` drain synchronously inside
+  `make-frame`, inside this override scope."
+  [handler-sym fx-id uri]
+  (rf/with-fx-overrides {:rf.http/managed fx-id}
+    ((resolve handler-sym) {:uri uri})))
 
-(deftest ssr-example-per-request-frame-carries-and-validates-articles-schema
-  (testing "examples/capabilities/ssr/ssr — the per-request SERVER frame carries the
-            :articles schema (the per-request registration) and
-            validation runs ON THAT FRAME, not on :rf/default"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (install-canned-articles-stub!)
-    (let [articles-schema @(resolve 'ssr.core/ArticlesSchema)
-          ;; Drive a per-request server frame exactly as handle-request does:
-          ;; register the schema against the gensym frame BEFORE :initial-events
-          ;; fire :rf/server-init (which commits the canned articles).
-          fid             (keyword "rf.frame" (str (gensym "f")))
-          _               (rf.ssr/set-request! fid {:uri "/articles"})
-          _               (rf/reg-app-schema [:articles] {:frame fid} articles-schema)
-          f               (rf/with-fx-overrides
-                            {:rf.http/managed :ssr.http/canned-articles}
-                            (rf/make-frame {:id fid :doc       "ssr-example per-request validation frame"
-                                            :platform  :server
-                                            :initial-events [[:rf/server-init]]}))
-          final-db        (rf/app-db-value f)]
-      ;; 1. The schema is bound to the PER-REQUEST frame — explicitly.
-      (is (= articles-schema (:schema (rf.schemas/app-schema-meta {:frame fid :path [:articles]})))
-          "the :articles schema is registered against the per-request server frame")
-      ;; 2. …and NOT on :rf/default (the masking-default frame). The fixture
-      ;; pins :rf/default as ambient scope but the example never registered
-      ;; the SSR schema there — per-request scoping, not a default floor.
-      (is (nil? (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:articles]})))
-          "the SSR :articles schema is NOT bound to :rf/default — it is
-           per-request frame-scoped (the per-request registration contract)")
-      ;; 3. The server-init commit landed two valid articles…
-      (is (= 2 (count (:articles final-db)))
-          "precondition: the canned server-init commit loaded two articles")
-      ;; …and they PASS validation ON the per-request frame (the [:maybe]
-      ;; schema accepts both the pre-load nil and the loaded vector).
-      ;; `interop/debug-enabled?` is true by default on the JVM (the dev/prod
-      ;; gate), so `validate-app-schema!` actually runs — and requiring
-      ;; `re-frame.schemas` wired the default Malli validator.
-      (is (true? (rf.schemas/validate-app-schema! final-db :rf/server-init fid))
-          "the server-init :articles commit validates on the per-request frame")
-      ;; 4. A MALFORMED :articles value FAILS validation on the per-request
-      ;; frame — proving the validator is genuinely live + frame-scoped
-      ;; there (not a soft-pass no-op). A non-vector :articles violates
-      ;; ArticlesSchema ([:maybe [:vector …]]).
-      (let [bad-db (assoc final-db :articles "not-a-vector-of-articles")]
-        (is (false? (rf.schemas/validate-app-schema! bad-db :rf/server-init fid))
-            "a malformed :articles commit FAILS validation on the per-request
-             frame — validation is live and frame-scoped (the per-request
-             registration + [:maybe] schema make it so)"))
-      ;; 5. The same malformed value validates TRUE against :rf/default —
-      ;; because no SSR schema is registered there — confirming the failure
-      ;; above is attributable to the PER-REQUEST frame's schema specifically.
-      (let [bad-db (assoc final-db :articles "not-a-vector-of-articles")]
-        (is (true? (rf.schemas/validate-app-schema! bad-db :rf/server-init :rf/default))
-            ":rf/default carries no SSR schema, so the same bad value
-             soft-passes there — the per-request frame is where the
-             contract lives"))
-      ;; Teardown the per-request frame + its request slot (hygiene; mirrors
-      ;; the example's handle-request finally).
-      (rf/destroy-frame! f))))
-
-;; ============================================================================
-;; ssr — client hydration path. The example boots the client via the
-;; framework `rf.ssr/hydrate!` helper (it relies on the
-;; framework-registered `:rf/hydrate`, not a local copy). These
-;; tests pin the contract the example depends on, against the example's own
-;; registrations: a payload carrying `:rf/render-hash` stashes the server
-;; hash under [:rf.runtime/ssr :hydration :server-hash]; a matching client
-;; render-tree-fn is silent; a divergent one emits :rf.ssr/hydration-mismatch;
-;; and a malformed payload does NOT replace app-db (fail-closed). JVM-driven
-;; with an explicit :payload on a :client-platform frame (no DOM to read).
-;; ============================================================================
-
-(defn- capture-traces!
-  "Run f under a trace listener; return the captured event vector."
-  [f]
-  (let [traces (atom [])
-        cb-id  (gensym "::examples-ssr-capture-")]
-    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
-    (try (f) (finally (rf/unregister-listener! :trace cb-id)))
-    @traces))
-
-(deftest ssr-example-client-hydration-stashes-server-hash-and-seeds-db
-  (testing "examples/capabilities/ssr/ssr — rf.ssr/hydrate! against the example's
-            framework-owned :rf/hydrate stashes the payload's :rf/render-hash
-            under [:rf.runtime/ssr :hydration :server-hash] and replaces app-db
-            with the :rf/app-db slice"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example client frame"
-                                       :platform :client})
-          payload      {:rf/version     1
-                        :rf/render-hash "abc12345"
-                        :rf/app-db      {:articles [{:id "a" :title "A" :body "ba"}]}
-                        :rf/runtime-db  {}}
-          returned     (rf.ssr/hydrate! {:frame client-frame :payload payload})]
-      (is (= payload returned)
-          "hydrate! returns the applied payload")
-      (is (= [{:id "a" :title "A" :body "ba"}]
-             (:articles (rf/app-db-value client-frame)))
-          ":rf/hydrate replaced app-db with the server slice")
-      (is (= "abc12345"
-             (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
-                     [:rf.runtime/ssr :hydration :server-hash]))
-          "the server render-hash is stashed for the verify step"))))
-
-(deftest ssr-example-client-hydration-matching-hash-is-silent
-  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES the
-            payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-match frame"
-                                       :platform :client
-                                       :ssr {:detect-mismatch? true}})
-          client-tree  [:div.page [:h1 "Recent articles"]]
-          matched-hash (rf.ssr/render-tree-hash client-tree)
-          payload      {:rf/version 1 :rf/render-hash matched-hash
-                        :rf/app-db {:articles []} :rf/runtime-db {}}
-          traces       (capture-traces!
-                         (fn []
-                           (rf.ssr/hydrate! {:frame          client-frame
-                                          :payload        payload
-                                          :render-tree-fn (fn [] client-tree)})))]
-      (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
-          (str "matching hashes → no mismatch trace; saw: "
-               (pr-str (mapv :operation traces)))))))
-
-(deftest ssr-example-client-hydration-divergent-hash-fires-mismatch
-  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash DIVERGES
-            from the payload's :rf/render-hash emits :rf.ssr/hydration-mismatch
-            (the verify step the example's `run` wires via :render-tree-fn)"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-divergent frame"
-                                       :platform :client
-                                       :ssr {:detect-mismatch? true}})
-          payload      {:rf/version 1
-                        :rf/render-hash "server00"   ;; != the client tree hash
-                        :rf/app-db {:articles []} :rf/runtime-db {}}
-          traces       (capture-traces!
-                         (fn []
-                           (rf.ssr/hydrate!
-                             {:frame          client-frame
-                              :payload        payload
-                              :render-tree-fn (fn [] [:div.page [:h1 "Recent articles"]])})))]
-      (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
-          (str "divergent hash → mismatch trace; saw: "
-               (pr-str (mapv :operation traces)))))))
-
-(deftest ssr-example-client-hydration-malformed-payload-does-not-replace-db
-  (testing "examples/capabilities/ssr/ssr — a MALFORMED payload (a present-but-non-map
-            :rf/app-db slice) is rejected fail-closed: app-db is left
-            unchanged (Spec 011 §The :rf/hydrate event — both partitions
-            validate fail-closed before installation)"
-    (require 'ssr.core :reload)
-    (init-ssr!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example fail-closed frame"
-                                       :platform :client})]
-      ;; Seed a known app-db value first so we can prove it survives.
-      (rf/dispatch-sync [:articles/loaded {:value [{:id "keep" :title "Keep" :body "b"}]}]
-                        {:frame client-frame})
-      (is (= [{:id "keep" :title "Keep" :body "b"}]
-             (:articles (rf/app-db-value client-frame)))
-          "precondition: app-db seeded")
-      ;; A non-map :rf/app-db slice is the malformed shape.
-      (let [bad-payload {:rf/version 1 :rf/app-db "not-a-map"}]
-        (rf.ssr/hydrate! {:frame client-frame :payload bad-payload})
-        (is (= [{:id "keep" :title "Keep" :body "b"}]
-               (:articles (rf/app-db-value client-frame)))
-            "malformed payload rejected — app-db unchanged (fail-closed)")))))
-
-;; ============================================================================
-;; ssr_streaming — exercises the server stream (shell render → per-card
-;; resolved chunks → final payload). JVM-only.
-;; ============================================================================
-
-(deftest ssr-streaming-example-runs-end-to-end
-  (testing "examples/capabilities/ssr/ssr_streaming — the server stream produces shell + chunks + payload"
-    (require 'ssr-streaming.core :reload)
-    (init-ssr!)
-    (let [handle-request (resolve 'ssr-streaming.core/handle-request)
-          result         (handle-request {:uri "/dashboard"})]
-      ;; Shell carries the static header content + four template fallbacks.
-      (is (clojure.string/includes? (:shell result) "<h1>Dashboard</h1>"))
-      (is (clojure.string/includes? (:shell result) "data-rf2-suspense-fallback=\"1\""))
-      (is (= 4 (count (:resolved-chunks result)))
-          "four boundaries → four resolved chunks")
-      ;; Three cards rendered successfully; one (flaky) ships the
-      ;; fallback HTML with data-rf2-suspense-failed.
-      (let [failed-chunks (filter :failed? (:resolved-chunks result))]
-        (is (= 1 (count failed-chunks))
-            "one boundary (flaky) ships the failed template")
-        (is (clojure.string/includes? (:template (first failed-chunks))
-                                       "data-rf2-suspense-failed=\"1\"")))
-      ;; Successful cards carry the rendered card body.
-      (let [ok-chunks (remove :failed? (:resolved-chunks result))]
-        (is (= 3 (count ok-chunks)))
-        (doseq [c ok-chunks]
-          (is (clojure.string/includes? (:template c)
-                                         "data-rf2-suspense-resolved=\"1\""))
-          ;; The deferred body is a Var-headed hiccup vector
-          ;; (`[card-view :revenue]`), not a keyword view-ref. Pin that the
-          ;; emitter resolves it to the rendered card — otherwise it would
-          ;; emit an unresolved head instead of the card markup.
-          (is (clojure.string/includes? (:template c) "class=\"card\"")
-              (str "resolved chunk must carry the rendered card body; got "
-                   (:template c)))))
-      ;; The drain's `:failed?` reaches the wire. The server knows which
-      ;; boundaries blew up, and the final payload names them in its
-      ;; serialisable runtime slice, so the client's boundary re-renders the
-      ;; fallback it declared rather than inferring failure from absent state.
-      (is (= #{:card.flaky} (:failed-boundaries result))
-          "the failed boundary is reported by the drain")
-      (is (= #{:card.flaky}
-             (get-in (:rf/runtime-db (:final-payload result))
-                     [:rf.runtime/ssr :streaming :failed-boundaries]))
-          "and rides the final payload's runtime-db slice")
-      ;; Final payload carries the canonical :rf/* keys.
-      (is (= 1 (:rf/version (:final-payload result))))
-      (is (some? (:rf/render-hash (:final-payload result))))
-      (is (= 3 (count (:cards (:rf/app-db (:final-payload result)))))
-          "three cards' state in the final payload (revenue, signups, latency); the flaky card has no app-db slice because it threw before its data fetched"))))
-
-;; ============================================================================
-;; SSR examples — dynamic payload path round-trip.
-;;
-;; Feed the ACTUAL dynamic example payload — the plain `handle-request` HTML payload, the resources
-;; `handle-request` HTML payload, and the streaming `final-payload` — into the
-;; framework `rf.ssr/hydrate!` against the example's OWN client frame
-;; (`:rf/default`) and assert NO `:rf.error/hydration-frame-id-mismatch` plus
-;; the expected hydrated state. Hand-built payloads would cover server and
-;; client separately; these drive the real server→client wire so stamping the
-;; per-request server gensym (which would conflict with the fixed
-;; `:rf/default` client frame) fails loud here.
-;;
-;; The dynamic example payloads deliberately OMIT
-;; `:rf/frame-id` (an absent frame-id is no conflict; the explicit client
-;; target stands — Spec 011 §The hydration payload), and the manual payload
-;; `<script>` emission routes through the EDN-aware `escape-edn-script-body`
-;; so a server-provided `</script>` can't close the envelope.
-;; ============================================================================
+(defn- frame-ids [] (set (keys @rf.frame/frames)))
 
 (defn- extract-payload-edn
   "Pull the `__rf_payload` EDN string out of an SSR example's HTML body and
@@ -597,456 +129,363 @@
                    html-body)]
     (some-> (second m) edn/read-string)))
 
-(deftest ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/capabilities/ssr/ssr — the payload the dynamic `handle-request`
-            emits feeds into `rf.ssr/hydrate!` against the example's `:rf/default`
-            client frame with NO `:rf.error/hydration-frame-id-mismatch` (the
-            payload omits the per-request server frame-id) and seeds the
-            client app-db with the server's articles"
+(defn- capture-traces!
+  "Run f under a trace listener; return the captured event vector."
+  [f]
+  (let [traces (atom [])
+        cb-id  (gensym "::examples-ssr-capture-")]
+    (rf/register-listener! :trace cb-id (fn [ev] (swap! traces conj ev)))
+    (try (f) (finally (rf/unregister-listener! :trace cb-id)))
+    @traces))
+
+(defn- includes-all [s needles]
+  (mapv #(clojure.string/includes? s %) needles))
+
+;; ---- ssr: the server flow ------------------------------------------------------
+;;
+;; per-request frame → :rf/server-init → managed HTTP via the canned stub →
+;; render to string → render hash. JVM-only: the server render runs under
+;; Clojure.
+
+(deftest ssr-example-runs-end-to-end
+  (testing "examples/capabilities/ssr/ssr — the server flow renders the loaded articles"
     (require 'ssr.core :reload)
     (init-ssr!)
     (install-canned-articles-stub!)
-    (let [handle-request (resolve 'ssr.core/handle-request)
-          resp           (rf/with-fx-overrides
-                           {:rf.http/managed :ssr.http/canned-articles}
-                           (handle-request {:uri "/articles"}))
-          payload        (extract-payload-edn (:body resp))]
-      (is (= 200 (:status resp)))
-      (is (some? payload) "the __rf_payload EDN parsed out of the HTML body")
-      (is (not (contains? payload :rf/frame-id))
-          (str "the dynamic payload OMITS :rf/frame-id (server gensym frame "
-               "would conflict with the fixed :rf/default client frame)"))
-      ;; Hydrate the example's OWN client frame (:rf/default, a :client frame).
-      (let [client-frame @(resolve 'ssr.core/app-frame)
-            _            (rf/make-frame {:id client-frame :doc "ssr-example client frame" :platform :client})
-            returned     (rf.ssr/hydrate! {:frame client-frame :payload payload})]
-        (is (= payload returned)
-            "hydrate! applied the payload (no frame-id conflict thrown)")
-        (is (= [{:id "a" :title "Article A" :body "Body A"}
-                {:id "b" :title "Article B" :body "Body B"}]
-               (:articles (rf/app-db-value client-frame)))
-            "the client app-db carries the server's articles after hydration")))))
+    (let [fid         (keyword "rf.frame" (str (gensym "")))
+          _           (rf.ssr/set-request! fid {:uri "/articles"})
+          f           (rf/make-frame {:id fid :doc "ssr-example test frame"
+                                      :platform :server
+                                      :initial-events [[:rf/server-init]]
+                                      :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
+          final-db    (rf/app-db-value f)
+          ;; the root view's body subscribes, so it is called under `with-frame f`
+          hiccup      (rf/with-frame f ((rf/view :app/root)))
+          ;; one walk, two channels — the shape the example itself uses
+          render-hash (rf.ssr/render-tree-hash hiccup)
+          html        (rf/with-frame f (rf.ssr/render-to-string hiccup {:render-hash render-hash}))]
+      (is (= 2 (count (:articles final-db))))
+      (is (= [true true true true]
+             (includes-all html ["Article A" "Article B" "<h1>" "data-rf-render-hash"]))
+          "the articles render to HTML, with the render-hash marker, without React/JSDOM")
+      ;; lowercase-hex FNV-1a (Spec 011), which the client recomputes
+      (is (re-matches #"[0-9a-f]{8}" render-hash))
+      ;; the hash covers the page the root renders: the ambient :rf/default
+      ;; frame holds no articles, so its render of the same root differs
+      (is (not= render-hash (rf.ssr/render-tree-hash ((rf/view :app/root))))))))
+
+;; Spec 011 §Per-request frame teardown contract: the example's
+;; `handle-request` destroys its per-request frame in a `finally`, so a
+;; long-running server leaks neither the frame nor its request slot, on the
+;; success path and the throw path alike.
+
+(deftest ssr-example-handle-request-tears-down-per-request-frame
+  (testing "examples/capabilities/ssr/ssr — after handle-request returns, no
+            per-request frame and no SSR request slot survive"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (install-canned-articles-stub!)
+    (let [before (frame-ids)
+          resp   (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")]
+      (is (= [200 true] [(:status resp) (clojure.string/includes? (:body resp) "Article A")]))
+      (is (= [#{} {}] [(clojure.set/difference (frame-ids) before) @rf.ssr.request/request-slots])))))
+
+(deftest ssr-example-handle-request-tears-down-on-throw
+  (testing "examples/capabilities/ssr/ssr — a render that throws after the frame
+            and request slot were allocated still releases both, and the throw
+            propagates"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (install-canned-articles-stub!)
+    (let [before (frame-ids)]
+      (with-redefs [rf.ssr/render-to-string (fn [& _] (throw (ex-info "boom — render failure" {})))]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")))
+        (is (= [#{} {}] [(clojure.set/difference (frame-ids) before) @rf.ssr.request/request-slots]))))))
+
+;; The example holds its app schema as a value (`ArticlesSchema`) and registers
+;; it against EACH frame family — the per-request server frame in
+;; `handle-request`, before `:initial-events` fire, and the client frame in
+;; `run`. Bound to the client frame alone, the server-side `:articles` commit
+;; would validate against nothing. Requiring `re-frame.schemas` wires the
+;; default Malli validator, so validation is live here.
+
+(deftest ssr-example-per-request-frame-carries-and-validates-articles-schema
+  (testing "examples/capabilities/ssr/ssr — the per-request SERVER frame carries the
+            :articles schema and validation runs on that frame, not :rf/default"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (install-canned-articles-stub!)
+    (let [schema @(resolve 'ssr.core/ArticlesSchema)
+          fid    (keyword "rf.frame" (str (gensym "f")))
+          _      (rf.ssr/set-request! fid {:uri "/articles"})
+          _      (rf/reg-app-schema [:articles] {:frame fid} schema)
+          f      (rf/with-fx-overrides {:rf.http/managed :ssr.http/canned-articles}
+                   (rf/make-frame {:id fid :doc "ssr-example per-request validation frame"
+                                   :platform :server
+                                   :initial-events [[:rf/server-init]]}))
+          db     (rf/app-db-value f)
+          bad-db (assoc db :articles "not-a-vector-of-articles")]
+      (is (= [schema nil 2]
+             [(:schema (rf.schemas/app-schema-meta {:frame fid :path [:articles]}))
+              (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:articles]}))
+              (count (:articles db))])
+          "bound to the per-request frame and not :rf/default; the server-init commit loaded two articles")
+      ;; the [:maybe [:vector …]] schema accepts the loaded articles and refuses
+      ;; a non-vector on the per-request frame, while :rf/default, carrying no
+      ;; SSR schema, soft-passes the same bad value
+      (is (= [true false true]
+             [(rf.schemas/validate-app-schema! db :rf/server-init fid)
+              (rf.schemas/validate-app-schema! bad-db :rf/server-init fid)
+              (rf.schemas/validate-app-schema! bad-db :rf/server-init :rf/default)]))
+      (rf/destroy-frame! f))))
+
+;; ---- ssr: the client hydration path ----------------------------------------------
+;;
+;; The example boots its client through `rf.ssr/hydrate!` and the
+;; framework-registered `:rf/hydrate`. JVM-driven with an explicit :payload on a
+;; :client frame (no DOM to read).
+
+(deftest ssr-example-client-hydration-stashes-server-hash-and-seeds-db
+  (testing "examples/capabilities/ssr/ssr — hydrate! returns the applied payload,
+            replaces app-db with the :rf/app-db slice, and stashes the
+            :rf/render-hash for the verify step"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example client frame" :platform :client})
+          payload      {:rf/version     1
+                        :rf/render-hash "abc12345"
+                        :rf/app-db      {:articles [{:id "a" :title "A" :body "ba"}]}
+                        :rf/runtime-db  {}}]
+      (is (= [payload [{:id "a" :title "A" :body "ba"}] "abc12345"]
+             [(rf.ssr/hydrate! {:frame client-frame :payload payload})
+              (:articles (rf/app-db-value client-frame))
+              (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
+                      [:rf.runtime/ssr :hydration :server-hash])])))))
+
+(deftest ssr-example-client-hydration-matching-hash-is-silent
+  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash MATCHES the
+            payload's :rf/render-hash emits NO :rf.ssr/hydration-mismatch"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-match frame"
+                                                          :platform :client
+                                                          :ssr {:detect-mismatch? true}})
+          client-tree  [:div.page [:h1 "Recent articles"]]
+          payload      {:rf/version 1 :rf/render-hash (rf.ssr/render-tree-hash client-tree)
+                        :rf/app-db {:articles []} :rf/runtime-db {}}
+          traces       (capture-traces!
+                         #(rf.ssr/hydrate! {:frame client-frame :payload payload
+                                            :render-tree-fn (fn [] client-tree)}))]
+      (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
+          (pr-str (mapv :operation traces))))))
+
+(deftest ssr-example-client-hydration-divergent-hash-fires-mismatch
+  (testing "examples/capabilities/ssr/ssr — a client render-tree whose hash DIVERGES
+            from the payload's emits :rf.ssr/hydration-mismatch (the verify step
+            the example's `run` wires via :render-tree-fn)"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example verify-divergent frame"
+                                                          :platform :client
+                                                          :ssr {:detect-mismatch? true}})
+          payload      {:rf/version 1 :rf/render-hash "server00"
+                        :rf/app-db {:articles []} :rf/runtime-db {}}
+          traces       (capture-traces!
+                         #(rf.ssr/hydrate! {:frame client-frame :payload payload
+                                            :render-tree-fn (fn [] [:div.page [:h1 "Recent articles"]])}))]
+      (is (some #(= :rf.ssr/hydration-mismatch (:operation %)) traces)
+          (pr-str (mapv :operation traces))))))
+
+(deftest ssr-example-client-hydration-malformed-payload-does-not-replace-db
+  (testing "examples/capabilities/ssr/ssr — a present-but-non-map :rf/app-db slice
+            is rejected fail-closed and app-db is left unchanged (Spec 011 §The
+            :rf/hydrate event)"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr-example fail-closed frame" :platform :client})
+          kept         [{:id "keep" :title "Keep" :body "b"}]]
+      (rf/dispatch-sync [:articles/loaded {:value kept}] {:frame client-frame})
+      (is (= kept (:articles (rf/app-db-value client-frame))) "precondition: app-db seeded")
+      (rf.ssr/hydrate! {:frame client-frame :payload {:rf/version 1 :rf/app-db "not-a-map"}})
+      (is (= kept (:articles (rf/app-db-value client-frame)))))))
+
+;; ---- ssr_streaming: shell → per-card resolved chunks → final payload ----------
+
+(deftest ssr-streaming-example-runs-end-to-end
+  (testing "examples/capabilities/ssr/ssr_streaming — the server stream produces shell + chunks + payload"
+    (require 'ssr-streaming.core :reload)
+    (init-ssr!)
+    (let [result      ((resolve 'ssr-streaming.core/handle-request) {:uri "/dashboard"})
+          chunks      (:resolved-chunks result)
+          [failed ok] ((juxt filter remove) :failed? chunks)
+          payload     (:final-payload result)]
+      ;; the shell carries the static header and the template fallbacks; of
+      ;; four boundaries, the flaky one ships the failed template
+      (is (= [true true 4 1 3]
+             [(clojure.string/includes? (:shell result) "<h1>Dashboard</h1>")
+              (clojure.string/includes? (:shell result) "data-rf2-suspense-fallback=\"1\"")
+              (count chunks) (count failed) (count ok)]))
+      (is (clojure.string/includes? (:template (first failed)) "data-rf2-suspense-failed=\"1\""))
+      ;; a deferred body is a Var-headed hiccup vector (`[card-view :revenue]`):
+      ;; the emitter must resolve it to the rendered card, not emit the head
+      (doseq [c ok]
+        (is (= [true true] (includes-all (:template c) ["data-rf2-suspense-resolved=\"1\"" "class=\"card\""]))
+            (:template c)))
+      ;; the drain's failed boundary reaches the wire in the final payload's
+      ;; runtime slice, so the client re-renders the fallback it declared
+      ;; rather than inferring failure from absent state; the flaky card threw
+      ;; before its data fetched, so three cards carry state
+      (is (= [#{:card.flaky} #{:card.flaky} 1 true 3]
+             [(:failed-boundaries result)
+              (get-in (:rf/runtime-db payload) [:rf.runtime/ssr :streaming :failed-boundaries])
+              (:rf/version payload)
+              (some? (:rf/render-hash payload))
+              (count (:cards (:rf/app-db payload)))])))))
+
+;; ---- the dynamic payload, server → client ----------------------------------------
+;;
+;; These feed the ACTUAL dynamic payloads (the plain and resources
+;; `handle-request` HTML payloads, the streaming `final-payload`) into
+;; `rf.ssr/hydrate!` against the example's own `:rf/default` client frame, so
+;; a payload stamped with the per-request server gensym would fail loud with
+;; `:rf.error/hydration-frame-id-mismatch`. The payloads omit `:rf/frame-id`
+;; (an absent frame-id is no conflict — Spec 011 §The hydration payload), and
+;; the payload `<script>` routes through the EDN-aware
+;; `escape-edn-script-body`, so a server-provided `</script>` cannot close it.
+
+(deftest ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
+  (testing "examples/capabilities/ssr/ssr — the dynamic handle-request payload omits
+            :rf/frame-id and hydrates the example's :rf/default client frame with
+            the server's articles"
+    (require 'ssr.core :reload)
+    (init-ssr!)
+    (install-canned-articles-stub!)
+    (let [resp         (handle! 'ssr.core/handle-request :ssr.http/canned-articles "/articles")
+          payload      (extract-payload-edn (:body resp))
+          client-frame @(resolve 'ssr.core/app-frame)]
+      (is (= [200 true false] [(:status resp) (some? payload) (contains? payload :rf/frame-id)]))
+      (rf/make-frame {:id client-frame :doc "ssr-example client frame" :platform :client})
+      (is (= [payload two-articles]
+             [(rf.ssr/hydrate! {:frame client-frame :payload payload})
+              (:articles (rf/app-db-value client-frame))])))))
 
 (deftest ssr-example-payload-script-escapes-script-breakout
-  (testing "examples/capabilities/ssr/ssr — a server-provided string containing
-            `</script>` (round-tripped through app-db) is escaped by the
-            EDN-aware `<script>`-body encoder, so it CANNOT close the
-            `__rf_payload` envelope, and the payload still round-trips through
-            the client EDN reader unchanged"
+  (testing "examples/capabilities/ssr/ssr — a server string carrying `</script>` is
+            escaped by the EDN-aware encoder, so it cannot close the
+            `__rf_payload` envelope, and still round-trips through the EDN reader"
     (require 'ssr.core :reload)
     (init-ssr!)
-    ;; A canned stub whose article title carries a `</script>` breakout
-    ;; precursor — the exact XSS shape the EDN-aware escaper exists to defang.
-    (rf/reg-fx :ssr.http/canned-evil
-      {:platforms #{:server :client}}
-      (fn [frame-ctx args-map]
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx
-                (assoc args-map
-                       :value [{:id "x"
-                                :title "</script><script>alert('xss')</script>"
-                                :body "b"}])))))
-    (let [handle-request (resolve 'ssr.core/handle-request)
-          resp           (rf/with-fx-overrides
-                           {:rf.http/managed :ssr.http/canned-evil}
-                           (handle-request {:uri "/x"}))
-          body           (:body resp)]
-      (is (= 200 (:status resp)))
-      ;; The raw breakout must NOT appear verbatim — the `<` inside the EDN
-      ;; string literal is escaped to the `<` reader escape.
-      (is (not (clojure.string/includes?
-                 body "</script><script>alert('xss')</script>"))
-          "the raw </script> breakout must not survive into the HTML")
-      (is (clojure.string/includes? body "\\u003c")
-          "the breakout `<` is escaped to the \\u003c EDN reader escape")
-      ;; And the escaped payload still parses back to the exact server value —
-      ;; the EDN reader decodes < inside the string literal.
-      (let [payload (extract-payload-edn body)]
-        (is (= "</script><script>alert('xss')</script>"
-               (-> payload :rf/app-db :articles first :title))
-            "the payload round-trips through the EDN reader unchanged")))))
+    (reg-canned-fx! :ssr.http/canned-evil :rf.http/managed-canned-success
+                    {:value [{:id "x" :title "</script><script>alert('xss')</script>" :body "b"}]})
+    (let [resp (handle! 'ssr.core/handle-request :ssr.http/canned-evil "/x")
+          body (:body resp)]
+      ;; the `<` inside the EDN string literal becomes the reader escape
+      (is (= [200 false true "</script><script>alert('xss')</script>"]
+             [(:status resp)
+              (clojure.string/includes? body "</script><script>alert('xss')</script>")
+              (clojure.string/includes? body "\\u003c")
+              (-> (extract-payload-edn body) :rf/app-db :articles first :title)])))))
 
-;; ============================================================================
-;; ssr — the page load has to SETTLE before the render.
+;; ---- ssr: the page load SETTLES before the render ----------------------------------
 ;;
-;; `make-frame` drains the SYNCHRONOUS event work its `:initial-events` start,
-;; and that is all it promises. The article fetch `:rf/server-init` kicks off
-;; is not synchronous — the JVM managed transport issues it through
-;; `HttpClient/sendAsync` — so a `handle-request` that read `app-db` the
-;; instant `make-frame` returned would render "No articles." over a 200 and
-;; destroy the only frame the reply could land in. The static `index.html`
-;; would mask it (its article state is baked in), and so would a test on a
-;; synchronous canned stub, which HAS settled by then.
-;;
-;; The load has an explicit `:articles/load-state` outcome
-;; (`:pending` → `:loaded` / `:failed`) and `handle-request` blocks on it,
-;; bounded, before reading anything off the frame. These two tests pin both halves: a genuinely
-;; DELAYED reply is waited for, and a non-`:loaded` outcome answers 503 rather
-;; than dressing a pending request up as a finished empty page.
-;; ============================================================================
+;; `make-frame` drains only the SYNCHRONOUS work its `:initial-events` start.
+;; The article fetch goes through `HttpClient/sendAsync` on the JVM, so a
+;; `handle-request` reading app-db the instant `make-frame` returned would
+;; render "No articles." over a 200 and destroy the only frame the reply could
+;; land in. The load has an explicit `:articles/load-state` outcome
+;; (`:pending` → `:loaded` / `:failed`) that `handle-request` blocks on,
+;; bounded: a delayed reply is waited for, and a non-`:loaded` outcome answers
+;; 503 rather than dressing a pending request up as a finished empty page.
 
 (deftest ssr-example-handle-request-waits-for-a-delayed-article-reply
-  (testing "examples/capabilities/ssr/ssr — a reply that lands AFTER `make-frame`
-            returns is still in the rendered HTML and in the hydration payload;
-            the handler waits for the page load rather than racing it"
+  (testing "examples/capabilities/ssr/ssr — a reply landing after `make-frame`
+            returns (deferred through `:dispatch-later`, the shape a real
+            sendAsync reply has) still reaches the HTML and the payload"
     (require 'ssr.core :reload)
     (init-ssr!)
-    ;; The one difference from `install-canned-articles-stub!`: `:after-ms`.
-    ;; The canned stub defers its reply through `:dispatch-later`,
-    ;; so `:articles/loaded` fires on a host timer well after `make-frame`'s
-    ;; synchronous drain has finished — the shape a real `sendAsync` reply has.
-    (rf/reg-fx :ssr.http/delayed-canned-articles
-      {:platforms #{:server :client}}
-      (fn [frame-ctx args-map]
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx
-                (assoc args-map
-                       :after-ms 150
-                       :value [{:id "a" :title "Article A" :body "Body A"}])))))
-    (let [handle-request (resolve 'ssr.core/handle-request)
-          frames-before  (set (keys @rf.frame/frames))
-          resp           (rf/with-fx-overrides
-                           {:rf.http/managed :ssr.http/delayed-canned-articles}
-                           (handle-request {:uri "/articles"}))]
-      (is (= 200 (:status resp)))
-      (is (clojure.string/includes? (:body resp) "Article A")
-          "the delayed article reached the rendered HTML")
-      (is (not (clojure.string/includes? (:body resp) "No articles."))
-          (str "the empty-state render means the handler returned before "
-               "the reply landed"))
-      (let [payload (extract-payload-edn (:body resp))]
-        (is (= [{:id "a" :title "Article A" :body "Body A"}]
-               (:articles (:rf/app-db payload)))
-            "and the hydration payload carries it too, not an empty app-db"))
-      (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
-                                          frames-before))
-          "the per-request frame is still torn down on the waited path"))))
+    (reg-canned-fx! :ssr.http/delayed-canned-articles :rf.http/managed-canned-success
+                    {:after-ms 150 :value [{:id "a" :title "Article A" :body "Body A"}]})
+    (let [before (frame-ids)
+          resp   (handle! 'ssr.core/handle-request :ssr.http/delayed-canned-articles "/articles")]
+      ;; the empty-state render would mean the handler returned before the reply
+      (is (= [200 true false [{:id "a" :title "Article A" :body "Body A"}] #{}]
+             [(:status resp)
+              (clojure.string/includes? (:body resp) "Article A")
+              (clojure.string/includes? (:body resp) "No articles.")
+              (:articles (:rf/app-db (extract-payload-edn (:body resp))))
+              (clojure.set/difference (frame-ids) before)])))))
 
 (deftest ssr-example-handle-request-terminates-deliberately-on-failure-and-deadline
-  (testing "examples/capabilities/ssr/ssr — a failed fetch and an exhausted
-            deadline each answer 503 and leave no frame behind, rather than
-            presenting unresolved work as a successful empty page"
+  (testing "examples/capabilities/ssr/ssr — a failed fetch and an exhausted deadline
+            each answer 503 promptly and leave no frame behind"
     (require 'ssr.core :reload)
     (init-ssr!)
-    (let [handle-request (resolve 'ssr.core/handle-request)]
-      (testing "a failed reply settles immediately on :failed"
-        ;; The `:on-failure` target is what makes this terminal. Without it the
-        ;; load-state would sit at `:pending` and every failed fetch would cost
-        ;; the full deadline.
-        (rf/reg-fx :ssr.http/canned-articles-failure
-          {:platforms #{:server :client}}
-          (fn [frame-ctx args-map]
-            (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-failure)]
-              (stub frame-ctx (assoc args-map :kind :rf.http/transport)))))
-        (let [frames-before (set (keys @rf.frame/frames))
-              started       (System/currentTimeMillis)
-              resp          (rf/with-fx-overrides
-                              {:rf.http/managed :ssr.http/canned-articles-failure}
-                              (handle-request {:uri "/articles"}))
-              elapsed       (- (System/currentTimeMillis) started)]
-          (is (= 503 (:status resp))
-              "a failed article fetch is not a 200")
-          (is (not (clojure.string/includes? (:body resp) "No articles."))
-              "and it does not render the empty page as though the load finished")
-          (is (< elapsed 2000)
-              (str "the :on-failure outcome is terminal, so the handler must not "
-                   "burn the deadline; took " elapsed "ms"))
-          (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
-                                              frames-before))
-              "the 503 path tears the per-request frame down too")))
-      (testing "a reply that never arrives stops at the deadline"
-        ;; A stub that does nothing: the request is issued and no reply is ever
-        ;; dispatched, so `:articles/load-state` stays `:pending`. Shorten the
-        ;; example's own budget so the test costs milliseconds rather than the
-        ;; shipped five seconds.
-        (rf/reg-fx :ssr.http/never-replies
-          {:platforms #{:server :client}}
-          (fn [_frame-ctx _args-map] nil))
-        (let [frames-before (set (keys @rf.frame/frames))
-              started       (System/currentTimeMillis)
-              resp          (with-redefs-fn
-                              {(resolve 'ssr.core/page-load-deadline-ms) 50}
-                              (fn []
-                                (rf/with-fx-overrides
-                                  {:rf.http/managed :ssr.http/never-replies}
-                                  (handle-request {:uri "/articles"}))))
-              elapsed       (- (System/currentTimeMillis) started)]
-          (is (= 503 (:status resp))
-              "an unresolved load answers 503, never a 200 empty page")
-          (is (clojure.string/includes? (:body resp) "timed-out")
-              "and says which terminal outcome it was")
-          (is (< elapsed 2000)
-              (str "the wait is bounded by the deadline; took " elapsed "ms"))
-          (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
-                                              frames-before))
-              "the deadline path leaves no live request frame"))))))
+    (let [timed (fn [fx-id]
+                  (let [before  (frame-ids)
+                        started (System/currentTimeMillis)
+                        resp    (handle! 'ssr.core/handle-request fx-id "/articles")]
+                    {:resp    resp
+                     :elapsed (- (System/currentTimeMillis) started)
+                     :leaked  (clojure.set/difference (frame-ids) before)}))]
+      (testing "a failed reply settles on :failed at once — the :on-failure target
+                is what makes it terminal rather than costing the full deadline"
+        (reg-canned-fx! :ssr.http/canned-articles-failure :rf.http/managed-canned-failure
+                        {:kind :rf.http/transport})
+        (let [{:keys [resp elapsed leaked]} (timed :ssr.http/canned-articles-failure)]
+          (is (= [503 false true #{}]
+                 [(:status resp) (clojure.string/includes? (:body resp) "No articles.")
+                  (< elapsed 2000) leaked])
+              (str "took " elapsed "ms"))))
+      (testing "a reply that never arrives stops at the deadline, shortened from
+                the shipped five seconds, and says which outcome it was"
+        (rf/reg-fx :ssr.http/never-replies {:platforms #{:server :client}} (fn [_ _] nil))
+        (let [{:keys [resp elapsed leaked]}
+              (with-redefs-fn {(resolve 'ssr.core/page-load-deadline-ms) 50}
+                #(timed :ssr.http/never-replies))]
+          (is (= [503 true true #{}]
+                 [(:status resp) (clojure.string/includes? (:body resp) "timed-out")
+                  (< elapsed 2000) leaked])
+              (str "took " elapsed "ms")))))))
 
 (deftest ssr-streaming-example-final-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/capabilities/ssr/ssr_streaming — the dynamic `handle-request`
-            `:final-payload` feeds into `rf.ssr/hydrate!` against the example's
-            `:rf/default` client frame with NO frame-id mismatch (it omits the
-            per-request server frame-id) and seeds the client app-db with the
+  (testing "examples/capabilities/ssr/ssr_streaming — the dynamic :final-payload
+            omits :rf/frame-id and hydrates the :rf/default client frame with the
             three streamed cards"
     (require 'ssr-streaming.core :reload)
     (init-ssr!)
-    (let [handle-request (resolve 'ssr-streaming.core/handle-request)
-          result         (handle-request {:uri "/dashboard"})
-          payload        (:final-payload result)]
-      (is (not (contains? payload :rf/frame-id))
-          "the streaming final-payload OMITS :rf/frame-id")
-      ;; The example's `app-frame` is `:cljs`-only (the streaming client boot
-      ;; is browser-side), so reference its value (`:rf/default`) directly
-      ;; here — the JVM cannot resolve a reader-conditional `:cljs` def.
-      (let [client-frame :rf/default
-            _            (rf/make-frame {:id client-frame :doc "ssr-streaming-example client frame"
-                                         :platform :client})
-            returned     (rf.ssr/hydrate! {:frame client-frame :payload payload})]
-        (is (= payload returned)
-            "hydrate! applied the final-payload (no frame-id conflict thrown)")
-        (is (= 3 (count (:cards (rf/app-db-value client-frame))))
-            "the client app-db carries the three streamed cards after hydration")))))
+    (let [payload (:final-payload ((resolve 'ssr-streaming.core/handle-request) {:uri "/dashboard"}))]
+      (is (not (contains? payload :rf/frame-id)))
+      ;; the example's `app-frame` is `:cljs`-only (the streaming client boots
+      ;; in the browser), so use its value, `:rf/default`
+      (rf/make-frame {:id :rf/default :doc "ssr-streaming-example client frame" :platform :client})
+      (is (= [payload 3]
+             [(rf.ssr/hydrate! {:frame :rf/default :payload payload})
+              (count (:cards (rf/app-db-value :rf/default)))])))))
 
-;; ============================================================================
-;; ssr_streaming — the request frame is released on the FAILURE path too.
-;;
-;; The deliberate `:card.flaky` boundary is not the risk — the drain turns
-;; that into a `:failed?` chunk and returns normally. The risk is a failure
-;; OUTSIDE that recovery: a shell walk or final-payload build that throws
-;; would return through the exception and past a `destroy-frame!` held as the
-;; last binding of one long `let`, stranding one frame per failed request in a
-;; long-lived host. The handler releases the frame in a `try`/`finally`, as
-;; the non-streaming sibling does.
-;; ============================================================================
+;; The deliberate `:card.flaky` boundary is not the risk — the drain turns it
+;; into a `:failed?` chunk and returns normally. A failure OUTSIDE that
+;; recovery (a throwing shell walk or final-payload build) would otherwise
+;; strand one frame per failed request in a long-lived host, so the handler
+;; releases the frame in a `try`/`finally`.
 
 (deftest ssr-streaming-example-releases-its-frame-on-an-outer-render-failure
-  (testing "examples/capabilities/ssr/ssr_streaming — the happy path (including
-            the intentional :card.flaky fallback) and an outer shell-render
-            failure both leave the frame registry at its captured baseline, and
-            the original exception still propagates"
+  (testing "examples/capabilities/ssr/ssr_streaming — the happy path (its
+            :card.flaky fallback included) and an outer shell-render failure both
+            leave the frame registry at its baseline, and the exception propagates"
     (require 'ssr-streaming.core :reload)
     (init-ssr!)
     (let [handle-request (resolve 'ssr-streaming.core/handle-request)
-          frames-before  (set (keys @rf.frame/frames))]
-      ;; Baseline: the ordinary request, whose one deliberately-throwing card is
-      ;; recovered inside the boundary, already leaves nothing behind.
-      (let [result (handle-request {:uri "/dashboard"})]
-        (is (= #{:card.flaky} (:failed-boundaries result))
-            "the intentional card failure is still isolated by its boundary")
-        (is (empty? (clojure.set/difference (set (keys @rf.frame/frames))
-                                            frames-before))
-            "the happy path leaves the registry at its baseline"))
-      ;; And now a failure the boundary CANNOT catch, injected after the frame
-      ;; has been allocated: the shell walk itself throws.
+          before         (frame-ids)]
+      (is (= [#{:card.flaky} #{}]
+             [(:failed-boundaries (handle-request {:uri "/dashboard"}))
+              (clojure.set/difference (frame-ids) before)]))
       (with-redefs [rf.ssr/streaming-render-shell
                     (fn [& _] (throw (ex-info "boom — shell render failure" {})))]
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (handle-request {:uri "/dashboard"}))
-            "the outer render throw propagates (the example does not swallow it)")
-        (let [new-frames (clojure.set/difference (set (keys @rf.frame/frames))
-                                                 frames-before)]
-          (is (empty? new-frames)
-              (str "the `finally` must release the per-request frame on the "
-                   "throw path; leaked frames: " (pr-str new-frames))))))))
+        (is (thrown? clojure.lang.ExceptionInfo (handle-request {:uri "/dashboard"})))
+        (is (= #{} (clojure.set/difference (frame-ids) before)))))))
 
-(deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
-  (testing "examples/capabilities/ssr/resources_ssr — the payload the dynamic
-            `handle-request` emits (under the valid
-            `:rf.ssr.payload/whole-app-db` policy, NOT the invalid empty
-            `[]`) feeds into `rf.ssr/hydrate!` against the example's `:rf/default`
-            client frame with NO frame-id mismatch and installs the SSR-
-            preloaded resource entry into the client `:rf.runtime/resources`
-            slice (Spec 016 §SSR client hydration)"
-    (require 'resources-ssr.core :reload)
-    (init-ssr!)
-    ;; Stub the resource's managed-HTTP fetch with a canned-success reply so
-    ;; the example's blocking drain settles the page resource synchronously
-    ;; (no real network; mirrors the plain-SSR canned-articles stub).
-    (rf/reg-fx :resources-ssr.http/canned
-      {:platforms #{:server :client}}
-      (fn [frame-ctx args-map]
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx
-                (assoc args-map
-                       :value [{:slug "welcome"   :title "Welcome to re-frame2"}
-                               {:slug "resources" :title "Server-state as resources"}])))))
-    (let [handle-request (resolve 'resources-ssr.core/handle-request)
-          resp           (rf/with-fx-overrides
-                           {:rf.http/managed :resources-ssr.http/canned}
-                           (handle-request {:uri "/articles"}))
-          payload        (extract-payload-edn (:body resp))]
-      (is (= 200 (:status resp))
-          (str "the dynamic handle-request returned 200 (valid payload policy "
-               "— an empty `[]` policy would have thrown "
-               ":rf.error/ssr-missing-payload-policy)"))
-      (is (some? payload))
-      ;; The hash covers the page the root renders, not a view reference:
-      ;; the ambient :rf/default frame holds no preloaded entry, so its render
-      ;; of the same root hashes differently from the server's.
-      (is (not= (:rf/render-hash payload)
-                (rf.ssr/render-tree-hash ((rf/view :app/root))))
-          "the root view's render hash tracks the cache state it renders")
-      (is (not (contains? payload :rf/frame-id))
-          "the resources payload OMITS :rf/frame-id")
-      ;; ── Response document envelope ─────────────────────────────────────
-      ;; `handle-request` owns the ONE document shell; the app renders as a
-      ;; FRAGMENT into `<div id='app'>`. A `:doctype? true` on the fragment
-      ;; emitter would nest a SECOND `<!DOCTYPE html>` inside `#app` —
-      ;; malformed HTML, surviving only via browser parser recovery. Assert exactly one doctype, envelope-owned, at byte zero,
-      ;; the fragment beginning at the child of `#app`, with the hydration hash
-      ;; and the envelope's head/payload/main.js all preserved.
-      (let [body     (:body resp)
-            app-open (clojure.string/index-of body "<div id='app'>")]
-        (is (= 1 (count (re-seq #"(?i)<!doctype" body)))
-            "exactly one doctype in the whole response (envelope-owned; no nested)")
-        (is (clojure.string/starts-with? (clojure.string/lower-case body)
-                                          "<!doctype html>")
-            "the sole doctype sits at byte zero of the document")
-        (is (some? app-open)
-            "the response carries the `<div id='app'>` mount point")
-        (is (not (clojure.string/includes?
-                   (clojure.string/lower-case (subs body app-open)) "<!doctype"))
-            "no doctype occurs within or after `<div id='app'>` (app is a fragment)")
-        (is (clojure.string/includes? body "<div id='app'><div class=\"page\"")
-            "the first child of #app is the page root element (fragment, not a nested doc)")
-        (is (clojure.string/includes? body "data-rf-render-hash=")
-            "the fragment root carries data-rf-render-hash (`:render-hash` retained)")
-        (is (clojure.string/includes? body "<title>Resources SSR demo</title>")
-            "envelope head metadata preserved")
-        (is (clojure.string/includes? body "id='__rf_payload'")
-            "payload script preserved")
-        (is (clojure.string/includes? body "<script src='/main.js'></script>")
-            "client boot script preserved"))
-      ;; The runtime-db projection carries the loaded resource entry (the
-      ;; allowed `:entries`, not the indexes).
-      (let [entries (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])]
-        (is (= 1 (count entries)) "one resource entry rides :rf/runtime-db")
-        (is (= :loaded (-> entries vals first :status))
-            "the SSR-preloaded resource settled :loaded before render"))
-      ;; Hydrate the example's OWN :rf/default client frame.
-      (let [client-frame @(resolve 'resources-ssr.core/app-frame)
-            _            (rf/make-frame {:id client-frame :doc "resources-ssr-example client frame"
-                                         :platform :client})
-            returned     (rf.ssr/hydrate! {:frame client-frame :payload payload})]
-        (is (= payload returned)
-            "hydrate! applied the payload (no frame-id conflict thrown)")
-        ;; The client runtime-db carries the reconciled resource entry — the
-        ;; reverse indexes are recomputed from `:entries` on install (Spec 016).
-        (let [client-entries (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
-                                     [:rf.runtime/resources :entries])]
-          (is (= 1 (count client-entries))
-              "the hydrated resource entry installed into the client frame")
-          (is (= :loaded (-> client-entries vals first :status))
-              "the hydrated entry is :loaded (renders immediately, no refetch)"))))))
-
-(deftest resources-ssr-example-static-index-payload-hydrates-into-live-cache
-  (testing "examples/capabilities/ssr/resources_ssr — the ACTUAL checked-in
-            `index.html` `__rf_payload` (the offline stand-in a reader opens
-            without a Clojure server) hydrates into the LIVE resource cache:
-            after `rf.ssr/hydrate!` the public `rf/resource-state` /
-            `[:rf/resource …]` view reads the two baked articles on the FIRST
-            client render, the baked `:entries` are keyed on the CEDN byte
-            `key-id` (each entry carrying the scoped vector as `:resource/key`,
-            no legacy vector-map-key row), and the fresh entry issues NO client
-            refetch. Reads the file itself — NOT a hand-built payload — so a
-            vector-keyed / rotting-absolute-`:stale-at` payload fails here."
-    (require 'resources-ssr.core :reload)
-    (init-ssr!)
-    ;; Read the SHIPPED static host page off the classpath (the
-    ;; `../../examples/capabilities/ssr` source root is a `:test` classpath
-    ;; entry, so `resources_ssr/index.html` resolves next to `core.cljc`) and
-    ;; extract the same `__rf_payload` EDN the browser reader parses.
-    (let [index-html (some-> (io/resource "resources_ssr/index.html") slurp)
-          payload    (some-> index-html
-                             (->> (re-find #"(?s)id=\"__rf_payload\" type=\"application/edn\">(.*?)</script>"))
-                             second
-                             edn/read-string)]
-      (is (some? index-html)
-          "the checked-in resources_ssr/index.html is on the test classpath")
-      (is (some? payload)
-          "the __rf_payload EDN parsed out of the static index.html body")
-      ;; ── The baked payload is the CURRENT projector shape ─────────────────
-      ;; `:entries` are map-keyed on the CEDN-1 byte `key-id`, each
-      ;; entry carrying the scoped `[scope resource-id params]` vector as its own
-      ;; `:resource/key`. A legacy vector-map-key row would key by the vector and
-      ;; leave `:resource/key` nil — unreachable through the byte-key lookup.
-      (let [baked-entries (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])
-            scoped-key    [:rf.scope/global :articles/list {}]
-            expected-kid  (rf.resources.state/key-id scoped-key)]
-        (is (= 1 (count baked-entries)) "one resource entry rides the static payload")
-        (is (= #{expected-kid} (set (keys baked-entries)))
-            "the baked entry is map-keyed by (state/key-id scoped-key), NOT the scoped vector")
-        (is (every? string? (keys baked-entries))
-            "no legacy vector-keyed :entries row survives (byte key-id is a string)")
-        (let [entry (first (vals baked-entries))]
-          (is (= scoped-key (:resource/key entry))
-              "the entry carries the canonical scoped vector as :resource/key")
-          (is (= expected-kid (rf.resources.state/key-id (:resource/key entry)))
-              "the map key equals the byte key-id of the entry's own :resource/key")
-          (is (nil? (:stale-at entry))
-              "the baked entry declares no rotting absolute :stale-at (never-stale policy)")))
-      ;; ── Hydrate the example's OWN :rf/default client frame ───────────────
-      (let [client-frame @(resolve 'resources-ssr.core/app-frame)
-            _            (rf/make-frame {:id client-frame :doc "resources-ssr static-payload client frame"
-                                         :platform :client})
-            returned     (rf.ssr/hydrate! {:frame client-frame :payload payload})]
-        (is (= payload returned)
-            "hydrate! applied the static payload (frame-id present-and-equal, no conflict)")
-        ;; The live cache serves the baked entry through the PUBLIC read — the
-        ;; property under test: an unreachable entry would read nil here.
-        (let [state (rf/resource-state {:resource :articles/list
-                                        :scope    :rf.scope/global
-                                        :params   {}
-                                        :frame    client-frame})]
-          (is (= :loaded (:status state))
-              "rf/resource-state reads the baked entry :loaded from the live cache")
-          (is (= [{:slug "welcome"   :title "Welcome to re-frame2"}
-                  {:slug "resources" :title "Server-state as resources"}]
-                 (:data state))
-              "both baked articles are reachable through the live resource read"))
-        ;; The example's OWN view renders both titles on the first client render
-        ;; (no skeleton, no empty <ul>) — the pre-rendered static rows stay put.
-        (let [html (rf/with-frame client-frame
-                     (rf.ssr/render-to-string ((rf/view :app/root)) {}))]
-          (is (clojure.string/includes? html "Welcome to re-frame2")
-              "first client render shows the first article title")
-          (is (clojure.string/includes? html "Server-state as resources")
-              "first client render shows the second article title"))
-        ;; No double-fetch: a fresh hydrated entry is ABSENT from the refetch
-        ;; plan, so the route-free client boot issues no transport request.
-        (let [rdb  (:rf.db/runtime (rf/frame-state-value client-frame))
-              plan (rf.resources.ssr/hydrate-refetch-plan rdb)]
-          (is (empty? plan)
-              "the fresh baked entry issues NO client refetch (no double-fetch)")
-          ;; And the entry installed under the SAME byte key-id, with the SSR
-          ;; owner reconciled away (never trusted from the wire).
-          (let [client-entries (get-in rdb [:rf.runtime/resources :entries])]
-            (is (= #{(rf.resources.state/key-id [:rf.scope/global :articles/list {}])}
-                   (set (keys client-entries)))
-                "the client cache keys the installed entry on the byte key-id")))))))
-
-;; ============================================================================
-;; resources-ssr — THE CLIENT BOOT SEAM
-;; ============================================================================
-;;
-;; The two tests above stop at `rf.ssr/hydrate!`. Hydration is a state install
-;; and a classification: it reconciles the payload, DROPS the completed
-;; request's `[:ssr …]` owner, and issues nothing. Everything the example
-;; claims about liveness therefore rests on the beat that follows it — the
-;; `:resources-ssr.app/page-opened` acquisition `run` dispatch-syncs after the
-;; hydrate and before the first render. These tests pin its four
-;; load-bearing claims: owner attachment, request counts, first-paint state,
-;; and the release that ends the hold.
-;;
-;; The example's `run` is `:cljs`-only, so these tests drive the same seam a
-;; beat lower: the example's OWN registered events against the example's OWN
-;; `app-frame`, in `run`'s order. Everything under test is the example's
-;; production source — the example tree stays test-free.
-;;
-;; The discriminator throughout is Spec 016 §Invalidation's owner rule:
-;; invalidation refetches a matched entry that has ACTIVE OWNERS and leaves a
-;; matched OWNERLESS entry merely stale. So "the client owner is live" is not
-;; asserted by reading a set — it is proved by the request the cache does or
-;; does not make, in both directions.
+;; ---- resources_ssr ---------------------------------------------------------------
 
 (def ^:private resources-ssr-articles
   [{:slug "welcome"   :title "Welcome to re-frame2"}
@@ -1054,7 +493,7 @@
 
 (def ^:private resources-ssr-key
   "The example's one scoped resource key — `:articles/list` at global scope,
-  no params. Spec 016 §Resource identity."
+  no params (Spec 016 §Resource identity)."
   [:rf.scope/global :articles/list {}])
 
 (defn- resources-ssr-entry
@@ -1073,13 +512,115 @@
   [frame]
   (rf/with-frame frame (rf.ssr/render-to-string ((rf/view :app/root)) {})))
 
+(defn- resources-ssr-static-payload
+  "The `__rf_payload` EDN baked into the SHIPPED `index.html` (the
+  `../../examples/capabilities/ssr` source root is a `:test` classpath entry,
+  so it resolves next to `core.cljc`) — the forever-fresh entry a reader
+  opening the file offline hydrates from."
+  []
+  (some-> (io/resource "resources_ssr/index.html")
+          slurp
+          (->> (re-find #"(?s)id=\"__rf_payload\" type=\"application/edn\">(.*?)</script>"))
+          second
+          edn/read-string))
+
+(defn- resource-status [frame]
+  (:status (rf/resource-state {:resource :articles/list :scope :rf.scope/global :params {} :frame frame})))
+
+(deftest resources-ssr-example-dynamic-payload-hydrates-without-frame-id-mismatch
+  (testing "examples/capabilities/ssr/resources_ssr — under the valid
+            :rf.ssr.payload/whole-app-db policy (an empty [] policy throws
+            :rf.error/ssr-missing-payload-policy) the dynamic payload omits
+            :rf/frame-id and installs the SSR-preloaded entry into the client
+            :rf.runtime/resources slice (Spec 016 §SSR client hydration)"
+    (require 'resources-ssr.core :reload)
+    (init-ssr!)
+    (reg-canned-fx! :resources-ssr.http/canned :rf.http/managed-canned-success {:value resources-ssr-articles})
+    (let [resp     (handle! 'resources-ssr.core/handle-request :resources-ssr.http/canned "/articles")
+          body     (:body resp)
+          payload  (extract-payload-edn body)
+          app-open (clojure.string/index-of body "<div id='app'>")
+          entries  (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])]
+      (is (= [200 true false] [(:status resp) (some? payload) (contains? payload :rf/frame-id)]))
+      ;; the hash covers the page the root renders: the ambient :rf/default
+      ;; frame holds no preloaded entry, so its render hashes differently
+      (is (not= (:rf/render-hash payload) (rf.ssr/render-tree-hash ((rf/view :app/root)))))
+      ;; handle-request owns the ONE document shell and the app renders as a
+      ;; FRAGMENT into #app: a nested doctype would be malformed HTML surviving
+      ;; only through browser parser recovery
+      (is (= [1 true true false]
+             [(count (re-seq #"(?i)<!doctype" body))
+              (clojure.string/starts-with? (clojure.string/lower-case body) "<!doctype html>")
+              (some? app-open)
+              (clojure.string/includes? (clojure.string/lower-case (subs body app-open)) "<!doctype")]))
+      ;; #app's first child is the page root carrying the render hash, and the
+      ;; envelope's head, payload script and boot script survive
+      (is (= [true true true true true]
+             (includes-all body ["<div id='app'><div class=\"page\"" "data-rf-render-hash="
+                                 "<title>Resources SSR demo</title>" "id='__rf_payload'"
+                                 "<script src='/main.js'></script>"])))
+      ;; the runtime-db projection carries the loaded entry (`:entries`, not the indexes)
+      (is (= [1 :loaded] [(count entries) (-> entries vals first :status)]))
+      (let [client-frame @(resolve 'resources-ssr.core/app-frame)]
+        (rf/make-frame {:id client-frame :doc "resources-ssr-example client frame" :platform :client})
+        (is (= payload (rf.ssr/hydrate! {:frame client-frame :payload payload})))
+        ;; the reverse indexes are recomputed from :entries on install (Spec 016)
+        (let [client-entries (get-in (:rf.db/runtime (rf/frame-state-value client-frame))
+                                     [:rf.runtime/resources :entries])]
+          (is (= [1 :loaded] [(count client-entries) (-> client-entries vals first :status)])))))))
+
+(deftest resources-ssr-example-static-index-payload-hydrates-into-live-cache
+  (testing "examples/capabilities/ssr/resources_ssr — the ACTUAL checked-in
+            `index.html` payload (the offline stand-in) hydrates into the LIVE
+            resource cache: the public read serves both baked articles on the
+            first client render, the baked :entries are keyed on the CEDN byte
+            key-id, and the fresh entry issues no client refetch. Reading the
+            file itself is what makes a vector-keyed or rotting-:stale-at payload
+            fail here"
+    (require 'resources-ssr.core :reload)
+    (init-ssr!)
+    (let [payload      (resources-ssr-static-payload)
+          baked        (get-in payload [:rf/runtime-db :rf.runtime/resources :entries])
+          expected-kid (rf.resources.state/key-id resources-ssr-key)
+          entry        (first (vals baked))]
+      (is (some? payload) "resources_ssr/index.html is on the test classpath and its payload parses")
+      ;; keyed on the CEDN-1 byte key-id, each entry carrying the scoped vector
+      ;; as :resource/key (a legacy vector-keyed row would leave it nil,
+      ;; unreachable through the byte-key lookup), with no absolute :stale-at
+      (is (= [#{expected-kid} resources-ssr-key nil]
+             [(set (keys baked)) (:resource/key entry) (:stale-at entry)]))
+      (let [client-frame @(resolve 'resources-ssr.core/app-frame)]
+        (rf/make-frame {:id client-frame :doc "resources-ssr static-payload client frame" :platform :client})
+        (is (= payload (rf.ssr/hydrate! {:frame client-frame :payload payload})))
+        (let [state (rf/resource-state {:resource :articles/list :scope :rf.scope/global
+                                        :params {} :frame client-frame})
+              html  (resources-ssr-html client-frame)
+              rdb   (:rf.db/runtime (rf/frame-state-value client-frame))]
+          ;; a fresh hydrated entry is absent from the refetch plan, so the
+          ;; route-free client boot issues no transport request
+          (is (= [:loaded resources-ssr-articles [true true] true #{expected-kid}]
+                 [(:status state)
+                  (:data state)
+                  (includes-all html ["Welcome to re-frame2" "Server-state as resources"])
+                  (empty? (rf.resources.ssr/hydrate-refetch-plan rdb))
+                  (set (keys (get-in rdb [:rf.runtime/resources :entries])))])))))))
+
+;; ---- resources_ssr: the client boot seam -------------------------------------------
+;;
+;; Hydration installs and classifies state: it reconciles the payload, DROPS
+;; the completed request's `[:ssr …]` owner, and issues nothing. Liveness rests
+;; on the `:resources-ssr.app/page-opened` acquisition `run` dispatch-syncs
+;; after the hydrate and before the first render. `run` is `:cljs`-only, so
+;; these drive the example's OWN events against its OWN `app-frame` in `run`'s
+;; order. Spec 016 §Invalidation refetches a matched entry with ACTIVE owners
+;; and leaves an ownerless one merely stale, so "the client owner is live" is
+;; proved by the requests the cache does or does not make, in both directions.
+
 (defn- reg-counting-transport!
   "Register a managed-HTTP stand-in under `fx-id` that COUNTS every request the
-  resource runtime lowers, and — when `reply?` — settles it with the canned
-  articles through the framework's own canned-success stub. Returns the counter
-  atom. A counter is the only honest way to assert `ensure`'s fresh-skip: the
-  refetch PLAN being empty says what hydration classified, not what the
-  acquisition afterwards did or didn't send."
+  resource runtime lowers and, when `reply?`, settles it with the canned
+  articles. Returns the counter atom: the refetch PLAN says what hydration
+  classified, only the counter says what the acquisition sent."
   [fx-id {:keys [reply?]}]
   (let [calls (atom 0)]
     (rf/reg-fx fx-id
@@ -1087,14 +628,14 @@
       (fn [frame-ctx args-map]
         (swap! calls inc)
         (when reply?
-          (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-            (stub frame-ctx (assoc args-map :value resources-ssr-articles))))))
+          ((rf.registrar/handler :fx :rf.http/managed-canned-success)
+           frame-ctx (assoc args-map :value resources-ssr-articles)))))
     calls))
 
 (defn- resources-ssr-client-frame!
-  "The example's own client app-frame, with `:rf.http/managed` redirected at the
-  counting stand-in. `:platform :client` is what makes this the browser seam
-  rather than a second server render."
+  "The example's own client app-frame, `:rf.http/managed` redirected at
+  `fx-id`. `:platform :client` makes this the browser seam rather than a second
+  server render."
   [fx-id]
   (let [fid @(resolve 'resources-ssr.core/app-frame)]
     (rf/make-frame {:id           fid
@@ -1103,98 +644,60 @@
                     :fx-overrides {:rf.http/managed fx-id}})
     fid))
 
-(defn- resources-ssr-static-payload
-  "The `__rf_payload` EDN baked into the SHIPPED `index.html` — the same
-  forever-fresh entry a reader opening the file offline hydrates from."
-  []
-  (some-> (io/resource "resources_ssr/index.html")
-          slurp
-          (->> (re-find #"(?s)id=\"__rf_payload\" type=\"application/edn\">(.*?)</script>"))
-          second
-          edn/read-string))
+(defn- invalidate-articles! [fid cause]
+  (rf/dispatch-sync [:rf.resource/invalidate-tags
+                     {:scope :rf.scope/global :tags #{[:article-list]} :cause [:test cause]}]
+                    {:frame fid}))
 
 (deftest resources-ssr-example-cold-client-boot-acquires-and-first-paints-loading
-  (testing "examples/capabilities/ssr/resources_ssr — a plain client-only load
-            with NO `__rf_payload` (nothing to hydrate). The
-            `:resources-ssr.app/page-opened` acquisition issues EXACTLY ONE
-            managed-HTTP request under the page's app-minted owner, and the
-            first paint is the `:loading` skeleton — NOT the empty `<ul>` an
-            absent entry projects as `:idle`, which reads as a successful answer
-            of zero articles."
+  (testing "examples/capabilities/ssr/resources_ssr — with NO payload to hydrate,
+            the page-opened acquisition issues EXACTLY ONE request under the
+            page's app-minted owner, and the first paint is the :loading
+            skeleton, not the empty <ul> an absent entry projects as :idle (which
+            reads as a successful answer of zero articles)"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (let [calls (reg-counting-transport! :resources-ssr-test/pending {:reply? false})
           fid   (resources-ssr-client-frame! :resources-ssr-test/pending)
           owner @(resolve 'resources-ssr.core/page-owner)]
-      ;; BEFORE — nothing hydrated, so there is no entry and nothing has fetched.
-      (is (nil? (resources-ssr-entry fid))
-          "a cold client boot starts with no cache entry at all")
-      (is (zero? @calls) "and with no request issued")
-      (is (clojure.string/includes? (resources-ssr-html fid) "articles-list")
-          "the absent entry projects :idle — an EMPTY <ul>, the false empty-success
-           first paint this acquisition exists to prevent")
-      ;; ACQUIRE — `run`'s second beat, dispatch-sync so the ensure drains.
+      (is (= [nil 0 true]
+             [(resources-ssr-entry fid) @calls (clojure.string/includes? (resources-ssr-html fid) "articles-list")])
+          "before: no entry, no request, and the false empty-success paint")
       (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
-      (is (= 1 @calls)
-          "the acquisition issued EXACTLY ONE managed-HTTP request (not zero, not two)")
-      (is (contains? (resources-ssr-owners fid) owner)
-          "the entry is held by the page's app-minted owner [:resources-ssr.app/page-opened]")
-      (is (= :loading (:status (rf/resource-state {:resource :articles/list
-                                                   :scope    :rf.scope/global
-                                                   :params   {}
-                                                   :frame    fid})))
-          "the public read projects :loading while that one request is in flight")
-      ;; AFTER — the first paint the reader actually sees.
+      (is (= [1 true :loading]
+             [@calls (contains? (resources-ssr-owners fid) owner) (resource-status fid)]))
       (let [html (resources-ssr-html fid)]
-        (is (clojure.string/includes? html "articles-skeleton")
-            "first paint is the loading skeleton")
-        (is (not (clojure.string/includes? html "articles-list"))
-            "and NOT an empty <ul> that looks like a successful empty answer")))))
+        (is (= [true false]
+               [(clojure.string/includes? html "articles-skeleton")
+                (clojure.string/includes? html "articles-list")]))))))
 
 (deftest resources-ssr-example-fresh-hydrated-boot-takes-the-hold-without-refetching
-  (testing "examples/capabilities/ssr/resources_ssr — the ACTUAL checked-in
-            forever-fresh `index.html` payload. Hydration leaves a renderable
-            but OWNERLESS entry (the `[:ssr …]` owner belonged to the finished
-            server request); the acquisition then takes `ensure`'s fresh-skip
-            cache-hit path — it attaches the page owner and issues ZERO
-            requests, and the server's markup still paints."
+  (testing "examples/capabilities/ssr/resources_ssr — hydrating the forever-fresh
+            index.html payload leaves a renderable but OWNERLESS entry; the
+            acquisition takes ensure's fresh-skip cache hit, attaching the page
+            owner with ZERO requests (the payoff of preloading), and the server's
+            markup still paints"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
           fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
           owner   @(resolve 'resources-ssr.core/page-owner)
           payload (resources-ssr-static-payload)]
-      (is (some? payload) "the checked-in index.html payload parsed")
+      (is (some? payload))
       (rf.ssr/hydrate! {:frame fid :payload payload})
-      ;; BEFORE — the gap this example exists to close: loaded, and held by nothing.
-      (is (= :loaded (:status (resources-ssr-entry fid)))
-          "hydration installed the server's entry :loaded")
-      (is (empty? (resources-ssr-owners fid))
-          "and OWNERLESS — the reconcile dropped the completed request's [:ssr …] owner")
-      (is (zero? @calls) "hydration itself issued nothing")
-      ;; ACQUIRE — the fresh-skip cache hit.
+      (is (= [:loaded #{} 0] [(:status (resources-ssr-entry fid)) (resources-ssr-owners fid) @calls]))
       (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
-      (is (zero? @calls)
-          "a FRESH hydrated entry fresh-skips: the acquisition sent NO request
-           (this is the whole payoff of preloading — no double-fetch)")
-      (is (contains? (resources-ssr-owners fid) owner)
-          "and the page owner is now attached, so the entry is a live consumer")
-      (is (= :loaded (:status (resources-ssr-entry fid)))
-          "the entry stayed :loaded — nothing was disturbed")
-      ;; AFTER — first paint still adopts the server's data.
-      (let [html (resources-ssr-html fid)]
-        (is (clojure.string/includes? html "Welcome to re-frame2"))
-        (is (clojure.string/includes? html "Server-state as resources")
-            "the acquisition did not disturb the markup the server rendered")))))
+      (is (= [0 true :loaded]
+             [@calls (contains? (resources-ssr-owners fid) owner) (:status (resources-ssr-entry fid))]))
+      (is (= [true true]
+             (includes-all (resources-ssr-html fid) ["Welcome to re-frame2" "Server-state as resources"]))))))
 
 (deftest resources-ssr-example-stale-hydrated-boot-keeps-data-and-issues-one-request
-  (testing "examples/capabilities/ssr/resources_ssr — a STALE hydrated entry.
-            Invalidating the `[:article-list]` tag BEFORE the acquisition stales
-            the entry while it is still ownerless, which issues nothing (Spec 016
-            §Invalidation leaves a matched OWNERLESS entry stale rather than
-            refetching it — the counterfactual that makes the owner assertions
-            elsewhere mean something). The acquisition then issues EXACTLY ONE
-            background request while the last-known-good data stays visible."
+  (testing "examples/capabilities/ssr/resources_ssr — invalidating [:article-list]
+            before the acquisition stales the still-ownerless entry and issues
+            nothing (the counterfactual that gives the owner assertions their
+            meaning); the acquisition then issues EXACTLY ONE background request
+            while the last-known-good data stays on screen"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
     (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
@@ -1202,295 +705,166 @@
           owner   @(resolve 'resources-ssr.core/page-owner)
           payload (resources-ssr-static-payload)]
       (rf.ssr/hydrate! {:frame fid :payload payload})
-      ;; STALE IT — and prove an ownerless entry refetches nothing.
-      (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:scope :rf.scope/global
-                          :tags  #{[:article-list]}
-                          :cause [:test :resources-ssr/stale-fixture]}]
-                        {:frame fid})
-      (is (zero? @calls)
-          "an OWNERLESS stale entry issues NOTHING — hydration alone never
-           re-establishes liveness, which is exactly why the acquisition exists")
-      (is (empty? (resources-ssr-owners fid))
-          "still held by nothing")
-      (is (clojure.string/includes? (resources-ssr-html fid) "Welcome to re-frame2")
-          "stale data stays renderable — last-known-good, not blanked")
-      ;; ACQUIRE — one background request, data still on screen.
+      (invalidate-articles! fid :resources-ssr/stale-fixture)
+      (is (= [0 #{} true]
+             [@calls (resources-ssr-owners fid)
+              (clojure.string/includes? (resources-ssr-html fid) "Welcome to re-frame2")]))
       (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
-      (is (= 1 @calls)
-          "the acquisition on a STALE entry issues EXACTLY ONE request")
-      (is (contains? (resources-ssr-owners fid) owner)
-          "under the page's app-minted owner")
+      (is (= [1 true] [@calls (contains? (resources-ssr-owners fid) owner)]))
       (let [html (resources-ssr-html fid)]
-        (is (not (clojure.string/includes? html "articles-skeleton"))
-            "a stale refresh shows no skeleton — the entry had data all along")
-        (is (clojure.string/includes? html "Welcome to re-frame2")
-            "and the last-known-good articles stayed on screen throughout")))))
+        (is (= [false true]
+               [(clojure.string/includes? html "articles-skeleton")
+                (clojure.string/includes? html "Welcome to re-frame2")]))))))
 
 (deftest resources-ssr-example-page-closed-releases-the-hold-the-acquisition-took
-  (testing "examples/capabilities/ssr/resources_ssr — the release half.
-            `:resources-ssr.app/page-closed` is the matching drop for the owner
-            `:resources-ssr.app/page-opened` mints; the framework never
-            auto-releases an app-minted owner. Liveness is proved by request
-            behaviour in BOTH directions: while the owner is attached an
-            invalidation refetches exactly once, and after the release the same
-            invalidation issues nothing and leaves the entry GC-eligible."
+  (testing "examples/capabilities/ssr/resources_ssr — page-closed is the matching
+            drop for the owner page-opened mints (the framework never
+            auto-releases an app-minted owner): while held, an invalidation
+            refetches exactly once; after the release the same invalidation
+            issues nothing and leaves the entry GC-eligible"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (let [calls      (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
-          fid        (resources-ssr-client-frame! :resources-ssr-test/canned)
-          owner      @(resolve 'resources-ssr.core/page-owner)
-          payload    (resources-ssr-static-payload)
-          invalidate #(rf/dispatch-sync [:rf.resource/invalidate-tags
-                                         {:scope :rf.scope/global
-                                          :tags  #{[:article-list]}
-                                          :cause [:test :resources-ssr/liveness-probe]}]
-                                        {:frame fid})]
+    (let [calls   (reg-counting-transport! :resources-ssr-test/canned {:reply? true})
+          fid     (resources-ssr-client-frame! :resources-ssr-test/canned)
+          owner   @(resolve 'resources-ssr.core/page-owner)
+          payload (resources-ssr-static-payload)]
       (rf.ssr/hydrate! {:frame fid :payload payload})
       (rf/dispatch-sync [:resources-ssr.app/page-opened] {:frame fid})
-      (is (contains? (resources-ssr-owners fid) owner) "the page owner holds the entry")
-      (is (zero? @calls) "the fresh-skip acquisition issued nothing")
-      ;; HELD — invalidation refetches, because a live owner needs fresh data now.
-      (invalidate)
-      (is (= 1 @calls)
-          "invalidating [:article-list] refetched EXACTLY ONCE — the client owner
-           is semantically live, not merely present in a set")
-      ;; RELEASED — the hold is dropped.
+      (is (= [true 0] [(contains? (resources-ssr-owners fid) owner) @calls]))
+      (invalidate-articles! fid :resources-ssr/liveness-probe)
+      (is (= 1 @calls) "held: the owner is semantically live, not merely present in a set")
       (rf/dispatch-sync [:resources-ssr.app/page-closed] {:frame fid})
-      (is (not (contains? (resources-ssr-owners fid) owner))
-          "page-closed released the app-minted owner")
-      (is (empty? (resources-ssr-owners fid))
-          "leaving the entry pinned by nothing — eligible for the ordinary GC lifecycle")
-      ;; AND LIVENESS WENT WITH IT — the same probe now issues nothing.
-      (invalidate)
-      (is (= 1 @calls)
-          "after the release the SAME invalidation refetches nothing (still 1 in
-           total) — the release genuinely ended the hold rather than only
-           emptying a set"))))
+      (is (= #{} (resources-ssr-owners fid)))
+      (invalidate-articles! fid :resources-ssr/liveness-probe)
+      (is (= 1 @calls) "released: the same invalidation refetches nothing (still 1 in total)"))))
 
-;; ============================================================================
-;; resources_ssr — the preload poll reads the resource it means to await.
-;;
 ;; `await-resource-loaded!` must be handed the frame ID, not the frame VALUE
-;; `make-frame` returns. `rf/resource-state`'s introspection target is the
-;; frame ID (it keys the frame registry directly), so with a frame value every
-;; poll would read nil, no poll would see a terminal status, and the loop
-;; would run to `preload-deadline-ms` on EVERY request, including one whose
-;; resource was already `:loaded`. The response would still carry the
-;; article, so a content-only assertion would pass over the top of a
-;; five-second stall and an entirely ineffective readiness check.
-;;
-;; This test is keyed on the two things a content assertion cannot see: the
-;; target the poll actually reads, and how many times it goes round.
-;; ============================================================================
+;; `make-frame` returns: `rf/resource-state` keys the frame registry by id, so
+;; with a value every poll reads nil and the loop runs to
+;; `preload-deadline-ms` on EVERY request while the response still carries the
+;; article. So this test reads what a content assertion cannot see: the target
+;; the poll reads, and how many times it goes round.
 
 (deftest resources-ssr-example-preload-poll-exits-on-the-resource-it-awaits
   (testing "examples/capabilities/ssr/resources_ssr — a synchronously loaded
             resource exits the preload poll at once, on a terminal status read
-            from the request's OWN entry, instead of exhausting
-            preload-deadline-ms against an unrecognised key"
+            from the request's own entry"
     (require 'resources-ssr.core :reload)
     (init-ssr!)
-    (rf/reg-fx :resources-ssr.http/canned
-      {:platforms #{:server :client}}
-      (fn [frame-ctx args-map]
-        (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx
-                (assoc args-map
-                       :value [{:slug "welcome" :title "Welcome to re-frame2"}])))))
-    (let [handle-request (resolve 'resources-ssr.core/handle-request)
-          original       rf/resource-state
-          polls          (atom [])
-          ;; Spy on the public introspection read the example's poll goes
-          ;; through, recording what it was ASKED and what it got back, and
-          ;; returning the real answer unchanged.
-          resp           (with-redefs [rf/resource-state
-                                       (fn [opts]
-                                         (let [entry (original opts)]
-                                           (swap! polls conj
-                                                  {:keyword-target? (keyword? (:frame opts))
-                                                   :status          (:status entry)})
-                                           entry))]
-                           (rf/with-fx-overrides
-                             {:rf.http/managed :resources-ssr.http/canned}
-                             (handle-request {:uri "/articles"})))]
-      (is (= 200 (:status resp)))
-      (is (clojure.string/includes? (:body resp) "Welcome to re-frame2")
-          "the page still renders the loaded article (behaviour preserved)")
-      (is (seq @polls) "the example's preload poll ran at all")
-      (is (every? :keyword-target? @polls)
-          "every poll addresses the frame by ID — a frame VALUE is not a
-           registry key and reads as an absent entry")
-      (is (= :loaded (:status (last @polls)))
-          "the poll's final read saw the request's own entry settle :loaded —
-           a frame-value target would read nil under an unrecognised key")
-      ;; The count is the sharp instrument here: a frame-value target would
-      ;; poll nil ~850 times across the whole five-second budget. A synchronously loaded
-      ;; resource settles before the first read.
-      (is (< (count @polls) 20)
-          (str "a settled resource exits the poll immediately rather than "
-               "burning preload-deadline-ms; polls: " (count @polls))))))
+    (reg-canned-fx! :resources-ssr.http/canned :rf.http/managed-canned-success
+                    {:value [{:slug "welcome" :title "Welcome to re-frame2"}]})
+    (let [original rf/resource-state
+          polls    (atom [])
+          ;; record what each poll was asked and got, returning the real answer
+          resp     (with-redefs [rf/resource-state
+                                 (fn [opts]
+                                   (let [entry (original opts)]
+                                     (swap! polls conj {:keyword-target? (keyword? (:frame opts))
+                                                        :status          (:status entry)})
+                                     entry))]
+                     (handle! 'resources-ssr.core/handle-request :resources-ssr.http/canned "/articles"))]
+      ;; a frame-value target would poll nil ~850 times across the five-second
+      ;; budget; a synchronously loaded resource settles before the first read
+      (is (= [200 true true true :loaded true]
+             [(:status resp)
+              (clojure.string/includes? (:body resp) "Welcome to re-frame2")
+              (boolean (seq @polls))
+              (every? :keyword-target? @polls)
+              (:status (last @polls))
+              (< (count @polls) 20)])
+          (str "polls: " (count @polls))))))
 
 (deftest resources-ssr-example-only-serves-a-settled-resource
   (require 'resources-ssr.core :reload)
   (init-ssr!)
-  (rf/reg-fx :resources-ssr.http/delayed-success
-    {:platforms #{:server :client}}
-    (fn [frame-ctx args-map]
-      ((rf.registrar/handler :fx :rf.http/managed-canned-success)
-       frame-ctx (assoc args-map :after-ms 50
-                       :value [{:slug "settled" :title "Settled article"}]))))
-  (rf/reg-fx :resources-ssr.http/failure
-    {:platforms #{:server :client}}
-    (fn [frame-ctx args-map]
-      ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
-       frame-ctx (assoc args-map :kind :rf.http/transport))))
-  (rf/reg-fx :resources-ssr.http/never-replies
-    {:platforms #{:server :client}}
-    (fn [_frame-ctx _args-map] nil))
-  (let [handle-request (resolve 'resources-ssr.core/handle-request)]
-    (doseq [[transport deadline status outcome]
-            [[:resources-ssr.http/delayed-success 5000 200 nil]
-             [:resources-ssr.http/failure 5000 503 "failed"]
-             [:resources-ssr.http/never-replies 50 503 "timed-out"]]]
-      (testing (str "preload through " transport)
-        (let [frames-before (set (keys @rf.frame/frames))
-              started (System/currentTimeMillis)
-              response (with-redefs-fn
-                         {(resolve 'resources-ssr.core/preload-deadline-ms) deadline}
-                         #(rf/with-fx-overrides {:rf.http/managed transport}
-                            (handle-request {:uri "/articles"})))
-              elapsed (- (System/currentTimeMillis) started)]
-          (is (= status (:status response)))
-          (if (= 200 status)
-            (do
-              (is (clojure.string/includes? (:body response) "Settled article"))
-              (let [payload (extract-payload-edn (:body response))
-                    entries (vals (get-in payload [:rf/runtime-db :rf.runtime/resources :entries]))]
-                (is (= [:loaded] (mapv :status entries)))
-                (is (= [[{:slug "settled" :title "Settled article"}]]
-                       (mapv :data entries)))))
-            (do
-              (is (= "no-store" (get-in response [:headers "Cache-Control"])))
-              (is (clojure.string/includes? (:body response) outcome))
-              (is (not (clojure.string/includes? (:body response) "__rf_payload"))
-                  "an unfinished resource is never sent as a hydration payload")))
-          (is (< elapsed 2000)
-              (str "terminal replies settle promptly and the deadline is bounded; took " elapsed "ms"))
-          (is (empty? (clojure.set/difference (set (keys @rf.frame/frames)) frames-before))
-              "every response tears down its request frame"))))))
+  (reg-canned-fx! :resources-ssr.http/delayed-success :rf.http/managed-canned-success
+                  {:after-ms 50 :value [{:slug "settled" :title "Settled article"}]})
+  (reg-canned-fx! :resources-ssr.http/failure :rf.http/managed-canned-failure {:kind :rf.http/transport})
+  (rf/reg-fx :resources-ssr.http/never-replies {:platforms #{:server :client}} (fn [_ _] nil))
+  (doseq [[transport deadline status outcome]
+          [[:resources-ssr.http/delayed-success 5000 200 nil]
+           [:resources-ssr.http/failure 5000 503 "failed"]
+           [:resources-ssr.http/never-replies 50 503 "timed-out"]]]
+    (testing (str "preload through " transport)
+      (let [before   (frame-ids)
+            started  (System/currentTimeMillis)
+            response (with-redefs-fn
+                       {(resolve 'resources-ssr.core/preload-deadline-ms) deadline}
+                       #(handle! 'resources-ssr.core/handle-request transport "/articles"))
+            elapsed  (- (System/currentTimeMillis) started)]
+        (is (= status (:status response)))
+        (if (= 200 status)
+          (let [entries (vals (get-in (extract-payload-edn (:body response))
+                                      [:rf/runtime-db :rf.runtime/resources :entries]))]
+            (is (= [true [:loaded] [[{:slug "settled" :title "Settled article"}]]]
+                   [(clojure.string/includes? (:body response) "Settled article")
+                    (mapv :status entries)
+                    (mapv :data entries)])))
+          ;; an unfinished resource is never sent as a hydration payload
+          (is (= ["no-store" true false]
+                 [(get-in response [:headers "Cache-Control"])
+                  (clojure.string/includes? (:body response) outcome)
+                  (clojure.string/includes? (:body response) "__rf_payload")])))
+        (is (= [true #{}] [(< elapsed 2000) (clojure.set/difference (frame-ids) before)])
+            (str "terminal replies settle promptly, the deadline is bounded, and the request frame goes; took "
+                 elapsed "ms"))))))
 
-;; ============================================================================
-;; state-machine-walkthrough — chapter §Headless testing. Two flavours:
-;; pure machine-transition (no rf.frame/app-db) and drain-level (frame +
-;; :fx-overrides canned stub). JVM-runnable.
-;; The `:walkthrough.login/canned-success` / `:walkthrough.login/canned-failure` stubs the
-;; drain tests use are registered in `state-machine-walkthrough.core` so the
-;; browser demo and the tests share one registration point.
-;; ============================================================================
+;; ---- state-machine-walkthrough: chapter §Headless testing --------------------------
+;;
+;; Two flavours: pure `machine-transition` (no frame, no app-db) and drain-level
+;; (a frame plus a canned stub). The `:walkthrough.login/canned-success` /
+;; `-failure` stubs are registered in `state-machine-walkthrough.core`, so the
+;; browser demo and these tests share one registration point.
 
 (deftest state-machine-walkthrough-runs-headless
   (require 'state-machine-walkthrough.core :reload)
-  (let [login-flow @(resolve 'state-machine-walkthrough.core/login-flow)]
-    (testing "pure happy path — the transition table drives :idle → :submitting → :authed"
-      ;; Drives the transition table directly via machine-transition. No
-      ;; frame, no app-db.
-      (let [s0 {:state :idle :data {:attempts 0 :error nil}}
-            {s1 :snapshot fx1 :fx}
-            (rf.machines/machine-transition login-flow s0
-                                   [:walkthrough.login/submit
-                                    {:email "a@b.com" :password "secret"}])]
-        (is (= :submitting (:state s1)))
-        ;; Entering :submitting fires the :issue-request action's :fx.
-        (is (= 1 (count fx1)) "one :rf.http/managed fx")
-        (is (= :rf.http/managed (ffirst fx1)))
-        (let [{s2 :snapshot} (rf.machines/machine-transition login-flow s1
-                                                        [:walkthrough.login/success {:value {:token "t"}}])]
-          (is (= :authed (:state s2))))))
+  (let [login-flow @(resolve 'state-machine-walkthrough.core/login-flow)
+        step       (fn [snapshot event] (rf.machines/machine-transition login-flow snapshot event))
+        submit     [:walkthrough.login/submit {:email "a@b.com" :password "secret"}]]
+    (testing "pure happy path — :idle → :submitting (issuing one :rf.http/managed
+              request on entry) → :authed"
+      (let [{s1 :snapshot fx1 :fx} (step {:state :idle :data {:attempts 0 :error nil}} submit)
+            {s2 :snapshot}         (step s1 [:walkthrough.login/success {:value {:token "t"}}])]
+        (is (= [:submitting [:rf.http/managed] :authed]
+               [(:state s1) (mapv first fx1) (:state s2)]))))
 
-    (testing "pure lockout — the third failure fails the retry guard, records the terminal error, and locks out (three attempts total)"
-      ;; Two failures already recorded (:attempts 2); the third is terminal.
-      ;; The :under-retry-limit guard checks the snapshot BEFORE :record-error
-      ;; runs, so attempts=2 is the first counter value at which the guard
-      ;; rejects — the fallback candidate then runs :record-error too, so the
-      ;; locking-out failure is counted (attempts → 3) and its message stored.
-      (let [snapshot {:state :submitting :data {:attempts 2 :error nil}}
-            {s :snapshot}
-            (rf.machines/machine-transition login-flow snapshot
-                                   [:walkthrough.login/failure
-                                    {:error {:message "bad creds"}}])]
-        (is (= :locked-out (:state s)) "expected :locked-out on the third failure")
-        ;; the terminal failure is still counted — attempts bumped, message stored
-        (is (= 3 (get-in s [:data :attempts])) "the third failure records count 3")
-        (is (= "bad creds" (get-in s [:data :error])) "the terminal error is retained")))
+    (testing "pure lockout — with two failures recorded, the :under-retry-limit
+              guard (which reads the snapshot before :record-error runs) rejects
+              the third, whose fallback still records it: three attempts, the
+              message kept, locked out"
+      (let [{s :snapshot} (step {:state :submitting :data {:attempts 2 :error nil}}
+                                [:walkthrough.login/failure {:error {:message "bad creds"}}])]
+        (is (= [:locked-out 3 "bad creds"]
+               [(:state s) (get-in s [:data :attempts]) (get-in s [:data :error])]))))
 
-    (testing "pure :error-shown exits — BOTH ways out clear the stale error and keep the retry count"
-      ;; :error-shown carries an `:exit :clear-error` so the message a
-      ;; failure left behind cannot outlive the state that owns it. `:exit`
-      ;; runs on EVERY way out, so the invariant is one line in the table but
-      ;; TWO edges in behaviour — and only the behaviour is pinned here, never
-      ;; the table shape: an `:action` hung off each edge would satisfy these
-      ;; assertions too, and should.
-      ;;
-      ;; Each edge is asserted on its own, from the same hand-built failed
-      ;; snapshot, so neither can stand in for the other: dropping the clear
-      ;; from one edge alone leaves that edge's `:error` at "bad creds" while
-      ;; the other stays green.
-      (let [failed {:state :error-shown :data {:attempts 1 :error "bad creds"}}]
+    (testing "pure :error-shown exits — BOTH ways out clear the stale error and keep
+              the retry count. `:exit :clear-error` is one table line but two
+              edges in behaviour, so each edge is read from the same failed
+              snapshot, and dropping the clear from either alone goes red"
+      (let [failed                {:state :error-shown :data {:attempts 1 :error "bad creds"}}
+            {d :snapshot}         (step failed [:walkthrough.login/dismiss])
+            {r :snapshot rfx :fx} (step failed submit)]
+        ;; {:data {:error nil}} MERGES, so neither exit hands back fresh
+        ;; attempts; slot order :exit → :action → :entry clears the message
+        ;; before :issue-request fires, so a retry never rides beside it
+        (is (= [[:idle nil 1] [:submitting nil 1 [:rf.http/managed]]]
+               [[(:state d) (get-in d [:data :error]) (get-in d [:data :attempts])]
+                [(:state r) (get-in r [:data :error]) (get-in r [:data :attempts]) (mapv first rfx)]]))))
 
-        (testing "Dismiss → :idle"
-          (let [{s :snapshot} (rf.machines/machine-transition
-                                login-flow failed [:walkthrough.login/dismiss])]
-            (is (= :idle (:state s)) "Dismiss returns to :idle")
-            (is (nil? (get-in s [:data :error]))
-                "the stale failure is cleared on the way out, so the view's error row goes false")
-            ;; {:data {:error nil}} MERGES, so the retry counter survives —
-            ;; a Dismiss must not hand the user a fresh three attempts.
-            (is (= 1 (get-in s [:data :attempts]))
-                ":attempts is preserved across the clear")))
-
-        (testing "Submit → :submitting (direct retry, no Dismiss in between)"
-          (let [{s :snapshot fx :fx} (rf.machines/machine-transition
-                                       login-flow failed
-                                       [:walkthrough.login/submit
-                                        {:email "a@b.com" :password "secret"}])]
-            (is (= :submitting (:state s)) "a direct retry re-enters :submitting")
-            ;; Slot order is :exit → transition :action → target :entry, so the
-            ;; stale message is gone BEFORE :issue-request fires: a fresh
-            ;; request never rides alongside the previous failure.
-            (is (nil? (get-in s [:data :error]))
-                "the retry clears the stale failure rather than displaying it beside the new request")
-            (is (= 1 (get-in s [:data :attempts]))
-                ":attempts is preserved, so the lockout guard goes on counting")
-            (is (= [:rf.http/managed] (mapv first fx))
-                "entering :submitting still issues exactly one :rf.http/managed request")))))
-
-    (testing "drain happy path — full drain lands the app-db at :authed via the canned-success stub"
-      ;; Full drain: registers the machine, dispatches into it, asserts the
-      ;; app-db landed at :authed. Uses the `:fx-overrides` seam to swap
-      ;; `:rf.http/managed` for the per-test canned-success stub.
+    (testing "drain happy path — a full drain through the per-frame :fx-overrides
+              canned-success stub lands the app-db at :authed"
       (let [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :walkthrough.login/canned-success}})]
-        (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/submit
-                                              {:email "a@b.com"
-                                               :password "secret"}]]
-                          {:frame f})
-        (is (= :authed (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f)))
-            "expected :authed after canned success")))
+        (rf/dispatch-sync [:walkthrough.login/flow submit] {:frame f})
+        (is (= :authed (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f))))))
 
-    (testing "drain retry-then-lockout — two failures cycle, the third :submit lands at :locked-out (three attempts total)"
-      ;; Two failures cycle :submitting → :error-shown → :idle ×2, then a
-      ;; third :submit fails the guard and lands at :locked-out. Uses
-      ;; `rf/with-fx-overrides` — the lexical-scope counterpart to the
-      ;; per-frame `:fx-overrides` opt on `make-frame`.
-      (let [f (rf.frame/make-anon-frame-record! {})]
+    (testing "drain retry-then-lockout — under the lexical `rf/with-fx-overrides`,
+              two failures cycle :submitting → :error-shown → :idle, and the third
+              :submit lands at :locked-out"
+      (let [f      (rf.frame/make-anon-frame-record! {})
+            wrong  [:walkthrough.login/submit {:email "x@y.z" :password "wrong"}]]
         (rf/with-fx-overrides {:rf.http/managed :walkthrough.login/canned-failure}
           (dotimes [_ 2]
-            (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/submit
-                                                  {:email "x@y.z" :password "wrong"}]]
-                              {:frame f})
+            (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f})
             (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/dismiss]] {:frame f}))
-          (rf/dispatch-sync [:walkthrough.login/flow [:walkthrough.login/submit
-                                                {:email "x@y.z" :password "wrong"}]]
-                            {:frame f}))
-        (is (= :locked-out (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f)))
-            "expected :locked-out on the third submit")))))
+          (rf/dispatch-sync [:walkthrough.login/flow wrong] {:frame f}))
+        (is (= :locked-out (rf/compute-sub [:walkthrough.login/state] (rf/frame-state-value f))))))))
