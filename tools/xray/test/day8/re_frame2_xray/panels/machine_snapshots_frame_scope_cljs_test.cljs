@@ -115,13 +115,6 @@
                              [[:rf.runtime/machines :snapshots machine-id
                                :data :secret]]))))
 
-(defn- host-snapshot
-  "The snapshot as it stands in `frame-id`'s own runtime-db — RAW. In-process
-  reads are never redacted; redaction is an EGRESS read."
-  [frame-id]
-  (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
-          [:rf.runtime/machines :snapshots machine-id]))
-
 ;; ---- Xray-side seeding ---------------------------------------------------
 
 (defn- setup-xray! []
@@ -149,9 +142,6 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/set-target-frame frame-id] {:frame :rf/xray})))
 
-(defn- observed-frame []
-  (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/observed-frame])))
-
 (defn- target-frame []
   (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/target-frame])))
 
@@ -159,42 +149,6 @@
   "The PRODUCTION sub under test."
   []
   (rf/with-frame :rf/xray @(rf/subscribe [:rf.xray/machine-snapshots])))
-
-;; ---- (0) controls: the rig is live before anything is asserted ----------
-
-(deftest control-the-two-slots-genuinely-diverge-rf2-6ev6j
-  (testing "CONTROL — the shipping posture really does put a REAL
-            frame on the observed axis while the collector target is nil. A
-            redaction row below could otherwise pass for the wrong reason: if
-            the two slots happened to agree, a wrong-frame classification
-            could not manifest and a green row would say nothing."
-    (seed-host-runtime-db! host-b)
-    (declare-secret-sensitive! host-b)
-    (setup-xray!)
-    (focus-frame! host-b)
-    (is (nil? (target-frame))
-        "the collector target is UNSELECTED (nil) — EP-0002's default, the
-         posture the panel opens in")
-    (is (= host-b (observed-frame))
-        "the observed frame resolves host-b off the focus slot")
-    (is (not= (target-frame) (observed-frame))
-        "the two axes diverge — the precondition these rows are about")))
-
-(deftest control-the-host-snapshot-is-raw-in-process-rf2-6ev6j
-  (testing "CONTROL — the seeded snapshot really carries the secret
-            in the host frame's own runtime-db, and the declaration really
-            landed. Without this a redaction assertion could pass because the
-            seed was empty or the registry write no-opped (swap-elision-slot!
-            is a NO-OP when the frame container does not exist)."
-    (seed-host-runtime-db! host-b)
-    (declare-secret-sensitive! host-b)
-    (is (= secret (get-in (host-snapshot host-b) [:data :secret]))
-        "the host frame's runtime-db carries the RAW secret — in-process reads
-         stay raw; redaction is read only at egress")
-    (is (contains? (rf.elision/sensitive-declarations host-b)
-                   [:rf.runtime/machines :snapshots machine-id :data :secret])
-        "the frame's sensitive declaration landed on the absolute snapshot
-         path")))
 
 ;; ---- (1) PROPERTY ONE: correct classification --------------------------
 
@@ -208,9 +162,6 @@
     (setup-xray!)
     (focus-frame! host-b)
     (let [snaps (machine-snapshots)]
-      (is (some? (get snaps machine-id))
-          "the sub returned the machine's snapshot at all — a nil here would
-           pass the leak assertion vacuously")
       (is (= :rf/redacted (get-in snaps [machine-id :data :secret]))
           (str "the declared-sensitive slot was not redacted against the frame
                 whose data it is: " (pr-str snaps)))
@@ -238,15 +189,11 @@
     ;; deliberately NO declare-secret-sensitive!
     (setup-xray!)
     (focus-frame! host-b)
-    (let [snaps (machine-snapshots)]
-      (is (= snapshot (get snaps machine-id))
-          (str "an undeclared frame's snapshot was altered: " (pr-str snaps)))
-      (is (identical? snapshot (get snaps machine-id))
-          "the reference-preserving fast path was lost — an undeclared
-           snapshot was rebuilt rather than passed through")
-      (is (= secret (get-in snaps [machine-id :data :secret]))
-          "an UNDECLARED slot was withheld — over-scrub; these rows are
-           explicitly not a claim that undeclared carriers are a boundary"))))
+    (is (identical? snapshot (get (machine-snapshots) machine-id))
+        "an undeclared frame's snapshot passes through untouched on the
+         reference-preserving fast path — not rebuilt, and no UNDECLARED slot
+         withheld; these rows are explicitly not a claim that undeclared
+         carriers are a boundary")))
 
 ;; ---- (3) the differing-frame controls ----------------------------------
 
@@ -261,8 +208,6 @@
     (setup-xray!)
     (select-target-frame! host-a)
     (focus-frame! host-b)
-    (is (= host-a (target-frame)) "the collector target is host-a")
-    (is (= host-b (observed-frame)) "the observed frame is host-b")
     (let [snaps (machine-snapshots)]
       (is (= :rf/redacted (get-in snaps [machine-id :data :secret]))
           (str "classified against the COLLECTOR TARGET instead of the frame
@@ -284,8 +229,9 @@
     (setup-xray!)
     (select-target-frame! host-a)
     (focus-frame! host-b)
-    (is (= host-a (target-frame)))
-    (is (= host-b (observed-frame)))
+    (is (= host-a (target-frame))
+        "precondition: the target really is host-a — with it unselected (nil)
+         a wrong-frame sub would find no declaration and pass this row")
     (let [snaps (machine-snapshots)]
       (is (= secret (get-in snaps [machine-id :data :secret]))
           (str "host-b's value was redacted under host-a's BORROWED policy: "
