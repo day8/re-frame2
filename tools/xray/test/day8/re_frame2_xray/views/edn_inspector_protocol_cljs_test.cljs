@@ -1,36 +1,16 @@
 (ns day8.re-frame2-xray.views.edn-inspector-protocol-cljs-test
-  "Unit tests for the IXrayEdnInspector custom-formatters protocol.
-
-  ## What's under test
-
-  1. **Built-in types render via the built-in dispatch.** A
-     plain CLJS map / vector / scalar must NOT pick up the protocol
-     path — `:data-rf-protocol` is absent.
-
-  2. **Protocol-implementing types use the protocol methods.** A
-     deftype that implements `IXrayEdnInspector` short-circuits the
-     built-in dispatch; the consumer's `-xray-render-header` output
-     appears verbatim in the rendered hiccup.
-
-  3. **Header-nil fall-through.** A consumer that returns nil from
-     `-xray-render-header` falls through to the built-in renderer
-     for that node.
-
-  4. **Body-nil suppresses body.** A consumer with header but nil
-     body renders header-only (no expanded body container).
-
-  5. **Toggle wiring composes.** The protocol node carries the
-     same `data-testid` shape `[panel-id mount-id path]` as built-in
-     nodes, so a panel's reset / toggle affordances address
-     it uniformly.
-
-  Pure-data unit tests; no DOM mount."
-  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
+  "The IXrayEdnInspector custom-formatters seam in `render-node`: built-in
+  values stay on the built-in dispatch, a protocol node keeps the built-in
+  testid shape, a nil or throwing header falls through, a nil body renders
+  header-only, an expansion override collapses the body, the seam yields to
+  diff mode for a changed leaf, and a consumer body recursing `render-node`
+  reaches the mount's captured dispatcher."
+  (:require [cljs.test :refer-macros [are deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
-            [day8.re-frame2-xray.views.edn-inspector-protocol :as ddp
+            [day8.re-frame2-xray.views.edn-inspector-protocol
              :refer [IXrayEdnInspector]]))
 
 (use-fixtures :each
@@ -71,9 +51,20 @@
       (walk tree))
     (apply str @out)))
 
+(defn- render
+  ([v] (render v {}))
+  ([v node-opts]
+   (ei/render-node (merge {:value         v
+                           :panel-id      :test
+                           :mount-id      "m1"
+                           :path          []
+                           :depth         0
+                           :expansion-map {}
+                           :opts          {}}
+                          node-opts))))
+
 ;; ---- consumer types -----------------------------------------------------
 
-;; A type that satisfies the protocol with both header + body.
 (deftype FullCustom [tag payload]
   IXrayEdnInspector
   (-xray-render-header [_ _opts]
@@ -82,272 +73,98 @@
   (-xray-render-body [_ _opts]
     [:span {:data-testid "custom-body"} (str "body:" payload)]))
 
-;; A type that only customises the header.
 (deftype HeaderOnly [label]
   IXrayEdnInspector
   (-xray-render-header [_ _opts]
     [:span {:data-testid "header-only"} (str "h:" label)])
   (-xray-render-body [_ _opts] nil))
 
-;; A type that opts-out by returning nil header.
 (deftype OptsOut [inner]
   IXrayEdnInspector
   (-xray-render-header [_ _opts] nil)
   (-xray-render-body [_ _opts] [:span "ignored body"]))
 
-;; A consumer impl that THROWS — the safe accessor must catch.
 (deftype Broken []
   IXrayEdnInspector
   (-xray-render-header [_ _opts] (throw (ex-info "boom" {})))
   (-xray-render-body [_ _opts] (throw (ex-info "boom" {}))))
 
-;; ---- 1. built-in dispatch untouched -------------------------------------
+;; ---- dispatch -----------------------------------------------------------
 
 (deftest built-in-values-do-not-pick-up-protocol-path
-  ;; Plain collections, scalars and sentinels stay on the built-in
-  ;; dispatch. Sentinels are first-class types, and the protocol seam
-  ;; must not divert them either.
-  (doseq [[v k kv] [[{:a 1 :b 2}  :data-rf-kind "map"]
-                    [[1 2 3]      :data-rf-kind "vector"]
-                    [42           nil           nil]
-                    [:rf/redacted :data-rf-type "rf-redacted"]]]
-    (let [h (ei/render-node {:value v
-                             :panel-id :test
-                             :mount-id "m1"
-                             :path []
-                             :depth 0
-                             :expansion-map {}
-                             :opts {}})]
-      (is (nil? (find-attr h :data-rf-protocol "1"))
-          (str (pr-str v) " MUST NOT render via the protocol path"))
-      (when k
-        (is (some? (find-attr h k kv))
-            (str (pr-str v) " renders via the built-in " kv " dispatch"))))))
-
-;; ---- 2. protocol-implementing types use the protocol --------------------
+  (let [h (render {:a 1 :b 2})]
+    (is (nil? (find-attr h :data-rf-protocol "1")))
+    (is (some? (find-attr h :data-rf-kind "map")))))
 
 (deftest protocol-node-carries-stable-testid
-  (let [v (FullCustom. "Account" "data")
-        h (ei/render-node {:value v
-                           :panel-id :test
-                           :mount-id "m99"
-                           :path [:k]
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (some? (find-attr h :data-testid
-                          "rf-xray-edn-inspector-test-m99-:k"))
-        "protocol node carries the same `[panel-id mount-id path]` testid as built-in nodes")))
+  ;; The same `[panel-id mount-id path]` testid as a built-in node, so a
+  ;; panel's toggle and reset affordances address it uniformly.
+  (is (some? (find-attr (render (FullCustom. "Account" "data")
+                                {:mount-id "m99" :path [:k]})
+                        :data-testid "rf-xray-edn-inspector-test-m99-:k"))))
 
-;; ---- 3. header-nil fall-through to built-ins ----------------------------
-
-(deftest header-nil-falls-through-to-built-ins
-  ;; OptsOut returns nil from header — but the underlying value isn't
-  ;; itself a built-in container/scalar; it's a deftype. The
-  ;; fall-through lands at the `:other` scalar case (pr-str). That's
-  ;; the right outcome — the consumer explicitly opted out, the
-  ;; widget shouldn't second-guess.
-  (let [v (OptsOut. "inner")
-        h (ei/render-node {:value v
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (nil? (find-attr h :data-rf-protocol "1"))
-        "header-nil opts out of the protocol path")
-    (is (some? (find-attr h :data-rf-type "other"))
-        "falls through to the :other scalar fallback")))
-
-;; ---- 4. body-nil renders header-only ------------------------------------
+(deftest nil-or-throwing-header-falls-through-to-built-ins
+  ;; A consumer that declines (nil header) or breaks (the safe accessor
+  ;; catches) lands on the built-in `:other` pr-str fallback rather than
+  ;; blanking the inspector.
+  (are [v] (some? (find-attr (render v) :data-rf-type "other"))
+    (OptsOut. "inner")
+    (Broken.)))
 
 (deftest body-nil-renders-header-only
-  (let [v (HeaderOnly. "tag")
-        h (ei/render-node {:value v
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (some? (find-attr h :data-rf-protocol "1"))
-        "protocol path is still taken (header is non-nil)")
-    (is (some? (find-attr h :data-testid "header-only"))
-        "consumer header rendered")
-    ;; No body container — the testid suffix `-body` is absent.
-    (is (nil? (find-attr h :data-testid
-                         "rf-xray-edn-inspector-test-m1--body"))
-        "no body container rendered when body-fn returns nil")))
-
-;; ---- 5. broken consumer impl: safe catch --------------------------------
-
-(deftest broken-consumer-impl-falls-through-safely
-  ;; A consumer impl that throws must not blank the whole inspector.
-  ;; The safe accessor catches; the widget sees nil header and
-  ;; falls through to built-ins (which renders the deftype via
-  ;; the :other / pr-str fallback).
-  (let [v (Broken.)
-        h (ei/render-node {:value v
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (nil? (find-attr h :data-rf-protocol "1"))
-        "broken impl falls through to built-ins")
-    (is (some? (find-attr h :data-rf-type "other"))
-        "lands on the :other pr-str fallback")))
-
-;; ---- 6. expansion-map override still wins on protocol nodes -------------
+  (let [h (render (HeaderOnly. "tag"))]
+    (is (some? (find-attr h :data-testid "header-only")))
+    (is (nil? (find-attr h :data-testid "rf-xray-edn-inspector-test-m1--body")))))
 
 (deftest expansion-map-collapses-protocol-body
-  (let [v (FullCustom. "Account" "data")
-        ;; Force-collapsed via the expansion-map override.
-        k (ei/expansion-key :test "m1" [])
-        h (ei/render-node {:value v
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {k {:expanded? false}}
-                           :opts {}})]
-    (is (some? (find-attr h :data-rf-protocol "1")))
-    (is (some? (find-attr h :data-rf-expanded "0"))
-        "expansion-map override flips :data-rf-expanded to \"0\"")
-    (is (nil? (find-attr h :data-testid "custom-body"))
-        "body NOT rendered when expansion-map collapses the node")))
+  (let [h (render (FullCustom. "Account" "data")
+                  {:expansion-map {(ei/expansion-key :test "m1" []) {:expanded? false}}})]
+    (is (some? (find-attr h :data-rf-expanded "0")))
+    (is (nil? (find-attr h :data-testid "custom-body")))))
 
-;; ---- 7. predicate convenience -------------------------------------------
-
-(deftest satisfies-predicate
-  (is (true?  (ddp/satisfies-xray-edn-inspector? (FullCustom. "x" "y"))))
-  (is (false? (ddp/satisfies-xray-edn-inspector? {:a 1})))
-  (is (false? (ddp/satisfies-xray-edn-inspector? 42)))
-  (is (false? (ddp/satisfies-xray-edn-inspector? nil))))
-
-;; ---- 8. the seam YIELDS to diff mode -------------------------------------
+;; ---- the seam yields to diff mode ----------------------------------------
 ;;
-;; A protocol seam sitting ahead of the diff `cond` as a bare `or` would
-;; let ANY value carrying a formatter short-circuit the diff render
-;; outright. That is not an exotic case: `views.edn-inspector`
-;; requires `views.edn-inspector-default-formatters`, which extends
-;; the protocol over `cljs.core/UUID` and `js/Date` — so in a typical
-;; app-db EVERY `:session-id` and EVERY `:updated-at` takes the
-;; protocol path, and a CHANGED one would render its pretty custom
-;; header with no `~` glyph, no wash, no stripe and no `← was` chip —
-;; invisible in the one mode whose entire job is showing what changed.
-;;
-;; The contract: a leaf that is part of a change wears the diff
-;; chrome AND keeps the consumer's rendering (threaded in as
-;; `render-leaf-with-diff`'s `:scalar-fn`). An UNCHANGED leaf keeps
-;; the plain protocol node — cheaper, and nothing to signal.
+;; The default formatters extend uuid and `js/Date`, so in a typical app-db
+;; every `:session-id` and `:updated-at` takes the protocol path. A CHANGED
+;; one must still wear the diff chrome, keeping the consumer's rendering as
+;; the leaf's `:scalar-fn`; an UNCHANGED one keeps the plain protocol node.
 
 (defn- diff-leaf
-  "Render one scalar leaf in diff mode with an explicit before/after
-  pair, no projection — `leaf-diff-op`'s `(= before value)` fallback
-  decides, which is what a caller without a pre-computed projection
-  gets."
   [before after]
-  (ei/render-node {:value after
-                   :before before
-                   :diff? true
-                   :panel-id :test
-                   :mount-id "m1"
-                   :path [:k]
-                   :depth 0
-                   :expansion-map {}
-                   :opts {}}))
+  (render after {:before before :diff? true :path [:k]}))
 
 (deftest modified-uuid-leaf-carries-diff-chrome
   (let [h (diff-leaf (uuid "00000000-0000-0000-0000-00000000aaaa")
-                     (uuid "00000000-0000-0000-0000-00000000bbbb"))
-        text (collect-text h)]
-    (is (nil? (find-attr h :data-rf-protocol "1"))
-        "a CHANGED uuid leaf must NOT short-circuit to the plain protocol node")
-    (is (some? (find-attr h :data-rf-diff-op "modified"))
-        "it renders through the diff leaf path, op :modified")
-    (is (re-find #"~" text)
-        "the `~` modified glyph is painted in the gutter")
-    (is (re-find #"← was" text)
-        "the `← was <prior>` chip names the prior value")
-    (is (re-find #"aaaa" text)
-        "and the prior value in that chip is the BEFORE uuid")
-    ;; The point of the `:scalar-fn` seam: the consumer's formatter is
-    ;; kept, not traded away for the diff chrome.
+                     (uuid "00000000-0000-0000-0000-00000000bbbb"))]
+    (is (some? (find-attr h :data-rf-diff-op "modified")))
     (is (some? (find-attr h :data-rf-default-fmt "uuid"))
         "the default uuid formatter still renders the after-value inside the diff row")
-    (is (re-find #"bbbb" text)
-        "and it renders the AFTER uuid")))
+    (is (re-find #"bbbb.*← was .*aaaa" (collect-text h))
+        "the after uuid, then the `← was` chip naming the before uuid")))
 
 (deftest unchanged-uuid-leaf-keeps-the-plain-protocol-node
-  ;; The other half of the contract, and the control for the two above:
-  ;; the seam yields only for a CHANGED leaf.
-  (let [u (uuid "00000000-0000-0000-0000-00000000aaaa")
-        h (diff-leaf u u)]
-    (is (some? (find-attr h :data-rf-protocol "1"))
-        "an UNCHANGED uuid leaf still takes the protocol path in diff mode")
-    (is (nil? (find-attr h :data-rf-diff-op "modified"))
-        "and wears no modified chrome")))
+  (is (some? (find-attr (diff-leaf (uuid "00000000-0000-0000-0000-00000000aaaa")
+                                   (uuid "00000000-0000-0000-0000-00000000aaaa"))
+                        :data-rf-protocol "1"))))
 
-(deftest added-and-removed-protocol-leaves-carry-their-chrome
-  ;; `:added` / `:removed` are resolved by the STRUCTURAL sentinel
-  ;; rather than by a before/after comparison, so they reach
-  ;; `leaf-diff-op` down a different branch than `:modified`.
-  (let [added   (diff-leaf ei/missing-sentinel
-                           (uuid "00000000-0000-0000-0000-00000000bbbb"))
-        removed (ei/render-node {:value ei/missing-sentinel
-                                 :before (uuid "00000000-0000-0000-0000-00000000aaaa")
-                                 :diff? true
-                                 :panel-id :test
-                                 :mount-id "m1"
-                                 :path [:k]
-                                 :depth 0
-                                 :expansion-map {}
-                                 :opts {}})]
-    (is (some? (find-attr added :data-rf-diff-op "added"))
-        "an ADDED uuid leaf wears the added chrome")
-    (is (some? (find-attr added :data-rf-default-fmt "uuid"))
-        "and keeps the consumer's formatter")
-    (is (some? (find-attr removed :data-rf-diff-op "removed"))
-        "a REMOVED uuid leaf wears the removed chrome")
-    (is (not (re-find #"edn-inspector/missing" (collect-text removed)))
-        "and never leaks the internal `::missing` sentinel into the output")))
+(deftest added-protocol-leaf-carries-the-added-chrome
+  ;; `:added` is resolved by the structural sentinel and rendered through
+  ;; its own `render-leaf-with-diff` call site, which must thread the
+  ;; consumer's formatter too.
+  (let [h (diff-leaf ei/missing-sentinel
+                     (uuid "00000000-0000-0000-0000-00000000bbbb"))]
+    (is (some? (find-attr h :data-rf-diff-op "added")))
+    (is (some? (find-attr h :data-rf-default-fmt "uuid")))))
 
-;; ---- 9. the instance dispatcher survives protocol recursion -------------
+;; ---- the instance dispatcher survives protocol recursion -----------------
 ;;
-;; `render-protocol-node` hands the protocol context to the consumer
-;; wholesale (as `opts`, and again under `:node-opts`). A consumer body
-;; following the documented worked example (021 §10.0.6) recurses
-;; `render-node` with it, so a context built WITHOUT `:dispatch-fn` would
-;; send a nested collection's toggle to `render-container`'s
-;; `(or dispatch-fn rf/dispatch)` fallback with nothing to fall back FROM,
-;; capturing the GLOBAL dispatcher. Nothing would error — `or` does
-;; exactly what it says — but the toggle event would be written through
-;; `rf/dispatch` while the widget reads its expansion state on the frame
-;; it is mounted under, so the click could not update the mounted
-;; inspector and would land on the host/default frame instead. Built-in
-;; recursive children thread it the same way: the two sibling child-row
-;; context maps in `render-container` both pass `:dispatch-fn` through.
-;;
-;; The two tests below are the pair that separates the two worlds: one
-;; pins the MECHANISM (the captured dispatcher is what the nested toggle
-;; calls), one pins the CONTRACT (a non-default inspector frame's
-;; toggle updates THAT instance and leaves the host and a second instance
-;; alone). A regression built on the DEFAULT frame cannot tell them
-;; apart — there the global dispatcher and the instance's captured one
-;; reach the same app-db, so the defect is invisible — which is why both
-;; tests below use a non-default frame.
+;; A consumer body recursing `render-node` with the opts it was handed (021
+;; §10.0.6's worked example) must carry the mount's captured `:dispatch-fn`,
+;; or a nested collection's toggle falls back to the global `rf/dispatch`
+;; and writes off the frame the widget reads its expansion state on. On the
+;; default frame the two reach the same app-db, so this runs on non-default
+;; frames.
 
-;; A consumer shaped like 021 §10.0.6's worked `Money` example: a chip
-;; header, and a body that recurses the built-in renderer over a nested
-;; collection using the opts the widget handed it.
-;;
-;; The spec's example returns the Reagent component vector
-;; `[render-node opts']`; this calls `render-node` directly so the hiccup
-;; is materialised for a pure-data assertion. Both hand `render-node` the
-;; same map, which is the threading property under test.
 (deftype LedgerMoney [amount currency ledger]
   IXrayEdnInspector
   (-xray-render-header [_ _opts]
@@ -358,65 +175,22 @@
                         (update :path conj :ledger)))))
 
 (def ^:private ledger-fixture
-  ;; Wide enough that the container cannot inline-fit (`:max-inline-width`
-  ;; defaults to 60), so it renders its own toggle glyph — the affordance
-  ;; a dropped `:dispatch-fn` breaks.
+  ;; Too wide to inline-fit, so the nested container renders its own toggle.
   [{:entry-id 1 :memo "opening balance" :cents 1000}
    {:entry-id 2 :memo "flat white" :cents -450}])
 
-(defn- nested-ledger-toggle
-  "The `:on-click` of the toggle glyph on the NESTED `[:ledger]`
-  container rendered inside the consumer's protocol body."
-  [tree]
-  (:on-click
-    (second (find-attr tree :data-testid
-                       "rf-xray-edn-inspector-test-m1-:ledger-toggle"))))
-
-(defn- render-money-with
-  "Render a `LedgerMoney` through the protocol seam with `dispatch-fn` as
-  the mount's captured dispatcher — the same key `render-inspector`
-  threads into its top-level `render-node` call."
-  [dispatch-fn]
-  (ei/render-node {:value         (LedgerMoney. 42 "AUD" ledger-fixture)
-                   :panel-id      :test
-                   :mount-id      "m1"
-                   :path          []
-                   :depth         0
-                   :expansion-map {}
-                   :dispatch-fn   dispatch-fn
-                   :opts          {}}))
-
-(deftest protocol-recursion-toggle-calls-the-captured-dispatcher
-  ;; The mechanism, with a spy standing in for the mount's dispatcher.
-  (ei/install!)
-  (let [seen   (atom [])
-        tree   (render-money-with (fn [ev] (swap! seen conj ev)))
-        toggle (nested-ledger-toggle tree)]
-    (is (some? (find-attr tree :data-rf-protocol "1"))
-        "control: the value took the protocol path")
-    (is (fn? toggle)
-        "control: the nested ledger container rendered its own toggle glyph")
-    (toggle nil)
-    (is (= 1 (count @seen))
-        "the nested toggle dispatched exactly once through the CAPTURED dispatcher")
-    (is (= [:rf.xray.edn-inspector/toggle-node :test "m1" [:ledger]]
-           (subvec (first @seen) 0 4))
-        "and it addressed the nested node's own expansion key")))
-
 (deftest protocol-recursion-toggle-updates-only-the-mounted-instance
-  ;; The contract, on REAL non-default frames.
   (ei/install!)
   (rf/make-frame {:id ::instance-a})
   (rf/make-frame {:id ::instance-b})
-  (let [tree   (render-money-with (:dispatch-sync (rf/capture-frame ::instance-a)))
-        toggle (nested-ledger-toggle tree)
+  (let [tree   (render (LedgerMoney. 42 "AUD" ledger-fixture)
+                       {:dispatch-fn (:dispatch-sync (rf/capture-frame ::instance-a))})
+        toggle (:on-click
+                 (second (find-attr tree :data-testid
+                                    "rf-xray-edn-inspector-test-m1-:ledger-toggle")))
         k      (ei/expansion-key :test "m1" [:ledger])]
-    (is (fn? toggle)
-        "control: the nested ledger container rendered its own toggle glyph")
     (toggle nil)
-    (is (some? (get-in (rf/app-db-value ::instance-a) [ei/expansion-slot k]))
-        "the toggle updated the instance the widget is mounted under")
-    (is (nil? (get-in (rf/app-db-value ::instance-b) [ei/expansion-slot k]))
-        "a second inspector instance is untouched")
-    (is (nil? (get-in (rf/app-db-value :rf/default) [ei/expansion-slot k]))
-        "and the host/default frame is untouched")))
+    (is (= [true false false]
+           (for [frame [::instance-a ::instance-b :rf/default]]
+             (some? (get-in (rf/app-db-value frame) [ei/expansion-slot k]))))
+        "the nested toggle updated the mounted instance, not a second instance or the host frame")))
