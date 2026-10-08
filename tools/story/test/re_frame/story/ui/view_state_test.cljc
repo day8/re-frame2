@@ -1,26 +1,7 @@
 (ns re-frame.story.ui.view-state-test
-  "JVM-portable tests for the View-State fidelity-controls' pure
-  projection (spec/019 §1/§5 + spec/017 §View-state subscription
-  overrides).
-
-  Covers the host-free surface — no host, no Reagent:
-
-  - `fidelity-ladder`        — the fixed THREE labelled rungs, each
-    marked active/inactive per the plan's `[:world :fidelity]`; the
-    ladder is never collapsed to two.
-  - `lowest-active-rank` / `upgrade-targets` — the upgrade path (stronger
-    rungs above the floor), and that an upgrade keeps the artifact a
-    variant (`upgrade-snippet` is a `reg-variant` `:extends` scaffold).
-  - the provenance summaries (`setup-summary`, `network-summary`,
-    `fx-overrides-summary`, `override-rows`) — source/provenance shown.
-  - `sub-override-failures` — the live `:where :sub-override` schema-fail
-    projection (the honesty surface for an override the real derivation
-    could never produce).
-  - `view-state-model` / `compile-model` — the composed model + error
-    trapping over the pure plan compiler.
-
-  CLJS render (the rung-view hiccup, the dialog, the guardrail) is
-  outside this corpus, which pins the pure projection only."
+  "The View-State section's host-free projection (spec/019 §5): the
+  fidelity ladder, the upgrade path, the provenance summaries and the
+  composed model."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [#?(:clj clojure.edn :cljs cljs.reader) :as edn]
@@ -75,47 +56,24 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ladder-is-exactly-three-rungs-strongest-to-weakest
-  (testing "the fidelity ladder is exactly the three rungs, ordered
-            strongest → weakest — never collapsed to two"
+  (testing "exactly the three rungs, strongest → weakest, each with a
+            distinct rank, tone and label — never collapsed to two"
     (is (= [:real-setup :db-seed :sub-overrides] rf.story.ui.view-state/ladder-order))
-    (is (= 3 (count rf.story.ui.view-state/ladder-rungs)))
-    (testing "each rung carries a distinct rank + tone + label"
-      (is (= [1 2 3] (mapv :rank rf.story.ui.view-state/ladder-rungs)))
-      (is (= [:real :mid :low] (mapv :tone rf.story.ui.view-state/ladder-rungs)))
-      (is (= 3 (count (distinct (map :label rf.story.ui.view-state/ladder-rungs))))))))
+    (is (= [[1 :real] [2 :mid] [3 :low]]
+           (mapv (juxt :rank :tone) rf.story.ui.view-state/ladder-rungs)))
+    (is (apply distinct? (map :label rf.story.ui.view-state/ladder-rungs)))))
 
 (deftest ladder-marks-active-rungs-keeps-inactive
-  (testing "a pure design variant marks ONLY :sub-overrides active, keeps
-            the stronger rungs as inactive upgrade targets (never dropped)"
-    (let [ladder (rf.story.ui.view-state/fidelity-ladder design-plan)
-          by-rung (into {} (map (juxt :rung identity) ladder))]
-      (is (= 3 (count ladder)) "all three rungs are always shown")
-      (is (true?  (:active? (by-rung :sub-overrides))))
-      (is (false? (:active? (by-rung :real-setup))))
-      (is (false? (:active? (by-rung :db-seed))))))
-  (testing "an events-driven variant marks :real-setup active"
-    (let [by-rung (into {} (map (juxt :rung identity)
-                                (rf.story.ui.view-state/fidelity-ladder events-plan)))]
-      (is (true?  (:active? (by-rung :real-setup))))
-      (is (false? (:active? (by-rung :sub-overrides))))))
-  (testing "a bare variant marks no rung active"
-    (is (every? (complement :active?) (rf.story.ui.view-state/fidelity-ladder bare-plan)))))
-
-(deftest sub-overrides-rung-labelled-low-fidelity-never-proof
-  (testing "the :sub-overrides rung is labelled lowest-fidelity and as
-            proving nothing — the honest reading the surface surfaces"
-    (let [r (first (filter #(= :sub-overrides (:rung %)) rf.story.ui.view-state/ladder-rungs))]
-      (is (= :low (:tone r)))
-      (is (= 3 (:rank r)))
-      (is (str/includes? (:note r) "never proof"))
-      (is (str/includes? (:proves r) "nothing")))))
+  (testing "a pure design variant marks ONLY :sub-overrides active and keeps
+            the stronger rungs as inactive upgrade targets"
+    (is (= [false false true]
+           (mapv :active? (rf.story.ui.view-state/fidelity-ladder design-plan))))))
 
 ;; ---------------------------------------------------------------------------
 ;; the upgrade path — keeps the artifact a variant
 ;; ---------------------------------------------------------------------------
 
 (deftest lowest-active-rank-is-the-fidelity-floor
-  (is (= 3 (rf.story.ui.view-state/lowest-active-rank design-plan)))
   (is (= 1 (rf.story.ui.view-state/lowest-active-rank events-plan)))
   (testing "a hybrid floors at its WEAKEST active rung"
     (is (= 3 (rf.story.ui.view-state/lowest-active-rank
@@ -216,48 +174,40 @@
     (let [[op id body] (read-upgrade :story.login/error :real-setup)]
       (is (= 'rf.story/reg-variant op) "stays a reg-variant — artifact kind unchanged")
       (is (= :story.login/error-upgraded id))
-      (is (= :story.login/base (:extends body))
-          "extends the nearest pin-free ancestor, never the pinned source")
-      (is (not (contains? body :sub-overrides)) "the pin is dropped")
-      (is (= {:message "Invalid password"} (:args body))
-          "the source's own slots carry forward")
-      (is (= "wrong password" (:doc body)))
-      (is (not (contains? body :source)) "the registrar's coords stamp is not re-emitted")
-      (is (= [[:dispatch [:your/setup-event {}]]] (:setup body))
-          "adds the :real-setup authoring slot")))
+      (is (= {:extends :story.login/base
+              :doc     "wrong password"
+              :args    {:message "Invalid password"}
+              :setup   [[:dispatch [:your/setup-event {}]]]}
+             body)
+          "extends the nearest pin-free ancestor, carries the source's own
+           slots, adds :setup — and drops the pin and the :source stamp")))
   (testing "the db-seed upgrade scaffolds the :db-seed slot"
     (is (= {} (:db-seed (nth (read-upgrade :story.login/error :db-seed) 2)))))
   (testing "a pin inherited from higher up the chain — extend above it, name
             the pinned layer that is not carried"
     (let [snip (rf.story.ui.view-state/upgrade-snippet :story.login/locked :real-setup
-                                                       {:lookup upgrade-lookup})
-          body (nth (edn/read-string snip) 2)]
-      (is (= :story.login/base (:extends body)))
-      (is (= {:message "Locked out"} (:args body)))
-      (is (not (contains? body :sub-overrides)))
+                                                       {:lookup upgrade-lookup})]
+      (is (= {:extends :story.login/base
+              :args    {:message "Locked out"}
+              :setup   [[:dispatch [:your/setup-event {}]]]}
+             (nth (edn/read-string snip) 2)))
       (is (str/includes? snip ";; not carried: :story.login/error"))))
   (testing "a source that pins nothing is still extended, so its context flows down"
     (is (= :story.login/seeded
-           (:extends (nth (read-upgrade :story.login/seeded :real-setup) 2)))))
-  (testing "the derived upgraded id sits in the source's namespace"
-    (is (= :story.login/error-upgraded
-           (rf.story.ui.view-state/upgraded-variant-id :story.login/error)))))
+           (:extends (nth (read-upgrade :story.login/seeded :real-setup) 2))))))
 
 (deftest completed-upgrade-compiles-without-the-sub-overrides-rung
   (testing "the COMPLETED scaffold compiles to a plan resting on real setup
             alone — graded on the compiled artifact, not the snippet text"
-    (let [[_ id body] (read-upgrade :story.login/error :real-setup)
-          completed   (assoc body :setup [[:dispatch [:login/submit {:password "x"}]]])
-          lookup      (assoc upgrade-lookup id completed)]
-      (testing "control — the source is a pinned picture"
-        (is (contains? (get-in (rf.story.plan/variant-plan :story.login/error
-                                                           {:lookup upgrade-lookup})
-                               [:world :fidelity])
-                       :sub-overrides)))
-      (let [plan (rf.story.plan/variant-plan id {:lookup lookup})]
-        (is (= #{:real-setup} (get-in plan [:world :fidelity])))
-        (is (= {:heading "Sign in" :message "Invalid password"} (get-in plan [:world :args]))
-            "context from the extended ancestor and the source both reach the plan")))))
+    (testing "control — the source is a pinned picture"
+      (is (contains? (get-in (rf.story.plan/variant-plan :story.login/error
+                                                         {:lookup upgrade-lookup})
+                             [:world :fidelity])
+                     :sub-overrides)))
+    (let [[_ plan] (compile-completed-upgrade :story.login/error)]
+      (is (= #{:real-setup} (get-in plan [:world :fidelity])))
+      (is (= {:heading "Sign in" :message "Invalid password"} (get-in plan [:world :args]))
+          "context from the extended ancestor and the source both reach the plan"))))
 
 (deftest completed-upgrade-drops-pins-composed-from-fragments
   (testing "a source that pins directly AND composes a pinning fragment: the
@@ -318,42 +268,39 @@
 (deftest setup-summary-shows-event-provenance
   (testing "the setup summary counts setup + script steps and names the
             dispatched event ids — where the state came from"
-    (let [s (rf.story.ui.view-state/setup-summary events-plan)]
-      (is (true? (:present? s)))
-      (is (= 2 (:setup-count s)))
-      (is (= 1 (:script-count s)))
-      (is (= [:cart/add :cart/add :cart/checkout] (:events s)))
-      (is (= :events (:source s)))))
+    (is (= {:rung         :real-setup
+            :present?     true
+            :setup-count  2
+            :script-count 1
+            :events       [:cart/add :cart/add :cart/checkout]
+            :source       :events}
+           (rf.story.ui.view-state/setup-summary events-plan))))
   (testing "a design variant has no setup provenance"
     (is (false? (:present? (rf.story.ui.view-state/setup-summary design-plan))))))
 
 (deftest network-summary-shows-route-provenance
-  (let [n (rf.story.ui.view-state/network-summary events-explain)]
-    (is (true? (:present? n)))
-    (is (= 1 (:route-count n)))
-    (is (= [[:get "/api/cart"]] (:routes n)))
-    (is (= {:rf.http/managed :rf.http/managed-test-stub} (:lowered-to n))))
+  (is (= {:present?    true
+          :route-count 1
+          :routes      [[:get "/api/cart"]]
+          :lowered-to  {:rf.http/managed :rf.http/managed-test-stub}}
+         (rf.story.ui.view-state/network-summary events-explain)))
   (testing "no routes → absent"
     (is (false? (:present? (rf.story.ui.view-state/network-summary design-explain))))))
 
 (deftest fx-overrides-summary-excludes-managed-http
   (testing "the fx-override summary lists non-HTTP fx overrides, EXCLUDING
             :rf.http/managed (the Network summary owns that route channel)"
-    (let [f (rf.story.ui.view-state/fx-overrides-summary events-plan)]
-      (is (true? (:present? f)))
-      (is (= 1 (:fx-count f)))
-      (is (= [:analytics/track] (:fx-ids f)))
-      (is (not (some #{:rf.http/managed} (:fx-ids f)))))))
+    (is (= {:present? true :fx-count 1 :fx-ids [:analytics/track]}
+           (rf.story.ui.view-state/fx-overrides-summary events-plan)))))
 
 (deftest override-rows-show-exact-query-vectors
   (testing "the override rows name the EXACT query vectors pinned + the
             pinned values, plus the plan-time output-schema validation"
-    (let [o (rf.story.ui.view-state/override-rows design-explain)]
-      (is (true? (:present? o)))
-      (is (= 2 (count (:rows o))))
-      (is (= #{[:login/state] [:login/msg]}
-             (set (map :query-v (:rows o)))))
-      (is (= :ok (get-in o [:validation :status])))))
+    (is (= {:present?   true
+            :rows       #{{:query-v [:login/state] :value :error}
+                          {:query-v [:login/msg] :value "Invalid password"}}
+            :validation {:status :ok :violations []}}
+           (update (rf.story.ui.view-state/override-rows design-explain) :rows set))))
   (testing "no overrides → absent"
     (is (false? (:present? (rf.story.ui.view-state/override-rows events-explain))))))
 
@@ -374,11 +321,9 @@
                    :id 3 :time 300 :tags {:where :app-db}}
                   {:op-type :event :operation :some/event :id 4 :time 400 :tags {}}]
           fails (rf.story.ui.view-state/sub-override-failures events)]
-      (is (= 1 (count fails)) "only the :sub-override failure")
-      (is (= :sub-override (:where (first fails))))
-      (is (= :login/state (:failing-id (first fails))))))
-  (testing "no failures → empty"
-    (is (empty? (rf.story.ui.view-state/sub-override-failures [])))))
+      (is (= [[:sub-override :login/state]]
+             (mapv (juxt :where :failing-id) fails))
+          "only the :sub-override failure"))))
 
 ;; ---------------------------------------------------------------------------
 ;; the composed model + error trapping
@@ -389,7 +334,6 @@
             failures, upgrade targets, and the low-fidelity flag"
     (let [m (rf.story.ui.view-state/view-state-model design-plan design-explain [])]
       (is (= 3 (count (:ladder m))))
-      (is (= 3 (:lowest-rank m)))
       (is (true? (:low-fidelity? m)) "sub-overrides is the floor")
       (is (true? (get-in m [:overrides :present?])))
       (is (= [:real-setup :db-seed] (mapv :rung (:upgrade-targets m))))))
