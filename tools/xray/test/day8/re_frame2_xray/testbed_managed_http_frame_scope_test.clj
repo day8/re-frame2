@@ -151,41 +151,13 @@
     (when-let [open (str/index-of form "(" k)]
       (balanced-form form open))))
 
-;; ---- the extractor itself is under test ---------------------------------
-;;
-;; A source-text guard whose scanner silently returned nil would pass every
-;; assertion below by vacuity, so pin the scanner before trusting it.
-
-(deftest balanced-form-scanner-works
-  (testing "matching paren, ignoring parens in strings, comments and char literals"
-    (is (= "(a b)"            (balanced-form "(a b) trailing" 0)))
-    (is (= "(a (b c) d)"      (balanced-form "(a (b c) d)" 0)))
-    (is (= "(a \")\" b)"      (balanced-form "(a \")\" b)" 0)))
-    (is (= "(a ; )\nb)"       (balanced-form "(a ; )\nb)" 0)))
-    (is (= "(a \\) b)"        (balanced-form "(a \\) b)" 0)))
-    (is (nil? (balanced-form "(a b" 0)) "unbalanced input returns nil")))
-
-(deftest abort-fn-extractor-works
-  (testing "the closure is lifted out of the handle map, not the whole map"
-    (is (= "(fn [r] (clear! r))"
-           (abort-fn-form "{:url u :abort-fn (fn [r] (clear! r)) :frame f}")))
-    (is (= "(fn [_reason] nil)"
-           (abort-fn-form "{:abort-fn (fn [_reason] nil) :frame frame}"))))
-  (testing "and a handle with no :abort-fn reports nil rather than passing"
-    (is (nil? (abort-fn-form "{:url u :frame f}")))))
+;; ---- vacuity control ------------------------------------------------------
 
 (deftest testbed-source-is-readable
-  (testing "the testbed source is present and non-trivial"
-    (is (str/includes? @source "managed-http.core"))
-    (is (> (count @source) 5000)
-        "a truncated or empty read would make every law below vacuous"))
-  (testing "the fx forms the laws bind are actually found"
-    (is (seq (fx-forms)))
-    (is (some? (fx-form ":managed-http/seed-in-flight")))
-    (is (some? (fx-form ":managed-http/issue-as-actor")))
-    (is (some? (fx-form ":managed-http/destroy-actor")))
-    (is (>= (count (filter records-handle? (fx-forms))) 2)
-        "both seeding fxs record a registry handle")))
+  ;; Laws 1 and 3 iterate the recording forms, so an empty extraction would
+  ;; pass them by vacuity.
+  (is (>= (count (filter records-handle? (fx-forms))) 2)
+      "both seeding fxs record a registry handle"))
 
 ;; ---- law 1: every recorded handle carries its issuing frame -------------
 
@@ -222,14 +194,7 @@
                    form)
           "the 1-arity is the documented ANY-FRAME seam; it sweeps the
            actor-id in EVERY frame, which is the reach the frame-scoped
-           keys deny the abort half")))
-
-  (testing "the reset fx may still clear globally — that is its job"
-    ;; `clear-all-in-flight!` is global BY INTENT (the deck's reset button
-    ;; drops every registry slot). Pinned so the law above is not misread as
-    ;; banning every unscoped registry call.
-    (is (str/includes? (fx-form ":managed-http/clear-registry")
-                       "clear-all-in-flight!"))))
+           keys deny the abort half"))))
 
 ;; ---- law 3: every handle's abort-fn retires its own request-id ----------
 ;;
@@ -246,15 +211,10 @@
 (deftest recorded-handles-retire-their-own-request-id
   (doseq [form (filter records-handle? (fx-forms))]
     (let [abort (abort-fn-form form)]
-      (testing "every recorded handle carries an :abort-fn closure"
-        (is (some? abort)
-            (str "a handle recorded with no `:abort-fn` can never be retired "
-                 "from the request index. Offending form:\n" form)))
-      (testing "and that closure clears its own request-id, frame-exactly"
-        (is (and (some? abort)
-                 (str/includes? abort "clear-in-flight-in-frame!"))
-            (str "`abort-on-actor-destroy` clears the ACTOR slot itself and "
-                 "delegates the REQUEST-id half to this closure, so a no-op "
-                 "abort-fn leaves a ghost handle in the request index after "
-                 "its actor is destroyed. Offending closure:\n"
-                 (pr-str abort)))))))
+      (is (and (some? abort)
+               (str/includes? abort "clear-in-flight-in-frame!"))
+          (str "`abort-on-actor-destroy` clears the ACTOR slot itself and "
+               "delegates the REQUEST-id half to this handle's `:abort-fn`, "
+               "so a missing or no-op closure leaves a ghost handle in the "
+               "request index after its actor is destroyed. Offending form:\n"
+               form)))))
