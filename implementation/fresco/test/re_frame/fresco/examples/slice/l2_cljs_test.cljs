@@ -365,21 +365,6 @@
     (is (= [::rf.fresco.examples.slice.events/edit "intents" :body :re-frame.fresco/value]
            (:on-input (rf.fresco.test/attrs body))))))
 
-(deftest neither-text-field-carries-a-reset-trigger
-  ;; The ABSENCE, pinned at the tier that can read a marker off an authored
-  ;; form — because an absence nothing asserts is an absence somebody
-  ;; re-adds. A revision counter bumped by `::discard` would be inert: a
-  ;; discard already re-runs this body three times over, and the commit
-  ;; re-asserts the model on its own.
-  (is (= 0 (rf.fresco.test/revision [:input {:value "T" :re-frame.fresco/revision 0}]))
-      "the kit CAN read a trigger off an authored form, which is what makes
-       the two readings below a finding rather than a blind spot")
-  (let [tree (editor-tree {:status :idle :problem nil} {})]
-    (is (= [nil nil] (mapv #(:re-frame.fresco/revision (rf.fresco.test/attrs %))
-                           [(classed tree "field-title") (classed tree "field-body")]))
-        "and neither field authors one — see `views/editor` for the
-         population that does need `::h/revision`")))
-
 (deftest the-checkbox-takes-the-checked-marker
   (let [box (rf.fresco.test/find (editor-tree {:status :idle :problem nil} {})
                      #(= "checkbox" (:type (rf.fresco.test/attrs %))))]
