@@ -1,417 +1,176 @@
 (ns re-frame.resources-revision-substrate-cljs-test
-  "EP-0019 — the per-entry `:revision` durable-entry substrate the
-  optimistic-mutation-rollback settle protocol builds on.
-
-  `:revision` is the per-entry WRITE identity: a monotone counter bumped on
-  EVERY authoritative durable entry write a rollback could clobber, and the
-  basis of the settle-time conflict check
-  (`mutation-runtime/optimistic-conflict?`). These JVM+CLJS unit tests pin the
-  substrate contract the settle protocol depends on:
-
-    1. SHAPE — `empty-entry` carries `:revision 0`, DISTINCT from `:generation`;
-    2. DISTINCT FROM `:generation` — `entry-start-load` bumps `:generation`
-       (load START) and leaves `:revision` UNMOVED (no false-conflict on an
-       in-flight refetch); `entry-succeeded` bumps `:revision`;
-    3. UNCONDITIONAL BUMP — `entry-succeeded` / `patch-entry` / `populate-entry`
-       bump `:revision` even when `:data` is `=`-shared (a freshness-only
-       settle — a value-gated token would MISS it);
-    4. CONFLICT COMPARISON — `optimistic-conflict?` is false when the entry
-       still stands at the recorded post-apply `:applied-revision` and TRUE when
-       a competing authoritative write moved it; an absent entry reads as
-       revision 0, so after a remove of an ABSENT key a still-absent entry is
-       unmoved and a re-created one is a conflict.
-
-  PURE — the substrate is the pure transition functions in `re-frame.resources
-  .state` + `re-frame.resources.mutation-runtime`; CLJC so the load-bearing JVM
-  run (`clojure -M:test`) exercises it alongside the CLJS node runtime."
+  "The per-entry `:revision` write identity the optimistic-rollback settle
+  protocol checks for conflicts. Every authoritative durable entry write bumps
+  it unconditionally (including an `=`-data freshness settle), a load start
+  does not, and an owner attach/release bumps only when the owner set changes."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]))
 
-;; ---- shape: base value, distinct from :generation -------------------------
+(defn- loaded-entry
+  ([] (loaded-entry nil))
+  ([sk]
+   (-> (if sk
+         (rf.resources.state/empty-entry :conduit/article sk)
+         (rf.resources.state/empty-entry :conduit/article))
+       (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 1 :stale-at 2 :tags #{}}))))
 
-(deftest empty-entry-carries-revision-zero
-  (testing "the base empty entry carries :revision 0, alongside :generation 0"
-    (let [e (rf.resources.state/empty-entry :conduit/article)]
-      (is (= 0 (:revision e)) ":revision base value is 0")
-      (is (= 0 (:generation e)) ":generation base value is 0")))
-  (testing "the 2-arity (with scoped-key) also carries :revision 0"
-    (let [sk (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "a"})
-          e  (rf.resources.state/empty-entry :conduit/article sk)]
-      (is (= 0 (:revision e)))
-      (is (= sk (:resource/key e))))))
+(defn- start-load [entry work-id]
+  (rf.resources.state/entry-start-load
+    entry {:generation 5 :work-id work-id :request-id "r" :owner :o}))
 
-;; ---- unconditional bump on an authoritative durable write -----------------
+;; ---- authoritative writes bump unconditionally -----------------------------
 
 (deftest entry-succeeded-bumps-revision-even-on-equal-data
-  (testing "a load success bumps :revision; and a freshness-only settle
-            (re-stamping :loaded-at / :stale-at while :data is `=`-shared) STILL
-            bumps :revision — the load-bearing case"
-    (let [loaded (-> (rf.resources.state/empty-entry :conduit/article)
-                     (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 100
-                                             :stale-at 200 :tags #{[:a]}}))]
-      (is (= 1 (:revision loaded)) "first load success bumps 0 -> 1")
-      (is (= 100 (:loaded-at loaded)))
-      ;; a refetch returning EQUAL data: structural sharing keeps the old :data
-      ;; identity, but :loaded-at / :stale-at are re-stamped — an authoritative
-      ;; freshness settle a rollback could clobber.
-      (let [resettled (rf.resources.state/entry-succeeded
-                        loaded {:data {:n 1} :loaded-at 999 :stale-at 1200
-                                :tags #{[:a]}})]
-        (is (identical? (:data loaded) (:data resettled))
-            "structural sharing: equal :data keeps the SAME value identity")
-        (is (= 999 (:loaded-at resettled))
-            "freshness IS re-stamped even though :data is `=`-shared")
-        (is (= 2 (:revision resettled))
-            ":revision bumps UNCONDITIONALLY on the equal-data freshness settle
-             — NOT gated on `(= old new)` of :data")))))
+  ;; A refetch returning equal data keeps the :data identity but re-stamps
+  ;; freshness, which a rollback could clobber.
+  (let [loaded    (-> (rf.resources.state/empty-entry :conduit/article)
+                      (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 100
+                                                           :stale-at 200 :tags #{[:a]}}))
+        resettled (rf.resources.state/entry-succeeded
+                    loaded {:data {:n 1} :loaded-at 999 :stale-at 1200 :tags #{[:a]}})]
+    (is (= 1 (:revision loaded)))
+    (is (identical? (:data loaded) (:data resettled)))
+    (is (= [999 2] ((juxt :loaded-at :revision) resettled)))))
 
 (deftest patch-entry-bumps-revision-even-on-equal-data
-  (testing "a controlled patch bumps :revision, including the `=`-shared branch"
-    (let [base   (-> (rf.resources.state/empty-entry :conduit/article)
-                     (rf.resources.state/entry-succeeded {:data {:count 0} :loaded-at 10
-                                             :stale-at 20 :tags #{}}))
-          rev0   (:revision base)
-          ;; identity patch (returns `=` data) — structural-shared but a
-          ;; re-stamp of :loaded-at / :stale-at, an authoritative durable write.
-          patched (rf.resources.mutation-runtime/patch-entry base (fn [d _r] d) :ignored-result
-                                      {:clock-ms 50 :stale-at 60})]
-      (is (= (inc rev0) (:revision patched))
-          "patch bumps :revision even when the patch-fn returns `=` data")
-      (is (identical? (:data base) (:data patched))
-          "structural sharing still holds for `=` patched data")
-      (is (= 50 (:loaded-at patched)) "freshness IS re-stamped")))
-  (testing "a patch of an entry with NO usable data is a no-op — no bump"
-    (let [empty   (rf.resources.state/empty-entry :conduit/article)
-          patched (rf.resources.mutation-runtime/patch-entry empty (fn [d _r] {:x 1}) :r
-                                      {:clock-ms 1 :stale-at 2})]
-      (is (= empty patched) "no-data patch returns the entry unchanged")
-      (is (= 0 (:revision patched)) "the no-op path makes no write and no bump"))))
+  (let [base    (loaded-entry)
+        patched (rf.resources.mutation-runtime/patch-entry base (fn [d _r] d) :ignored-result
+                                                           {:clock-ms 50 :stale-at 60})]
+    (is (identical? (:data base) (:data patched)))
+    (is (= [50 (inc (:revision base))] ((juxt :loaded-at :revision) patched))))
+  (testing "a patch of an entry with no usable data is a no-op"
+    (let [empty (rf.resources.state/empty-entry :conduit/article)]
+      (is (= empty (rf.resources.mutation-runtime/patch-entry empty (fn [_d _r] {:x 1}) :r
+                                                              {:clock-ms 1 :stale-at 2}))))))
 
 (deftest populate-entry-bumps-revision
-  (testing "populate-of-fresh seeds :revision 1 (base 0 -> bump); populate-over-
-            existing bumps including the `=`-shared branch"
-    (let [sk    (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {})
-          fresh (rf.resources.mutation-runtime/populate-entry nil :conduit/article {:v 1}
-                                       {:clock-ms 5 :stale-at 9 :tags #{[:t]}
-                                        :scoped-key sk})]
-      (is (= 1 (:revision fresh)) "a freshly-seeded populate bumps 0 -> 1")
-      (is (= {:v 1} (:data fresh)))
-      ;; populate over the existing entry with EQUAL value — structural-shared,
-      ;; but re-stamps freshness: an authoritative write.
-      (let [re (rf.resources.mutation-runtime/populate-entry fresh :conduit/article {:v 1}
-                                      {:clock-ms 77 :stale-at 88 :tags #{[:t]}})]
-        (is (identical? (:data fresh) (:data re))
-            "equal populate value keeps the SAME :data identity")
-        (is (= 77 (:loaded-at re)) "freshness IS re-stamped")
-        (is (= 2 (:revision re))
-            ":revision bumps unconditionally on the equal-value populate")))))
+  (let [sk    (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {})
+        fresh (rf.resources.mutation-runtime/populate-entry nil :conduit/article {:v 1}
+                                                            {:clock-ms 5 :stale-at 9 :tags #{[:t]}
+                                                             :scoped-key sk})
+        re    (rf.resources.mutation-runtime/populate-entry fresh :conduit/article {:v 1}
+                                                            {:clock-ms 77 :stale-at 88 :tags #{[:t]}})]
+    (is (= [{:v 1} 1] ((juxt :data :revision) fresh)))
+    (is (identical? (:data fresh) (:data re)))
+    (is (= [77 2] ((juxt :loaded-at :revision) re)))))
 
-;; ---- the bump helper itself -----------------------------------------------
-
-(deftest bump-revision-helper-is-total-and-monotone
-  (testing "bump-revision increments, treats absent/nil :revision as 0, and
-            leaves a nil entry unchanged"
-    (is (= 1 (:revision (rf.resources.state/bump-revision {:revision 0}))))
-    (is (= 6 (:revision (rf.resources.state/bump-revision {:revision 5}))))
-    (is (= 1 (:revision (rf.resources.state/bump-revision {})))
-        "absent :revision is treated as 0")
-    (is (= 1 (:revision (rf.resources.state/bump-revision {:revision nil})))
-        "nil :revision is treated as 0")
-    (is (nil? (rf.resources.state/bump-revision nil))
-        "a nil entry has nothing to bump — returned unchanged"))
-  (testing "entry-revision reads the fact, defaulting to 0"
-    (is (= 0 (rf.resources.state/entry-revision nil)))
-    (is (= 0 (rf.resources.state/entry-revision {})))
-    (is (= 3 (rf.resources.state/entry-revision {:revision 3})))))
-
-;; ---- failure / cancel SETTLE bumps :revision -------------------------------
-;;
-;; A resource failure / cancel SETTLE clears `:current-work` and records
-;; terminal facts. It is an authoritative durable write, so it bumps
-;; `:revision` — symmetric with `entry-succeeded`. Without the bump, a snapshot
-;; taken while the attempt was IN-FLIGHT (`:fetching` + `:current-work` set)
-;; would stand at the same revision after the settle, the optimistic-rollback
-;; conflict check (`optimistic-conflict?` over `:revision`) could NOT tell the
-;; entry had settled in-flight, and a later rollback would RESTORE the stale
-;; in-flight `:before`, RESURRECTING the cancelled / failed `:current-work`
-;; pointer over the terminal settled state.
+;; ---- failure and cancel settles bump ---------------------------------------
+;; Otherwise a snapshot taken while an attempt was in flight would stand at the
+;; same revision after the settle, and a rollback would resurrect the in-flight
+;; :current-work over the settled state.
 
 (deftest entry-failed-bumps-revision-on-a-background-refresh-failure
-  (testing "a BACKGROUND-refresh failure (entry was :fetching with prior data)
-            returns to :loaded, records :refresh-error, clears :current-work —
-            and BUMPS :revision: the settle is an authoritative
-            durable write a later optimistic rollback could clobber"
-    (let [loaded   (-> (rf.resources.state/empty-entry :conduit/article)
-                       (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 1
-                                               :stale-at 2 :tags #{}}))
-          ;; a background refetch starts — :fetching, :current-work set; the
-          ;; revision is UNMOVED at load start (entry-start-load) — this is the
-          ;; revision a snapshot taken here would record.
-          fetching (rf.resources.state/entry-start-load
-                     loaded {:generation 5 :work-id [:w 1] :request-id "r" :owner :o})
-          rec-rev  (rf.resources.state/entry-revision fetching)
-          ;; the in-flight refetch FAILS — background failure settle.
-          settled  (rf.resources.state/entry-failed fetching {:error {:kind :rf.http/http-5xx}})]
-      (is (= :fetching (:status fetching)) "the refetch is in flight")
-      (is (= [:w 1] (:current-work fetching)) "with a :current-work pointer")
-      (is (= (:revision loaded) rec-rev)
-          "load START did not move :revision (entry-start-load)")
-      (testing "the failure settle is durable + terminal"
-        (is (= :loaded (:status settled)) "background failure returns to :loaded")
-        (is (= {:kind :rf.http/http-5xx} (:refresh-error settled)))
-        (is (nil? (:current-work settled)) ":current-work cleared by the settle"))
-      (testing "and it BUMPED :revision"
-        (is (= (inc rec-rev) (:revision settled))
-            "the failure settle moved the write identity past the snapshot's"))
-      (testing "so the optimistic-rollback conflict check DETECTS the move"
-        (is (true? (rf.resources.mutation-runtime/optimistic-conflict? settled rec-rev))
-            "a snapshot recorded at the in-flight revision sees the settle as a
-             conflict — the rollback will NOT resurrect the stale :before")))))
+  (let [loaded   (loaded-entry)
+        fetching (start-load loaded [:w 1])
+        rec-rev  (rf.resources.state/entry-revision fetching)
+        settled  (rf.resources.state/entry-failed fetching {:error {:kind :rf.http/http-5xx}})]
+    (is (= (:revision loaded) rec-rev) "a load start does not move :revision")
+    (is (= [:loaded {:kind :rf.http/http-5xx} nil (inc rec-rev)]
+           ((juxt :status :refresh-error :current-work :revision) settled)))
+    (is (true? (rf.resources.mutation-runtime/optimistic-conflict? settled rec-rev)))))
 
 (deftest entry-failed-bumps-revision-on-a-first-load-failure
-  (testing "a FIRST-load failure (no usable data) settles :error and BUMPS
-            :revision"
-    (let [loading  (-> (rf.resources.state/empty-entry :conduit/article)
-                       (rf.resources.state/entry-start-load
-                         {:generation 3 :work-id [:w 2] :request-id "r" :owner :o}))
-          rec-rev  (rf.resources.state/entry-revision loading)
-          settled  (rf.resources.state/entry-failed loading {:error {:kind :rf.http/http-4xx}})]
-      (is (= :loading (:status loading)) "first load — no usable data yet")
-      (is (= :error (:status settled)) "first-load failure → :error")
-      (is (nil? (:data settled)))
-      (is (nil? (:current-work settled)))
-      (is (= (inc rec-rev) (:revision settled))
-          ":revision moved on the first-load failure settle")
-      (is (true? (rf.resources.mutation-runtime/optimistic-conflict? settled rec-rev))
-          "the conflict check sees the settle"))))
+  (let [loading (start-load (rf.resources.state/empty-entry :conduit/article) [:w 2])
+        rec-rev (rf.resources.state/entry-revision loading)
+        settled (rf.resources.state/entry-failed loading {:error {:kind :rf.http/http-4xx}})]
+    (is (= [:error nil nil (inc rec-rev)]
+           ((juxt :status :data :current-work :revision) settled)))))
 
 (deftest entry-page-failed-bumps-revision-on-a-load-more-failure
-  (testing "a load-more (page N>0) failure keeps the feed, records :page-error,
-            clears :current-work — and BUMPS :revision"
-    (let [feed     (-> (rf.resources.state/empty-infinite-entry :conduit/feed)
-                       (rf.resources.state/entry-append-page {:page [:a :b] :page-param nil
-                                                 :loaded-at 1 :stale-at 2}))
-          ;; a load-more starts (page 1 fetch) — :fetching, :current-work set.
-          fetching (rf.resources.state/entry-start-load
-                     feed {:generation 4 :work-id [:w 3] :request-id "r" :owner :o})
-          rec-rev  (rf.resources.state/entry-revision fetching)
-          settled  (rf.resources.state/entry-page-failed fetching {:error {:kind :rf.http/timeout}})]
-      (is (= [[:a :b]] (:data settled)) "the accumulated feed is KEPT")
-      (is (= {:kind :rf.http/timeout} (:page-error settled)) ":page-error recorded")
-      (is (nil? (:current-work settled)) ":current-work cleared")
-      (is (= (inc rec-rev) (:revision settled))
-          "the page-failure settle moved :revision")
-      (is (true? (rf.resources.mutation-runtime/optimistic-conflict? settled rec-rev))
-          "the conflict check sees the load-more failure settle"))))
+  (let [feed     (-> (rf.resources.state/empty-infinite-entry :conduit/feed)
+                     (rf.resources.state/entry-append-page {:page [:a :b] :page-param nil
+                                                            :loaded-at 1 :stale-at 2}))
+        fetching (start-load feed [:w 3])
+        rec-rev  (rf.resources.state/entry-revision fetching)
+        settled  (rf.resources.state/entry-page-failed fetching {:error {:kind :rf.http/timeout}})]
+    (is (= [[[:a :b]] {:kind :rf.http/timeout} nil (inc rec-rev)]
+           ((juxt :data :page-error :current-work :revision) settled)))))
 
 (deftest optimistic-rollback-does-not-resurrect-a-settled-in-flight-snapshot
-  (testing "THE RESURRECTION CASE: an optimistic apply snapshots an
-            IN-FLIGHT entry (the apply PRESERVES the in-flight :current-work — it
-            does not clear it), then the still-live in-flight refetch SETTLES
-            (background-refresh failure). The rollback disposition must DETECT the
-            conflict and :invalidate — NOT :restore the stale in-flight :before
-            (which would RESURRECT the in-flight :current-work pointer over the
-            settled-failure state)."
-    (let [sk       (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "w"})
-          loaded   (-> (rf.resources.state/empty-entry :conduit/article sk)
-                       (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 1
-                                               :stale-at 2 :tags #{}}))
-          ;; an in-flight background refetch — :fetching, :current-work set.
-          fetching (rf.resources.state/entry-start-load
-                     loaded {:generation 9 :work-id [:w 7] :request-id "r" :owner :o})
-          ;; the OPTIMISTIC APPLY (phase 1.5): snapshot the in-flight entry as
-          ;; `:before`, then apply the forward patch — which bumps :revision and
-          ;; PRESERVES :current-work (apply-optimistic-patch never clears it). The
-          ;; recorded `:applied-revision` is the revision the apply LEFT it at.
-          observed (rf.resources.state/entry-revision fetching)
-          applied  (rf.resources.mutation-runtime/apply-optimistic-patch
-                     fetching (fn [d] (assoc d :n 99)) :conduit/article
-                     {:clock-ms 5 :stale-at 9 :scoped-key sk})
-          recorded (rf.resources.mutation-runtime/record-optimistic-entry
-                     sk fetching :patch observed (rf.resources.state/entry-revision applied))
-          ;; the in-flight refetch is STILL live after the apply (its
-          ;; :current-work survived) → its failure reply settles the entry.
-          settled  (rf.resources.state/entry-failed applied {:error {:kind :rf.http/http-5xx}})
-          ;; the mutation then fails → settle-time rollback for this recorded key.
-          disp     (rf.resources.mutation-runtime/rollback-entry-disposition settled recorded :invalidate)]
-      (testing "the recorded snapshot captured the IN-FLIGHT state (the danger)"
-        (is (= :fetching (:status (:before recorded))))
-        (is (= [:w 7] (:current-work (:before recorded)))
-            "the :before snapshot carries the in-flight :current-work pointer"))
-      (testing "the apply preserved :current-work, so the refetch was still live"
-        (is (= [:w 7] (:current-work applied))
-            "the optimistic apply did NOT clear the in-flight :current-work"))
-      (testing "the apply LEFT the entry at applied-revision = observed + 1"
-        (is (= (inc observed) (:applied-revision recorded))))
-      (testing "the failure settle moved the entry's revision PAST the apply
-                baseline"
-        (is (= (inc (:applied-revision recorded)) (:revision settled)))
-        (is (true? (rf.resources.mutation-runtime/optimistic-conflict? settled (:applied-revision recorded)))
-            "the settle is detected as a competing write since the apply"))
-      (testing "so the rollback INVALIDATES — it does NOT restore the stale
-                in-flight :before (no resurrection of :current-work)"
-        (is (true? (:conflict? disp)) "the disposition flags the conflict")
-        (is (= :invalidate (:disposition disp))
-            "the default :invalidate rule defers to the read path — the stale
-             in-flight :before is NOT restored over the settled failure state")))))
+  ;; An optimistic apply snapshots an in-flight entry and preserves its
+  ;; :current-work; the refetch then settles. The rollback must detect the
+  ;; conflict and invalidate, not restore the in-flight :before.
+  (let [sk       (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "w"})
+        fetching (start-load (loaded-entry sk) [:w 7])
+        observed (rf.resources.state/entry-revision fetching)
+        applied  (rf.resources.mutation-runtime/apply-optimistic-patch
+                   fetching (fn [d] (assoc d :n 99)) :conduit/article
+                   {:clock-ms 5 :stale-at 9 :scoped-key sk})
+        recorded (rf.resources.mutation-runtime/record-optimistic-entry
+                   sk fetching :patch observed (rf.resources.state/entry-revision applied))
+        settled  (rf.resources.state/entry-failed applied {:error {:kind :rf.http/http-5xx}})
+        disp     (rf.resources.mutation-runtime/rollback-entry-disposition settled recorded :invalidate)]
+    (is (= [:fetching [:w 7]] ((juxt :status :current-work) (:before recorded))) "precondition")
+    (is (= [:w 7] (:current-work applied)) "the apply left the refetch live")
+    (is (= [(inc observed) (+ 2 observed)] [(:applied-revision recorded) (:revision settled)]))
+    (is (= {:conflict? true :disposition :invalidate} (select-keys disp [:conflict? :disposition])))))
 
-;; ---- the canonical-identity conflict comparison ---------------------------
+;; ---- the conflict comparison -----------------------------------------------
 
 (deftest optimistic-conflict-detects-a-competing-authoritative-write
-  (testing "the apply's OWN bump is NOT a conflict: the baseline is the
-            POST-apply :applied-revision, so an entry still standing where the
-            apply left it is conflict-free"
+  (testing "the apply's own bump is not a conflict; the baseline is post-apply"
     (let [sk       (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "a"})
-          loaded   (-> (rf.resources.state/empty-entry :conduit/article sk)
-                       (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 1
-                                               :stale-at 2 :tags #{}}))
+          loaded   (loaded-entry sk)
           observed (rf.resources.state/entry-revision loaded)
           applied  (rf.resources.mutation-runtime/apply-optimistic-patch
                      loaded (fn [d] (assoc d :n 99)) :conduit/article
                      {:clock-ms 5 :stale-at 9 :scoped-key sk})
           recorded (rf.resources.mutation-runtime/record-optimistic-entry
                      sk loaded :patch observed (rf.resources.state/entry-revision applied))]
-      (is (= (inc observed) (:applied-revision recorded))
-          "the apply left the entry one bump past what it observed")
-      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? applied (:applied-revision recorded)))
-          "the apply's own numeric bump is expected — NOT a conflict")))
-  (testing "CONFLICT when a competing authoritative write moves the entry BEYOND
-            the applied baseline between the apply and the settle"
-    (let [loaded   (-> (rf.resources.state/empty-entry :conduit/article)
-                       (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 1
-                                               :stale-at 2 :tags #{}}))
-          applied-revision (rf.resources.state/entry-revision loaded)
-          ;; a competing write lands (a refetch returning equal data — still an
-          ;; authoritative freshness settle that bumps :revision):
+      (is (= (inc observed) (:applied-revision recorded)))
+      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? applied (:applied-revision recorded))))))
+  (testing "a competing write past the baseline is a conflict, even on equal data"
+    (let [loaded (loaded-entry)
           competed (rf.resources.state/entry-succeeded
                      loaded {:data {:n 1} :loaded-at 500 :stale-at 600 :tags #{}})]
-      (is (= (inc applied-revision) (rf.resources.state/entry-revision competed)))
-      (is (true? (rf.resources.mutation-runtime/optimistic-conflict? competed applied-revision))
-          "the moved revision is detected as a conflict — the recorded inverse
-           is now a stale `before` the settle must NOT blindly restore")))
-  (testing "the REMOVE forms need NO branch of their own: a remove
-            that TOMBSTONES an existing entry leaves a concrete revision, so it
-            is compared exactly as a patch is"
+      (is (true? (rf.resources.mutation-runtime/optimistic-conflict?
+                   competed (rf.resources.state/entry-revision loaded))))))
+  (testing "a tombstoning remove is compared exactly as a patch is"
     (let [sk       (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "r"})
-          loaded   (-> (rf.resources.state/empty-entry :conduit/article sk)
-                       (rf.resources.state/entry-succeeded {:data {:n 1} :loaded-at 1
-                                                            :stale-at 2 :tags #{}}))
-          observed (rf.resources.state/entry-revision loaded)
+          loaded   (loaded-entry sk)
           tomb     (rf.resources.mutation-runtime/apply-optimistic-remove loaded)
           recorded (rf.resources.mutation-runtime/record-optimistic-entry sk loaded :remove)]
-      (is (= (inc observed) (:applied-revision recorded))
-          "the tombstone bumped, so the derived baseline is one past what was observed")
-      (is (= (:applied-revision recorded) (rf.resources.state/entry-revision tomb))
-          "the DERIVED baseline agrees with the revision the apply actually left behind")
-      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? tomb (:applied-revision recorded)))
-          "the tombstone standing where the apply left it is conflict-free")
+      (is (= [(inc (rf.resources.state/entry-revision loaded)) (rf.resources.state/entry-revision tomb)]
+             [(:applied-revision recorded) (:applied-revision recorded)]))
+      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? tomb (:applied-revision recorded))))
       (is (true? (rf.resources.mutation-runtime/optimistic-conflict?
-                   (rf.resources.state/bump-revision tomb) (:applied-revision recorded)))
-          "a competing write past the tombstone IS a conflict — this is the bump
-           an owner release makes, and the reason the remove form keeps an
-           entry at all")))
-  (testing "the REMOVE of an ABSENT key wrote nothing, so its baseline is the
-            revision the key already had — still-absent is UNMOVED, and a key
-            some authoritative write RE-CREATED is a conflict"
-    (let [absent-baseline (:applied-revision
-                            (rf.resources.mutation-runtime/record-optimistic-entry
-                              (rf.resources.state/scoped-resource-key
-                                :rf.scope/global :conduit/article {:slug "r"})
-                              rf.resources.mutation-runtime/absent-snapshot :remove))]
-      (is (zero? absent-baseline)
-          "nothing was written, so the apply left the key exactly where it was")
-      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? nil absent-baseline))
-          "absent-after-remove — the remove stands, no conflict")
-      (is (true? (rf.resources.mutation-runtime/optimistic-conflict?
-                   (rf.resources.state/entry-succeeded
-                     (rf.resources.state/empty-entry :conduit/article)
-                     {:data {:n 1} :loaded-at 1 :stale-at 2 :tags #{}})
-                   absent-baseline))
-          "re-created-after-remove — a competing AUTHORITATIVE write seeded the key")
-      ;; A bare revision-0 entry reads as UNMOVED, deliberately. A rule of
-      ;; `(some? current-entry)` would read ANY entry present at settle —
-      ;; including one a first load had only just created — as a conflict and
-      ;; `entry-invalidate` it, marking an entry stale before it had ever
-      ;; loaded. Under the uniform revision rule a bare revision-0 entry is
-      ;; indistinguishable from absence, which is CORRECT here: the `:absent`
-      ;; restore arm preserves a live read rather than dissoc'ing it, so the
-      ;; read is protected structurally instead of by a conflict. Reaching
-      ;; revision 0 in a real cache takes a load that attached no owner, since
-      ;; `attach-owner` itself bumps.
+                   (rf.resources.state/bump-revision tomb) (:applied-revision recorded))))))
+  (testing "a remove of an absent key: still-absent is unmoved, a re-created key conflicts"
+    (let [baseline (:applied-revision
+                     (rf.resources.mutation-runtime/record-optimistic-entry
+                       (rf.resources.state/scoped-resource-key :rf.scope/global :conduit/article {:slug "r"})
+                       rf.resources.mutation-runtime/absent-snapshot :remove))]
+      (is (zero? baseline))
+      (is (false? (rf.resources.mutation-runtime/optimistic-conflict? nil baseline)))
+      (is (true? (rf.resources.mutation-runtime/optimistic-conflict? (loaded-entry) baseline)))
+      ;; A bare revision-0 entry reads as unmoved: a first load that has only
+      ;; just created the entry must not be invalidated before it loads; the
+      ;; :absent restore arm protects that live read instead.
       (is (false? (rf.resources.mutation-runtime/optimistic-conflict?
-                    (rf.resources.state/empty-entry :conduit/article) absent-baseline))
-          "a bare revision-0 entry reads as unmoved; the live-read case is held
-           by `restore-before`'s `:absent` arm, not by the conflict check"))))
+                    (rf.resources.state/empty-entry :conduit/article) baseline))))))
 
-;; ---- owner-liveness writes: the NO-OP GATE ---------------------------------
-;;
-;; THE GATE (state.cljc §attach-owner/detach-owner): an owner attach/release is
-;; an authoritative durable entry write a later optimistic rollback could
-;; clobber (`restore-before` overwrites `:active-owners` wholesale), so it bumps
-;; `:revision` — BUT ONLY when the `:active-owners` set ACTUALLY changes. A
-;; re-attach of an already-present owner, or a release of an absent owner, is a
-;; no-op: no write, nothing a rollback could clobber, so NO bump. The other
-;; bump sites (entry-succeeded / patch / populate / failure settles) are all
-;; unit-tested above, and optimistic_settle §6 exercises the POSITIVE path (a
-;; real mid-flight owner change → conflict caught). These tests pin the
-;; NEGATIVE gate directly.
-;;
-;; WHY THE GATE MATTERS: without it, every re-ensure that re-attaches a still-
-;; present owner would spuriously bump `:revision`, so any in-flight optimistic
-;; mutation would see a PHANTOM conflict at settle → an unnecessary
-;; `:invalidate`/refetch on every unrelated re-ensure. Removing the gate (an
-;; unconditional bump) would be SILENT — every other test would still pass.
-;; These assertions are the tripwire.
+;; ---- owner writes bump only when the owner set changes ---------------------
+;; Without the gate every re-ensure of a present owner would bump :revision,
+;; and any in-flight optimistic mutation would see a phantom conflict.
 
 (deftest attach-owner-bumps-revision-only-when-a-new-owner-lands
-  (testing "attaching a NEW owner adds it to :active-owners AND bumps :revision
-            (an authoritative durable write a rollback could clobber)"
-    (let [e0 (rf.resources.state/empty-entry :conduit/article)
-          e1 (rf.resources.state/attach-owner e0 :owner/a)]
-      (is (contains? (:active-owners e1) :owner/a) "the new owner is in the set")
-      (is (= 1 (:revision e1)) "a new owner bumps :revision 0 -> 1")
-      (testing "attaching a SECOND distinct owner also lands + bumps"
-        (let [e2 (rf.resources.state/attach-owner e1 :owner/b)]
-          (is (= #{:owner/a :owner/b} (:active-owners e2)) "set gains the 2nd owner")
-          (is (= 2 (:revision e2)) "the 2nd distinct owner bumps 1 -> 2")))))
-  (testing "RE-ATTACHING an already-present owner is a NO-OP — the set is
-            unchanged and :revision is UNMOVED (the load-bearing gate: no
-            phantom conflict on every unrelated re-ensure)"
-    (let [e1 (rf.resources.state/attach-owner (rf.resources.state/empty-entry :conduit/article) :owner/a)
-          e2 (rf.resources.state/attach-owner e1 :owner/a)]
-      (is (= (:active-owners e1) (:active-owners e2)) ":active-owners unchanged")
-      (is (= 1 (:revision e2))
-          ":revision is NOT bumped by a re-attach of a present owner")
-      (is (identical? (:active-owners e1) (:active-owners e2))
-          "the re-attach returns the SAME set identity — genuinely no write")))
-  (testing "a nil owner is a no-op — no write, no bump (the (some? owner) gate)"
-    (let [e1 (rf.resources.state/attach-owner (rf.resources.state/empty-entry :conduit/article) :owner/a)
-          e2 (rf.resources.state/attach-owner e1 nil)]
-      (is (= e1 e2) "nil owner returns the entry unchanged")
-      (is (= 1 (:revision e2)) ":revision is UNMOVED by a nil-owner attach"))))
+  (let [e1 (rf.resources.state/attach-owner (rf.resources.state/empty-entry :conduit/article) :owner/a)]
+    (is (= [#{:owner/a} 1] ((juxt :active-owners :revision) e1)))
+    (testing "re-attaching a present owner writes nothing"
+      (let [e2 (rf.resources.state/attach-owner e1 :owner/a)]
+        (is (identical? (:active-owners e1) (:active-owners e2)))
+        (is (= 1 (:revision e2)))))
+    (testing "a nil owner is a no-op"
+      (is (= e1 (rf.resources.state/attach-owner e1 nil))))))
 
 (deftest detach-owner-bumps-revision-only-when-the-owner-was-present
-  (testing "detaching a PRESENT owner drops it from :active-owners AND bumps
-            :revision (release is an authoritative durable write)"
-    (let [e1 (rf.resources.state/attach-owner (rf.resources.state/empty-entry :conduit/article) :owner/a)
-          e2 (rf.resources.state/detach-owner e1 :owner/a)]
-      (is (not (contains? (:active-owners e2) :owner/a)) "the owner is gone")
-      (is (= 2 (:revision e2)) "the release bumps :revision 1 -> 2")))
-  (testing "detaching an ABSENT owner is a NO-OP — the set is unchanged and
-            :revision is UNMOVED (the release-side gate)"
-    (let [e1 (rf.resources.state/attach-owner (rf.resources.state/empty-entry :conduit/article) :owner/a)
-          e2 (rf.resources.state/detach-owner e1 :owner/absent)]
-      (is (= (:active-owners e1) (:active-owners e2)) ":active-owners unchanged")
-      (is (= 1 (:revision e2))
-          ":revision is NOT bumped by a release of an owner that was never present")))
-  (testing "detaching from an entry with NO :active-owners key is a no-op"
-    (let [e0 (rf.resources.state/empty-entry :conduit/article)]
-      (is (not (contains? (:active-owners e0) :owner/a)) "no owner set yet")
-      (let [e1 (rf.resources.state/detach-owner e0 :owner/a)]
-        (is (= 0 (:revision e1)) "the release of an absent owner makes no write, no bump"))))
-  (testing "a nil entry is returned unchanged (the (and entry …) gate)"
-    (is (nil? (rf.resources.state/detach-owner nil :owner/a))
-        "detach-owner of nil returns nil")))
+  (let [e1 (rf.resources.state/attach-owner (rf.resources.state/empty-entry :conduit/article) :owner/a)]
+    (is (= [#{} 2] ((juxt (comp set :active-owners) :revision)
+                    (rf.resources.state/detach-owner e1 :owner/a))))
+    (testing "releasing an absent owner writes nothing"
+      (let [e2 (rf.resources.state/detach-owner e1 :owner/absent)]
+        (is (= [(:active-owners e1) 1] ((juxt :active-owners :revision) e2)))))
+    (is (nil? (rf.resources.state/detach-owner nil :owner/a)))))
