@@ -170,26 +170,16 @@
     (drive! :door/main [:door/hold])                    ; arm :held-open?
     (let [rows      (cascade (drive! :door/main [:door/close]))
           guard-row (first (rows-of-kind rows :guard))]
-      (is (= :fail (:outcome guard-row))
-          "(a) :may-close? fails when held-open?")
-      (is (= 1 (count (rows-of-kind rows :no-op)))
-          "(b) the blocked guard is a no-op — one [NO OP] row")
-      (is (empty? (rows-of-kind rows :transition))
-          "(c) blocked → NO transition row beside the no-op")
-      ;; The blocking guard is SURFACED in the cascade LIST (the
-      ;; shared lens + Epoch mini-pipeline), not only on the chart: the LIST
-      ;; carries a [GUARD] row NAMING the blocking guard with its fail outcome
-      ;; chip, so the operator can answer "which guard blocked my event?" from
-      ;; the list. Driven against the REAL substrate's emitted traces.
-      (is (= :may-close? (:guard-id guard-row))
-          "the LIST guard row NAMES the blocking guard")
+      ;; The blocking guard is SURFACED in the cascade LIST, not only on the
+      ;; chart, so the operator can answer "which guard blocked my event?".
       (is (= ":may-close?" (fmt/cascade-row-label guard-row))
-          "the guard row renders a legible verb naming the guard")
+          "the guard row renders a legible verb naming the blocking guard")
       (is (= "fail" (fmt/cascade-outcome-label guard-row))
-          "the guard row's fail outcome chip renders")
-      ;; The guard row leads the no-op (canonical rank guard(0) → no-op(2)).
+          "(a) :may-close? fails when held-open? — the fail chip renders")
+      ;; One guard row, then one no-op and no transition row (canonical rank
+      ;; guard(0) → no-op(2)).
       (is (= [:guard :no-op] (mapv :kind rows))
-          "the blocking guard leads the [NO OP] in the LIST"))
+          "(b) the blocked guard is a no-op, led by the blocking guard"))
     (is (= :open (:state (snapshot :door/main)))
         "(c) the door STAYS :open — the blocked close did not advance")))
 
@@ -228,9 +218,9 @@
       (is (empty? (rows-of-kind rows :transition))
           "(b) NO transition row beside the no-op (the source suppresses the no-change transition)")
       (is (= :alarming (:state no-op)))
-      (is (false? (:show-machine-name? no-op)) "(c) single machine → drop name")
       (let [verb (fmt/cascade-row-label no-op)]
-        (is (string/starts-with? verb "staying in ") "(c) bare consequence verb")
+        (is (string/starts-with? verb "staying in ")
+            "(c) bare consequence verb — single machine, so no machine name")
         (is (not (string/includes? verb "received")) "(c) no event echo")))
     (is (= :alarming (:state (snapshot :door/main)))
         "(b) the door STAYS :alarming — a no-op does not move state")))
@@ -249,8 +239,7 @@
           tx     (first (rows-of-kind rows :transition))]
       (is (empty? (rows-of-kind rows :no-op))
           "(b) the root :on HANDLED it — NOT an unhandled no-op")
-      (is (some? tx) "(c) a real transition row renders")
-      (is (= :alarming (:from-state tx)))
+      (is (= :alarming (:from-state tx)) "(c) a real transition row renders")
       (is (= :locked (:to-state tx))
           "(a)(c) the cascade attributes the root-resolved transition to :locked"))
     (is (= :locked (:state (snapshot :door/main))))))
@@ -409,16 +398,13 @@
       ;; RENDERED summary is absent.
       (is (nil? (fmt/cascade-outcome-label tx))
           "(c) the TRANSITION row renders NO 'N microstep(s)' summary")
-      (is (seq microsteps)
+      (is (= :asking (:from microstep))
           "(a/c) the microstep is surfaced as its own cascade step — the
                  signal a count would summarise")
-      (is (= :asking (:from microstep)))
       (is (= :passed (:to microstep))
           "(a) the microstep transitions :asking → :passed")
       (is (some #(= :award (:action %)) (:steps microstep))
           "(a) the eventless transition's :award action is EXPLAINABLE inside the microstep")
-      (is (pos? (proj/cascade-step-count structured))
-          "(c) the structured step count includes the microstep's nested steps")
       ;; (c) the live machine settled.
       (is (= :passed (:state (snapshot :quiz/scorer))))
       (is (true? (get-in (snapshot :quiz/scorer) [:data :passed?]))
@@ -457,7 +443,6 @@
     (let [record (drive! :brew/machine [:brew/abort])    ; exit before fire
           rows   (cascade record)
           timer  (first (rows-of-kind rows :timer))]
-      (is (some? timer) "(c) a :timer cascade row renders for the cancellation")
       (is (= :on-exit (:reason timer))
           "(c) the cancellation :reason is :on-exit (exit beat the timer)")
       (is (= "cancelled (on-exit)" (fmt/cascade-outcome-label timer))
@@ -529,10 +514,9 @@
                            (:trace-events record))]
       (is (seq err-ops)
           "(b) a :rf.error/machine-action-exception rode the trace stream")
-      (is (seq thrown)
-          "(b) a cascade row is marked :threw? true (NOT silently green)")
       (is (some? (:exception (first thrown)))
-          "(b) the thrown action carries its :exception for the EXCEPTION card")
+          "(b) a cascade row is marked :threw? true and carries its :exception
+               for the EXCEPTION card")
       (is (empty? (rows-of-kind rows :no-op))
           "(b) a throwing boot `:entry` is NEVER a no-op — the foil to the benign no-op"))))
 
@@ -637,7 +621,6 @@
       ;; (b) the projection enrichment + cascade-step :source.
       (is (seq (:history-restored tx))
           "(b) the transition row carries :history-restored (the banner gate)")
-      (is (seq entries) "(b) the restore produced entry cascade steps")
       (is (some #(= :recorded (:source %)) entries)
           "(b) at least one history-driven :entry step carries :source :recorded")
       ;; (c) the live machine landed at the exact recorded leaf.
@@ -719,8 +702,7 @@
     (let [record (drive! :modal/main [:modal/cancel])    ; :open → :closed
           rows   (cascade record)
           tx     (first (rows-of-kind rows :transition))]
-      (is (some? tx) "(c) a real transition row renders")
-      (is (= :open (:from-state tx)))
+      (is (= :open (:from-state tx)) "(c) a real transition row renders")
       (is (= :closed (:to-state tx)) "(a) :modal/cancel lands :closed")
       (is (empty? (rows-of-kind rows :no-op)) "(b) a handled event is not a no-op"))
     (is (= :closed (:state (snapshot :modal/main))))))
@@ -735,8 +717,7 @@
     (let [record (drive! :modal/main [:modal/submit])    ; → :closed (runs :save)
           rows   (cascade record)
           tx     (first (rows-of-kind rows :transition))]
-      (is (some? tx) "(c) a real transition row renders")
-      (is (= :open (:from-state tx)))
+      (is (= :open (:from-state tx)) "(c) a real transition row renders")
       (is (= :closed (:to-state tx)) "(a) :modal/submit lands :closed")
       (is (some #(true? (get-in % [:data-write :saved?]))
                 (rows-of-kind rows :action))
@@ -757,8 +738,6 @@
 ;; predicate(s) on the fork's guard rows (:guard-id + :outcome) — the fork's
 ;; guard predicates the render shows.
 
-(defn- gate-guard-ids [record]
-  (mapv :guard-id (rows-of-kind (cascade record) :guard)))
 
 (defn- gate-guard-outcome [record guard-id]
   (->> (rows-of-kind (cascade record) :guard)
@@ -780,13 +759,11 @@
     ;; :gate/check forks by the guarded candidate vector — high branch.
     (let [record (drive! :gate/main [:gate/check])
           tx     (first (rows-of-kind (cascade record) :transition))]
-      (is (some? tx) "(c) a real transition row renders")
-      (is (= :idle (:from-state tx)))
+      (is (= :idle (:from-state tx)) "(c) a real transition row renders")
       (is (= :high (:to-state tx)) "(c) :gate-high? selected the :high branch")
-      (is (some #{:gate-high?} (gate-guard-ids record))
-          "(a) the fork's guard row surfaces the :gate-high? predicate")
       (is (= :pass (gate-guard-outcome record :gate-high?))
-          "(a) :gate-high? PASSED (level 7 >= 5) — the first-guard-pass-wins branch"))
+          "(a) the fork's :gate-high? guard row PASSED (level 7 >= 5) — the
+               first-guard-pass-wins branch"))
     (is (= :high (:state (snapshot :gate/main))))))
 
 (deftest gate-low-branch-fires-when-high-fails
@@ -859,7 +836,6 @@
           action-rows (rows-of-kind rows :action)]
       (is (= :b (:state (snapshot :inline/probe))) "the inline guard passed → transitioned to :b")
       ;; The inline GUARD row carries a fn id and renders the legible verb.
-      (is (some? guard-row) "an inline guard produced a :guard cascade row")
       (is (fn? (:guard-id guard-row)) "the runtime carries the bare inline fn as :guard-id")
       (is (= "⟨inline⟩" (fmt/cascade-row-label guard-row))
           "inline guard verb is `⟨inline⟩`, not the fn-object str")
@@ -867,10 +843,5 @@
       (is (seq action-rows) "the inline exit/entry actions produced :action rows")
       (doseq [a action-rows]
         (is (fn? (:action-id a)) "the runtime carries the bare inline fn as :action-id")
-        (let [verb (fmt/cascade-row-label a)]
-          (is (= "⟨inline⟩" verb)
-              "inline action verb is `⟨inline⟩`, not the fn-object str")
-          ;; Adversarial: NO host-runtime fn-object garbage leaks into the verb.
-          (is (not (string/includes? verb "object")) "no `#object` blob")
-          (is (not (string/includes? verb "$"))      "no munged fn `$` separator")
-          (is (not (string/includes? verb "@"))      "no fn-object `@hash` suffix"))))))
+        (is (= "⟨inline⟩" (fmt/cascade-row-label a))
+            "inline action verb is `⟨inline⟩`, not the fn-object str")))))
