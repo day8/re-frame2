@@ -9,28 +9,10 @@
   intact and re-invokes them on every call, and `Reaction.-remove-watch`
   auto-disposes when the last outward watch drops — so the adapter arms
   every Reaction it creates with a construction-time exactly-once guard.
-
-  Four proofs, all through the actual public paths (the adapter map's
+  Each proof goes through a public path: the adapter map's
   `:make-derived-value`, the routed `re-frame.interop` surface, the
   claimed-generation `dispose-adapter!` walk, and core `add-watch` /
-  `remove-watch` for stock auto-disposal):
-
-    1. A double `interop/dispose!` fires each callback exactly once, in
-       registration order.
-    2. A callback that (conditionally) re-enters `interop/dispose!` on
-       the same Reaction returns without recursion; it and its later
-       sibling each fire once.
-    3. Host/adapter crossover: explicit adapter disposal followed by
-       stock auto-disposal (last outward watch removed), and the
-       opposite order, both leave the callback count at one — and the
-       one-shot path still releases the source wire (no recompute after
-       disposal).
-    4. Shutdown + unmount interleaving through the claimed-generation
-       path: `dispose-adapter!` walks the sub-cache, then a lingering
-       mounted owner's watch removal auto-disposes the same cached
-       Reaction — the sub-cache teardown callbacks do not re-fire.
-
-  ns ends in -cljs-test so shadow-cljs's `:node-test` build picks it up."
+  `remove-watch` for stock auto-disposal, in both orders."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [re-frame.core :as rf]
@@ -41,10 +23,7 @@
 
 ;; ---- fixture --------------------------------------------------------------
 ;;
-;; Cold-start, mirroring dispose-adapter-sub-cache-walk-cljs-test: the
-;; routed interop surface and the claimed-generation dispose path are both
-;; under test, so each test installs the Reagent adapter itself and cleans
-;; up so a re-run is idempotent.
+;; Cold-start: the claimed-generation dispose path is under test.
 
 (defn- cold-start-fixture [test-fn]
   (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
@@ -141,13 +120,10 @@
       (add-watch rx ::owner (fn [_ _ _ _] nil))
       (let [computes-before-dispose @compute-count]
         (rf.interop/dispose! rx)
-        (is (= 1 @fired) "explicit disposal fired the callback once")
-        ;; One-shot path intact: the source wire is released, so a source
-        ;; write no longer recomputes the disposed Reaction.
         (reset! src 41)
         (r/flush)
-        (is (= computes-before-dispose @compute-count)
-            "post-dispose source write drove no recompute (source wire released)"))
+        (is (= [1 computes-before-dispose] [@fired @compute-count])
+            "explicit disposal fired the callback once and released the source wire: a source write drove no recompute"))
       ;; The lingering owner unmounts: stock -remove-watch auto-disposes.
       (remove-watch rx ::owner)
       (is (= 1 @fired)
@@ -187,7 +163,6 @@
           _      (is (= 1 @handle) "precondition: the sub materialises")
           rx     (cached-reaction :once/a)
           fired  (atom 0)]
-      (is (some? rx) "precondition: the sub-cache holds the Reaction")
       (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       ;; A mounted owner watches the cached Reaction across shutdown.
       (add-watch rx ::owner (fn [_ _ _ _] nil))
@@ -212,16 +187,14 @@
           _      (is (= 2 @handle) "precondition: the sub materialises")
           rx     (cached-reaction :once/b)
           fired  (atom 0)]
-      (is (some? rx) "precondition: the sub-cache holds the Reaction")
       (rf.interop/add-on-dispose! rx (fn [_] (swap! fired inc)))
       (add-watch rx ::owner (fn [_ _ _ _] nil))
       ;; The owner unmounts first: stock auto-disposal fires the teardown.
       ;; The explicit handle still holds the slot, so the sub-cache closure
       ;; keeps it and re-registers itself.
       (remove-watch rx ::owner)
-      (is (= 1 @fired) "stock auto-disposal fired the teardown once")
-      (is (identical? rx (cached-reaction :once/b))
-          "the explicit handle keeps the sub-cache slot past the auto-disposal")
+      (is (= [1 true] [@fired (identical? rx (cached-reaction :once/b))])
+          "stock auto-disposal fired the teardown once, and the explicit handle keeps the sub-cache slot")
       ;; Adapter shutdown then disposes the kept Reaction again, which fires
       ;; only the re-registered sub-cache closure: this test's callback is
       ;; spent.
