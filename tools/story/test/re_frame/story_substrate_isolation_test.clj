@@ -1,26 +1,11 @@
 (ns re-frame.story-substrate-isolation-test
-  "JVM test pinning Story's substrate-isolation contract.
-
-  Story's UI-shell substrate is Reagent (`003-Render-Shell.md` §UI shell substrate); per-variant
-  multi-substrate rendering (UIx) is OPT-IN via
-  `register-substrate!` from the consuming app at boot — Story core
-  does NOT `:require` any UIx namespace. That contract means
-  a host app can embed Story without dragging UIx into its
-  classpath unless it elects to render variants under that
-  substrate.
-
-  This test walks every source file under `tools/story/src/` and
-  asserts the contract — no source ns may `:require` a
-  `uix.core` / `uix.dom` ns. References
-  to the *keyword* `:uix` (substrate-ids in the enum,
-  docstring callouts, sentinel comments) are permitted; what is
-  forbidden is a fully-qualified namespace require that would pull
-  the adapter onto Story's classpath.
-
-  Companion to `implementation/scripts/check-bundle-isolation.cjs`
-  which guards the OUTPUT side (counter bundle must not contain
-  Story sentinel strings); this test guards the INPUT side (Story
-  source must not require UIx nses)."
+  "JVM test pinning Story's substrate-isolation contract: the UI shell is
+  Reagent (`003-Render-Shell.md` §UI shell substrate), and UIx rendering is
+  opt-in through `register-substrate!` from the consuming app, so no Story
+  source may `:require` a `uix.core` / `uix.dom` namespace — a host app
+  embedding Story does not get UIx on its classpath. Keyword references to
+  `:uix` are fine. `implementation/scripts/check-bundle-isolation.cjs` guards
+  the output side; this guards the input side."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
@@ -30,18 +15,11 @@
 ;; ----- helpers ------------------------------------------------------------
 
 (defn- src-root
-  "Resolve `tools/story/src/` on disk, cwd-independently. Every shipped
-  invocation runs from `tools/story` (`clojure -M:test`, typed by hand or
-  driven by `scripts/test-jvm-tools.sh`, which cds into the artefact), so a
-  cwd-relative `(io/file \"src\")` would happen to work there — but keying
-  the walk to cwd makes it wrong from any other working directory (a REPL or
-  editor rooted at the repo root). `src` is a classpath `:paths` root, so a
-  known story source (`re_frame/story.cljc`) is a classpath resource on the
-  JVM regardless of cwd; its `src`-relative parent chain is the src-root.
-  Falls back to the cwd-relative path if the resource is absent (e.g. a jar);
-  the companion `(is (seq files) …)` assertion below turns a mis-resolved
-  root into a loud failure rather than a vacuous pass. Mirrors the xray guard
-  tests' `src-root`."
+  "`tools/story/src/` on disk, found from a known source on the classpath so
+  the walk is independent of the working directory (a REPL rooted at the repo
+  root included). Falls back to the cwd-relative path when the resource is
+  not a file; the `(is (seq files))` below turns a mis-resolved root into a
+  loud failure rather than a vacuous pass."
   []
   (let [marker (io/resource "re_frame/story.cljc")]
     (if (and marker (= "file" (.getProtocol marker)))
@@ -50,20 +28,14 @@
       (io/file "src"))))
 
 (defn- src-files
-  "Walk tools/story/src/ and return every .cljc / .cljs / .clj file as
-  a `java.io.File`, resolving the src root via `src-root` so the walk is
-  cwd-independent rather than tied to the artefact directory the shipped
-  `clojure -M:test` happens to run from."
+  "Every .cljc / .cljs / .clj file under `src-root`."
   []
   (let [root (src-root)]
     (when (.isDirectory root)
       (->> (file-seq root)
            (filter #(.isFile ^java.io.File %))
            (filter (fn [^java.io.File f]
-                     (let [n (.getName f)]
-                       (or (str/ends-with? n ".cljc")
-                           (str/ends-with? n ".cljs")
-                           (str/ends-with? n ".clj")))))))))
+                     (some #(str/ends-with? (.getName f) %) [".cljc" ".cljs" ".clj"])))))))
 
 (def ^:private forbidden-require-patterns
   "Namespace prefixes that, if `:require`-d from Story source, would
@@ -74,10 +46,7 @@
    #"\[\s*uix\.dom"])
 
 (defn- offending-requires
-  "Return a seq of `{:file path :match line}` for every forbidden
-  require pattern found in `body`. Reads the file body as a single
-  string; matches against require-form bracket prefixes that survive
-  whitespace / newlines."
+  "`{:file :match :pattern}` for each forbidden require pattern found in `f`'s body."
   [^java.io.File f]
   (let [body (slurp f)
         path (.getPath f)]
