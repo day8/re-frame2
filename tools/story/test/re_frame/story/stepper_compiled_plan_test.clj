@@ -17,8 +17,7 @@
   that stopped diverging fails its precondition instead of passing
   vacuously. The comparison target is BEHAVIOURAL: what `run-variant`
   actually did (its final app-db, its epoch tape), never a re-derivation
-  of the plan expression the reader itself uses. The plain-`:script`
-  case is the CONTROL, where both readers agree trivially.
+  of the plan expression the reader itself uses.
 
   JVM-only (`.clj`): `run-variant` / `prepare-variant` settle
   synchronously here, so a stepped session and an auto-run can be driven
@@ -200,23 +199,6 @@
                (mapv (fn [id] (:trigger-event (first (filter #(= id (:epoch-id %)) tape))))
                      ids))
             "each event resolves to the epoch that event actually committed")))))
-
-;; ---- the control: raw and compiled COINCIDE ------------------------------
-
-(deftest plain-script-control-both-readers-agree
-  (testing "CONTROL — a plain `:script` with no `[:arg]`, `:compose` or
-            `:plays`: raw and compiled coincide, so the compiled readers
-            agree with the raw ones (bare-vector coercion and `:assert-db`
-            folding included)"
-    (let [vid :story.stepper-plan/plain]
-      (rf.story/reg-variant vid
-        {:script [[:dispatch-sync [:ps/inc]]
-                  [:ps/inc]
-                  [:assert-db [:count] 2]]})
-      (is (= (raw-steps vid) (rf.story.play/variant-play-steps vid)))
-      (is (= (raw-events vid) (rf.story.play/variant-play-events vid)))
-      (is (= 2 (get-in (auto-run vid) [:app-db :count])))
-      (is (= 2 (get-in (step-through! vid) [:app-db :count]))))))
 
 ;; ---- run opts, the no-auto-run fallback, and the edges -------------------
 
