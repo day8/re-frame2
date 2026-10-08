@@ -1,44 +1,17 @@
 (ns re-frame.trace-listener-nested-emission-order-cljs-test
-  "Per-listener EVENT order must be preserved when trace emissions
-  NEST. A listener that emits a trace B while an OUTER event A is still being
-  fanned out to the remaining listeners must not cause any later listener to
-  observe B before A.
+  "Per-listener event order survives NESTED emission (Spec 009 §The listener
+  contract point 4): when listener L0 emits B while the outer event A is still
+  being fanned out, no listener may observe B before A — and the nested `emit!`
+  returns only after B reached every listener (Spec 009 §Emitting trace events).
 
-  ## The hazard
+  A plain fan-out loop breaks the first law: B would reach the still-unvisited
+  L1 before A did, so a tool folding `:rf.flow/cleared` then a nested
+  `:rf.flow/registered` would end with a live flow marked cleared. The shared
+  `re-frame.trace.tooling/*fanout-ctx*` schedule advances A to the remaining
+  listeners first, then delivers B, before the nested `emit!` returns.
 
-  A plain synchronous fan-out loop over the listener registry breaks this.
-  When listener L0's callback reentrantly emits B (dispatching, re-registering
-  a flow, …), that nested emit would re-enter the fan-out and deliver B to
-  EVERY listener — L0 and the still-unvisited L1 — BEFORE the outer loop
-  resumed and delivered A to L1. So a later listener would see `[B A]`,
-  reversing the runtime emission order (the outer A was authored before B).
-
-  The concrete case: L0 handles an outer `:rf.flow/cleared` by re-registering
-  the same flow, synchronously emitting a nested `:rf.flow/registered`. L1
-  would then observe `[:rf.flow/registered :rf.flow/cleared]`, and a stateful
-  tool folding those events would leave the flow in the CLEARED state though
-  it is live. Spec 009 §The listener contract point 4 requires every
-  listener to receive trace events in runtime emission order — this is a central
-  trace-delivery law, not a flow-local fence.
-
-  ## The guarantee
-
-  A reentrant emit from inside a listener body drives a SHARED fan-out schedule
-  (`re-frame.trace.tooling/*fanout-ctx*`): it advances the paused outer delivery
-  to every remaining listener FIRST, then delivers its own event, all before the
-  nested `emit!` returns. Every listener therefore observes A before B, and the
-  nested `emit!` returns only after B has reached every listener (see
-  `nested-emit-completes-synchronously` below). A fire-and-drain-later design
-  would deliver in the same FIFO order but return from the nested `emit!`
-  before its event was delivered.
-
-  Runs on both hosts (`npm run test:cljs` + `clojure -M:test`). The two listeners
-  live in a 2-entry array-map, which preserves insertion order on both hosts, so
-  the EMITTER (registered FIRST) fans out before the OBSERVER — the ordering the
-  hazard needs to manifest. Composes with the neutral continuation scope
-  (`trace-listener-continuation-neutral-cljs-test`):
-  the nested work is a listener body's own authored work and runs under ordinary
-  (neutral) authority."
+  The listeners live in a small array-map, so the first registered fans out
+  first on both hosts."
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -53,54 +26,24 @@
 (def ^:private inner :trace.order/inner)
 
 (defn- ops-only
-  "Keep just this test's two operations, in the order the listener saw them."
+  "Just this test's two operations, in the order the listener saw them."
   [evs]
   (filterv #{outer inner} (mapv :operation evs)))
 
-;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
-;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
-;; reporting green.  Every deftest
-;; below is therefore TAGGED, and the production-gate lane skips the tag rather
-;; than the file: the namespace is still LOADED there, so a load-time failure
-;; under the gate still reddens the job, and an untagged new deftest joins that
-;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
+;; end (see scripts/test-core-prod-gate.sh).
 
 (deftest ^:requires-debug nested-emit-completes-synchronously
-  ;; L0 (emitter, registered first) reentrantly emits `inner` while handling the
-  ;; outer event. L1 (observer, registered second) must still see `outer` before
-  ;; `inner`. Under a plain loop L1 would see `[inner outer]` — the nested emit
-  ;; reaching L1 before the outer loop resumed — and a stateful tool folding the
-  ;; stream would finish in the state `outer` left rather than the one `inner`
-  ;; authored.
-  ;;
-  ;; A nested emit must return only AFTER its event has reached every
-  ;; listener (Spec 009 §Emitting trace events: "the emit returns once every
-  ;; listener has been invoked"). L0 (emitter, first) handles outer, emits inner,
-  ;; then — still on the emit call stack, the instant `emit!` RETURNS — records
-  ;; whether L1 (observer, second) has already received inner. Under
-  ;; fire-and-drain-later the nested emit would return before ANY listener saw
-  ;; inner, so L0 would observe STALE state (the observer had not caught up); the
-  ;; recorded order would be [[:first outer] [:after-inner-return false]
-  ;; [:second outer] [:first inner] [:second inner]]. The shared schedule
-  ;; advances the paused outer delivery and then delivers inner to every
-  ;; listener BEFORE the nested emit returns, so
-  ;; L0 sees the observer already caught up — while both listeners still observe
-  ;; outer before inner.
-  (let [seen-observer   (atom [])
-        seen-emitter    (atom [])
-        emitted?        (atom false)
-        ;; :not-recorded until the emitter's outer-callback reaches the check.
+  ;; L0 (emitter, first) emits `inner` while handling `outer`, then checks — the
+  ;; instant the nested `emit!` returns — whether L1 (observer) already has it.
+  (let [seen-observer       (atom [])
+        seen-emitter        (atom [])
         observer-caught-up? (atom :not-recorded)]
     (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
         (swap! seen-emitter conj ev)
-        (when (and (= outer (:operation ev))
-                   (compare-and-set! emitted? false true))
+        (when (= outer (:operation ev))
           (rf.trace/emit! :info inner {})
-          ;; Back on the outer-emit call stack the instant the nested emit
-          ;; returned: the observer MUST already have received inner.
           (reset! observer-caught-up?
                   (boolean (some #{inner} (ops-only @seen-observer)))))))
     (rf.trace.tooling/register-listener! ::observer
@@ -109,27 +52,23 @@
       (rf.trace/emit! :info outer {})
       (is (true? @observer-caught-up?)
           (str "the observer had NOT received inner when the nested emit "
-               "returned — the nested emit is not synchronously complete. "
-               "Recorded: " (pr-str @observer-caught-up?)))
+               "returned. Recorded: " (pr-str @observer-caught-up?)))
       (is (= [outer inner] (ops-only @seen-observer))
-          "the observer still sees outer before the reentrantly-emitted inner")
+          "the observer sees outer before the reentrantly-emitted inner")
       (is (= [outer inner] (ops-only @seen-emitter))
-          "the emitter, too, sees outer before its own nested inner")
+          "the emitter also receives its own nested inner, after outer")
       (finally
         (rf.trace.tooling/unregister-listener! ::emitter)
         (rf.trace.tooling/unregister-listener! ::observer)))))
 
 (deftest ^:requires-debug nested-exception-isolation-preserves-order
-  ;; A listener that THROWS between the emitter and the observer must neither
-  ;; stop delivery nor corrupt ordering: per-listener exception isolation is
-  ;; preserved AND the observer still sees outer before the reentrant inner.
+  ;; A listener that throws between the emitter and the observer neither stops
+  ;; delivery nor reorders it.
   (let [seen-observer (atom [])
-        threw?        (atom 0)
-        emitted?      (atom false)]
+        threw?        (atom 0)]
     (rf.trace.tooling/register-listener! ::emitter
       (fn [ev]
-        (when (and (= outer (:operation ev))
-                   (compare-and-set! emitted? false true))
+        (when (= outer (:operation ev))
           (rf.trace/emit! :info inner {}))))
     (rf.trace.tooling/register-listener! ::thrower
       (fn [_ev]
