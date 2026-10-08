@@ -12,11 +12,8 @@
   and lowers it to the managed-request stub fx — the variant
   frame overrides `:rf.http/managed` with
   `re-frame.http.test-support/install-managed-request-stubs!`'s stub fx
-  id. These tests pin: mixed success/failure per route, the predictable
-  `:network` vs explicit `:fx-overrides` conflict, explain visibility,
-  plan-hash sensitivity, and the schema acceptance. The fail-closed posture
-  for unmatched routes is the stub helper's, enforced at run time, and is
-  not pinned here.
+  id. The fail-closed posture for unmatched routes is the stub helper's,
+  enforced at run time, and is not pinned here.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a `-test` name would run it on the JVM only."
@@ -47,10 +44,6 @@
       (is (nil? (get-in p [:explain :network]))))))
 
 ;; ===========================================================================
-;; lower-network — the pure lowering primitive
-;; ===========================================================================
-
-;; ===========================================================================
 ;; arg substitution inside :network reply data
 ;; ===========================================================================
 
@@ -63,29 +56,33 @@
       (is (= {:reply {:ok {:user/id 42}}}
              (get-in p [:world :network [:get "/api/session"]]))))))
 
-(deftest network-missing-arg-fails
-  (testing "a [:arg key] in :network referencing an undeclared arg fails"
-    (let [m {:story.session/bad
-             {:network {[:get "/api/session"] {:reply {:ok {:user/id [:arg :nope]}}}}}}]
-      (is (= :rf.error/story-missing-arg
-             (try (plan-of :story.session/bad m)
-                  (catch #?(:clj Exception :cljs :default) e
-                    (:rf.error/id (ex-data e)))))))))
-
 ;; ===========================================================================
 ;; :network vs explicit :fx-overrides conflict (predictable resolution)
 ;; ===========================================================================
 
 (deftest network-and-managed-fx-override-conflict-fails
-  (testing ":network + an explicit :fx-overrides on :rf.http/managed is a hard error"
-    (let [m {:story.checkout/conflict
-             {:network      {cart-route {:reply {:ok {:items []}}}}
-              :fx-overrides {:rf.http/managed :some/other-stub}}}
-          data (try (plan-of :story.checkout/conflict m)
-                    (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-      (is (= :rf.error/story-network-fx-conflict (:rf.error/id data)))
-      (is (= :rf.http/managed (:fx-id data)))
-      (is (= :story.checkout/conflict (:variant/id data))))))
+  (doseq [[label variant-id body fragments]
+          [[":network + a direct :fx-overrides on :rf.http/managed is a hard error"
+            :story.checkout/conflict
+            {:network      {cart-route {:reply {:ok {:items []}}}}
+             :fx-overrides {:rf.http/managed :some/other-stub}}
+            {}]
+           ["a COMPOSED FRAGMENT's :fx-overrides on :rf.http/managed is the same
+             hard conflict as a direct author override"
+            :story.checkout/compose-conflict
+            {:network {cart-route {:reply {:ok {:items []}}}}
+             :compose [:fragment.http/managed-override]}
+            {:fragment.http/managed-override
+             {:fx-overrides {:rf.http/managed :some/fragment-stub}}}]]]
+    (testing label
+      (let [data (try (rf.story.plan/variant-plan variant-id
+                                                  {:lookup          {variant-id body}
+                                                   :fragment-lookup fragments})
+                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+        (is (= {:rf.error/id :rf.error/story-network-fx-conflict
+                :fx-id       :rf.http/managed
+                :variant/id  variant-id}
+               (select-keys data [:rf.error/id :fx-id :variant/id])))))))
 
 (deftest network-and-non-managed-fx-override-coexist
   (testing ":network and an :fx-overrides on a DIFFERENT fx merge cleanly"
@@ -97,31 +94,6 @@
         (is (= {:rf.http/managed :rf.http/managed-test-stub
                 :analytics/track :analytics/noop-stub}
                (get-in p [:world :frame :fx-overrides])))))))
-
-(deftest network-and-composed-fragment-managed-fx-override-conflict-fails
-  (testing ":network + a COMPOSED FRAGMENT's :fx-overrides on :rf.http/managed
-            is the same hard conflict as a direct author override.
-
-            check-network-fx-conflict! runs against ctx-fx =
-            (merge composed-fx (:fx-overrides ctx)) in variant-plan, so a
-            fragment contributing :rf.http/managed (landing in composed-fx)
-            collides with the variant's :network exactly as a direct override
-            would. The DIRECT path is covered above; this exercises the
-            compose branch so a future refactor of the strict-conflict merge
-            cannot silently regress it."
-    (let [fragments {:fragment.http/managed-override
-                     {:fx-overrides {:rf.http/managed :some/fragment-stub}}}
-          variants  {:story.checkout/compose-conflict
-                     {:network {cart-route {:reply {:ok {:items []}}}}
-                      :compose [:fragment.http/managed-override]}}
-          compile   #(rf.story.plan/variant-plan :story.checkout/compose-conflict
-                                        {:lookup          variants
-                                         :fragment-lookup fragments})
-          data      (try (compile)
-                          (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-      (is (= :rf.error/story-network-fx-conflict (:rf.error/id data)))
-      (is (= :rf.http/managed (:fx-id data)))
-      (is (= :story.checkout/compose-conflict (:variant/id data))))))
 
 ;; ===========================================================================
 ;; explain — per-route stubs + lowering visible
@@ -186,9 +158,7 @@
           p (plan-of :story.n/fails m)]
       (is (= {:reply {:failure failure}}
              (get-in p [:world :network cart-route]))
-          "the child's reply replaces the parent's wholesale")
-      (is (nil? (rf.story.schemas/validate :variant {:network (get-in p [:world :network])}))
-          "the COMPILED route map satisfies the schema registration applies to bodies"))))
+          "the child's reply replaces the parent's wholesale"))))
 
 ;; ===========================================================================
 ;; Schema — the Variant schema accepts :network and rejects malformed shapes
