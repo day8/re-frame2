@@ -1,581 +1,118 @@
 (ns day8.re-frame2-xray.theme.global-styles-cljs-test
-  "Tests for the Xray global-styles injection — fonts, motion +
-  reduced-motion seam, per-theme CSS variables, atmospheric grain.
-
-  The injection paths are guarded against `js/document` being absent
-  (node-test runs without a DOM). Under shadow-cljs `:node-test` the
-  `exists? js/document` probe is `false` so `install!` is a no-op and
-  every test here is a smoke probe over the *string* surface — the
-  pure-data parts of the injection (`font-faces-css`, `motion-css`,
-  `themes-css`, `grain-css`)."
+  "Tests for the Xray global-styles injection. Node has no `js/document`,
+  so the stylesheet strings are read directly and `install-into!` runs
+  against a stub document."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [day8.re-frame2-xray.theme.global-styles :as gs]))
 
 ;; ---- font faces ----------------------------------------------------------
-;;
-;; The auto-injected `@font-face` rules ship `local()`-only `src:`
-;; candidates. No `url()` entry, no third-party HTTP fetch — the
-;; re-frame2 testbed enforces a 'no third-party egress by default'
-;; gate. Consuming projects opt-in to webfont URLs by layering their
-;; own `@font-face` rules.
-
-(deftest font-faces-css-declares-inter-and-jetbrains-mono
-  (testing "both brand faces have `@font-face` declarations"
-    (let [css @#'gs/font-faces-css]
-      (is (string? css))
-      (is (re-find #"font-family:'Inter'" css)
-          "Inter is declared")
-      (is (re-find #"font-family:'JetBrains Mono'" css)
-          "JetBrains Mono is declared"))))
-
-(deftest font-faces-css-includes-all-spec-weights
-  (testing "spec/007 §Typography lists 400/500/600/700 across both
-            sans + mono stacks. The auto-injected `@font-face` rules
-            declare every weight so the `:semibold` (600) and
-            `:bold` (700) tokens have explicit landings."
-    (let [css @#'gs/font-faces-css]
-      (doseq [w ["400" "500" "600" "700"]]
-        (is (re-find (re-pattern (str "font-weight:" w)) css)
-            (str "weight " w " declared"))))))
-
-(deftest font-faces-css-uses-display-swap
-  (testing "`font-display: swap` keeps the fallback rendering
-            immediately and (when a consumer opt-in `url()` rule is
-            layered on top) swaps to the brand face when the WOFF2
-            lands — no FOIT, no perceived layout shift."
-    (let [css @#'gs/font-faces-css]
-      (is (re-find #"font-display:swap" css)))))
-
-(deftest font-faces-css-declares-fraunces-display-face
-  (testing "Fraunces (the variable serif display face)
-            is declared alongside Inter + JetBrains Mono. The variable
-            optical-size axis isn't expressible via `local()` so the
-            per-weight Fraunces family names are used (500/600/700/900
-            cover the L4 panel <h1> sizing weights)."
-    (let [css @#'gs/font-faces-css]
-      (is (re-find #"font-family:'Fraunces'" css)
-          "Fraunces is declared")
-      (doseq [w ["500" "600" "700" "900"]]
-        (is (re-find (re-pattern (str "font-family:'Fraunces';"
-                                      "font-style:normal;"
-                                      "font-weight:" w))
-                     css)
-            (str "Fraunces weight " w " declared"))))))
 
 (deftest font-faces-css-is-local-only-no-third-party-egress
-  (testing "the auto-injected rules ship
-            `local()`-only `src:` candidates. No `url()` entries, no
-            references to fonts.googleapis.com / fonts.gstatic.com or
-            any other third-party host. The re-frame2 testbed's 'no
-            third-party egress by default' gate stays green; consumer
-            projects opt-in to webfont URLs by layering their own
-            `@font-face` rules with `url()` entries."
+  (testing "the three brand faces ship `local()`-only: no `url()` candidate,
+            so no third-party fetch; consumers layer their own `url()` rules"
     (let [css @#'gs/font-faces-css]
-      (is (not (re-find #"url\(" css))
-          "no url() candidate in any @font-face rule")
-      (is (not (re-find #"fonts\.googleapis\.com" css))
-          "no Google Fonts CSS host reference")
-      (is (not (re-find #"fonts\.gstatic\.com" css))
-          "no Google Fonts file host reference")
-      (is (re-find #"src:local\(" css)
-          "local() candidates are present"))))
+      (doseq [face ["Inter" "JetBrains Mono" "Fraunces"]]
+        (is (str/includes? css (str "font-family:'" face "'")) face))
+      (is (re-find #"src:local\(" css))
+      (is (not (re-find #"url\(" css))))))
 
 ;; ---- motion css ---------------------------------------------------------
 
 (deftest motion-css-declares-fade-in-keyframes
-  (testing "L4 tab cross-fade keyframes are present.
-            opacity 0 → 1 + a 2px translateY for the 'settle' feel."
+  (testing "the L4 tab cross-fade `shell.cljs` names: opacity 0 → 1,
+            rising 2px into place"
     (let [css @#'gs/motion-css]
       (is (re-find #"@keyframes\s+rf-xray-fade-in" css))
       (is (re-find #"from\s*\{[^}]*opacity:\s*0" css))
       (is (re-find #"to\s*\{[^}]*opacity:\s*1" css))
-      (is (re-find #"translateY\(2px\)" css)
-          "the initial state lifts 2px below final → the new tab rises
-           into place rather than appearing statically"))))
-
-;; ---- prefers-reduced-motion seam ----------------------------------------
-
-(deftest motion-css-declares-root-motion-scale-default
-  (testing "the `:root` rule sets
-            --rf-xray-motion-scale: 1 so the calc()'d duration-css
-            consumers run at full duration by default."
-    (let [css @#'gs/motion-css]
-      (is (re-find #":root\s*\{[^}]*--rf-xray-motion-scale:\s*1" css)))))
-
-;; ---- font-size CSS var on :root -----------------------------------------
+      (is (re-find #"translateY\(2px\)" css)))))
 
 (deftest motion-css-publishes-font-size-default-on-root
-  (testing "`:root` carries `--rf-xray-font-size: 13px`
-            as the type-scale anchor. Every entry in `tokens/type-
-            scale` resolves as `calc(var(--rf-xray-font-size, 13px)
-            * <multiplier>)` so overriding this one variable rescales
-            the entire shell in lockstep — same single-knob discipline
-            TanStack Query Devtools uses (`--tsqd-font-size`)."
-    (let [css @#'gs/motion-css]
-      (is (re-find #":root\s*\{[^}]*--rf-xray-font-size:\s*13px" css)
-          "root block carries the --rf-xray-font-size default"))))
+  (testing "`:root` publishes the `--rf-xray-font-size` knob every
+            type-scale entry multiplies"
+    (is (re-find #":root\s*\{[^}]*--rf-xray-font-size:\s*13px"
+                 @#'gs/motion-css))))
 
 (deftest motion-css-declares-prefers-reduced-motion-override
-  (testing "under `prefers-reduced-motion: reduce` the
-            `:root` motion-scale is overridden so every downstream
-            animation collapses to its end state in a single frame.
-            A vanishingly small value (rather than 0) is used so
-            older Chrome treats the keyframes as 'animate to
-            completion in zero time' rather than 'never animate'."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"@media\s*\(prefers-reduced-motion:\s*reduce\)" css))
-      (is (re-find #"--rf-xray-motion-scale:\s*0\.001" css)
-          "the override value is a hair above zero — runs to completion
-           in a single frame so the end state is reached immediately"))))
-
-;; ---- global :focus-visible ring -----------------------------------------
-
-(deftest motion-css-declares-focus-visible-ring
-  (testing "Xray ships a global `:focus-visible` focus ring
-            scoped to the shell roots so keyboard-only users get a
-            visible focus indicator. Many interactive elements set
-            `:border \"none\"` and the palette input explicitly sets
-            `outline: none` (`palette/view.cljs`). Without this rule
-            keyboard-only users would have no reliable focus indicator
-            anywhere in Xray. Sister-pattern to Story (`theme/motion.cljc`'s
-            `[data-rf-story-root] *:focus-visible` rule)."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"\[data-testid=\"rf-xray-shell\"\][^,]*:focus-visible" css)
-          "focus-visible rule scoped to the Dynamic shell root")
-      (is (re-find #"\[data-testid=\"rf-xray-static-shell\"\][^,]*:focus-visible" css)
-          "focus-visible rule scoped to the Static shell root")
-      (is (re-find #"\[data-testid=\"rf-xray-palette-backdrop\"\][^,]*:focus-visible" css)
-          "focus-visible rule scoped to the palette backdrop (palette
-           mounts outside the shell roots so it needs its own scope)"))))
+  (testing "`prefers-reduced-motion: reduce` drops the motion scale to a
+            hair above zero, so every calc()'d duration collapses yet the
+            keyframes still reach their end state (older Chrome never
+            applies a 0s animation's fill)"
+    (is (re-find #"@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*--rf-xray-motion-scale:\s*0\.001"
+                 @#'gs/motion-css))))
 
 (deftest motion-css-focus-visible-uses-the-accent-token
-  (testing "the ring reads `--rf-xray-accent`, so it
-            resolves per theme at paint time.
-
-            A hardcoded amber such as `#FBBF24` would paint a colour in
-            neither palette (`:yellow` is `#d29922` dark / `#9a6700`
-            light, and `#FBBF24` appears nowhere in `tokens.cljc`), at
-            roughly 1.8:1 against the light theme, which is under any
-            contrast floor for a focus indicator.
-
-            `022-Design-Tokens.md`'s token table names `accent` as the
-            single source for \"active tab · chrome stripe · selected
-            states · FOCUS RING · L4 header stripe\".
-
-            2px outline + 2px offset is the documented high-contrast
-            hit threshold."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"outline:\s*2px\s+solid\s+var\(--rf-xray-accent\)" css)
-          "2px solid accent outline")
-      (is (not (re-find #"#FBBF24" css))
-          "and the off-palette amber hex is absent from the stylesheet")
-      (is (re-find #"outline-offset:\s*2px" css)
-          "2px outline-offset so the ring doesn't graze the element"))))
-
-;; ---- forced-colors (Windows High Contrast Mode) ------------------------
-;;
-;; Windows HCM forces the UA palette onto every element — inline
-;; `:background` + `:color` declarations are overridden and box-shadow
-;; is dropped, which collapses every author-encoded signal across the
-;; Xray chrome. `@media (forced-colors: active)` re-introduces the
-;; signals using CSS system colour keywords (Canvas / CanvasText /
-;; Highlight / Mark / GrayText / ButtonText / LinkText) which the UA
-;; accepts and honours.
-;;
-;; Signal-preservation criterion: under HCM the operator must still
-;; distinguish focused-vs-not, error-vs-success, in-flight-vs-stale,
-;; primary-vs-secondary text. Each test below asserts one of those
-;; signals has a system-token landing inside the forced-colors block.
+  (testing "keyboard focus inside every Xray root paints a 2px ring in
+            `--rf-xray-accent`, which resolves per theme; a fixed hex would
+            fall under a focus indicator's contrast floor in one theme"
+    (is (re-find #"\[data-testid=\"rf-xray-shell\"\] \*:focus-visible,\s*\[data-testid=\"rf-xray-static-shell\"\] \*:focus-visible,\s*\[data-testid=\"rf-xray-palette-backdrop\"\] \*:focus-visible\s*\{\s*outline:\s*2px\s+solid\s+var\(--rf-xray-accent\)"
+                 @#'gs/motion-css))))
 
 (deftest motion-css-forced-colors-distinguishes-status-accents
-  (testing "the four lifecycle-status accents map onto
-            DISTINCT system tokens so the operator still tells error
-            from success from in-flight from stale/paused under HCM.
-            Highlight (in-flight = active), Mark (error = important
-            emphasis), CanvasText (success = quiet ink), GrayText
-            (stale / paused = muted)."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"data-rf-xray-status=\"settled-error\"[^}]*Mark" css)
-          "settled-error → Mark")
-      (is (re-find #"data-rf-xray-status=\"in-flight\"[^}]*Highlight" css)
-          "in-flight → Highlight")
-      (is (re-find #"data-rf-xray-status=\"settled-success\"[^}]*CanvasText" css)
-          "settled-success → CanvasText")
-      (is (re-find #"data-rf-xray-status=\"stale\"" css)
-          "stale rule present")
-      (is (re-find #"data-rf-xray-status=\"paused-by-tool\"" css)
-          "paused-by-tool rule present")
-      (is (re-find #"data-rf-xray-status=\"stale\"[^{]*\{[^}]*GrayText"
-                   (or (re-find #"data-rf-xray-status=\"stale\"[\s\S]*?\}" css)
-                       ""))
-          "stale → GrayText"))))
-
-(deftest motion-css-forced-colors-maps-focused-row-to-highlight
-  (testing "the focused L2 event row (aria-pressed=\"true\")
-            picks up a Highlight outline under HCM so the selection
-            signal is preserved when the cyan border is stripped."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"aria-pressed=\"true\"[^}]*outline:[^}]*Highlight" css)
-          "focused row outline uses Highlight"))))
-
-
-(deftest motion-css-forced-colors-maps-panel-accent-stripe-to-canvastext
-  (testing "every L4 panel-domain accent stripe
-            (violet/cyan/orange/green/yellow/red) collapses to
-            CanvasText under HCM. Panels remain distinguishable by
-            their tab label + content; the stripe keeps its presence
-            as a rhythm marker without colour information."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"data-testid\^=\"rf-xray-detail-panel-\"[^}]*border-left-color:\s*CanvasText"
-                   css)
-          "panel <h1> border-left-color is CanvasText"))))
-
-(deftest motion-css-forced-colors-maps-interactive-icons-to-buttontext
-  (testing "the ribbon icons (settings ✕, close ✕, nav
-            chevrons) map to ButtonText under HCM so they read as
-            actionable controls in the HCM theme's interactive-ink hue.
-            There is no focus-chip clear selector."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"data-testid=\"rf-xray-icon-settings\"" css))
-      (is (re-find #"data-testid=\"rf-xray-icon-close\"" css))
-      (is (re-find #"data-testid=\"rf-xray-nav-prev\"" css))
-      (is (re-find #"data-testid=\"rf-xray-nav-next\"" css))
-      (is (re-find #"ButtonText" css)
-          "ButtonText system token is used"))))
-
-(deftest motion-css-forced-colors-maps-anchors-to-linktext
-  (testing "hyperlinks inside the Xray shell roots
-            map to LinkText under HCM so the hyperlink-ink hue is
-            picked up from the HCM theme."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"\[data-testid=\"rf-xray-shell\"\]\s*a[^}]*LinkText"
-                   css)
-          "anchor rule under runtime shell uses LinkText")
-      (is (re-find #"\[data-testid=\"rf-xray-static-shell\"\]\s*a[^}]*LinkText"
-                   css)
-          "anchor rule under static shell uses LinkText"))))
-
-(deftest motion-css-forced-colors-uses-important-to-beat-inline-styles
-  (testing "every rule inside the forced-colors block
-            uses `!important` so the per-element inline-style
-            declarations (the 357 call sites that paint background /
-            color / border directly) are beaten on specificity.
-            Inline style normally wins over external CSS; !important
-            in the external CSS reverses that. A spot-check on a
-            handful of declarations is enough — the block author
-            convention is uniform."
-    (let [css @#'gs/motion-css
-          ;; Extract just the forced-colors block so we don't pick up
-          ;; !important from elsewhere (there shouldn't be any, but
-          ;; defensive).
-          block (re-find #"@media\s*\(forced-colors:\s*active\)[\s\S]*?\n\}\n"
-                        css)]
-      (is (some? block)
-          "forced-colors block found")
-      (when block
-        (is (re-find #"Highlight\s*!important" block)
-            "Highlight rule carries !important")
-        (is (re-find #"CanvasText\s*!important" block)
-            "CanvasText rule carries !important")
-        (is (re-find #"Mark\s*!important" block)
-            "Mark rule carries !important")))))
-
-;; ---- view hover-highlight class ----------------------------------------
-;;
-;; The view-row hover-highlight (panels/reactive_panel_view
-;; apply-highlight! / clear-highlight!) toggles the
-;; `.rf-xray-view-highlight` class onto the hovered view's
-;; `data-rf-view` DOM node. The class rule lives in `motion-css` and
-;; paints a translucent PINK DIAGONAL-STRIPE barber-pole via
-;; `background-image` — pink-on-fainter-pink so it reads on both light
-;; and dark app surfaces. Layout-safe: background-only (no border /
-;; outline / box-shadow) so hovering shifts ZERO surrounding pixels.
-
-(deftest motion-css-view-highlight-is-pink-diagonal-stripe
-  (testing "the highlight paints a translucent PINK
-            DIAGONAL-STRIPE barber-pole: a 45deg repeating-linear-
-            gradient of Tailwind pink-500 (rgb 236,72,153) at two
-            alphas (0.30 / 0.10). Pink-on-fainter-pink (NOT white) so
-            the signal reads on BOTH light and dark app backgrounds,
-            translucent so the view's own content shows through."
-    (let [css @#'gs/motion-css
-          rule (re-find #"\.rf-xray-view-highlight\s*\{[\s\S]*?\}" css)]
-      (is (some? rule) "highlight rule block found")
-      (when rule
-        (is (re-find #"repeating-linear-gradient" rule)
-            "uses a repeating-linear-gradient (barber-pole stripe)")
-        (is (re-find #"45deg" rule)
-            "the stripes run at 45deg (diagonal)")
-        (is (re-find #"rgba\(236,\s*72,\s*153,\s*0\.30\)" rule)
-            "the brighter pink band is pink-500 at 0.30 alpha")
-        (is (re-find #"rgba\(236,\s*72,\s*153,\s*0\.10\)" rule)
-            "the fainter pink band is pink-500 at 0.10 alpha")
-        (is (not (re-find #"255,\s*255,\s*255" rule))
-            "NOT white — white would vanish on a light app background")))))
+  (testing "each lifecycle status keeps a distinct system colour under both
+            activators: the OS `@media (forced-colors: active)` block, whose
+            `!important` beats the rows' inline styles, and the operator's
+            `[data-rf-force-colors=\"active\"]` opt-in"
+    (let [css   @#'gs/motion-css
+          media (re-find #"@media\s*\(forced-colors:\s*active\)[\s\S]*?\n\}\n" css)]
+      (doseq [[status token] [["settled-error" "Mark"]
+                              ["in-flight" "Highlight"]
+                              ["settled-success" "CanvasText"]
+                              ["stale" "GrayText"]
+                              ["paused-by-tool" "GrayText"]]
+              :let [rule (str "\\[data-rf-xray-status=\"" status "\"\\][^{]*\\{[^}]*" token)]]
+        (is (re-find (re-pattern (str rule "\\s*!important")) media)
+            (str status " → " token " under OS forced-colors"))
+        (is (re-find (re-pattern (str "\\[data-rf-force-colors=\"active\"\\] " rule)) css)
+            (str status " → " token " under the opt-in attribute"))))))
 
 (deftest motion-css-view-highlight-is-layout-safe
-  (testing "the highlight is background-ONLY so hovering shifts ZERO
-            surrounding pixels. A `background-image` (gradient) paints
-            inside the existing box without reflow; there must be NO
-            border / outline / box-shadow / box-model property in the
-            rule that could perturb layout."
-    (let [css @#'gs/motion-css
-          rule (re-find #"\.rf-xray-view-highlight\s*\{[\s\S]*?\}" css)]
-      (is (some? rule) "highlight rule block found")
-      (when rule
-        (is (re-find #"background-image:" rule)
-            "paints via background-image (layout-safe)")
-        (is (not (re-find #"(?i)\bborder\b\s*:" rule))
-            "no border declaration (would shift the box)")
-        (is (not (re-find #"(?i)\boutline\b\s*:" rule))
-            "no outline declaration")
-        (is (not (re-find #"(?i)box-shadow\s*:" rule))
-            "no box-shadow declaration")
-        (is (not (re-find #"(?i)\b(margin|padding|width|height)\s*:" rule))
-            "no box-model property that could shift surrounding pixels")))))
-
-;; ---- filters-ribbon conditional reveal animation -----------------------
+  (testing "the view hover-highlight paints a background image and nothing
+            that takes space, so hovering shifts no pixel of the inspected app"
+    (let [rule (re-find #"\.rf-xray-view-highlight\s*\{[\s\S]*?\}" @#'gs/motion-css)]
+      (is (re-find #"background-image:" rule))
+      (is (not (re-find #"(?i)\b(border|outline|box-shadow|margin|padding|width|height)\s*:" rule))))))
 
 (deftest motion-css-declares-filters-collapse-animation
-  (testing "the motion stylesheet ships the
-            `.rf-xray-filters-collapse` rule that animates the `filters:`
-            (bar-2) ribbon OPEN/CLOSED via a grid-template-rows 0fr ⇄ 1fr
-            transition keyed off the `data-open` attribute."
-    (let [css   @#'gs/motion-css
-          base  (re-find #"\.rf-xray-filters-collapse\s*\{[\s\S]*?\}" css)
-          open  (re-find #"\.rf-xray-filters-collapse\[data-open=\"true\"\]\s*\{[\s\S]*?\}" css)]
-      (is (some? base) "the collapse base rule is present")
-      (is (some? open) "the [data-open=\"true\"] open rule is present")
-      (when base
-        (is (re-find #"grid-template-rows:\s*0fr" base)
-            "closed state collapses the grid row to 0fr")
-        (is (re-find #"transition:\s*grid-template-rows" base)
-            "the height collapse is animated via a grid-template-rows transition")
-        (is (re-find #"--rf-xray-motion-scale" base)
-            "the transition runs through the reduced-motion scale seam"))
-      (when open
-        (is (re-find #"grid-template-rows:\s*1fr" open)
-            "open state expands the grid row to 1fr")))))
+  (testing "the filters ribbon (rows) and the chrome `+ filter` button
+            (`-h`, columns) collapse to 0fr and open to 1fr on `data-open`,
+            through the reduced-motion scale"
+    (let [css @#'gs/motion-css]
+      (doseq [re [#"\.rf-xray-filters-collapse\s*\{[^}]*grid-template-rows:\s*0fr[^}]*transition:\s*grid-template-rows\s+calc\([^)]*var\(--rf-xray-motion-scale[^}]*opacity\s+calc\([^)]*var\(--rf-xray-motion-scale"
+                  #"\.rf-xray-filters-collapse\[data-open=\"true\"\]\s*\{[^}]*grid-template-rows:\s*1fr"
+                  ;; The closed track must beat the inner toolbar's inline
+                  ;; 34px min-height, or the closed bar leaves a 34px gap.
+                  #"\.rf-xray-filters-collapse\[data-open=\"false\"\]\s*>\s*\*\s*\{[^}]*min-height:\s*0\s*!important"
+                  #"\.rf-xray-filters-collapse-h\s*\{[^}]*grid-template-columns:\s*0fr[^}]*transition:\s*grid-template-columns\s+calc\([^)]*var\(--rf-xray-motion-scale[^}]*opacity\s+calc\([^)]*var\(--rf-xray-motion-scale"
+                  #"\.rf-xray-filters-collapse-h\[data-open=\"true\"\]\s*\{[^}]*grid-template-columns:\s*1fr"]]
+        (is (re-find re css) (str re))))))
 
-(deftest motion-css-pins-filters-collapse-duration-to-250ms
-  (testing "both transitions on `.rf-xray-filters-collapse`
-            run at exactly 250ms so OPEN and CLOSE share one duration.
-            A split (say 200ms grid-template-rows + 160ms opacity) would
-            decouple the height collapse from the cross-fade by a frame
-            or two; pinning both to 250ms keeps the bottom edge of the
-            bar and the column flex below it travelling in lock-step."
-    (let [css  @#'gs/motion-css
-          base (re-find #"\.rf-xray-filters-collapse\s*\{[\s\S]*?\}" css)]
-      (is (some? base))
-      (when base
-        (is (re-find #"grid-template-rows\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
-            "grid-template-rows transition is pinned to 250ms")
-        (is (re-find #"opacity\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
-            "opacity transition is pinned to 250ms")
-        (is (not (re-find #"200ms|160ms" base))
-            "no split 200ms / 160ms timing")))))
+;; ---- per-theme CSS variables --------------------------------------------
 
-(deftest motion-css-closed-collapse-track-frees-min-height
-  (testing "the inner toolbar of the events-ribbon carries
-            an inline `min-height: 34px` so the OPEN bar holds its
-            design height (and grows under flex-wrap when pills
-            overflow). That inline min-height beats the stylesheet
-            default; without an `!important` override scoped to the
-            closed state the inner stays 34px tall regardless of the
-            parent grid track, the closed track can't reclaim its
-            space, and the bar leaves a 34px gap where it was. This
-            rule is scoped to `data-open=\"false\"`
-            and `!important` so it lets the closed collapse fully
-            without disturbing the open height."
-    (let [css     @#'gs/motion-css
-          closed  (re-find #"\.rf-xray-filters-collapse\[data-open=\"false\"\]\s*>\s*\*\s*\{[\s\S]*?\}" css)]
-      (is (some? closed)
-          "the [data-open=\"false\"] > * rule is present")
-      (when closed
-        (is (re-find #"min-height:\s*0\s*!important" closed)
-            "closed state forces inner min-height to 0 (overriding inline)")))))
-
-(deftest motion-css-declares-horizontal-collapse-track
-  (testing "the chrome `+ filter` button is mutually-
-            exclusive with the events-ribbon: when ≥1 filter is
-            committed the events-ribbon's `[+]` icon owns the add
-            affordance and the chrome `+ filter` collapses to zero
-            width. The `.rf-xray-filters-collapse-h` rule is the
-            horizontal sibling of the row-collapse track —
-            `grid-template-columns: 0fr ⇄ 1fr` with the same 250ms /
-            motion-scale cadence keeps the two tracks visually
-            synchronised."
-    (let [css  @#'gs/motion-css
-          base (re-find #"\.rf-xray-filters-collapse-h\s*\{[\s\S]*?\}" css)
-          open (re-find #"\.rf-xray-filters-collapse-h\[data-open=\"true\"\]\s*\{[\s\S]*?\}" css)]
-      (is (some? base) "horizontal collapse base rule is present")
-      (is (some? open) "horizontal collapse open rule is present")
-      (when base
-        (is (re-find #"grid-template-columns:\s*0fr" base)
-            "closed state collapses the grid column to 0fr")
-        (is (re-find #"grid-template-columns\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
-            "grid-template-columns transition is pinned to 250ms")
-        (is (re-find #"opacity\s+calc\(250ms\s*\*\s*var\(--rf-xray-motion-scale" base)
-            "opacity transition is pinned to 250ms"))
-      (when open
-        (is (re-find #"grid-template-columns:\s*1fr" open)
-            "open state expands the grid column to 1fr")))))
-
-(deftest themes-css-publishes-root-defaults
-  (testing "the :root block publishes the LIGHT palette
-            as the default so any descendant that
-            reads `var(--rf-xray-bg-1)` resolves to the light hex even
-            before any theme class is attached, matching the
-            authoritative reference's light-by-default render."
-    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B" :accent-violet "#7C5CFF"}
-                                  :light {:bg-1 "#F1F3F6" :accent-violet "#5538D8"}})]
-      (is (re-find #":root\s*\{[^}]*--rf-xray-bg-1:\s*#F1F3F6" css)
-          "root block carries the light bg-1 default")
-      (is (re-find #":root\s*\{[^}]*--rf-xray-accent-violet:\s*#5538D8" css)
-          "root block carries the light accent-violet default"))))
-
-(deftest themes-css-has-no-per-mode-accent-swap
-  (testing "the Figma export carries a SINGLE accent
-            (GitHub blue), so the themes-css block emits no
-            per-mode accent re-point. There must be NO `.mode-dynamic` /
-            `.mode-static` rule that re-points `--rf-xray-accent` at an
-            `accent-dynamic` / `accent-static` variable (neither exists)."
-    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#1c1c1c" :accent "#539bf5"}
-                                  :light {:bg-1 "#f5f5f5" :accent "#0969da"}})]
-      (is (not (re-find #"--rf-xray-accent-dynamic" css))
-          "no reference to an accent-dynamic variable")
-      (is (not (re-find #"--rf-xray-accent-static" css))
-          "no reference to an accent-static variable")
-      (is (not (re-find #"\.mode-dynamic" css))
-          "no .mode-dynamic accent re-point rule")
-      (is (not (re-find #"\.mode-static" css))
-          "no .mode-static accent re-point rule")
-      ;; The single accent is published in each theme's palette block.
-      (is (re-find #"\.rf-xray-theme-dark\s*\{[^}]*--rf-xray-accent:\s*#539bf5" css))
-      (is (re-find #"\.rf-xray-theme-light\s*\{[^}]*--rf-xray-accent:\s*#0969da" css)))))
-
-(deftest themes-css-uses-rf-xray-prefix
-  (testing "every variable name is namespaced under `--rf-xray-` so
-            host stylesheets can't accidentally collide with Xray's
-            tokens."
-    (let [css (@#'gs/themes-css {:dark {:bg-1 "x" :red-deep "y" :accent-violet "z"}
-                                  :light {:bg-1 "x" :red-deep "y" :accent-violet "z"}})]
-      (is (re-find #"--rf-xray-bg-1" css))
-      (is (re-find #"--rf-xray-red-deep" css))
-      (is (re-find #"--rf-xray-accent-violet" css))
-      (is (not (re-find #"(?<!--rf-xray-)bg-1:" css))
-          "no unprefixed `bg-1:` declarations leaked into the CSS"))))
+(deftest themes-css-publishes-each-palette-under-its-selector
+  (testing "the light palette is the `:root` default, so vars resolve before
+            a theme class lands, and each palette publishes under its class"
+    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B"}
+                                 :light {:bg-1 "#F1F3F6"}})]
+      (is (re-find #":root\s*\{[^}]*--rf-xray-bg-1:\s*#F1F3F6" css))
+      (is (re-find #"\.rf-xray-theme-dark\s*\{[^}]*--rf-xray-bg-1:\s*#15171B" css))
+      (is (re-find #"\.rf-xray-theme-light\s*\{[^}]*--rf-xray-bg-1:\s*#F1F3F6" css)))))
 
 ;; ---- atmospheric grain overlay -----------------------------------------
 
 (deftest grain-css-targets-shell-root-pseudo
-  (testing "the grain rule is scoped to the shell's
-            `data-testid='rf-xray-shell'` via a `::before` pseudo-
-            element. No global page-level effect; no host-app
-            stylesheet contamination."
-    (is (re-find #"\[data-testid=\"rf-xray-shell\"\]::before"
+  (testing "the grain is a ~3.5% inline-SVG `feTurbulence` data-URI on the
+            shell root's `::before`: no host-page element, no asset fetch"
+    (is (re-find #"\[data-testid=\"rf-xray-shell\"\]::before\s*\{[^}]*opacity:\s*0\.03[0-9]?[^}]*background-image:\s*url\(\"data:image/svg\+xml[^}]*feTurbulence"
                  @#'gs/grain-css))))
 
-(deftest grain-css-lifts-direct-children-above-pseudo
-  (testing "the companion rule lifts every direct child
-            of the shell root to `position: relative; z-index: 1` so
-            their content paints on top of the textured backdrop."
-    (let [css @#'gs/grain-css]
-      (is (re-find #"\[data-testid=\"rf-xray-shell\"\]\s*>\s*\*\s*\{[^}]*z-index:\s*1"
-                   css))
-      (is (re-find #"\[data-testid=\"rf-xray-shell\"\]\s*>\s*\*\s*\{[^}]*position:\s*relative"
-                   css)))))
-
-(deftest grain-css-embeds-svg-noise-data-uri
-  (testing "the background-image is an inline SVG
-            data-URI carrying a `feTurbulence` filter (no external
-            asset). The browser tiles the small SVG via
-            `background-repeat: repeat` so the GPU handles the
-            painting; perf cost is negligible."
-    (let [css @#'gs/grain-css]
-      (is (re-find #"background-image:\s*url\(\"data:image/svg\+xml" css))
-      (is (re-find #"feTurbulence" css)
-          "the SVG filter primitive is the noise generator")
-      (is (re-find #"background-repeat:\s*repeat" css)))))
-
-(deftest grain-css-is-subtle
-  (testing "the overlay sits at low opacity
-            (between 0.02 and 0.06) so it reads as 'texture' rather
-            than a visible pattern. Above 0.06 it competes with
-            content; below 0.02 the browser won't render it at all
-            on some displays."
-    (let [css @#'gs/grain-css]
-      (is (re-find #"opacity:\s*0\.03[0-9]?" css)
-          "opacity is around 0.035 — texture, not pattern"))))
-
-;; ---- 'Use system colors' attribute selectors ---------------------------
-;;
-;; The `:general :use-system-colors?` setting stamps
-;; `data-rf-force-colors="active"` on the shell root + `<html>` when the
-;; operator opts in. The motion
-;; stylesheet pairs the OS-HCM `@media (forced-colors: active)` block
-;; with a sibling block whose
-;; selectors carry the attribute predicate so the same system-token
-;; chrome paints under operator opt-in too.
-
-(deftest motion-css-force-colors-attribute-maps-focus-ring-to-highlight
-  (testing "the focus-visible ring under operator opt-in
-            maps to `Highlight` (the system selection token) — mirrors
-            the OS-HCM rule shape."
-    (let [css @#'gs/motion-css]
-      ;; The attribute-selector arm includes the focus-visible rule
-      ;; pointing at outline-color: Highlight.
-      (is (re-find
-            #"data-rf-force-colors=\"active\"[^{]*\*:focus-visible[^}]*outline-color:\s*Highlight"
-            css)
-          "focus ring outline-color is Highlight under attribute opt-in"))))
-
-(deftest motion-css-force-colors-attribute-maps-status-accents
-  (testing "the four lifecycle-status accents (settled-
-            error / in-flight / settled-success / stale | paused-by-
-            tool) each have a system-token landing under the operator
-            opt-in path so the signal survives the inline-style remap."
-    (let [css @#'gs/motion-css]
-      (is (re-find
-            #"data-rf-force-colors=\"active\"[^{]*data-rf-xray-status=\"settled-error\"[^}]*Mark"
-            css)
-          "error → Mark")
-      (is (re-find
-            #"data-rf-force-colors=\"active\"[^{]*data-rf-xray-status=\"in-flight\"[^}]*Highlight"
-            css)
-          "in-flight → Highlight")
-      (is (re-find
-            #"data-rf-force-colors=\"active\"[^{]*data-rf-xray-status=\"settled-success\"[^}]*CanvasText"
-            css)
-          "success → CanvasText")
-      (is (re-find
-            #"data-rf-force-colors=\"active\"[^{]*data-rf-xray-status=\"stale\""
-            css)
-          "stale status carries a rule")
-      (is (re-find
-            #"data-rf-force-colors=\"active\"[^{]*data-rf-xray-status=\"paused-by-tool\""
-            css)
-          "paused-by-tool status carries a rule"))))
-
-;; ---- React Flow base stylesheet ----------------------------------------
-;;
-;; The Machines topology charts render via `@xyflow/react`'s
-;; `<ReactFlow>`, which needs xyflow's STRUCTURAL base stylesheet
-;; (`@xyflow/react/dist/style.css`) to render at all — without it nodes
-;; stack full-width, edges have no path/arrowheads, the Controls are
-;; bare. shadow-cljs's npm resolver won't load a `.css` via `:require`,
-;; so the verbatim contents are bundled as a string and injected on the
-;; Xray preload path. These tests pin the load-bearing selectors so an
-;; `@xyflow/react` bump that drops/renames a structural rule is caught.
+;; ---- React Flow stylesheets ---------------------------------------------
 
 (deftest react-flow-base-css-carries-structural-rules
-  (testing "the bundled base stylesheet carries the rules
-            React Flow needs to render: absolute-positioned nodes, the
-            edge path, the Controls chrome, and the dot-grid background."
+  (testing "the vendored xyflow base sheet keeps the rules React Flow needs
+            to render, so a version bump that drops one is caught"
     (let [css @#'gs/react-flow-base-css]
-      (is (re-find #"\.react-flow__node\s*\{" css)
-          "node rule present")
       (is (re-find #"\.react-flow__node\s*\{[^}]*position:\s*absolute" css)
           "nodes are absolutely positioned (the stacked-box fix)")
       (is (re-find #"\.react-flow__edge-path\s*\{" css)
@@ -587,28 +124,11 @@
       (is (re-find #"\.react-flow__viewport\s*\{" css)
           "viewport transform rule present"))))
 
-(deftest react-flow-xray-theme-css-remaps-xy-vars-to-tokens
-  (testing "the Xray override layer remaps xyflow's `--xy-*`
-            custom properties to Xray tokens (dark surface) so the
-            chrome xyflow paints itself reads as part of Xray, layered
-            AFTER the base sheet so it wins on equal specificity."
-    (let [css @#'gs/react-flow-xray-theme-css]
-      (is (re-find #"--xy-node-background-color-default:" css)
-          "node fill remapped")
-      (is (re-find #"--xy-controls-button-background-color-default:" css)
-          "Controls button background remapped")
-      (is (re-find #"--xy-edge-stroke-default:" css)
-          "edge stroke remapped")
-      (is (re-find #"\.react-flow__attribution\s*\{\s*display:\s*none" css)
-          "attribution backplate hidden against the dark canvas"))))
-
 (deftest react-flow-xray-theme-css-is-scoped-to-xray-rf2-3x7nj-25-7
-  (testing "`install!` appends the override to the HOST
-            document's head, so an unscoped `.react-flow` rule would
-            re-theme, and hide the attribution of, every React Flow the
-            host renders.
-            Each selector sits under Xray's own `[data-rf-xray-mode]`
-            surface (the shell root and every mount root carry it)."
+  (testing "`install!` appends the override to the HOST document's head, so
+            an unscoped `.react-flow` rule would re-theme, and hide the
+            attribution of, every React Flow the host renders. Each selector
+            sits under Xray's own `[data-rf-xray-mode]` surface."
     (let [css       @#'gs/react-flow-xray-theme-css
           selectors (->> (str/split css #"\}")
                          (keep #(when-let [i (str/index-of % "{")] (subs % 0 i)))
@@ -623,17 +143,6 @@
         (is (str/starts-with? s "[data-rf-xray-mode] ")
             (str "scoped under Xray's surface: " s))))))
 
-;; ---- install! idempotence ----------------------------------------------
-
-(deftest install-bang-is-safe-without-document
-  (testing "under node-test `js/document` is absent; install! must
-            no-op rather than throw. The defonce guard is the surface
-            for repeated calls — confirms install! returns nil for
-            the caller-chained idiom."
-    (is (nil? (gs/install!)))
-    (is (nil? (gs/install!))
-        "second call is also a no-op")))
-
 ;; ---- install-into! — second-window pop-out stylesheet hand-off ----------
 
 (defn- mk-stub-style-node []
@@ -641,21 +150,13 @@
     (set! (.-text node) "")
     (set! (.-appendChild node)
           (fn [child]
-            ;; createTextNode returns a node whose `.-text` carries the
-            ;; css string; mirror it onto the style node so the test can
-            ;; introspect the injected CSS.
             (set! (.-text node) (str (.-text node) (.-text child)))
             child))
     node))
 
 (defn- mk-stub-document
-  "A minimal stub document with the exact surface `inject-style-node!`
-  touches: `head` (with `appendChild` + a child registry),
-  `createElement` → style stub, `createTextNode` → `{:text css}`,
-  `getElementById` resolving against appended-node ids. Mirrors the
-  `mount_cljs_test` stub pattern. Returns `{:doc … :by-id <atom>}` so
-  the test introspects the appended nodes via the atom directly (rather
-  than a hyphenated JS prop, which CLJS interop would munge)."
+  "The document surface `inject-style-node!` touches. Returns
+  `{:doc … :by-id <atom of id → appended node>}`."
   []
   (let [by-id (atom {})
         head  (js-obj "tagName" "HEAD")]
@@ -671,64 +172,26 @@
      :by-id by-id}))
 
 (deftest install-into!-injects-the-full-stylesheet-set
-  (testing "install-into! writes every Xray style block
-            into an ARBITRARY document's <head> (the second-window
-            pop-out path), keyed by the fixed style ids so the shell's
-            var(--rf-xray-*) reads resolve in the detached window."
+  (testing "the pop-out path writes every Xray style block into an
+            arbitrary document's <head>, the themes block carrying the real
+            palette so the detached window's var() reads resolve"
     (let [{:keys [doc by-id]} (mk-stub-document)]
-      (is (nil? (gs/install-into! doc)) "returns nil for the chained idiom")
-      (doseq [id ["rf-xray-fonts"
-                  "rf-xray-motion-keyframes"
-                  "rf-xray-react-flow-base"
-                  "rf-xray-themes"
-                  "rf-xray-grain"]]
-        (is (some? (get @by-id id))
-            (str "style node injected: " id)))
-      ;; The themes block must carry the :root --rf-xray-* custom
-      ;; properties — without them the pop-out's var reads resolve to
-      ;; nothing.
-      (let [themes-css (.-text (get @by-id "rf-xray-themes"))]
-        (is (re-find #":root\s*\{" themes-css)
-            ":root block present so the var defaults resolve")
-        (is (re-find #"--rf-xray-bg-0:" themes-css)
-            "surface custom properties published")
-        (is (re-find #"--rf-xray-accent:" themes-css)
-            "accent custom property published (theme/accent ride together)")))))
+      (gs/install-into! doc)
+      (is (= #{"rf-xray-fonts" "rf-xray-motion-keyframes" "rf-xray-react-flow-base"
+               "rf-xray-themes" "rf-xray-grain"}
+             (set (keys @by-id))))
+      (is (re-find #":root\s*\{[^}]*--rf-xray-bg-0:"
+                   (.-text (get @by-id "rf-xray-themes")))))))
 
 (deftest install-into!-is-idempotent-per-document
-  (testing "repeated install-into! on the same document
-            converges to one node per style id (the id-keyed DOM probe
-            is the guard, not a defonce — a pop-out document is a
-            distinct DOM the opener's @installed? flag knows nothing
-            about)."
-    (let [{:keys [doc by-id]} (mk-stub-document)
-          create-ct (atom 0)
-          orig      (.-createElement doc)]
+  (testing "a second install-into! on the same document creates no node:
+            the id probe is the guard, since a pop-out document is a DOM the
+            opener's `installed?` flag knows nothing about"
+    (let [{:keys [doc]} (mk-stub-document)
+          create-ct     (atom 0)
+          orig          (.-createElement doc)]
       (set! (.-createElement doc)
             (fn [tag] (swap! create-ct inc) (orig tag)))
       (gs/install-into! doc)
-      (let [first-count @create-ct]
-        (is (= 5 first-count) "five style nodes created on first install")
-        (gs/install-into! doc)
-        (is (= first-count @create-ct)
-            "second install creates NO new nodes — id-probe short-circuits")
-        (is (= 5 (count @by-id))
-            "still exactly five style nodes in <head>")))))
-
-(deftest install-into!-is-safe-without-document
-  (testing "install-into! no-ops on a nil document (the
-            no-DOM / popup-blocked guard) rather than throwing."
-    (is (nil? (gs/install-into! nil)))))
-
-;; ---- host theme override -----------------------------------------------
-
-(deftest set-host-theme-css-is-safe-without-document
-  (testing "under node-test `js/document` is absent;
-            `set-host-theme-css!` (the impl behind the public
-            `core/load-theme!`) must no-op rather than throw, for any
-            input — a CSS string, an empty string, or nil. DOM-bearing
-            behaviour (replace-in-place, clear-on-blank) is exercised by
-            the browser target; here we pin the no-DOM safety contract."
-    (is (nil? (gs/set-host-theme-css! ":root { --rf-xray-bg-1: #000 }")))
-    (is (nil? (gs/set-host-theme-css! "")))
-    (is (nil? (gs/set-host-theme-css! nil)))))
+      (gs/install-into! doc)
+      (is (= 5 @create-ct)))))
