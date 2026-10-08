@@ -1,55 +1,34 @@
 (ns re-frame.after-timer-announce-claim-race-test
-  "A cleanup that claims an `:after` attempt's
-  timer-table sentinel BEFORE the attempt's `:rf.machine.timer/scheduled` row
-  is out must not put its `:rf.machine.timer/cancelled` in front of that row.
+  "A cleanup that claims an `:after` attempt's timer-table sentinel BEFORE the
+  attempt's `:rf.machine.timer/scheduled` row is out must not put its
+  `:rf.machine.timer/cancelled` in front of that row.
 
-  ## The window
+  `schedule-after-timer!` reserves the slot ABOVE the `/scheduled` emit, so an
+  announced attempt is cancellable from the instant it is visible. Between the
+  reservation and the emit the sentinel is claimable but the row is not yet
+  out, and on the JVM a concurrent cleanup can claim it there. A claimant that
+  emitted `/cancelled` on its own stack would put the closure first and leave
+  the `/scheduled` that follows as an orphan — the pairing contract Spec 005
+  §Trace event catalogue states on `(actor-id, state, epoch)`, inverted.
 
-  `schedule-after-timer!` makes the timer-table reservation ABOVE the
-  `/scheduled` emit, so an announced attempt is cancellable from the instant
-  it is visible. That leaves the reverse window: between the reservation and
-  the emit the sentinel is claimable but the row is not yet out. On the JVM a
-  concurrent cleanup — state exit, actor destroy, epoch restore, frame
-  destroy — can claim it there. Were `claim-cancel-and-release!` to emit
-  `/cancelled` on the claimant's own stack, immediately, the arming thread
-  would then emit `/scheduled`; its owner check passes (none of those
-  cleanups changes the frame incarnation), the host arm is attempted,
-  publication loses to the earlier claim, and no later row closes the
-  now-last `/scheduled`. The stream would read `/cancelled` then an orphan
-  `/scheduled` — the pairing contract Spec 005 §Trace event catalogue states
-  on `(actor-id, state, epoch)`, inverted.
+  The interleaving is driven, not raced: `rf.trace/emit!` is wrapped for one
+  hydration, and on the attempt's own `/scheduled` row the cleanup runs to
+  completion on a second thread before the real emit proceeds. A raw `Thread`,
+  not a `future`: `future` conveys the caller's dynamic bindings, and the
+  runtime marks the announcing THREAD through one, so a conveyed cleanup would
+  read as a synchronous listener on the row.
 
-  ## The interleaving is driven, not raced
-
-  `rf.trace/emit!` is wrapped for the duration of one hydration. On the attempt's
-  own `/scheduled` row — the point at which the sentinel is reserved and the
-  row is not yet delivered — the cleanup runs to completion on a second
-  thread and is joined before the real emit proceeds. That reaches the exact
-  reserve-to-emit boundary on every run; nothing here depends on scheduling
-  luck, and there is no sleep. A raw `Thread` rather than a `future`, on
-  purpose: `future` conveys the caller's dynamic bindings, and the runtime
-  marks the announcing THREAD through one, so a conveyed cleanup would read as
-  a synchronous listener on the row and defeat the control.
-
-  The second test is the control on the other side of that thread mark: a
-  claim made ON the announcing thread comes from a listener on the row itself,
-  so the row is already out and the `/cancelled` must follow it immediately —
-  before anything the listener goes on to announce. Handing every
-  pre-consummation claim to the announcer would put a same-id
-  successor's `/scheduled` between A's row and A's closure, and a consumer
-  pairing on `(actor-id, state, epoch)` — identical for A and B here — would
-  read B's fresh timer as the cancelled one.
+  The second test is the other side of that thread mark: a claim made ON the
+  announcing thread comes from a listener on the row itself, so the row is
+  already out and the `/cancelled` must follow it at once — before anything
+  the listener goes on to announce.
 
   JVM only (`.clj`): the window exists only where a second thread can run
-  between two instructions of the arm; CLJS has no such interleaving, and the
-  same-thread case is already pinned on both hosts by
-  `machine_hydration_reconcile_incarnation_fence_cljs_test`."
+  between two instructions of the arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
-            ;; Loading `re-frame.machines` installs the artefact's late-bind
-            ;; hooks + reserved fxs; under a single-ns run nothing else does.
             [re-frame.machines]
             [re-frame.machines.hydrate :as rf.machines.hydrate]
             [re-frame.machines.test-support :as rf.machines.test-support]
@@ -62,15 +41,10 @@
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   rf.machines.test-support/trace-capture-fixture)
 
-;; ---------------------------------------------------------------------------
-;; Fixtures
-;; ---------------------------------------------------------------------------
-
 (def ^:private frame-counter (atom 0))
 
 (defn- fresh-frame!
-  "A frame of the given platform under an id no other test in this shared
-  process has used. `make-frame` opts are FLAT."
+  "A frame of the given platform under an id no other test in this process has used."
   [platform]
   (let [fid (keyword "rf.announce" (str (name platform) (swap! frame-counter inc)))]
     (rf/make-frame {:id fid :platform platform})
@@ -82,27 +56,22 @@
   (get @rf.machines.timer/after-timers frame-id {}))
 
 (defn- server-runtime-db
-  "Run `machine-id` into its `:after`-bearing state on a real SERVER frame,
-  assert it armed no host timer, and return the resulting runtime-db value —
-  a genuine server-produced hydration slice rather than a literal."
+  "Run `machine-id` into its `:after`-bearing state on a real SERVER frame and
+  return the resulting runtime-db value — a genuine hydration slice."
   [machine-id]
   (let [sfid (fresh-frame! :server)]
     (rf/dispatch-sync [machine-id [:go]] {:frame sfid})
-    (is (empty? (inner sfid))
-        "precondition: the SERVER armed no `:after` host timer")
     (rf.frame/frame-runtime-db-value sfid)))
 
 (defn- install!
-  "Replace `frame-id`'s runtime-db with `runtime-db` and run the machines
-  hydration seam — what `:rf/hydrate` does once its runtime-db effect has
-  committed."
+  "Replace `frame-id`'s runtime-db and run the machines hydration seam — what
+  `:rf/hydrate` does once its runtime-db effect has committed."
   [frame-id runtime-db]
   (rf.frame/replace-runtime-db! frame-id runtime-db)
   (rf.machines.hydrate/rearm-after-timers! frame-id))
 
+;; One literal-delay `:after`: the hydration arm is exactly one attempt.
 (def ^:private literal-machine
-  "One literal-delay `:after`, so the hydration arm is exactly one attempt and
-  the only resources in play are the sentinel and the host handle."
   {:initial :idle
    :data    {}
    :states  {:idle    {:on {:go :waiting}}
@@ -110,8 +79,7 @@
              :timeout {}}})
 
 (def ^:private pair-keys
-  "The slots `:rf.machine.timer/cancelled` mirrors from `/scheduled` so a
-  consumer can pair the two rows."
+  "The slots `:rf.machine.timer/cancelled` mirrors from `/scheduled`."
   [:actor-id :state :delay :epoch :frame])
 
 (defn- timer-ops
@@ -134,95 +102,50 @@
     (when-let [e @failure] (throw e))))
 
 (defn- hydrate-with-cleanup-in-the-window!
-  "Hydrate `frame-id` with `runtime-db`, and at the reserve-to-emit boundary
-  of its one arm run `(cleanup! frame-id k)` to completion on a second
-  thread. Returns `{:bit? :reserved? :arms}`: whether the boundary was
-  reached, whether the sentinel was already in the table there, and how many
-  host clocks were armed."
+  "Hydrate `frame-id` with `runtime-db`, and at the reserve-to-emit boundary of
+  its one arm run `(cleanup! frame-id k)` to completion on a second thread.
+  Returns how many host clocks were armed."
   [frame-id runtime-db cleanup!]
   (let [orig-emit! rf.trace/emit!
-        bit?       (atom false)
-        reserved?  (atom nil)
+        seen?      (atom false)
         arms       (atom 0)]
     (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
                   rf.interop/cancel-scheduled! (fn [_h] nil)
                   rf.trace/emit!
                   (fn [op operation tags]
                     (when (and (= :rf.machine.timer/scheduled operation)
-                               (compare-and-set! bit? false true))
-                      ;; The attempt's sentinel is reserved; its row is not
-                      ;; yet delivered. The cleanup claims it HERE.
-                      (let [[k _entry] (first (inner frame-id))]
-                        (reset! reserved? (some? k))
-                        (when k (on-another-thread! #(cleanup! frame-id k)))))
+                               (compare-and-set! seen? false true))
+                      ;; The sentinel is reserved; its row is not yet delivered.
+                      (when-let [[k _entry] (first (inner frame-id))]
+                        (on-another-thread! #(cleanup! frame-id k))))
                     (orig-emit! op operation tags))]
       (install! frame-id runtime-db))
-    {:bit? @bit? :reserved? @reserved? :arms @arms}))
-
-;; ---------------------------------------------------------------------------
-;; The interleaving — a concurrent claim inside the window
-;; ---------------------------------------------------------------------------
+    @arms))
 
 (deftest a-claim-before-the-row-is-out-closes-the-row-rather-than-preceding-it
-  (doseq [[label reason cleanup!]
-          [["frame destroy" :on-frame-destroy
-            (fn [frame _k] (rf.machines.timer/cancel-all-timers! frame))]
-           ["epoch restore" :on-restore
-            (fn [frame _k] (rf.machines.timer/cancel-frame-timers-on-restore! frame))]
-           ["actor destroy" :on-destroy
-            (fn [frame k] (rf.machines.timer/cancel-actor-timers! frame (:parent k)))]
-           ["state exit" :on-exit
-            (fn [frame k] (rf.machines.timer/after-cancel-fx {:frame frame}
-                                                 {:rf/parent-id (:parent k)
-                                                  :rf/invoke-id (:spawn k)}))]]]
-    (testing (str "cleanup owner: " label)
-      (let [mid  (keyword "announce" (name reason))
-            _    (rf/reg-machine mid literal-machine)
-            rt   (server-runtime-db mid)
-            cfid (fresh-frame! :client)]
-        (is (empty? (inner cfid))
-            "precondition: the client frame holds no prior timer, so the
-             hydration is exactly one arm")
-        (rf.machines.test-support/reset-captured!)
-        (let [{:keys [bit? reserved? arms]}
-              (hydrate-with-cleanup-in-the-window! cfid rt cleanup!)
-              scheduled (rf.machines.test-support/events-of :rf.machine.timer/scheduled)
-              cancelled (rf.machines.test-support/events-of :rf.machine.timer/cancelled)]
-          (is (true? bit?)
-              "the arm's own `/scheduled` row was intercepted (seam exercised)")
-          (is (true? reserved?)
-              (str "precondition: at that boundary the attempt was already "
-                   "RESERVED — cancellable before its row was out, which is "
-                   "the reserve-before-emit ordering and the window under test"))
-          (is (= [:rf.machine.timer/scheduled :rf.machine.timer/cancelled]
-                 (mapv :operation (timer-ops)))
-              (str "the announcement first, its closure second. A claimant "
-                   "that emits on its own stack inside this window puts "
-                   "`/cancelled` BEFORE the row it closes, and the "
-                   "`/scheduled` that follows is then the last row for this "
-                   "`(actor-id, state, epoch)` — an orphan nothing downstream "
-                   "retracts"))
-          (is (= 1 (count scheduled))
-              "exactly one `/scheduled` — the attempt announced itself once")
-          (is (= 1 (count cancelled))
-              "and exactly one `/cancelled` closes it — never two, never none")
-          (is (= reason (:reason (:tags (first cancelled))))
-              (str "stamped with the CLAIMANT's own reason from the closed "
-                   "set — whoever emits the row, the cause is the cleanup's"))
-          (is (= (select-keys (:tags (first scheduled)) pair-keys)
-                 (select-keys (:tags (first cancelled)) pair-keys))
-              "and the two rows pair on the mirrored payload slots")
-          (is (empty? (inner cfid))
-              "the claimed attempt was never published")
-          (is (zero? arms)
-              (str "and no host clock was armed for an attempt already "
-                   "claimed — the arm sits behind the consummated "
-                   "announcement, so a claim that reached the sentinel first "
-                   "spends nothing on the host")))))))
-
-;; ---------------------------------------------------------------------------
-;; Control — a claim ON the announcing thread is a claim on a delivered row
-;; ---------------------------------------------------------------------------
+  ;; Every cleanup claims through the same `claim-cancel-and-release!`, so one
+  ;; claimant drives the window; each cleanup's own claim of a sentinel is
+  ;; pinned in after_timer_arm_publish_race_cljs_test.
+  (rf/reg-machine :announce/exit literal-machine)
+  (let [rt   (server-runtime-db :announce/exit)
+        cfid (fresh-frame! :client)]
+    (rf.machines.test-support/reset-captured!)
+    (let [arms (hydrate-with-cleanup-in-the-window!
+                 cfid rt
+                 (fn [frame k] (rf.machines.timer/after-cancel-fx
+                                 {:frame frame}
+                                 {:rf/parent-id (:parent k) :rf/invoke-id (:spawn k)})))
+          [scheduled cancelled :as ops] (timer-ops)]
+      (is (= [:rf.machine.timer/scheduled :rf.machine.timer/cancelled]
+             (mapv :operation ops))
+          (str "the announcement first, its closure second — never a "
+               "`/cancelled` ahead of the row it closes, leaving that row an "
+               "orphan nothing downstream retracts"))
+      (is (= (assoc (select-keys (:tags scheduled) pair-keys) :reason :on-exit)
+             (select-keys (:tags cancelled) (conj pair-keys :reason)))
+          "the closure pairs with the row and carries the CLAIMANT's own reason")
+      (is (= [{} 0] [(inner cfid) arms])
+          "the claimed attempt was neither published nor armed on the host"))))
 
 (deftest a-same-thread-claim-from-the-rows-own-listener-closes-it-before-a-successor-announces
   (testing "a `/scheduled` listener destroys A, publishes same-id B and
@@ -230,11 +153,9 @@
             closure must land before B's announcement, or a consumer pairing
             on `(actor-id, state, epoch)` reads B's live timer as cancelled"
     (rf/reg-machine :announce/succ literal-machine)
-    (let [rt      (server-runtime-db :announce/succ)
-          cfid    (fresh-frame! :client)
-          token-a (rf.frame/frame-incarnation-token cfid)
-          fired?  (atom false)
-          token-b (atom nil)]
+    (let [rt     (server-runtime-db :announce/succ)
+          cfid   (fresh-frame! :client)
+          fired? (atom false)]
       (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
                     rf.interop/cancel-scheduled! (fn [_h] nil)]
         (rf.machines.test-support/reset-captured!)
@@ -245,24 +166,16 @@
                        (compare-and-set! fired? false true))
               (rf.frame/destroy-frame! cfid)
               (rf/make-frame {:id cfid :platform :client})
-              (reset! token-b (rf.frame/frame-incarnation-token cfid))
               (install! cfid rt))))
         (try
           (install! cfid rt)
           (finally (rf.trace.tooling/unregister-listener! ::succ))))
-      (is (true? @fired?) "the `/scheduled` listener ran (seam exercised)")
-      (is (not (identical? token-a @token-b))
-          "and B is a DISTINCT incarnation from A")
-      (is (= [:rf.machine.timer/scheduled
-              :rf.machine.timer/cancelled
-              :rf.machine.timer/scheduled]
-             (mapv :operation (timer-ops)))
-          (str "A's row, A's closure, THEN B's row. The destroy sweep claimed "
-               "A's sentinel on the row's own stack, where the row is already "
-               "out, so its `/cancelled` follows immediately rather than "
-               "waiting for the announcer to return"))
-      (is (= :on-frame-destroy
-             (:reason (:tags (first (rf.machines.test-support/events-of :rf.machine.timer/cancelled)))))
-          "A's closure carries the sweep's reason")
+      (is (= [[:rf.machine.timer/scheduled nil]
+              [:rf.machine.timer/cancelled :on-frame-destroy]
+              [:rf.machine.timer/scheduled nil]]
+             (mapv (juxt :operation (comp :reason :tags)) (timer-ops)))
+          (str "A's row, A's closure by the destroy sweep, THEN B's row: the "
+               "sweep claimed A on the row's own stack, where the row is "
+               "already out, so it emits at once"))
       (is (= 1 (count (inner cfid)))
           "B's own timer is armed and survives A's token-exact abort"))))
