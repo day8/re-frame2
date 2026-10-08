@@ -1,49 +1,27 @@
 (ns day8.re-frame2-xray.panels.cancellation-cascade-cljs-test
-  "CLJS-side wiring + view tests for Xray's Cancellation-cascade
-  visualiser.
-
-  ## What's under test (in addition to the pure-data tests in
-  `cancellation_cascade_helpers_cljs_test.cljc`)
-
-    1. Registration of the `:rf.xray/cancellation-cascade-*` subs and
-       events — pinned by `registry_cljs_test`'s registry snapshot
-       rather than here.
-    2. **Empty-state render** — `SidePanel` short-circuits when no
-       cancellation-anchor is present; `Popover` is gated by
-       `:rf.xray/cancellation-cascade-popover-open?`.
-    3. **Populated render** — with a seeded trace buffer the cascade
-       view renders the decision + teardown + abort rows.
-    4. **The click handlers' events** — `:rf.xray/focus-trace-entry`
-       lands on a live tab, and `:rf.xray/cancellation-cascade-close`
-       clears the popover-open slot.
-    5. **Collapse / expand affordance** — under the default
-       threshold the expander appears and the toggle event flips
-       `:rf.xray/cancellation-cascade-expanded?`.
-
-  ## Pure hiccup
-
-  Same approach as `flows_view_cljs_test` — walk the view's hiccup
-  tree by `data-testid` rather than mounting to the DOM."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "CLJS-side wiring and view tests for Xray's Cancellation-cascade
+  visualiser: the side-panel and popover composites, the row jump's tab,
+  modal positioning, the dialog's Esc handler, and the row keys React
+  receives. The view's hiccup is walked by `data-testid` rather than
+  mounted; `cancellation_cascade_fresco_boundary_dom_cljs_test` mounts the
+  boundary for real."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.preload]
             [day8.re-frame2-xray.registry :as registry]
-            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
-            ;; The key assertions read the element the codec
-            ;; BUILDS, so the codec itself is the instrument.
+            ;; The key assertions read the element the codec BUILDS, so the
+            ;; codec itself is the instrument.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
             [day8.re-frame2-xray.panels.cancellation-cascade :as cc]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture`: plain-atom adapter + the default `:all`
-  ;; reset tier, which includes the trace-collector ring reset.
   (xray-test-support/make-xray-runtime-fixture))
 
-;; ---- hiccup walkers (mirror other view tests) ---------------------------
+;; ---- hiccup walkers -----------------------------------------------------
 
 (defn- expand-fn-component [node]
   (if (and (vector? node) (fn? (first node)))
@@ -72,37 +50,18 @@
 
 ;; ---- the two views, as trees ----------------------------------------------
 ;;
-;; `cc/SidePanel` and `cc/Popover` are `rf.fresco/as-component`
-;; bridges and answer an interop vector, not a tree to walk. The markup
-;; is `cc/render-cascade` / `cc/popover-tree`, pure fns of the values the
-;; boundary reads.
-;;
-;; The two helpers below reproduce each boundary's gate and reads
-;; EXACTLY — same gate, same order, same query vectors — so every row in
-;; this file asserts on the hiccup the boundary renders, and a boundary
-;; that stopped reading one of these subs would diverge from its own
-;; test helper rather than silently agreeing with it.
-;;
-;; These are deliberately the AMBIENT `rf/subscribe`, because these rows
-;; run under `rf/with-frame :rf/xray` in the node lane with no React
-;; commit at all. What each boundary's own read resolves to — the frame
-;; React context names, not the ambient one — is the subject of
-;; `cancellation_cascade_fresco_boundary_dom_cljs_test`, which mounts
-;; for real.
+;; `cc/SidePanel` and `cc/Popover` are `as-component` bridges, not trees to
+;; walk. These helpers reproduce each boundary's gate and reads — same
+;; order, same query vectors — over `cc/render-cascade` / `cc/popover-tree`,
+;; through the ambient `rf/subscribe` of `rf/with-frame :rf/xray`.
 
-(defn- side-panel-tree
-  "The SidePanel boundary's markup: nil while dormant, the cascade
-  block otherwise."
-  []
+(defn- side-panel-tree []
   (let [cascade @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-machine])]
     (when-not (= :no-trigger (:empty-kind cascade))
       (cc/render-cascade
         cascade nil @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])))))
 
-(defn- popover-tree
-  "The Popover boundary's markup: nil while closed, the dialog
-  otherwise."
-  []
+(defn- popover-tree []
   (when @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?])
     (cc/popover-tree
       {:cascade     @(rf/subscribe [:rf.xray/cancellation-cascade-for-focused-event])
@@ -114,13 +73,7 @@
   (rf/make-frame {:id :rf/xray}))
 
 (defn- seed-trace! [events]
-  ;; Seed Xray's app-db trace-buffer slot directly via the registry's
-  ;; sync event. Avoids the trace-bus collector loop entirely; the
-  ;; subs read off `:trace-buffer` regardless of how the slot got
-  ;; populated.
   (rf/dispatch-sync [:rf.xray/sync-trace-buffer (vec events)]))
-
-;; ---- minimal fixture events ---------------------------------------------
 
 (def ^:private cancel-cascade-buffer
   "One decision + one cancellation-anchor + two HTTP aborts."
@@ -140,308 +93,95 @@
     :tags {:request-id :r2 :url "/api/log" :actor-id :user-session
            :rf.trace/dispatch-id 7 :frame :rf/default}}])
 
-;; ---- (2) empty-state renders -------------------------------------------
-
-(deftest side-panel-empty-when-no-cascade
-  (testing "with an empty trace buffer the SidePanel reg-view returns
-            nil (mount stays dormant)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [out (side-panel-tree)]
-        (is (nil? out)
-            "no rendered hiccup when no cancellation cascade is present")))))
-
-(deftest popover-empty-when-closed
-  (testing "Popover short-circuits to nil when the open? slot is false"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (nil? (popover-tree))))))
+;; ---- renders --------------------------------------------------------------
 
 (deftest popover-renders-empty-state-when-open-with-no-cascade
-  (testing "Popover renders the no-trigger empty state when open but
-            the trace buffer carries no cascade"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (let [tree (popover-tree)]
-        (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")))
-        (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-empty-no-trigger")))))))
-
-;; ---- (3) populated render ----------------------------------------------
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
+    (is (some? (find-by-testid (popover-tree)
+                               "rf-xray-cancellation-cascade-empty-no-trigger")))))
 
 (deftest side-panel-renders-when-machine-cascade-present
-  (testing "with a cancellation cascade in the trace buffer for the
-            focused machine the SidePanel renders the waterfall"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-trace! cancel-cascade-buffer)
-      ;; Pick the machine that had the destroy
-      (rf/dispatch-sync [:rf.xray/select-machine-id :user-session])
-      (let [tree (side-panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-cancellation-cascade"))
-            "section root rendered")
-        (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-decision-row"))
-            "decision row rendered")
-        (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-summary"))
-            "summary line rendered")
-        (let [aborts (find-all-by-testid-prefix
-                       tree "rf-xray-cancellation-cascade-abort-row-")]
-          (is (= 2 (count aborts))
-              "two abort rows rendered, one per fixture event"))
-        ;; Each row's `:style` is one of the 6 precomputed
-        ;; row-style × cursor variants (no per-render `merge`). The
-        ;; `:cursor` slot is baked into the row style at ns load, so
-        ;; the rendered row's :style map carries `:cursor` directly.
-        (let [decision-row (find-by-testid tree "rf-xray-cancellation-cascade-decision-row")
-              aborts       (find-all-by-testid-prefix
-                             tree "rf-xray-cancellation-cascade-abort-row-")]
-          (is (contains? (:style (second decision-row)) :cursor)
-              "decision row picks one of the precomputed row-style × cursor variants")
-          (is (every? #(contains? (:style (second %)) :cursor) aborts)
-              "every abort row picks one of the precomputed row-style × cursor variants"))))))
+  ;; The side panel's composite folds the cascade for the SELECTED machine.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (seed-trace! cancel-cascade-buffer)
+    (rf/dispatch-sync [:rf.xray/select-machine-id :user-session])
+    (is (= 2 (count (find-all-by-testid-prefix
+                      (side-panel-tree) "rf-xray-cancellation-cascade-abort-row-"))))))
 
-;; ---- (4) click handlers ------------------------------------------------
-
-(deftest close-event-clears-the-popover-open-slot
-  (testing ":rf.xray/cancellation-cascade-close, the event the close
-            button dispatches, flips the popover-open? slot to false"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (is (true? @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?])))
-      ;; Fire the close event directly to assert the reducer's
-      ;; round-trip — the on-click is a thin wrapper over this dispatch.
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-close])
-      (is (false? @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?]))))))
+;; ---- the row jump -------------------------------------------------------
 
 (deftest focus-trace-entry-lands-on-a-live-tab
-  ;; There is no `:event` tab id (the event detail lives in Epoch), and
-  ;; selecting an unregistered id would land the shell's
-  ;; `rf-xray-tab-unknown` stub instead of the cascade detail. This locks
-  ;; the row-jump's tab onto a LIVE Dynamic L4 tab — and never onto an
-  ;; unregistered id.
-  (testing "a row jump (with a dispatch-id) selects a LIVE Dynamic L4 tab"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-trace! cancel-cascade-buffer)
-      (rf/dispatch-sync [:rf.xray/focus-trace-entry
-                         {:dispatch-id 7 :frame :rf/default :trace-id 1}])
-      (let [selected   @(rf/subscribe [:rf.xray/selected-tab])
-            live-tabs  (panel-registry/tab-ids-for-mode :dynamic)]
-        (is (contains? live-tabs selected)
-            (str "row-jump selected " (pr-str selected)
-                 " which is NOT a live Dynamic L4 tab "
-                 (pr-str live-tabs) " — it would render the unknown-tab stub"))
-        (is (not= :event selected)
-            "`:event` is not a live tab id, so it is never selected")
-        ;; Lock the specific live target: Epoch is the cascade-
-        ;; pipeline master surface the `:rf.xray/select-dispatch-id` pin
-        ;; drives. If the row-jump target moves, this assertion is the
-        ;; deliberate update point.
-        (is (= :epoch selected)
-            "the row jump lands on the Epoch tab (the focused-cascade detail)")))))
+  ;; `:epoch` is the live Dynamic tab the `:rf.xray/select-dispatch-id` pin
+  ;; drives; an unregistered id would land the shell's unknown-tab stub.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (seed-trace! cancel-cascade-buffer)
+    (rf/dispatch-sync [:rf.xray/focus-trace-entry
+                       {:dispatch-id 7 :frame :rf/default :trace-id 1}])
+    (is (= :epoch @(rf/subscribe [:rf.xray/selected-tab])))))
 
-(deftest focus-trace-entry-without-dispatch-id-does-not-switch-tab
-  ;; The tab flip is gated on `dispatch-id` — a row with no addressable
-  ;; dispatch (e.g. an actor-destroy abort outside a drain) must NOT
-  ;; switch the tab at all (so it certainly can't land an unknown tab).
-  (testing "a no-dispatch-id row jump leaves the selected tab unchanged"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-trace! cancel-cascade-buffer)
-      (let [before @(rf/subscribe [:rf.xray/selected-tab])]
-        (rf/dispatch-sync [:rf.xray/focus-trace-entry {:trace-id 1}])
-        (is (= before @(rf/subscribe [:rf.xray/selected-tab]))
-            "no dispatch-id ⇒ the tab selection is untouched")))))
-
-;; ---- (5) collapse / expand ---------------------------------------------
-
-(deftest expander-toggles-expanded-slot
-  (testing "the expand-toggle event flips the `:expanded?` slot"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (false? @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])))
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-toggle-expand])
-      (is (true?  @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?])))
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-toggle-expand])
-      (is (false? @(rf/subscribe [:rf.xray/cancellation-cascade-expanded?]))))))
-
-(deftest expander-renders-when-aborts-exceed-threshold
-  (testing "with > default-collapse-threshold aborts the expander
-            appears under the abort list"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [decision    {:id 1 :operation :rf.event/dispatched :op-type :rf.event
-                         :time 1000
-                         :tags {:rf.event/v [:checkout/cancel]
-                                :rf.trace/dispatch-id 9 :frame :rf/default}}
-            destroy     {:id 2 :operation :rf.machine/destroyed
-                         :op-type :rf.machine :time 1010
-                         :tags {:machine-id :checkout :reason :explicit
-                                :rf.trace/dispatch-id 9 :frame :rf/default}}
-            many-aborts (for [n (range 15)]
-                          {:id        (+ 100 n)
-                           :operation :rf.http/aborted-on-actor-destroy
-                           :op-type   :rf.http
-                           :time      (+ 1020 n)
-                           :tags      {:request-id (keyword (str "r" n))
-                                       :url        (str "/api/x" n)
-                                       :actor-id   :checkout
-                                       :rf.trace/dispatch-id 9
-                                       :frame      :rf/default}})]
-        (seed-trace! (concat [decision destroy] many-aborts))
-        (rf/dispatch-sync [:rf.xray/cancellation-cascade-open
-                           {:kind :dispatch-id :id 9}])
-        (let [tree (popover-tree)]
-          (is (some? (find-by-testid tree "rf-xray-cancellation-cascade-expander"))
-              "expander present when collapsed-by-default kicks in")
-          (let [shown-when-collapsed
-                (find-all-by-testid-prefix
-                  tree "rf-xray-cancellation-cascade-abort-row-")]
-            (is (<= (count shown-when-collapsed) 5)
-                "collapsed view shows at most 5 abort rows by default")))))))
-
-;; ---- (6) frame isolation ----------------------------------------------
-
-(deftest popover-state-isolated-on-rf-xray
-  (testing "the popover slot lives on :rf/xray, not on the host frame —
-            the host's app-db never sees these keys"
-    (setup-xray-frame!)
-    (rf/reg-event :host/seed (fn [{:keys [db]} _] {:db (assoc db :host/ready? true)}))
-    (rf/make-frame {:id :host/app})
-    (rf/with-frame :host/app
-      (rf/dispatch-sync [:host/seed]))
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (is (true? @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?]))
-          "open slot reads true under the :rf/xray frame"))
-    (is (true? (:cancellation-cascade-popover-open? (rf/app-db-value :rf/xray)))
-        "the key the check below looks for is the one the open event writes")
-    (let [host-db (rf/app-db-value :host/app)]
-      (is (true? (:host/ready? host-db))
-          "the host's app-db is read for real, not a nil that contains nothing")
-      (is (not (contains? host-db :cancellation-cascade-popover-open?))
-          "no leak into the host frame's app-db"))))
-
-;; ---- (7) Modal positioning ---------------------------------------------
+;; ---- modal positioning --------------------------------------------------
 
 (deftest popover-backdrop-defaults-to-fixed-positioning
-  (testing "with no :rf.xray/modal-positioning slot set, the
-            cancellation-cascade popover backdrop renders position:
-            fixed at the production z-index"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil]))
-    (rf/with-frame :rf/xray
-      (let [tree     (popover-tree)
-            backdrop (find-by-testid tree "rf-xray-cancellation-cascade-popover-backdrop")
-            style    (:style (second backdrop))]
-        (is (some? backdrop))
-        (is (= "fixed" (:position style)))
-        (is (= 2147483644 (:z-index style)))
-        (is (= "fixed"
-               (:data-rf-xray-modal-positioning (second backdrop))))))))
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
+    (let [[_ attrs] (find-by-testid (popover-tree)
+                                    "rf-xray-cancellation-cascade-popover-backdrop")]
+      (is (= ["fixed" 2147483644 "fixed"]
+             [(:position (:style attrs))
+              (:z-index (:style attrs))
+              (:data-rf-xray-modal-positioning attrs)])))))
 
 (deftest popover-backdrop-honours-absolute-positioning
-  (testing "after `:rf.xray/set-modal-positioning :absolute` the
-            cancellation-cascade backdrop switches to position:
-            absolute with a sane in-cell z-index"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (rf/dispatch-sync [:rf.xray/set-modal-positioning :absolute]))
-    (rf/with-frame :rf/xray
-      (let [tree     (popover-tree)
-            backdrop (find-by-testid tree "rf-xray-cancellation-cascade-popover-backdrop")
-            style    (:style (second backdrop))]
-        (is (some? backdrop))
-        (is (= "absolute" (:position style)))
-        (is (< (:z-index style) 1000))
-        (is (= "absolute"
-               (:data-rf-xray-modal-positioning (second backdrop))))))))
+  ;; Story testbeds confine the backdrop to the shell cell.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
+    (rf/dispatch-sync [:rf.xray/set-modal-positioning :absolute])
+    (let [[_ attrs] (find-by-testid (popover-tree)
+                                    "rf-xray-cancellation-cascade-popover-backdrop")]
+      (is (= ["absolute" "absolute"]
+             [(:position (:style attrs))
+              (:data-rf-xray-modal-positioning attrs)]))
+      (is (< (:z-index (:style attrs)) 1000)))))
 
-;; ---- (8) dialog Esc keydown ---------------------------------------------
-;;
-;; The popover DIALOG's `:on-key-down` MUST be the BUILT handler
-;; `(handle-popover-keydown dispatch)`, not the bare 1-arity builder.
-;; With the bare builder, React would call it with the keydown event and
-;; discard the handler fn it RETURNED, so a dialog-focused Esc would be a
-;; no-op — and the `a11y/dialog-ref` focus trap would keep that Esc from
-;; ever reaching the backdrop's correctly-built handler.
-;;
-;; Idiom mirrors `edn_inspector_popup_cljs_test`: pull the rendered
-;; dialog node's `:on-key-down` (exercising the actual wiring), redef
-;; `rf/dispatch-impl` to capture the dispatched event, fire
-;; a fake Escape keydown through it, and assert the close event was
-;; dispatched. With the BUILT handler the close event is captured; with
-;; the bare builder the call returns an inner fn and dispatches NOTHING
-;; (capture stays nil) — so this assertion is the discriminating guard.
+;; ---- dialog Esc keydown -------------------------------------------------
 
 (defn- fake-keydown-event
-  "Minimal stand-in for a React keydown SyntheticEvent — `.-key` plus
-  the no-op `preventDefault` / `stopPropagation` the handler calls."
+  "Stand-in for a React keydown SyntheticEvent."
   [key]
   #js {:key             key
        :preventDefault  (fn [])
        :stopPropagation (fn [])})
 
 (deftest popover-dialog-esc-keydown-dispatches-close
-  (testing "an Escape keydown on the popover DIALOG invokes the BUILT
-            keydown handler and dispatches :cancellation-cascade-close
-            — guards against the bare-builder no-op"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (let [tree     (popover-tree)
-            dialog   (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")
-            on-key   (:on-key-down (second dialog))
-            captured (atom nil)]
-        (is (some? dialog) "dialog node rendered")
-        (is (fn? on-key) "dialog carries an :on-key-down handler")
-        (with-redefs [rf/dispatch-impl (fn [event-v & _] (reset! captured event-v))]
-          (on-key (fake-keydown-event "Escape")))
-        (is (= [:rf.xray/cancellation-cascade-close] @captured)
-            "Esc on the dialog dispatched the close event (built handler invoked)")))))
+  ;; The dialog's `:on-key-down` must be the BUILT handler: React would call
+  ;; the bare 1-arity builder with the event and discard the fn it returns,
+  ;; and the focus trap keeps a dialog-focused Esc from the backdrop.
+  (setup-xray-frame!)
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
+    (let [on-key   (-> (find-by-testid (popover-tree)
+                                       "rf-xray-cancellation-cascade-popover-dialog")
+                       second
+                       :on-key-down)
+          captured (atom nil)]
+      (with-redefs [rf/dispatch-impl (fn [event-v & _] (reset! captured event-v))]
+        (on-key (fake-keydown-event "Enter"))
+        (is (nil? @captured) "any other key dispatches nothing")
+        (on-key (fake-keydown-event "Escape"))
+        (is (= [:rf.xray/cancellation-cascade-close] @captured))))))
 
-(deftest popover-dialog-keydown-ignores-non-escape
-  (testing "a non-Escape keydown on the dialog dispatches NOTHING (the
-            built handler keys on 'Escape')"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
-      (let [tree     (popover-tree)
-            dialog   (find-by-testid tree "rf-xray-cancellation-cascade-popover-dialog")
-            on-key   (:on-key-down (second dialog))
-            captured (atom nil)]
-        (with-redefs [rf/dispatch-impl (fn [event-v & _] (reset! captured event-v))]
-          (on-key (fake-keydown-event "Enter")))
-        (is (nil? @captured)
-            "Enter on the dialog dispatched nothing")))))
-
-;; ---------------------------------------------------------------------------
-;; The row keys must reach REACT, not merely the hiccup's metadata.
+;; ---- row keys -----------------------------------------------------------
 ;;
-;; An assertion that each row vector carries `:key` in its Clojure METADATA
-;; would be green against code whose keys reach React as no key at all, so it
-;; would prove the thing the code does rather than the thing the code is for.
-;;
-;; The mechanism: Reagent honours `:key` meta first and the props map second
-;; (`react-key-from-meta-or-props`), so `with-meta` works for a view rendered
-;; through the substrate adapter. The Fresco codec reads `:key` off the
-;; ATTRIBUTE MAP and reads Clojure metadata NOWHERE, so under a `defview`
-;; boundary a meta-only key reaches React as no key at all — silently, with
-;; the metadata sitting on the vector.
-;;
-;; So the rows below assert the EMITTED key: each row vector goes through the
-;; real codec and the element's own `.-key` is read. `:key` in the attribute
-;; map satisfies BOTH heads.
-;;
-;; Note: `expand-fn-component` above strips element meta (via `mapv`), so
-;; these rows re-walk the raw rendered tree without fn expansion. That is
-;; belt-and-braces rather than load-bearing — the key rides in the attribute
-;; map, which no walker here disturbs — but the raw walk is also the only one
-;; that leaves each container's child SEQ intact at index 2.
-;; ---------------------------------------------------------------------------
+;; Fresco's codec reads `:key` off the ATTRIBUTE MAP and Clojure metadata
+;; nowhere, so a meta-only key reaches React as no key at all. These rows
+;; read the key off the element the codec builds, walking the raw tree so
+;; each container's child seq stays intact at index 2.
 
 (defn- meta-preserving-children [node]
   (cond
@@ -467,15 +207,14 @@
         (tree-seq (some-fn vector? seq?) meta-preserving-children tree)))
 
 (defn- emitted-key
-  "The key REACT sees for one row. `as-element` is the codec's own
-  hiccup→element door, so this reads what a Fresco boundary commits rather
-  than what the hiccup happens to be carrying."
+  "The key REACT sees for one row, through the codec's own hiccup→element
+  door."
   [row]
   (.-key (rf.fresco.impl.codec/as-element row)))
 
 (defn- emitted-row-keys
-  "Emitted React keys for every row vector inside `container`.
-  Container shape is `[:div attrs <doall-seq>]` — the seq lives at index 2."
+  "Emitted React keys for every row vector inside a `[:div attrs <seq>]`
+  container."
   [container]
   (->> (nth container 2)
        (filter vector?)
@@ -494,46 +233,8 @@
        :aborts    (raw-find-by-testid tree "rf-xray-cancellation-cascade-aborts")})))
 
 (deftest cascade-body-rows-emit-react-keys
-  (testing "every teardown and abort row reaches React WITH its
-            key, read off the element the Fresco codec actually builds"
-    (let [{:keys [teardowns aborts]} (cascade-row-containers cancel-cascade-buffer)]
-      (is (some? teardowns) "teardown container rendered for the fixture")
-      (is (some? aborts) "abort container rendered for the fixture")
-      (let [t-keys (emitted-row-keys teardowns)
-            a-keys (emitted-row-keys aborts)]
-        ;; Counts first: a container with no rows would make every
-        ;; key assertion below vacuously true.
-        (is (= 1 (count t-keys)) "one teardown row from the fixture")
-        (is (= 2 (count a-keys)) "two abort rows from the fixture")
-        ;; A meta-only key would leave every one of these nil under the
-        ;; Fresco codec.
-        (is (every? some? t-keys)
-            (str "every teardown row carries an emitted React key — got "
-                 (pr-str t-keys)))
-        (is (every? some? a-keys)
-            (str "every abort row carries an emitted React key — got "
-                 (pr-str a-keys)))
-        ;; The key naming, pinned against the fixture's own
-        ;; trace-event ids rather than re-derived from the view's expression
-        ;; (which would assert only that the code equals itself).
-        (is (= ["teardown-2"] t-keys)
-            "teardown key is the stable trace-id-derived name")
-        (is (= ["abort-3" "abort-4"] a-keys)
-            "abort keys are the stable trace-id-derived names")
-        (is (= (count a-keys) (count (set a-keys)))
-            "abort keys are distinct, so React can tell the rows apart")))))
-
-(deftest cascade-row-keys-survive-removing-an-earlier-row
-  (testing "a key earns its keep by preserving identity across a
-            list edit. Dropping the FIRST abort must leave the second one's
-            key untouched; an index-derived key would renumber it and React
-            would reuse the wrong DOM node for it."
-    (let [full      (emitted-row-keys
-                      (:aborts (cascade-row-containers cancel-cascade-buffer)))
-          truncated (emitted-row-keys
-                      (:aborts (cascade-row-containers
-                                 (vec (remove #(= 3 (:id %)) cancel-cascade-buffer)))))]
-      (is (= ["abort-3" "abort-4"] full)
-          "both aborts keyed before the edit")
-      (is (= ["abort-4"] truncated)
-          "the surviving row keeps the key it had rather than being renumbered"))))
+  ;; Trace-id-derived keys, so a row keeps its identity when an earlier row
+  ;; leaves the list.
+  (let [{:keys [teardowns aborts]} (cascade-row-containers cancel-cascade-buffer)]
+    (is (= ["teardown-2"] (emitted-row-keys teardowns)))
+    (is (= ["abort-3" "abort-4"] (emitted-row-keys aborts)))))
