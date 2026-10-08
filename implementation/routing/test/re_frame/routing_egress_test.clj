@@ -1,81 +1,38 @@
 (ns re-frame.routing-egress-test
-  "EP-0015 (Spec 015 §Registration-owned transient classification) routing
-  egress-projection regressions.
+  "Routing's egress projections of raw route carriers (Spec 015
+  §Registration-owned transient classification):
 
-  Three routing surfaces carry raw route values toward egress:
+    - the `:rf.nav/scroll` fx args carry route params / query / fragment, and
+      `:sensitive` marks on the fx registration redact the `:rf.fx/handled`
+      trace copy;
+    - the route-miss diagnostic (`:rf.error/no-such-handler`) and the
+      `:rf.route/navigation-blocked` trace carry the requested URL under a
+      custom slot, scrubbed at the emit site by
+      `re-frame.privacy.url/redact-url-tag`;
+    - the `:rf.route/navigation-blocked` / `:rf.route/entry-denied` event
+      payloads carry `:requested-url` / `:destination` / `:target`, which the
+      framework marks `:sensitive`, and that declaration survives an app's
+      behaviour override in either namespace load order.
 
-    - the rf.routing.scroll/history fx (`:rf.nav/scroll`,
-      `:rf.nav/capture-scroll`, `:rf.nav/push-url`, `:rf.nav/replace-url`)
-      build args carrying raw route params/query/fragment/URLs, and the core
-      fx trace records `:rf.fx/args` verbatim onto `:rf.fx/handled`. Covered by
-      `:sensitive` path-marks on the fx registrations so the marks chokepoint
-      redacts the carrier slots on the trace egress copy (handler input
-      unaffected).
-    - the route-miss diagnostics (`:rf.warning/malformed-url`,
-      `:rf.error/no-such-handler`) carry the requested URL under a custom
-      `:url` slot the marks chokepoint does not walk. Covered by a default-on
-      URL-carrier scrub (`re-frame.privacy.url/redact-url-carriers`) at the
-      emit site — no schema to consult on a route miss, so query/fragment
-      values are redacted by default.
-    - the blocked-navigation record carries raw route carriers:
-      the `:rf.route/navigation-blocked` TRACE carries `:requested-url`
-      (custom slot → emit-site scrub) and the DISPATCHED event payload carries
-      the pending-nav map with `:requested-url` + `:destination` / `:target`
-      (event marks → marks chokepoint).
-
-  The unifying EP-0015 invariant under test: the IN-PROCESS value stays raw
-  (the handler / pending-nav sub / continue-cancel resume need it), only the
-  EGRESS copy (trace bus / Xray / MCP / log / epoch) is projected.
+  The in-process value stays raw (handlers, the durable pending-nav slot);
+  only the egress copy is projected. Route sub egress lives in
+  `re-frame.routing-sub-egress-production-test` and
+  `re-frame.routing-sub-prev-value-classification-test`.
 
   ## Posture split
 
-  Read this before adding a case here: the answer to \"is this leg
-  production-real?\" is NOT uniform across this namespace, and getting it
-  wrong is a privacy hole rather than a red test.
-
-  PRODUCTION-REAL, asserted with NO posture guard (so they run in the
-  ordinary `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh`,
-  the `-Dre-frame.debug=false` lane):
-
-    * the pure carrier scrub `rf.privacy.url/redact-url-carriers` /
-      `rf.privacy.url/redact-url-tag` — plain functions the emit sites call
-      unconditionally, no `rf.interop/debug-enabled?` anywhere near them (they
-      live in core; their own unit battery lives in
-      `re-frame.privacy-url-test`, and what is asserted here is that routing's
-      emit sites reach them);
-    * the `:sensitive` RETENTION itself (`rf/handler-meta`, both the
-      positional and the frame-targeted public arities) — registrar state,
-      posture-independent, and the mechanism every projection rides on;
-    * the IN-PROCESS rawness — handlers, the durable pending-nav slot,
-      continue/cancel resume;
-    * the `:rf/route` SUB-EGRESS half (`rf.routing.sub-egress/route-sub-seed-path`, the
-      `rf.elision/elide-wire-value` projections).
-      Sub-classification genuinely egresses in production, and its always-on
-      witnesses live in `re-frame.routing-sub-egress-production-test`, which
-      is separately IN the lane.
-
-  DEV-ONLY, and inside `(when rf.interop/debug-enabled? …)` arms
-  marked as dev-instrumentation arms: every assertion read off the TRACE BUS — the
-  `:rf.fx/handled` `:rf.fx/args` copy, the `:rf.error/no-such-handler` and
-  `:rf.route/navigation-blocked` tag maps, and the dispatched-event payload
-  copies. `trace/emit!` sits behind `rf.interop/debug-enabled?`, read once at
-  load time, so under the real gate there is no trace bus to project onto.
-
-  Two of those are NEGATIVE over the trace — `(not (re-find #\"SECRET100\"
-  (pr-str payload)))` in the inverse-load-order case, and the
-  `(not (re-find …))` pair in the route-miss case. With no trace, `payload` is
-  nil and the assertion passes VACUOUSLY: it would report a privacy guarantee
-  the framework never executed. They are inside the arm for that reason
-  specifically."
+  Assertions on registrar state (`rf/handler-meta`) and in-process values
+  carry no posture guard, so they also run in
+  `scripts/test-routing-prod-gate.sh` (`-Dre-frame.debug=false`). Every read
+  off the trace bus sits inside a `(when rf.interop/debug-enabled? …)` arm,
+  because `trace/emit!` is dev-gated; the `(not (re-find …))` census in the
+  inverse-load-order case would otherwise pass vacuously with no trace."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.frame :as rf.frame]
             [re-frame.fx :as rf.fx]
-            [re-frame.elision :as rf.elision]
             [re-frame.privacy :as rf.privacy]
-            [re-frame.privacy.url :as rf.privacy.url]
             [re-frame.registrar :as rf.registrar]
             [re-frame.routing :as rf.routing]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -86,47 +43,21 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-(def ^:private sentinel-str (subs (str rf.privacy/redacted-sentinel) 1))  ;; "rf/redacted"
+(def ^:private sentinel rf.privacy/redacted-sentinel)
 
-;; The spec defaults the scroll / history fx to :platforms #{:client}, so on
-;; the JVM they emit `:rf.fx/skipped-on-platform` rather than running. The
-;; routing tests re-register them #{:server :client} to exercise the drain.
-;; CRUCIAL for EP-0015: a bare re-registration would
-;; REPLACE the marks entry (register-marks! replaces in full), wiping the
-;; `:sensitive` declarations under test — so each override MERGES the
-;; production meta (carrying `:sensitive`) and only OVERRIDES `:platforms`.
-;; This keeps the test honest: it exercises the SAME marks the production
-;; registration ships, not a marks-stripped stub.
+;; ---- the scroll fx marks ------------------------------------------------------
+
 (defn- reg-jvm-fx!
-  "Re-register `fx-id` for the JVM drain (#{:server :client}) WITHOUT dropping
-  its production `:sensitive` marks. `prod-meta` is the production meta def;
-  `handler` is the test handler."
+  "Re-register `fx-id` for the JVM drain (#{:server :client}) on its production
+  meta, so the `:sensitive` marks under test stay in place. The fn form (no
+  source-coord capture) replaces the framework's source-store slot instead of
+  colliding as a cross-ns duplicate at default-image assembly."
   [fx-id prod-meta handler]
-  ;; FN form (no source-coord capture): the override REPLACES the framework's
-  ;; nil-provenance source-store slot instead of colliding as a cross-ns
-  ;; duplicate at default-image assembly.
   (rf.fx/reg-fx fx-id (assoc prod-meta :platforms #{:server :client}) handler))
 
-;; ===========================================================================
-;; The pure URL-carrier scrub itself is CORE's. Its unit cases —
-;; the happy path plus an adversarial-input battery — live in
-;; `re-frame.privacy-url-test`, beside `redact-url-carriers` in
-;; `re-frame.privacy.url`, so the policy is pinned where it is defined rather
-;; than in one of the two artefacts that call it. What this namespace covers is
-;; what is about ROUTING: which emit sites reach the scrub, and what the egress
-;; copy of each looks like.
-;; ===========================================================================
-
-;; ===========================================================================
-;; rf.routing.scroll/history fx :sensitive marks project the
-;; :rf.fx/args carrier slots on the :rf.fx/handled trace egress copy.
-;; ===========================================================================
-
-(defn- handled-trace-for
-  "Dispatch `event`, capture every `:rf.fx/handled` trace whose `:rf.fx/id`
-  is `fx-id`, and return the LAST one's `:rf.fx/args` (the projected egress
-  copy). The fx handlers are re-registered #{:server :client} so the JVM
-  drain actually invokes them (the spec default is #{:client})."
+(defn- handled-trace-args
+  "Dispatch `event` and return the `:rf.fx/args` of the last `:rf.fx/handled`
+  trace for `fx-id`: the projected egress copy."
   [fx-id event]
   (let [traces (atom [])]
     (rf/register-listener! :trace ::egress (fn [ev] (swap! traces conj ev)))
@@ -140,137 +71,42 @@
          :rf.fx/args)))
 
 (deftest scroll-fx-handled-trace-redacts-route-descriptor-carriers
-  (testing ":rf.nav/scroll's :rf.fx/handled trace has
-            :from/:to :params/:query and :fragment redacted; :strategy + the
-            route :id ride verbatim"
-    (rf/reg-route :route/articles {} "/articles")
-    (rf/reg-route :route/article  {:params [:map [:id :string]]} "/articles/:id")
-    ;; Make the fx invoke on the JVM so :rf.fx/handled emits — but KEEP the
-    ;; production `:sensitive` marks (the thing under test).
-    (reg-jvm-fx! :rf.nav/scroll   rf.routing.scroll/scroll-fx-meta   (fn [_ _] nil))
-    (reg-jvm-fx! :rf.nav/push-url rf.routing.nav-fx/push-url-meta     (fn [_ _] nil))
-    ;; Land on a route WITH params so the next nav's :from carries :params.
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "secret-doc-id"}}])
-    ;; SEMANTIC, posture-independent: the projection the trace copy
-    ;; rides on is the fx registration's own `:sensitive` declaration, which is
-    ;; registrar state and survives -Dre-frame.debug=false. If the mark is lost,
-    ;; the trace assertions below could not hold in ANY posture.
-    (is (= [[:from :params] [:from :query] [:to :params] [:to :query] [:fragment]]
-           (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/scroll})))
-        ":rf.nav/scroll declares the route-descriptor carrier slots :sensitive")
-    ;; Dev-instrumentation arm (see ns docstring).
-    (when rf.interop/debug-enabled?
-      (let [args (handled-trace-for
-                   :rf.nav/scroll
-                   [:rf.route/navigate {:to :route/article :params {:id "another-secret"} :fragment "tok-in-fragment"}])]
-        (is (some? args) "a :rf.nav/scroll :rf.fx/handled trace was emitted")
-        ;; The descriptor :id keyword survives (names the shape, no secret).
-        (is (= :route/article (get-in args [:to :id]))
-            ":to :id (route keyword) rides verbatim")
-        ;; The carrier slots are redacted to the sentinel.
-        (is (= rf.privacy/redacted-sentinel (get-in args [:to :params]))
-            ":to :params (the document-id carrier) is redacted on the trace")
-        (is (= rf.privacy/redacted-sentinel (get-in args [:from :params]))
-            ":from :params is redacted on the trace")
-        (is (= rf.privacy/redacted-sentinel (:fragment args))
-            ":fragment is redacted on the trace")
-        ;; :strategy is structural, not a carrier — it rides.
-        (is (contains? args :strategy) ":strategy rides verbatim")))))
+  (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
+  (reg-jvm-fx! :rf.nav/scroll   rf.routing.scroll/scroll-fx-meta (fn [_ _] nil))
+  (reg-jvm-fx! :rf.nav/push-url rf.routing.nav-fx/push-url-meta  (fn [_ _] nil))
+  ;; Land on a route with params so the next navigation's :from carries them.
+  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "secret-doc-id"}}])
+  (is (= [[:from :params] [:from :query] [:to :params] [:to :query] [:fragment]]
+         (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/scroll})))
+      "the trace redaction rides on this registrar declaration, which the production gate can see")
+  ;; Dev-instrumentation arm (see ns docstring).
+  (when rf.interop/debug-enabled?
+    (let [args (handled-trace-args
+                 :rf.nav/scroll
+                 [:rf.route/navigate {:to :route/article :params {:id "another-secret"} :fragment "tok-in-fragment"}])]
+      (is (= [:route/article sentinel sentinel sentinel]
+             [(get-in args [:to :id]) (get-in args [:to :params]) (get-in args [:from :params]) (:fragment args)])
+          "the route id rides; the carrier slots redact"))))
 
-(deftest scroll-fx-handler-still-receives-raw-args-in-process
-  (testing "the marks projection touches ONLY the trace
-            egress copy — the in-process handler still receives the raw args
-            (scroll restoration / fragment scrolling unaffected)"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (let [seen (atom nil)]
-      ;; Capture what the HANDLER actually receives (not the trace).
-      (reg-jvm-fx! :rf.nav/scroll   rf.routing.scroll/scroll-fx-meta
-                   (fn [_ args] (reset! seen args)))
-      (reg-jvm-fx! :rf.nav/push-url rf.routing.nav-fx/push-url-meta (fn [_ _] nil))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "doc-42"} :fragment "section-3"}])
-      (is (= {:id "doc-42"} (get-in @seen [:to :params]))
-          "the handler receives the RAW :to :params (not redacted)")
-      (is (= "section-3" (:fragment @seen))
-          "the handler receives the RAW :fragment (scrolling needs it)"))))
-
-(deftest push-url-not-marked-routes-real-url
-  (testing ":rf.nav/push-url is deliberately NOT
-            `:sensitive` — the pushed URL is the navigation's behavioural
-            identity (the open-redirect gate already cleared it), and the
-            `:effects-routed` conformance contract + epoch :effects projection
-            assert the ACTUAL routed URL. Carrier-bearing route-miss / blocked
-            URLs are scrubbed at their diagnostic emit sites instead, so
-            push-url's :rf.fx/handled trace shows the real same-origin URL."
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (reg-jvm-fx! :rf.nav/scroll   rf.routing.scroll/scroll-fx-meta (fn [_ _] nil))
-    (reg-jvm-fx! :rf.nav/push-url rf.routing.nav-fx/push-url-meta  (fn [_ _] nil))
-    ;; SEMANTIC, posture-independent: the DELIBERATE ABSENCE of a
-    ;; `:sensitive` mark is registrar state, so it is assertable under the
-    ;; production gate — and it is the fact the trace expectation below rests
-    ;; on. A mark added here by accident would fail this, in both postures.
-    (is (nil? (:sensitive (rf/handler-meta {:source :store :kind :fx :id :rf.nav/push-url})))
-        ":rf.nav/push-url declares NO :sensitive marks — the pushed URL is the
-         navigation's behavioural identity, not a diagnostic carrier")
-    ;; Dev-instrumentation arm (see ns docstring).
-    (when rf.interop/debug-enabled?
-      (let [args (handled-trace-for
-                   :rf.nav/push-url
-                   [:rf.route/url-requested {:url "/articles/intro"}])]
-        ;; A normal same-origin app URL rides verbatim on the trace (behavioural
-        ;; identity, not a redacted carrier) — push-url carries no :sensitive mark.
-        (is (= "/articles/intro" args)
-            "the push-url URL routes/traces the real same-origin URL")))))
-
-;; ===========================================================================
-;; Route-miss diagnostics redact the raw requested URL.
-;; ===========================================================================
+;; ---- emit-site URL scrubs -------------------------------------------------------
 
 (deftest route-miss-no-such-handler-redacts-url-carriers
-  (testing "an unmatched URL with query/fragment token carriers →
-            :rf.error/no-such-handler trace has the carrier VALUES redacted
-            (path + :reason kept for app error handling)"
-    ;; No route registered for /oauth → route-miss → fallback to not-found.
-    (rf/reg-route :rf.route/not-found {} "/404")
-    (let [raw "/oauth/callback?code=topsecret&state=xyz#access_token=leak"
-          traces (atom [])]
-      ;; SEMANTIC, posture-independent: the scrub the emit site
-      ;; applies is `rf.privacy.url/redact-url-tag`, an ALWAYS-ON pure function — no
-      ;; `rf.interop/debug-enabled?` between it and the caller. Assert it on the
-      ;; exact tag map the route-miss telemetry builds, so the scrub itself is
-      ;; proven under the production gate even though the trace is not emitted
-      ;; there.
-      (let [scrubbed (:url (rf.privacy.url/redact-url-tag {:url raw :kind :route} :url))]
-        (is (re-find #"^/oauth/callback" scrubbed) "the PATH is preserved")
-        (is (not (re-find #"topsecret" scrubbed)) "the query secret is NOT raw")
-        (is (not (re-find #"leak" scrubbed)) "the fragment secret is NOT raw")
-        (is (re-find (re-pattern sentinel-str) scrubbed)
-            "carrier values replaced with the rf/redacted sentinel"))
-      (rf/register-listener! :trace ::miss (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/handle-url-change raw {:rf.route/cause :link}])
-      (rf/unregister-listener! :trace ::miss)
-      ;; Dev-instrumentation arm (see ns docstring). The two
-      ;; `(not (re-find …))` legs are NEGATIVE: with no trace `url` is nil and
-      ;; they would pass vacuously, which is why they live in here rather than
-      ;; beside the semantics.
-      (when rf.interop/debug-enabled?
-        (let [err (->> @traces
-                       (filter #(= :rf.error/no-such-handler (:operation %)))
-                       first)]
-          (is (some? err) ":rf.error/no-such-handler was emitted for the route miss")
-          (let [url (-> err :tags :url)]
-            (is (string? url) "the :url slot is present (structured path kept)")
-            (is (re-find #"^/oauth/callback" url) "the PATH is preserved")
-            (is (not (re-find #"topsecret" url)) "the query secret is NOT raw")
-            (is (not (re-find #"leak" url)) "the fragment secret is NOT raw")
-            (is (re-find (re-pattern sentinel-str) url)
-                "carrier values replaced with the rf/redacted sentinel"))
-          ;; The structured discriminator the app error handler needs survives.
-          (is (= :route (-> err :tags :kind)) ":kind :route discriminator kept"))))))
-
-;; ===========================================================================
-;; The blocked-navigation record keeps no raw route carriers on
-;; egress, while continue/cancel resume still work in-process.
-;; ===========================================================================
+  (rf/reg-route :rf.route/not-found {} "/404")
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::miss (fn [ev] (swap! traces conj ev)))
+    (rf/dispatch-sync [:rf.route/handle-url-change
+                       "/oauth/callback?code=topsecret&state=xyz#access_token=leak"
+                       {:rf.route/cause :link}])
+    (rf/unregister-listener! :trace ::miss)
+    ;; Dev-instrumentation arm (see ns docstring).
+    (when rf.interop/debug-enabled?
+      (is (= {:url  "/oauth/callback?code=rf/redacted&state=rf/redacted#rf/redacted"
+              :kind :route}
+             (-> (filter #(= :rf.error/no-such-handler (:operation %)) @traces)
+                 first
+                 :tags
+                 (select-keys [:url :kind])))
+          "the path and :kind ride; the query and fragment values redact"))))
 
 (defn- block-fixture!
   "Land on an editor route guarded by a blocking :can-leave."
@@ -287,121 +123,40 @@
   (rf/dispatch-sync [:editor/dirty true]))
 
 (deftest navigation-blocked-trace-redacts-requested-url-carriers
-  (testing "the :rf.route/navigation-blocked TRACE redacts the
-            :requested-url query/fragment carriers"
-    (block-fixture!)
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
-      ;; Try to leave to a URL carrying a query secret → blocked.
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100&ref=x"}])
-      (rf/unregister-listener! :trace ::blocked)
-      ;; SEMANTIC, posture-independent: the `:requested-url` scrub
-      ;; the emit site applies (in `re-frame.routing.decisions`) is the ALWAYS-ON
-      ;; `rf.privacy.url/redact-url-tag` on the `:requested-url` slot. Assert it
-      ;; there, so the scrub itself is proven under the production gate.
-      (let [scrubbed (:requested-url
-                       (rf.privacy.url/redact-url-tag
-                         {:requested-url "/cart?coupon=SECRET100&ref=x"
-                          :rejecting-guard :editor/can-leave?}
-                         :requested-url))]
-        (is (re-find #"^/cart" scrubbed) "the path is preserved")
-        (is (not (re-find #"SECRET100" scrubbed)) "the query secret is NOT raw")
-        (is (re-find (re-pattern sentinel-str) scrubbed) "carrier value redacted"))
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [blocked (->> @traces
-                           (filter #(= :rf.route/navigation-blocked (:operation %)))
-                           first)]
-          (is (some? blocked) "a navigation-blocked trace fired")
-          (let [url (-> blocked :tags :requested-url)]
-            (is (re-find #"^/cart" url) "the path is preserved")
-            (is (not (re-find #"SECRET100" url)) "the query secret is NOT raw on the trace")
-            (is (re-find (re-pattern sentinel-str) url) "carrier value redacted"))
-          ;; The structural discriminator survives.
-          (is (= :editor/can-leave? (-> blocked :tags :rejecting-guard))
-              ":rejecting-guard kept"))))))
-
-(deftest navigation-blocked-dispatched-event-payload-redacts-carriers
-  (testing "the DISPATCHED [:rf.route/navigation-blocked pending-nav]
-            event trace redacts the pending-nav :requested-url +
-            :destination / :target carrier slots via event marks"
-    (block-fixture!)
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::nb (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
-      (rf/unregister-listener! :trace ::nb)
-      ;; SEMANTIC, posture-independent: the marks chokepoint reads
-      ;; the event registration's `:sensitive` declaration, which is registrar
-      ;; state. That declaration is what the redaction below IS — assert it
-      ;; where the production gate can see it.
-      (is (= [[:requested-url] [:destination] [:target]]
-             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked})))
-          "the framework declares the pending-nav carrier slots :sensitive")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        ;; Find a dispatched-event trace carrying the navigation-blocked event vec.
-        (let [dispatched (->> @traces
-                              (keep (fn [ev]
-                                      (let [v (or (-> ev :tags :rf.event/v)
-                                                  (-> ev :tags :event))]
-                                        (when (and (vector? v)
-                                                   (= :rf.route/navigation-blocked (first v)))
-                                          v))))
-                              first)]
-          (is (some? dispatched) "the navigation-blocked event vector was traced")
-          (let [pending-nav (second dispatched)]
-            (is (= rf.privacy/redacted-sentinel (:requested-url pending-nav))
-                ":requested-url redacted in the dispatched-event trace payload")
-            (is (= rf.privacy/redacted-sentinel (:destination pending-nav))
-                ":destination redacted in the dispatched-event trace payload")
-            (is (= rf.privacy/redacted-sentinel (:target pending-nav))
-                ":target redacted in the dispatched-event trace payload")
-            ;; Structural slots survive.
-            (is (= :link (:cause pending-nav)) ":cause kept")
-            (is (contains? pending-nav :id) ":id (pending-nav handle) kept")))))))
+  (block-fixture!)
+  (let [traces (atom [])]
+    (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
+    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100&ref=x"}])
+    (rf/unregister-listener! :trace ::blocked)
+    ;; Dev-instrumentation arm (see ns docstring).
+    (when rf.interop/debug-enabled?
+      (is (= {:requested-url   "/cart?coupon=rf/redacted&ref=rf/redacted"
+              :rejecting-guard :editor/can-leave?}
+             (-> (filter #(= :rf.route/navigation-blocked (:operation %)) @traces)
+                 first
+                 :tags
+                 (select-keys [:requested-url :rejecting-guard])))))))
 
 (deftest navigation-blocked-pending-nav-slot-keeps-raw-in-process
-  (testing "the DURABLE pending-nav runtime-db slot keeps the RAW
-            :requested-url / :destination / :target so continue/cancel resume
-            still work (marks/scrub touch only the egress copy)"
-    (block-fixture!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
-    (let [pending (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                          [:rf.runtime/routing :pending-navigation])]
-      (is (some? pending) "the block wrote the pending-nav slot")
-      ;; The in-process durable value is RAW (not redacted) — resume needs it.
-      (is (= "/cart?coupon=SECRET100" (:requested-url pending))
-          "the durable :requested-url is the RAW URL (continue re-dispatches it)")
-      (is (= {:to :route/cart :query {"coupon" "SECRET100"}} (:destination pending))
-          "the durable :destination is the raw replayable destination"))
-    ;; And continue actually completes the navigation (resume works).
-    (rf/dispatch-sync [:rf.route/continue (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                              (get-in [:rf.runtime/routing :pending-navigation :id]))])
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                      [:rf.runtime/routing :pending-navigation]))
-        "continue cleared the pending slot (resume completed from the raw value)")))
+  (block-fixture!)
+  (rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}])
+  (is (= {:requested-url "/cart?coupon=SECRET100"
+          :destination   {:to :route/cart :query {"coupon" "SECRET100"}}}
+         (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
+             (get-in [:rf.runtime/routing :pending-navigation])
+             (select-keys [:requested-url :destination])))
+      "continue replays the durable slot, so it keeps the raw carriers"))
 
-;; ===========================================================================
-;; The carrier classification SURVIVES a public behaviour
-;; override of a replaceable framework default.
+;; ---- the payload carriers survive a public behaviour override ------------------
 ;;
 ;; `:rf.route/entry-denied` / `:rf.route/navigation-blocked` are replaceable
-;; framework defaults (Spec 012 §Replaceable framework defaults): an ordinary
-;; `rf/reg-event` under the same id is the documented auth recipe. The payload
-;; those events carry is FRAMEWORK-constructed, so its URL carriers are the
-;; framework's own `:sensitive` declaration — and it must not evaporate because
-;; the application supplied its own handler. If it did, the
-;; canonical auth recipe (which declares no metadata at all) would silently ship
-;; the full denied destination to trace / off-box observation.
-;;
-;; These cases drive the PUBLIC `rf/reg-event` spelling every doc, example and
-;; skill teaches — no `:sensitive` boilerplate — and assert redaction where
-;; egress actually happens, not merely that metadata is present.
-;; ===========================================================================
+;; framework defaults, and a bare `rf/reg-event` under the same id is the
+;; documented auth recipe. Their payloads are framework-constructed, so the
+;; carrier classification is the framework's own and must survive the override.
 
 (defn- entry-fixture!
-  "A `/account` route guarded by a `:can-enter` that says NO, plus no-op nav fx —
-  so any entry door produces a terminal denial."
+  "A `/account` route whose `:can-enter` says no, so any entry door ends in a
+  terminal denial."
   []
   (rf/reg-route :route/account {:can-enter [:auth/signed-in?]} "/account")
   (rf/reg-route :route/home    {} "/home")
@@ -411,9 +166,8 @@
   (rf/dispatch-sync [:rf.route/handle-url-change "/home" {:rf.route/cause :link}]))
 
 (defn- traced-event-payload
-  "Run `f` with a trace listener attached and return the arg-map of the first
-  traced dispatched-event vector whose id is `event-id` — i.e. the EGRESS copy
-  of the payload, after classification projection."
+  "Run `f` and return the argument map of the first traced dispatched-event
+  vector whose id is `event-id`: the egress copy of the payload."
   [event-id f]
   (let [traces (atom [])]
     (rf/register-listener! :trace ::carrier (fn [ev] (swap! traces conj ev)))
@@ -425,155 +179,77 @@
                      (second v)))))
          first)))
 
+(defn- deny-account! []
+  (rf/dispatch-sync [:rf.route/handle-url-change "/account?invite=SECRET100"]))
+
 (deftest public-entry-denied-override-still-redacts-carriers-on-egress
-  (testing "the canonical auth recipe — a bare public
-            `rf/reg-event :rf.route/entry-denied` with NO :sensitive
-            boilerplate — still redacts :requested-url / :destination / :target
-            in the dispatched-event trace, while the handler itself receives the
-            RAW payload in-process"
+  (testing "the canonical auth recipe, a bare `rf/reg-event :rf.route/entry-denied`
+            with no metadata, keeps the framework's carrier redaction while the
+            handler receives the RAW payload"
     (entry-fixture!)
     (let [seen (atom [])]
-      ;; THE canonical recipe, verbatim: behaviour only, no metadata map.
       (rf/reg-event :rf.route/entry-denied
                     (fn [{:keys [db]} [_ {:keys [destination] :as denial}]]
                       (swap! seen conj denial)
                       {:db (assoc-in db [:auth :return-to] destination)}))
-      ;; SEMANTIC, posture-independent: the property under test is
-      ;; the RETENTION — the framework's carrier declaration survives a bare
-      ;; public override that declares no metadata at all. That is registrar
-      ;; state, so it is provable under the production gate, and it is the
-      ;; mechanism the trace redaction below rides on.
       (is (= [[:requested-url] [:destination] [:target]]
-             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
-          "the framework's carriers survive the bare public override")
-      ;; The dispatch runs in BOTH postures — the in-process assertions below
-      ;; depend on it. Only the trace-payload readings are posture-gated.
-      (let [payload (traced-event-payload
-                      :rf.route/entry-denied
-                      #(rf/dispatch-sync
-                         [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
+             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied}))))
+      (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]
         ;; Dev-instrumentation arm (see ns docstring).
         (when rf.interop/debug-enabled?
-          (is (some? payload) "the entry-denied event vector was traced")
-          (is (= rf.privacy/redacted-sentinel (:requested-url payload))
-              ":requested-url redacted on the egress copy after the override")
-          (is (= rf.privacy/redacted-sentinel (:destination payload))
-              ":destination redacted on the egress copy after the override")
-          (is (= rf.privacy/redacted-sentinel (:target payload))
-              ":target redacted on the egress copy after the override")
-          (is (= :auth/signed-in? (:guard payload)) "the structural :guard slot kept")))
-      ;; The handler is called exactly once, with RAW values.
-      (is (= 1 (count @seen)) "the app handler ran exactly once")
-      (let [denial (first @seen)]
-        (is (= "/account?invite=SECRET100" (:requested-url denial))
-            "the in-process handler saw the RAW requested URL")
-        (is (= {"invite" "SECRET100"} (:query (:destination denial)))
-            "the in-process handler saw the RAW replayable destination — the
-             recipe stashes it and replays it after a successful sign-in")))))
+          (is (= {:requested-url sentinel :destination sentinel :target sentinel :guard :auth/signed-in?}
+                 (select-keys payload [:requested-url :destination :target :guard])))))
+      (is (= [["/account?invite=SECRET100" {"invite" "SECRET100"}]]
+             (mapv (juxt :requested-url (comp :query :destination)) @seen))
+          "the app handler runs once, on the raw replayable destination"))))
 
 (deftest public-navigation-blocked-override-still-redacts-carriers-on-egress
-  (testing "the leave half behaves identically — a bare public
-            override of :rf.route/navigation-blocked keeps the pending-nav
-            carrier redaction on the dispatched-event trace"
-    (block-fixture!)
-    (let [seen (atom [])]
-      (rf/reg-event :rf.route/navigation-blocked
-                    (fn [_ [_ pending]] (swap! seen conj pending) {}))
-      ;; SEMANTIC, posture-independent: the retention itself — see
-      ;; the entry-denied twin above.
-      (is (= [[:requested-url] [:destination] [:target]]
-             (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked})))
-          "the framework's carriers survive the bare public override")
-      (let [payload (traced-event-payload
-                      :rf.route/navigation-blocked
-                      #(rf/dispatch-sync
-                         [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}]))]
-        ;; Dev-instrumentation arm (see ns docstring).
-        (when rf.interop/debug-enabled?
-          (is (some? payload) "the navigation-blocked event vector was traced")
-          (is (= rf.privacy/redacted-sentinel (:requested-url payload)))
-          (is (= rf.privacy/redacted-sentinel (:destination payload)))
-          (is (= rf.privacy/redacted-sentinel (:target payload)))
-          (is (= :link (:cause payload)) "the structural :cause slot kept")))
-      (is (= 1 (count @seen)) "the app handler ran exactly once")
-      (is (= "/cart?coupon=SECRET100" (:requested-url (first @seen)))
-          "the in-process handler saw the RAW requested URL (resume needs it)"))))
+  (block-fixture!)
+  (let [seen (atom [])]
+    (rf/reg-event :rf.route/navigation-blocked
+                  (fn [_ [_ pending]] (swap! seen conj pending) {}))
+    (is (= [[:requested-url] [:destination] [:target]]
+           (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/navigation-blocked}))))
+    (let [payload (traced-event-payload
+                    :rf.route/navigation-blocked
+                    #(rf/dispatch-sync [:rf.route/url-requested {:url "/cart?coupon=SECRET100"}]))]
+      ;; Dev-instrumentation arm (see ns docstring).
+      (when rf.interop/debug-enabled?
+        (is (= {:requested-url sentinel :destination sentinel :target sentinel :cause :link}
+               (select-keys payload [:requested-url :destination :target :cause])))))
+    (is (= ["/cart?coupon=SECRET100"] (mapv :requested-url @seen))
+        "the app handler runs once, on the raw requested URL")))
 
 (deftest an-app-classification-is-additive-over-the-retained-carriers
-  (testing "an override that DOES declare :sensitive gets both —
-            its own paths AND the framework's carriers. The retention is a
-            union, not a replacement in the other direction"
-    (entry-fixture!)
-    (rf/reg-event :rf.route/entry-denied
-                  {:sensitive [[:guard]]}
-                  (fn [_ _] {}))
-    (is (= [[:requested-url] [:destination] [:target] [:guard]]
-           (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
-        "framework carriers first, then the app's own declaration")
-    (let [payload (traced-event-payload
-                    :rf.route/entry-denied
-                    #(rf/dispatch-sync
-                       [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
-      ;; Dev-instrumentation arm (see ns docstring). The UNION
-      ;; itself — the property this deftest is named for — is asserted above on
-      ;; `rf/handler-meta`, posture-independently.
-      (when rf.interop/debug-enabled?
-        (is (= rf.privacy/redacted-sentinel (:requested-url payload))
-            "the framework's carrier still redacts")
-        (is (= rf.privacy/redacted-sentinel (:guard payload))
-            "the app's own declared path redacts too")))))
+  (entry-fixture!)
+  (rf/reg-event :rf.route/entry-denied {:sensitive [[:guard]]} (fn [_ _] {}))
+  (is (= [[:requested-url] [:destination] [:target] [:guard]]
+         (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
+      "framework carriers first, then the app's own declaration")
+  (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]
+    ;; Dev-instrumentation arm (see ns docstring).
+    (when rf.interop/debug-enabled?
+      (is (= {:requested-url sentinel :guard sentinel}
+             (select-keys payload [:requested-url :guard]))))))
 
 (deftest the-retained-carriers-survive-a-hot-reload-re-registration
-  (testing "re-evaluating the app namespace re-registers the
-            override. The framework's own copy is retained in the source store,
-            so the carriers ride the SECOND registration too — the classification
-            does not decay across a hot reload"
-    (entry-fixture!)
-    (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
-    (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
-    (is (= [[:requested-url] [:destination] [:target]]
-           (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
-        "no duplication, no decay")
-    (let [payload (traced-event-payload
-                    :rf.route/entry-denied
-                    #(rf/dispatch-sync
-                       [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; no-duplication / no-decay property is asserted above on
-      ;; `rf/handler-meta`, posture-independently.
-      (when rf.interop/debug-enabled?
-        (is (= rf.privacy/redacted-sentinel (:requested-url payload))
-            "still redacted after the re-registration")))))
+  (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
+  (rf/reg-event :rf.route/entry-denied (fn [_ _] {}))
+  (is (= [[:requested-url] [:destination] [:target]]
+         (:sensitive (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})))
+      "a second registration neither duplicates nor drops the carriers"))
 
-;; ===========================================================================
-;; The retention is ORDER-INDEPENDENT.
+;; ---- the retention is order-independent -----------------------------------------
 ;;
-;; Every case above loads `re-frame.routing` FIRST, which is only one of the two
-;; legal orders. `re-frame.core` does not pull the routing artefact in, so an
-;; application namespace that registers `:rf.route/entry-denied` — the canonical
-;; auth recipe — and never requires the facade itself is loaded FIRST whenever
-;; something else requires `re-frame.routing` later.
-;;
-;; Registration-time retention alone cannot cover that order: when the app
-;; registration is recorded there is no framework descriptor in the source store
-;; to read, so without reconciliation the app descriptor would be stored
-;; carrier-less and the framework's later seeding would leave it so. The app
-;; handler would still win the frame, so the ONLY observable difference would
-;; be at egress — the framework's URL carriers shipping RAW to every trace /
-;; off-box projection, purely because of require order. The seam therefore
-;; reconciles both ways.
-;; ===========================================================================
+;; `re-frame.core` does not load the routing artefact, so an app namespace that
+;; registers `:rf.route/entry-denied` can load BEFORE `re-frame.routing` seeds
+;; its defaults. There is then no framework descriptor to retain from at
+;; registration, so the seeding reconciles the other way.
 
 (defn- restage-app-registered-before-routing!
-  "Re-stage the process in the INVERSE namespace-load order, leaving a live
-  URL-owning `:rf/default`: wipe the registry (so the facade's replaceable
-  defaults are gone), run `register-app!`, and only THEN reload
-  `re-frame.routing` so it seeds its defaults over an ALREADY-PRESENT
-  application registration.
-
-  This is the suite fixture's own clear-and-reload recovery sequence
-  (`re-frame.routing-test-support/reset-runtime`) with the application
-  registration moved AHEAD of the facade reload — the one difference under test."
+  "Re-stage the process in the inverse namespace-load order, leaving a live
+  URL-owning `:rf/default`: the suite fixture's clear-and-reload sequence with
+  `register-app!` moved ahead of the `re-frame.routing` reload."
   [register-app!]
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
@@ -588,187 +264,31 @@
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Inverse-load-order default app frame (explicit URL owner)."}))
 
-(defn- frame-targeted-meta
-  "The registration metadata `:rf/default` ITSELF resolves for `(kind, id)`, read
-  through the PUBLIC frame-targeted arity `(rf/handler-meta {:frame … :kind …
-  :id …})`.
-
-  This is the arity Spec 012 names as the effective read, so the test drives the
-  public map form directly rather than reaching for the internal
-  `call-with-frame-resolution` seam it is built on: the contract that is
-  documented is then the contract that is proven, on the surface a tool (Xray,
-  re-frame-pair) actually calls."
-  [kind id]
-  (rf/handler-meta {:frame :rf/default :kind kind :id id}))
-
-(defn- frame-targeted-sensitive
-  "The `:sensitive` declaration the frame-targeted public read reports — the
-  EFFECTIVE classification, as distinct from the POSITIONAL `(rf/handler-meta {:source :store :kind kind :id id})` read, which is the process resolver map (last-write-wins)."
-  [kind id]
-  (:sensitive (frame-targeted-meta kind id)))
-
 (deftest app-registered-before-routing-still-redacts-framework-carriers
-  (testing "the application namespace registers
-            :rf.route/entry-denied BEFORE re-frame.routing seeds its replaceable
-            defaults. The app handler is still the frame's winner, and the
-            classification the frame EFFECTIVELY resolves is the same union the
-            default-first order produces — so the framework's URL carriers
-            redact at the trace chokepoint even though there was no framework
-            descriptor to retain from when the app registered"
-    (let [seen (atom [])]
-      (restage-app-registered-before-routing!
-        (fn []
-          ;; The canonical recipe, plus an app-owned declaration so ONE pass
-          ;; pins both directions of the union.
-          (rf/reg-event :rf.route/entry-denied
-                        {:sensitive [[:guard]]}
-                        (fn [{:keys [db]} [_ {:keys [destination] :as denial}]]
-                          (swap! seen conj denial)
-                          {:db (assoc-in db [:auth :return-to] destination)}))))
-      (entry-fixture!)
-      ;; (1) FRAME-TARGETED metadata through the PUBLIC map arity — the read
-      ;;     Spec 012 names as effective, and what every dispatch / projection
-      ;;     resolves.
-      (is (= [[:requested-url] [:destination] [:target] [:guard]]
-             (frame-targeted-sensitive :event :rf.route/entry-denied))
-          "the frame resolves the SAME union as the default-first order:
-           framework carriers first, then the app's own declaration")
-      (let [m (frame-targeted-meta :event :rf.route/entry-denied)]
-        (is (nil? (:rf/framework-default? m))
-            "the frame-targeted read resolves the APPLICATION descriptor — the
-             framework's own copy stopped being projected once the app
-             registered the id")
-        (is (some? (:rf.provenance/ns m))
-            "and it carries application provenance, so a tool can say WHOSE
-             handler this is"))
-      ;; (1b) The POSITIONAL read is the process resolver map, and its documented
-      ;;      semantics are process-global LAST-WRITE-WINS — not the effective
-      ;;      classification. In THIS order the framework's own seeding is the
-      ;;      last writer, so the positional read reports the framework no-op and
-      ;;      omits the app's own path. Spec 012 states this rather than claiming
-      ;;      the positional form converges; pinned here so the documented
-      ;;      semantics cannot drift silently, and so the difference between the
-      ;;      two public arities stays visible to whoever reads this next.
-      ;;
-      ;;      This is NOT a carrier leak: the framework carriers ARE present at
-      ;;      this surface, and every dispatch / egress projection resolves
-      ;;      through the frame (assertion 2 below is the proof).
-      (let [positional (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})]
-        (is (= [[:requested-url] [:destination] [:target]] (:sensitive positional))
-            "last writer in this order is the framework's own seeding")
-        (is (true? (:rf/framework-default? positional))
-            "so the positional read identifies the framework no-op")
-        (is (not= (:sensitive positional)
-                  (frame-targeted-sensitive :event :rf.route/entry-denied))
-            "the two public arities answer DIFFERENTLY under this load order —
-             which is exactly why the frame-targeted form is the effective read"))
-      ;; (2) TRACE PROJECTION — the egress the classification exists for.
-      ;;     Dev-instrumentation arm (see ns docstring). The
-      ;;     RECONCILIATION this deftest exists for is assertion (1) above,
-      ;;     which is registrar state and posture-independent. Note the final
-      ;;     leg is NEGATIVE over the trace copy: with no trace `payload` is
-      ;;     nil, `(pr-str nil)` is "nil", and it would report a privacy
-      ;;     guarantee the framework never executed.
-      (let [payload (traced-event-payload
-                      :rf.route/entry-denied
-                      #(rf/dispatch-sync
-                         [:rf.route/handle-url-change "/account?invite=SECRET100"]))]
-        (when rf.interop/debug-enabled?
-          (is (some? payload) "the entry-denied event vector was traced")
-          (is (= rf.privacy/redacted-sentinel (:requested-url payload))
-              ":requested-url redacted at egress under the inverse load order")
-          (is (= rf.privacy/redacted-sentinel (:destination payload))
-              ":destination redacted at egress under the inverse load order")
-          (is (= rf.privacy/redacted-sentinel (:target payload))
-              ":target redacted at egress under the inverse load order")
-          (is (= rf.privacy/redacted-sentinel (:guard payload))
-              "the app's OWN declared path still redacts — the union is not a
-               replacement in either direction")
-          (is (not (re-find #"SECRET100" (pr-str payload)))
-              "GUARD: the query secret appears NOWHERE on the egress copy")))
-      ;; (3) APP BEHAVIOUR — unchanged: the app handler is the frame's winner,
-      ;;     runs exactly once, and receives the RAW payload in-process.
-      (is (= 1 (count @seen))
-          "the APP handler ran exactly once (it is the frame's winner)")
-      (let [denial (first @seen)]
-        (is (= "/account?invite=SECRET100" (:requested-url denial))
-            "the in-process handler saw the RAW requested URL")
-        (is (= {"invite" "SECRET100"} (:query (:destination denial)))
-            "the in-process handler saw the RAW replayable destination")))))
-
-;; ===========================================================================
-;; Route classification applied at :rf/route SUB-EGRESS surfaces.
-;;
-;; A route declares projection-relative `:sensitive` / `:large` paths; at
-;; activation they re-root ABSOLUTE under `[:rf.runtime/routing :current …]`
-;; in the per-frame elision registry. But the `:rf/route` sub returns the BARE
-;; slice (`{:route-id :params :query …}`), so a whole-value-rooted egress walk
-;; of the sub value would never match the re-rooted decls — a `:sensitive` query /
-;; param would ship RAW on the trace bus / Pair MCP / Xray wire, contradicting
-;; Spec 012 §Lowering and re-rooting. A routing-owned / late-bound
-;; route-sub egress projector with a sub-id → runtime-path SEED TABLE
-;; (`re-frame.routing.sub-egress`) re-seeds the egress walk at the slice's
-;; storage position — the direct-read sibling of the SSR
-;; `project-routing-egress` projection.
-;;
-;; The invariant under test here: a `:sensitive [[:query :token]]` route
-;; redacts on the `:rf.sub/run` trace (`re-frame.classification/project-trace-event`)
-;; for `:rf/route`. The `:rf.route/query` / `:rf.route/params` seed entries,
-;; the Pair MCP `read-sub` path (`elide-wire-value` with `:query-v`) and the
-;; in-process rawness of `@(rf/subscribe [:rf/route])` are pinned, in both
-;; postures, by `re-frame.routing-sub-egress-production-test`.
-;; ===========================================================================
-
-(defn- nav-to-sensitive-oauth!
-  "Register + navigate to a :sensitive [[:query :token]] / :large
-  [[:query :payload]] oauth route so the route classification lowers into
-  :rf/default's elision registry and the slice publishes. The :query schema
-  promotes the keys to keyword slots (undeclared query keys stay strings)."
-  []
-  (rf/reg-route :route/oauth
-                {:sensitive [[:query :token]]
-                 :large     [[:query :payload]]
-                 :query     [:map [:token :string] [:payload :string]]}
-                "/oauth")
-  (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123&payload=blobdata" {:rf.route/cause :link}]))
-
-(defn- route-slice
-  "The raw current route slice from :rf/default's runtime-db — exactly what the
-  `:rf/route` sub returns in-process."
-  []
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
-
-;; ---- the :rf.sub/run TRACE egress (the dev-trace / Xray wire) --------------
-
-(defn- project-sub-run-trace
-  "Run a synthetic `:rf.sub/run` trace event for `sub-id` carrying `value`
-  through the framework trace chokepoint `re-frame.classification/project-trace-event`
-  — the SINGLE site `re-frame.trace/build-event` consults before delivery to
-  every trace listener (the dev-trace bus, Xray, the epoch assembler). Returns
-  the projected `:rf.sub/value`."
-  [sub-id value]
-  (-> (rf.classification/project-trace-event
-        {:operation :rf.sub/run
-         :tags      {:rf.sub/id sub-id :rf.sub/value value :frame :rf/default}})
-      :tags
-      :rf.sub/value))
-
-(deftest sub-run-trace-redacts-route-sensitive-query
-  (testing "the :rf.sub/run trace of [:rf/route] redacts the
-            :sensitive query value and elides the :large one — the bare slice
-            value is re-seeded at [:rf.runtime/routing :current]"
-    (nav-to-sensitive-oauth!)
-    (let [projected (project-sub-run-trace :rf/route (route-slice))]
-      (is (= rf.privacy/redacted-sentinel (get-in projected [:query :token]))
-          "the :sensitive [:query :token] redacts on the :rf.sub/run trace")
-      (is (rf.elision/marker? (get-in projected [:query :payload]))
-          "the :large [:query :payload] elides to the size marker on the trace")
-      (is (= :route/oauth (:route-id projected))
-          "non-classified slice fields ride verbatim"))))
-
-;; ---- the snapshot :sub-cache per-entry re-seed shape -----------------------
-;;
-;; The Pair MCP snapshot :sub-cache slice is `{query-v {:value v …}}`; the
-;; egress walks it PER ENTRY threading each entry's query-v. This pins the per-entry
-;; semantics directly against the projector (the MCP eval-form-string shape is
-;; gated by the JS-side egress-elision tests).
+  (let [seen (atom [])]
+    (restage-app-registered-before-routing!
+      (fn []
+        (rf/reg-event :rf.route/entry-denied
+                      {:sensitive [[:guard]]}
+                      (fn [{:keys [db]} [_ {:keys [destination] :as denial}]]
+                        (swap! seen conj denial)
+                        {:db (assoc-in db [:auth :return-to] destination)}))))
+    (entry-fixture!)
+    (is (= [[:requested-url] [:destination] [:target] [:guard]]
+           (:sensitive (rf/handler-meta {:frame :rf/default :kind :event :id :rf.route/entry-denied})))
+        "the frame-targeted read, which dispatch and egress resolve through, carries the same union as the default-first order")
+    ;; The positional read is the process resolver map, last-write-wins
+    ;; (Spec 012); in this order the framework's own seeding writes last.
+    (is (= {:sensitive [[:requested-url] [:destination] [:target]] :rf/framework-default? true}
+           (select-keys (rf/handler-meta {:source :store :kind :event :id :rf.route/entry-denied})
+                        [:sensitive :rf/framework-default?])))
+    (let [payload (traced-event-payload :rf.route/entry-denied deny-account!)]
+      ;; Dev-instrumentation arm (see ns docstring).
+      (when rf.interop/debug-enabled?
+        (is (= {:requested-url sentinel :destination sentinel :target sentinel :guard sentinel}
+               (select-keys payload [:requested-url :destination :target :guard])))
+        (is (not (re-find #"SECRET100" (pr-str payload)))
+            "the query secret appears nowhere on the egress copy")))
+    (is (= [["/account?invite=SECRET100" {"invite" "SECRET100"}]]
+           (mapv (juxt :requested-url (comp :query :destination)) @seen))
+        "the app handler wins the frame, runs once, and receives the raw payload")))
