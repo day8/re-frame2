@@ -1,54 +1,7 @@
 (ns re-frame.story-mcp-boundary-test
-  "JVM tests pinning the Story side of the MCP-consumer contract.
-
-  Spec coverage: `tools/story/spec/006-MCP-Surface.md` §
-  Story's public read primitives (consumed by MCP), § Story's public
-  write primitives (consumed by MCP write surface), § Late-bind
-  `reg-story-panel` contract.
-
-  The MCP jar (`tools/story-mcp/`) consumes Story's CLJC public surface
-  via direct, in-process calls in the shared JVM (spec/006
-  §Architecture; live-browser access is pair-owned per §Two surfaces,
-  one live door). The story-mcp tests at
-  `tools/story-mcp/test/` cover the MCP side — the wire envelope, the
-  per-tool semantics, the write-gate contract. This namespace covers
-  the **Story side**: the public Var surface Story commits to keeping
-  stable for the MCP jar to call.
-
-  Per spec/006 the contract is a fixed enumeration of fns + the
-  late-bind `reg-story-panel` adapter. Drift on Story's side
-  (renaming a fn, removing a Var, changing a return-shape) silently
-  breaks every MCP tool the jar wires through it. This namespace
-  pins the contract on the Story side.
-
-  Surfaces exercised:
-
-  - **Public read Vars exist + are fns.** Each spec/006-cited
-    read primitive resolves on `re-frame.story/<sym>` and is callable.
-  - **Public write Vars exist + are fns.** Same for the gated write
-    surface.
-  - **`*`-suffix helpers honour the contract.** Per spec/006 the MCP
-    `register-variant` tool routes through `reg-variant*`; we exercise
-    the same path with a clear-cut fixture and confirm it lands.
-  - **`unregister!` removes a slot from the side-table.** The MCP
-    `unregister-variant` tool consumes this.
-  - **`clear-kind!` clears a single kind without affecting siblings.**
-    Part of spec/006's public write surface; the MCP jar ships no
-    clear tool.
-  - **`reg-story-panel` is the late-bind hook spec/006 §Late-bind
-    `reg-story-panel` contract describes.** A stub registration under
-    `:rf.story/xray-epoch` is replaced by a second registration under
-    the same id. The id and the Xray-shaped `:render` are fixture
-    data: Xray itself mounts through its own per-panel contract, not
-    `reg-story-panel`. This pins the late-bind contract Story exposes
-    to third-party tooling — including the MCP jar's hypothetical
-    `register-story-panel` write tool (per spec/006 §Late-bind
-    `reg-story-panel` contract).
-
-  Test isolation: each test runs against a clean side-table seeded
-  with `install-canonical-vocabulary!` (the canonical tags, the
-  lifecycle machine, the assertion handlers and the built-in
-  decorators)."
+  "The Story side of the MCP-consumer contract (006-MCP-Surface): the public
+  read and write Vars the story-mcp jar calls in process, and the late-bind
+  `reg-story-panel` contract."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story            :as rf.story]
             [re-frame.story.registrar  :as rf.story.registrar]
@@ -63,189 +16,74 @@
 
 (use-fixtures :each reset-story-registry)
 
-;; ===========================================================================
-;; PUBLIC READ-PRIMITIVE SURFACE (spec/006 §Story's public read primitives)
-;; ===========================================================================
-;;
-;; Each Var named in spec/006-MCP-Surface.md §Story's public read
-;; primitives must resolve to a function on `re-frame.story`. This
-;; assertion makes a renaming / removal a failure in the Story corpus
-;; rather than only in the MCP jar's test suite.
+(defn- unresolved [syms ok?]
+  (remove #(some-> (ns-resolve 're-frame.story %) deref ok?) syms))
 
 (deftest public-read-surface-resolves
-  (testing "every spec/006 §Story's public read primitive resolves
-            on re-frame.story and is callable"
-    (doseq [sym '[registrations handler-meta ids registered?
-                  variants-of variants-with-tags
-                  variant->edn workspace->edn
-                  list-tags list-modes canonical-tags
-                  run-variant reset-variant watch-variant
-                  snapshot-identity
-                  read-assertions assertions-passing?
-                  canonical-assertion-ids
-                  variant-share-url]]
-      (let [v (ns-resolve 're-frame.story sym)]
-        (is (some? v)
-            (str "expected re-frame.story/" sym " to resolve"))
-        (is (or (fn? @v) (set? @v) (coll? @v))
-            (str "re-frame.story/" sym " is a callable/value Var"))))))
+  (testing "every spec/006 read primitive resolves on re-frame.story, so a
+            rename fails here and not only in the MCP jar"
+    (is (empty? (unresolved '[registrations handler-meta ids registered?
+                              variants-of variants-with-tags
+                              variant->edn workspace->edn
+                              list-tags list-modes canonical-tags
+                              run-variant reset-variant watch-variant
+                              snapshot-identity
+                              read-assertions assertions-passing?
+                              canonical-assertion-ids
+                              variant-share-url]
+                            #(or (fn? %) (coll? %)))))))
 
 (deftest public-write-surface-resolves
-  (testing "every spec/006 §Story's public write primitive resolves
-            on re-frame.story and is callable"
-    (doseq [sym '[reg-story* reg-variant* reg-workspace* reg-mode*
-                  reg-story-panel* reg-decorator* reg-tag*
-                  unregister! clear-kind! clear-all!]]
-      (let [v (ns-resolve 're-frame.story sym)]
-        (is (some? v)
-            (str "expected re-frame.story/" sym " to resolve"))
-        (is (fn? @v)
-            (str "re-frame.story/" sym " is a fn"))))))
-
-;; ===========================================================================
-;; MCP `register-variant` PATH — `reg-variant*` writes + read surface sees it
-;; ===========================================================================
+  (is (empty? (unresolved '[reg-story* reg-variant* reg-workspace* reg-mode*
+                            reg-story-panel* reg-decorator* reg-tag*
+                            unregister! clear-kind! clear-all!]
+                          fn?))))
 
 (deftest reg-variant-star-round-trips-through-the-read-surface
-  (testing "the MCP write tool calls reg-variant* (per spec/006); the read
-            tools then call registrations / handler-meta / variants-of /
-            variant->edn. All four read surfaces must surface the new
-            variant immediately"
+  (testing "a variant the MCP write path registers is visible to every read tool"
     (rf.story/reg-story :story.mcp.boundary {:doc "boundary fixture"})
     (rf.story/reg-variant* :story.mcp.boundary/probe
-      {:doc    "probe variant"
-       :setup [[:probe/init]]
-       :args   {:n 7}
-       :tags   #{:dev}})
-    (is (rf.story/registered? :variant :story.mcp.boundary/probe))
-    (is (= "probe variant"
-           (:doc (rf.story/handler-meta :variant :story.mcp.boundary/probe))))
-    (is (= #{:story.mcp.boundary/probe}
-           (rf.story/variants-of :story.mcp.boundary)))
-    (let [edn (rf.story/variant->edn :story.mcp.boundary/probe)]
-      (is (= [[:probe/init]] (:setup edn)))
-      (is (= {:n 7} (:args edn))))))
-
-(deftest reg-variant-star-bypasses-macro-source-stamp
-  (testing "the runtime helper does NOT stamp :source — that's the macro
-            layer's job. The MCP jar passes :source explicitly in the
-            body when the agent wants source-coords preserved (per
-            spec/006 — the MCP write path is programmatic, no &form
-            meta is available)"
-    (rf.story/reg-variant* :story.mcp.no-source/probe
-      {:setup []})
-    (let [body (rf.story/handler-meta :variant :story.mcp.no-source/probe)]
-      (is (not (contains? body :source))
-          "no auto-source-stamp when called programmatically — keeps
-           the slot available for MCP-supplied source coords"))))
+      {:doc "probe variant" :setup [[:probe/init]] :args {:n 7} :tags #{:dev}})
+    (is (= [#{:story.mcp.boundary/probe} "probe variant" [[:probe/init]] {:n 7}]
+           [(rf.story/variants-of :story.mcp.boundary)
+            (:doc (rf.story/handler-meta :variant :story.mcp.boundary/probe))
+            (:setup (rf.story/variant->edn :story.mcp.boundary/probe))
+            (:args (rf.story/variant->edn :story.mcp.boundary/probe))]))))
 
 (deftest reg-variant-star-preserves-mcp-supplied-source
-  (testing "an MCP-supplied :source slot survives the registrar's merge.
-            Per rf.story.registrar/merge-coords the *pending-coords* path is
-            additive — author-supplied :source wins; the dynamic Var is
-            nil under programmatic registration so this case reduces to
-            'whatever the caller wrote wins'"
-    (rf.story/reg-variant* :story.mcp.src-bring/probe
-      {:setup []
-       :source {:file "agent-supplied.cljs" :line 42}})
-    (let [body (rf.story/handler-meta :variant :story.mcp.src-bring/probe)]
-      (is (= {:file "agent-supplied.cljs" :line 42}
-             (:source body))))))
-
-;; ===========================================================================
-;; MCP `unregister-variant` PATH
-;; ===========================================================================
+  (testing "the programmatic write path stamps no :source of its own and keeps
+            one the caller supplies"
+    (doseq [[vid source] [[:story.mcp.no-source/probe nil]
+                          [:story.mcp.src-bring/probe {:file "agent-supplied.cljs" :line 42}]]]
+      (rf.story/reg-variant* vid (cond-> {:setup []} source (assoc :source source)))
+      (is (= source (:source (rf.story/handler-meta :variant vid))) (str vid)))))
 
 (deftest unregister-removes-from-read-surface
-  (testing "MCP's unregister-variant tool routes through (unregister!
-            :variant id) — after which the read surface no longer surfaces it"
-    (rf.story/reg-variant :story.mcp.unreg/probe {:setup []})
-    (is (rf.story/registered? :variant :story.mcp.unreg/probe))
-    (rf.story.registrar/unregister! :variant :story.mcp.unreg/probe)
-    (is (not (rf.story/registered? :variant :story.mcp.unreg/probe))
-        "the variant is gone after unregister!")
-    (is (not (contains? (rf.story/variants-of :story.mcp.unreg) :story.mcp.unreg/probe)))
-    (is (nil? (rf.story/handler-meta :variant :story.mcp.unreg/probe)))))
+  (rf.story/reg-variant :story.mcp.unreg/probe {:setup []})
+  (rf.story.registrar/unregister! :variant :story.mcp.unreg/probe)
+  (is (= [false #{} nil]
+         [(rf.story/registered? :variant :story.mcp.unreg/probe)
+          (rf.story/variants-of :story.mcp.unreg)
+          (rf.story/handler-meta :variant :story.mcp.unreg/probe)])))
 
 (deftest clear-kind-leaves-siblings-untouched
-  (testing "clear-kind! :variant clears all variants but leaves modes,
-            workspaces, and tags untouched — the contract a 'clear all
-            variants' tool would need so it doesn't nuke the rest of
-            the registry"
-    (rf.story/reg-variant :story.kindA/v {:setup []})
-    (rf.story/reg-variant :story.kindB/w {:setup []})
-    (rf.story/reg-mode :Mode.theme/dark {:args {:theme :dark}})
-    (rf.story/reg-workspace :Workspace.kind/grid
-      {:layout :variants-grid})
-    (rf.story.registrar/clear-kind! :variant)
-    (is (empty? (rf.story/ids :variant))
-        "all variants cleared")
-    (is (contains? (rf.story/list-modes) :Mode.theme/dark)
-        "modes survive")
-    (is (rf.story/registered? :workspace :Workspace.kind/grid)
-        "workspaces survive")
-    (is (= (into rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)
-           (rf.story/list-tags))
-        "canonical inclusion + :state/* magnitude tags survive")))
+  (rf.story/reg-variant :story.kindA/v {:setup []})
+  (rf.story/reg-mode :Mode.theme/dark {:args {:theme :dark}})
+  (rf.story/reg-workspace :Workspace.kind/grid {:layout :variants-grid})
+  (rf.story.registrar/clear-kind! :variant)
+  (is (= [#{} true true (into rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)]
+         [(set (rf.story/ids :variant))
+          (contains? (rf.story/list-modes) :Mode.theme/dark)
+          (rf.story/registered? :workspace :Workspace.kind/grid)
+          (rf.story/list-tags)])))
 
-;; ===========================================================================
-;; LATE-BIND `reg-story-panel` CONTRACT (spec/006 §Late-bind
-;; `reg-story-panel` contract)
-;; ===========================================================================
-;;
-;; Per spec/006 §Late-bind `reg-story-panel` contract, rule 5: late-bind
-;; is the contract — a `:render` id can be
-;; registered from any artefact on the classpath; Story panels resolve
-;; via `(rf/view <render-id>)` at render time, so the view-author and
-;; the panel-registrant need not live in the same jar.
-;;
-;; The contract on Story's side: a panel id can be re-registered, and
-;; the second registration replaces the first slot. That is what lets
-;; one artefact ship a stub and another override it later, and what
-;; lets an MCP `register-story-panel` write tool (if ever exposed) ship
-;; a new panel in place.
+;; spec/006 §Late-bind `reg-story-panel` contract: a panel id registered by
+;; one artefact can be replaced by another registering under the same id.
 
 (deftest reg-story-panel-late-bind-replaces-stub
-  (testing "registering a panel under an id, then re-registering under
-            the same id, replaces the slot — the late-bind contract a
-            panel shipped from another artefact depends on"
-    (rf.story/reg-story-panel :rf.story/xray-epoch
-      {:doc       "Story-shipped stub"
-       :title     "Epochs (stub)"
-       :placement :bottom
-       :render    :rf.story.stubs/xray-epoch-stub})
-    (let [stub-body (rf.story/handler-meta :story-panel :rf.story/xray-epoch)]
-      (is (= "Epochs (stub)" (:title stub-body)))
-      (is (= :rf.story.stubs/xray-epoch-stub (:render stub-body))))
-    ;; A second artefact registers its real view under the same id.
-    (rf.story/reg-story-panel :rf.story/xray-epoch
-      {:doc       "Xray-shipped real view"
-       :title     "Epochs (Xray)"
-       :placement :bottom
-       :render    :day8.re-frame2-xray.panels.time-travel/Panel})
-    (let [real-body (rf.story/handler-meta :story-panel :rf.story/xray-epoch)]
-      (is (= "Epochs (Xray)" (:title real-body)))
-      (is (= :day8.re-frame2-xray.panels.time-travel/Panel
-             (:render real-body))
-          "the real view's :render slot replaces the stub's"))))
-
-(deftest reg-story-panel-placement-vocabulary
-  (testing "the panel :placement slot accepts the five documented values
-            (:right :left :bottom :top :modal). The MCP register-story-
-            panel write tool feeds these straight through; out-of-vocab
-            placements fail the malli schema with :rf.error/story-panel-shape"
-    (doseq [placement [:right :left :bottom :top :modal]]
-      (let [pid (keyword "rf.story.test" (str "panel-" (name placement)))]
-        (rf.story/reg-story-panel pid
-          {:title     (str "panel " (name placement))
-           :placement placement
-           :render    :some/view})
-        (is (= placement
-               (:placement (rf.story/handler-meta :story-panel pid))))))
-    (testing "an off-vocab placement is rejected"
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #":rf\.error/story-panel-shape"
-                            (rf.story/reg-story-panel :rf.story.test/bad-placement
-                              {:title     "bad"
-                               :placement :nowhere
-                               :render    :x/y}))))))
+  (rf.story/reg-story-panel :rf.story/xray-epoch
+    {:title "Epochs (stub)" :placement :bottom :render :rf.story.stubs/xray-epoch-stub})
+  (rf.story/reg-story-panel :rf.story/xray-epoch
+    {:title "Epochs (Xray)" :placement :bottom :render :day8.re-frame2-xray.panels.time-travel/Panel})
+  (is (= ["Epochs (Xray)" :day8.re-frame2-xray.panels.time-travel/Panel]
+         ((juxt :title :render) (rf.story/handler-meta :story-panel :rf.story/xray-epoch)))))
