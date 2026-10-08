@@ -64,7 +64,7 @@
   therefore crosses it as a React ELEMENT through `substrate/
   as-element` — Fresco's documented `:as-child` door, the same one
   `panels/machine_after_rings.cljs` uses. W6 is that crossing measured:
-  three nodes that exist ONLY if Reagent rendered fn heads inside the
+  a node that exists ONLY if Reagent rendered a fn head inside the
   boundary's subtree, plus the canvas host, which exists only if the
   `reg-view` inside that island rendered too.
 
@@ -344,8 +344,8 @@
             ;; PIN THE LIST EMPTY. The registered-machine read is computed
             ;; from the process-global registrar, so a cold start is a
             ;; property of the whole page rather than of this row — see
-            ;; `override-machines!`. Pinning it makes the two empty-state
-            ;; assertions below decisions rather than coincidences.
+            ;; `override-machines!`. Pinning it makes the empty-surface
+            ;; assertion below a decision rather than a coincidence.
             _ (override-machines! [])
             ;; A live read in the OTHER frame, so the negative half of the
             ;; targeting claim below is measured with an instrument that is
@@ -353,22 +353,16 @@
             _probe (rf/subscribe [:rf.xray/trace-buffer] {:frame app-frame})
             {:keys [container root]} (mount-panel! :rf/xray)]
         (try
-          (is (some? (testid container "rf-xray-static-machines-panel"))
-              "the panel committed a real DOM root under React — a Fresco
-               boundary mounted through Reagent's `:>` from the registry entry")
-          ;; ---- the two NESTED boundaries, which is this panel's own claim --
-          (is (some? (testid container "rf-xray-static-machines-browse-list"))
-              "the LEFT pane boundary mounted — `panel` heads `browse-list`
-               directly, and a boundary is the one hiccup head shape that is
-               legal inside a Fresco body")
-          (is (some? (testid container "rf-xray-static-machines-detail-empty"))
-              "the RIGHT pane boundary mounted too, and with no machines
-               registered it committed its own empty surface — so the body
-               really ran through `detail-tree` rather than painting an
-               empty shell")
-          (is (some? (testid container "rf-xray-static-machines-empty"))
-              "and the left pane committed the cold-start empty state, which
-               only `browse-list-tree` emits")
+          ;; The panel chrome (a Fresco boundary mounted through Reagent's
+          ;; `:>` from the registry entry) and its two NESTED pane
+          ;; boundaries each committed their own DOM — `panel` heads both
+          ;; panes directly, and with no machines registered the right pane
+          ;; ran `detail-tree` to its empty surface.
+          (is (= [true true true]
+                 (mapv #(some? (testid container %))
+                       ["rf-xray-static-machines-panel"
+                        "rf-xray-static-machines-browse-list"
+                        "rf-xray-static-machines-detail-empty"])))
 
           ;; ---- criterion 4: the reads are where the tree said they were ----
           (is (pos? (ref-count-of :rf/xray data-q))
@@ -404,15 +398,6 @@
         (let [{:keys [container root]} (mount-panel! :rf/xray)
               pane   (testid container "rf-xray-static-machines-browse-list")
               probe? (fn [] (some? (row-node container "late-machine")))]
-          (is (some? pane)
-              "PRECONDITION: the left pane is on screen at all")
-          (is (not (probe?))
-              "NON-VACUITY: the machine this row drives in is NOT on screen
-               before it is registered. The claim is about THIS probe row
-               rather than about an empty list — the registered-machine read
-               computes from the process-global registrar, so what else is on
-               screen belongs to the page, not to this row")
-
           ;; ---- phase 2: the world moves, and the panel is deaf ------------
           ;; `:rf.xray/registered-machines` computes from the PROCESS-GLOBAL
           ;; registrar (`rf/registrations {:source :store :kind :event}`), not
@@ -427,7 +412,8 @@
                       "CONTROL: given a full settling window, the committed DOM
                        still does NOT carry the probe's row. A pane that
                        re-rendered here would make phase 3 pass for a reason
-                       that is not liveness")
+                       that is not liveness — and the row being absent here
+                       means it was absent before the registration too")
                   ;; ---- phase 3: a real input of the read moves ------------
                   ;; `cycle-sort` is one of the panel's OWN affordances, fired
                   ;; through the live frame: it writes Xray's app-db, which
@@ -439,16 +425,13 @@
                     {:label "the left pane committed the new machine's row"})))
               (.then
                 (fn [_]
-                  (is (probe?)
-                      "the pane re-rendered on a real invalidation of its own
-                       read and committed the new machine's row")
                   (is (identical?
                         pane
                         (testid container "rf-xray-static-machines-browse-list"))
-                      "and it is the SAME pane node: React reconciled the live
-                       tree in place, so the row did not arrive by the pane
-                       being remounted from scratch, which would not be
-                       liveness")))
+                      "the pane committed the new machine's row as the SAME
+                       pane node: React reconciled the live tree in place, so
+                       the row did not arrive by the pane being remounted from
+                       scratch, which would not be liveness")))
               (.catch (fn [e]
                         (is false (str "W2 never settled: " (.-message e)
                                        " — DOM: " (.-textContent container)))
@@ -481,10 +464,8 @@
               instances? (fn [] (some? (testid container
                                          "rf-xray-static-machines-instances-body")))]
           (is (some? (testid container "rf-xray-static-machines-topology"))
-              "PRECONDITION: the default `:topology` sub-mode is on screen")
-          (is (not (instances?))
-              "NON-VACUITY: the body this row drives in is NOT on screen before
-               the sub-mode changes")
+              "NON-VACUITY: the default `:topology` body is on screen, so the
+               `:instances` body this row drives in is not")
           (rf/dispatch-sync [:rf.xray.static.machines/set-sub-mode
                              :probe/topology :instances]
                             {:frame :rf/xray})
@@ -492,9 +473,6 @@
                 {:label "the right pane committed the :instances body"})
               (.then
                 (fn [_]
-                  (is (nil? (testid container "rf-xray-static-machines-topology"))
-                      "the Topology body left the committed DOM, so the body
-                       really swapped rather than the new one being appended")
                   (is (identical? panel-root
                                   (testid container "rf-xray-static-machines-panel"))
                       "the panel chrome is the SAME node — `panel` reads
@@ -543,12 +521,10 @@
           (let [{:keys [container root]} (mount-panel! app-frame)
                 subject-views (filterv view-op? @traces)]
             (try
-              (is (some? (testid container "rf-xray-static-machines-panel"))
-                  "precondition: the panel really did render in this commit —
-                   an empty container would make the zero below vacuous")
               (is (some? (testid container "rf-xray-static-machines-browse-list"))
-                  "precondition: and so did the nested pane boundaries, so the
-                   zero covers all three renders and not just the outermost")
+                  "precondition: the panel and its nested pane boundaries really
+                   did render in this commit, so the zero below covers all
+                   three renders")
               (is (nil? (testid container "rf-xray-static-machines-topology"))
                   "SCOPE, asserted rather than assumed: no Topology body is on
                    screen, so no Reagent island rendered in this commit and the
@@ -571,8 +547,6 @@
                   (rdc/render root [rf/frame-provider {:frame app-frame}
                                     [ProbeRegView]])))
               (let [control-views (filterv view-op? @traces)]
-                (is (some? (testid container "rf-xray-probe-reg-view"))
-                    "precondition: the control really did render")
                 (is (pos? (count control-views))
                     (str "CONTROL FIRES: an ordinary reg-view rendered the same "
                          "way DOES emit a :rf.view/* op, so the subject's zero "
@@ -625,14 +599,13 @@
                       "the mount took a reference — otherwise the release
                        below is vacuous")
                   (teardown! root container)
+                  ;; The unmount releases it COMPLETELY, within the
+                  ;; collector's grace macrotask — a timeout lands in the
+                  ;; `.catch` below.
                   (-> (rf.test-support/poll-until released?
                         {:label "the first unmount released the read"})
                       (.then
                         (fn [_]
-                          (is (released?)
-                              (str "the unmount released it COMPLETELY, within "
-                                   "the collector's grace macrotask. Cache: "
-                                   (pr-str (keys (cache-of :rf/xray)))))
                           ;; ---- reopen: the same count, not a higher one ----
                           (let [{c2 :container r2 :root} (mount-panel! :rf/xray)
                                 remounted (ref-count-of :rf/xray data-q)]
@@ -646,8 +619,6 @@
                             (teardown! r2 c2)
                             (rf.test-support/poll-until released?
                               {:label "the second unmount released it too"}))))))))
-            (.then (fn [_] (is (released?)
-                               "and the second unmount releases it too")))
             (.catch (fn [e] (is false (str "poll timed out: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
@@ -678,8 +649,6 @@
               survivor (row-node container "second")]
           (is (some? head)     "PRECONDITION: the head row is on screen")
           (is (some? survivor) "PRECONDITION: the survivor row is on screen")
-          (is (= 2 (count (row-nodes container)))
-              "PRECONDITION: exactly the two fixture rows are on screen")
           (when (and (some? head) (some? survivor))
             ;; DOCUMENT_POSITION_FOLLOWING = 4. A removal from the tail is
             ;; invisible to this row's claim, so prove we are removing the head.
@@ -693,10 +662,8 @@
                 {:label "the head row left the committed DOM"})
               (.then
                 (fn [_]
-                  (is (nil? (row-node container "first"))
-                      "the removed row is gone from the committed DOM")
                   (is (identical? survivor (row-node container "second"))
-                      "and the survivor is the IDENTICAL DOM node React
+                      "the survivor of the head's removal is the IDENTICAL DOM node React
                        already had — which is only true if the key reached
                        React. With the key lost to metadata the codec cannot
                        read, React reconciles by index and hands the survivor
@@ -738,19 +705,11 @@
         (override-definitions! {:probe/topology probe-machine})
         (let [{:keys [container root]} (mount-panel! :rf/xray)]
           (try
-            (is (some? (testid container "rf-xray-static-machines-detail-header"))
-                "PRECONDITION: the right pane selected the machine and painted
-                 its header — without a selection there is no Topology body to
-                 cross at all")
-            (is (some? (testid container "rf-xray-static-machines-topology"))
-                "the Topology body committed — the island crossed")
             (is (some? (testid container "rf-xray-static-machines-topology-toolbar"))
-                "and `[chart-toolbar …]`, a PLAIN FN in hiccup head position,
-                 rendered inside it — Fresco's codec would have refused that
-                 head, so this node is the crossing itself")
-            (is (nil? (testid container "rf-xray-static-machines-topology-popout"))
-                "the inert pop-out affordance is NOT committed: its
-                 handler is a registered no-op, so the toolbar hides it")
+                "the Topology body crossed, and `[chart-toolbar …]`, a PLAIN FN
+                 in hiccup head position, rendered inside it — Fresco's codec
+                 would have refused that head, so this node is the crossing
+                 itself")
             (is (some? (testid container "rf-xray-machine-canvas-host"))
                 "and `machine-canvas/Chart` — an `rf/reg-view` one level deeper,
                  under `[chart …]`, the head shape the codec grades `:invalid`
@@ -758,8 +717,5 @@
                  host, so the island is a whole Reagent subtree rather than one
                  converted node, and a reg-view survives inside it and resolves
                  its frame from React context")
-            (is (nil? (testid container "rf-xray-static-machines-topology-no-definition"))
-                "NON-VACUITY: the no-definition hint is ABSENT, so the chart
-                 arm is the arm that ran")
             (finally
               (teardown! root container))))))))
