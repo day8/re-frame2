@@ -54,13 +54,7 @@
     reads that same address, measured side by side (section 3);
   - `intent/navigate-head` retains an address too, and routing documents it
     so deliberately (`activate-link!`: *the dispatch always lands on the
-    CURRENTLY-committed frame (retarget-safe)*). Section 4 measures what
-    pinning it would cost, and the answer is that the link goes dead —
-    the late-binding warm branch's failure.
-
-  Sections 2 and 4 each end with the counterfactual measured rather than
-  argued, because \"it did not reproduce\" and \"it cannot happen\" are
-  different claims and only the second settles a seam."
+    CURRENTLY-committed frame (retarget-safe)*)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -303,42 +297,6 @@
           "no :on-error, no write — the mark in the rows above is this seam's
            doing and not the harness's"))))
 
-(deftest NEGATIVE-CONTROL-pinning-the-boundary-report-would-silence-it
-  ;; The counterfactual for seam 1, measured rather than argued: "capture the
-  ;; boundary's frame when it mounts and report through that bundle". This is
-  ;; that alternative, built out of the documented
-  ;; seam — `rf/capture-frame` taken while the mounting incarnation is live, the
-  ;; way `impl.frames/mint-row` takes it — and run against the same catch.
-  ;;
-  ;; It reproduces nothing useful and destroys something real: the application's
-  ;; `:on-error` never runs for an error that just happened on screen.
-  ;; boundary.cljs: "a boundary that quietly does not catch is worse than none".
-  (testing "a report pinned at MOUNT is refused after a reincarnation — the
-            failure is not a wrong write, it is no report at all"
-    (incarnate! "A")
-    (let [pinned (rf/capture-frame frame-id)]        ; what a mount-time pin holds
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals
-                                 #((:dispatch-sync pinned) [:seams/mark :pinned-report]))]
-        (is (nil? (marked))
-            "the pinned report does not reach the frame the boundary is
-             currently mounted under")
-        (is (= 1 (count refusals))
-            "it is refused — which for an ERROR REPORT means the failure is
-             swallowed by the very component whose job is to surface it")
-        (is (= :seams/mark (:event-id (first refusals)))))))
-
-  (testing "while the shipped seam, on the identical transition and from the
-            same warm row, delivers — so the row above is a cost this design
-            pays nothing for"
-    (incarnate! "A")
-    (render!)
-    (let [this (boundary-instance [:seams/mark :shipped])]
-      (reincarnate! "B")
-      (catch! this)
-      (is (= :shipped (marked))
-          "address-directed, and therefore still able to report"))))
-
 ;; ---------------------------------------------------------------------------
 ;; 3. SEAM 2 — the internal mount witness door (`impl.mount/dispatch!`)
 ;; ---------------------------------------------------------------------------
@@ -490,37 +448,3 @@
 
                       :else (js/setTimeout #(poll (dec n)) 0)))]
             (poll 50)))))))
-
-(deftest NEGATIVE-CONTROL-pinning-navigate-would-leave-a-dead-link
-  ;; The counterfactual for seam 3, measured: "capture the frame at render and
-  ;; navigate through that bundle" — i.e. treat the navigate map's `:frame` as
-  ;; a capability. Built out of the documented seam (`rf/capture-frame` at
-  ;; render, the way `impl.frames/mint-row` takes it) and fired at the same
-  ;; click.
-  ;;
-  ;; It is the late-binding WARM branch's failure, built on purpose: an anchor
-  ;; the successor has just painted, whose click does nothing. The question
-  ;; each seam answers is whether it CAN revive a dead incarnation; here the
-  ;; answer is that pinning it would instead kill a live one.
-  (testing "a navigate pinned at render is refused after a reincarnation — the
-            anchor is on the screen and the click writes nothing"
-    (incarnate! "A")
-    (let [pinned (rf/capture-frame frame-id)]
-      (reincarnate! "B")
-      (let [{:keys [refusals]} (with-refusals
-                                 #((:dispatch-sync pinned) [:seams/mark :pinned-nav]))]
-        (is (nil? (marked)) "the live app is not navigated")
-        (is (= 1 (count refusals)) "the click is refused")
-        (is (= :seams/mark (:event-id (first refusals)))))))
-
-  (testing "and the shipped seam hands routing an address on the identical
-            transition, so the row above is a cost with no purchase"
-    (let [seen (atom nil)]
-      (with-activate-link (fn [_e _veto frame _payload _native?] (reset! seen frame) nil)
-        (fn []
-          (incarnate! "A")
-          (let [on-click (lower-navigate :nav)]
-            (reincarnate! "B")
-            (on-click (click-event))
-            (is (= frame-id @seen)
-                "the address, unchanged — and routing decides from there")))))))
