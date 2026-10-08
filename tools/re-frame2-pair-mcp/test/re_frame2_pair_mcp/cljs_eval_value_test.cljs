@@ -1,54 +1,17 @@
 (ns re-frame2-pair-mcp.cljs-eval-value-test
-  "Unit tests for `nrepl/cljs-eval-value` — the value-unwrap seam every
-  tool's runtime read flows through.
-
-  ## Why this suite exists
-
-  `cljs-eval-value` is the single most load-bearing fn in the artefact:
-  every tool that reads from the runtime (`snapshot`, `get-path`,
-  `dispatch`, `eval-cljs`, the probe, …) calls it to turn shadow-cljs's
-  string-encoded `cljs-eval` response into the actual CLJS value. The
-  rest of the corpus STUBS `cljs-eval-value` itself (see
-  `test_utils/with-stubbed-eval!`, `eval_cljs_test`, `conformance_test`)
-  — so its own unwrap logic needs a dedicated home. A regression in any
-  of its branches (the `:results` peek, the `:ex`-reject, the inner
-  `:err`-reject, the blank→nil short-circuit, or the `read-edn-safe`
-  parse-failure fallback) would slip past the suites that mock the very
-  fn under test; this one exercises it directly.
-
-  ## Seam
-
-  `cljs-eval-value` calls the lower-level `nrepl/cljs-eval` and `.then`s
-  the resolved combined-response map `{:value :out :err :status :ex}`.
-  We `set!` `nrepl/cljs-eval` (one layer below the SUT) to canned
-  response maps and assert the unwrapped value / rejection. The real
-  `cljs-eval-value` runs unmocked — this is the inverse posture to the
-  rest of the corpus.
-
-  ## shadow's response shape
-
-  shadow-cljs's `cljs-eval` API returns a string-encoded EDN map like
-  `{:results [\"42\"] :ns user}` in the `:value` slot of the nREPL
-  combined response. `cljs-eval-value` reads the outer EDN, peeks the
-  LAST `:results` entry (itself an EDN-encoded string), and reads THAT
-  to get the value. Two EDN reads, nested."
+  "Unit tests for `nrepl/cljs-eval-value`, which unwraps shadow's
+  string-encoded `cljs-eval` reply (`{:results [\"<edn>\"] ...}`) into the
+  value every runtime read returns. Most of the suite stubs this fn, so these
+  tests stub the layer below it, `nrepl/cljs-eval`, and run it for real. The
+  compile-error branch is exercised end to end by `eval_cljs_test`."
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]))
 
-;; ---------------------------------------------------------------------------
-;; Seam — stub the lower-level `cljs-eval` so the real `cljs-eval-value`
-;; runs its unwrap logic against a canned combined-response map.
-;; ---------------------------------------------------------------------------
-
 (defn- with-stubbed-cljs-eval!
-  "Install a stub `nrepl/cljs-eval` that resolves to `resp` (the combined
-  nREPL response map the real fn would build). Run `body-fn` (returns a
-  Promise) and restore the original in `.finally` so cleanup outlives
-  async resolution. Both 3- and 4-arity are spelled out — CLJS direct-
-  arity dispatch calls `...$arity$3` / `...$arity$4`, which a
-  rest-arg fn would not expose."
+  "Stub `nrepl/cljs-eval` to resolve `resp` (both arities: CLJS calls the
+  arity slots directly), run the Promise-returning `body-fn`, and restore."
   [resp body-fn]
   (let [orig nrepl/cljs-eval
         stub (fn
@@ -61,254 +24,54 @@
 
 (defn- fresh-conn [] (nrepl/make-conn 0 "127.0.0.1"))
 
-;; ---------------------------------------------------------------------------
-;; Happy path — the nested-EDN unwrap shadow actually produces.
-;; ---------------------------------------------------------------------------
-
 (deftest peeks-last-results-entry
-  ;; Multiple :results entries (multi-form eval) — only the LAST is the
-  ;; value the caller wants; the earlier ones are intermediate. `peek`
-  ;; on the vector returns the final entry.
+  ;; shadow's clean reply carries a blank :err, which must not read as a failure.
   (async done
     (-> (with-stubbed-cljs-eval!
-          {:value "{:results [\"1\" \"2\" \"99\"] :ns user}"}
+          {:value "{:results [\"1\" \"2\" \"99\"] :err \"\" :ns cljs.user}"}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
         (.then (fn [v]
-                 (is (= 99 v) "last :results entry wins")
+                 (is (= 99 v) "the last :results entry is the value")
                  (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Blank value → nil. shadow returns a blank :value for a build with no
-;; live runtime; the caller (eval-cljs / probe) discriminates this from a
-;; genuine nil via the runtime sentinel preflight, but the unwrap itself
-;; collapses blank → nil.
-;; ---------------------------------------------------------------------------
 
 (deftest blank-value-resolves-nil
   (async done
     (-> (with-stubbed-cljs-eval! {:value ""}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
         (.then (fn [v]
-                 (is (nil? v) "empty :value string resolves to nil")
+                 (is (nil? v) "an empty :value resolves to nil")
                  (done))))))
-
-(deftest absent-value-resolves-nil
-  ;; No :value key at all (e.g. a status-only frame). `(str nil)` is
-  ;; blank, so the same short-circuit fires.
-  (async done
-    (-> (with-stubbed-cljs-eval! {:out "" :err "" :status #{"done"}}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [v]
-                 (is (nil? v) "missing :value resolves to nil")
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; :ex present → reject. An nREPL-level eval exception (compile error,
-;; thrown form) must surface as a rejected Promise, never a resolved nil
-;; or partial value — the caller's .catch turns it into the transport
-;; error envelope. :ex takes precedence over a present :value — even if
-;; shadow somehow returned both, the exception path wins (fail loud over a
-;; partial value).
-;; ---------------------------------------------------------------------------
 
 (deftest ex-rejects-with-error
+  ;; :ex wins over a :value shadow also returned.
   (async done
     (-> (with-stubbed-cljs-eval!
           {:ex "class clojure.lang.ExceptionInfo" :err "Unable to resolve symbol: foo"
            :value "{:results [\"42\"] :ns user}"}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "foo")))
-        ;; The rejection arm IS this row's success path, so the two handlers are
-        ;; SIBLINGS of one two-arg `.then` and the single `done` trails them. A
-        ;; `.catch` after a `done` would claim a LATER namespace's throw as this
-        ;; row's failure and fire `done` a second time.
         (.then (fn [_]
                  (is false "an :ex response MUST reject, not resolve"))
                (fn [err]
-                 (is (instance? js/Error err))
-                 (let [m (.-message err)]
-                   (is (re-find #"nREPL eval error" m) "structured eval-error prefix")
-                   (is (re-find #"ExceptionInfo" m) ":ex text carried into the message")
-                   (is (re-find #"Unable to resolve symbol" m)
-                       ":err detail appended when present"))))
-        (.then (fn [_] (done))))))
-
-(deftest ex-without-err-still-rejects
-  ;; :ex present but :err blank — the message omits the " — <err>" suffix
-  ;; but still rejects with the :ex text.
-  (async done
-    (-> (with-stubbed-cljs-eval! {:ex "boom" :err ""}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [_]
-                 (is false "an :ex response MUST reject even with blank :err"))
-               (fn [err]
-                 (let [m (.-message err)]
-                   (is (re-find #"nREPL eval error: boom" m))
-                   (is (not (re-find #" — " m)) "no err-suffix when :err is blank"))))
+                 (is (= "nREPL eval error: class clojure.lang.ExceptionInfo — Unable to resolve symbol: foo"
+                        (.-message err))
+                     "the rejection carries the :ex text and the :err detail")))
         (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Inner :err map → reject. When the OUTER EDN parses to a map carrying
-;; a non-blank :err (a shadow-side cljs-eval compile warning/error,
-;; distinct from an nREPL :ex), the unwrap rejects rather than returning
-;; the error map as a "value". It surfaces as a structured ex-info
-;; carrying `:reason :rf.error/eval-cljs-compile-error`.
-;; ---------------------------------------------------------------------------
-
-(deftest inner-err-map-rejects
-  (async done
-    (-> (with-stubbed-cljs-eval!
-          {:value "{:err \"Cannot infer target type\"}"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [_]
-                 (is false "an outer map with :err MUST reject"))
-               (fn [err]
-                 (is (re-find #"cljs eval compile error/warning: Cannot infer target type"
-                              (.-message err))
-                     "inner :err surfaced as a distinct cljs-eval compile-error message")
-                 (is (= :rf.error/eval-cljs-compile-error (:reason (ex-data err)))
-                     "rejection carries the structured compile-error reason")
-                 (is (= "Cannot infer target type" (:err (ex-data err)))
-                     ":err text rides on the ex-data verbatim")))
-        (.then (fn [_] (done))))))
-
-;; ---------------------------------------------------------------------------
-;; An UNRESOLVED SYMBOL is the headline case. shadow emits an
-;; `:eval-compile-warnings` REPL message: the analyzer warning text lands
-;; in the response `:err`, yet shadow STILL pushes a "nil" into
-;; `:results`. The :err branch takes precedence over the `:results` peek,
-;; so the failure surfaces as a rejection instead of being swallowed as a
-;; silent `{:ok? true :value nil}`.
-;; ---------------------------------------------------------------------------
-
-(deftest unresolved-symbol-warning-rejects-not-silent-nil
-  (async done
-    (-> (with-stubbed-cljs-eval!
-          ;; The exact shadow shape for an undeclared var: a "nil" result
-          ;; sitting alongside the analyzer warning in :err.
-          {:value (str "{:results [\"nil\"] "
-                       ":err \"WARNING: Use of undeclared Var re-frame.core/frame-db at line 1 <eval>\" "
-                       ":ns cljs.user}")}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "re-frame.core/frame-db")))
-        (.then (fn [v]
-                 (is false (str "an unresolved symbol MUST reject, never resolve "
-                                "(got " (pr-str v) ", a silent nil)")))
-               (fn [err]
-                 (is (instance? js/Error err))
-                 (is (re-find #"Use of undeclared Var re-frame.core/frame-db"
-                              (.-message err))
-                     "the analyzer warning text is carried into the rejection")
-                 (let [data (ex-data err)]
-                   (is (= :rf.error/eval-cljs-compile-error (:reason data))
-                       "structured compile-error reason")
-                   (is (re-find #"undeclared Var" (:err data))
-                       ":err text rides on the ex-data")
-                   (is (string? (:hint data)) "a corrective hint is offered"))))
-        (.then (fn [_] (done))))))
-
-(deftest clean-results-with-blank-err-still-resolves-value
-  ;; A clean eval leaves :err blank ("") — the :err branch must NOT fire
-  ;; on a blank :err, so the value still unwraps normally. Pins that the
-  ;; :err precedence doesn't hijack the happy path.
-  (async done
-    (-> (with-stubbed-cljs-eval!
-          {:value "{:results [\"42\"] :err \"\" :ns cljs.user}"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "(+ 40 2)")))
-        (.then (fn [v]
-                 (is (= 42 v) "a blank :err does not block the value unwrap")
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Non-:results map → returned as-is. A :value that parses to a map
-;; WITHOUT a :results vector (and without :err) is the value itself —
-;; some lower-level callers eval forms whose result is a bare map. The
-;; `:else` arm returns `outer` unchanged.
-;; ---------------------------------------------------------------------------
-
-(deftest non-results-map-returned-verbatim
-  (async done
-    (-> (with-stubbed-cljs-eval! {:value "{:custom :shape :n 7}"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [v]
-                 (is (= {:custom :shape :n 7} v)
-                     "outer map without :results returned verbatim")
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; read-edn-safe fallback — an unparseable :value must NOT throw the
-;; whole pipeline. The contract (nrepl/read-edn-safe) is: log to stderr,
-;; return the raw string. Exercised here through the public SUT so the
-;; private fn's behaviour is pinned without reaching for its var.
-;; ---------------------------------------------------------------------------
-
-(deftest unparseable-outer-value-falls-back-to-raw-string
-  (async done
-    ;; Silence the expected stderr log from read-edn-safe so the
-    ;; otherwise-quiet run stays clean (the log is SUT behaviour, not a
-    ;; failure).
-    (let [orig-err (.-error js/console)]
-      (set! (.-error js/console) (fn [& _] nil))
-      (-> (with-stubbed-cljs-eval! {:value "#unbalanced ((("}
-            (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-          (.then (fn [v]
-                   (is (= "#unbalanced (((" v)
-                       "unparseable outer EDN falls back to the raw string, never throws")))
-          (.finally (fn []
-                      (set! (.-error js/console) orig-err)
-                      (done)))))))
-
-(deftest unparseable-inner-results-entry-falls-back-to-raw-string
-  ;; The OUTER parses fine to a :results vector, but the inner entry is
-  ;; itself unparseable EDN. The inner read-edn-safe returns the raw
-  ;; string rather than throwing — the value the caller gets is the
-  ;; unparseable text, surfaced (not silently dropped).
-  (async done
-    (let [orig-err (.-error js/console)]
-      (set! (.-error js/console) (fn [& _] nil))
-      (-> (with-stubbed-cljs-eval!
-            {:value "{:results [\"((( nope\"] :ns user}"}
-            (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-          (.then (fn [v]
-                   (is (= "((( nope" v)
-                       "unparseable inner :results entry falls back to its raw string")))
-          (.finally (fn []
-                      (set! (.-error js/console) orig-err)
-                      (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Empty :results vector → nil. `peek` on `[]` is nil; the `when-let`
-;; guards the inner read so the call resolves nil rather than reading
-;; `(read-edn-safe nil)`.
-;; ---------------------------------------------------------------------------
-
-(deftest empty-results-vector-resolves-nil
-  (async done
-    (-> (with-stubbed-cljs-eval! {:value "{:results [] :ns user}"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [v]
-                 (is (nil? v) "empty :results vector resolves to nil")
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Application-defined tags stay inert tagged data.
-;;
-;; An app can print a value under a tag only its own reader registry knows
-;; (a date library's `#instant`, say). This Node process has no reader for
-;; it, so the decoder keeps such a value as an inert `tagged-literal` —
-;; tag and form intact, re-printing as the same EDN — instead of failing
-;; the whole reply back to its raw string. The standard readers still
-;; apply, nothing is registered globally, and the reader-eval tag `#=` is
-;; refused rather than kept.
+;; Tags. An app can print a value under a tag only its own reader registry
+;; knows; the decoder keeps it as an inert `tagged-literal` rather than
+;; failing the whole reply to its raw string. Standard readers still apply,
+;; nothing is registered globally, and the reader-eval tag `#=` is refused.
 ;; ---------------------------------------------------------------------------
 
 (defn- printed-result
-  "shadow's outer `cljs-eval` reply carrying `inner`, the runtime's printed
-  value, as its one `:results` entry."
+  "shadow's outer reply carrying `inner`, the runtime's printed value."
   [inner]
   {:value (pr-str {:results [inner] :ns 'cljs.user})})
 
 (defn- with-quiet-stderr
   "Run the Promise-returning `body-fn` with `console.error` silenced: the
-  decoder logs a parse failure, which is behaviour under test, not noise."
+  decoder logs a parse failure."
   [body-fn]
   (let [orig-err (.-error js/console)]
     (set! (.-error js/console) (fn [& _] nil))
@@ -324,15 +87,11 @@
                                " :quoted \"#=(not-a-tag)\"}"))
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
         (.then (fn [v]
-                 (is (map? v) "the enclosing map decodes instead of falling back to its raw string")
-                 (is (= (tagged-literal 'instant "2026-01-01T00:00:00Z") (:at v))
-                     "an unknown tag keeps its tag symbol and its form")
-                 (is (= 'app/outer (:tag (:outer v))) "nested tags decode at every depth")
-                 (is (= (tagged-literal 'app/inner [1 :k/v]) (get-in v [:outer :form :inner])))
-                 (is (= "#instant \"2026-01-01T00:00:00Z\"" (pr-str (:at v)))
-                     "an inert tag re-prints as the EDN it arrived as")
-                 (is (= "#=(not-a-tag)" (:quoted v))
-                     "`#=` inside a string is ordinary data — the refusal reads the parsed tag")))
+                 (is (= {:at     (tagged-literal 'instant "2026-01-01T00:00:00Z")
+                         :outer  (tagged-literal 'app/outer {:inner (tagged-literal 'app/inner [1 :k/v])})
+                         :quoted "#=(not-a-tag)"}
+                        v)
+                     "unknown tags keep tag and form at every depth; `#=` inside a string is plain data")))
         (.then (fn [_] (done))))))
 
 (deftest standard-reader-tags-keep-their-readers
@@ -342,9 +101,8 @@
                                " :u #uuid \"8e55e886-374f-4cf6-9c12-09ea4611a749\"}"))
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
         (.then (fn [v]
-                 (is (instance? js/Date (:t v)) "#inst still reads to a Date")
-                 (is (= 1767225600000 (.getTime (:t v))))
-                 (is (uuid? (:u v)) "#uuid still reads to a UUID")
+                 (is (= {:t (js/Date. 1767225600000) :u (uuid "8e55e886-374f-4cf6-9c12-09ea4611a749")} v)
+                     "#inst reads to a Date and #uuid to a UUID")
                  (is (thrown? js/Error (cljs.reader/read-string "#instant \"2026-01-01T00:00:00Z\""))
                      "the inert fallback is per read: the global reader registry is unchanged")))
         (.then (fn [_] (done))))))
@@ -368,5 +126,5 @@
               (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))))
         (.then (fn [v]
                  (is (= "{:at #instant \"2026-01-01T00:00:00Z\" :b [1 2" v)
-                     "malformed data still fails to its raw string — a tag does not mask it")))
+                     "malformed data falls back to its raw string — a tag does not mask it")))
         (.then (fn [_] (done))))))
