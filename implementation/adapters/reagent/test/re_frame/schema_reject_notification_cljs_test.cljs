@@ -72,18 +72,9 @@
           (rf/dispatch-sync [:reject.test/break] {:frame fid})
           (rf/unregister-listener! :trace ::reject-probe)
           (r/flush)
-          (is (= 0 @during-reject)
-              "the listener-triggered sync flush read the OLD value — the
-               invalid candidate was never installed")
-          (is (= [0] @seen)
-              "ZERO tracker re-runs for the rejected dispatch — the
-               reaction graph was never dirtied (and \"boom\" was never
-               observable)")
-          (is (= after-prime @runs)
-              "the sub body did not re-run either")
-          (is (= 0 @sub) "the reaction still reads the pre-handler value")
-          (is (= {:n 0} (rf/app-db-value fid))
-              "the container holds the pre-handler value")
+          (is (= [0 [0] after-prime 0 {:n 0}]
+                 [@during-reject @seen @runs @sub (rf/app-db-value fid)])
+              "the listener-triggered sync flush read the OLD value, with ZERO tracker or sub-body re-runs: the invalid candidate was never installed, so the reaction and the container still hold the pre-handler value")
           ;; Sanity: the tracker is live — a valid commit re-runs it
           ;; exactly once with the new value.
           (rf/dispatch-sync [:reject.test/ok] {:frame fid})
