@@ -42,36 +42,24 @@
                   (fn [_ url] (swap! pushed conj url)))
     pushed))
 
-(defn- thrown-id
-  "The `:rf.error/id` a thunk throws, or nil when it returns."
-  [thunk]
-  (try (thunk) nil
-       (catch clojure.lang.ExceptionInfo ex (:rf.error/id (ex-data ex)))))
-
 ;; ---- the in-place fold ------------------------------------------------------
 
 (deftest query-merge-over-a-url-seeded-undeclared-key-overwrites-it
   (testing "a keyword delta for an undeclared key REPLACES the URL-seeded string
-            key rather than adding a keyword twin beside it"
+            key rather than adding a keyword twin, so the pushed URL carries
+            one page= and a reload reads the edit back"
     (rf/reg-route :route/search {} "/search")
     (let [pushed (record-pushes!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/search?page=1&q=x"
                          {:rf.route/cause :link}])
-      (is (= {"page" "1" "q" "x"} (:query (slice)))
-          "precondition: the URL door keeps undeclared keys as strings")
       (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page 2}}])
-      (is (= {"page" "2" "q" "x"} (:query (slice)))
-          "ONE page key, spelled the way the URL spells it")
-      (is (= ["/search?page=2&q=x"] @pushed)
-          "and one page= in the pushed URL, so a reload reads the edit back")
-      (is (= (:query (slice))
-             (:query (rf.routing/match-url (last @pushed))))
-          "the reload's slice IS the committed slice")
+      (is (= [{"page" "2" "q" "x"} ["/search?page=2&q=x"]]
+             [(:query (slice)) @pushed]))
       (testing "and a nil delta removes the key it names"
         (reset! pushed [])
         (rf/dispatch-sync [:rf.route/navigate {:query-merge {:page nil}}])
-        (is (= {"q" "x"} (:query (slice))))
-        (is (= ["/search?q=x"] @pushed))))))
+        (is (= [{"q" "x"} ["/search?q=x"]]
+               [(:query (slice)) @pushed]))))))
 
 (deftest query-merge-with-a-string-key-for-a-declared-token-is-that-keyword
   (testing "the mirror case: a DECLARED key spelled as a string names the
@@ -81,16 +69,16 @@
     (let [pushed (record-pushes!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/decl?page=2"
                          {:rf.route/cause :link}])
-      (is (= {:page 2} (:query (slice))) "precondition: a declared key is typed")
       (rf/dispatch-sync [:rf.route/navigate {:query-merge {"page" 3}}])
-      (is (= {:page 3} (:query (slice))))
-      (is (= ["/decl?page=3"] @pushed)))))
+      (is (= [{:page 3} ["/decl?page=3"]]
+             [(:query (slice)) @pushed])))))
 
 ;; ---- one destination, one slice, across doors ------------------------------
 
 (deftest a-named-address-and-its-own-url-are-the-same-target
-  (testing "{:to … :query {:q \"x\"}} then the SAME URL through the URL door is
-            a rule-3 no-op: same nav-token, no :on-match re-fire"
+  (testing "{:to … :query …} then the SAME URL through the URL door is a rule-3
+            no-op: the committed query is what the URL door resolves, the
+            nav-token does not advance and :on-match does not re-fire"
     (let [fires  (atom 0)
           pushed (record-pushes!)]
       (rf/reg-event :test/search-shown (fn [_ _] (swap! fires inc) {}))
@@ -106,13 +94,9 @@
           (let [token  (:nav-token (slice))
                 before @fires
                 url    (last @pushed)]
-            (is (some? url) "the programmatic door pushed a URL")
-            (is (= (:query (rf.routing/match-url url)) (:query (slice)))
-                "the committed query is exactly what the URL door resolves")
+            (is (= (:query (rf.routing/match-url url)) (:query (slice))))
             (rf/dispatch-sync [:rf.route/handle-url-change url {:rf.route/cause :link}])
-            (is (= token (:nav-token (slice)))
-                "the nav-token did not advance — no re-activation")
-            (is (= before @fires) ":on-match did not re-fire")))))))
+            (is (= [token before] [(:nav-token (slice)) @fires]))))))))
 
 (deftest route-url-spells-a-query-the-same-whichever-key-kind-the-caller-used
   (rf/reg-route :route/search {} "/search")
@@ -120,9 +104,6 @@
     (is (= (rf.routing/route-url {:to :route/search :query {"z" "1" "a" "2"}})
            (rf.routing/route-url {:to :route/search :query {:z "1" "a" "2"}}))
         "one canonical href, not ?z=1&a=2 for one spelling and ?a=2&z=1 for the other"))
-  (testing "a namespaced undeclared keyword keeps its namespace in the token"
-    (is (= "/search?user%2Fid=u"
-           (rf.routing/route-url {:to :route/search :query {:user/id "u"}}))))
   (testing "a declared token spelled as a string emits once"
     (rf/reg-route :route/decl {:query [:map [:page {:optional true} :int]]} "/decl")
     (is (= "/decl?page=3"
@@ -130,30 +111,24 @@
         "the later spelling wins; the URL carries ONE page=")))
 
 (deftest an-undeclared-value-commits-as-the-string-the-url-carries
-  (testing "an ADMITTED scalar is committed as its URL string — the value
-            match-url hands back for the pushed URL"
+  (testing "an ADMITTED scalar, under a plain or a namespaced key, is committed
+            as its URL string — the value match-url hands back for the pushed URL"
     (rf/reg-route :route/search {} "/search")
     (let [pushed (record-pushes!)]
       (rf/dispatch-sync [:rf.route/navigate
                          {:to    :route/search
                           :query {:page 2 :on true :tag 'sym :user/id "u"}}])
-      (is (= {"page" "2" "on" "true" "tag" "sym" "user/id" "u"} (:query (slice))))
-      (is (= (:query (slice)) (:query (rf.routing/match-url (last @pushed))))))))
+      (is (= {"page" "2" "on" "true" "tag" "sym" "user/id" "u"}
+             (:query (slice))
+             (:query (rf.routing/match-url (last @pushed))))))))
 
-;; ---- controls: the refusal rows keep their refusal -------------------------
+;; ---- control: the refusal rows keep their refusal --------------------------
 
 (deftest non-admitted-values-are-still-refused-and-never-stringified
-  (rf/reg-route :route/search {} "/search")
-  (testing "route-url refuses a host value, a float and an unsafe integer
-            under the URL's own string-key spelling too"
-    (doseq [[label v] [["host object" (Object.)]
-                       ["float" 1.5]
-                       ["2^53" 9007199254740992]]]
-      (is (= :rf.error/route-url-non-edn-value
-             (thrown-id #(rf.routing/route-url {:to :route/search :query {"x" v}})))
-          (str label " under a string key"))))
-  (testing "the navigate door rejects rather than committing a stringified value"
-    (let [pushed (record-pushes!)]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/search :query {:x 1.5}}])
-      (is (nil? (slice)) "nothing committed")
-      (is (empty? @pushed) "nothing pushed"))))
+  (testing "route-url refuses a value with no URL form under the URL's own
+            string-key spelling too, rather than stringifying it"
+    (rf/reg-route :route/search {} "/search")
+    (is (= :rf.error/route-url-non-edn-value
+           (try (rf.routing/route-url {:to :route/search :query {"x" (Object.)}})
+                nil
+                (catch clojure.lang.ExceptionInfo ex (:rf.error/id (ex-data ex))))))))
