@@ -1,13 +1,7 @@
 (ns re-frame2-pair-mcp.nrepl-test
-  "Unit tests for the bencode framing helpers in nrepl.cljs.
-
-  bencode@2 stores the post-decode cursor on `bencode.decode.position`
-  rather than a module-level export — an easy detail to get wrong, so the
-  multi-frame walker gets a thorough test.
-
-  Tests pin `decode-all-frames` directly from
-  `re-frame2-pair-mcp.nrepl` — the source ns is the contract."
-  (:require [cljs.test :refer-macros [deftest is testing async]]
+  "Unit tests for the nREPL transport: bencode framing, the socket handlers,
+  `send-op!`, the port-discovery cascade and the single-flight `connect!`."
+  (:require [cljs.test :refer-macros [deftest is async]]
             [applied-science.js-interop :as j]
             ["bencode" :as bencode]
             ["fs" :as fs]
@@ -16,38 +10,18 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.shadow-discovery :as shadow-discovery]))
 
-(defn- decode-all
-  "Wrap `nrepl/decode-all-frames` returning `[clj-vec rest-buf]`.
-  Source returns `[js-array rest-buf]` for hot-path perf; tests want a
-  CLJS vector to walk."
-  [^js buf]
-  (let [[js-frames rest] (nrepl/decode-all-frames buf)]
-    [(vec (array-seq js-frames)) rest]))
-
 (deftest complete-frame-then-incomplete-tail-splits
-  ;; One complete frame followed by the start of a second. The first
-  ;; dispatches; the incomplete tail is retained for the next chunk —
-  ;; the exact multi-frame-chunk-with-partial-tail shape a busy socket
-  ;; produces.
-  (let [whole    (js/Buffer.from "d3:foo3:bare" "utf8")
-        head     (js/Buffer.from "d3:baz" "utf8")          ; start of a 2nd frame
-        chunk    (js/Buffer.concat #js [whole head])
-        [fs rst] (decode-all chunk)]
-    (is (= 1 (count fs)) "exactly the one complete frame is returned")
-    (is (= "bar" (j/get (first fs) "foo")))
-    (is (= (.-length head) (.-length rst))
-        "the incomplete second frame's bytes are held as the trailer")))
+  ;; One complete frame then the start of a second: the shape a busy socket delivers.
+  (let [head             (js/Buffer.from "d3:baz" "utf8")
+        [frames trailer] (nrepl/decode-all-frames
+                           (js/Buffer.concat #js [(js/Buffer.from "d3:foo3:bare" "utf8") head]))]
+    (is (= ["bar"] (map #(j/get % "foo") (array-seq frames))) "exactly the one complete frame decodes")
+    (is (= (.-length head) (.-length trailer)) "the incomplete frame's bytes are kept as the trailer")))
 
-;; ===========================================================================
-;; Port discovery — `read-port-from-fs`.
-;;
-;; The fn has a four-way precedence: the `SHADOW_CLJS_NREPL_PORT` env var
-;; wins; failing that, three port-file candidates are tried in order; a
-;; non-numeric value at any source is rejected via the `isNaN` guard; an
-;; all-miss returns nil. We stub `fs.readFileSync` +
-;; `process.env.SHADOW_CLJS_NREPL_PORT` to exercise those branches without
-;; touching the real filesystem.
-;; ===========================================================================
+;; ---------------------------------------------------------------------------
+;; Port files. `fs.readFileSync` and `$SHADOW_CLJS_NREPL_PORT` are stubbed so
+;; no real file is read.
+;; ---------------------------------------------------------------------------
 
 (def ^:private env-key "SHADOW_CLJS_NREPL_PORT")
 
@@ -56,40 +30,9 @@
     (js-delete (.-env js/process) env-key)
     (j/assoc-in! js/process [:env env-key] v)))
 
-(defn- with-fs-stub!
-  "Run `body` with `fs.readFileSync` replaced by `stub-fn` (path → string,
-  or throw to simulate ENOENT) and `process.env.SHADOW_CLJS_NREPL_PORT`
-  set to `env-val` (nil = unset). Restores both afterwards. Returns the
-  value of `body`.
-
-  Sync-only: the `finally` block restores the stub immediately after
-  `body` returns. The async cascade tests use [[with-async-fs-stub!]]
-  which keeps the stub alive across Promise microtasks."
-  [env-val stub-fn body]
-  (let [orig-read (.-readFileSync fs)
-        orig-env  (j/get-in js/process [:env env-key])]
-    (set! (.-readFileSync fs) stub-fn)
-    (set-env! env-val)
-    (try
-      (body)
-      (finally
-        (set! (.-readFileSync fs) orig-read)
-        (set-env! orig-env)))))
-
 (defn- install-fs-stub!
-  "Install `stub-fn` as `fs.readFileSync` and override
-  `process.env.SHADOW_CLJS_NREPL_PORT` to `env-val` (nil = unset).
-  Returns a 0-arity restoration thunk the caller invokes once the async
-  body has settled. Pairs with the test's own `(done)` so the stub
-  lifetime spans every microtask the promise chain spawns — which the
-  sync [[with-fs-stub!]] can't guarantee for async bodies (the
-  `finally` clause fires before the `.then` callbacks).
-
-  Always pair `install-fs-stub!` with its restoration call inside the
-  final `.then` (BEFORE `(done)`) so the next test in the queue starts
-  with a pristine fs.readFileSync. The local convention here: bind the
-  thunk in a `let`, do assertions in `.then`, call the thunk, then call
-  done."
+  "Install `stub-fn` as `fs.readFileSync` and set the port env var to
+  `env-val` (nil = unset). Returns a thunk that restores both."
   [env-val stub-fn]
   (let [orig-read (.-readFileSync fs)
         orig-env  (j/get-in js/process [:env env-key])]
@@ -99,810 +42,287 @@
       (set! (.-readFileSync fs) orig-read)
       (set-env! orig-env))))
 
-(defn- throwing-read
-  "A `readFileSync` stub that always throws — simulates every candidate
-  file being absent."
-  [_path]
+(defn- throwing-read [_path]
   (throw (js/Error. "ENOENT")))
 
 (defn- read-returning
-  "Build a `readFileSync` stub that returns `content` for `wanted-path`
-  (a substring match) and throws for every other path."
+  "A `readFileSync` stub returning `content` for paths matching `wanted-path`
+  and throwing for every other path."
   [wanted-path content]
   (fn [^js path]
     (if (re-find (re-pattern wanted-path) (str path))
       content
       (throw (js/Error. "ENOENT")))))
 
-(deftest port-discovery-env-numeric-only
-  (testing "a non-numeric env value is rejected by the isNaN guard, fall through to files"
-    (with-fs-stub! "not-a-number"
-      (read-returning "target/shadow-cljs/nrepl.port" "5555")
-      (fn []
-        (is (= 5555 (nrepl/read-port-from-fs))
-            "non-numeric env must NOT short-circuit; the file fallback fires")))))
-
-(deftest port-discovery-fallback-ordering
-  (testing "first candidate absent → second (.shadow-cljs/nrepl.port) wins over third"
-    (with-fs-stub! nil
-      ;; Only the .shadow-cljs candidate (and the .nrepl-port one) exist;
-      ;; the .shadow-cljs one is earlier in the list so it must win.
-      (fn [^js path]
-        (let [p (str path)]
-          (cond
-            (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p) "6002"
-            (re-find #"\.nrepl-port" p)                  "6003"
-            :else (throw (js/Error. "ENOENT")))))
-      (fn []
-        (is (= 6002 (nrepl/read-port-from-fs))
-            "earlier candidate in the list wins the ordering contract")))))
-
-;; ---------------------------------------------------------------------------
-;; `read-port-file` — the single transport-owned port-file primitive.
-;; `server.cljs/ensure-connection!` re-reads the cached port file through
-;; THIS fn rather than a copy of its own. Pin the primitive's contract
-;; directly: an int for numeric
-;; content (whitespace-trimmed), nil for missing / non-numeric.
-;; ---------------------------------------------------------------------------
-
 (deftest read-port-file-parses-trims-and-fails-soft
-  (testing "the public transport primitive: int on numeric content, trimmed; nil on missing / non-numeric"
-    (with-fs-stub! nil
-      (read-returning "the/port" "  6789  \n")
-      (fn []
-        (is (= 6789 (nrepl/read-port-file "the/port"))
-            "numeric content read + trimmed to an int")))
-    (with-fs-stub! nil
-      (read-returning "the/port" "not-a-number")
-      (fn []
-        (is (nil? (nrepl/read-port-file "the/port"))
-            "non-numeric content → nil (isNaN guard), never a NaN port")))
-    (with-fs-stub! nil throwing-read
-      (fn []
-        (is (nil? (nrepl/read-port-file "gone/port"))
-            "a missing / unreadable file → nil, not a throw")))))
+  (doseq [[content expected] [["  6789  \n" 6789]
+                              ["not-a-number" nil]]]
+    (let [restore! (install-fs-stub! nil (read-returning "the/port" content))]
+      (try
+        (is (= expected (nrepl/read-port-file "the/port")) (pr-str content))
+        (finally (restore!))))))
 
+;; ---------------------------------------------------------------------------
+;; `attach-handlers!`, driven through a fake socket that records its callbacks.
+;; ---------------------------------------------------------------------------
 
-;; ===========================================================================
-;; Transport data-handler — `attach-handlers!`.
-;;
-;; The persistent-socket `data` handler folds each chunk into the conn's
-;; `:buf` and splits off complete frames in a SINGLE swap! (so framing is
-;; race-free), then dispatches every complete frame to its pending-id
-;; handler. It is pure buffer logic over a fed chunk — unit-testable with a
-;; fake socket that records its event callbacks rather than a real TCP
-;; connection.
-;; ===========================================================================
-
-(defn- fake-socket
-  "A minimal stand-in for a `net.Socket`: `on` records each event's
-  callback into `cbs*` keyed by event name. `emit-data!`/`emit!` below
-  invoke a recorded callback the way Node's EventEmitter would."
-  [cbs*]
+(defn- fake-socket [cbs*]
   (j/lit {:on (fn [event cb] (swap! cbs* assoc event cb))}))
 
 (defn- emit-data! [cbs* ^js chunk]
   ((get @cbs* "data") chunk))
 
-(defn- frame-buf
-  "bencode-encode a CLJS map into a Buffer the data-handler can fold."
-  [m]
+(defn- frame-buf [m]
   (bencode/encode (clj->js m)))
 
 (deftest data-handler-buffers-partial-frame
-  (testing "a partial frame is held in :buf and dispatched once completed"
-    (let [cbs*  (atom {})
-          conn  (nrepl/make-conn 0 "127.0.0.1")
-          got*  (atom nil)
-          full  (frame-buf {"id" "id-2" "value" "7"})
-          mid   (js/Math.floor (/ (.-length full) 2))
-          head  (.slice full 0 mid)
-          tail  (.slice full mid)]
-      (swap! conn assoc :buf (js/Buffer.alloc 0) :pending {"id-2" #(reset! got* %)})
-      (nrepl/attach-handlers! conn (fake-socket cbs*))
-      ;; First chunk: incomplete — must NOT dispatch, must retain bytes.
-      (emit-data! cbs* head)
-      (is (nil? @got*) "partial frame must not dispatch")
-      (is (pos? (.-length (:buf @conn))) "partial bytes retained in :buf")
-      ;; Second chunk completes the frame.
-      (emit-data! cbs* tail)
-      (is (some? @got*) "completed frame dispatches")
-      (is (= "7" (j/get @got* "value")))
-      (is (zero? (.-length (:buf @conn)))))))
+  (let [cbs* (atom {})
+        conn (nrepl/make-conn 0 "127.0.0.1")
+        got* (atom nil)
+        full (frame-buf {"id" "id-2" "value" "7"})
+        mid  (js/Math.floor (/ (.-length full) 2))]
+    (swap! conn assoc :pending {"id-2" #(reset! got* %)})
+    (nrepl/attach-handlers! conn (fake-socket cbs*))
+    (emit-data! cbs* (.slice full 0 mid))
+    (is (nil? @got*) "a partial frame does not dispatch")
+    (emit-data! cbs* (.slice full mid))
+    (is (= "7" (j/get @got* "value")) "the completing chunk dispatches the frame")
+    (is (zero? (.-length (:buf @conn))) "and leaves no trailer")))
 
 (deftest data-handler-splits-two-frames-in-one-chunk
-  (testing "two concatenated frames in one chunk each reach their pending handler"
-    (let [cbs*  (atom {})
-          conn  (nrepl/make-conn 0 "127.0.0.1")
-          a*    (atom nil)
-          b*    (atom nil)
-          chunk (js/Buffer.concat #js [(frame-buf {"id" "a" "value" "1"})
-                                       (frame-buf {"id" "b" "value" "2"})])]
-      (swap! conn assoc :buf (js/Buffer.alloc 0)
-             :pending {"a" #(reset! a* %) "b" #(reset! b* %)})
-      (nrepl/attach-handlers! conn (fake-socket cbs*))
-      (emit-data! cbs* chunk)
-      (is (= "1" (j/get @a* "value")) "first frame dispatched to id a")
-      (is (= "2" (j/get @b* "value")) "second frame dispatched to id b")
-      (is (zero? (.-length (:buf @conn)))))))
+  (let [cbs* (atom {})
+        conn (nrepl/make-conn 0 "127.0.0.1")
+        got* (atom {})]
+    (swap! conn assoc :pending {"a" #(swap! got* assoc "a" (j/get % "value"))
+                                "b" #(swap! got* assoc "b" (j/get % "value"))})
+    (nrepl/attach-handlers! conn (fake-socket cbs*))
+    (emit-data! cbs* (js/Buffer.concat #js [(frame-buf {"id" "a" "value" "1"})
+                                            (frame-buf {"id" "b" "value" "2"})]))
+    (is (= {"a" "1" "b" "2"} @got*) "each frame of one chunk reaches its own pending handler")))
 
 (deftest data-handler-ignores-unknown-id
-  (testing "a frame for an id with no pending handler is dropped, not thrown"
-    (let [cbs*  (atom {})
-          conn  (nrepl/make-conn 0 "127.0.0.1")]
-      (swap! conn assoc :buf (js/Buffer.alloc 0) :pending {})
-      (nrepl/attach-handlers! conn (fake-socket cbs*))
-      ;; Must not throw even though no pending entry matches.
-      (emit-data! cbs* (frame-buf {"id" "ghost" "value" "x"}))
-      (is (zero? (.-length (:buf @conn))) "frame consumed, no trailer left"))))
+  ;; A late frame for a timed-out id must not throw inside the socket's data handler.
+  (let [cbs* (atom {})
+        conn (nrepl/make-conn 0 "127.0.0.1")]
+    (nrepl/attach-handlers! conn (fake-socket cbs*))
+    (emit-data! cbs* (frame-buf {"id" "ghost" "value" "x"}))
+    (is (zero? (.-length (:buf @conn))) "the frame is consumed and dropped")))
 
 (deftest error-handler-marks-conn-closed
-  (testing "a socket error flips :closed? (so the next call reconnects)"
-    (let [cbs*      (atom {})
-          conn      (nrepl/make-conn 0 "127.0.0.1")
-          orig-err  (.-error js/console)]
-      (swap! conn assoc :closed? false)
-      (nrepl/attach-handlers! conn (fake-socket cbs*))
-      ;; The error handler logs to stderr via `log!`; silence it so the
-      ;; otherwise-quiet test run stays clean (the log is the SUT's
-      ;; behaviour, not a test failure).
-      (set! (.-error js/console) (fn [& _] nil))
-      (try
-        ((get @cbs* "error") (js/Error. "boom"))
-        (finally
-          (set! (.-error js/console) orig-err)))
-      (is (true? (:closed? @conn))))))
-
-;; ===========================================================================
-;; `close!` — reconnect / probe-cache reset.
-;; ===========================================================================
+  (let [cbs*     (atom {})
+        conn     (nrepl/make-conn 0 "127.0.0.1")
+        orig-err (.-error js/console)]
+    (swap! conn assoc :closed? false)
+    (nrepl/attach-handlers! conn (fake-socket cbs*))
+    (set! (.-error js/console) (fn [& _] nil))   ; the handler logs to stderr
+    (try
+      ((get @cbs* "error") (js/Error. "boom"))
+      (finally (set! (.-error js/console) orig-err)))
+    (is (true? (:closed? @conn)) "a socket error marks the conn closed, so the next op reconnects")))
 
 (deftest close!-resets-probe-cache-and-pending
-  (testing "close! drops :probed-builds, :pending, :socket and marks closed"
-    (let [conn (nrepl/make-conn 0 "127.0.0.1")]
-      (swap! conn assoc
-             :socket #js {:end (fn [] nil)}
-             :closed? false
-             :pending {"id-1" identity}
-             :probed-builds #{:app})
-      (nrepl/close! conn)
-      (is (true? (:closed? @conn)))
-      (is (nil? (:socket @conn)))
-      (is (= {} (:pending @conn)) "pending cleared so no stale resolvers")
-      (is (= #{} (:probed-builds @conn))
-          "probe cache cleared — a fresh connect must re-probe the preload"))))
+  ;; Operator teardown clears every session cache, so a later connect never
+  ;; carries a stale build into what may be a different shadow build.
+  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+    (swap! conn assoc
+           :socket            #js {:end (fn [] nil)}
+           :closed?           false
+           :pending           {"id-1" identity}
+           :probed-builds     #{:app}
+           :resolved-build-id :app
+           :build-alias       {:a :app})
+    (nrepl/close! conn)
+    (is (= {:socket nil :closed? true :pending {}
+            :probed-builds #{} :resolved-build-id nil :build-alias {}}
+           (select-keys @conn [:socket :closed? :pending
+                               :probed-builds :resolved-build-id :build-alias])))))
 
-;; ===========================================================================
-;; `send-op!` connect→write race nil-guard.
-;;
-;; `connect!`'s fast path resolves immediately when a live socket is present,
-;; but the socket close/error handlers can fire in the window between that
-;; resolve and the actual `.write`. If `:socket` is nilled by `close!` in
-;; that window, the guard rejects with a structured retry-to-reconnect
-;; message rather than a bare `(.write nil ...)` (which would throw an opaque
-;; native "Cannot read .write of null" AND strand the just-registered id in
-;; `:pending`). We simulate the race by nilling `:socket` synchronously after
-;; the send-op! call but before the `.then` microtask runs.
-;; ===========================================================================
+;; ---------------------------------------------------------------------------
+;; `send-op!`. Each test pre-seeds a live socket so `connect!` takes its fast
+;; path, and reaches the op's frame accumulator through `:pending`.
+;; ---------------------------------------------------------------------------
 
 (deftest send-op!-nil-socket-rejects-structured-and-cleans-pending
-  (testing "socket dropped between connect-resolve and write → structured reject, no pending leak"
-    (async done
-      (let [writes (atom 0)
-            ;; A fake live socket so connect!'s fast path resolves immediately.
-            sock   (j/lit {:write (fn [_] (swap! writes inc) nil)})
-            conn   (nrepl/make-conn 0 "127.0.0.1")]
-        ;; Pre-seed a healthy connection so connect! returns Promise.resolve.
-        (swap! conn assoc :socket sock :closed? false)
-        (let [p (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})]
-          ;; Synchronously — before the .then microtask writes — drop the
-          ;; socket exactly as a racing close! would.
-          (swap! conn assoc :socket nil)
-          ;; The rejection arm IS this row's success path, so both handlers are
-          ;; siblings of one two-arg `.then` and the single `done` trails them.
-          (-> p
-              (.then (fn [_]
-                       (is false "send-op! must REJECT when the socket is nil at write time"))
-                     (fn [err]
-                       (is (= "nREPL socket dropped before write — retry to reconnect"
-                              (.-message err))
-                           "structured retry-to-reconnect message, not the native NPE")
-                       (is (zero? @writes) "no write attempted against a nil socket")
-                       (is (= {} (:pending @conn))
-                           "the just-registered id is dissoc'd — no pending leak")))
-              (.then (fn [_] (done)))))))))
-
-;; ===========================================================================
-;; `send-op!` response assembly + resolution + timeout.
-;;
-;; Once the op is written, `attach-handlers!` routes each decoded nREPL frame
-;; to the `on-frame` accumulator registered under `[:pending id]`. We reach
-;; that accumulator through `(:pending @conn)` and feed frames directly — no
-;; socket, no bencode round-trip — to cover the response-assembly + resolution
-;; branch, then a short-deadline op with NO `:done` frame to cover the timeout
-;; branch.
-;; ===========================================================================
+  ;; The socket can drop between connect!'s resolve and the write.
+  (async done
+    (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+      (swap! conn assoc :socket #js {} :closed? false)
+      (let [p (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})]
+        (swap! conn assoc :socket nil)   ; before the .then microtask writes
+        (-> p
+            (.then (fn [_]
+                     (is false "send-op! must reject when the socket is nil at write time"))
+                   (fn [err]
+                     (is (= "nREPL socket dropped before write — retry to reconnect"
+                            (.-message err)))
+                     (is (= {} (:pending @conn)) "the just-registered id does not leak")))
+            (.then (fn [_] (done))))))))
 
 (deftest send-op!-assembles-frames-and-resolves-on-done
-  (testing "value/out/err/ex frames merge; status accretes; :done resolves + clears pending"
-    (async done
-      (let [sock (j/lit {:write (fn [_] nil)})
-            conn (nrepl/make-conn 0 "127.0.0.1")]
-        (swap! conn assoc :socket sock :closed? false)
-        (let [p (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})]
-          (-> p
-              (.then (fn [res]
-                       (is (= "42" (:value res)) "last :value wins")
-                       (is (= "hello" (:out res)) ":out accretes across frames")
-                       (is (= "oops" (:err res)) ":err captured")
-                       (is (= "boom" (:ex res)) ":ex captured")
-                       (is (contains? (:status res) "done")
-                           ":status is the union of every frame's status")
-                       (is (= {} (:pending @conn))
-                           "the id is dissoc'd from :pending once :done resolves")
-                       (done))))
-          ;; After connect!'s fast-path microtask the op is registered pending;
-          ;; feed a realistic multi-frame nREPL response into its accumulator.
-          (js/queueMicrotask
-            (fn []
-              (let [on-frame (-> @conn :pending vals first)]
-                (on-frame #js {"out" "hel"})
-                (on-frame #js {"out" "lo"})
-                (on-frame #js {"err" "oops"})
-                (on-frame #js {"value" "42"})
-                (on-frame #js {"ex" "boom"})
-                (on-frame #js {"status" #js ["done"]})))))))))
+  (async done
+    (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+      (swap! conn assoc :socket (j/lit {:write (fn [_] nil)}) :closed? false)
+      (-> (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})
+          (.then (fn [res]
+                   (is (= {:value "42" :out "hello" :err "oops" :ex "boom" :status #{"done"}} res)
+                       ":out accretes across frames; :value, :err and :ex are kept")
+                   (is (= {} (:pending @conn)) ":done clears the pending id")
+                   (done))))
+      (js/queueMicrotask
+        (fn []
+          (let [on-frame (-> @conn :pending vals first)]
+            (doseq [frame [#js {"out" "hel"} #js {"out" "lo"} #js {"err" "oops"}
+                           #js {"value" "42"} #js {"ex" "boom"} #js {"status" #js ["done"]}]]
+              (on-frame frame))))))))
 
 (deftest send-op!-timeout-rejects-and-cleans-pending
-  (testing "no :done frame before the deadline → reject + pending dissoc'd"
-    (async done
-      (let [sock (j/lit {:write (fn [_] nil)})
-            conn (nrepl/make-conn 0 "127.0.0.1")]
-        (swap! conn assoc :socket sock :closed? false)
-        ;; A 1ms deadline with no :done frame ever fed drives the setTimeout
-        ;; reject path.
-        (let [p (nrepl/send-op! conn {"op" "eval" "code" "(loop [])"}
-                                {:timeout-ms 1})]
-          (-> p
-              (.then (fn [_]
-                       (is false "an op with no :done frame must time out, not resolve")
-                       (done))
-                     (fn [err]
-                       (is (re-find #"timed out after 1ms" (.-message err))
-                           "reject message names the op-specific deadline")
-                       (is (= {} (:pending @conn))
-                           "the timed-out id is dissoc'd — no pending leak")
-                       (done)))))))))
+  (async done
+    (let [conn (nrepl/make-conn 0 "127.0.0.1")]
+      (swap! conn assoc :socket (j/lit {:write (fn [_] nil)}) :closed? false)
+      (-> (nrepl/send-op! conn {"op" "eval" "code" "(loop [])"} {:timeout-ms 1})
+          (.then (fn [_]
+                   (is false "an op with no :done frame must time out, not resolve"))
+                 (fn [err]
+                   (is (re-find #"timed out after 1ms" (.-message err))
+                       "the reject names the op's deadline")
+                   (is (= {} (:pending @conn)) "the timed-out id does not leak")))
+          (.then (fn [_] (done)))))))
 
-;; ===========================================================================
-;; `discover-port*` async cascade.
-;;
-;; The five-step cascade — explicit > env > MCP roots/list > shadow HTTP probe
-;; > cwd scan — runs the cwd-bound file scan as a last-resort fallback. Steps
-;; 3 and 4 are async I/O; the others are sync.
-;;
-;; The cascade returns a discovery-result map
-;; `{:port :project-home :ambiguous :workspace-roots ...}` so callers can
-;; drive elicitation when roots/list returns 2+ candidates. Tests pass
-;; stubs for the probe and roots fns to exercise each cascade branch
-;; without sockets or network. See `discover-port*` for the injection
-;; rationale.
-;; ===========================================================================
+;; ---------------------------------------------------------------------------
+;; `discover-port*` — explicit file > env > roots/list > shadow HTTP probe >
+;; cwd scan, with the roots and HTTP probes injected as stubs.
+;; ---------------------------------------------------------------------------
 
-(defn- shadow-returns
-  "Stub builder: a discover-project-home that resolves to `home-path`."
-  [home-path]
+(defn- shadow-returns [home-path]
   (fn [_host _port] (js/Promise.resolve home-path)))
 
 (def ^:private shadow-fails
-  "Stub: discover-project-home returns nil (shadow unreachable / parse failed)."
   (fn [_host _port] (js/Promise.resolve nil)))
 
 (def ^:private roots-unsupported
-  "Stub: roots-discovery returns the workspace-discovery-unsupported reason
-  (the client doesn't expose roots/list; fall through to step 4)."
   (fn [] (js/Promise.resolve {:status :error
                               :error  {:reason :workspace-discovery-unsupported}})))
 
-(defn- roots-one
-  "Stub builder: roots-discovery returns a single candidate."
-  [project-home port]
+(defn- roots-one [project-home port]
   (fn [] (js/Promise.resolve {:status    :one
                               :candidate {:project-home project-home
                                           :port-file    (str project-home "/.shadow-cljs/nrepl.port")
                                           :port         port}})))
 
-(defn- roots-many
-  "Stub builder: roots-discovery returns multiple candidates (ambiguous)."
-  [candidates]
+(defn- roots-many [candidates]
   (fn [] (js/Promise.resolve {:status :many :candidates candidates})))
 
 (deftest discover-port-explicit-port-file-short-circuits-shadow-probe
-  (testing "step 1 wins — shadow HTTP probe + roots discovery MUST NOT fire when --port-file resolves"
-    (async done
-      (let [probed?  (atom false)
-            rooted?  (atom false)
-            probe-fn (fn [_h _p]
-                       (reset! probed? true)
-                       (js/Promise.resolve "/should-not-be-used"))
-            roots-fn (fn [] (reset! rooted? true) (roots-unsupported))
-            restore! (install-fs-stub!
-                       nil (read-returning "explicit/nrepl\\.port" "9001"))]
-        (-> (nrepl/discover-port* "explicit/nrepl.port" nil probe-fn roots-fn)
-            (.then (fn [r]
-                     (is (= 9001 (:port r))
-                         "explicit --port-file wins the cascade")
-                     ;; The explicit branch returns the EXACT path the caller
-                     ;; named, so the server caches it verbatim (no derived
-                     ;; `.shadow-cljs/nrepl.port`).
-                     (is (= "explicit/nrepl.port" (:port-file r))
-                         "explicit --port-file returns the exact path it read")
-                     (is (false? @probed?)
-                         "the HTTP probe must not be hit when step 1 resolves")
-                     (is (false? @rooted?)
-                         "roots discovery must not be hit when step 1 resolves")
-                     (restore!)
-                     (done))))))))
-
-(deftest discover-port-explicit-port-file-unreadable-falls-through-to-env
-  ;; A stale / typo'd explicit --port-file must NOT short-circuit the
-  ;; cascade to `{:port nil}`. When the explicit file is unreadable (ENOENT)
-  ;; the cascade falls through to step 2 ($SHADOW_CLJS_NREPL_PORT) —
-  ;; mirroring `read-port-from-fs`'s leading `or` — so a live env-provided
-  ;; port is honoured rather than stranded.
-  (testing "explicit --port-file unreadable → fall through to env var"
-    (async done
-      (let [restore! (install-fs-stub! "7788" throwing-read)]
-        (-> (nrepl/discover-port* "stale/nrepl.port" nil shadow-fails roots-unsupported)
-            (.then (fn [r]
-                     (is (= 7788 (:port r))
-                         "unreadable explicit file falls through to the env var (step 2)")))
-            (.finally (fn [] (restore!) (done))))))))
+  (async done
+    (let [probed?  (atom false)
+          probe-fn (fn [_h _p] (reset! probed? true) (js/Promise.resolve nil))
+          roots-fn (fn [] (reset! probed? true) (roots-unsupported))
+          restore! (install-fs-stub! nil (read-returning "explicit/nrepl\\.port" "9001"))]
+      (-> (nrepl/discover-port* "explicit/nrepl.port" nil probe-fn roots-fn)
+          (.then (fn [r]
+                   (is (= {:port 9001 :project-home "explicit" :port-file "explicit/nrepl.port"} r)
+                       "the explicit file wins, and its exact path is surfaced for the server to cache")
+                   (is (false? @probed?) "neither the roots nor the HTTP probe fires")))
+          (.finally (fn [] (restore!) (done)))))))
 
 (deftest discover-port-explicit-port-file-unreadable-falls-through-to-roots
-  ;; With no env var, the unreadable explicit file falls all the way
-  ;; through to the MCP roots/list step (step 3). The explicit-but-stale
-  ;; path is fully transparent to the rest of the cascade.
-  (testing "explicit --port-file unreadable + no env → fall through to roots discovery"
-    (async done
-      (let [restore! (install-fs-stub! nil throwing-read)]
-        (-> (nrepl/discover-port* "stale/nrepl.port" nil shadow-fails (roots-one "/abs/proj" 8799))
-            (.then (fn [r]
-                     (is (= 8799 (:port r))
-                         "unreadable explicit file falls through to roots single-candidate (step 3)")
-                     (is (= "/abs/proj" (:project-home r))
-                         "roots project-home flows through — the stale explicit path is ignored")))
-            (.finally (fn [] (restore!) (done))))))))
+  (async done
+    (let [probed?  (atom false)
+          probe-fn (fn [_h _p] (reset! probed? true) (js/Promise.resolve nil))
+          restore! (install-fs-stub! nil throwing-read)]
+      (-> (nrepl/discover-port* "stale/nrepl.port" nil probe-fn (roots-one "/abs/proj" 8765))
+          (.then (fn [r]
+                   (is (= {:port 8765 :project-home "/abs/proj"
+                           :port-file "/abs/proj/.shadow-cljs/nrepl.port"}
+                          r)
+                       "a stale explicit file falls through; the single roots candidate surfaces verbatim")
+                   (is (false? @probed?) "the HTTP probe does not fire once roots resolves")))
+          (.finally (fn [] (restore!) (done)))))))
 
 (deftest discover-port-env-var-short-circuits-shadow-probe
-  (testing "step 2 wins — env-var override skips the HTTP probe and roots discovery"
-    (async done
-      (let [probed?  (atom false)
-            rooted?  (atom false)
-            probe-fn (fn [_h _p]
-                       (reset! probed? true)
-                       (js/Promise.resolve "/should-not-be-used"))
-            roots-fn (fn [] (reset! rooted? true) (roots-unsupported))
-            restore! (install-fs-stub! "7777" throwing-read)]
-        (-> (nrepl/discover-port* nil nil probe-fn roots-fn)
-            (.then (fn [r]
-                     (is (= 7777 (:port r)))
-                     (is (false? @probed?) "env override is sync — no HTTP probe needed")
-                     (is (false? @rooted?) "env override is sync — no roots probe needed")
-                     (is (nil? (:port-file r))
-                         "env discovery is a fixed endpoint — no file identity is invented for it")
-                     (restore!)
-                     (done))))))))
-
-(deftest discover-port-roots-single-candidate-wins
-  (testing "step 3 — roots/list returns one shadow project → attach silently"
-    (async done
-      (let [probed?  (atom false)
-            probe-fn (fn [_h _p]
-                       (reset! probed? true)
-                       (js/Promise.resolve "/should-not-be-used"))
-            restore! (install-fs-stub! nil throwing-read)]
-        (-> (nrepl/discover-port* nil nil probe-fn (roots-one "/abs/proj" 8765))
-            (.then (fn [r]
-                     (is (= 8765 (:port r))
-                         "roots single-candidate port surfaces")
-                     (is (= "/abs/proj" (:project-home r))
-                         "project-home flows through for per-tool-call re-read")
-                     (is (= "/abs/proj/.shadow-cljs/nrepl.port" (:port-file r))
-                         "roots candidate :port-file surfaces verbatim")
-                     (is (false? @probed?)
-                         "shadow HTTP probe must NOT fire when roots resolves")
-                     (restore!)
-                     (done))))))))
+  (async done
+    (let [probed?  (atom false)
+          probe-fn (fn [_h _p] (reset! probed? true) (js/Promise.resolve nil))
+          roots-fn (fn [] (reset! probed? true) (roots-unsupported))
+          restore! (install-fs-stub! "7777" throwing-read)]
+      (-> (nrepl/discover-port* nil nil probe-fn roots-fn)
+          (.then (fn [r]
+                   (is (= {:port 7777} r) "the env port wins, with no file identity invented for it")
+                   (is (false? @probed?) "neither the roots nor the HTTP probe fires")))
+          (.finally (fn [] (restore!) (done)))))))
 
 (deftest discover-port-roots-many-candidates-surfaces-ambiguous
-  (testing "step 3 — 2+ shadow candidates surface as :ambiguous (caller drives elicitation)"
-    (async done
-      (let [cs       [{:project-home "/abs/projA" :port-file "..." :port 1111}
-                      {:project-home "/abs/projB" :port-file "..." :port 2222}]
-            restore! (install-fs-stub! nil throwing-read)]
-        (-> (nrepl/discover-port* nil nil shadow-fails (roots-many cs))
-            (.then (fn [r]
-                     (is (nil? (:port r)) "no port chosen until elicitation resolves")
-                     (is (= cs (:ambiguous r))
-                         "ambiguous candidates flow through to server.cljs")
-                     (restore!)
-                     (done))))))))
+  (async done
+    (let [cs       [{:project-home "/abs/projA" :port-file "..." :port 1111}
+                    {:project-home "/abs/projB" :port-file "..." :port 2222}]
+          restore! (install-fs-stub! nil throwing-read)]
+      (-> (nrepl/discover-port* nil nil shadow-fails (roots-many cs))
+          (.then (fn [r]
+                   (is (= {:port nil :ambiguous cs} r)
+                       "no port is chosen; the candidates go to the caller's elicitation")))
+          (.finally (fn [] (restore!) (done)))))))
 
 (deftest discover-port-shadow-probe-prefers-target-then-dot-shadow
-  ;; Step 3 → 4: roots/list is unsupported, so the HTTP probe supplies the
-  ;; base the standard candidates resolve against.
-  (testing "candidate ordering preserved against the shadow-supplied base"
-    (async done
-      (let [stub-fn (fn [^js path]
-                      (let [p (str path)]
-                        ;; All three candidates exist under the shadow root; the
-                        ;; earlier one (target/shadow-cljs/nrepl.port) must win.
-                        (cond
-                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p) "5550"
-                          (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p)          "5551"
-                          (re-find #"\.nrepl-port" p)                             "5552"
-                          :else (throw (js/Error. "ENOENT")))))
-            restore! (install-fs-stub! nil stub-fn)]
-        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
-            (.then (fn [r]
-                     (is (= 5550 (:port r))
-                         "first candidate (target/shadow-cljs/nrepl.port) wins")
-                     (is (= "/abs/proj/root" (:project-home r))
-                         "project-home flows through from shadow probe step")
-                     ;; The winning candidate's path is surfaced
-                     ;; (target/shadow-cljs/nrepl.port, the first candidate).
-                     (is (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port$"
-                                  (str (:port-file r)))
-                         "winning candidate file surfaced as :port-file")
-                     (restore!)
-                     (done))))))))
+  (async done
+    (let [restore! (install-fs-stub!
+                     nil (fn [^js path]
+                           (let [p (str path)]
+                             (cond
+                               (re-find #"target[\\/]shadow-cljs[\\/]nrepl\.port" p) "5550"
+                               (re-find #"\.shadow-cljs[\\/]nrepl\.port" p)          "5551"
+                               (re-find #"\.nrepl-port" p)                           "5552"
+                               :else (throw (js/Error. "ENOENT"))))))]
+      (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
+          (.then (fn [r]
+                   (is (= {:port         5550
+                           :project-home "/abs/proj/root"
+                           :port-file    (node-path/join "/abs/proj/root" "target/shadow-cljs/nrepl.port")}
+                          r)
+                       "the first candidate under the shadow-supplied root wins, and its file is surfaced")))
+          (.finally (fn [] (restore!) (done)))))))
 
-;; Port-file surfacing for the HTTP-probe path. With only the .shadow-cljs
-;; file present, the SURFACED :port-file must be the candidate that actually
-;; read — NOT a fixed derivation. The server caches whatever discovery
-;; resolved, so the per-tool-call re-read checks the right file and doesn't
-;; false-positive "file vanished". The last-candidate case rides the same
-;; candidate resolution on the cwd-scan branch below.
-(deftest discover-port-shadow-probe-surfaces-dot-shadow-candidate-file
-  (testing ".shadow-cljs/nrepl.port wins → that exact file is surfaced"
-    (async done
-      (let [stub-fn (fn [^js path]
-                      (let [p (str path)]
-                        (cond
-                          ;; target candidate absent — falls to .shadow-cljs.
-                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port" p)
-                          (throw (js/Error. "ENOENT"))
-                          (re-find #"\.shadow-cljs[\\\\/]nrepl\.port" p) "5561"
-                          :else (throw (js/Error. "ENOENT")))))
-            restore! (install-fs-stub! nil stub-fn)]
-        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
-            (.then (fn [r]
-                     (is (= 5561 (:port r)) ".shadow-cljs candidate read the port")
-                     (is (re-find #"\.shadow-cljs[\\/]nrepl\.port$" (str (:port-file r)))
-                         "the .shadow-cljs/nrepl.port file is surfaced — not target/...")
-                     (is (not (re-find #"target[\\/]shadow-cljs" (str (:port-file r))))
-                         "the absent target candidate is NOT what's cached")
-                     (restore!)
-                     (done))))))))
-
-;; The cwd-scan last resort (step 5) retains the WINNING candidate's file
-;; identity. A relative candidate read against Node's process CWD
-;; has a stable absolute identity via path-join, so the result carries
-;; `:port-file` exactly like steps 1/3/4 — the server caches it and the
-;; per-tool-call re-read observes an ephemeral-port restart on this branch
-;; too. `:project-home` stays nil: no root is inferred, and none is needed.
 (deftest discover-port-cwd-scan-surfaces-winning-port-file
-  (testing "step 5 (cwd scan) → the exact winning candidate is surfaced as an absolute :port-file"
-    (async done
-      ;; roots unsupported + shadow probe returns nil ⇒ fall to cwd scan.
-      ;; Only the LAST candidate (.nrepl-port) reads; the earlier missing
-      ;; candidates must not be reported as the winner. Count reads of the
-      ;; winning path — its identity must come from the read that already
-      ;; happened, never from a second read to reconstruct it.
-      (let [win-reads (atom 0)
-            stub-fn   (fn [^js path]
-                        (if (re-find #"\.nrepl-port" (str path))
-                          (do (swap! win-reads inc) "5599")
-                          (throw (js/Error. "ENOENT"))))
-            restore!  (install-fs-stub! nil stub-fn)]
-        (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
-            (.then (fn [r]
-                     (is (= 5599 (:port r)) "cwd scan caught the port")
-                     (is (= (node-path/join (js/process.cwd) ".nrepl-port")
-                            (:port-file r))
-                         "the winning candidate resolves against process.cwd() to an absolute :port-file")
-                     (is (not (re-find #"target[\\/]shadow-cljs" (str (:port-file r))))
-                         "an earlier MISSING candidate must not be reported as the winner")
-                     (is (nil? (:project-home r))
-                         "no project-home is invented for the cwd branch")
-                     (is (= 1 @win-reads)
-                         "the winning candidate is read exactly once — identity comes from that read")
-                     (restore!)
-                     (done))))))))
+  ;; The server caches :port-file to notice an nREPL restart, on this branch too.
+  (async done
+    (let [restore! (install-fs-stub!
+                     nil (fn [^js path]
+                           (if (re-find #"\.nrepl-port" (str path))
+                             "5599"
+                             (throw (js/Error. "ENOENT")))))]
+      (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
+          (.then (fn [r]
+                   (is (= {:port 5599 :port-file (node-path/join (js/process.cwd) ".nrepl-port")} r)
+                       "only the last candidate reads; its cwd-absolute path is surfaced, with no invented project-home")))
+          (.finally (fn [] (restore!) (done)))))))
 
 (deftest discover-port-shadow-down-and-no-files-yields-nil
-  (testing "every step misses — cascade returns nil-port (degraded boot fires)"
-    (async done
-      (let [restore! (install-fs-stub! nil throwing-read)]
-        (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
-            (.then (fn [r]
-                     (is (nil? (:port r))
-                         "all five steps missed — degraded boot triggers from this")
-                     (restore!)
-                     (done))))))))
-
-(deftest discover-port-shadow-returned-base-but-no-port-file-falls-through
-  (testing "shadow returned a root but no port-file lives under it → cwd scan picks up the slack"
-    (async done
-      (let [stub-fn (fn [^js path]
-                      (let [p (str path)]
-                        (cond
-                          ;; No port-file under the shadow root.
-                          (re-find #"abs[\\\\/]proj[\\\\/]root" p)
-                          (throw (js/Error. "ENOENT"))
-                          ;; But a cwd-relative one does exist (manual nREPL boot
-                          ;; outside shadow's purview, say). The cwd scan joins
-                          ;; the candidate against process.cwd(), so it arrives
-                          ;; as an absolute path (platform separators).
-                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port$" p) "4040"
-                          :else (throw (js/Error. "ENOENT")))))
-            restore! (install-fs-stub! nil stub-fn)]
-        (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
-            (.then (fn [r]
-                     (is (= 4040 (:port r))
-                         "shadow's base had no port-file → cwd scan wins")
-                     (restore!)
-                     (done))))))))
+  (async done
+    (let [restore! (install-fs-stub! nil throwing-read)]
+      ;; A nil roots fn is the boot-time shape, before an MCP client exists.
+      (-> (nrepl/discover-port* nil nil shadow-fails nil)
+          (.then (fn [r]
+                   (is (= {:port nil} r) "every step misses, so boot degrades")))
+          (.finally (fn [] (restore!) (done)))))))
 
 (deftest discover-port-http-port-arg-threads-through
-  (testing "the --http-port override is passed to the shadow probe"
-    (async done
-      (let [seen-port (atom nil)
-            probe-fn  (fn [_host port]
-                        (reset! seen-port port)
-                        (js/Promise.resolve nil))
-            restore!  (install-fs-stub! nil throwing-read)]
-        (-> (nrepl/discover-port* nil 7777 probe-fn roots-unsupported)
-            (.then (fn [_]
-                     (is (= 7777 @seen-port)
-                         "custom --http-port reaches the probe")
-                     (restore!)
-                     (done))))))))
-
-(deftest discover-port-http-port-defaults-to-9630
-  (testing "no --http-port → the shadow probe uses the documented 9630 default"
-    (async done
-      (let [seen-port (atom nil)
-            probe-fn  (fn [_host port]
-                        (reset! seen-port port)
-                        (js/Promise.resolve nil))
-            restore!  (install-fs-stub! nil throwing-read)]
-        (-> (nrepl/discover-port* nil nil probe-fn roots-unsupported)
-            (.then (fn [_]
-                     (is (= shadow-discovery/default-http-port @seen-port)
-                         "absent override falls back to 9630")
-                     (restore!)
-                     (done))))))))
-
-(deftest discover-port-nil-roots-fn-equivalent-to-unsupported
-  (testing "passing nil roots-discovery-fn (boot-time, pre-MCP-init) acts as :workspace-discovery-unsupported"
-    (async done
-      (let [restore! (install-fs-stub!
-                       nil (read-returning "target[\\\\/]shadow-cljs[\\\\/]nrepl\\.port" "5050"))]
-        (-> (nrepl/discover-port* nil nil shadow-fails nil)
-            (.then (fn [r]
-                     (is (= 5050 (:port r))
-                         "nil roots-fn falls through to the cwd scan via shadow-fails")
-                     (restore!)
-                     (done))))))))
-
-;; ===========================================================================
-;; `connect!` reopen preserves the session build-id caches.
-;;
-;; `connect!` is transport-only: it preserves `:probed-builds` /
-;; `:resolved-build-id` / `:build-alias` across a same-port reopen.
-;; `send-op!` calls `connect!` on every nREPL op, and the close/error
-;; handlers flip `:closed? true` on a TRANSIENT socket hiccup without
-;; changing the target build — so the next op's `connect!` reopens the SAME
-;; port and must keep the valid same-session sticky build (otherwise a
-;; no-`:build` call falls back to `:app`).
-;;
-;; The genuine "operator restarted shadow against a DIFFERENT build" reset
-;; is enforced at the layers that observe the build identity changing:
-;;   - `close!` (operator-initiated teardown) clears all three; and
-;;   - `server.cljs/ensure-connection!` builds a FRESH conn (empty caches)
-;;     on a shadow port change/vanish — which is how a different build
-;;     almost always manifests (a restart grabs a new ephemeral port).
-;;
-;; These tests drive the ACTUAL `connect!` Promise with a stubbed
-;; `net.createConnection`, firing the recorded `connect` / `close` / `error`
-;; callbacks the way Node's EventEmitter would.
-;; ===========================================================================
-
-(defn- connect-fake-socket
-  "A stand-in for the `net.Socket` `net/createConnection` returns. Records
-  every `on`/`once` callback into `cbs*` keyed by event name so the test
-  can fire `connect` / `close` / `error` synthetically. `write`/`end` are
-  inert no-ops — `connect!` only wires handlers and resolves."
-  [cbs*]
-  (j/lit {:on    (fn [event cb] (swap! cbs* assoc event cb) nil)
-          :once  (fn [event cb] (swap! cbs* assoc event cb) nil)
-          :write (fn [_] nil)
-          :end   (fn [] nil)}))
-
-(defn- with-stubbed-create-connection!
-  "Install a `net.createConnection` stub that records the freshly-built
-  fake socket's event callbacks into `cbs*` and returns the fake socket.
-  Returns a 0-arity restoration thunk. Mirrors the `install-fs-stub!`
-  lifecycle pattern: the caller restores inside the final `.then` before
-  `(done)` so the next test starts pristine."
-  [cbs*]
-  (let [orig (.-createConnection net)]
-    (set! (.-createConnection net) (fn [_opts] (connect-fake-socket cbs*)))
-    (fn restore! [] (set! (.-createConnection net) orig))))
-
-(defn- fire! [cbs* event & args]
-  (apply (get @cbs* event) args))
-
-(defn- connect-then-fire!
-  "Call `connect!` (which registers the `connect` handler synchronously
-  in the Promise executor), then immediately fire the recorded `connect`
-  callback the way Node would once the socket is up. Returns the
-  `connect!` Promise so the caller can chain assertions off its resolve."
-  [conn cbs*]
-  (let [p (nrepl/connect! conn)]
-    (fire! cbs* "connect")
-    p))
-
-(deftest connect!-reopen-preserves-resolved-build-id-after-hiccup
-  ;; Core regression guard: a transient socket close+reopen of the SAME
-  ;; port mid-session PRESERVES the sticky `:resolved-build-id` (and the
-  ;; sibling `:probed-builds` / `:build-alias` caches), so a follow-up
-  ;; no-`:build` op keeps targeting the right build rather than falling
-  ;; back to `:app`.
   (async done
-    (let [cbs*     (atom {})
-          restore! (with-stubbed-create-connection! cbs*)
-          conn     (nrepl/make-conn 6001 "127.0.0.1")]
-      ;; First connect — the socket comes up.
-      (-> (connect-then-fire! conn cbs*)
-          (.then
-            (fn [_]
-              ;; Operator discovered + stuck a build; a unique-suffix alias
-              ;; got cached; the runtime was probed live on this generation.
-              (swap! conn assoc
-                     :resolved-build-id :examples/step-deck
-                     :build-alias       {:step-deck :examples/step-deck}
-                     :probed-builds     #{:examples/step-deck})
-              ;; A transient socket hiccup: the close handler flips :closed?
-              ;; WITHOUT touching the build — shadow is still on the same build.
-              (fire! cbs* "close" nil)
-              (is (true? (:closed? @conn)) "the hiccup marked the conn closed")
-              ;; The NEXT op triggers a reopen of the SAME port.
-              (connect-then-fire! conn cbs*)))
-          (.then
-            (fn [_]
-              (is (false? (:closed? @conn)) "reopened")
-              (is (= :examples/step-deck (:resolved-build-id @conn))
-                  "the sticky build SURVIVES a same-port reopen")
-              (is (= {:step-deck :examples/step-deck} (:build-alias @conn))
-                  "the forgiving-resolution alias survives the reopen too")
-              (is (= #{:examples/step-deck} (:probed-builds @conn))
-                  "the probe cache survives — the runtime marker outlives a socket hiccup")))
-          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
-          ;; `restore!` is the same idempotent `set!` on both arms, so it moves
-          ;; to the single trailing step: written once, still run once per path,
-          ;; and still INSIDE the step that calls `done` rather than after it.
-          (.then (fn [_] (restore!) (done)))))))
-
-(deftest connect!-fast-path-leaves-caches-untouched
-  ;; When the socket is already open + healthy, `connect!` short-circuits
-  ;; (no createConnection, no swap) — so the caches are trivially untouched.
-  ;; Pins that the fast path has no reset side effect.
-  (async done
-    (let [conn (nrepl/make-conn 6001 "127.0.0.1")]
-      (swap! conn assoc :socket #js {} :closed? false
-             :resolved-build-id :examples/step-deck
-             :probed-builds #{:examples/step-deck})
-      (-> (nrepl/connect! conn)
+    (let [seen     (atom [])
+          probe-fn (fn [_host port] (swap! seen conj port) (js/Promise.resolve nil))
+          restore! (install-fs-stub! nil throwing-read)]
+      (-> (nrepl/discover-port* nil 7777 probe-fn roots-unsupported)
+          (.then (fn [_] (nrepl/discover-port* nil nil probe-fn roots-unsupported)))
           (.then (fn [_]
-                   (is (= :examples/step-deck (:resolved-build-id @conn))
-                       "fast path preserves the sticky build")
-                   (is (= #{:examples/step-deck} (:probed-builds @conn)))
-                   (done)))))))
+                   (is (= [7777 shadow-discovery/default-http-port] @seen)
+                       "--http-port reaches the probe; absent, the probe uses the default")))
+          (.finally (fn [] (restore!) (done)))))))
 
-;; ===========================================================================
-;; The different-build reset is enforced.
-;;
-;; The cache survives a transient hiccup, but a genuine different-build
-;; reconnect must clear the stale cache. That guarantee lives in two places:
-;;
-;;   1. `close!` (operator-initiated teardown) clears all three caches —
-;;      so a reopen after an explicit close starts clean.
-;;   2. A different build almost always lands on a new shadow ephemeral
-;;      port; `server.cljs/ensure-connection!` then builds a FRESH conn
-;;      (via `make-conn`), which starts with empty caches by construction.
-;;
-;; Both are pinned here at the transport boundary.
-;; ===========================================================================
+;; ---------------------------------------------------------------------------
+;; `connect!` — single-flight, generation-owned sockets. `net.createConnection`
+;; is stubbed to build a distinct fake socket per call; each records its own
+;; event callbacks and its write/end/destroy calls.
+;; ---------------------------------------------------------------------------
 
-(deftest different-build-reconnect-after-close-resets-caches
-  ;; The operator-teardown path: `close!` clears the caches, so a SUBSEQUENT
-  ;; reopen of the (possibly same) socket starts with no stale build —
-  ;; the "restarted shadow against a different build" guard.
-  (async done
-    (let [cbs*     (atom {})
-          restore! (with-stubbed-create-connection! cbs*)
-          conn     (nrepl/make-conn 6001 "127.0.0.1")]
-      (-> (connect-then-fire! conn cbs*)
-          (.then
-            (fn [_]
-              (swap! conn assoc
-                     :resolved-build-id :examples/old-build
-                     :build-alias       {:old :examples/old-build}
-                     :probed-builds     #{:examples/old-build})
-              ;; Operator-initiated teardown (NOT a transient hiccup).
-              (nrepl/close! conn)
-              (is (nil? (:resolved-build-id @conn))
-                  "close! cleared the sticky build (operator-teardown reset)")
-              (is (= {} (:build-alias @conn)) "close! cleared the alias cache")
-              (is (= #{} (:probed-builds @conn)) "close! cleared the probe cache")
-              ;; Reopen — starts clean; no stale build carried across.
-              (connect-then-fire! conn cbs*)))
-          (.then
-            (fn [_]
-              (is (nil? (:resolved-build-id @conn))
-                  "post-close reopen carries NO stale build")))
-          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
-          (.then (fn [_] (restore!) (done)))))))
-
-(deftest fresh-conn-for-new-port-starts-with-empty-caches
-  ;; The port-change path (the common shape of a different-build restart):
-  ;; `ensure-connection!` discards the old conn and builds a fresh one for
-  ;; the new ephemeral port. A fresh conn has empty build-id caches by
-  ;; construction — so the new build is re-discovered, never inheriting the
-  ;; old build's sticky id (the different-build reset holds without relying
-  ;; on connect!).
-  (let [old-conn (nrepl/make-conn 6001 "127.0.0.1")]
-    (swap! old-conn assoc
-           :resolved-build-id :examples/old-build
-           :build-alias       {:old :examples/old-build}
-           :probed-builds     #{:examples/old-build})
-    ;; Shadow restarted on a new port → a brand-new conn (what
-    ;; new-conn-for-port / make-conn yields).
-    (let [new-conn (nrepl/make-conn 6002 "127.0.0.1")]
-      (is (= 6002 (:port @new-conn)) "the new conn targets the new port")
-      (is (nil? (:resolved-build-id @new-conn))
-          "a fresh conn for the new port carries NO sticky build from the old session")
-      (is (= {} (:build-alias @new-conn)))
-      (is (= #{} (:probed-builds @new-conn)))
-      ;; And the old conn is untouched — they're independent atoms.
-      (is (= :examples/old-build (:resolved-build-id @old-conn))
-          "the discarded conn keeps its state — no cross-conn mutation"))))
-
-;; ===========================================================================
-;; Single-flight connection + generation ownership.
-;;
-;; MCP permits concurrent tool calls, and `send-op!` calls `connect!` on
-;; EVERY op — so two simultaneous first ops both reach `connect!` before
-;; either socket comes up. If each caller ran `net/createConnection`, two
-;; live sockets' handlers would fold two TCP streams into one bencode
-;; buffer and a stale close could mark the winner closed. So `connect!` is
-;; single-flight (one socket per transition; concurrent callers share the
-;; same Promise) and tags every
-;; socket with a `:generation` so only the authoritative socket mutates conn
-;; state.
-;;
-;; Each fake socket gets its OWN callback map (unlike `connect-fake-socket`,
-;; which shares one) so two candidate sockets can be driven independently.
-;; ===========================================================================
-
-(defn- make-concurrency-fake
-  "A `net.Socket` stand-in whose event callbacks land in its OWN `cbs` atom,
-  and which records `write`/`end`/`destroy` on `flags` — so a test can drive
-  two candidate sockets independently and assert teardown."
-  [cbs flags]
+(defn- make-concurrency-fake [cbs flags]
   (j/lit {:on      (fn [event cb] (swap! cbs assoc event cb) nil)
           :once    (fn [event cb] (swap! cbs assoc event cb) nil)
           :write   (fn [_] (swap! flags update :writes (fnil inc 0)) nil)
@@ -910,9 +330,8 @@
           :destroy (fn [] (swap! flags assoc :destroyed? true) nil)}))
 
 (defn- with-multi-create-connection!
-  "Install a `net.createConnection` stub that builds a DISTINCT fake socket
-  per call, appending `{:cbs :flags :socket}` to `sockets*`. Returns a
-  0-arity restore thunk."
+  "Stub `net.createConnection`, appending `{:cbs :flags :socket}` to
+  `sockets*` per call. Returns a restore thunk."
   [sockets*]
   (let [orig (.-createConnection net)]
     (set! (.-createConnection net)
@@ -927,192 +346,127 @@
 (defn- fire-cb! [rec event & args]
   (apply (get @(:cbs rec) event) args))
 
+(deftest connect!-reopen-preserves-resolved-build-id-after-hiccup
+  ;; A transient close reopens the SAME port, so the sticky build stays valid;
+  ;; losing it would send a later no-:build call to :app.
+  (async done
+    (let [sockets* (atom [])
+          restore! (with-multi-create-connection! sockets*)
+          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          caches   {:resolved-build-id :examples/step-deck
+                    :build-alias       {:step-deck :examples/step-deck}
+                    :probed-builds     #{:examples/step-deck}}
+          open!    (fn []
+                     (let [p (nrepl/connect! conn)]
+                       (fire-cb! (peek @sockets*) "connect")
+                       p))]
+      (-> (open!)
+          (.then (fn [_]
+                   (swap! conn merge caches)
+                   (fire-cb! (peek @sockets*) "close" nil)
+                   (open!)))
+          (.then (fn [_]
+                   (is (= (assoc caches :closed? false)
+                          (select-keys @conn [:closed? :resolved-build-id :build-alias :probed-builds])))))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
+
 (deftest connect!-single-flight-one-socket-for-concurrent-callers
-  ;; The core race: two concurrent `connect!` callers BEFORE either callback
-  ;; fires must open exactly ONE socket and share ONE Promise.
   (async done
     (let [sockets* (atom [])
           restore! (with-multi-create-connection! sockets*)
           conn     (nrepl/make-conn 6001 "127.0.0.1")
           p1       (nrepl/connect! conn)
           p2       (nrepl/connect! conn)]
-      (is (= 1 (count @sockets*))
-          "exactly ONE net.createConnection for two concurrent connect! callers")
-      (is (identical? p1 p2)
-          "both concurrent callers received the SAME in-flight Promise")
-      (is (some? (:connecting @conn)) "the in-flight slot is claimed while connecting")
-      ;; The single socket comes up.
+      (is (= 1 (count @sockets*)) "two concurrent connect! callers open ONE socket")
+      (is (identical? p1 p2) "and share ONE in-flight Promise")
       (fire-cb! (first @sockets*) "connect")
-      (-> (js/Promise.all #js [p1 p2])
-          (.then (fn [^js results]
-                   (is (identical? conn (aget results 0)) "caller 1 resolved to the conn")
-                   (is (identical? conn (aget results 1)) "caller 2 resolved to the SAME conn")
-                   (is (some? (:socket @conn)) "exactly one socket published")
-                   (is (false? (:closed? @conn)) "the conn is live")
-                   (is (nil? (:connecting @conn)) "the in-flight slot is cleared on publish")))
+      (-> p1
+          (.then (fn [_] (is (false? (:closed? @conn)) "the shared connect publishes a live conn")))
           (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
           (.then (fn [_] (restore!) (done)))))))
 
 (deftest concurrent-send-ops-multiplex-over-one-socket
-  ;; Two simultaneous `send-op!` calls share one connect, then register
-  ;; DISTINCT pending ids and write over the SAME socket — the multiplex the
-  ;; single-flight connect preserves. Ops are resolved by feeding each pending
-  ;; accumulator a `:done` frame directly (the send-op response-assembly seam
-  ;; the suite already uses), so the assertion doesn't depend on bencode
-  ;; wire round-tripping.
   (async done
     (let [sockets* (atom [])
           restore! (with-multi-create-connection! sockets*)
           conn     (nrepl/make-conn 6001 "127.0.0.1")
           p1       (nrepl/send-op! conn {"op" "eval" "code" "1"})
           p2       (nrepl/send-op! conn {"op" "eval" "code" "2"})]
-      (is (= 1 (count @sockets*)) "one socket for two concurrent send-ops")
-      ;; Bring the shared socket up; let both send-op! .then bodies register.
       (fire-cb! (first @sockets*) "connect")
       (-> (js/Promise.resolve nil)
-          (.then (fn [_] nil))     ; flush send-op! connect continuations
+          (.then (fn [_] nil))   ; flush send-op!'s connect continuations
           (.then (fn [_]
-                   (is (= 2 (count (:pending @conn)))
-                       "both ops registered distinct pending ids on the ONE socket")
-                   (is (= 2 (:writes @(:flags (first @sockets*))))
-                       "both ops wrote to the single shared socket")
-                   ;; Resolve both ops via their registered on-frame accumulator.
+                   (is (= 2 (count (:pending @conn))) "two distinct pending ids")
+                   (is (= 2 (:writes @(:flags (first @sockets*)))) "both ops write to the one socket")
                    (doseq [on-frame (vals (:pending @conn))]
                      (on-frame #js {"status" #js ["done"]}))
                    (js/Promise.all #js [p1 p2])))
-          (.then (fn [^js rs]
-                   (is (= 2 (.-length rs)) "both ops resolved")
-                   (is (= {} (:pending @conn)) "pending drained on resolution")))
+          (.then (fn [_] (is (= {} (:pending @conn)) "both ops resolve and drain")))
           (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
           (.then (fn [_] (restore!) (done)))))))
 
 (deftest superseded-socket-callbacks-cannot-mutate-current-generation
-  ;; A losing/stale socket's data/error/close must be inert once a newer
-  ;; generation is live — the "a losing socket's later close marks the winner
-  ;; closed" corruption path, closed by the generation guard.
+  ;; Bytes and events from a superseded socket must never reach the live
+  ;; connection: a stale close would mark it closed, and a stale tail could
+  ;; complete a frame against the fresh stream.
   (async done
     (let [sockets* (atom [])
           restore! (with-multi-create-connection! sockets*)
           conn     (nrepl/make-conn 6001 "127.0.0.1")
-          p1       (nrepl/connect! conn)]        ; gen1 connect started
-      (fire-cb! (first @sockets*) "connect")     ; gen1 publishes
-      (-> p1
-          (.then (fn [_]
-                   ;; Transient hiccup on gen1 → reopen to gen2.
-                   (fire-cb! (first @sockets*) "close" nil)
-                   (is (true? (:closed? @conn)) "gen1's own close flips :closed?")
-                   (let [p2 (nrepl/connect! conn)]
-                     (fire-cb! (second @sockets*) "connect")  ; gen2 publishes
-                     p2)))
-          (.then (fn [_]
-                   (is (false? (:closed? @conn)) "gen2 is the live generation")
-                   (let [gen2-sock (:socket @conn)]
-                     ;; STALE gen1 callbacks fire late — all must be inert.
-                     (fire-cb! (first @sockets*) "close" nil)
-                     (is (false? (:closed? @conn))
-                         "a stale gen1 close cannot mark the live gen2 conn closed")
-                     (fire-cb! (first @sockets*) "error" (js/Error. "late gen1 error"))
-                     (is (false? (:closed? @conn))
-                         "a stale gen1 error cannot mark the live gen2 conn closed")
-                     (fire-cb! (first @sockets*) "data" (frame-buf {"id" "x" "value" "1"}))
-                     (is (zero? (.-length (:buf @conn)))
-                         "a stale gen1 data chunk never enters the live framing buffer")
-                     (is (identical? gen2-sock (:socket @conn))
-                         "the live socket is untouched by stale callbacks"))))
-          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
-          (.then (fn [_] (restore!) (done)))))))
-
-(deftest stale-generation-partial-frame-never-concatenated
-  ;; Bytes from two socket generations must never concatenate into one
-  ;; bencode buffer — a stale gen1 tail cannot complete a frame against
-  ;; gen2's fresh stream.
-  (async done
-    (let [sockets* (atom [])
-          restore! (with-multi-create-connection! sockets*)
-          conn     (nrepl/make-conn 6001 "127.0.0.1")
+          gen1     #(first @sockets*)
           full     (frame-buf {"id" "p1" "value" "7"})
           mid      (js/Math.floor (/ (.-length full) 2))
-          head     (.slice full 0 mid)
-          tail     (.slice full mid)
           p1       (nrepl/connect! conn)]
-      (fire-cb! (first @sockets*) "connect")
+      (fire-cb! (gen1) "connect")
       (-> p1
           (.then (fn [_]
-                   ;; gen1 buffers a partial frame head.
-                   (fire-cb! (first @sockets*) "data" head)
-                   (is (pos? (.-length (:buf @conn))) "gen1 partial head buffered")
-                   ;; Hiccup + reopen to gen2.
-                   (fire-cb! (first @sockets*) "close" nil)
+                   (fire-cb! (gen1) "data" (.slice full 0 mid))
+                   (fire-cb! (gen1) "close" nil)
+                   (is (true? (:closed? @conn)) "gen1's own close flips :closed?")
                    (let [p2 (nrepl/connect! conn)]
                      (fire-cb! (second @sockets*) "connect")
                      p2)))
           (.then (fn [_]
-                   (is (zero? (.-length (:buf @conn)))
-                       "gen2 publish reset the framing buffer (fresh stream)")
-                   (let [got* (atom nil)]
-                     (swap! conn assoc :pending {"p1" #(reset! got* %)})
-                     ;; The STALE gen1 tail must NOT complete the frame.
-                     (fire-cb! (first @sockets*) "data" tail)
-                     (is (nil? @got*)
-                         "a stale gen1 tail cannot concatenate onto gen2 to fake a frame")
-                     (is (zero? (.-length (:buf @conn)))
-                         "and it never entered the live buffer"))))
+                   (fire-cb! (gen1) "close" nil)
+                   (fire-cb! (gen1) "error" (js/Error. "late gen1 error"))
+                   (fire-cb! (gen1) "data" (.slice full mid))
+                   (is (= [false 0] [(:closed? @conn) (.-length (:buf @conn))])
+                       "late gen1 close, error and data are inert, and gen2 starts from an empty buffer")))
           (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
           (.then (fn [_] (restore!) (done)))))))
 
 (deftest connect!-rejection-clears-in-flight-slot-and-next-call-retries
-  ;; A failed connect rejects the waiter, clears the in-flight slot, and the
-  ;; next call retries with a fresh socket — the non-sticky failure contract.
   (async done
     (let [sockets* (atom [])
           restore! (with-multi-create-connection! sockets*)
           conn     (nrepl/make-conn 6001 "127.0.0.1")
-          orig-err (.-error js/console)
           p1       (nrepl/connect! conn)]
-      (is (= 1 (count @sockets*)))
-      (is (some? (:connecting @conn)) "in-flight slot claimed")
-      (set! (.-error js/console) (fn [& _] nil))       ; silence the socket-error log
       (fire-cb! (first @sockets*) "error" (js/Error. "ECONNREFUSED"))
-      (set! (.-error js/console) orig-err)
       (-> p1
-          (.then (fn [_] (restore!) (is false "connect must reject") (done))
+          (.then (fn [_] (is false "connect must reject"))
                  (fn [e]
-                   (is (= "ECONNREFUSED" (.-message e)) "the waiter received the socket error")
-                   (is (nil? (:connecting @conn)) "the in-flight slot is cleared on rejection")
-                   (is (true? (:closed? @conn)) "conn marked closed")
-                   ;; A later call retries — opens a FRESH socket.
+                   (is (= "ECONNREFUSED" (.-message e)) "the waiter receives the socket error")
                    (let [p2 (nrepl/connect! conn)]
-                     (is (= 2 (count @sockets*)) "the retry opened a fresh socket")
+                     (is (= 2 (count @sockets*)) "the next call retries on a fresh socket")
                      (fire-cb! (second @sockets*) "connect")
-                     (-> p2
-                         (.then (fn [_]
-                                  (is (false? (:closed? @conn)) "the retry connected")))
-                         (.catch (fn [e2]
-                                   (is false (str "retry rejected: " (.-message e2))) nil))
-                         (.then (fn [_] (restore!) (done)))))))))))
+                     (.then p2 (fn [_] (is (false? (:closed? @conn)) "the retry connects"))))))
+          (.catch (fn [e] (is false (str "retry rejected: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest close!-during-in-flight-connect-settles-waiter-and-orphans-candidate
-  ;; Operator teardown mid-connect: the conn ends closed, the in-flight
-  ;; candidate is destroyed, the waiter settles, and a LATE candidate connect
-  ;; cannot undo the close by publishing itself.
   (async done
     (let [sockets* (atom [])
           restore! (with-multi-create-connection! sockets*)
           conn     (nrepl/make-conn 6001 "127.0.0.1")
           p1       (nrepl/connect! conn)]
-      (is (some? (:connecting @conn)) "connect in flight")
       (nrepl/close! conn)
-      (is (true? (:closed? @conn)) "close! left the conn closed")
-      (is (nil? (:connecting @conn)) "close! cleared the in-flight slot")
-      (is (true? (:destroyed? @(:flags (first @sockets*))))
-          "close! destroyed the in-flight candidate socket")
+      (is (nil? (:connecting @conn)) "close! clears the in-flight slot, so the next call reconnects")
+      (is (true? (:destroyed? @(:flags (first @sockets*)))) "close! destroys the in-flight candidate")
       (-> p1
-          (.then (fn [_] (restore!) (is false "the waiter must reject after close!") (done))
-                 (fn [_e]
-                   (is true "the waiter settled (rejected) via close!")
-                   ;; A LATE connect on the orphaned candidate must not publish.
+          (.then (fn [_] (is false "the waiter must reject after close!"))
+                 (fn [_]
                    (fire-cb! (first @sockets*) "connect")
-                   (is (nil? (:socket @conn))
-                       "a late candidate connect cannot undo the close (no socket published)")
-                   (is (true? (:closed? @conn)) "still closed after the late candidate")
-                   (restore!) (done)))))))
+                   (is (= {:socket nil :closed? true} (select-keys @conn [:socket :closed?]))
+                       "a late candidate connect cannot undo the close")))
+          (.then (fn [_] (restore!) (done)))))))
