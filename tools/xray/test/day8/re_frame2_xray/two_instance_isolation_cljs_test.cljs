@@ -32,9 +32,8 @@
 
   Driving one frame's tab / mode / focused-epoch does NOT move the
   other's."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -73,55 +72,25 @@
     (rf/dispatch-sync event-v)))
 
 (deftest selected-tab-is-per-instance
-  (testing "driving cell A's tab does NOT move
-            cell B's. Distinct selected-tab per instance."
-    (setup-two-shells!)
-    (dispatch! cell-a [:rf.xray/select-tab :trace])
-    (dispatch! cell-b [:rf.xray/select-tab :machines])
-    (is (= :trace (read-sub cell-a :rf.xray/selected-tab))
-        "cell A holds :trace")
-    (is (= :machines (read-sub cell-b :rf.xray/selected-tab))
-        "cell B holds :machines — independent of cell A")
-    ;; Re-drive cell A; cell B must not budge.
-    (dispatch! cell-a [:rf.xray/select-tab :routing])
-    (is (= :routing (read-sub cell-a :rf.xray/selected-tab))
-        "cell A moved to :routing")
-    (is (= :machines (read-sub cell-b :rf.xray/selected-tab))
-        "cell B is STILL :machines — driving A did not move B")))
+  (setup-two-shells!)
+  (dispatch! cell-b [:rf.xray/select-tab :machines])
+  (dispatch! cell-a [:rf.xray/select-tab :trace])
+  (is (= [:trace :machines]
+         [(read-sub cell-a :rf.xray/selected-tab) (read-sub cell-b :rf.xray/selected-tab)])
+      "driving cell A's tab leaves cell B's where it was"))
 
 (deftest mode-is-per-instance
-  (testing "Dynamic/Static mode (`:rf.xray/mode`)
-            is per-instance. The shell-view reads it via `:frame-id`
-            and the mode pill writes via the captured
-            dispatcher."
-    (setup-two-shells!)
-    ;; Before either cell is driven, the ONE globally-registered sub
-    ;; resolves under both frames — no per-frame re-registration.
-    (is (= :dynamic (read-sub cell-a :rf.xray/mode)))
-    (is (= :dynamic (read-sub cell-b :rf.xray/mode)))
-    (dispatch! cell-a [:rf.xray/set-mode :static])
-    (is (= :static (read-sub cell-a :rf.xray/mode))
-        "cell A flipped to :static")
-    (is (= :dynamic (read-sub cell-b :rf.xray/mode))
-        "cell B is STILL :dynamic — mode is per-instance, not shared")))
+  (setup-two-shells!)
+  (dispatch! cell-a [:rf.xray/set-mode :static])
+  (is (= [:static :dynamic]
+         [(read-sub cell-a :rf.xray/mode) (read-sub cell-b :rf.xray/mode)])
+      "cell B keeps the default mode when cell A flips"))
 
 (deftest focused-epoch-is-per-instance
-  (testing "the focused cascade/epoch
-            (`:rf.xray/focus`) is per-instance. Clicking an L2 row in one
-            shell (which dispatches `:rf.xray/focus-event` via the
-            captured dispatcher) focuses ONLY that shell."
-    (setup-two-shells!)
-    ;; Focus distinct cascades in each cell.
-    (dispatch! cell-a [:rf.xray/focus-event :cascade-a :rf/default])
-    (dispatch! cell-b [:rf.xray/focus-event :cascade-b :rf/default])
-    (is (= :cascade-a (:dispatch-id (read-sub cell-a :rf.xray/focus)))
-        "cell A focused :cascade-a")
-    (is (= :cascade-b (:dispatch-id (read-sub cell-b :rf.xray/focus)))
-        "cell B focused :cascade-b — independent focus")
-    ;; Re-focus cell A; cell B's focus must be untouched.
-    (dispatch! cell-a [:rf.xray/focus-event :cascade-a2 :rf/default])
-    (is (= :cascade-a2 (:dispatch-id (read-sub cell-a :rf.xray/focus)))
-        "cell A re-focused :cascade-a2")
-    (is (= :cascade-b (:dispatch-id (read-sub cell-b :rf.xray/focus)))
-        "cell B is STILL focused :cascade-b — driving A's focus did not
-         move B's")))
+  (setup-two-shells!)
+  (dispatch! cell-b [:rf.xray/focus-event :cascade-b :rf/default])
+  (dispatch! cell-a [:rf.xray/focus-event :cascade-a :rf/default])
+  (is (= [:cascade-a :cascade-b]
+         [(:dispatch-id (read-sub cell-a :rf.xray/focus))
+          (:dispatch-id (read-sub cell-b :rf.xray/focus))])
+      "an L2 click in cell A focuses only cell A"))
