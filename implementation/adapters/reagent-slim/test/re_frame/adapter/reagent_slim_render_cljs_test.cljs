@@ -1,32 +1,10 @@
 (ns re-frame.adapter.reagent-slim-render-cljs-test
-  "reagent-slim render-path coverage parity with the Reagent adapter's
-  `re-frame.adapter-render-cljs-test`. The slim adapter's
-  `render` slot must follow the React 18+ Root API exactly as the bridge
-  does — `(rdc/create-root mount-point)` first, then `(rdc/render root
-  render-tree)` — NOT `(rdc/render mount-point tree)` directly. The same
-  bug the bridge guards against (`TypeError: root.render is
-  not a function`) would bite slim too, because slim is positioned as a
-  drop-in Reagent replacement and routes through `reagent2.dom.client`
-  with the identical Root-API shape.
-
-  This pins the call sequence by spying through `with-redefs` on
-  `reagent2.dom.client`'s `create-root` / `render` / `hydrate-root` /
-  `unmount` fns. It does NOT touch a real DOM (no jsdom in :node-test);
-  it asserts the slim adapter wires the Root API correctly.
-
-  Test surface — the private `:render` slot on the slim adapter map plus
-  the spy stubs confirm:
-
-    1. Non-hydrate path: create-root is called exactly once with the
-       mount-point; render is called exactly once with the resulting
-       Root + the render-tree (in that order).
-    2. The returned unmount thunk calls unmount with the Root (not the
-       mount-point).
-    3. Hydrate path: hydrate-root is called once with the mount-point +
-       render-tree; create-root + render are NOT called; the unmount
-       thunk calls unmount with the Root returned by hydrate-root.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "The slim adapter's `:render` slot follows the React 18+ Root API —
+  `(rdc/create-root mount-point)`, then `(rdc/render root tree)`, or
+  `(rdc/hydrate-root mount-point tree)` — and its unmount thunk unmounts the
+  Root, never the mount point. Spies `reagent2.dom.client` through
+  `with-redefs`, so no DOM. The Reagent twin is
+  `re-frame.adapter-render-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.dom.client :as rdc]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]))
@@ -34,10 +12,7 @@
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- make-fake-root
-  "A fake Root identity — just an object with a marker tag. The spy
-  replaces `rdc/unmount` so its real method is never invoked. Using
-  `#js {...}` keeps the value JS-shaped without depending on React being
-  present in the :node-test runtime."
+  "A fake Root identity; the spies never call into it."
   [tag]
   #js {:rf-test-root-tag tag})
 
@@ -52,10 +27,7 @@
           fake-root  (make-fake-root :non-hydrate)
           fake-mount #js {:rf-test-mount :non-hydrate}
           fake-tree  [:div "tree"]]
-      ;; Stubs are multi-arity to mirror reagent2.dom.client's published
-      ;; API (create-root: 1/2, render: 2, hydrate-root: 2/3). The slim
-      ;; adapter exercises only the lowest arities, but
-      ;; covering the published arities keeps the stubs robust.
+      ;; Stubs cover reagent2.dom.client's published arities.
       (with-redefs [rdc/create-root  (fn
                                        ([mount-point]   (swap! calls conj [:create-root mount-point])
                                                fake-root)
@@ -76,31 +48,11 @@
                                        nil)]
         (let [render-fn (:render rf.adapter.reagent-slim/adapter)
               unmount   (render-fn fake-tree fake-mount nil)]
-          (is (fn? unmount)
-              "render returns an unmount thunk")
-          ;; Pre-unmount: exactly create-root + render, in order.
-          (is (= 2 (count @calls))
-              (str "expected 2 calls after render, got " (count @calls)
-                   " — " (pr-str @calls)))
-          (let [[c1 c2] @calls]
-            (is (= [:create-root fake-mount] c1)
-                "first call is (create-root mount-point)")
-            (is (= :render (first c2))
-                "second call is (render …)")
-            (is (identical? fake-root (second c2))
-                "render's first arg is the Root from create-root,
-                NOT the mount-point — the React 18 contract")
-            (is (= fake-tree (nth c2 2))
-                "render's second arg is the render-tree"))
-          ;; Unmount: the thunk calls (rdc/unmount root) — NOT the
-          ;; mount-point.
           (unmount)
-          (let [last-call (last @calls)]
-            (is (= :unmount (first last-call))
-                "unmount thunk invoked rdc/unmount")
-            (is (identical? fake-root (second last-call))
-                "unmount thunk passed the Root to rdc/unmount,
-                NOT the mount-point")))))))
+          ;; `=` on the JS objects is identity.
+          (is (= [[:create-root fake-mount] [:render fake-root fake-tree] [:unmount fake-root]]
+                 @calls)
+              "create-root on the mount point, render on the Root it returned, and the thunk unmounts that Root"))))))
 
 ;; ---- hydrate path ----------------------------------------------------------
 
@@ -133,14 +85,6 @@
                                        nil)]
         (let [render-fn (:render rf.adapter.reagent-slim/adapter)
               unmount   (render-fn fake-tree fake-mount {:hydrate? true})]
-          (is (fn? unmount))
-          (is (= 1 (count @calls))
-              (str "expected exactly 1 call (hydrate-root) before unmount, got "
-                   (count @calls) " — " (pr-str @calls)))
-          (is (= [:hydrate-root fake-mount fake-tree] (first @calls))
-              "hydrate-root called once with (mount-point render-tree)")
           (unmount)
-          (let [last-call (last @calls)]
-            (is (= :unmount (first last-call)))
-            (is (identical? fake-root (second last-call))
-                "unmount thunk passes the Root returned by hydrate-root")))))))
+          (is (= [[:hydrate-root fake-mount fake-tree] [:unmount fake-root]] @calls)
+              "hydrate-root alone mounts, and the thunk unmounts the Root it returned"))))))
