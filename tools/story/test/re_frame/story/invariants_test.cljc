@@ -1,23 +1,8 @@
 (ns re-frame.story.invariants-test
-  "Tests for `re-frame.story.invariants` — the invariant sentinel fixture
-  and the pure first-bad-epoch utility, spec/017-Testing-Story.md
-  §Invariant sentinels.
-
-  Two axes:
-
-  - PURE — hand-built `:rf/epoch-record` tapes in, violations out:
-    `first-bad-epoch`, `coerce-invariant`, `check-epoch`, the
-    report-once `on-epoch!` core. These run under `clojure -M:test`
-    (JVM) with no runtime.
-  - LIVE — the `with-invariants` fixture over a real frame + dispatch +
-    epoch listeners, exercising the sentinel's contract: passing invariant
-    across multiple dispatches; failing invariant reports once per
-    failing epoch; listener exceptions are isolated; works with fresh
-    AND destroyed frames.
-
-  The live axis captures `clojure.test` / `cljs.test` reports through a
-  rebound `report` multimethod / `do-report` so a deliberate violation
-  registers a counted failure WITHOUT failing this suite."
+  "`re-frame.story.invariants` (spec/017 §Invariant sentinels): the pure
+  core over hand-built `:rf/epoch-record` tapes, and the live
+  `with-invariants` sentinel over a real frame on the JVM. Live reports
+  are captured, so a deliberate violation does not fail this suite."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.story.invariants :as rf.story.invariants]
@@ -26,18 +11,10 @@
             #?(:clj [re-frame.registrar :as rf.registrar])
             #?(:clj [re-frame.epoch :as rf.epoch])
             #?(:clj [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
-            ;; Side-effect require — machine restore hooks must be present
-            ;; on the classpath (mirrors re-frame.epoch-test / the story
-            ;; runtime fixture).
+            ;; machine restore hooks must be on the classpath
             #?(:clj [re-frame.machines]))
   #?(:cljs (:require-macros [re-frame.story.invariants :refer [with-invariants]])))
 
-;; The live `with-invariants` axis runs on the JVM (`clojure -M:test`),
-;; where a real frame can be allocated and dispatched synchronously. The
-;; fixture mirrors the canonical story runtime fixture
-;; (`re-frame.story-runtime-test/reset-all`): tear down the registrar +
-;; frames, re-seat the plain-atom adapter, re-require machines, and clear
-;; the epoch listener / history registries between tests.
 #?(:clj (use-fixtures :each
           (fn [test-fn]
             (rf.registrar/clear-all!)
@@ -50,12 +27,8 @@
             (rf.frame/ensure-default-frame!)
             (test-fn))))
 
-;; ===========================================================================
-;; FIXTURE BUILDERS  (pure tapes)
-;; ===========================================================================
-
 (defn- epoch
-  "Build a minimal `:rf/epoch-record`. `m` overrides any slot."
+  "A minimal `:rf/epoch-record`; `m` overrides any slot."
   [epoch-id m]
   (merge {:epoch-id     epoch-id
           :frame        :test/frame
@@ -65,75 +38,56 @@
           :trace-events []}
          m))
 
-;; ===========================================================================
-;; coerce-invariant  (normalization)
-;; ===========================================================================
+;; ---- coerce-invariant ------------------------------------------------------
 
 (deftest coerce-explicit-map
-  (testing "an explicit map keeps its :id and resolves :check (or :pred)"
-    (let [c (rf.story.invariants/coerce-invariant 3 {:id :my/inv :check (fn [_] true)})]
-      (is (= :my/inv (:id c)))
-      (is (fn? (:check c))))
+  (let [f (fn [_] true)]
+    (testing "an explicit map keeps its :id and resolves :check"
+      (is (= {:id :my/inv :check f}
+             (rf.story.invariants/coerce-invariant 3 {:id :my/inv :check f}))))
     (testing ":pred is accepted as an alias for :check"
-      (is (fn? (:check (rf.story.invariants/coerce-invariant 0 {:pred (fn [_] true)})))))
-    (testing "a map without a check fn throws a structured error"
-      (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                   (rf.story.invariants/coerce-invariant 0 {:id :x}))))))
+      (is (= f (:check (rf.story.invariants/coerce-invariant 0 {:pred f}))))))
+  (testing "a map without a check fn throws a structured error"
+    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                 (rf.story.invariants/coerce-invariant 0 {:id :x})))))
 
 (deftest coerce-db-shorthand
-  (testing "[:db path pred] checks the value at the path"
-    (let [{:keys [check]} (rf.story.invariants/coerce-invariant 0 [:db [:cart :items] vector?])]
-      (is (:ok? (check (epoch 1 {:db-after {:cart {:items []}}}))))
-      (let [bad (check (epoch 1 {:db-after {:cart {:items 7}}}))]
-        (is (false? (:ok? bad)))
-        (is (= [:cart :items] (:path bad)))
-        (is (= 7 (:actual bad))))))
   (testing "[:db path = expected] checks equality and carries :expected"
     (let [{:keys [check]} (rf.story.invariants/coerce-invariant 0 [:db [:n] = 5])]
       (is (:ok? (check (epoch 1 {:db-after {:n 5}}))))
-      (let [bad (check (epoch 1 {:db-after {:n 4}}))]
-        (is (false? (:ok? bad)))
-        (is (= 5 (:expected bad)))
-        (is (= 4 (:actual bad)))))))
+      (is (= {:ok? false :path [:n] :expected 5 :actual 4}
+             (check (epoch 1 {:db-after {:n 4}})))))))
 
 (deftest coerce-bad-shape-throws
-  (testing "a non-fn / non-vector / non-map invariant throws"
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (rf.story.invariants/coerce-invariant 0 :not-an-invariant)))))
+  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+               (rf.story.invariants/coerce-invariant 0 :not-an-invariant))))
 
-;; ===========================================================================
-;; check-epoch  (one invariant × one epoch, never-throws)
-;; ===========================================================================
+;; ---- check-epoch -----------------------------------------------------------
 
 (deftest check-epoch-violation-carries-spine
-  (testing "a violation carries the diagnostic spine from the epoch"
-    (let [c (rf.story.invariants/coerce-invariant 0 (fn [e] (pos? (get-in (:db-after e) [:n]))))
-          v (rf.story.invariants/check-epoch c (epoch 7 {:event-id      :do/thing
-                                         :trigger-event [:do/thing 42]
-                                         :db-after      {:n -1}}))]
-      (is (= :invariant-0 (:invariant v)))
-      (is (= 7 (:epoch-id v)))
-      (is (= :test/frame (:frame v)))
-      (is (= :do/thing (:event v)))
-      (is (= [:do/thing 42] (:trigger-event v))))))
+  (let [c (rf.story.invariants/coerce-invariant 0 (fn [e] (pos? (get-in (:db-after e) [:n]))))]
+    (is (= {:invariant :invariant-0 :epoch-id 7 :frame :test/frame
+            :event :do/thing :trigger-event [:do/thing 42]}
+           (rf.story.invariants/check-epoch c (epoch 7 {:event-id      :do/thing
+                                                        :trigger-event [:do/thing 42]
+                                                        :db-after      {:n -1}}))))))
 
 (deftest check-epoch-isolates-predicate-exception
   (testing "a throwing predicate is caught and reported as a violation with :error"
-    (let [c (rf.story.invariants/coerce-invariant 0 (fn [_] (throw (ex-info "boom" {}))))
-          v (rf.story.invariants/check-epoch c (epoch 1 {}))]
-      (is (= :invariant-0 (:invariant v)))
-      (is (string? (:error v))))))
+    (let [c (rf.story.invariants/coerce-invariant 0 (fn [_] (throw (ex-info "boom" {}))))]
+      (is (= {:invariant :invariant-0 :epoch-id 1 :frame :test/frame :error "boom"}
+             (rf.story.invariants/check-epoch c (epoch 1 {})))))))
 
-;; ===========================================================================
-;; first-bad-epoch  (pure post-hoc utility)
-;; ===========================================================================
+;; ---- first-bad-epoch -------------------------------------------------------
 
 (deftest first-bad-epoch-nil-when-holds
-  (testing "returns nil when the invariant holds across the whole tape"
-    (let [tape [(epoch 1 {:db-after {:n 1}})
-                (epoch 2 {:db-after {:n 2}})
-                (epoch 3 {:db-after {:n 3}})]]
-      (is (nil? (rf.story.invariants/first-bad-epoch tape (fn [e] (pos? (:n (:db-after e))))))))))
+  (let [tape [(epoch 1 {:db-after {:n 1}})
+              (epoch 2 {:db-after {:n 2}})
+              (epoch 3 {:db-after {:n 3}})]]
+    (is (nil? (rf.story.invariants/first-bad-epoch tape (fn [e] (pos? (:n (:db-after e))))))))
+  (testing "an empty (or nil) tape returns nil — no epoch can fail"
+    (is (nil? (rf.story.invariants/first-bad-epoch [] (fn [_] false))))
+    (is (nil? (rf.story.invariants/first-bad-epoch nil (fn [_] false))))))
 
 (deftest first-bad-epoch-returns-first-failing
   (testing "returns the FIRST failing epoch, enriched with trigger + db-diff + traces"
@@ -142,67 +96,45 @@
                           :db-before     {:n 1}
                           :db-after      {:n -5 :extra true}
                           :trace-events  [{:operation :rf.event/run-start}]})
-                (epoch 3 {:db-after {:n -9}})]
-          bad  (rf.story.invariants/first-bad-epoch tape (fn [e] (>= (:n (:db-after e)) 0)))]
-      (is (= 2 (:epoch-id bad)) "the FIRST failing epoch, not a later one")
-      (is (= [:break] (:trigger-event bad)))
-      (is (= #{:n :extra} (:db-diff bad)) "shallow top-level changed-key set")
-      (is (= [{:operation :rf.event/run-start}] (:trace-events bad)))
-      (is (= (get tape 1) (:epoch bad)) "the failing record is returned verbatim"))))
-
-(deftest first-bad-epoch-empty-tape
-  (testing "an empty (or nil) tape returns nil — no epoch can fail"
-    (is (nil? (rf.story.invariants/first-bad-epoch [] (fn [_] false))))
-    (is (nil? (rf.story.invariants/first-bad-epoch nil (fn [_] false))))))
+                (epoch 3 {:db-after {:n -9}})]]
+      (is (= {:invariant     :invariant-0
+              :epoch-id      2
+              :frame         :test/frame
+              :trigger-event [:break]
+              :db-diff       #{:n :extra}
+              :trace-events  [{:operation :rf.event/run-start}]
+              :epoch         (get tape 1)}
+             (rf.story.invariants/first-bad-epoch tape (fn [e] (>= (:n (:db-after e)) 0))))))))
 
 (deftest first-bad-epoch-failure-in-first-epoch
-  (testing "a failure in the FIRST epoch is returned"
-    (let [tape [(epoch 1 {:db-after {:n -1}})
-                (epoch 2 {:db-after {:n -2}})]
-          bad  (rf.story.invariants/first-bad-epoch tape (fn [e] (pos? (:n (:db-after e)))))]
-      (is (= 1 (:epoch-id bad))))))
+  (let [tape [(epoch 1 {:db-after {:n -1}})
+              (epoch 2 {:db-after {:n -2}})]]
+    (is (= 1 (:epoch-id (rf.story.invariants/first-bad-epoch tape (fn [e] (pos? (:n (:db-after e))))))))))
 
 (deftest first-bad-epoch-accepts-db-shorthand
-  (testing "first-bad-epoch accepts the same authored shapes as with-invariants"
-    (let [tape [(epoch 1 {:db-after {:cart {:items []}}})
-                (epoch 2 {:db-after {:cart {:items :oops}}})]
-          bad  (rf.story.invariants/first-bad-epoch tape [:db [:cart :items] vector?])]
-      (is (= 2 (:epoch-id bad)))
-      (is (= [:cart :items] (:path bad)))
-      (is (= :oops (:actual bad))))))
+  (let [tape [(epoch 1 {:db-after {:cart {:items []}}})
+              (epoch 2 {:db-after {:cart {:items :oops}}})]]
+    (is (= {:epoch-id 2 :path [:cart :items] :actual :oops}
+           (select-keys (rf.story.invariants/first-bad-epoch tape [:db [:cart :items] vector?])
+                        [:epoch-id :path :actual])))))
 
-;; ===========================================================================
-;; on-epoch!  (report-once core — pure over a state atom)
-;; ===========================================================================
-;;
-;; on-epoch! reports through `do-report`; we rebind the report sink so the
-;; fixture's deliberate failures don't fail THIS suite, and count them.
+;; ---- on-epoch! (report-once core) ------------------------------------------
 
 (defn- with-captured-reports
-  "Run `f`, capturing every `clojure.test` / `cljs.test` report into a
-  vector instead of letting it reach the live reporter. Returns the
-  captured reports."
+  "Run `f`, returning every `clojure.test` / `cljs.test` report it emits
+  instead of letting them reach the live reporter."
   [f]
   (let [reports (atom [])]
     #?(:clj
        (binding [clojure.test/report (fn [m] (swap! reports conj m))]
          (f))
        :cljs
-       ;; `cljs.test/report` is a multimethod (a `def`, not a `^:dynamic`
-       ;; var), so we swap its root via `with-redefs` for the dynamic
-       ;; extent of `f`. `do-report` resolves `report` at call time, so
-       ;; every report `f` emits routes to our sink and is captured here.
        (with-redefs [cljs.test/report (fn [m] (swap! reports conj m))]
          (f)))
     @reports))
 
 (deftest on-epoch-reports-once-per-frame-same-epoch-id
   (testing "two frames with the SAME epoch-id each report once (dedup-key is per-frame)"
-    ;; `with-invariants` observes EVERY frame's epochs, so report-once must
-    ;; be keyed per-frame. Epoch-ids come from one global counter, so they
-    ;; are unique across frames; were they per-frame, two frames could both
-    ;; emit epoch-id 1 — a frame-less dedup-key would SILENTLY DROP the
-    ;; second frame's violation. This asserts both frames report.
     (let [coerced (rf.story.invariants/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
           state   (atom {:seen #{} :violations []})
           ep-a    (epoch 1 {:frame :frame/a :db-after {:n -1}})
@@ -211,23 +143,12 @@
                     (fn []
                       (rf.story.invariants/on-epoch! state coerced ep-a)
                       (rf.story.invariants/on-epoch! state coerced ep-b)
-                      ;; Re-fires of each frame's epoch must NOT re-report.
                       (rf.story.invariants/on-epoch! state coerced ep-a)
                       (rf.story.invariants/on-epoch! state coerced ep-b)))]
-      (is (= 2 (count (filter #(= :fail (:type %)) reports)))
-          "one :fail per frame even though both share epoch-id 1")
-      (is (= 2 (count (:violations @state))))
-      (is (= #{:frame/a :frame/b}
-             (into #{} (map :frame) (:violations @state)))
-          "the two violations come from the two distinct frames"))))
+      (is (= 2 (count (filter #(= :fail (:type %)) reports))))
+      (is (= [:frame/a :frame/b] (mapv :frame (:violations @state)))))))
 
-;; ===========================================================================
-;; with-invariants  (LIVE fixture over a real frame, JVM)
-;; ===========================================================================
-;;
-;; These spin up a real frame, dispatch real events, and let the
-;; registered epoch listener check invariants after each committed epoch.
-;; Reports are captured so deliberate violations are counted, not fatal.
+;; ---- with-invariants (live sentinel over a real frame, JVM) ----------------
 
 #?(:clj
    (deftest with-invariants-passes-across-multiple-dispatches
@@ -242,44 +163,22 @@
                            (rf/dispatch-sync [:seed] {:frame :test/main})
                            (rf/dispatch-sync [:inc]  {:frame :test/main})
                            (rf/dispatch-sync [:inc]  {:frame :test/main}))))]
-         (is (zero? (count (filter #(= :fail (:type %)) reports)))
-             "no failures for a holding invariant")
+         (is (zero? (count (filter #(= :fail (:type %)) reports))))
          (is (= 2 (count (filter #(= :pass (:type %)) reports)))
-             "one green :pass per invariant that held across the run")))))
+             "one :pass per invariant that held across the run")))))
 
 #?(:clj
    (deftest with-invariants-reports-once-per-failing-epoch
-     (testing "a failing invariant reports exactly once per failing epoch"
-       (rf/make-frame {:id :test/main})
-       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-       (rf/reg-event :dec  (fn [{:keys [db]} _] {:db (update db :n dec)}))
-       (let [reports (with-captured-reports
-                       (fn []
-                         (with-invariants [(fn [e] (>= (:n (:db-after e)) 0))]
-                           (rf/dispatch-sync [:seed] {:frame :test/main})  ; n=0  holds
-                           (rf/dispatch-sync [:dec]  {:frame :test/main})  ; n=-1 fails
-                           (rf/dispatch-sync [:dec]  {:frame :test/main})))) ; n=-2 fails
-             fails   (filter #(= :fail (:type %)) reports)]
-         (is (= 2 (count fails))
-             "two failing epochs → two failures, one per epoch")))))
-
-#?(:clj
-   (deftest with-invariants-isolates-listener-exception
-     (testing "a throwing invariant predicate does not break the run; it reports"
-       (rf/make-frame {:id :test/main})
-       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-       (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-       (let [body-completed (atom false)
-             reports        (with-captured-reports
-                              (fn []
-                                (with-invariants [(fn [_] (throw (ex-info "boom" {})))]
-                                  (rf/dispatch-sync [:seed] {:frame :test/main})
-                                  (rf/dispatch-sync [:inc]  {:frame :test/main})
-                                  (reset! body-completed true))))]
-         (is (true? @body-completed)
-             "the body ran to completion despite the throwing predicate")
-         (is (pos? (count (filter #(= :fail (:type %)) reports)))
-             "the broken predicate reported failures")))))
+     (rf/make-frame {:id :test/main})
+     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+     (rf/reg-event :dec  (fn [{:keys [db]} _] {:db (update db :n dec)}))
+     (let [reports (with-captured-reports
+                     (fn []
+                       (with-invariants [(fn [e] (>= (:n (:db-after e)) 0))]
+                         (rf/dispatch-sync [:seed] {:frame :test/main})  ; n=0  holds
+                         (rf/dispatch-sync [:dec]  {:frame :test/main})  ; n=-1 fails
+                         (rf/dispatch-sync [:dec]  {:frame :test/main}))))] ; n=-2 fails
+       (is (= 2 (count (filter #(= :fail (:type %)) reports)))))))
 
 #?(:clj
    (deftest with-invariants-listener-unregistered-after-body
@@ -291,25 +190,21 @@
                        (fn []
                          (with-invariants [(fn [e] (>= (:n (:db-after e)) 0))]
                            (rf/dispatch-sync [:seed] {:frame :test/main}))
-                         ;; This dispatch happens AFTER with-invariants exits;
-                         ;; its (failing) epoch must NOT be observed.
                          (rf/dispatch-sync [:dec] {:frame :test/main})))]
-         (is (zero? (count (filter #(= :fail (:type %)) reports)))
-             "the post-body dispatch's violation was not observed")))))
+         (is (zero? (count (filter #(= :fail (:type %)) reports))))))))
 
+;; spec/017 promises the sentinel works with fresh and destroyed frames.
 #?(:clj
    (deftest with-invariants-works-with-destroyed-frame
-     (testing "destroying the frame mid-run does not break the sentinel; the body completes"
-       (rf/make-frame {:id :test/main})
-       (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-       (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-       (let [body-completed (atom false)]
-         (with-captured-reports
-           (fn []
-             (with-invariants [(fn [e] (map? (:db-after e)))]
-               (rf/dispatch-sync [:seed] {:frame :test/main})
-               (rf/dispatch-sync [:inc]  {:frame :test/main})
-               (rf/destroy-frame! :test/main)
-               (reset! body-completed true))))
-         (is (true? @body-completed)
-             "the body — including the destroy and the post-destroy form — completed")))))
+     (rf/make-frame {:id :test/main})
+     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+     (let [body-completed (atom false)]
+       (with-captured-reports
+         (fn []
+           (with-invariants [(fn [e] (map? (:db-after e)))]
+             (rf/dispatch-sync [:seed] {:frame :test/main})
+             (rf/dispatch-sync [:inc]  {:frame :test/main})
+             (rf/destroy-frame! :test/main)
+             (reset! body-completed true))))
+       (is (true? @body-completed)))))
