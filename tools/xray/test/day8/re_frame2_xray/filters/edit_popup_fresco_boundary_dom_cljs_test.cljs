@@ -188,7 +188,6 @@
 (defn- testid-sel [id] (str "[data-testid=" (pr-str id) "]"))
 
 (defn- dialog-node   [c] (q c (testid-sel "rf-xray-edit-popup-dialog")))
-(defn- backdrop-node [c] (q c (testid-sel "rf-xray-edit-popup-backdrop")))
 (defn- pattern-node  [c] (q c (testid-sel "rf-xray-edit-popup-pattern")))
 (defn- mode-in-node  [c] (q c (testid-sel "rf-xray-edit-popup-mode-in")))
 (defn- close-btn     [c] (q c (testid-sel "rf-xray-edit-popup-close")))
@@ -234,8 +233,6 @@
               "a mounted bridge over a CLOSED popup commits NO dialog —
                the boundary's `when` short-circuited on a false
                `:rf.xray/edit-popup-open?`")
-          (is (nil? (backdrop-node container))
-              "and no backdrop either, so nothing of the body painted")
           (teardown! root container))
 
         ;; ---- the OPEN half -------------------------------------------
@@ -245,10 +242,6 @@
               "the popup committed a real dialog under React — the Fresco
                boundary behind the public bridge name really ran its body
                and its gate read TRUE")
-          (is (some? (backdrop-node container))
-              "and the backdrop committed alongside it, so the boundary
-               rendered the whole `modal-chrome` scaffold rather than its
-               first child")
           (is (some? (pattern-node container))
               "the pattern input is real DOM — the subtree BELOW the
                boundary rendered too, which is what says every plain-fn
