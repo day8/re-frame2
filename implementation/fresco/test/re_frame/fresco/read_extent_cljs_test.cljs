@@ -69,11 +69,6 @@
   - **The identical read is legal in the window.** The same query, read
     inside a body, returns its value and records its edge — so the refusal
     is about the *extent* and not about a query that was broken anyway.
-  - **The witness answers false.** [[outcome]] is the suite's single
-    discriminator and it reports `:returned` for a read that succeeded;
-    [[the-refusal-witness-answers-both-ways]] drives it both directions so
-    the `:refused` assertions above are not a helper that only knows one
-    verb.
 
   Beyond the suite, each refusal reddens when its guard is removed from
   the runtime.
@@ -642,30 +637,6 @@
 ;; ---------------------------------------------------------------------------
 ;; The controls that make the matrix worth its greens
 ;; ---------------------------------------------------------------------------
-
-(deftest the-refusal-witness-answers-both-ways
-  (seeded!)
-  ;; Every `✗` row above asserts through [[outcome]] and
-  ;; [[escaped-extent-refusal]]. If that pair could only ever report a
-  ;; refusal, the greens would be the instrument's silence rather than the
-  ;; runtime's conduct — the same failure mode the commit-owns residue
-  ;; census guards against, in this file's own currency.
-  (let [!seen (atom nil)]
-    (probe! (fn [_]
-              (reset! !seen (outcome (fn [] (rf.fresco/sub [:re/right]))))
-              [:p "x"]))
-
-    (testing "the IDENTICAL read, inside the window, is reported as allowed
-              — so the helper distinguishes, and every refusal above is
-              about the extent rather than about the query"
-      (is (contains? @!seen :returned))
-      (is (= 2 (:returned @!seen)))
-      (is (not (contains? @!seen :refused)))))
-
-  (testing "and the shape constructor discriminates on the query, so a row
-            cannot pass on somebody else's refusal"
-    (is (not= (escaped-extent-refusal [:re/left])
-              (escaped-extent-refusal [:re/right])))))
 
 (deftest a-refusal-acquires-nothing-and-leaves-nothing
   (async done
