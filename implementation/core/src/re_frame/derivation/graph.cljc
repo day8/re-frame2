@@ -208,7 +208,7 @@
   over every node — it is NOT a per-family `:edge-fn`."
   [mode to-id node]
   (let [inputs (:inputs node)]
-    (if (or (not (sequential? inputs)) (= :parametric inputs))
+    (if-not (sequential? inputs)
       []
       (->> inputs
            (keep (fn [in]
@@ -394,28 +394,6 @@
                :edge-fn     route-edges}
    :machines  {:node-id-fn machine-node-id
                :edge-fn    machine-edges}})
-
-(defn node-id
-  "The canonical graph node id for one algebra node in `family`
-  (Derivations §Graph inspection / §Fact identity). Delegates to the
-  family's `:node-id-fn` contract — the central code does NOT branch on
-  family. The family-tagged forms:
-
-    :subs      → `[:sub <id>]`  (bare sub-id keyword for a STATIC node;
-                 concrete query vector for a LIVE cache-entry node).
-    :flows     → `[:flow <frame-id> <flow-id>]` — FRAME-SCOPED; degrades to
-                 `[:flow <flow-id>]` for an `:owner`-less fixture.
-    :resources → `[:resource <resource-id-or-scoped-key>]`.
-    :machines  → `[:machine <machine-or-actor-id>]`.
-    :routes    → the route fact id `:rf/route` (every route materializes
-                 the ONE slice).
-
-  Provided for tools that need the canonical id of a single projection
-  node; the assembler uses the family contract directly."
-  [family node]
-  (if-let [f (:node-id-fn (get family-contract family))]
-    (f node)
-    [family (:id node)]))
 
 ;; ---------------------------------------------------------------------------
 ;; The contributor seam.
