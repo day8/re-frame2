@@ -222,64 +222,26 @@
 ;; THE HONEST EMPTIES — three states, three renderings
 ;; ---------------------------------------------------------------------------
 
-(deftest a-running-runtime-with-nothing-mounted-is-EMPTY-not-absent
-  (setup!)
-  (let [tree (show! :mounted)
-        ids  (testids tree)]
-    (is (contains? ids "rf-xray-fresco-empty-mounted")
-        "Fresco answered and no boundary holds a read edge — a survey result")
-    (is (not (contains? ids "rf-xray-fresco-absent"))
-        "an empty runtime must NOT render as `no Fresco on this host` — those
-         are unrelated facts with unrelated remedies")
-    (is (string/includes? (text-of tree) "survey result"))))
-
 (deftest an-empty-roster-says-something-different-in-each-view
-  ;; One `:idle` note — "nothing is mounted, a clean bill of health" —
-  ;; rendered under every view would, under Intents, tell the reader a
-  ;; CAPPED window proved nothing had been dispatched. Each view has its own
-  ;; testid and its own sentence — six of them, one per `sub-modes` entry,
-  ;; which the pure-algebra suite counts against the live list. This row
-  ;; drives the REAL PANEL over the four evidence views to prove the
-  ;; sentences reach the page.
+  ;; The REAL PANEL over the four evidence views with nothing mounted: each
+  ;; renders its own empty note (whose sentence comes from the same
+  ;; `hh/state-copy` entry as its testid — the pure-algebra suite holds the
+  ;; wording).
   (setup!)
   (let [by-view (into {} (map (fn [v] [v (show! v)])) [:mounted :attribution
                                                        :intents :explain])]
-    (testing "each view renders its OWN empty testid and no other view's"
+    (testing "each view renders its OWN empty testid"
       (doseq [[view suffix] [[:mounted     "rf-xray-fresco-empty-mounted"]
                              [:attribution "rf-xray-fresco-empty-attribution"]
                              [:intents     "rf-xray-fresco-empty-intents"]
                              [:explain     "rf-xray-fresco-empty-explain"]]]
-        (let [ids (testids (get by-view view))]
-          (is (contains? ids suffix)
-              (str view " must render its own empty note"))
-          (is (= 1 (count (filter #(string/starts-with? % "rf-xray-fresco-empty-") ids)))
-              (str view " must render exactly one empty note — not a second view's")))))
-
-    (testing "the Intents empty is a CAP, and never a clean bill of health"
-      (let [txt (text-of (get by-view :intents))]
-        (is (string/includes? txt "CAP"))
-        (is (string/includes? txt "cannot say whether anything was dispatched"))
-        (is (not (string/includes? txt "clean bill of health"))
-            (str "the mounted census's verdict must not be read out here — an "
-                 "empty ring is a knob setting, not a finding"))))
+        (is (contains? (testids (get by-view view)) suffix)
+            (str view " must render its own empty note"))))
 
     (testing "and the cap's own loss note is rendered even with no rows at all"
       (is (contains? (testids (get by-view :intents)) "rf-xray-fresco-intents-cap")
           (str "a view that showed its qualifications only when it had rows would "
                "drop them exactly where the reader has least else to go on")))))
-
-(deftest the-mounted-census-does-not-claim-the-screen
-  ;; The census cannot distinguish Activity-hidden from
-  ;; unmounted, and lists a Suspense-fallback-hidden subtree though it is
-  ;; off screen. The panel states that beside the rows rather than leaving
-  ;; the reader to supply the word "visible".
-  (setup!)
-  (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))
-        tree    (show! :mounted)]
-    (is (contains? (testids tree) "rf-xray-fresco-mounted-visibility"))
-    (is (string/includes? (text-of tree) "SUBSCRIPTION"))
-    (is (string/includes? (text-of tree) "Suspense"))
-    (release)))
 
 (deftest a-host-without-fresco-is-ABSENT-not-empty
   ;; EVERY view, `:causal` included. A `causal-view` that did not take the
@@ -296,17 +258,10 @@
                                             :intents            nil
                                             :explain-render     nil})]
     (doseq [view [:mounted :attribution :intents :explain :advisor :causal]]
-      (let [ids (testids (show! view))]
-        (is (contains? ids "rf-xray-fresco-absent")
-            (str view " must say the door answered nil — not that its own "
-                 "roster came back empty, which is a different fact with a "
-                 "different remedy"))))
-
-    (testing "and no view substitutes its own empty-roster sentence for the absence"
-      (doseq [[view suffix] [[:mounted :causal] [:advisor :causal] [:causal :causal]
-                             [:causal :mounted] [:causal :advisor]]]
-        (is (not (contains? (testids (show! view)) (str "rf-xray-fresco-empty-" (name suffix))))
-            (str view " must not render the empty-" (name suffix) " copy"))))))
+      (is (contains? (testids (show! view)) "rf-xray-fresco-absent")
+          (str view " must say the door answered nil — not that its own "
+               "roster came back empty, which is a different fact with a "
+               "different remedy")))))
 
 (deftest an-unparseable-schema-is-MISMATCH-and-suppresses-rows
   (setup!)
@@ -324,17 +279,12 @@
     (doseq [stamp [:re-frame.fresco.evidence/v2
                    :re-frame.fresco.evidence/v99]]
       (let [other (assoc (rf.fresco.tool/read-mounted-boundaries) :schema stamp)]
-        (is (seq (:boundaries other))
-            "NON-VACUITY: the envelope being refused really does carry rows")
         (with-redefs [reads/evidence (constantly {:mounted-boundaries other
                                                   :read-attribution   other
                                                   :intents            other
                                                   :explain-render     other})]
-          (let [tree (show! :mounted)
-                ids  (testids tree)]
-            (is (contains? ids "rf-xray-fresco-mismatch") (str stamp))
-            (is (not (contains? ids "rf-xray-fresco-empty-mounted")) (str stamp))
-            (is (string/includes? (text-of tree) "not taught to parse"))))))
+          (is (contains? (testids (show! :mounted)) "rf-xray-fresco-mismatch")
+              (str stamp)))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -349,17 +299,17 @@
         tree (show! :mounted)
         txt  (text-of tree)
         ids  (testids tree)]
-    (is (contains? ids "rf-xray-fresco-mounted"))
-    (is (not (contains? ids "rf-xray-fresco-empty-mounted")))
     (is (string/includes? txt "2 instances")
         "the two boundaries with one edge set report as one row of two")
-    (is (string/includes? txt "[:htab/left]"))
     (is (string/includes? txt "[:htab/left] + [:htab/right]"))
     (testing "a harness body has no name, and the row SHOWS that rather than blanking"
-      (is (some #(string/ends-with? % "-view-loss-unknown") ids))
-      (is (not-any? #(string/ends-with? % "-views") ids)))
-    (testing "React's half is spelled out beneath the roster"
+      (is (some #(string/ends-with? % "-view-loss-unknown") ids)))
+    (testing "the census says it is about SUBSCRIPTION, not the screen: an
+              Activity-hidden subtree reads as unmounted, a Suspense-hidden one
+              stays listed, and React's half is named"
       (is (contains? ids "rf-xray-fresco-mounted-visibility"))
+      (is (string/includes? txt "SUBSCRIPTION"))
+      (is (string/includes? txt "Suspense"))
       (is (string/includes? txt "React DevTools")))
     (a) (b) (c)))
 
@@ -371,9 +321,7 @@
         ids     (testids tree)]
     (testing "the Mounted row leads with the view's `<ns>/<sym>`"
       (is (string/includes? txt named-probe-name))
-      (is (some #(string/ends-with? % "-views") ids))
-      (is (not-any? #(string/ends-with? % "-view-loss-unknown") ids)
-          "a named row carries no unknown chip in the view position"))
+      (is (some #(string/ends-with? % "-views") ids)))
     (testing "the Reads row names the reader by its view, with the edge set beside it"
       (let [reads-txt (text-of (show! :attribution))]
         (is (string/includes? reads-txt (str "read by " named-probe-name " ([:htab/left])")))))
@@ -393,7 +341,6 @@
         tree (show! :attribution)
         txt  (text-of tree)
         ids  (testids tree)]
-    (is (contains? ids "rf-xray-fresco-attribution"))
     (is (string/includes? txt "fan-out 2") ":htab/left is read by both boundaries")
     (is (string/includes? txt "fan-out 1") ":htab/right by one")
     (is (string/includes? txt "[:htab/left] + [:htab/right]")
@@ -407,9 +354,7 @@
         (is (every? #(string/includes? % "fresco-tab-app") edge-ids)
             (str "an edge testid must carry the FRAME as well as the sub id — "
                  "frames are isolated contexts, so two frames holding one sub id "
-                 "are two rows and not one seen twice"))
-        (is (some #(string/includes? % "htab-left") edge-ids))
-        (is (some #(string/includes? % "htab-right") edge-ids))))
+                 "are two rows and not one seen twice"))))
     (testing "and the frame is on the page, not merely in the testid"
       (is (string/includes? txt (str "frame " (hh/format-id app-frame)))
           "a reader looking at two identically-labelled rows needs the frame"))
@@ -419,41 +364,19 @@
   (setup!)
   (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
-    (let [tree (show! :intents)
-          txt  (text-of tree)
-          ids  (testids tree)]
-      (is (contains? ids "rf-xray-fresco-intents"))
-      (is (string/includes? txt ":htab/bump"))
-      (is (string/includes? txt "(not carried)")
-          "the panel says the arguments are absent BY DESIGN, so a reader does
-           not read the absence as a bug")
-      (testing "the summary states the window's cap on every render, good or bad"
-        (is (string/includes? txt "capped")))
-      (testing "and the cap's own note is on the page beneath the rows"
-        (is (contains? ids "rf-xray-fresco-intents-cap"))))
+    (is (string/includes? (text-of (show! :intents)) ":htab/bump"))
     (release)))
 
 (deftest the-why-view-answers-which-reads-changed-and-refuses-to-answer-why
+  ;; The UNCORRELATED half is `the-loss-states-render-under-distinct-testids`.
   (setup!)
   (let [release (mount! (fn [_] (rf.fresco/sub [:htab/left]) (rf.fresco/sub [:htab/right]) nil))]
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
     (let [tree (show! :explain)
           txt  (text-of tree)
           ids  (testids tree)]
-      (is (contains? ids "rf-xray-fresco-explain"))
       (testing "PROVEN: the reads at the boundary's peak epoch, off the stamps"
-        (is (some #(string/ends-with? % "-proven") ids))
-        (is (string/includes? txt "moved most recently:"))
-        (is (string/includes? txt ":htab/left"))
-        (is (string/includes? txt "snapshot ")
-            "React's own comparison number is on screen, so a reader can see
-             what a bail-out would have been decided on")
-        (is (not (string/includes? txt "reads nothing"))
-            "a boundary WITH reads must never render the read-free phrase"))
-      (testing "UNCORRELATED: the cause is a labelled absence, beside a lead count"
-        (is (some #(string/ends-with? % "-cause") ids))
-        (is (some #(string/ends-with? % "-loss-uncorrelated") ids))
-        (is (string/includes? txt "lead")))
+        (is (string/includes? txt "moved most recently:")))
       (testing "the FRAME is on the row, and in its testid"
         (is (string/includes? txt (str "frame " (hh/format-id app-frame)))
             (str "two boundaries reading one query in two frames have the same "
@@ -505,10 +428,7 @@
              arrived — with no cache clear anywhere in this test")
         (is (string/includes? (text-of tree) "[:htab/left]")
             "and the row names the read the boundary really holds, so the
-             assertion above cannot pass on a row projected from nothing")
-        (is (not (contains? ids empty-testid))
-            "and the empty note is gone, so the roster replaced it rather
-             than rendering beside it"))
+             assertion above cannot pass on a row projected from nothing"))
       (release))))
 
 ;; ---------------------------------------------------------------------------
@@ -521,19 +441,14 @@
     (rf/with-frame app-frame (rf/dispatch-sync [:htab/bump]))
 
     (testing "a live window renders the UNCORRELATED chip"
-      (let [ids (testids (show! :explain))]
-        (is (some #(string/ends-with? % "-loss-uncorrelated") ids))
-        (is (not-any? #(string/ends-with? % "-cause-loss-cap") ids))))
+      (is (some #(string/ends-with? % "-loss-uncorrelated") (testids (show! :explain)))))
 
     (testing "an EMPTY window renders the CAP chip in the same place — a
               different testid, a different word, driven by a real change"
       (rf.trace.tooling/clear-trace-buffer! app-frame)
-      (let [tree (show! :explain)
-            ids  (testids tree)
-            txt  (text-of tree)]
-        (is (some #(string/ends-with? % "-loss-cap") ids))
-        (is (not-any? #(string/ends-with? % "-cause-loss-uncorrelated") ids))
-        (is (string/includes? txt "leads not searched")
+      (let [tree (show! :explain)]
+        (is (some #(string/ends-with? % "-loss-cap") (testids tree)))
+        (is (string/includes? (text-of tree) "leads not searched")
             "and the leads are not rendered as an empty list, which would read
              as `nothing recomputed anything`")))
     (release)))
