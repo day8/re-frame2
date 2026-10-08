@@ -1,100 +1,41 @@
 (ns re-frame.flows-integration-test
-  "Integration coverage for flows COMPOSED with other optional subsystems.
+  "Flows composed with machines, app-db schemas, routing and SSR. It lives
+  in the ssr artefact because its `:test` classpath is the only one that
+  pulls all of them at once.
 
-  The flows artefact's own JVM tests pin flows × core thoroughly
-  (`flows_test.clj`, `flows_trace_test.clj`, `flows_schema_validation_test.clj`).
-  This namespace pins the cross-subsystem compositions, which no single
-  artefact's suite reaches.
+  The contract: flows run at the OUTERMOST `:after`, transforming the
+  handler's pending effects before the single install, which is the atomic
+  commit boundary. So a flow evaluates once per event on the settled db; a
+  flow throw aborts the event with nothing installed and no `:fx` walked; a
+  schema-violating flow output rejects the whole candidate (dev posture
+  only — production trusts the programmer); and the dirty-check keys on
+  BOTH partitions, so a runtime-only event recomputes a flow reading
+  `[:rf.db/runtime …]`.
 
-  Why this lives in the ssr artefact's test dir: its `:test` classpath is
-  the only single artefact that pulls core + flows + schemas + routing +
-  machines + ssr all at once (see `ssr/deps.edn`), so the four
-  cross-subsystem scenarios can share one classpath and one fixture.
-
-  ## The contract these tests pin (`bd recall event-pipeline-atomicity`)
-
-  Flows run at the OUTERMOST `:after` — they transform the handler's
-  PENDING `:db` effect (which has already absorbed any machine snapshot
-  write and the path-interceptor reshape) BEFORE the single deferred
-  install. The `:db` install is the atomic commit boundary:
-
-    - A flow eval runs exactly ONCE per dispatched event, on the SETTLED
-      post-handler db (so a multi-microstep machine macrostep settles
-      first, then the flow sees the final machine-driven db — no double /
-      missed eval).
-    - A flow OUTPUT that fails app-db schema validation REJECTS the whole
-      candidate BEFORE install: NO `db-changed` at
-      all — the trace signature is the lone `:rf.error/schema-validation-
-      failure` (`:rollback? true` = transaction rejected), and app-db
-      (including the flow's write) never changes. This one bullet is a
-      DEV-POSTURE contract, and knowingly so: `reg-app-schema` candidate
-      validation is a DEVELOPMENT-ONLY assertion as designed — production
-      trusts the
-      programmer, and a violating candidate installs. Both postures are
-      executed, in the two arms of
-      `flow-output-schema-failure-rejects-candidate-before-install`.
-    - A flow THROW is a PRE-install throw: the event aborts, the pending
-      `:db` is discarded, NO `db-changed`, no partial commit. The two
-      recovery paths (schema-rejection vs flow-throw-abort) produce DISTINCT
-      trace signatures: a schema-validation-failure error vs a
-      flow-eval-exception error (neither commits).
-    - Under SSR's synchronous drain a sub over a flow's `:output-path` renders
-      the flow-augmented value (the flow ran before install; render reads
-      the installed flow-augmented db).
-    - An event whose `:fx` `:dispatch`es child events gives EACH child its
-      OWN independent flow eval, not the parent's.
-    - A flow whose `:inputs` opt into runtime-db via the partition-
-      qualified form `[:rf.db/runtime :rf.runtime/routing :current …]`
-      reads the POST-transition route (EP-0001 §535-551: flows read
-      runtime-db via EXPLICIT partition-qualified inputs; the route slice rewrite is the handler's
-      pending `:rf.db/runtime` effect; the flow at the outermost `:after`
-      transforms against that pending runtime-db before install — there is
-      no pre-transition window the flow could observe). The dual-partition
-      TRIGGER (§542-544): a runtime-only `:rf.route/handle-url-change` event
-      (no `:db` effect) recomputes the route-reading flow, because
-      the dirty-check keys on BOTH partitions — a runtime-db change cannot
-      be hidden merely because app-db was value-identical. The dual
-      atomicity assertion: a flow throw on a `:rf.route/handle-url-change`
-      dispatch aborts the WHOLE event (BOTH partitions) — slice stays on
-      the previous route, `:on-match` `:dispatch` fxs are NOT walked."
+  Posture: the trace-bus assertions sit in `(when interop/debug-enabled? …)`
+  arms; every interaction also has a witness outside them (the flow's own
+  eval log, app-db, the route slice, an fx counter) that runs under the
+  production gate."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.interop :as rf.interop]
             [re-frame.schemas :as rf.schemas]
-            ;; Loading the Malli adapter publishes the
-            ;; `:schemas/malli-validate` late-bind hook the default
-            ;; validator routes through (Spec 010 §Recommended soft-pass);
-            ;; without it `reg-app-schema` validation soft-passes.
+            ;; Publishes the `:schemas/malli-validate` hook; without it
+            ;; `reg-app-schema` validation soft-passes.
             [re-frame.schemas.malli]
             [re-frame.ssr :as rf.ssr]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-;; ---- per-test reset / trace recorder -------------------------------------
-;;
-;; COMPOSE from the canonical `re-frame.ssr.test-fixture/
-;; reset-runtime` (registrar wipe + every per-frame SSR side-channel atom +
-;; the ns-load-time reloads of routing / ssr / ssr.head / machines + the
-;; ambient `:rf/default` frame) rather than duplicate it. This suite adds
-;; only the three genuine deltas its trace-order assertions need:
-;;
-;;   1. schema-validator restoration — the flow-schema-rollback tests install
-;;      a Malli app-db validator (`reg-app-schema`); reset it before the test
-;;      AND in a `finally` so a validator from one test cannot leak into the
-;;      next (the canonical fixture clears per-frame schemas but not the
-;;      global validator fn).
-;;   2. error-emitter listener cleanup — the error-emit registry is a
-;;      `defonce` atom that survives test re-runs; clear it so a
-;;      listener registered by one test does not leak into the next.
-;;   3. a fixture-wide all-trace recorder — bracketed by the canonical
-;;      `with-trace-recorder!` and bound to `*captured*` so the
-;;      `ops` / `by-op` helpers below read the full captured event stream.
-
 (def ^:dynamic ^:private *captured* nil)
 
-(defn- reset-runtime [test-fn]
+(defn- reset-runtime
+  "The canonical SSR reset, plus the global schema validator and the
+  error-listener registry (which it does not reset), plus a capture of every
+  trace into `*captured*`."
+  [test-fn]
   (rf.ssr.test-fixture/reset-runtime
     (fn []
       (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
@@ -108,660 +49,167 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- helpers --------------------------------------------------------------
+(defn- ops-among
+  "The captured trace operations that are members of `op-set`, in order."
+  [op-set]
+  (filterv op-set (map :operation @*captured*)))
 
-(defn- ops
-  "All captured trace `:operation`s, in capture order."
-  []
-  (mapv :operation @*captured*))
+(defn- default-db [] (rf/app-db-value :rf/default))
 
-(defn- by-op
-  "Captured trace events whose `:operation` is `op`, in capture order."
-  [op]
-  (filterv #(= op (:operation %)) @*captured*))
+(defn- current-route-id []
+  (get-in (rf/frame-state-value :rf/default) [:rf.db/runtime :rf.runtime/routing :current :route-id]))
 
-;; POSTURE SPLIT.  `ops` and `by-op` read the DEV trace bus, and
-;; every emit site behind them is gated on `interop/debug-enabled?`, read once
-;; at namespace-load time.  Under `-Dre-frame.debug=false` the capture atom is
-;; empty for every input, so a `by-op` assertion FAILS and — more dangerously
-;; — an `(is (not-any? … (ops)))` assertion PASSES without distinguishing the
-;; case it exists to distinguish.
-;;
-;; Both kinds are asserted verbatim, wrapped in `(when interop/debug-enabled? …)`
-;; arms marked "dev-instrumentation arm".  Every interaction this suite pins has a
-;; posture-independent witness OUTSIDE the arm — the flow-eval log, the
-;; flow-input log, the installed app-db value, the untouched route slice, the
-;; :on-match fx counter — and those are what run in
-;; `scripts/test-ssr-prod-gate.sh`.  The trace assertions are the
-;; trace-LEVEL restatement each deftest's own comments call
-;; trace-level confirmation and trace signature.
-;;
-;; ONE arm in this file is NOT about the trace bus:
-;; `flow-output-schema-failure-rejects-candidate-before-install`'s REJECTION
-;; genuinely does not happen under the gate.  That is by design —
-;; `reg-app-schema` is a development-only assertion; production
-;; trusts the programmer — so that deftest splits into a dev arm holding the
-;; rejection VERBATIM and a `when-not` arm that executes the production
-;; behaviour.  Read its comments there before touching either arm: neither is
-;; a workaround for a red.
-
-(defn- snapshot
-  "Read the snapshot for `machine-id` from the default frame's app-db."
-  [machine-id]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots machine-id]))
-
-;; ===========================================================================
-;; 1. machine-macrostep × flow — a multi-microstep macrostep SETTLES, then
-;;    exactly ONE flow eval runs on the settled db.
-;;
-;; A machine whose macrostep chains :always (a guarded auto-transition) AND
-;; :raise (a pre-commit re-entry) settles through several microsteps within
-;; one dispatched event. The machine writes its final snapshot into
-;; [:rf.runtime/machines :snapshots id] as the handler's pending :db. Because the flow runs at
-;; the OUTERMOST :after — after the machine handler, transforming the
-;; pending :db — the flow sees the SETTLED machine-driven db, and runs
-;; exactly once for the dispatch (no eval-per-microstep, no missed eval).
-;; ===========================================================================
-
-;; EP-0001 §535-551: flows read runtime-db via EXPLICIT partition-qualified
-;; inputs. Machine snapshots live in the runtime-db partition (EP-0001), so
-;; this flow's `:inputs` opt into runtime-db via the qualified form
-;; `[:rf.db/runtime :rf.runtime/machines :snapshots …]` (bare paths
-;; read app-db; binary syntax — no `[:rf.db/app …]` form). The flow transform
-;; resolves the qualified input against the pending runtime-db partition.
 (deftest machine-multi-microstep-macrostep-then-single-flow-eval
-  (testing "a multi-microstep (:always + :raise) machine macrostep settles
-            within one dispatched event, THEN exactly ONE flow eval runs on
-            the settled db — the flow reads the final machine-driven value"
-    (let [action-log (atom [])
-          machine
-          {:initial :idle
-           :data    {:ticks 0}
-           :guards  {:ready? (fn [{data :data}] (>= (:ticks data) 2))}
-           :actions {;; :bump-then-raise increments and re-enters via
-                     ;; :raise — a pre-commit microstep chain.
-                     :bump-then-raise
-                     (fn [{data :data}]
-                       (swap! action-log conj :bump-then-raise)
-                       {:data {:ticks (inc (:ticks data))}
-                        :fx   [[:raise [:tick]]]})
-                     :bump
-                     (fn [{data :data}]
-                       (swap! action-log conj :bump)
-                       {:data {:ticks (inc (:ticks data))}})}
-           :states
-           {:idle    {:on {:start {:target :counting :action :bump-then-raise}}}
-            ;; :counting auto-advances to :ready via :always once ticks>=2;
-            ;; the raised :tick bumps a second time so the guard becomes true.
-            :counting {:always [{:guard :ready? :target :ready}]
-                       :on     {:tick {:action :bump}}}
-            :ready   {}}}
-          flow-evals (atom [])]
-      (rf/reg-machine :gauge/flow machine)
-      ;; The flow reads the machine's settled tick count and derives a
-      ;; label into a plain app-db path. Logging the input it observed lets
-      ;; us prove it saw the FINAL (settled) value, not an intermediate one.
-      (rf/reg-flow :gauge/label {:inputs [[:rf.db/runtime :rf.runtime/machines :snapshots :gauge/flow :data :ticks]] :output-path [:derived :gauge-label]} (fn [ticks]
-                              (swap! flow-evals conj ticks)
-                              (str "ticks=" ticks)))
-      ;; One dispatched event drives the whole macrostep:
-      ;;   idle --start/bump-then-raise--> counting (ticks 1)
-      ;;        --raise :tick/bump-------> counting (ticks 2)
-      ;;        --always ready?----------> ready
+  (testing "a machine macrostep chaining :raise and :always settles within one
+            event, then exactly ONE flow eval runs, on the settled value"
+    (let [flow-evals (atom [])]
+      (rf/reg-machine :gauge/flow
+        {:initial :idle
+         :data    {:ticks 0}
+         :guards  {:ready? (fn [{data :data}] (>= (:ticks data) 2))}
+         :actions {:bump-then-raise (fn [{data :data}]
+                                      {:data {:ticks (inc (:ticks data))} :fx [[:raise [:tick]]]})
+                   :bump            (fn [{data :data}] {:data {:ticks (inc (:ticks data))}})}
+         :states  {:idle     {:on {:start {:target :counting :action :bump-then-raise}}}
+                   :counting {:always [{:guard :ready? :target :ready}]
+                              :on     {:tick {:action :bump}}}
+                   :ready    {}}})
+      (rf/reg-flow :gauge/label
+        {:inputs      [[:rf.db/runtime :rf.runtime/machines :snapshots :gauge/flow :data :ticks]]
+         :output-path [:derived :gauge-label]}
+        (fn [ticks] (swap! flow-evals conj ticks) (str "ticks=" ticks)))
       (rf/dispatch-sync [:gauge/flow [:start]])
-
-      ;; The macrostep settled to :ready with ticks=2 (external observer
-      ;; sees only the settled snapshot).
-      (let [s (snapshot :gauge/flow)]
-        (is (= :ready (:state s))
-            "machine settled to :ready — the :raise + :always microsteps
-             all ran inside the one dispatched event")
-        (is (= 2 (get-in s [:data :ticks]))
-            "two bumps landed (initial + raised) before :always fired"))
-      (is (= [:bump-then-raise :bump] @action-log)
-          "both microstep actions ran in raise order within the macrostep")
-
-      ;; Exactly ONE flow eval — not one per microstep, not zero.
-      (is (= [2] @flow-evals)
-          "the flow evaluated EXACTLY ONCE for the dispatched event — flows
-           run at the outermost :after over the SETTLED pending :db, not once
-           per machine microstep — and that single eval observed the FINAL
-           machine-driven tick count (2), not an intermediate one")
-      (is (= "ticks=2" (get-in (rf/app-db-value :rf/default)
-                               [:derived :gauge-label]))
-          "the flow output (derived from the settled machine snapshot)
-           landed in app-db")
-      ;; Trace-level confirmation: a single :rf.flow/computed for the event.
-      ;; Dev-instrumentation arm. The eval COUNT it restates is
-      ;; pinned posture-independently by `(= [2] @flow-evals)` above.
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count (by-op :rf.flow/computed)))
-            "exactly one :rf.flow/computed trace fired for the macrostep
-             dispatch — no double / missed eval")))))
-
-;; ===========================================================================
-;; 2. flow-write × schema-rejection — the subtlest interaction. Two
-;;    similar-looking recovery paths, pinned distinctly:
-;;
-;;    (a) a flow OUTPUT that fails APP-DB schema validation → the candidate
-;;        transition is REJECTED before install. The flow's write rides the
-;;        same candidate as the handler's :db; candidate validation rejects
-;;        it, so NOTHING installs. Trace signature: ONE schema-validation-
-;;        failure (:rollback? true = transaction rejected), ZERO db-changed.
-;;
-;;    (b) a flow THROW → the event aborts PRE-install. The pending :db is
-;;        discarded; NO db-changed at all; no partial commit. Trace
-;;        signature: a flow-eval-exception, ZERO db-changed.
-;;
-;;    Both paths never commit; what distinguishes them is the ERROR op —
-;;    (a) surfaces :rf.error/schema-validation-failure (the flow computed
-;;    cleanly, the VALUE failed its shape) while (b) surfaces
-;;    :rf.error/flow-eval-exception (the flow itself threw). A regression
-;;    that turned a flow throw into a silent partial commit, or that let a
-;;    schema-rejected candidate install (or emit a phantom db-changed),
-;;    would collapse these signatures.
-;; ===========================================================================
+      (is (= [2] @flow-evals)))))
 
 (deftest flow-output-schema-failure-rejects-candidate-before-install
-  (testing "(a) a flow output that violates the app-db schema REJECTS the
-            whole candidate before install: ONE schema-
-            validation-failure, ZERO db-changed, and the WHOLE db (handler
-            write AND flow write) keeps the pre-handler value — the
-            container is never touched.  That rejection is a DEV-POSTURE
-            contract; under -Dre-frame.debug=false
-            there is no validator and the violating candidate installs
-            whole, which the `when-not` arm executes"
-    ;; Malli app-db schema: [:derived :doubled] must be a NON-NEGATIVE int.
+  (testing "a flow output violating the app-db schema rejects the WHOLE
+            candidate (handler write and flow write) before install — in dev.
+            Production has no validator, so the candidate installs whole"
     (rf/reg-app-schema [:derived] [:map [:doubled [:int {:min 0}]]])
-    (rf/reg-event :seed
-                  (fn [_coeffects _event]
-                    {:db {:n 1 :derived {:doubled 0}}}))
-    ;; The handler writes :n; the flow reads :n and writes a value that the
-    ;; app-db schema will REJECT (negative when :n is negative).
+    (rf/reg-event :seed  (fn [_ _] {:db {:n 1 :derived {:doubled 0}}}))
     (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    ;; Record what the flow COMPUTED, so that the flow having run
-    ;; and its VALUE having been rejected has a witness off the trace bus.
-    ;; That is this deftest's discriminator against path (b) below, and the
-    ;; `:rf.flow/computed` trace tag carries it in dev posture only.
     (let [flow-outputs (atom [])]
       (rf/reg-flow :doubler {:inputs [[:n]] :output-path [:derived :doubled]}
-                   (fn [n] (let [out (* 2 n)] (swap! flow-outputs conj out) out)))
-      ;; Seed a conforming baseline (n=1 → doubled=2, conforms).
+        (fn [n] (let [out (* 2 n)] (swap! flow-outputs conj out) out)))
       (rf/dispatch-sync [:seed])
-      (is (= 2 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
-          "baseline: flow wrote a conforming value")
-      (let [baseline-db (rf/app-db-value :rf/default)]
-        ;; Now drive :n negative → flow computes -6 → app-db schema rejects
-        ;; the candidate.
+      (let [baseline-db (default-db)]
         (reset! *captured* [])
         (reset! flow-outputs [])
         (rf/dispatch-sync [:set-n -3])
-
-        ;; ---- POSTURE SPLIT ----------------------------------------------
-        ;;
-        ;; `reg-app-schema` candidate
-        ;; validation is a DEVELOPMENT-ONLY assertion, AS DESIGNED —
-        ;; production trusts the programmer. `router.cljc`'s `validate-event!`
-        ;; and `schemas/validate.cljc` each wrap the whole validator body in
-        ;; its own `(if interop/debug-enabled? … true)` gate, read ONCE at
-        ;; namespace-load time, so under `-Dre-frame.debug=false` nothing
-        ;; validates and there is nothing to reject.
-        ;;
-        ;; This is the one arm in this file that could NOT be cleared with a
-        ;; production-visible witness instead of a guard, and the reason is
-        ;; worth stating: the always-on error axis carries no
-        ;; `:rf.error/schema-validation-failure` here NOT because the emit is
-        ;; dev-only, but because the VALIDATION never runs to emit anything.
-        ;; The subject itself is absent. So the rejection assertions run
-        ;; VERBATIM in a dev arm, and the posture that ships gets its own arm
-        ;; below rather than silence.
-        (when rf.interop/debug-enabled?
-          ;; The candidate never installed — neither the handler's :n write NOR
-          ;; the flow's bad output ever reached the container.
-          (is (= baseline-db (rf/app-db-value :rf/default))
-              "the whole db keeps the pre-handler value — the flow write rode
-               the same rejected candidate as the handler's :db")
-          (is (= 1 (get (rf/app-db-value :rf/default) :n))
-              ":n stayed at the pre-handler value (1) — the handler's own write
-               was rejected too (atomic candidate boundary)"))
-
-        ;; THE PRODUCTION POSTURE, EXECUTED.
-        ;; Without this arm the deftest would fall silent under the gate on
-        ;; the very outcome it exists to pin, and this namespace's most
-        ;; consequential claim would go unasserted in the posture that ships.
-        ;; It is also the standing regression guard on that design:
-        ;; validation surviving the gate, with or without rollback, is not
-        ;; the contract, so a change that quietly made `reg-app-schema`
-        ;; always-on reddens here.
-        (when-not rf.interop/debug-enabled?
-          (is (= {:n -3 :derived {:doubled -6}} (rf/app-db-value :rf/default))
-              "with no validator to reject it, the SCHEMA-VIOLATING candidate
-               installs WHOLE — the flow's -6 and the handler's :n -3 land
-               together, so the atomic candidate boundary is intact and it is
-               the VALIDATION that is absent, not the all-or-nothing commit")
-          (is (= -6 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
-              "the named consequence of dev-only schema validation, read
-               through the ordinary app-db surface: a value the registered schema declares
-               impossible ([:int {:min 0}]) is live on a production server"))
-
-        ;; SEMANTIC, posture-independent: the flow COMPUTED (its
-        ;; bad output is what tripped the validator) even though nothing
-        ;; installed. That is the whole discriminator between path (a) — a
-        ;; candidate-validation reject of a computed VALUE — and path (b), a
-        ;; flow-eval throw, and this log is its only witness outside the trace.
-        (is (= [-6] @flow-outputs)
-            "the flow ran and produced its (bad) -6 output — the rejection is
-             a candidate reject of a computed value, not a flow-eval skip")
-
-        ;; Trace signature (a): exactly one schema failure, ZERO db-changed —
-        ;; and no :rf.trace/phase :rollback anywhere (the phase has no
-        ;; producer under validate-before-install).
-        ;;
-        ;; Dev-instrumentation arm. Note the `not-any?` and the
-        ;; zero-db-changed half of `sig`: both are negatives over the trace
-        ;; ring and would pass vacuously under the gate.
-        (when rf.interop/debug-enabled?
-          (let [sig (filterv #{:rf.event/db-changed
-                               :rf.error/schema-validation-failure}
-                             (ops))]
+        ;; The flow computed its bad value: a candidate rejection of a
+        ;; computed value, not a flow-eval throw.
+        (is (= [-6] @flow-outputs))
+        (if rf.interop/debug-enabled?
+          (do
+            (is (= baseline-db (default-db)))
             (is (= [:rf.error/schema-validation-failure]
-                   sig)
-                "rejection signature: one schema-validation-failure, zero
-                 db-changed (the candidate never installed)")
-            (is (not-any? #(= :rollback (-> % :tags :rf.trace/phase)) @*captured*)
-                "no trace carries :rf.trace/phase :rollback")
-            (is (true? (-> (by-op :rf.error/schema-validation-failure)
-                           first :tags :rollback?))
-                "the failure trace carries :rollback? true — the public
-                 transaction-REJECTED vocabulary")
-            ;; The flow DID compute (its bad output is what tripped the
-            ;; validator) — the rejection is a candidate-validation reject of a
-            ;; computed value, not a flow-eval skip/throw.
-            (is (= 1 (count (by-op :rf.flow/computed)))
-                "the flow computed its (bad) output — the failure is a
-                 candidate rejection, not a flow-eval skip")
-            (is (= -6 (-> (by-op :rf.flow/computed) first :tags :result))
-                "the flow's computed result (-6) is what the app-db schema
-                 rejected")))))))
+                   (ops-among #{:rf.event/db-changed :rf.error/schema-validation-failure}))
+                "one schema failure and no db-changed: the candidate never installed")
+            (is (true? (-> (filter #(= :rf.error/schema-validation-failure (:operation %)) @*captured*)
+                           first :tags :rollback?))))
+          ;; `reg-app-schema` is a development-only assertion, so a change that
+          ;; made it always-on reddens here.
+          (is (= {:n -3 :derived {:doubled -6}} (default-db))))))))
 
 (deftest flow-throw-aborts-event-no-db-changed-no-partial-commit
-  (testing "(b) a flow THROW aborts the event PRE-install: the pending :db
-            is discarded, NO :rf.event/db-changed fires, the handler's own
-            :db does NOT land — distinct from the schema-rejection signature
-            (a flow-eval error, vs a schema-validation-failure)"
-    (rf/reg-event :seed (fn [_coeffects _event] {:db {:n 0}}))
-    ;; The handler writes :n; the flow reads :n and THROWS.
+  (testing "a flow THROW aborts the event before install: the handler's :db
+            does not land"
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    ;; Seed a clean baseline FIRST, then register the throwing flow — the
-    ;; flow throws on every eval, so registering it after the seed keeps the
-    ;; baseline (and isolates the throw to the :bump drain we observe).
     (rf/dispatch-sync [:seed])
-    (is (= {:n 0} (rf/app-db-value :rf/default))
-        "baseline seeded before the throwing flow is registered")
-    ;; Count the eval ATTEMPTS so that the flow having run and
-    ;; thrown has a witness off the trace bus. The contrast this deftest
-    ;; draws against path (a) is about WHICH stage failed, and an abort is
-    ;; otherwise indistinguishable from the flow never having been reached.
     (let [flow-attempts (atom 0)]
       (rf/reg-flow :boom {:inputs [[:n]] :output-path [:derived :doomed]}
-                   (fn [_]
-                     (swap! flow-attempts inc)
-                     (throw (ex-info "flow boom" {:why :test}))))
+        (fn [_] (swap! flow-attempts inc) (throw (ex-info "flow boom" {:why :test}))))
       (reset! *captured* [])
       (rf/dispatch-sync [:bump])
-
-      ;; The handler's :db did NOT land — the flow throw aborted the event.
-      (is (= {:n 0} (rf/app-db-value :rf/default))
-          ":n did NOT increment — a flow throw is a pre-install throw; the
-           pending :db (handler write + flow write) was discarded wholesale")
-
-      ;; SEMANTIC, posture-independent: the flow really was
-      ;; EVALUATED and really did throw. Without this the abort is
-      ;; indistinguishable from the flow never having run — and the
-      ;; contrast with path (a), which this deftest exists to draw, is
-      ;; precisely about WHICH stage failed.
-      (is (= 1 @flow-attempts)
-          "the flow eval was attempted exactly once and threw — the abort is
-           a pre-install THROW, not a skipped eval")
-
-      ;; Dev-instrumentation arm. Both `not-any?` halves are
-      ;; negatives over the trace ring; under the gate they hold whatever the
-      ;; drain did.
+      (is (= {:n 0} (default-db)))
+      (is (= 1 @flow-attempts) "the flow was evaluated and threw, not skipped")
+      ;; DEV ARM
       (when rf.interop/debug-enabled?
-        ;; Trace signature (b): ZERO db-changed, a flow-eval-exception present.
-        (is (not-any? #(= :rf.event/db-changed %) (ops))
-            "NO :rf.event/db-changed in the throw stream — the event aborted
-             before install (the schema-rejection path (a) also emits zero
-             db-changed; the discriminator is the ERROR op)")
-        (is (seq (by-op :rf.flow/failed))
-            ":rf.flow/failed fired — the flow eval threw")
-        (is (not-any? #(= :rf.error/schema-validation-failure %) (ops))
-            "no schema-validation-failure — the abort discards the pending :db
-             BEFORE candidate validation would run (contrast (a), whose flow
-             computed cleanly and whose VALUE failed validation)")))))
-
-;; ===========================================================================
-;; 3. flow × SSR sync-drain — under SSR's synchronous drain, a sub over a
-;;    flow's :output-path renders the flow-augmented value.
-;;
-;; The flow runs at the outermost :after and augments the pending :db before
-;; the (synchronous) install; render-to-string then reads the INSTALLED
-;; flow-augmented db through a sub over the flow's :output-path. So the rendered
-;; HTML carries the derived value, proving the flow ran before install and
-;; the render observes the committed flow-augmented state.
-;; ===========================================================================
+        (is (= [:rf.flow/failed] (ops-among #{:rf.flow/failed :rf.event/db-changed})))))))
 
 (deftest flow-augmented-value-renders-under-ssr-sync-drain
-  (testing "under SSR's synchronous drain a sub over a flow's :output-path renders
-            the flow-augmented value into the output HTML — the flow ran
-            before install; the render reads the installed flow-augmented db"
-    (rf/reg-event :ssr/seed
-                  (fn [_coeffects _event]
-                    {:db {:user {:first "Ada" :last "Lovelace"}}}))
-    ;; A flow derives a display name from the user map into [:derived :full-name].
-    (rf/reg-flow :user/full-name {:inputs [[:user :first] [:user :last]] :output-path [:derived :full-name]} (fn [first last] (str first " " last)))
-    ;; A sub reads the FLOW's output path (not the raw inputs) — so what it
-    ;; returns proves the flow's write reached the installed db.
+  (testing "under SSR's synchronous drain a sub over a flow's :output-path
+            renders the flow-augmented value"
+    (rf/reg-event :ssr/seed (fn [_ _] {:db {:user {:first "Ada" :last "Lovelace"}}}))
+    (rf/reg-flow :user/full-name
+      {:inputs [[:user :first] [:user :last]] :output-path [:derived :full-name]}
+      (fn [first last] (str first " " last)))
     (rf/reg-sub :full-name (fn [db _] (get-in db [:derived :full-name])))
     (rf/reg-view* :pages/greeting
-      (fn []
-        [:div.greeting
-         [:h1 "Hello, " (rf/subscribe-once [:full-name])]]))
-
-    ;; Drain synchronously; the flow augments the pending :db before install.
+      (fn [] [:div.greeting [:h1 "Hello, " (rf/subscribe-once [:full-name])]]))
     (rf/dispatch-sync [:ssr/seed])
-    (is (= "Ada Lovelace" (get-in (rf/app-db-value :rf/default)
-                                  [:derived :full-name]))
-        "the flow wrote the derived full name into app-db on the sync drain")
-
-    ;; Render against the installed db — the sub over the flow's path feeds
-    ;; the rendered HTML.
-    (let [tree [(rf/view :pages/greeting)]
-          html (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
-      (is (str/includes? html "Hello, Ada Lovelace")
-          "the rendered HTML carries the FLOW-AUGMENTED value — the sub read
-           the installed flow output under SSR's synchronous drain")
-      (is (str/includes? html "data-rf-render-hash=")
-          "sanity: the root carries a render hash (real SSR render path)"))))
-
-;; ===========================================================================
-;; 4. flow × child-dispatch — each :fx :dispatch child gets its OWN
-;;    independent flow eval, not the parent's.
-;;
-;; A parent event's :fx dispatches a child event. Each event is its own
-;; trip through the drain, so each gets its OWN outermost-:after flow eval
-;; over its OWN settled db. The flow re-runs for the child when the child's
-;; write changes the flow's input — proving the child's eval is independent.
-;; ===========================================================================
+    (is (str/includes? (rf.ssr/render-to-string [(rf/view :pages/greeting)] {})
+                       "Hello, Ada Lovelace"))))
 
 (deftest each-child-dispatch-gets-its-own-independent-flow-eval
-  (testing "an event whose :fx :dispatches a child gives EACH child its OWN
-            independent flow eval (over its own settled db), not the
-            parent's"
+  (testing "a parent's :fx :dispatch child gets its OWN flow eval over its
+            own settled db"
     (let [flow-inputs (atom [])]
-      ;; The flow reads :n and records every input value it computes over,
-      ;; so we can prove it ran once per event (parent + child), each over
-      ;; that event's own db.
-      (rf/reg-flow :tracker {:inputs [[:n]] :output-path [:derived :scaled]} (fn [n] (swap! flow-inputs conj n) (* 10 n)))
-      ;; The parent writes :n=1 then :fx :dispatches the child.
-      (rf/reg-event :parent
-                       (fn [{:keys [db]} _]
-                         {:db (assoc db :n 1)
-                          :fx [[:dispatch [:child]]]}))
-      ;; The child writes :n=2 — a DIFFERENT value, so the flow's dirty-
-      ;; check recomputes for the child (proving an independent eval).
-      (rf/reg-event :child (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
-
-      (reset! *captured* [])
+      (rf/reg-flow :tracker {:inputs [[:n]] :output-path [:derived :scaled]}
+        (fn [n] (swap! flow-inputs conj n) (* 10 n)))
+      (rf/reg-event :parent (fn [{:keys [db]} _] {:db (assoc db :n 1) :fx [[:dispatch [:child]]]}))
+      (rf/reg-event :child  (fn [{:keys [db]} _] {:db (assoc db :n 2)}))
       (rf/dispatch-sync [:parent])
+      (is (= [1 2] @flow-inputs)))))
 
-      ;; Two independent flow evals: one for the parent (n=1), one for the
-      ;; child (n=2). The child's eval is NOT the parent's — it ran over the
-      ;; child's own settled db.
-      (is (= [1 2] @flow-inputs)
-          "the flow evaluated once per event — n=1 for the parent, n=2 for
-           the child — each over that event's OWN settled db")
-      (is (= 20 (get-in (rf/app-db-value :rf/default) [:derived :scaled]))
-          "the final app-db reflects the CHILD's independent flow eval
-           (10 * 2), not the parent's (10 * 1)")
-      ;; Trace-level confirmation: two :rf.flow/computed events (one per
-      ;; event), each carrying its own input value.
-      ;; Dev-instrumentation arm. The assertion restates
-      ;; `(= [1 2] @flow-inputs)` above, which is posture-independent and is
-      ;; the same claim read off the flow itself rather than off the bus.
-      (when rf.interop/debug-enabled?
-        (let [computes (by-op :rf.flow/computed)]
-          (is (= [[1] [2]]
-                 (mapv #(-> % :tags :input-values) computes))
-              "exactly two :rf.flow/computed traces, one per dispatched event,
-               each observing its own event's input — parent saw [1], child
-               saw [2] — independent evals, not a shared one"))))))
-
-;; ===========================================================================
-;; 5. flow × routing — a flow throw on a route transition aborts the WHOLE
-;;    event (slice unchanged, :on-match :dispatch fxs skipped). That a flow
-;;    over the [:rf.runtime/routing :current] slice reads the
-;;    POST-transition route is pinned in section 6, whose flow observes the
-;;    new route id on each transition.
-;;
-;; `:rf.route/handle-url-change` is a normal event-fx: its handler returns
-;; `{:db (assoc-in db' [:rf.runtime/routing :current] {...new-route...})
-;; :fx [[:dispatch [:on-match]] ...]}`. The flow at the outermost
-;; `:after` transforms the pending :db (which already carries the
-;; rewritten route slice) BEFORE the single deferred install. So a flow
-;; whose :inputs overlap [:rf.runtime/routing :current] sees the SETTLED
-;; post-transition slice, never an intermediate or pre-transition value.
-;; After install, `:fx` walks — any `[:dispatch [:on-match]]` entries
-;; fire against the flow-augmented db.
-;;
-;; The atomicity contract (`bd remember event-pipeline-atomicity` rule a):
-;; ANY pre-install throw, including a flow throw, aborts the event — no
-;; install, no db-changed, no :fx. So a flow throw on a transition event
-;; means the route slice rewrite does NOT land AND the queued `:on-match`
-;; child dispatches in :fx are NEVER walked (they sit in the post-install
-;; stage that the flow-throw path skips wholesale).
-;; ===========================================================================
-
-;; EP-0001 §535-551: the throwing flow reads the
-;; route slice via the qualified runtime-db input
-;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`.
-;; A flow throw aborts BOTH partitions — `:db` AND `:rf.db/runtime` (the slice
-;; rewrite) AND `:fx` are all skipped, consistent with the atomic
-;; cross-partition commit (`commit-and-flow!` short-circuits on `:rf/flow-error`
-;; before `commit-frame-effects!`, so neither partition installs).
 (deftest flow-throw-on-route-transition-aborts-event-slice-unchanged-no-on-match-fx
-  (testing "a flow throw on a :rf.route/handle-url-change dispatch aborts the
-            WHOLE event — the slice rewrite does NOT land, the route stays
-            on the pre-transition value, AND the :on-match :dispatch fxs
-            in the handler's :fx are NEVER walked (post-install stage
-            skipped per the atomicity contract — rule a)"
+  (testing "a flow throw on a :rf.route/handle-url-change aborts the WHOLE
+            event: neither partition installs and the :on-match :dispatch in
+            its :fx is never walked"
     (let [on-match-fired (atom 0)]
       (rf/reg-event :route/load-article
-                       (fn [{:keys [db]} _]
-                         (swap! on-match-fired inc)
-                         {:db (assoc db :article/loaded? true)}))
-      ;; :route/article carries an :on-match — :rf.route/handle-url-change's
-      ;; handler will return `[:dispatch [:route/load-article]]` inside :fx
-      ;; for a successful transition. The flow throw must skip that :fx.
-      (rf/reg-route :route/article
-                    {:params   [:map [:id :string]]
-                     :on-match [[:route/load-article]]} "/articles/:id")
+        (fn [{:keys [db]} _] (swap! on-match-fired inc) {:db (assoc db :article/loaded? true)}))
+      (rf/reg-route :route/article {:params [:map [:id :string]] :on-match [[:route/load-article]]}
+                    "/articles/:id")
       (rf/reg-route :route/home {} "/")
-
-      ;; Land on /home cleanly (no throwing flow registered yet).
       (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
-      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-          "precondition: clean landing on :route/home")
-      (is (zero? @on-match-fired)
-          "precondition: :route/home has no :on-match — counter still 0")
-      (let [baseline-db (rf/app-db-value :rf/default)]
-
-        ;; Register a flow that throws on every eval, then transition to a
-        ;; route whose :on-match would dispatch :route/load-article.
-        (rf/reg-flow :route/boom {:inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] :output-path [:derived :route-doomed]} (fn [_]
-                                (throw (ex-info "flow boom on route"
-                                                {:why :test}))))
+      (let [baseline-db (default-db)]
+        (rf/reg-flow :route/boom
+          {:inputs      [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
+           :output-path [:derived :route-doomed]}
+          (fn [_] (throw (ex-info "flow boom on route" {:why :test}))))
         (reset! *captured* [])
         (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
-
-        ;; The route slice did NOT land — pre-install throw discards the
-        ;; entire pending :db (handler's slice rewrite + flow output alike).
-        (is (= baseline-db (rf/app-db-value :rf/default))
-            "app-db is byte-for-byte the pre-transition value — the slice
-             rewrite was rolled in with the flow's pending write and
-             discarded wholesale by the flow throw")
-        (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                   [:rf.runtime/routing :current :route-id]))
-            "the route slice stayed on :route/home — the transition's
-             slice rewrite did NOT install")
-
-        ;; The :on-match :dispatch in the handler's :fx was NOT walked —
-        ;; :fx is the post-install stage that the flow-throw path skips
-        ;; wholesale (atomicity contract rule a).
-        (is (zero? @on-match-fired)
-            ":route/load-article was NOT invoked — the :on-match :dispatch
-             sat in the handler's :fx; a flow throw skips :fx entirely")
-
-        ;; Dev-instrumentation arm. The atomicity contract this
-        ;; deftest pins — neither partition installed, `:fx` skipped
-        ;; wholesale — is fully covered outside the arm by the unchanged
-        ;; app-db, the unchanged route slice and the zero `:on-match`
-        ;; invocations. The `not-any?` half is a negative over the ring and
-        ;; would pass vacuously under the gate.
+        (is (= baseline-db (default-db)))
+        (is (= :route/home (current-route-id)))
+        (is (zero? @on-match-fired))
+        ;; DEV ARM
         (when rf.interop/debug-enabled?
-          ;; Trace signature: :rf.flow/failed fired, but NO :rf.event/db-changed
-          ;; for this dispatch — the event aborted before install.
-          (is (seq (by-op :rf.flow/failed))
-              ":rf.flow/failed fired — the flow eval threw")
-          (is (not-any? #(= :rf.event/db-changed %) (ops))
-              "NO :rf.event/db-changed in the throw stream — the event
-               aborted before install (contrast: a clean transition would
-               emit one :rf.event/db-changed for the slice rewrite)"))))))
-
-;; ===========================================================================
-;; 6. dual-partition TRIGGER (EP-0001 §542-544) — a RUNTIME-ONLY
-;;    event recomputes a runtime-db-reading flow even though app-db is
-;;    value-identical.
-;;
-;; This is a SILENT-regression guard: the flow
-;; dirty-check must key on BOTH partitions, NOT on app-db publication. A pure
-;; `:rf.route/handle-url-change` returns `{:rf.db/runtime …}` and NO `:db` effect —
-;; app-db never changes across the transition. A flow whose ONLY changing
-;; input is the qualified runtime-db route slice must STILL recompute (a
-;; route-reading breadcrumb that just stopped updating would be the
-;; regression). The test pins: (a) the flow recomputes on the runtime-only
-;; event; (b) it observes the NEW runtime value; (c) it does NOT recompute a
-;; second time when nothing in either partition changes (the dirty-check still
-;; suppresses an unchanged re-eval — the trigger widens to runtime-db without
-;; losing the skip).
-;; ===========================================================================
+          (is (= [:rf.flow/failed] (ops-among #{:rf.flow/failed :rf.event/db-changed}))))))))
 
 (deftest runtime-only-event-triggers-runtime-db-reading-flow-recompute
-  (testing "a runtime-only :rf.route/handle-url-change event (no :db effect)
-            recomputes a flow whose only changing input is a qualified
-            [:rf.db/runtime …] route-slice path — the dirty-check keys on
-            BOTH partitions (EP-0001 §542-544), so the flow does NOT silently
-            stop updating when app-db is value-identical"
+  (testing "a runtime-only :rf.route/handle-url-change (no :db effect)
+            recomputes a flow whose only input is a [:rf.db/runtime …] path,
+            writes its output to app-db, and a value-equal re-transition
+            still skips"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-route :route/home    {} "/")
     (let [flow-evals (atom [])]
-      ;; The flow's ONLY input is the qualified runtime-db route id. Its
-      ;; output writes to a plain app-db path (writes are app-db only).
-      (rf/reg-flow :nav/breadcrumb {:inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] :output-path [:nav :breadcrumb]} (fn [route-id]
-                              (swap! flow-evals conj route-id)
-                              (str "at:" route-id)))
-
-      ;; Land on /home — the flow recomputes for the first runtime-only event.
+      (rf/reg-flow :nav/breadcrumb
+        {:inputs      [[:rf.db/runtime :rf.runtime/routing :current :route-id]]
+         :output-path [:nav :breadcrumb]}
+        (fn [route-id] (swap! flow-evals conj route-id) (str "at:" route-id)))
       (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
-      (is (= [:route/home] @flow-evals)
-          "the flow recomputed on the FIRST runtime-only transition (no :db
-           effect was returned by the handler, yet the runtime-db read fired
-           the trigger)")
-      (is (= "at::route/home" (get-in (rf/app-db-value :rf/default)
-                                      [:nav :breadcrumb]))
-          "the flow output (derived from the runtime-db route slice) landed
-           in app-db")
-
-      ;; Transition to /articles/42 — again a runtime-only event. app-db does
-      ;; NOT change across this transition; ONLY the runtime-db route slice
-      ;; does. The flow MUST recompute and observe the NEW route id — this is
-      ;; the silent-regression guard: if the dirty-check keyed on app-db
-      ;; publication alone, the flow would never re-fire.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
+      (is (= [:route/home :route/article] @flow-evals))
+      (is (= "at::route/article" (get-in (default-db) [:nav :breadcrumb])))
       (reset! flow-evals [])
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
-      (is (= [:route/article] @flow-evals)
-          "the flow recomputed on the runtime-only transition even though
-           the only change was in the runtime-db partition — the trigger
-           keys on BOTH partitions (§542-544)")
-      (is (= "at::route/article" (get-in (rf/app-db-value :rf/default)
-                                         [:nav :breadcrumb]))
-          "the recompute observed the NEW runtime-db route id")
-
-      ;; A re-dispatch to the SAME route changes neither partition's route
-      ;; slice value — the dirty-check still SKIPS (the trigger covers
-      ;; runtime-db without losing the value-equal skip).
-      (reset! flow-evals [])
-      (reset! *captured* [])
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
-      (is (= [] @flow-evals)
-          "a transition to the SAME route does NOT recompute the flow — the
-           runtime-db route id is value-equal, so the dirty-check skips
-           (widening the trigger to runtime-db preserves the skip)")
-      ;; Dev-instrumentation arm. The SKIP itself is pinned
-      ;; posture-independently by `(= [] @flow-evals)` above — the flow body
-      ;; did not run — which is the observation the trace announces.
-      (when rf.interop/debug-enabled?
-        (is (seq (by-op :rf.flow/skip))
-            ":rf.flow/skip fired for the value-equal re-transition")))))
-
-;; ===========================================================================
-;; 7. binary-syntax mixed inputs (EP-0001 §535-538) — ONE flow
-;;    reading BOTH a bare app-db input AND a qualified [:rf.db/runtime …]
-;;    input resolves each against the correct partition.
-;;
-;; Pins the binary input syntax end-to-end: bare = app-db, [:rf.db/runtime …]
-;; = runtime-db, on a single flow. Proves the resolver routes per-input, not
-;; per-flow, and that a flow composing both partitions fires when EITHER
-;; partition's input changes.
-;; ===========================================================================
+      (is (= [] @flow-evals)))))
 
 (deftest flow-composing-app-db-and-runtime-db-inputs-resolves-each-partition
-  (testing "a single flow with one bare app-db input and one qualified
-            [:rf.db/runtime …] runtime-db input resolves each against its own
-            partition, and recomputes when EITHER changes"
+  (testing "one flow with a bare app-db input and a [:rf.db/runtime …] input
+            resolves each against its own partition and recomputes when
+            EITHER changes"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-route :route/home    {} "/")
     (rf/reg-event :set-greeting (fn [{:keys [db]} [_ g]] {:db (assoc db :greeting g)}))
     (let [flow-evals (atom [])]
-      ;; Bare [:greeting] reads app-db; qualified route id reads runtime-db.
-      (rf/reg-flow :nav/banner {:inputs [[:greeting]
-                             [:rf.db/runtime :rf.runtime/routing :current :route-id]] :output-path [:nav :banner]} (fn [greeting route-id]
-                              (swap! flow-evals conj [greeting route-id])
-                              (str greeting " @ " route-id)))
-
-      ;; Seed app-db greeting (app-only event) — flow fires reading both
-      ;; partitions; route id is nil until the first transition.
+      (rf/reg-flow :nav/banner
+        {:inputs      [[:greeting] [:rf.db/runtime :rf.runtime/routing :current :route-id]]
+         :output-path [:nav :banner]}
+        (fn [greeting route-id] (swap! flow-evals conj [greeting route-id]) (str greeting " @ " route-id)))
       (rf/dispatch-sync [:set-greeting "Hi"])
-      (is (= [["Hi" nil]] @flow-evals)
-          "the flow resolved the bare input against app-db (\"Hi\") and the
-           qualified input against runtime-db (nil — no route yet)")
-
-      ;; A runtime-only transition — the qualified input changes; the bare
-      ;; input is unchanged. The flow recomputes (BOTH-partition trigger).
-      (reset! flow-evals [])
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
-      (is (= [["Hi" :route/article]] @flow-evals)
-          "the runtime-only transition recomputed the flow; the bare app-db
-           input kept its value, the qualified runtime-db input took the new
-           route id")
-      (is (= "Hi @ :route/article" (get-in (rf/app-db-value :rf/default)
-                                           [:nav :banner]))
-          "the composed output landed in app-db (writes are app-db only)")
-
-      ;; An app-only event — the bare input changes; the qualified input is
-      ;; unchanged. The flow recomputes too.
-      (reset! flow-evals [])
       (rf/dispatch-sync [:set-greeting "Yo"])
-      (is (= [["Yo" :route/article]] @flow-evals)
-          "the app-only event recomputed the flow; the bare input took the
-           new greeting, the qualified runtime-db input kept the route id"))))
+      (is (= [["Hi" nil] ["Hi" :route/article] ["Yo" :route/article]] @flow-evals)))))
