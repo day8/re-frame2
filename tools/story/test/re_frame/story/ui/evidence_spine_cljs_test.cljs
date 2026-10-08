@@ -343,8 +343,10 @@
     (let [dev-tree (render-panel)]
       (is (some? (rf.test-helpers/find-by-attr dev-tree :data-test "story-evidence-focus-row"))
           "dev control: the focus row renders")
-      (is (= 3 (count (rf.test-helpers/find-all-by-attr dev-tree :data-test "story-evidence-focus-link")))
-          "dev control: three focus links (Epoch / App-db / Trace) on the beat"))
+      (let [links (rf.test-helpers/find-all-by-attr dev-tree :data-test "story-evidence-focus-link")]
+        (is (= 3 (count links)) "dev control: three focus links on the beat")
+        (is (= #{"epoch" "app-db" "trace"} (into #{} (map #(:data-panel (second %))) links))
+            "each link is keyed to the host-facing focus-panel vocabulary")))
     (with-redefs [rf.story.config/static-mode? true]
       (let [tree (render-panel)]
         (is (nil? (rf.test-helpers/find-by-attr tree :data-test "story-evidence-focus-row"))
