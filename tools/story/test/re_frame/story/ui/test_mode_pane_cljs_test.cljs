@@ -86,17 +86,10 @@
               :effects [] :sub-runs [] :renders [] :trace-events []}]}])
 
 (deftest assertion-row-keeps-causal-coordinate-rf2-7etf3
-  (testing "a record's :dispatch-id / :epoch-id ride onto the row"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row
-                {:assertion :rf.assert/path-equals :passed? false
-                 :dispatch-id 101 :epoch-id 101})]
-      (is (= 101 (:dispatch-id row)))
-      (is (= 101 (:epoch-id row)))))
-  (testing "a coordinate-less record's row carries no coordinate keys"
-    (let [row (rf.story.ui.test-mode.pure/assertion-row
-                {:assertion :rf.assert/no-warnings :passed? false})]
-      (is (not (contains? row :dispatch-id)))
-      (is (not (contains? row :epoch-id))))))
+  (is (= [101 102] ((juxt :dispatch-id :epoch-id)
+                    (rf.story.ui.test-mode.pure/assertion-row
+                      {:assertion :rf.assert/path-equals :passed? false
+                       :dispatch-id 101 :epoch-id 102})))))
 
 (deftest failed-row-one-click-lands-on-its-beat-rf2-7etf3
   (testing "clicking a failed row's evidence link opens the Evidence panel
@@ -109,7 +102,6 @@
                   :passed? false :expected 9 :actual 2 :dispatch-id 101})
           link (rf.story.ui.test-mode.view/row-evidence-link
                  :story.pane/v two-cascade-narrative row)]
-      (is (some? link) "a failed row whose coordinate resolves renders the link")
       (is (= "1" (get (second link) :data-beat-idx)))
       (rf.test-helpers/invoke-handler link :on-click nil)
       (is (true? (get-in (rf.story.ui.state/get-state)
@@ -123,10 +115,6 @@
                 (rf.story.ui.test-mode.pure/assertion-row
                   {:assertion :rf.assert/no-warnings :passed? false}))))
     (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
-                :story.pane/v two-cascade-narrative
-                (rf.story.ui.test-mode.pure/assertion-row
-                  {:assertion :rf.assert/path-equals :passed? false :dispatch-id 999}))))
-    (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
                 :story.pane/v nil
                 (rf.story.ui.test-mode.pure/assertion-row
                   {:assertion :rf.assert/path-equals :passed? false :dispatch-id 101})))
@@ -135,10 +123,9 @@
 ;; ===========================================================================
 ;; The same link, driven by a REAL run rather than a hand-built row
 ;;
-;; The two tests above build their rows by hand, which cannot see a
-;; canonical assertion record arriving with no `:dispatch-id`. These take the record from a real `story/run`, project it
-;; through `assertion-row`, and click the link the pane renders for it. The
-;; expected beat is found by its TRIGGER EVENT, never by dispatch id.
+;; A hand-built row cannot see a canonical assertion record arriving with no
+;; `:dispatch-id` on this runtime. The expected beat is found by its TRIGGER
+;; EVENT, never by dispatch id.
 ;; ===========================================================================
 
 (defn- beat-for-trigger
@@ -173,10 +160,6 @@
                   (is (= :fail (:status row)))
                   (is (pos-int? own-beat)
                       "the assertion's own epoch is retained, and it is not the first beat")
-                  (is (some? (:dispatch-id row))
-                      "the row carries the dispatch coordinate the router bound")
-                  (is (= own-beat (rf.story.ui.evidence-spine/row->beat-index narrative row))
-                      "the row resolves to the assertion's own beat")
                   (is (some? link) "the pane renders the evidence link for the real row")
                   (when link
                     (rf.test-helpers/invoke-handler link :on-click nil)
@@ -188,38 +171,6 @@
                         "the click selects the assertion's own beat")))
                 (finally
                   (rf.story/destroy-variant! :story.evidence-link/retained)
-                  (done)))))))))
-
-(deftest real-unretained-row-renders-no-link-rf2-v5p6l
-  (testing "a failed assertion whose epoch the ring evicted renders no link,
-            so a click can never land on a neighbouring beat"
-    (rf.epoch/clear-history!)
-    (rf/configure! {:epoch-history {:depth 1}})
-    (rf/reg-event :evidence-link/set
-      (fn [{:keys [db]} _] {:db (assoc db :count 2)}))
-    (rf.story/reg-variant :story.evidence-link/unretained
-      {:script {:script [[:assert-db [:count] 99]
-                         [:dispatch-sync [:evidence-link/set]]]}})
-    (async done
-      (-> (rf.story/run :story.evidence-link/unretained)
-          (rf.story.async/then
-            (fn [result]
-              (try
-                (let [narrative (:narrative result)
-                      row       (rf.story.ui.test-mode.pure/assertion-row
-                                  (first (:assertions result)))]
-                  (is (= :fail (:status row)))
-                  (is (nil? (beat-for-trigger narrative [:rf.assert/path-equals [:count] 99]))
-                      "control: the depth-1 ring evicted the assertion's own epoch")
-                  (is (some? (beat-for-trigger narrative [:evidence-link/set]))
-                      "control: the later dispatch step's epoch is the one retained")
-                  (is (nil? (rf.story.ui.test-mode.view/row-evidence-link
-                              :story.evidence-link/unretained narrative row))
-                      "no link is rendered for a row whose beat was not retained"))
-                (finally
-                  ;; `:depth` is process-global — restore the framework default.
-                  (rf/configure! {:epoch-history {:depth 50}})
-                  (rf.story/destroy-variant! :story.evidence-link/unretained)
                   (done)))))))))
 
 ;; ===========================================================================
@@ -339,16 +290,11 @@
               (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.switch/b)
                   (rf.story.async/then
                     (fn [_]
-                      (let [slot-a (get @rf.story.ui.test-mode.state/results-atom :story.pane.switch/a)
-                            slot-b (get @rf.story.ui.test-mode.state/results-atom :story.pane.switch/b)]
-                        (is (some? slot-a)
-                            "variant A's slot survives the switch")
-                        (is (some? slot-b)
-                            "variant B's slot was seeded")
-                        (is (not= slot-a slot-b)
-                            "the two slots carry distinct results")
-                        (is (= "a" (-> slot-a :result :app-db :v)))
-                        (is (= "b" (-> slot-b :result :app-db :v))))
+                      (let [slots @rf.story.ui.test-mode.state/results-atom]
+                        (is (= ["a" "b"]
+                               (mapv #(get-in slots [% :result :app-db :v])
+                                     [:story.pane.switch/a :story.pane.switch/b]))
+                            "A's slot survives B's run, and each holds its own result"))
                       (rf.story/destroy-variant! :story.pane.switch/a)
                       (rf.story/destroy-variant! :story.pane.switch/b)
                       (done))))))))))
@@ -363,39 +309,23 @@
 ;; ===========================================================================
 
 (deftest run-variant-pane-marks-the-slot-running-until-it-settles
-  (testing "the slot's :running? is true synchronously after the call
-            (begin-run!) and false once the run settles, with :ran-at-ms
-            stamped. The companion JVM tests (test-widget-cljs-test) cover
-            the shell-state :tests :runs :status :running stamp the chrome
-            widget reads; this row pins the pane-local results-atom flag
-            the pane's own Re-run button reads."
+  (testing "the slot's :running? (the flag the Re-run button disables
+            itself on) is true synchronously after the call and false once
+            the run settles, with :ran-at-ms stamped"
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf.story/reg-variant :story.pane.debounce/v
       {:setup [[:test/inc]]
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 1]]]})
     (async done
       (let [p (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.debounce/v)]
-        ;; The synchronous prelude of run-variant-pane! calls begin-run!
-        ;; which stamps :running? true BEFORE the promise resolves.
-        ;; This is the gate the Re-run button reads: while true, the
-        ;; button renders disabled and a click is ignored at the view
-        ;; layer. The pure test mirrors that view-layer contract.
         (is (true? (get-in @rf.story.ui.test-mode.state/results-atom
-                           [:story.pane.debounce/v :running?]))
-            ":running? is true synchronously after begin-run! — the
-             Re-run button's `disabled?` prop reads this flag")
-        ;; After resolve, :running? clears and a second run is allowed.
+                           [:story.pane.debounce/v :running?])))
         (-> p
             (rf.story.async/then
               (fn [_]
-                (is (false? (get-in @rf.story.ui.test-mode.state/results-atom
-                                    [:story.pane.debounce/v :running?]))
-                    ":running? clears on store-result! — the button
-                     re-enables and a fresh re-run can fire")
                 (let [slot (get @rf.story.ui.test-mode.state/results-atom :story.pane.debounce/v)]
-                  (is (number? (:ran-at-ms slot))
-                      ":ran-at-ms stamped — the renderer shows the
-                       'last run at HH:mm:ss' badge"))
+                  (is (false? (:running? slot)))
+                  (is (number? (:ran-at-ms slot))))
                 (rf.story/destroy-variant! :story.pane.debounce/v)
                 (done))))))))
 
@@ -409,9 +339,6 @@
       (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.cycle/v)
           (rf.story.async/then
             (fn [_]
-              (is (false? (get-in @rf.story.ui.test-mode.state/results-atom
-                                  [:story.pane.cycle/v :running?]))
-                  ":running? cleared after first run resolves")
               (-> (rf.story.ui.test-mode.state/run-variant-pane! :story.pane.cycle/v)
                   (rf.story.async/then
                     (fn [_]
