@@ -1,34 +1,11 @@
 (ns re-frame.story-static-build-integrity-test
-  "JVM tests pinning the static-build link-integrity contract.
-
-  Per `tools/story/spec/015-Test-Coverage.md` §Static-build scenarios:
-  `story_static_build_cljs_test.cljs` covers the goog-define +
-  help-suppression branches, and `check-story-static.cjs` drives a
-  Playwright smoke against the built bundle. Both are post-build-shape
-  checks. This namespace pins the rest:
-
-  - **all-stories-resolvable** — every registered variant id in a
-    seeded registry resolves to a renderable variant body
-    (`handler-meta` returns a non-nil body, OR a tagged
-    `:rf.error/not-found` projection that the renderer surfaces as an
-    explicit not-found state). The contract: a registered id must
-    always round-trip through the read surface.
-
-  - **link-integrity (share URLs)** — every share URL the build
-    encodes resolves to a registered variant id. Pinning this against
-    the share-URL builder + parse-keyword-token round-trip covers the
-    integrity contract without needing a live browser.
-
-  - **bundle-relative selectors** — the variant id parser must
-    accept ids stamped onto data-test attributes in the built HTML.
-    The canonical form `(pr-str variant-id)` round-trips through
-    `read-string` to the same keyword. Pinning the round-trip pins
-    the deep-link recovery contract for shared URLs that name
-    in-bundle variants.
-
-  These are JVM-pure-data tests over the seeded registry — no
-  shadow-cljs release build required. They run in `tools/story`'s JVM
-  `clojure -M:test` gate."
+  "JVM tests pinning the static-build link-integrity contract
+  (`tools/story/spec/015-Test-Coverage.md` §Static-build scenarios) over a
+  seeded registry: every listed id resolves through the read surface, every
+  share URL the build encodes decodes to a registered id, and ids stamped on
+  data-test attributes round-trip through `pr-str` / `read-string`.
+  `story_static_build_cljs_test.cljs` and `check-story-static.cjs` cover the
+  built bundle's shape."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core            :as rf]
@@ -55,10 +32,8 @@
 ;; ---- helpers -------------------------------------------------------------
 
 (defn- seed-bundle-like-registry!
-  "Seed a registry resembling the counter_with_stories static-export
-  payload — multiple variants per parent story, modes, workspaces.
-  Mirrors the shape `re-frame.story.testbeds.counter-with-stories`
-  registers at boot."
+  "Seed a registry shaped like the counter_with_stories static-export
+  payload: several variants per parent story, modes, and a workspace."
   []
   (rf.story/reg-story :story.bundle.counter {:doc "counter story" :tags #{:dev}})
   (rf.story/reg-variant :story.bundle.counter/empty  {:setup []      :tags #{:dev}})
@@ -77,218 +52,114 @@
                 :story.bundle.counter/loaded
                 :story.bundle.counter/three]}))
 
-;; ===========================================================================
-;; all-stories-resolvable post-build
-;;
-;; The static export walks the registry at build time to produce its
-;; deployable artefact. After mount, the shell reads (ids :variant) and
-;; iterates the resulting set to render the sidebar. Every id MUST
-;; resolve to a renderable body via handler-meta — else the sidebar
-;; row exists but clicking it produces nothing.
-;; ===========================================================================
+(defn- url-param
+  "The URL-decoded value of query param `k` in `url`, as URLSearchParams.get reads it."
+  [url k]
+  (some-> (re-find (re-pattern (str k "=([^&]+)")) url)
+          second
+          (java.net.URLDecoder/decode "UTF-8")))
+
+;; After mount the shell walks the read surface to render the sidebar,
+;; toolbar and workspace cells: every id it lists must resolve to a body, or
+;; a row renders and clicking it shows nothing.
 
 (deftest every-registered-variant-resolves-to-body
-  (testing "post-build assertion: walk (ids :variant), call handler-meta
-            on each id, assert each one returns a non-nil body. This is
-            the contract the shell relies on for sidebar → canvas
-            navigation; broken would mean an empty canvas on click"
+  (testing "every (ids :variant) entry resolves through handler-meta — the
+            sidebar-to-canvas navigation contract"
     (seed-bundle-like-registry!)
-    (let [vids   (rf.story/ids :variant)
-          unresolved (filter (fn [vid]
-                               (nil? (rf.story/handler-meta :variant vid)))
-                             vids)]
-      (is (seq vids)
-          "the bundle carries at least one variant — fixture sanity")
-      (is (= [] (vec unresolved))
-          "no registered variant id is unresolvable through handler-meta"))))
+    (let [vids (rf.story/ids :variant)]
+      (is (seq vids) "fixture sanity")
+      (is (= [] (remove #(rf.story/handler-meta :variant %) vids))))))
 
 (deftest every-registered-story-resolves-to-body
-  (testing "the parent-story side of the read-surface: every (ids :story)
-            entry resolves via handler-meta. Variants depend on their
-            parent's :component fallback (per canvas.cljs §variant-
-            component) — an unresolvable parent would blank the canvas
-            for every child"
+  (testing "every (ids :story) entry resolves — variants fall back to their
+            parent's :component, so an unresolvable parent blanks every child"
     (seed-bundle-like-registry!)
-    (let [sids       (rf.story/ids :story)
-          unresolved (filter #(nil? (rf.story/handler-meta :story %)) sids)]
+    (let [sids (rf.story/ids :story)]
       (is (seq sids))
-      (is (= [] (vec unresolved))))))
+      (is (= [] (remove #(rf.story/handler-meta :story %) sids))))))
 
 (deftest every-registered-mode-resolves-to-body
-  (testing "modes are read by the toolbar at every render — an
-            unresolvable mode id means a chip rendered with no :args
-            payload, silently broken"
+  (testing "every listed mode resolves — the toolbar reads them at every render"
     (seed-bundle-like-registry!)
-    (let [mids       (rf.story/list-modes)
-          unresolved (filter #(nil? (rf.story/handler-meta :mode %)) mids)]
+    (let [mids (rf.story/list-modes)]
       (is (seq mids))
-      (is (= [] (vec unresolved))))))
+      (is (= [] (remove #(rf.story/handler-meta :mode %) mids))))))
 
 (deftest workspace-variant-refs-all-resolve
-  (testing "workspaces carry `:variants` vectors naming variant ids;
-            each named id MUST resolve through the read surface. A
-            broken ref would render a cell with no canvas content"
+  (testing "every variant id a workspace's :variants names resolves, or the
+            cell renders with no canvas content"
     (seed-bundle-like-registry!)
-    (let [wids (rf.story/ids :workspace)]
-      (doseq [wid wids]
-        (let [body  (rf.story/handler-meta :workspace wid)
-              vids  (or (:variants body) [])]
-          (doseq [vid vids]
-            (is (rf.story/registered? :variant vid)
-                (str "workspace " (pr-str wid)
-                     " references variant " (pr-str vid)
-                     " which does not resolve in the registry — broken cell ref"))))))))
+    (doseq [wid  (rf.story/ids :workspace)
+            vid  (:variants (rf.story/handler-meta :workspace wid))]
+      (is (rf.story/registered? :variant vid)
+          (str "workspace " (pr-str wid) " references unresolvable " (pr-str vid))))))
 
 (deftest read-surface-mirrors-id-set-and-body-map
-  (testing "the bundle's introspection paths (the agent's
-            `list-variants` MCP tool + the renderer's registrations
-            walk) must agree on the variant set. Pinning this is
-            the cross-check the static-export bundle needs: (ids :kind)
-            keyset must equal (keys (registrations :kind))"
+  (testing "the MCP `list-variants` path and the renderer's registrations walk
+            agree on every id set"
     (seed-bundle-like-registry!)
-    (is (= (rf.story/ids :variant)
-           (set (keys (rf.story/registrations :variant))))
-        "ids ↔ registrations agree on the variant id-set")
-    (is (= (rf.story/ids :story)
-           (set (keys (rf.story/registrations :story))))
-        "ids ↔ registrations agree on the story id-set")
-    (is (= (rf.story/list-modes)
-           (set (keys (rf.story/registrations :mode))))
-        "list-modes ↔ registrations agree on the mode id-set")))
+    (doseq [[kind listed] [[:variant (rf.story/ids :variant)]
+                           [:story (rf.story/ids :story)]
+                           [:mode (rf.story/list-modes)]]]
+      (is (= listed (set (keys (rf.story/registrations kind)))) (str kind)))))
 
-;; ===========================================================================
-;; link integrity (share URLs round-trip to registered ids)
-;;
-;; The static export embeds share URLs in prose blocks, docs panels, and
-;; the per-variant share affordance. Each URL encodes a `?variant=<id>`
-;; (and optionally modes / args) that the receiving shell parses back
-;; into a registry lookup. The contract: every encoded variant id can
-;; be decoded back to the same keyword AND that keyword resolves in
-;; the registry. A broken link would mean a share URL the build emitted
-;; lands on the no-such-variant empty state.
-;; ===========================================================================
+;; Share URLs the static export embeds encode `?variant=<id>` (and optionally
+;; modes) that the receiving shell parses back into a registry lookup: each
+;; must decode to the same keyword, and that keyword must resolve.
 
 (deftest variant-share-url-encodes-id
-  (testing "spec/013 + spec/014 §Share: variant-share-url produces a
-            URL string that carries the variant's id as a `variant=`
-            query parameter. Pinning the encode side of the contract;
-            the decode side is exercised below"
+  (testing "spec/013 + spec/014 §Share: each variant's share URL carries its id
+            as a variant= query parameter"
     (seed-bundle-like-registry!)
     (doseq [vid (rf.story/ids :variant)]
-      (let [url (rf.story/variant-share-url vid)]
-        (is (string? url)
-            (str "share URL for " (pr-str vid) " is a string"))
-        (is (str/includes? url "variant=")
-            (str "share URL for " (pr-str vid)
-                 " carries the variant= query param"))))))
+      (is (str/includes? (rf.story/variant-share-url vid) "variant=") (pr-str vid)))))
 
 (deftest share-url-variant-id-round-trips-to-registry
-  (testing "round-trip: encode every registered variant id into a share
-            URL; parse the variant= param out; decode the keyword; assert
-            the decoded id round-trips to the registered id. This pins
-            the link-integrity contract across the share boundary — no
-            silent escaping mismatch can leave a URL pointing at an
-            unresolvable id"
+  (testing "every registered variant id round-trips through its share URL to
+            the same, registered keyword — no escaping mismatch leaves a link
+            pointing at an unresolvable id"
     (seed-bundle-like-registry!)
-    (doseq [vid (rf.story/ids :variant)]
-      (let [url      (rf.story/variant-share-url vid)
-            param    (some->> url
-                              (re-find #"variant=([^&]+)")
-                              second)
-            decoded  (when param
-                       (-> param
-                           (java.net.URLDecoder/decode "UTF-8")
-                           rf.story.share/parse-keyword-token))]
-        (is (= vid decoded)
-            (str "variant id " (pr-str vid)
-                 " round-trips through share URL → " (pr-str decoded)))
-        (is (rf.story/registered? :variant decoded)
-            (str "decoded id " (pr-str decoded)
-                 " resolves in the registry — no broken link"))))))
+    (doseq [vid (rf.story/ids :variant)
+            :let [decoded (some-> (url-param (rf.story/variant-share-url vid) "variant")
+                                  rf.story.share/parse-keyword-token)]]
+      (is (= vid decoded))
+      (is (rf.story/registered? :variant decoded) (pr-str decoded)))))
 
 (deftest share-url-with-modes-round-trips-active-modes
-  (testing "share URLs that encode active modes deep-link the toolbar.
-            Every encoded mode id MUST decode back to a registered mode
-            — else the toolbar drops it at hydrate time and the share
-            silently loses fidelity. Pin the round-trip"
+  (testing "encoded active modes decode back to the same registered modes, or
+            the toolbar drops them at hydrate and the share loses fidelity"
     (seed-bundle-like-registry!)
     (let [active-modes [:Mode.bundle.theme/dark :Mode.bundle.vp/mobile]
-          url     (rf.story/variant-share-url
-                    :story.bundle.counter/empty
-                    ""
-                    {:active-modes active-modes})
-          ;; Extract the modes param.
-          modes-param (some->> url
-                               (re-find #"modes=([^&]+)")
-                               second
-                               (#(java.net.URLDecoder/decode % "UTF-8")))
-          decoded (when modes-param
-                    (->> (str/split modes-param #",")
-                         (map rf.story.share/parse-keyword-token)
-                         vec))]
-      (is (seq decoded)
-          "modes param decoded to a non-empty vector")
-      (is (= (set active-modes) (set decoded))
-          "encoded modes round-trip exactly")
-      (doseq [mid decoded]
-        (is (rf.story/registered? :mode mid)
-            (str "decoded mode " (pr-str mid) " resolves in the registry"))))))
+          decoded      (some->> (url-param (rf.story/variant-share-url
+                                             :story.bundle.counter/empty "" {:active-modes active-modes})
+                                           "modes")
+                                (#(str/split % #","))
+                                (mapv rf.story.share/parse-keyword-token))]
+      (is (= (set active-modes) (set decoded)))
+      (is (every? #(rf.story/registered? :mode %) decoded)))))
 
 (deftest share-url-rejects-unregistered-variant-as-broken-link
-  (testing "the inverse — if a share URL points at a variant id that
-            was renamed/removed between build and view, the parse
-            still succeeds (the keyword decodes) but the registry
-            lookup must return false. This is the empty-state branch
-            the spec/014 §Share contract names: the renderer falls
-            back to 'no such variant' rather than rendering garbage"
+  (testing "a share URL naming a variant renamed between build and view still
+            decodes, but the registry lookup fails, so the shell engages the
+            spec/014 §Share no-such-variant empty state; encoding only
+            registered ids is the build's job"
     (seed-bundle-like-registry!)
-    (let [stale-id :story.bundle.counter/this-was-renamed]
-      (is (not (rf.story/registered? :variant stale-id))
-          "the renamed id is not in the registry")
-      ;; The share URL build still encodes whatever id you give it —
-      ;; integrity is the BUILD's responsibility (only encode currently-
-      ;; registered ids). At decode time the registered? check is the
-      ;; integrity gate.
-      (let [url     (rf.story/variant-share-url stale-id)
-            param   (some->> url
-                             (re-find #"variant=([^&]+)")
-                             second
-                             (#(java.net.URLDecoder/decode % "UTF-8")))
-            decoded (rf.story.share/parse-keyword-token param)]
-        (is (= stale-id decoded)
-            "the URL still round-trips the id verbatim")
-        (is (not (rf.story/registered? :variant decoded))
-            "but the registry check correctly reports the broken link
-             — the shell's no-such-variant empty state engages")))))
+    (let [stale-id :story.bundle.counter/this-was-renamed
+          decoded  (rf.story.share/parse-keyword-token
+                     (url-param (rf.story/variant-share-url stale-id) "variant"))]
+      (is (= [stale-id false] [decoded (boolean (rf.story/registered? :variant decoded))])))))
 
-;; ===========================================================================
-;; bundle-relative selectors (pr-str round-trip)
-;;
-;; The shell stamps `data-test-variant="(pr-str variant-id)"` on the
-;; canvas root (per canvas.cljs §reagent-render). Playwright specs and
-;; bundle-introspection tools select on this stamp. The id MUST
-;; round-trip through `pr-str` ↔ `read-string` so the selector value
-;; reproduces the original keyword exactly.
-;; ===========================================================================
+;; The shell stamps `data-test-variant` with `(pr-str variant-id)` and toolbar
+;; chips stamp `data-toolbar-mode` likewise; selectors rebuild the keyword with
+;; `read-string`, so ids must round-trip.
 
 (deftest variant-id-pr-str-round-trip
-  (testing "every registered variant id round-trips through
-            (read-string (pr-str id)) to the SAME keyword. This is the
-            invariant data-test-variant selectors depend on — Playwright
-            specs read the stamp's string and reconstruct the keyword"
-    (seed-bundle-like-registry!)
-    (doseq [vid (rf.story/ids :variant)]
-      (let [stamped (pr-str vid)
-            parsed  (read-string stamped)]
-        (is (= vid parsed)
-            (str "id " (pr-str vid) " round-trips through pr-str ↔ read-string"))))))
+  (seed-bundle-like-registry!)
+  (doseq [vid (rf.story/ids :variant)]
+    (is (= vid (read-string (pr-str vid))))))
 
 (deftest mode-id-pr-str-round-trip
-  (testing "mode ids round-trip the same way — toolbar chips stamp the
-            mode id into a data-toolbar-mode attribute"
-    (seed-bundle-like-registry!)
-    (doseq [mid (rf.story/list-modes)]
-      (let [stamped (pr-str mid)
-            parsed  (read-string stamped)]
-        (is (= mid parsed)
-            (str "mode id " (pr-str mid) " round-trips"))))))
+  (seed-bundle-like-registry!)
+  (doseq [mid (rf.story/list-modes)]
+    (is (= mid (read-string (pr-str mid))))))
