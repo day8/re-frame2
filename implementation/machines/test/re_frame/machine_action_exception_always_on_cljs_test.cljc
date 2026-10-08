@@ -27,9 +27,9 @@
 (defn- action-exceptions
   "Dispatch `event` and return the `:rf.error/machine-action-exception` records
   it fans out: `:always-on` from the error-listener axis, with the raw
-  `:exception` and `:time` reduced to type checks and `:state` read as a path
-  (the slot is a leaf keyword or a root→leaf vector, Spec 005 §State paths),
-  and `:dev` from the dev trace stream."
+  `:exception` and `:time` reduced to type checks, and `:dev` from the dev
+  trace stream. `:state` is compared as emitted: an action throw and a guard
+  throw both attribute the active state as a vector path."
   [event]
   (let [always-on (atom [])
         dev       (atom [])]
@@ -40,8 +40,7 @@
       {:always-on (into [] (comp (filter #(= :rf.error/machine-action-exception (:error %)))
                                  (map #(-> %
                                            (update :exception throwable?)
-                                           (update :time number?)
-                                           (update :state (fn [s] (cond-> s (keyword? s) vector))))))
+                                           (update :time number?))))
                         @always-on)
        :dev       (filterv #(= :rf.error/machine-action-exception (:operation %)) @dev)}
       (finally

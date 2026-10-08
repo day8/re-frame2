@@ -453,13 +453,18 @@
   via `rf.machines.result/fail`. The shape mirrors `run-action`'s failure info
   (`:exception` is the key `trace-action-failure!` reads) so a guard throw
   routes through the SAME `:rf.error/machine-action-exception` handler
-  surface as an action throw, per the XState-v5 alignment."
+  surface as an action throw, per the XState-v5 alignment.
+
+  `:state-path` is a vector path, as an action throw's is: a flat machine's
+  keyword `:state` becomes a one-element path, so the always-on `:state`
+  attribution has one shape whichever callback threw."
   [e]
-  (let [d (ex-data e)]
+  (let [d     (ex-data e)
+        state (:state d)]
     {:exception  (:exception d)
      :guard-ref  (:guard-ref d)
      :action-ref (:guard-ref d) ;; `trace-action-failure!` reads `:action-ref`
-     :state-path (:state d)
+     :state-path (if (keyword? state) [state] state)
      :rf.machine/guard-threw? true}))
 
 (defn- evaluate-guard
