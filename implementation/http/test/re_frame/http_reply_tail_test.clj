@@ -1,35 +1,21 @@
 (ns re-frame.http-reply-tail-test
-  "JVM coverage for two coupled reply-tail contracts:
+  "Two coupled reply-tail contracts on the JVM:
 
-  - the reply-target SHAPE (vector-or-nil) is validated at
-    DISPATCH time (`re-frame.http.handlers/validate-reply-target!`), BEFORE
-    the request is issued, per Spec 014 §Request envelope. A bare-keyword
-    `:on-success` fails fast at the fx-call site rather than issuing the
-    request and throwing async in the reply tail.
+  - the reply-target shape (vector or nil) and the exclusivity of `:reply-to`
+    with the `:on-success` / `:on-failure` sugar are refused at DISPATCH time,
+    before the request is issued;
+  - a throw in the reply tail after the transport succeeded is fenced: it
+    surfaces once as `:rf.error/http-reply-tail-failed`, is never retried as a
+    transport failure, and (on the JVM) never vanishes into the unobserved
+    `whenComplete` future. The CLJS retry-storm half is
+    `re-frame.http-reply-tail-cljs-test`.
 
-  - a REPLY-TAIL exception (a throwing `:after` interceptor, or
-    a malformed reply target the dispatch-time guard did not catch) thrown
-    AFTER the transport already succeeded must NOT be reclassified as a
-    transport rejection. The transport FENCES the reply tail and surfaces the
-    failure once as `:rf.error/http-reply-tail-failed` — observably, and
-    without retry. Unfenced on the JVM, the throw would escape the unobserved
-    `whenComplete` future and vanish silently (the caller would hang).
-
-  The JVM half is load-bearing for the silent-swallow failure mode (the
-  `CompletableFuture.whenComplete` future is JVM-specific); the CLJS
-  retry-storm half lives in `re-frame.http-reply-tail-cljs-test`.
-
-  Uses the JDK `com.sun.net.httpserver.HttpServer` harness (same shape as
-  `re-frame.http-interceptors-test`) so the number of times the request
-  actually reaches the wire is observable — the load-bearing signal that a
-  reply-tail throw does NOT re-send an already-completed request."
+  A hit-counting loopback server makes a re-send observable."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.http.handlers :as rf.http.handlers]
-            ;; Requiring the managed artefact publishes the `:rf.http/managed`
-            ;; fx + the `reg-http-interceptor` late-bind hooks the tests drive.
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.test-support :as rf.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -41,23 +27,18 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; ---- in-process server harness (hit-counting) ------------------------------
-
 (defn- start-counting-200-server!
-  "An HTTP server that always 200s a JSON body and increments `hits`
-  (an `AtomicInteger`) on every request that reaches the wire."
+  "A server that 200s a JSON body and counts every request reaching the wire."
   [^AtomicInteger hits]
-  (let [handler (fn [^HttpExchange ex]
-                  (.incrementAndGet hits)
-                  (let [bytes (.getBytes "{\"ok\":true}" "UTF-8")]
-                    (-> ex .getResponseHeaders (.set "Content-Type" "application/json"))
-                    (.sendResponseHeaders ex 200 (long (count bytes)))
-                    (with-open [os (.getResponseBody ex)] (.write os bytes))))
-        server  (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)
-        ctx     (.createContext server "/")]
-    (.setHandler ctx
+  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
+    (.setHandler (.createContext server "/")
                  (reify HttpHandler
-                   (handle [_ exchange] (handler exchange))))
+                   (handle [_ ex]
+                     (.incrementAndGet hits)
+                     (let [bytes (.getBytes "{\"ok\":true}" "UTF-8")]
+                       (-> ^HttpExchange ex .getResponseHeaders (.set "Content-Type" "application/json"))
+                       (.sendResponseHeaders ^HttpExchange ex 200 (long (count bytes)))
+                       (with-open [os (.getResponseBody ^HttpExchange ex)] (.write os bytes))))))
     (.setExecutor server nil)
     (.start server)
     {:server server :port (.getPort (.getAddress server))}))
@@ -76,272 +57,154 @@
 (defn- ops [captured op]
   (filter #(= op (:operation %)) @captured))
 
-;; ===========================================================================
-;; dispatch-time reply-target SHAPE validation
-;; ===========================================================================
+(defn- await-op! [captured op]
+  (rf.test-support/poll-until #(seq (ops captured op)) {:timeout-ms 5000 :label (str op)}))
 
-(def ^:private validate-reply-target! @#'rf.http.handlers/validate-reply-target!)
+(defn- refusal [args]
+  (try (rf.http.handlers/validate-reply-target! args) nil
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest bvw9ut-shape-validated-at-dispatch-time-unit
-  (testing "validate-reply-target! rejects a non-vector non-nil
-            reply target with :rf.error/http-bad-reply-target"
-    ;; A bare keyword is malformed for each of the three reply-target keys.
-    (doseq [k [:reply-to :on-success :on-failure]]
-      (let [thrown (try (validate-reply-target! {k :items/loaded})
-                        nil
-                        (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? thrown) (str "a bare-keyword " k " must throw"))
-        (is (= :rf.error/http-bad-reply-target (:rf.error/id (ex-data thrown)))
-            (str k " → :rf.error/http-bad-reply-target"))
-        (is (= k (:key (ex-data thrown)))
-            "the offending key rides the ex-data")))
-    ;; A map / string target is likewise malformed.
-    (is (= :rf.error/http-bad-reply-target
-           (:rf.error/id (ex-data (try (validate-reply-target! {:on-success {:not :a-vector}})
-                                       (catch clojure.lang.ExceptionInfo e e)))))
-        "a map reply target is rejected")))
+  ;; The map row is the input that separates `vector?` from `coll?`.
+  (are [args k] (= {:rf.error/id :rf.error/http-bad-reply-target :key k}
+                   (select-keys (refusal args) [:rf.error/id :key]))
+    {:on-success :items/loaded}   :on-success
+    {:reply-to {:not :a-vector}}  :reply-to))
 
 (deftest mixed-reply-addressing-refused-at-dispatch
-  (testing "`:reply-to` and the `:on-success` / `:on-failure`
-            split sugar are EXCLUSIVE. Refusal is on key PRESENCE, so an
-            explicit `nil` branch is a mixture too; the ex-data names the keys
-            and the reason so a caller can see WHICH pair collided"
-    (doseq [mixed [{:reply-to [:a] :on-success [:b]}
-                   {:reply-to [:a] :on-failure [:b]}
-                   {:reply-to [:a] :on-failure nil}
-                   {:reply-to nil  :on-success [:b]}
-                   {:reply-to [:a] :on-success [:b] :on-failure [:c]}]]
-      (let [e (try (validate-reply-target! mixed)
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) (str (pr-str (vec (sort-by str (keys mixed)))) " must throw"))
-        (is (= :rf.error/http-bad-reply-target (:rf.error/id (ex-data e)))
-            "→ :rf.error/http-bad-reply-target (the bad-shape catalogue id)")
-        (is (= :mixed-addressing (:reason (ex-data e)))
-            ":reason distinguishes a mixture from the bad-SHAPE use of the same id")
-        (is (= :reply-to (first (:keys (ex-data e))))
-            ":keys leads with :reply-to, then the colliding branch key(s)")
-        (is (= (set (keys mixed)) (set (:keys (ex-data e))))
-            ":keys names every colliding key, not just the first")))
-    (testing "the two unmixed styles, and each branch alone, pass"
-      (doseq [ok [{:reply-to [:a]}
-                  {:reply-to nil}
-                  {:on-success [:a]}
-                  {:on-failure nil}
-                  {:on-success [:a] :on-failure [:b]}
-                  {:on-success [:a] :on-failure nil}]]
-        (is (nil? (validate-reply-target! ok))
-            (str (pr-str ok) " is a legal reply addressing"))))))
+  ;; Refusal is on key PRESENCE, so an explicit nil branch is a mixture too.
+  (are [args ks] (= {:rf.error/id :rf.error/http-bad-reply-target :reason :mixed-addressing :keys ks}
+                    (select-keys (refusal args) [:rf.error/id :reason :keys]))
+    {:reply-to nil :on-success [:b]}                    [:reply-to :on-success]
+    {:reply-to [:a] :on-success [:b] :on-failure nil}   [:reply-to :on-success :on-failure])
+  (are [args] (nil? (refusal args))
+    {:reply-to nil}
+    {:on-success [:a] :on-failure nil}))
 
 (deftest bvw9ut-bare-keyword-on-success-rejected-before-network
-  (testing "dispatching :rf.http/managed with a bare-keyword
-            :on-success is REJECTED at dispatch time: the server is never hit
-            (the request is not issued), and the throw is the dispatch-time
-            :rf.error/http-bad-reply-target — not an async reply-tail throw"
-    (let [hits         (AtomicInteger. 0)
-          {:keys [port] :as srv} (start-counting-200-server! hits)]
-      (try
-        (with-trace-capture
-          (fn [captured]
-            (rf/reg-event :bvw9ut/load
-              (fn [_ _]
-                {:fx [[:rf.http/managed
-                       ;; bare keyword, non-vector non-nil — malformed target
-                       {:request    {:url (str "http://127.0.0.1:" port "/x")}
-                        :decode     :json
-                        :on-success :items/loaded}]]}))
-            ;; The throw fires inside the fx dispatch loop; trap it so the
-            ;; test can assert on the observable surface (server-not-hit +
-            ;; the error trace).
-            (try (rf/dispatch-sync [:bvw9ut/load])
-                 (catch Throwable _ nil))
-            ;; No network call was ever made — the guard ran before run-attempt!.
-            (is (zero? (.get hits))
-                "the request was rejected at dispatch time — the server saw zero hits")
-            ;; The dispatch-time reject surfaces the bad-reply-target id (either
-            ;; directly, or nested as the cause of the fx-handler-exception).
-            (let [saw-bad-target?
-                  (some (fn [ev]
-                          (let [tags (:tags ev)]
-                            (or (= :rf.error/http-bad-reply-target (:operation ev))
-                                (= :rf.error/http-bad-reply-target
-                                   (:rf.error/id tags))
-                                (= :rf.error/http-bad-reply-target
-                                   (:rf.error/id (:exception tags))))))
-                        @captured)]
-              (is (or saw-bad-target?
-                      (seq (ops captured :rf.error/fx-handler-exception)))
-                  "a dispatch-time error surfaced (bad-reply-target / fx-handler-exception)"))))
-        (finally (stop-server! srv))))))
-
-;; ===========================================================================
-;; reply-tail throw is observed, not swallowed; not retried
-;; ===========================================================================
+  (let [hits (AtomicInteger. 0)
+        {:keys [port] :as srv} (start-counting-200-server! hits)]
+    (try
+      (with-trace-capture
+        (fn [captured]
+          (rf/reg-event :bvw9ut/load
+            (fn [_ _]
+              {:fx [[:rf.http/managed
+                     {:request    {:url (str "http://127.0.0.1:" port "/x")}
+                      :decode     :json
+                      :on-success :items/loaded}]]}))
+          (try (rf/dispatch-sync [:bvw9ut/load]) (catch Throwable _ nil))
+          (is (zero? (.get hits)) "the request was refused before it reached the wire")
+          (is (some (fn [{:keys [operation tags]}]
+                      (or (= :rf.error/http-bad-reply-target operation)
+                          (= :rf.error/http-bad-reply-target (:rf.error/id tags))
+                          (= :rf.error/http-bad-reply-target (:rf.error/id (:exception tags)))
+                          (= :rf.error/fx-handler-exception operation)))
+                    @captured)
+              "the dispatch-time refusal surfaced")))
+      (finally (stop-server! srv)))))
 
 (deftest ln85eg-after-throw-over-2xx-observed-not-swallowed
-  (testing "(JVM) a throwing :after interceptor over a 2xx is
-            surfaced observably as :rf.error/http-reply-tail-failed (not
-            swallowed into the unobserved whenComplete future), the request is
-            hit EXACTLY ONCE (no retry / re-send even under a
-            :retry {:on #{:rf.http/transport}} policy), and NO :on-success
-            reply is delivered (delivery is what threw)"
-    (let [hits         (AtomicInteger. 0)
-          {:keys [port] :as srv} (start-counting-200-server! hits)]
-      (try
-        (with-trace-capture
-          (fn [captured]
-            (rf/reg-http-interceptor :boom-after
-              {:after (fn [_ctx _resp]
-                        (throw (ex-info "reply-tail kaboom" {:detail :synthetic})))})
-            (rf/reg-event :ln85eg/reply
-              (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
-            (rf/reg-event :ln85eg/load
-              (fn [_ _]
-                {:fx [[:rf.http/managed
-                       {:request    {:url (str "http://127.0.0.1:" port "/x")}
-                        :decode     :json
-                        ;; a retryable transport policy — a reply-tail throw
-                        ;; misclassified as :rf.http/transport would retry
-                        ;; under this.
-                        :retry      {:on #{:rf.http/transport} :max-attempts 3}
-                        :on-success [:ln85eg/reply]
-                        :on-failure [:ln85eg/reply]}]]}))
-            (rf/dispatch-sync [:ln85eg/load])
-            ;; The observable signal: the reply-tail failure surfaces
-            ;; (rather than vanishing into the whenComplete future). Poll for it
-            ;; — a regression that reclassified/retried would never emit it.
-            (rf.test-support/poll-until
-              #(seq (ops captured :rf.error/http-reply-tail-failed))
-              {:timeout-ms 5000 :label ":rf.error/http-reply-tail-failed surfaced"})
-            ;; EXACTLY ONE wire hit — no re-send of the already-completed 2xx.
-            (is (= 1 (.get hits))
-                "the request reached the wire exactly once — no retry-storm / re-send")
-            ;; The reply-tail failure trace is observed exactly once and names
-            ;; the caught interceptor error + the reply branch that threw.
-            (let [rtf (ops captured :rf.error/http-reply-tail-failed)]
-              (is (= 1 (count rtf))
-                  "exactly one :rf.error/http-reply-tail-failed (observed, not swallowed)")
-              (let [tags (:tags (first rtf))]
-                (is (= :success (:kind tags))
-                    "the success reply branch's delivery is what threw")
-                (is (= :rf.error/http-interceptor-failed (:reply-error-id tags))
-                    "the caught throw's id (the :after interceptor failure) rides the trace")))
-            ;; No reply was delivered — delivery threw.
-            (is (nil? (:reply (rf/app-db-value :rf/default)))
-                "no :on-success / :on-failure reply landed (the reply tail threw)")
-            ;; And crucially it was NOT reclassified as a transport failure.
-            (is (empty? (filter (fn [ev]
-                                  (= :rf.http/transport
-                                     (get-in ev [:tags :kind])))
-                                @captured))
-                "the reply-tail throw was NOT reclassified as a :rf.http/transport failure")))
-        (finally (stop-server! srv))))))
-
-;; ===========================================================================
-;; the reply-tail row's :cause redacts under effective sensitivity
-;; ===========================================================================
+  ;; Under a retryable :rf.http/transport policy, a reply-tail throw
+  ;; misclassified as a transport failure would re-send the completed 2xx.
+  (let [hits (AtomicInteger. 0)
+        {:keys [port] :as srv} (start-counting-200-server! hits)]
+    (try
+      (with-trace-capture
+        (fn [captured]
+          (rf/reg-http-interceptor :boom-after
+            {:after (fn [_ctx _resp] (throw (ex-info "reply-tail kaboom" {})))})
+          (rf/reg-event :ln85eg/reply
+            (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
+          (rf/reg-event :ln85eg/load
+            (fn [_ _]
+              {:fx [[:rf.http/managed
+                     {:request    {:url (str "http://127.0.0.1:" port "/x")}
+                      :decode     :json
+                      :retry      {:on #{:rf.http/transport} :max-attempts 3}
+                      :on-success [:ln85eg/reply]
+                      :on-failure [:ln85eg/reply]}]]}))
+          (rf/dispatch-sync [:ln85eg/load])
+          (await-op! captured :rf.error/http-reply-tail-failed)
+          (is (= 1 (.get hits)) "no re-send of the completed request")
+          (is (= [{:kind :success :reply-error-id :rf.error/http-interceptor-failed}]
+                 (mapv #(select-keys (:tags %) [:kind :reply-error-id])
+                       (ops captured :rf.error/http-reply-tail-failed))))
+          (is (nil? (:reply (rf/app-db-value :rf/default))) "delivery is what threw")))
+      (finally (stop-server! srv)))))
 
 (deftest sensitive-after-bad-return-leaves-no-secret-in-reply-tail-cause
-  (testing "(JVM) on a request an earlier :before marked sensitive, an :after
-            that returns a slice of its ctx instead of the response leaves the
-            secret in neither the bad-return row nor the
-            :rf.error/http-reply-tail-failed row, whose :cause is the caught
-            throw's message and so echoes the returned value, nor that row's
-            always-on record, which carries the caught throw itself"
-    (let [secret   "REPLY_TAIL_SECRET"
-          hits     (AtomicInteger. 0)
-          records  (atom [])
-          error-id (gensym "reply-tail-record-")
-          {:keys [port] :as srv} (start-counting-200-server! hits)]
-      (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
-      (try
-        (with-trace-capture
-          (fn [captured]
-            (rf/reg-http-interceptor :mark-sensitive
-              {:before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))})
-            (rf/reg-http-interceptor :echo-auth
-              {:after (fn [ctx _resp] [(get-in ctx [:request :headers "Authorization"])])})
-            (rf/reg-event :rtsecret/reply
-              (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
-            (rf/reg-event :rtsecret/load
-              (fn [_ _]
-                {:fx [[:rf.http/managed
-                       {:request    {:url     (str "http://127.0.0.1:" port "/x")
-                                     :headers {"Authorization" secret}}
-                        :decode     :json
-                        :on-success [:rtsecret/reply]
-                        :on-failure [:rtsecret/reply]}]]}))
-            (rf/dispatch-sync [:rtsecret/load])
-            (rf.test-support/poll-until
-              #(seq (ops captured :rf.error/http-reply-tail-failed))
-              {:timeout-ms 5000 :label ":rf.error/http-reply-tail-failed surfaced (sensitive)"})
-            (let [rtf (first (ops captured :rf.error/http-reply-tail-failed))
-                  br  (first (ops captured :rf.error/http-interceptor-bad-return))]
-              (is (= :rf.error/http-interceptor-bad-return (get-in rtf [:tags :reply-error-id]))
-                  "the reply-tail row names the caught bad-return")
-              (is (true? (:sensitive? rtf)) "the reply-tail row is stamped sensitive")
-              (is (= :rf/redacted (get-in rtf [:tags :cause]))
-                  "the throw's message is redacted in :cause")
-              (is (not (str/includes? (pr-str (:tags rtf)) secret))
-                  "no reply-tail tag carries the secret")
-              (is (= :echo-auth (get-in br [:tags :id]))
-                  "the bad-return row names the :after interceptor")
-              (is (true? (:sensitive? br)) "the bad-return row is stamped sensitive")
-              (is (not (str/includes? (pr-str (:tags br)) secret))
-                  "no bad-return tag carries the secret")
-              (let [record (first (filter #(= :rf.error/http-reply-tail-failed (:error %))
-                                          @records))]
-                (is (some? record) "the reply-tail row's always-on record fires")
-                (is (= :rf.error/http-interceptor-bad-return
-                       (:rf.error/id (ex-data (:exception record))))
-                    "its exception is still the caught bad-return")
-                (is (not (str/includes? (pr-str record) secret))
-                    "the always-on record's exception carries no secret")))))
-        (finally
-          (rf.error-emit/unregister-error-listener! error-id)
-          (stop-server! srv))))))
+  ;; An :after returning a slice of its ctx makes the caught throw's message,
+  ;; and so the reply-tail row's :cause, echo the request's secret header.
+  (let [secret   "REPLY_TAIL_SECRET"
+        hits     (AtomicInteger. 0)
+        records  (atom [])
+        error-id (gensym "reply-tail-record-")
+        {:keys [port] :as srv} (start-counting-200-server! hits)]
+    (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
+    (try
+      (with-trace-capture
+        (fn [captured]
+          (rf/reg-http-interceptor :mark-sensitive
+            {:before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))})
+          (rf/reg-http-interceptor :echo-auth
+            {:after (fn [ctx _resp] [(get-in ctx [:request :headers "Authorization"])])})
+          (rf/reg-event :rtsecret/reply
+            (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
+          (rf/reg-event :rtsecret/load
+            (fn [_ _]
+              {:fx [[:rf.http/managed
+                     {:request    {:url     (str "http://127.0.0.1:" port "/x")
+                                   :headers {"Authorization" secret}}
+                      :decode     :json
+                      :on-success [:rtsecret/reply]
+                      :on-failure [:rtsecret/reply]}]]}))
+          (rf/dispatch-sync [:rtsecret/load])
+          (await-op! captured :rf.error/http-reply-tail-failed)
+          (let [rtf    (first (ops captured :rf.error/http-reply-tail-failed))
+                br     (first (ops captured :rf.error/http-interceptor-bad-return))
+                record (first (filter #(= :rf.error/http-reply-tail-failed (:error %)) @records))]
+            (is (= [true :rf.error/http-interceptor-bad-return :rf/redacted]
+                   ((juxt :sensitive? (comp :reply-error-id :tags) (comp :cause :tags)) rtf)))
+            (is (= [true :echo-auth] ((juxt :sensitive? (comp :id :tags)) br)))
+            (is (= :rf.error/http-interceptor-bad-return (some-> record :exception ex-data :rf.error/id))
+                "the always-on record fires, carrying the caught bad-return")
+            (is (not (str/includes? (pr-str [(:tags rtf) (:tags br) record]) secret))))))
+      (finally
+        (rf.error-emit/unregister-error-listener! error-id)
+        (stop-server! srv)))))
 
 (deftest non-sensitive-after-throw-leaves-no-denylisted-param-in-reply-tail-record
-  (testing "(JVM) on a request that is not sensitive, an :after that throws
-            leaves a denylisted query param's value out of the
-            :rf.error/http-reply-tail-failed row's always-on record, whose
-            exception is the caught chain error carrying the request :url; a
-            param that is not denylisted rides verbatim"
-    (let [denied   "REPLY_TAIL_DENYLISTED"
-          hits     (AtomicInteger. 0)
-          records  (atom [])
-          error-id (gensym "reply-tail-denylist-record-")
-          {:keys [port] :as srv} (start-counting-200-server! hits)
-          url      (str "http://127.0.0.1:" port "/x?api_key=" denied "&page=2")]
-      (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
-      (try
-        (with-trace-capture
-          (fn [captured]
-            (rf/reg-http-interceptor :boom-after
-              {:after (fn [_ctx _resp] (throw (ex-info "after kaboom" {})))})
-            (rf/reg-event :rtdeny/reply
-              (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
-            (rf/reg-event :rtdeny/load
-              (fn [_ _]
-                {:fx [[:rf.http/managed
-                       {:request    {:url url}
-                        :decode     :json
-                        :on-success [:rtdeny/reply]
-                        :on-failure [:rtdeny/reply]}]]}))
-            (rf/dispatch-sync [:rtdeny/load])
-            (rf.test-support/poll-until
-              #(seq (ops captured :rf.error/http-reply-tail-failed))
-              {:timeout-ms 5000 :label ":rf.error/http-reply-tail-failed surfaced (denylist)"})
-            (let [record (first (filter #(= :rf.error/http-reply-tail-failed (:error %))
-                                        @records))
-                  data   (ex-data (:exception record))]
-              (is (some? record) "the reply-tail row's always-on record fires")
-              (is (= :rf.error/http-interceptor-failed (:rf.error/id data))
-                  "its exception is the caught :after failure")
-              (is (= (str "http://127.0.0.1:" port "/x?api_key=:rf/redacted&page=2") (:url data))
-                  "the exception's :url redacts the denylisted value and keeps the rest")
-              (is (not (str/includes? (pr-str record) denied))
-                  "the always-on record carries no denylisted value"))))
-        (finally
-          (rf.error-emit/unregister-error-listener! error-id)
-          (stop-server! srv))))))
+  ;; The record's exception is the caught chain error, which carries the
+  ;; request :url; a denylisted param's value is redacted, the rest rides.
+  (let [denied   "REPLY_TAIL_DENYLISTED"
+        hits     (AtomicInteger. 0)
+        records  (atom [])
+        error-id (gensym "reply-tail-denylist-record-")
+        {:keys [port] :as srv} (start-counting-200-server! hits)
+        url      (str "http://127.0.0.1:" port "/x?api_key=" denied "&page=2")]
+    (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
+    (try
+      (with-trace-capture
+        (fn [captured]
+          (rf/reg-http-interceptor :boom-after
+            {:after (fn [_ctx _resp] (throw (ex-info "after kaboom" {})))})
+          (rf/reg-event :rtdeny/reply
+            (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
+          (rf/reg-event :rtdeny/load
+            (fn [_ _]
+              {:fx [[:rf.http/managed
+                     {:request    {:url url}
+                      :decode     :json
+                      :on-success [:rtdeny/reply]
+                      :on-failure [:rtdeny/reply]}]]}))
+          (rf/dispatch-sync [:rtdeny/load])
+          (await-op! captured :rf.error/http-reply-tail-failed)
+          (let [record (first (filter #(= :rf.error/http-reply-tail-failed (:error %)) @records))]
+            (is (= {:rf.error/id :rf.error/http-interceptor-failed
+                    :url         (str "http://127.0.0.1:" port "/x?api_key=:rf/redacted&page=2")}
+                   (select-keys (some-> record :exception ex-data) [:rf.error/id :url])))
+            (is (not (str/includes? (pr-str record) denied))))))
+      (finally
+        (rf.error-emit/unregister-error-listener! error-id)
+        (stop-server! srv)))))
