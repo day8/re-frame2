@@ -1,6 +1,7 @@
 (ns re-frame.interceptor-overrides-test
   "`:interceptor-overrides` (Spec 002): replacements are references only,
-  per-call wins over per-frame, and a bare-keyword key matches by entry `:id`.
+  per-call wins over per-frame, and a bare-keyword key matches only an entry
+  authored as that keyword.
   Removal, replacement and unmatched keys are pinned on the chain that ran by
   `re-frame.interceptor-override-summary-trace-test`, and exact `[id arg]`
   matching by `re-frame.interceptor-runtime-complete-cljs-test`."
@@ -8,7 +9,6 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.interceptor :as rf.interceptor]
-            [re-frame.interceptor-registry :as rf.interceptor-registry]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
@@ -58,9 +58,16 @@
                        :interceptor-overrides {::log ::call-stub}})
     (is (= [:call-stub] @log))))
 
-(deftest bare-keyword-key-matches-a-factory-built-entry-by-id
-  ;; A resolved `[id arg]` entry carries its factory id as `:id`, so a
-  ;; bare-keyword key reaches every instance of that factory.
-  (is (true? (rf.interceptor-registry/override-key-matches?
-               :my/ic
-               {:id :my/ic rf.interceptor-registry/authored-ref-key [:my/ic [:cart]]}))))
+(deftest bare-keyword-key-never-matches-by-entry-id
+  ;; Every resolved entry carries an `:id`: a factory-built one its factory
+  ;; id, the framework's handler wrapper `:rf/event-handler`. Neither is an
+  ;; authored bare-keyword reference, so neither key below matches anything.
+  (let [log (atom [])]
+    (rf/reg-interceptor ::tag
+      {:factory (fn [tag] {:before (fn [ctx] (swap! log conj tag) ctx)})})
+    (rf/reg-event :test/run
+      {:interceptors [[::tag :a]]}
+      (fn [{:keys [db]} _] (swap! log conj :handler) {:db db}))
+    (rf/dispatch-sync [:test/run]
+                      {:interceptor-overrides {::tag nil :rf/event-handler nil}})
+    (is (= [:a :handler] @log))))

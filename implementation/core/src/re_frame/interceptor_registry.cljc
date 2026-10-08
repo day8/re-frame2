@@ -217,8 +217,8 @@
 ;; survives resolution — `:interceptor-overrides` exact-reference matching
 ;; (EP-0022) keys on this. A bare-keyword ref stamps the keyword; an
 ;; `[id arg]` ref stamps the full vector. An entry without an authored ref
-;; (the framework default-wrapper, the only inline value a chain
-;; carries) matches overrides by `:id` only.
+;; (the framework default-wrapper, the only inline value a chain carries)
+;; matches no override: it is framework machinery, not an authored reference.
 
 (def authored-ref-key
   "The reserved key under which a resolved chain entry carries its AUTHORED
@@ -243,30 +243,28 @@
         (catch #?(:clj Throwable :cljs :default) _ false))))
 
 (defn override-key-matches?
-  "True when `override-key` (an `:interceptor-overrides` map key — a bare
-  keyword or `[id arg]` ref) matches the resolved chain `entry` per Spec 002
-  §`:interceptor-overrides` exact-reference matching:
+  "True when `override-key` (an `:interceptor-overrides` map key, already
+  validated as a bare keyword or `[id arg]` reference) matches the resolved
+  chain `entry` per Spec 002 §`:interceptor-overrides`: the key must denote
+  the entry's AUTHORED reference.
 
-    - a bare KEYWORD key matches when it equals the entry's AUTHORED ref (a
-      bare-keyword ref) OR the entry's `:id` (the `:id` the resolver stamps —
-      so a bare-keyword key can match a `[id arg]`-resolved entry by its id);
-    - an `[id arg]` VECTOR key matches ONLY the entry whose AUTHORED ref is
-      `ref=` to that exact `[id arg]` vector — so `{[:rf.interceptor/path
-      [:cart]] nil}` removes only that exact reference and leaves a sibling
+    - a bare KEYWORD key matches only an entry authored as that same bare
+      keyword — never an `[id arg]` instance of that id, so
+      `{:rf.interceptor/path nil}` removes no path interceptor;
+    - an `[id arg]` VECTOR key matches ONLY the entry whose authored ref is
+      `ref=` to that exact vector — so `{[:rf.interceptor/path [:cart]] nil}`
+      removes only that exact reference and leaves a sibling
       `[:rf.interceptor/path [:cart :items]]` intact.
 
-  `entry` is a resolved executable interceptor value; its authored ref (when
-  it came from a reference) rides `authored-ref-key`."
+  An entry's `:id` plays no part. The framework's `:rf/event-handler` wrapper
+  carries no authored ref, so it matches no key and no override map can
+  remove or replace the event handler. `entry` is a resolved executable
+  interceptor value; its authored ref rides `authored-ref-key`."
   [override-key entry]
   (let [authored (get entry authored-ref-key)]
-    (cond
-      (keyword? override-key)
-      (or (and (keyword? authored) (= override-key authored))
-          (= override-key (:id entry)))
-      ;; An `[id arg]` key matches ONLY by exact authored-ref identity.
-      (and (vector? override-key) (= 2 (count override-key)))
-      (and (some? authored) (ref= override-key authored))
-      :else false)))
+    (if (keyword? override-key)
+      (= override-key authored)
+      (ref= override-key authored))))
 
 (defn- registration-coords
   "The registration-site source coords the `reg-interceptor` MACRO captured

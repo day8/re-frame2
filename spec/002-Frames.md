@@ -2542,7 +2542,7 @@ Dispatch opts do **not** accept an additive `:interceptors` key under EP-0022 ([
 
 Keys are interceptor references. Values are either another interceptor reference (replace) or `nil` (remove). **Value-valued overrides are not accepted on public surfaces** — keeping SSR, story, test, and tool override state serializable and inspectable.
 
-Matching is by **canonical interceptor reference**, not just by id. A bare keyword matches that keyword; a parameterized reference matches the full `[id arg]` vector (canonicalized under CEDN-1). This disambiguates the case where one chain holds multiple instances of the same factory:
+Matching is by **canonical interceptor reference**, not just by id. A bare keyword matches that keyword; a parameterized reference matches the full `[id arg]` vector (canonicalized under CEDN-1). A key matches only an **authored** reference, so a bare keyword never matches an `[id arg]` instance of the same id, and the framework event-handler wrapper (§Effective chain ordering, group 3) is not an authored reference and cannot be removed or replaced. This disambiguates the case where one chain holds multiple instances of the same factory:
 
 ```clojure
 {:interceptors [[:rf.interceptor/path [:cart]]
