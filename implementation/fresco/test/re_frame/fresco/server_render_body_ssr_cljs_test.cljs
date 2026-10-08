@@ -135,14 +135,13 @@
   (set (keys @rf.frame/frames)))
 
 ;; ---------------------------------------------------------------------------
-;; §1 — inner markup, and nothing else
+;; §1 — inner markup from both partitions, and nothing else
 ;; ---------------------------------------------------------------------------
 
 (deftest answers-the-inner-markup-alone
   (let [html (render-body! [both-partitions {}] {})]
-    (is (string? html) "the entry answers a string, not a map")
-    (is (str/includes? html "hello")
-        "the app-db partition reached the view")
+    (is (str/includes? html "hello") "the app-db partition reached the view")
+    (is (str/includes? html "vanilla") "and so did the runtime-db partition")
     (testing "no envelope of any kind"
       (is (not (str/includes? html "<!DOCTYPE")) "no document")
       (is (not (str/includes? html "<script")) "no payload script")
@@ -150,13 +149,8 @@
       (is (not (str/includes? html "<body")) "no shell"))))
 
 ;; ---------------------------------------------------------------------------
-;; §2 — both partitions, restored, with nothing replayed
+;; §2 — nothing replayed
 ;; ---------------------------------------------------------------------------
-
-(deftest restores-both-partitions
-  (let [html (render-body! [both-partitions {}] {})]
-    (is (str/includes? html "hello")   "the app-db partition")
-    (is (str/includes? html "vanilla") "the runtime-db partition")))
 
 (deftest replays-no-boot-events-even-when-frame-opts-declares-them
   (let [html (render-body! [both-partitions {}]
@@ -195,17 +189,15 @@
 ;; one proves the check bites; either alone is a green that means nothing.
 
 (deftest a-recovered-render-error-fails-the-render
-  (let [thrown (try (render-body! [detonating {}] {})
-                    (catch :default e e))]
-    (is (instance? ExceptionInfo thrown)
+  (let [data (try (render-body! [detonating {}] {})
+                  (catch :default e (ex-data e)))]
+    (is (= :rf.error/ssr-render-failed (:rf.error/id data))
         "a sub that throws mid-render must not answer 200 with a hole in the page")
-    (let [data (ex-data thrown)]
-      (is (= :rf.error/ssr-render-failed (:rf.error/id data)))
-      (is (= 're-frame.fresco.server/render-body (:where data)))
-      (is (= :fail-the-render (:recovery data)))
-      (is (pos? (:recorded data)) "the refusal counts what it saw")
-      (is (= :rf.error/sub-exception (:error (:record data)))
-          "and names the category, so the sidecar log points at the real surface"))))
+    (is (= 're-frame.fresco.server/render-body (:where data)))
+    (is (= :fail-the-render (:recovery data)))
+    (is (pos? (:recorded data)) "the refusal counts what it saw")
+    (is (= :rf.error/sub-exception (:error (:record data)))
+        "and names the category, so the sidecar log points at the real surface")))
 
 ;; ---------------------------------------------------------------------------
 ;; §5 — teardown, on both exits
