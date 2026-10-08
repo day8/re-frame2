@@ -149,7 +149,11 @@
      (trace-collector/collect-trace! (sensitive-event))
      (trace-collector/collect-trace! (non-sensitive-event))
      (trace-collector/collect-trace! (sensitive-event))
-     (is (= 3 (count (trace-collector/buffer-for-test)))
+     ;; Read the event ids rather than the buffer's size: the profile flip
+     ;; itself emits an `:rf.xray/egress-reveal` trace, which lands in the
+     ;; buffer whenever the collector is registered as a trace listener.
+     (is (= [:user/login :user/click :user/login]
+            (keep #(get-in % [:tags :rf.trace/event-id]) (trace-collector/buffer-for-test)))
          "the raw profile lets sensitive events into the buffer")
      (config/set-egress-profile! :rf.egress/local-redacted)
      (is (= 0 (count (trace-collector/buffer-for-test))))
