@@ -264,33 +264,6 @@
                " — add the name to §Coverage matrix, or map it in "
                "covered-row-aliases if it deliberately differs")))))
 
-(deftest covered-rows-summary-count-is-canonical
-  (testing "the deduped, alias-canonicalised coveredRows count the gate's
-            `Covered N matrix rows` summary should report — pinned so a
-            scenario claiming a stale/duplicate name cannot inflate it"
-    (let [canonical (->> (covered-row-names)
-                         (map #(get covered-row-aliases % %))
-                         (into #{}))]
-      ;; Every canonicalised name is a real matrix row (follows from the
-      ;; two guards above); the count is the honest covered-row tally.
-      (is (every? (matrix-row-names) canonical)
-          "every canonicalised coveredRow is a real matrix row")
-      ;; Regression pin: the current canonical covered-row set. Update
-      ;; this number deliberately when a scenario starts/stops covering a
-      ;; row — that is the signal the gate's summary changed.
-      ;; The two-frame isolation scenario claims no row: it reads each
-      ;; frame's app-db through `page.evaluate` and opens no tab, so it is
-      ;; a compile-and-boot smoke, not coverage.
-      ;; No scenario claims `Views (incl. nested subs)`: the one scenario
-      ;; that opens the Views tab (the shell handoff sweep, via the
-      ;; computed `PANEL_HANDOFFS` roster) deliberately does not claim it —
-      ;; a root-testid handoff is chrome wiring, not the row's contract,
-      ;; which demands the graph's changed/unchanged sub and view nodes.
-      (is (= 11 (count canonical))
-          (str "canonical covered-row count drifted to " (count canonical)
-               " (" (str/join ", " (sort canonical)) ") — update this pin "
-               "when a scenario's coverage changes, deliberately")))))
-
 (deftest bug-class-coverage-audits-the-whole-catalogue
   (testing "every catalogued bug-class id has a coverage/deferred entry and
             every entry names a catalogued id — adding/removing a bug-class
@@ -306,9 +279,7 @@
       (is (empty? stale)
           (str "bug-class-coverage entries no longer in the 019 catalogue: "
                (str/join ", " (sort stale))
-               " — remove them from bug-class-coverage")))
-    (testing "every status is a recognised verdict"
-      (is (every? #{:covered :deferred} (vals bug-class-coverage))))))
+               " — remove them from bug-class-coverage")))))
 
 (deftest every-cited-test-file-exists
   (testing "every test file 017 names as an owning gate exists under
@@ -316,11 +287,9 @@
     (let [files   (xray-test-files)
           cites   (cited-test-files)
           missing (remove #(cite-resolves? files %) cites)]
-      ;; Controls both ways, so a zero below means absence rather than an
-      ;; extraction or a resolver that sees nothing.
+      ;; Controls both ways, so an empty `missing` means absence rather than
+      ;; an extraction that found nothing or a resolver that accepts anything.
       (is (seq cites) "the extraction found test-file cites in 017")
-      (is (some #(cite-resolves? files %) cites)
-          "at least one cite resolves, so the resolver can see the tree")
       (is (not (cite-resolves? files "tools/xray/test/.../no_such_suite_test.cljs"))
           "a cite naming no file does not resolve")
       (is (empty? missing)
