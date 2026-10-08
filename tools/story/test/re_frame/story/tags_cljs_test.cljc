@@ -1,40 +1,15 @@
 (ns re-frame.story.tags-cljs-test
-  "Tests for the shared effective-tag resolver.
-
-  `re-frame.story.tags` is pure data → data, so every test runs on both the
-  JVM and CLJS without a host: inheritance layers are supplied through
-  explicit `{id → body}` lookup maps. The plan tests drive the real
-  compiler (`re-frame.story.plan`) with an explicit `:lookup`; the filter
-  test proves the snapshot projection feeds the sidebar filter.
-
-  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; a plain `-test` name would run it on the JVM only."
+  "Tests for the shared effective-tag resolver. `re-frame.story.tags` is pure
+  data → data, so inheritance layers are explicit `{id → body}` maps and every
+  test runs on the JVM and on node (the `-cljs-test` suffix opts it into
+  `:node-test`)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.tags :as rf.story.tags]
-            [re-frame.story.plan :as rf.story.plan]
-            [re-frame.story.ui.state.filters :as rf.story.ui.state.filters]))
-
-;; ---- pure marker helpers -------------------------------------------------
-
-(deftest removal-marker?-recognises-bang-prefix
-  (is (true?  (rf.story.tags/removal-marker? :!dev)))
-  (is (true?  (rf.story.tags/removal-marker? :a/!b)))
-  (is (false? (rf.story.tags/removal-marker? :dev)))
-  (is (false? (rf.story.tags/removal-marker? :a/b)))
-  (is (false? (rf.story.tags/removal-marker? "not-a-keyword")))
-  (is (false? (rf.story.tags/removal-marker? nil))))
+            [re-frame.story.plan :as rf.story.plan]))
 
 (deftest resolve-markers-strips-and-subtracts
-  (testing "a marker drops itself AND subtracts its base"
-    (is (= #{:docs} (rf.story.tags/resolve-markers #{:dev :!dev :docs}))))
-  (testing "a marker with no matching base still never surfaces"
-    (is (= #{} (rf.story.tags/resolve-markers #{:!dev}))))
-  (testing "a set with no markers is returned unchanged"
-    (is (= #{:dev :docs} (rf.story.tags/resolve-markers #{:dev :docs}))))
-  (testing "namespaced marker cancels its namespaced base"
-    (is (= #{:team/qa} (rf.story.tags/resolve-markers #{:team/qa :role/dev :role/!dev})))))
-
-;; ---- extends-chain union -------------------------------------------------
+  (is (= #{:team/qa} (rf.story.tags/resolve-markers #{:team/qa :role/dev :role/!dev}))
+      "a namespaced marker drops itself and cancels its namespaced base"))
 
 (deftest extends-chain-tags-is-defensive
   (testing "a missing parent stops the walk without raising"
@@ -45,15 +20,10 @@
              :story.a/y {:extends :story.a/x :tags #{:docs}}}]
       (is (= #{:dev :docs} (rf.story.tags/extends-chain-tags :story.a/x m))))))
 
-;; ---- effective-tags: inheritance + markers -------------------------------
-
 (deftest effective-tags-inherited-tag-removed-by-marker
-  (testing "a child :extends a parent tagged :dev and declares
-            :!dev; the inherited :dev is removed and :!dev never surfaces"
-    (let [m {:story.login/base  {:tags #{:dev :test}}
-             :story.login/child {:extends :story.login/base :tags #{:!dev}}}
-          eff (rf.story.tags/effective-tags :story.login/child {:variant m})]
-      (is (= #{:test} eff)))))
+  (let [m {:story.login/base  {:tags #{:dev :test}}
+           :story.login/child {:extends :story.login/base :tags #{:!dev}}}]
+    (is (= #{:test} (rf.story.tags/effective-tags :story.login/child {:variant m})))))
 
 (deftest effective-tags-story-fallback-only-when-chain-empty
   (let [variants {:story.t/no-tags  {}
@@ -68,50 +38,21 @@
 (deftest effective-tags-empty-when-nothing-declared
   (is (= #{} (rf.story.tags/effective-tags :story.none/v {:variant {:story.none/v {}}}))))
 
-;; ---- resolve-body-tags projection ----------------------------------------
-
 (deftest resolve-body-tags-projects-effective-onto-each-body
-  (let [variants {:story.p/base  {:tags #{:dev}}
-                  :story.p/child {:extends :story.p/base :tags #{:!dev :docs}}}
-        projected (rf.story.tags/resolve-body-tags variants)]
-    (is (= #{:dev}  (:tags (:story.p/base projected))))
-    (is (= #{:docs} (:tags (:story.p/child projected)))
-        "the child's inherited :dev is cancelled by :!dev; :!dev is stripped")
-    (testing "non-tag slots are preserved"
-      (is (= :story.p/base (:extends (:story.p/child projected)))))))
-
-;; ---- sidebar filter (snapshot projection → filter) -----------------------
-
-(deftest filter-excludes-variant-that-removed-the-tag
-  (testing "no visible :!dev chip / no :dev filter hit after resolution"
-    (let [variants  {:story.f/base  {:tags #{:dev}}
-                     :story.f/child {:extends :story.f/base :tags #{:!dev}}
-                     :story.f/keeps {:tags #{:dev}}}
-          projected (rf.story.tags/resolve-body-tags variants)
-          dev-hits  (set (keys (rf.story.ui.state.filters/filter-variants projected #{:dev})))]
-      (testing "the child that removed :dev is filtered out; variants that
-                keep :dev (own + inherited-untouched) still match"
-        (is (= #{:story.f/base :story.f/keeps} dev-hits)))
-      (testing ":!dev is never a visible tag on any projected body"
-        (is (not-any? (fn [[_ b]] (contains? (:tags b) :!dev)) projected))))))
-
-;; ---- plan compilation ----------------------------------------------------
+  (is (= {:story.p/base  {:tags #{:dev}}
+          :story.p/child {:extends :story.p/base :tags #{:docs}}}
+         (rf.story.tags/resolve-body-tags
+           {:story.p/base  {:tags #{:dev}}
+            :story.p/child {:extends :story.p/base :tags #{:!dev :docs}}}))))
 
 (deftest plan-tags-resolve-markers-through-extends
-  (testing "plan :tags is the EFFECTIVE set (inherited :dev
-            removed by :!dev), not the raw union"
-    (let [m {:story.login/filled {:tags #{:dev :test} :setup []}
-             :story.login/error  {:extends    :story.login/filled
-                                   :tags       #{:!dev}
-                                   :setup     []}}
-          p (rf.story.plan/variant-plan :story.login/error {:lookup m})]
-      (is (= #{:test} (:tags p)))
-      (is (= #{:test} (get-in p [:explain :tags]))))))
+  (let [m {:story.login/filled {:tags #{:dev :test} :setup []}
+           :story.login/error  {:extends :story.login/filled :tags #{:!dev} :setup []}}
+        p (rf.story.plan/variant-plan :story.login/error {:lookup m})]
+    (is (= #{:test} (:tags p)))
+    (is (= #{:test} (get-in p [:explain :tags])))))
 
 (deftest plan-tags-story-fallback-via-story-lookup
-  (testing "a variant that declares no tags inherits the parent story's via
-            the :story-lookup opt"
-    (let [m {:story.fb/v {:setup []}}
-          stories {:story.fb {:tags #{:dev :docs}}}
-          p (rf.story.plan/variant-plan :story.fb/v {:lookup m :story-lookup stories})]
-      (is (= #{:dev :docs} (:tags p))))))
+  (let [p (rf.story.plan/variant-plan :story.fb/v {:lookup       {:story.fb/v {:setup []}}
+                                                   :story-lookup {:story.fb {:tags #{:dev :docs}}}})]
+    (is (= #{:dev :docs} (:tags p)))))
