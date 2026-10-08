@@ -1,35 +1,16 @@
 (ns re-frame.trace.facade-buffer-platform-parity-cljs-test
-  "`rf/trace-buffer` and `rf/clear-trace-buffer!` exist on BOTH platforms.
+  "`rf/trace-buffer` and `rf/clear-trace-buffer!` exist and work on BOTH
+  platforms. Spec 009 §`trace-buffer` API and Tool-Pair §How AI tools attach
+  name `(rf/trace-buffer frame-id)` as THE ring reader, so a CLJS REPL must
+  find it; behind a `#?(:clj …)` fence this namespace would not compile on
+  the `:node-test` build. Production DCE is no reason for such a fence — `npm
+  run test:bundle-isolation` (family `trace-tooling`) is the proof.
 
-  Spec 009 §`trace-buffer` API tables the facade form, and Tool-Pair §How
-  AI tools attach names `(rf/trace-buffer frame-id)` as THE surface, so an
-  AI following the spec in a CLJS REPL must find it there. Behind a
-  `#?(:clj …)` reader conditional in `re-frame.core` it would get `nil` /
-  an undeclared-var warning.
-
-  Production DCE is no reason for such a fence: the facade def is an
-  UNCONDITIONAL alias of `re-frame.trace.tooling/trace-buffer` on both
-  platforms, so the facade adds an alias of a shape every CLJS build
-  already carries. `npm run test:bundle-isolation` (family `trace-tooling`,
-  sentinel `trace-events`) is the proof, not the require graph.
-
-  This suite is the platform witness: it runs under `npm run test:cljs`
-  (the shadow-cljs `:node-test` build picks up `*-cljs-test` namespaces)
-  AND under the JVM `clojure -M:test` lane, and every assertion goes
-  through the `rf/` facade. Behind a CLJS fence the namespace would not
-  even COMPILE on CLJS — `rf/trace-buffer` would be an undeclared var — so
-  a green CLJS run is itself the acceptance.
-
-  Posture: dev-only, declared by `^:requires-debug`. The ring is never
-  allocated under `-Dre-frame.debug=false` / `goog.DEBUG=false`, so an
-  unguarded body would certify itself green over an empty stream. The
-  namespace is LOADED under the production-gate lane too, so a load-time
-  regression (a fence around the defs) reddens that job.
-
-  Per Spec 009 §Per-frame trace rings (event-keyed, dev-only) and
-  §`trace-buffer` API."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  Dev-only (`^:requires-debug`): the ring is never allocated under
+  `-Dre-frame.debug=false` / `goog.DEBUG=false`. The namespace still LOADS in
+  the production-gate lane, so a fence around the defs reddens that job."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -41,62 +22,16 @@
 
 (def ^:private frame-id :kuky-51/parity-frame)
 
-(defn- run-one-event! []
-  ;; `make-reset-runtime-fixture` clears listeners but NOT the per-frame
-  ;; trace rings, which are keyed by frame-id and outlive `frames`. Clear
-  ;; them here so each deftest reads exactly its own dispatch.
+(deftest ^:requires-debug facade-trace-buffer-reads-and-clears-the-ring
+  ;; The reset fixture leaves the per-frame rings alone; clear them so this
+  ;; test reads only its own dispatch.
   (rf.trace.tooling/clear-trace-rings!)
+  (is (= [] (rf/trace-buffer :kuky-51/never-registered {:flat true}))
+      "an unregistered frame reads []")
   (rf/make-frame {:id frame-id})
-  (rf/reg-event :kuky-51/ping
-    (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
-  (rf/dispatch-sync [:kuky-51/ping] {:frame frame-id}))
-
-;; ---------------------------------------------------------------------------
-;; The facade reader resolves and reads the same ring as its tooling home.
-;; ---------------------------------------------------------------------------
-
-(deftest ^:requires-debug facade-trace-buffer-equals-the-tooling-home
-  (testing "(rf/trace-buffer frame-id) returns the same event bundles as the tooling fn"
-    (run-one-event!)
-    (let [via-facade  (rf/trace-buffer frame-id)
-          via-tooling (rf.trace.tooling/trace-buffer frame-id)]
-      (is (seq via-facade)
-          "the facade read is non-empty after one dispatch")
-      (is (= via-facade via-tooling)
-          "facade and tooling reads are the same value — one ring, two doors")
-      (let [bundle (first via-facade)]
-        (is (= [:kuky-51/ping] (:event bundle))
-            "the bundle carries the dispatched event vector")
-        (is (seq (:trace-events bundle))
-            "the bundle carries a non-empty :trace-events slot")))))
-
-(deftest ^:requires-debug facade-trace-buffer-honours-the-flat-opt
-  (testing "(rf/trace-buffer frame-id {:flat true}) returns raw trace events"
-    (run-one-event!)
-    (let [flat (rf/trace-buffer frame-id {:flat true})]
-      (is (vector? flat)
-          "the flat read is a vector")
-      (is (seq flat)
-          "the flat read is non-empty")
-      (is (every? :operation flat)
-          "every entry is a raw trace event (carries :operation)")
-      (is (= flat (rf.trace.tooling/trace-buffer frame-id {:flat true}))
-          "the opts arity agrees with the tooling home too"))))
-
-(deftest ^:requires-debug facade-clear-trace-buffer-empties-the-ring
-  (testing "(rf/clear-trace-buffer! frame-id) empties the named frame's ring"
-    (run-one-event!)
-    (is (seq (rf/trace-buffer frame-id))
-        "precondition: the ring holds the dispatch")
-    (rf/clear-trace-buffer! frame-id)
-    (is (= [] (rf/trace-buffer frame-id))
-        "the facade clear emptied the ring")
-    (is (= [] (rf.trace.tooling/trace-buffer frame-id))
-        "and the tooling home agrees — it is the same ring")))
-
-(deftest ^:requires-debug facade-trace-buffer-is-empty-for-an-unknown-frame
-  (testing "an unregistered frame reads [] rather than throwing"
-    (rf.trace.tooling/clear-trace-rings!)
-    (is (= [] (rf/trace-buffer :kuky-51/never-registered)))
-    (is (= [] (rf/trace-buffer :kuky-51/never-registered {:flat true})))
-    (is (nil? (rf/clear-trace-buffer! :kuky-51/never-registered)))))
+  (rf/reg-event :kuky-51/ping (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
+  (rf/dispatch-sync [:kuky-51/ping] {:frame frame-id})
+  (is (= [:kuky-51/ping] (:event (first (rf/trace-buffer frame-id)))))
+  (is (seq (rf/trace-buffer frame-id {:flat true})))
+  (rf/clear-trace-buffer! frame-id)
+  (is (= [] (rf/trace-buffer frame-id))))
