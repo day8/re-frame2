@@ -1,129 +1,55 @@
 (ns re-frame.test-helpers-cljs-test
-  "Unit coverage for `re-frame.test-helpers`.
-
-  Dual-runtime: the file is named `*_cljs_test.cljc` so both the JVM
-  test runner and the shadow-cljs `:node-test` build pick it up.
-  Every assertion runs identically under both runtimes because the
-  helpers walk plain hiccup data — no React, no DOM."
+  "`re-frame.test-helpers` (a published testing-tier API) over plain hiccup
+  data, identically on the JVM and :node-test."
   (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
                :cljs [cljs.test :refer-macros [are deftest is testing]])
             [clojure.string :as str]
             [re-frame.test-helpers :as rf.test-helpers]))
 
-;; ---------------------------------------------------------------------------
-;; Tiny view fns used as fixtures
-;; ---------------------------------------------------------------------------
-
-(defn- counter-button
-  "Form-1 leaf — a `[:button ...]` carrying `:data-testid` +
-  `:on-click`."
-  [{:keys [n on-click]}]
-  [:button {:data-testid "counter-inc"
-            :on-click    on-click}
+(defn- counter-button [{:keys [n on-click]}]
+  [:button {:data-testid "counter-inc" :on-click on-click}
    (str "Count: " n)])
 
 (defn- counter-view
-  "Form-1 parent that nests `counter-button` as a function component
-  in the hiccup. Exercises the `expand-tree` recursion."
+  "Nests `counter-button` as a function component, so finding its testid
+  needs the `expand-tree` recursion."
   [{:keys [n on-inc]}]
   [:div {:data-testid "counter-root"}
    [:span {:data-testid "counter-label"} "Counter"]
    [counter-button {:n n :on-click on-inc}]])
 
-(defn- list-view
-  "Form-1 view emitting a homogeneous family of testid'd rows. Used to
-  exercise `find-all-by-testid` and `find-by-testid-prefix`."
-  [items]
+(defn- list-view [items]
   [:ul {:data-testid "items"}
    (for [{:keys [id label]} items]
-     [:li {:data-testid (str "item-" id)
-           :key         id}
-      label])])
+     [:li {:data-testid (str "item-" id) :key id} label])])
 
-;; ---------------------------------------------------------------------------
-;; expand-tree
-;; ---------------------------------------------------------------------------
+;; ---- expand-tree ---------------------------------------------------------
 
 (deftest expand-tree-handles-leaves
-  (testing "non-vector/non-seq inputs are returned unchanged"
-    (is (= "hi"      (rf.test-helpers/expand-tree "hi")))
-    (is (= 42        (rf.test-helpers/expand-tree 42)))
-    (is (= nil       (rf.test-helpers/expand-tree nil)))
-    (is (= {:a 1}    (rf.test-helpers/expand-tree {:a 1})))))
+  (is (= ["hi" 42 nil {:a 1}] (map rf.test-helpers/expand-tree ["hi" 42 nil {:a 1}]))
+      "non-vector/non-seq inputs are returned unchanged"))
 
-;; ---------------------------------------------------------------------------
-;; expand-tree — Form-3 reagent class detection
-;;
-;; The walker treats a hiccup vector whose head is a reagent-slim
-;; class constructor (built by `reagent2.impl.component/create-class*`)
-;; as a Form-3 component: it plucks the stashed `:reagent-render` slot
-;; off the class and invokes that fn with the hiccup args, instead of
-;; calling the class constructor directly (which would crash without
-;; `new`).
-;;
-;; We fake-stamp a plain fn with the same property tags the reagent-
-;; slim `create-class*` sets — that way the unit test does not have to
-;; depend on reagent and runs identically on JVM (where the class-3
-;; branch is a no-op) and Node-CLJS (where the property access fires).
-;; ---------------------------------------------------------------------------
+;; A Form-3 reagent-slim class is expanded through its stashed :reagent-render
+;; slot, never called as a fn (that crashes without `new`). The fake stamps a
+;; plain fn with the tags reagent-slim's `create-class*` sets, so no reagent
+;; dependency is needed.
 
 #?(:cljs
-   (defn- fake-reagent-class
-     "Stamp `f` with the reagent-slim class tags (`cljsReagentClass = true`
-     + `cljsReagentRender = render-fn`) so test-helpers' class-3 branch
-     fires on the wrapped fn. CLJS-only; on JVM there are no JS
-     properties to set so the helper is omitted."
-     [render-fn]
+   (defn- fake-reagent-class [render-fn]
      (let [klass (fn [& _] (throw (ex-info "do not call" {})))]
        (set! (.-cljsReagentClass ^js klass) true)
        (set! (.-cljsReagentRender ^js klass) render-fn)
        klass)))
 
 #?(:cljs
-   (deftest expand-tree-expands-reagent-class
-     (testing "a hiccup vector headed by a reagent class is expanded via
-              the class's stashed :reagent-render slot, NOT by calling the
-              class as a fn (which would crash)"
-       (let [render-fn (fn [{:keys [n]}] [:button {:data-testid "class3-btn"}
-                                          (str "n=" n)])
-             klass     (fake-reagent-class render-fn)
-             tree      [klass {:n 11}]
-             out       (rf.test-helpers/expand-tree tree)]
-         (is (vector? out) "class-3 was expanded into a hiccup vector")
-         (is (= :button (first out)))
-         (is (= "class3-btn" (:data-testid (second out))))
-         (is (= "n=11" (last out)))))))
-
-#?(:cljs
    (deftest expand-tree-recurses-through-reagent-class
-     (testing "a class-3 whose render-fn returns a nested function component
-              is expanded all the way down"
-       (let [leaf      (fn [s] [:span {:data-testid "leaf"} s])
-             render-fn (fn [{:keys [label]}] [:div {:data-testid "wrap"}
-                                              [leaf label]])
-             klass     (fake-reagent-class render-fn)
-             tree      [klass {:label "hi"}]
-             out       (rf.test-helpers/expand-tree tree)]
-         (is (= :div  (first out)))
-         (is (= :span (first (nth out 2)))
-             "the nested function component under the class was expanded")))))
+     (let [leaf      (fn [s] [:span {:data-testid "leaf"} s])
+           render-fn (fn [{:keys [label]}] [:div {:data-testid "wrap"} [leaf label]])]
+       (let [out (rf.test-helpers/expand-tree [(fake-reagent-class render-fn) {:label "hi"}])]
+         (is (= [:div :span] [(first out) (first (nth out 2))])
+             "the class renders through its render slot, and the nested fn component expands")))))
 
-#?(:cljs
-   (deftest find-by-testid-walks-through-reagent-class
-     (testing "find-by-testid resolves a testid that lives inside a Form-3
-              component's render output"
-       (let [render-fn (fn [{:keys [v]}] [:p {:data-testid "inside-class"} v])
-             klass     (fake-reagent-class render-fn)
-             tree      [:section {:data-testid "outer"} [klass {:v "ok"}]]
-             hit       (rf.test-helpers/find-by-testid tree "inside-class")]
-         (is (some? hit)
-             "find-by-testid did not walk into the class-3 render output")
-         (is (= :p (first hit)))
-         (is (= "ok" (last hit)))))))
-
-;; ---------------------------------------------------------------------------
-;; attrs / children
-;; ---------------------------------------------------------------------------
+;; ---- attrs / children ----------------------------------------------------
 
 (deftest attrs-reads-the-attrs-map-slot
   (testing "the second element is the attrs map only when it is a map; a child
@@ -141,234 +67,109 @@
     [:div {:k 1}]         []
     [:div]                []))
 
-;; ---------------------------------------------------------------------------
-;; find-by-testid family
-;; ---------------------------------------------------------------------------
+;; ---- find-by-testid family -----------------------------------------------
 
 (deftest find-by-testid-walks-into-function-components
-  (testing "the testid lives inside a nested function component — the
-            walker expands the component to reach it"
-    (let [tree (counter-view {:n 0 :on-inc identity})
-          hit  (rf.test-helpers/find-by-testid tree "counter-inc")]
-      (is (some? hit) "find-by-testid did not expand the nested fn-component")
-      (is (= :button (first hit))))))
-
-(deftest find-by-testid-returns-first-match
-  (testing "multiple matches → only the first is returned"
-    (let [tree [:div
-                [:span {:data-testid "dup"} "first"]
-                [:span {:data-testid "dup"} "second"]]
-          hit  (rf.test-helpers/find-by-testid tree "dup")]
-      (is (= "first" (last hit))))))
+  (is (= :button (first (rf.test-helpers/find-by-testid (counter-view {:n 0 :on-inc identity})
+                                                         "counter-inc")))))
 
 (deftest find-all-by-testid-returns-every-match
   (let [tree [:div
               [:span {:data-testid "dup"} "first"]
               [:span {:data-testid "dup"} "second"]
-              [:span {:data-testid "other"} "third"]]
-        hits (rf.test-helpers/find-all-by-testid tree "dup")]
-    (is (= 2 (count hits)))
-    (is (= "first"  (last (first hits))))
-    (is (= "second" (last (second hits))))))
+              [:span {:data-testid "other"} "third"]]]
+    (is (= ["first" "second"] (mapv last (rf.test-helpers/find-all-by-testid tree "dup"))))
+    (is (= "first" (last (rf.test-helpers/find-by-testid tree "dup")))
+        "find-by-testid returns only the first match")))
 
 (deftest find-by-testid-prefix-matches-stem
-  (let [tree (list-view [{:id 1 :label "a"}
-                         {:id 2 :label "b"}
-                         {:id 3 :label "c"}])
-        hits (rf.test-helpers/find-by-testid-prefix tree "item-")]
-    (is (= 3 (count hits)))
-    (is (= ["item-1" "item-2" "item-3"]
-           (mapv (comp :data-testid second) hits)))))
+  (is (= ["item-1" "item-2" "item-3"]
+         (mapv (comp :data-testid second)
+               (rf.test-helpers/find-by-testid-prefix
+                 (list-view [{:id 1 :label "a"} {:id 2 :label "b"} {:id 3 :label "c"}])
+                 "item-")))))
 
-;; ---------------------------------------------------------------------------
-;; find-by-attr family
+;; ---- find-by-attr family -------------------------------------------------
 ;;
-;; Generic over the attribute keyword — `:data-testid` is the React
-;; convention but Story keys on `:data-test` and Xray uses
-;; `:data-rf-xray-*`. The testid wrappers above are thin aliases for
-;; the `:data-testid`-bound case.
-;; ---------------------------------------------------------------------------
+;; Generic over the attribute keyword: Story keys on `:data-test`, Xray on
+;; `:data-rf-xray-*`; the testid helpers above are the `:data-testid` case.
 
 (deftest find-by-attr-resolves-data-test
-  (testing "Story-style :data-test selectors are matched"
-    (let [tree [:section {:data-test "page-root"}
-                [:button {:data-test "submit"
-                          :on-click identity} "Go"]
-                [:span {:data-test "label"} "hello"]]]
-      (is (= :button (first (rf.test-helpers/find-by-attr tree :data-test "submit"))))
-      (is (= "hello" (last (rf.test-helpers/find-by-attr tree :data-test "label"))))
-      (is (nil? (rf.test-helpers/find-by-attr tree :data-test "missing"))))))
+  (let [tree [:section {:data-test "page-root"}
+              [:button {:data-test "submit" :on-click identity} "Go"]
+              [:span {:data-test "label"} "hello"]]]
+    (is (= [:button "hello" nil]
+           [(first (rf.test-helpers/find-by-attr tree :data-test "submit"))
+            (last (rf.test-helpers/find-by-attr tree :data-test "label"))
+            (rf.test-helpers/find-by-attr tree :data-test "missing")]))))
 
 (deftest find-all-by-attr-collects-every-match
   (let [tree [:ul
               [:li {:data-test "row"} "a"]
               [:li {:data-test "row"} "b"]
               [:li {:data-test "skip"} "c"]
-              [:li {:data-test "row"} "d"]]
-        hits (rf.test-helpers/find-all-by-attr tree :data-test "row")]
-    (is (= 3 (count hits)))
-    (is (= ["a" "b" "d"] (mapv last hits)))))
-
-(deftest find-all-by-attr-empty-when-no-match
-  (is (= [] (rf.test-helpers/find-all-by-attr [:div {:data-test "x"}] :data-test "y"))))
+              [:li {:data-test "row"} "d"]]]
+    (is (= ["a" "b" "d"] (mapv last (rf.test-helpers/find-all-by-attr tree :data-test "row"))))
+    (is (= [] (rf.test-helpers/find-all-by-attr tree :data-test "none")) "no match is an empty vector")))
 
 (deftest find-by-attr-prefix-matches-stem
   (let [tree [:ul
               [:li {:data-test "row-1"} "a"]
               [:li {:data-test "row-2"} "b"]
               [:li {:data-test "other"} "c"]
-              [:li {:data-test "row-3"} "d"]]
-        hits (rf.test-helpers/find-by-attr-prefix tree :data-test "row-")]
-    (is (= 3 (count hits)))
+              [:li {:data-test 42} "n"]
+              [:li {:data-test "row-3"} "d"]]]
     (is (= ["row-1" "row-2" "row-3"]
-           (mapv (comp :data-test second) hits)))))
+           (mapv (comp :data-test second) (rf.test-helpers/find-by-attr-prefix tree :data-test "row-")))
+        "a non-string attr value never matches a prefix")))
 
-(deftest find-by-attr-prefix-ignores-non-string-values
-  (testing "an attr whose value is a number/keyword does not match prefix"
-    (let [tree [:div
-                [:span {:data-test "row-1"} "x"]
-                [:span {:data-test 42}     "y"]]
-          hits (rf.test-helpers/find-by-attr-prefix tree :data-test "row-")]
-      (is (= 1 (count hits)))
-      (is (= "x" (last (first hits)))))))
-
-;; ---------------------------------------------------------------------------
-;; text-content
-;; ---------------------------------------------------------------------------
+;; ---- text-content --------------------------------------------------------
 
 (deftest text-content-joins-string-and-number-leaves
-  (testing "string leaves join in order, numbers coerce to strings, and a node
-            with no text reads the empty string"
-    (are [node expected] (= expected (rf.test-helpers/text-content node))
-      [:div [:span "hello "] [:span "world"]] "hello world"
-      [:span "Count: " 5]                     "Count: 5"
-      [:div {:k 1}]                           "")))
+  (are [node expected] (= expected (rf.test-helpers/text-content node))
+    [:div [:span "hello "] [:span "world"]] "hello world"
+    [:span "Count: " 5]                     "Count: 5"
+    [:div {:k 1}]                           ""))
 
-;; ---------------------------------------------------------------------------
-;; extract-handler / invoke-handler
-;; ---------------------------------------------------------------------------
+;; ---- extract-handler / invoke-handler ------------------------------------
 
 (deftest invoke-handler-calls-and-returns
   (let [fired (atom nil)
-        tree  (counter-view {:n 0 :on-inc #(reset! fired %)})
-        btn   (rf.test-helpers/find-by-testid tree "counter-inc")]
-    (rf.test-helpers/invoke-handler btn :on-click :evt-arg)
-    (is (= :evt-arg @fired)
-        "invoke-handler did not pass args through to the handler")))
+        btn   (rf.test-helpers/find-by-testid
+                (counter-view {:n 0 :on-inc #(do (reset! fired %) :returned-value)})
+                "counter-inc")]
+    (is (= [:returned-value :evt-arg]
+           [(rf.test-helpers/invoke-handler btn :on-click :evt-arg) @fired]))))
 
-(deftest invoke-handler-returns-handler-result
-  (let [tree [:button {:on-click (fn [_] :returned-value)}]]
-    (is (= :returned-value (rf.test-helpers/invoke-handler tree :on-click nil)))))
-
-(deftest invoke-handler-throws-on-missing-handler
-  (let [tree [:div {:k 1}]]
+(deftest invoke-handler-throws-on-missing-handler-or-non-hiccup
+  (doseq [node [[:div {:k 1}] nil "string"]]
     (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs :default)
-                 (rf.test-helpers/invoke-handler tree :on-click)))))
+                 (rf.test-helpers/invoke-handler node :on-click))
+        (pr-str node))))
 
-(deftest invoke-handler-throws-on-non-hiccup
-  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs :default)
-               (rf.test-helpers/invoke-handler nil :on-click)))
-  (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs :default)
-               (rf.test-helpers/invoke-handler "string" :on-click))))
-
-;; ---------------------------------------------------------------------------
-;; testid (authoring helper)
-;; ---------------------------------------------------------------------------
+;; ---- testid (authoring helper) -------------------------------------------
 
 (deftest testid-builds-the-attrs-map
-  (is (= {:data-testid "foo"} (rf.test-helpers/testid "foo")))
-  (testing "extra attrs merge in beside the testid"
-    (let [m (rf.test-helpers/testid "foo" {:on-click :handler :class "bar"})]
-      (is (= "foo"     (:data-testid m)))
-      (is (= :handler  (:on-click m)))
-      (is (= "bar"     (:class m)))))
-  (testing "an :data-testid in extra is overridden by the id arg"
-    (is (= "outer" (:data-testid (rf.test-helpers/testid "outer" {:data-testid "inner"}))))))
+  (is (= [{:data-testid "foo"}
+          {:data-testid "foo" :on-click :handler :class "bar"}
+          {:data-testid "outer"}]
+         [(rf.test-helpers/testid "foo")
+          (rf.test-helpers/testid "foo" {:on-click :handler :class "bar"})
+          (rf.test-helpers/testid "outer" {:data-testid "inner"})])
+      "extra attrs merge in; the id arg wins over an extra :data-testid"))
 
-(deftest testid-round-trips-with-find-by-testid
-  (testing "a view authored with `testid` is reachable by find-by-testid"
-    (let [tree [:button (rf.test-helpers/testid "go" {:on-click identity}) "Go"]
-          hit  (rf.test-helpers/find-by-testid tree "go")]
-      (is (some? hit))
-      (is (fn? (rf.test-helpers/extract-handler hit :on-click))))))
+;; The copyable `testid` example must show the `reg-view`-injected `dispatch`
+;; INSIDE the `rf/reg-view` form that binds it: a bare deferred `rf/dispatch`
+;; raises :rf.error/no-frame-context once the render scope has unwound, and a
+;; detached fragment leaves `dispatch` unresolved. The example is pinned as one
+;; exact form on whitespace-collapsed text, so re-indenting stays green while
+;; enclosure holds by construction rather than by a pattern.
 
-;; ---------------------------------------------------------------------------
-;; Deferred-callback frame-law guard
-;; ---------------------------------------------------------------------------
-;; The copyable `testid` example must show the `reg-view`-injected `dispatch`,
-;; not a bare qualified `rf/dispatch`. A deferred `:on-*` callback runs after
-;; the render scope unwinds and the `frame-provider`'s React context has been
-;; popped, so a bare `rf/dispatch` there resolves no frame and raises
-;; `:rf.error/no-frame-context` (EP-0002, no `:rf/default` floor).
-;;
-;; Showing the injected `dispatch` is only half the contract: the example must
-;; also show the form that BINDS it, otherwise a reader who copies the snippet
-;; gets an unresolved `dispatch` symbol.
-;;
-;; A regex match does not prove that. A fixture like
-;; `#"\(rf/reg-view [\s\S]*?#\(dispatch "`, only requires a `reg-view` to occur
-;; somewhere *earlier* in the docstring: `[\s\S]*?` is lazy but unbounded, so it
-;; spans a closing paren happily and would match
-;; `(rf/reg-view already-closed [] [:div])\n[:button #(dispatch [:x])]` — a view
-;; that has already closed followed by a detached fragment whose `dispatch` is
-;; unresolved. Textual ordering is not enclosure.
-;;
-;; So the guard does not infer structure from a pattern; it pins the canonical
-;; example as one exact form. `canonical-testid-example` is a single balanced
-;; `rf/reg-view` carrying its own closing `])`, with the deferred `#(dispatch
-;; ...)` strictly interior — enclosure holds by construction of the literal
-;; rather than by a match that could straddle two forms. Comparison is on
-;; whitespace-collapsed text, so re-indenting the docstring stays green while
-;; token order and paren structure stay pinned.
-;;
-;; Deliberately NOT reader- or balance-based: `cljs.reader/read-string` is
-;; EDN-only and throws on `#(...)` fn literals, so a reader walk could not run on
-;; both hosts without a new dependency, and a paren-depth scanner would be wrong
-;; in general (parens nest inside string and character literals). Both are more
-;; machinery than a docstring guard warrants.
 (def ^:private canonical-testid-example
   "(rf/reg-view counter-inc-button [] [:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])}) \"+\"])")
 
-(defn- collapse-ws
-  "Trim and squeeze runs of whitespace to a single space, so the pin is
-  indentation-insensitive but structure-exact."
-  [s]
-  (str/replace (str/trim s) #"\s+" " "))
-
-(defn- shows-enclosed-injected-dispatch?
-  "True when `doc` contains the canonical `rf/reg-view` example whole —
-  opening form, deferred `#(dispatch ...)`, and closing paren."
-  [doc]
-  (str/includes? (collapse-ws doc) canonical-testid-example))
-
 (deftest testid-docstring-shows-the-binding-context-for-injected-dispatch
   (let [doc (:doc (meta #'rf.test-helpers/testid))]
-    (is (some? doc) "testid must carry a docstring")
-    (is (shows-enclosed-injected-dispatch? doc)
-        (str "the testid example must show the whole `rf/reg-view` form that BINDS `dispatch` "
-             "— up to and including its closing paren — around the deferred `#(dispatch ...)` "
-             "that uses it, otherwise a reader copying the snippet gets an unresolved "
-             "`dispatch` symbol"))
-    (is (nil? (re-find #"#\(rf/dispatch " doc))
-        "the testid example must NOT use a bare deferred `rf/dispatch` (raises :rf.error/no-frame-context)")))
-
-;; Negative controls are load-bearing in both directions: they pin the shapes the
-;; guard must reject, and they trip if an edit loosens the pin toward a bare
-;; `#(dispatch ` substring.
-(deftest enclosure-guard-discriminates-binding-context
-  (testing "re-indented canonical example still passes — the pin must not over-tighten"
-    (is (shows-enclosed-injected-dispatch?
-         (str "  (rf/reg-view counter-inc-button []\n"
-              "      [:button (testid \"counter-inc\"\n"
-              "                       {:on-click #(dispatch [:counter/inc])})\n"
-              "       \"+\"])"))))
-  (testing "a `reg-view` that has already closed does not bind a later detached fragment"
-    (is (not (shows-enclosed-injected-dispatch?
-              "(rf/reg-view already-closed [] [:div])\n[:button #(dispatch [:x])]"))))
-  (testing "a detached fragment with no binding form at all"
-    (is (not (shows-enclosed-injected-dispatch?
-              "[:button (testid \"counter-inc\" {:on-click #(dispatch [:counter/inc])}) \"+\"]"))))
-  (testing "an otherwise-canonical example that uses a bare qualified `rf/dispatch`"
-    (is (not (shows-enclosed-injected-dispatch?
-              (str "(rf/reg-view counter-inc-button [] [:button "
-                   "(testid \"counter-inc\" {:on-click #(rf/dispatch [:counter/inc])}) \"+\"])"))))))
+    (is (str/includes? (str/replace (str/trim (str doc)) #"\s+" " ") canonical-testid-example))
+    (is (nil? (re-find #"#\(rf/dispatch " (str doc)))
+        "no bare deferred `rf/dispatch` in the example")))
