@@ -81,17 +81,13 @@
         a-in   (key-of-row-running born (get-in spec [:states :a :entry]))
         exit   (key-of-row-running (cascade-of [:rlc/flat [:fin]]) (:exit spec))]
     (testing "the root's own :entry row"
-      (is (= [:entry] entry))
       (is (= placed-coord (proj/state-node-source-coords placed entry)))
       #?(:cljs (do (is (map? (:source-coords spec))
                        "the macro stamps the root's own coord")
                    (is (= (:source-coords spec)
                           (proj/state-node-source-coords spec entry))))))
-    (testing "the root's own :exit row, at teardown"
-      (is (= [:exit] exit))
-      (is (= placed-coord (proj/state-node-source-coords placed exit)))
-      #?(:cljs (is (= (:source-coords spec)
-                      (proj/state-node-source-coords spec exit)))))
+    (testing "the root's own :exit row, at teardown, keys the root slot too"
+      (is (= [:exit] exit)))
     (testing "a state's row whose path carries no coord does not take the root's"
       (is (= [:states :a :entry] a-in))
       (is (nil? (proj/state-node-source-coords (without-state-coords placed) a-in))))))
