@@ -1,32 +1,10 @@
 (ns re-frame.machines.test-support
-  "Shared test-support helpers for the machines artefact's test suite.
-
-  This namespace is the suite's ONE home for the fixtures and probes the
-  machines tests share — a single `frame-db` (`(:rf.db/runtime
-  (rf/frame-state-value id))`), a
-  single `snapshot` (`get-in db [:rf.runtime/machines :snapshots id]`), and a
-  single trace-capture register/unregister helper — so machine storage,
-  frame handling, and trace-listener cleanup have one place to track rather
-  than dozens of local copies that could drift out of sync.
-
-  It gives the suite ONE home for:
-
-    - the **reset-runtime fixture** (re-exported from core's
-      `re-frame.test-support`, so a test ns requires one support ns);
-    - **runtime-db / snapshot lookup** routed through the canonical
-      `re-frame.machines.paths` constructors rather than a hardcoded
-      `[:rf.runtime/machines :snapshots …]` vector, so a future
-      runtime-db restructure touches `paths` + here, not 30 tests;
-    - **trace capture with guaranteed unregister** — both a `:each`
-      fixture (`trace-capture-fixture`) feeding a dynamic var and a
-      scoped `with-trace-capture` macro, each unregistering in a
-      `finally` so a thrown assertion never leaks a listener into the
-      next test.
-
-  Scope: `test/` only — it requires core's test-support, which is a
-  test-only dep. Tests that intentionally verify the RAW runtime-db
-  storage shape or RAW listener registration still touch those surfaces
-  directly; everything else reaches for these helpers."
+  "Shared helpers for the machines test suite: the reset-runtime fixture
+  (re-exported from core's `re-frame.test-support`), runtime-db and snapshot
+  lookup through the canonical `re-frame.machines.paths` constructors, and
+  trace capture that always unregisters its listener, so a thrown assertion
+  never leaks one into the next test. Test-only: it requires core's
+  test-support."
   (:require [re-frame.core :as rf]
             [re-frame.machines.paths :as rf.machines.paths]
             [re-frame.test-support :as rf.test-support]
@@ -44,29 +22,26 @@
 
 (defn runtime-db
   "The frame's runtime-db VALUE (where machine snapshots live, per
-  EP-0001 / Conventions §Reserved runtime-db keys). Defaults to the
-  `:rf/default` frame. The single home for the `frame-db` helper, so no
-  machines test defines its own."
+  Conventions §Reserved runtime-db keys). Defaults to the `:rf/default`
+  frame."
   ([] (runtime-db :rf/default))
   ([frame-id] (:rf.db/runtime (rf/frame-state-value frame-id))))
 
 (defn snapshot
   "The machine snapshot for `machine-id` (an actor / singleton id) in
-  `frame-id` (default `:rf/default`), read through the canonical
-  `rf.machines.paths/snapshot-path` constructor rather than a hardcoded path vector.
-  Returns nil when the actor has no snapshot (never spawned, or already
-  destroyed)."
+  `frame-id` (default `:rf/default`), or nil when the actor has no snapshot
+  (never spawned, or already destroyed)."
   ([machine-id] (snapshot :rf/default machine-id))
   ([frame-id machine-id]
    (get-in (runtime-db frame-id) (rf.machines.paths/snapshot-path machine-id))))
 
 (defn machine-state
-  "Convenience: the `:state` of `machine-id`'s snapshot (nil if absent)."
+  "The `:state` of `machine-id`'s snapshot (nil if absent)."
   ([machine-id] (machine-state :rf/default machine-id))
   ([frame-id machine-id] (:state (snapshot frame-id machine-id))))
 
 (defn machine-data
-  "Convenience: the `:data` of `machine-id`'s snapshot (nil if absent)."
+  "The `:data` of `machine-id`'s snapshot (nil if absent)."
   ([machine-id] (machine-data :rf/default machine-id))
   ([frame-id machine-id] (:data (snapshot frame-id machine-id))))
 
@@ -85,8 +60,7 @@
 
 (defn events-of
   "The captured events whose `:operation` equals `operation` (oldest
-  first). Convenience over `(filter #(= operation (:operation %)) …)`,
-  so no test filters the stream by hand."
+  first)."
   [operation]
   (filterv #(= operation (:operation %)) (or (captured-events) [])))
 
@@ -99,8 +73,7 @@
 (defn trace-capture-fixture
   "A `:each` fixture that registers a trace listener appending every
   emitted event to `*captured*` for the duration of one test, then
-  ALWAYS unregisters in a `finally` (a thrown assertion never leaks the
-  listener into the next test). Compose with the reset-runtime fixture:
+  ALWAYS unregisters in a `finally`. Compose with the reset-runtime fixture:
 
       (use-fixtures :each
         (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
@@ -120,8 +93,7 @@
      "Run `body` with a trace listener that appends every emitted event
      to a fresh atom bound to `binding-sym`, ALWAYS unregistering in a
      `finally`. The scoped counterpart to `trace-capture-fixture` for a
-     single block (e.g. probing one transition's emits inside a larger
-     test):
+     single block:
 
          (with-trace-capture captured
            (machines/machine-transition m snap [:go])
