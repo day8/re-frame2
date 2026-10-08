@@ -42,8 +42,8 @@
             reader count; a single-reader sub carries none"
     (are [readers expected]
          (= expected
-            (:shared-count (-> (g/layout {:level-1-subs [{:sub-id :s :changed? true :readers readers}]})
-                               :nodes :l1 first)))
+            (let [out (g/layout {:level-1-subs [{:sub-id :s :changed? true :readers readers}]})]
+              (:shared-count (-> out :nodes :l1 first))))
       [:v1]     nil
       [:v1 :v2] 2)))
 
