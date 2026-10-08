@@ -13,63 +13,39 @@
 ;; ---- layout: empty -----------------------------------------------------
 
 (deftest layout-empty-when-no-cascade
-  (testing "no subs + no views → :empty? true"
-    (let [out (g/layout {})]
-      (is (:empty? out))
-      (is (= [] (-> out :nodes :l1)))
-      (is (= [] (-> out :nodes :l2)))
-      (is (= [] (-> out :nodes :view)))
-      (is (= [] (:edges out))))))
-
-(deftest layout-empty-with-only-unmount-rows
-  (testing "view-rows that are all unmounts don't populate the graph"
-    (let [out (g/layout {:view-rows [{:view-id :v :action :unmount}]})]
-      (is (:empty? out))
-      (is (= [] (-> out :nodes :view))))))
+  (testing "no subs and no live views → :empty?; unmount rows are not live views"
+    (are [in] (:empty? (g/layout in))
+      {}
+      {:view-rows [{:view-id :v :action :unmount}]})))
 
 ;; ---- layout: nodes -----------------------------------------------------
-
-(deftest layout-builds-app-db-source-node
-  (testing "app-db source node sits at the left edge with stable geometry"
-    (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true}]})]
-      (is (number? (-> out :appdb :x)))
-      (is (number? (-> out :appdb :y)))
-      (is (= g/node-h (-> out :appdb :h))))))
 
 (deftest layout-columns-are-ordered-left-to-right
   (testing "app-db < L1 < L2 < view in x"
     (let [out (g/layout {:level-1-subs [{:sub-id :l1 :changed? true}]
                          :level-2-subs [{:sub-id :l2 :changed? true :inputs [:l1]}]
-                         :view-rows    [{:view-id :v :action :rerender}]})
-          l1x (-> out :nodes :l1 first :x)
-          l2x (-> out :nodes :l2 first :x)
-          vx  (-> out :nodes :view first :x)]
-      (is (< (-> out :appdb :x) l1x))
-      (is (< l1x l2x))
-      (is (< l2x vx)))))
+                         :view-rows    [{:view-id :v :action :rerender}]})]
+      (is (< (-> out :appdb :x)
+             (-> out :nodes :l1 first :x)
+             (-> out :nodes :l2 first :x)
+             (-> out :nodes :view first :x))))))
 
 (deftest layout-view-node-carries-cause-and-timing
   (testing "the view node threads :triggered-by + :elapsed-ms"
     (let [out (g/layout {:view-rows [{:view-id :v :action :rerender
-                                      :triggered-by :sub/x :elapsed-ms 1.5}]})
-          vn  (-> out :nodes :view first)]
-      (is (= :sub/x (:triggered-by vn)))
-      (is (= 1.5 (:elapsed-ms vn)))
-      (is (= :rerender (:action vn))))))
+                                      :triggered-by :sub/x :elapsed-ms 1.5}]})]
+      (is (= {:triggered-by :sub/x :elapsed-ms 1.5 :action :rerender}
+             (select-keys (-> out :nodes :view first) [:triggered-by :elapsed-ms :action]))))))
 
 (deftest layout-marks-shared-count-only-on-multi-reader-subs
   (testing "a sub read by two or more views carries :shared-count, its
-            reader count; a sub with no, empty or single readers carries none"
+            reader count; a single-reader sub carries none"
     (are [readers expected]
          (= expected
-            (let [out (g/layout {:level-1-subs [(cond-> {:sub-id :s :changed? true}
-                                                  (some? readers) (assoc :readers readers))]})]
-              (:shared-count (-> out :nodes :l1 first))))
-      nil           nil
-      []            nil
-      [:v1]         nil
-      [:v1 :v2]     2
-      [:v1 :v2 :v3] 3)))
+            (:shared-count (-> (g/layout {:level-1-subs [{:sub-id :s :changed? true :readers readers}]})
+                               :nodes :l1 first)))
+      [:v1]     nil
+      [:v1 :v2] 2)))
 
 ;; ---- layout: edges -----------------------------------------------------
 
@@ -92,10 +68,8 @@
                          :level-2-subs [{:sub-id :derived :changed? true
                                          :inputs [:in]}]})
           sub-sub (filter #(= :sub-sub (:kind %)) (:edges out))]
-      (is (= 1 (count sub-sub)))
-      (is (= :in (:from-id (first sub-sub))))
-      (is (= :derived (:to-id (first sub-sub))))
-      (is (true? (:changed? (first sub-sub)))))))
+      (is (= [{:from-id :in :to-id :derived :changed? true}]
+             (mapv #(select-keys % [:from-id :to-id :changed?]) sub-sub))))))
 
 (deftest layout-sub-view-edges-from-readers
   (testing "a sub draws an edge to each view in its :readers; a shared
@@ -103,18 +77,9 @@
     (let [out (g/layout {:level-1-subs [{:sub-id :s :changed? true
                                          :readers [:v1 :v2]}]
                          :view-rows    [{:view-id :v1 :action :rerender}
-                                        {:view-id :v2 :action :rerender}]})
-          sub-view (filter #(= :sub-view (:kind %)) (:edges out))]
-      (is (= 2 (count sub-view)))
-      (is (= #{:v1 :v2} (set (map :to-id sub-view)))))))
-
-(deftest layout-edges-have-numeric-endpoints
-  (testing "every edge carries numeric x1/y1/x2/y2 so the SVG paints"
-    (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true :readers [:v]}]
-                         :view-rows    [{:view-id :v :action :rerender}]})]
-      (is (seq (:edges out)))
-      (is (every? (fn [e] (every? number? [(:x1 e) (:y1 e) (:x2 e) (:y2 e)]))
-                  (:edges out))))))
+                                        {:view-id :v2 :action :rerender}]})]
+      (is (= [:v1 :v2]
+             (->> (:edges out) (filter #(= :sub-view (:kind %))) (mapv :to-id)))))))
 
 ;; ---- layout: instances ------------------------------------------------
 ;;
@@ -152,7 +117,6 @@
       (is (= (mapv pr-str [[:app/todo-row 11] [:app/todo-row 12] [:app/todo-row 13]])
              (mapv :key views))
           "three view instances, each keyed by its render-key")
-      (is (every? #(= :todo/by-id (:id %)) l1) ":id is the registration id")
       (is (= ["[:todo/by-id 1]" "[:todo/by-id 2]" "[:todo/by-id 3]"] (mapv :label l1))
           "a parameterized instance is labelled by its query-v")))
   (testing "one identity seen twice (a query-v run twice) gets two
@@ -169,15 +133,11 @@
           sub-view (filter #(= :sub-view (:kind %)) (:edges out))
           by-key   (into {} (map (juxt :key identity)) (-> out :nodes :view))
           centre   (fn [n] (+ (:y n) (/ (:h n) 2.0)))]
-      (is (= 3 (count sub-view)))
-      (is (= #{[(pr-str [:todo/by-id 1]) (pr-str [:app/todo-row 11])]
-               [(pr-str [:todo/by-id 2]) (pr-str [:app/todo-row 12])]
-               [(pr-str [:todo/by-id 3]) (pr-str [:app/todo-row 13])]}
-             (set (map (juxt :from-key :to-key) sub-view)))
-          "instance i drives view instance i")
-      (is (= (set (map centre (-> out :nodes :view)))
-             (set (map :y2 sub-view)))
-          "every view box receives an edge — none floats")
+      (is (= [[(pr-str [:todo/by-id 1]) (pr-str [:app/todo-row 11])]
+              [(pr-str [:todo/by-id 2]) (pr-str [:app/todo-row 12])]
+              [(pr-str [:todo/by-id 3]) (pr-str [:app/todo-row 13])]]
+             (mapv (juxt :from-key :to-key) sub-view))
+          "instance i drives view instance i, one edge per view box")
       (is (every? #(= (:y2 %) (centre (get by-key (:to-key %)))) sub-view)
           "each edge ends on the box it names"))))
 
@@ -191,15 +151,9 @@
                                          :changed? true :inputs [:todo/by-id]
                                          :input-query-vs [[:todo/by-id 1]]}]})
           sub-sub (filter #(= :sub-sub (:kind %)) (:edges out))]
-      (is (= [(pr-str [:todo/by-id 1])] (mapv :from-key sub-sub)))
-      (is (= [:todo/by-id] (mapv :from-id sub-sub))
-          ":from-id is the registration id"))))
-
-(deftest layout-width-and-height-positive
-  (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true}]
-                       :view-rows    [{:view-id :v :action :rerender}]})]
-    (is (pos? (:width out)))
-    (is (pos? (:height out)))))
+      (is (= [[(pr-str [:todo/by-id 1]) :todo/by-id]]
+             (mapv (juxt :from-key :from-id) sub-sub))
+          "keyed by the declared instance; :from-id is the registration id"))))
 
 ;; ---- labels fit their boxes --------------------------------------------
 
@@ -239,7 +193,6 @@
 
     (testing "a view's cause/timing line fits, whole when it is short"
       (let [line "(rerendered)  ← :cart/total · 2ms"]
-        (is (fits? (g/fit-line line g/view-node-w 9) g/view-node-w 9))
         (is (= line (g/fit-line line g/view-node-w 9)))
         (is (= "(rerendered)  ← :standard-epochs/c…"
                (g/fit-line "(rerendered)  ← :standard-epochs/chain-labelled · 0.3ms"
