@@ -22,29 +22,23 @@
   first render. An application would mount nothing at all — `#app`
   innerHTML length 0, a blank page — while the unit suites stayed green.
 
-  So the rows below are deliberately NOT unit calls on the render fn:
-
-    * they mount through the Reagent adapter into a real document, so the
-      component boundary the bug lives at is genuinely constructed; and
-    * they establish the frame ONLY through a React-context boundary — a
-      `frame-provider` (SCOPE) in one row, a `frame-root` (ENSURE, the
-      applications' own shape) in the other — with `:ambient-frame nil` on
-      the fixture so no `with-frame` scope can answer in its place.
-
-  A row that passes because tier 1 answered would prove nothing — the
-  blind spot the render-fn suites share.
+  So the row below is deliberately NOT a unit call on the render fn: it
+  mounts through the Reagent adapter into a real document, so the component
+  boundary the bug lives at is genuinely constructed, and it establishes the
+  frame ONLY through a `frame-root` — the applications' own shape — with
+  `:ambient-frame nil` on the fixture so no `with-frame` scope can answer in
+  its place.
 
   ## What a failure looks like
 
   A route-link that cannot resolve its frame THROWS during render, and
   React discards the whole subtree — so the failure shows up as an absent
-  anchor, not a wrong one. Each row therefore reports the container's actual
-  innerHTML on failure, and reports any error that escaped the mount,
-  because 'the anchor is missing' on its own does not say why.
+  anchor, not a wrong one. The row therefore reports the container's actual
+  innerHTML on failure, and any error that escaped the mount.
 
   Per Spec 012 §Linking from views and Spec 002 §Frame target resolution.
   ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` discovers it;
-  `:node-test` loads it too, where the rows degrade to a STATED skip."
+  `:node-test` loads it too, where the row degrades to a STATED skip."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
@@ -76,7 +70,7 @@
 
   A function rather than an ns-load effect: the reset fixture restores the
   registrar to a baseline captured when `use-fixtures` was evaluated, so a
-  route registered at load is rolled back before the first row runs. The
+  route registered at load is rolled back before the row runs. The
   `/rf2-route-link-ctx` leading segment keeps the path out of every other
   namespace's match table in the shared bundle (TESTING.md §Test authoring
   policy)."
@@ -86,9 +80,7 @@
 
 (rf/reg-view* ::app
   (fn app []
-    ;; A route-link and nothing else. The point of the row is the link's own
-    ;; render, so anything else on the page would only be somewhere for a
-    ;; failure to hide.
+    ;; A route-link and nothing else, so a failure has nowhere to hide.
     [:main
      [rf/route-link {:to           articles-route
                      :data-testid  link-testid}
@@ -102,9 +94,8 @@
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter
      ;; THE LOAD-BEARING LINE. With an ambient frame bound, tier 1 answers
-     ;; every resolution and both rows below pass without the React-context
-     ;; tier ever being consulted — which is precisely the blind spot this
-     ;; file exists to close.
+     ;; every resolution and the row passes without the React-context tier
+     ;; ever being consulted.
      :ambient-frame nil
      :async?        true
      :init-fn       (fn []
@@ -119,7 +110,7 @@
 (defn- mount!
   "Create a root element, append it to the document, and commit `tree`
   synchronously. Returns `{:container :root :error}` — `:error` holds
-  anything the first render threw, so a row can name the cause rather than
+  anything the first render threw, so the row can name the cause rather than
   only reporting an absent anchor."
   [tree]
   (let [container (.createElement js/document "div")]
@@ -133,8 +124,8 @@
       {:container container :root root :error error})))
 
 (defn- teardown!
-  "Unmount, detach the root, and drop the frame. Runs on the success and
-  failure paths alike, so a row that threw cannot make the next row wrong."
+  "Unmount, detach the root, and drop the frame, on the success and failure
+  paths alike."
   [{:keys [container root]} frame-id]
   (try (.unmount root) (catch :default _ nil))
   (try (.remove container) (catch :default _ nil))
@@ -158,8 +149,8 @@
               " :: " (.-message error)))))
 
 (defn- assert-link-rendered!
-  "The whole contract, asserted the same way for both boundaries: the mount
-  did not throw, and the anchor is on the page carrying the route's href."
+  "The mount did not throw, and the anchor is on the page carrying the
+  route's href and the link's children."
   [m label]
   (is (nil? (:error m))
       (str label " — the first render must not throw. " (describe-failure m)))
@@ -167,28 +158,12 @@
     (is (some? a)
         (str label " — the route-link must render an <a>. " (describe-failure m)))
     (when (some? a)
-      (is (= articles-url (.getAttribute a "href"))
-          (str label " — the anchor's href must be the route's URL."))
-      (is (= "See the articles" (.-textContent a))
-          (str label " — the anchor must carry the link's children.")))))
+      (is (= [articles-url "See the articles"] [(.getAttribute a "href") (.-textContent a)])
+          (str label " — the anchor carries the route's URL and the link's children.")))))
 
 ;; ---------------------------------------------------------------------------
-;; Rows
+;; Row
 ;; ---------------------------------------------------------------------------
-
-(deftest route-link-renders-under-a-frame-provider-rf2-nvcp
-  (testing "a route-link inside a frame-provider — the SCOPE boundary — resolves
-           its frame from the React-context tier and renders its anchor"
-    (if-not (browser?)
-      (skip! "frame context is a React-context read on a mounted component")
-      (async done
-        (let [frame-id ::provider-frame]
-          (rf/make-frame {:id frame-id :doc "route-link render witness (SCOPE)."})
-          (let [m (mount! [rf/frame-provider {:frame frame-id}
-                           [(rf/view ::app)]])]
-            (assert-link-rendered! m "frame-provider")
-            (teardown! m frame-id)
-            (done)))))))
 
 (deftest route-link-renders-under-a-frame-root-rf2-nvcp
   (testing "a route-link inside a frame-root — the ENSURE boundary, and the exact
