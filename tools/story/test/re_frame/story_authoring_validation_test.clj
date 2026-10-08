@@ -82,6 +82,12 @@
          (error-id #(rf.story/reg-fragment :fragment.bad/judges
                       {:assertions [[:rf.assert/no-warnings]]})))))
 
+(deftest reg-fragment-rejects-retired-slots
+  (testing "the fragment body is closed: an undeclared slot rejects"
+    (is (= :rf.error/fragment-shape
+           (error-id #(rf.story/reg-fragment* :fragment.vocab/legacy
+                        {:play-script [[:dispatch [:a]]]}))))))
+
 (deftest reg-check-requires-assertions
   (is (= :rf.error/check-shape (error-id #(rf.story/reg-check :check/empty {:doc "no assertions"})))))
 
@@ -123,6 +129,12 @@
   (testing "the story-mcp write surface stamps :origin, so the closed schema
             must accept it"
     (is (some? (rf.story/reg-variant* :story.mcp/written {:setup [] :origin :story-mcp})))))
+
+(deftest reg-variant-rejects-resolve-conflicts
+  (testing ":resolve-conflicts is rejected: there is no P1 escape hatch"
+    (is (= :rf.error/variant-shape
+           (error-id #(rf.story/reg-variant :story.bad/resolve
+                        {:resolve-conflicts {[:fx-overrides :rf.http/fetch] :stub}}))))))
 
 (deftest reg-workspace-rejects-typoed-slot
   (let [data (shape-data #(rf.story/reg-workspace :Workspace.swallow/typo
