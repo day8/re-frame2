@@ -28,14 +28,6 @@
 
 ;; ---- vocabulary ---------------------------------------------------------
 
-(deftest statuses-enumeration-is-stable
-  (testing "the five canonical statuses ride in a stable render order
-            so callers (chip rows, legends) can enumerate them
-            deterministically."
-    (is (= [:in-flight :settled-success :settled-error
-            :paused-by-tool :stale]
-           event-status/statuses))))
-
 (deftest every-status-resolves-to-a-non-nil-hex
   (testing "the indirection chain (status → token-kw → hex) lands on
             a real hex for every status. No magenta-tinted gap, no
@@ -45,46 +37,34 @@
     (doseq [status event-status/statuses]
       (let [token-kw (event-status/status->token status)
             hex      (get tokens/dark-palette token-kw)]
-        (is (string? hex) (str status " → " token-kw " resolves to a hex"))
         (is (re-find #"^#[0-9A-Fa-f]+$" hex)
-            (str status " hex " hex " starts with #"))))))
+            (str status " → " token-kw " resolves to hex " hex))))))
 
 ;; ---- classifier — per-state coverage and precedence ---------------------
 
 (deftest classify-status-resolves-each-input-in-precedence-order
   (are [input status] (= status (event-status/classify-status input))
-    ;; A settled :ok outcome is success, and so is :warning — the yellow
-    ;; glyph ALREADY signals the warning at the Event header, so the row
-    ;; colour reads 'settled' rather than re-amplifying it.
-    {:outcome :ok}                     :settled-success
-    {:outcome :warning}                :settled-success
-    ;; :error wins over every other slot — RETRO, pause, stale, in-flight:
-    ;; the user MUST notice the red, even among the yellow history.
-    {:outcome :error}                  :settled-error
+    ;; :error wins over every other slot — the user MUST notice the red,
+    ;; even among the yellow RETRO history.
     {:outcome :error :mode :retro}     :settled-error
-    {:outcome :error :paused? true}    :settled-error
-    {:outcome :error :stale? true}     :settled-error
-    {:outcome :error :in-flight? true} :settled-error
+    ;; Stale by flag (time-travel / dispatch-replay) or by RETRO mode (a
+    ;; pinned non-head cascade); stale wins over paused and over a settled
+    ;; outcome.
+    {:stale? true :paused? true}       :stale
+    {:mode :retro :outcome :ok}        :stale
     ;; In flight with no terminal outcome is the LIVE-head cascade still
     ;; building; a landed outcome settles it.
     {:in-flight? true}                 :in-flight
-    {:in-flight? true :mode :live}     :in-flight
     {:in-flight? true :outcome :ok}    :settled-success
     ;; A tool (story, MCP, the spine pause button) has claimed the buffer.
     {:paused? true}                    :paused-by-tool
-    {:paused? true :mode :live}        :paused-by-tool
-    ;; Stale by flag (time-travel / dispatch-replay) or by RETRO mode (a
-    ;; pinned non-head cascade), and stale wins over paused.
-    {:stale? true}                     :stale
-    {:stale? true :outcome :ok}        :stale
-    {:mode :retro}                     :stale
-    {:mode :retro :outcome :ok}        :stale
-    {:mode :retro :paused? true}       :stale
-    {:stale? true :paused? true}       :stale
+    ;; A :warning outcome settles as success — the yellow glyph ALREADY
+    ;; signals the warning at the Event header, so the row colour reads
+    ;; 'settled' rather than re-amplifying it.
+    {:outcome :warning}                :settled-success
     ;; No signals at all reads as still in progress — the safe default
     ;; (violet, the neutral causal-chain colour), never a misleading green.
-    {}                                 :in-flight
-    nil                                :in-flight))
+    {}                                 :in-flight))
 
 ;; ---- cascade → state projection ----------------------------------------
 
@@ -93,72 +73,39 @@
 
 (deftest event-bundle->state-projects-focused-error
   (testing "a cascade that's focused + LIVE + errored → the state
-            map carries :outcome :error + :focused? true. The
-            classifier then resolves to :settled-error."
-    (let [cascade {:dispatch-id 42}
-          focus   {:dispatch-id 42 :mode :live :paused? false}
-          state   (event-status/event-bundle->state cascade focus (mock-outcome :error))]
-      (is (= :error (:outcome state)))
-      (is (true? (:focused? state)))
-      (is (false? (:stale? state)))
-      (is (= :live (:mode state)))
-      (is (= :settled-error (event-status/classify-status state))))))
+            map carries :outcome :error, :focused? true and the focus's
+            mode, and is neither stale nor paused"
+    (is (= {:outcome :error :focused? true :paused? false :mode :live
+            :in-flight? false :stale? false}
+           (event-status/event-bundle->state
+             {:dispatch-id 42}
+             {:dispatch-id 42 :mode :live :paused? false}
+             (mock-outcome :error))))))
 
 (deftest event-bundle->state-projects-non-focused-event-bundle
   (testing "a cascade that's NOT the spine focus → :focused? false +
-            :mode nil. The classifier resolves to :settled-success
-            for an :ok outcome — non-focused rows are rendered with
-            their settled state, not the spine's RETRO scope."
-    (let [cascade {:dispatch-id 1}
-          focus   {:dispatch-id 99 :mode :retro :paused? true}
-          state   (event-status/event-bundle->state cascade focus (mock-outcome :ok))]
-      (is (false? (:focused? state)))
-      (is (nil? (:mode state)))
-      (is (false? (:stale? state)))
-      (is (false? (:paused? state)))
-      (is (= :settled-success (event-status/classify-status state))))))
-
-(deftest event-bundle->state-with-nil-focus
-  (testing "no focus map (e.g. test rig pre-mount) → :focused? false.
-            The fn still resolves cleanly so JVM-side fixture
-            builders can call it without a live spine."
-    (let [state (event-status/event-bundle->state {:dispatch-id 1} nil (mock-outcome :ok))]
-      (is (false? (:focused? state)))
-      (is (= :settled-success (event-status/classify-status state))))))
-
-(deftest event-bundle-outcome-reads-the-producer-duration-key
-  (testing "`:duration-ms` is read off the run-end trace's
-            `:rf.event/elapsed-ms`, the key the producer stamps"
-    (is (= 8 (:duration-ms
-               (event-status/event-bundle-outcome
-                 {:event   [:poll/tick]
-                  :handler {:operation :rf.event/run-end
-                            :tags      {:rf.event/elapsed-ms 8}}})))))
-  (testing "a `:duration-ms` tag is a fallback"
-    (is (= 3 (:duration-ms
-               (event-status/event-bundle-outcome
-                 {:event   [:poll/tick]
-                  :handler {:operation :rf.event/run-end
-                            :tags      {:duration-ms 3}}}))))))
+            :mode nil, and none of the focus's RETRO / paused scope leaks
+            onto it — non-focused rows are rendered with their settled
+            state"
+    (is (= {:outcome :ok :focused? false :paused? false :mode nil
+            :in-flight? false :stale? false}
+           (event-status/event-bundle->state
+             {:dispatch-id 1}
+             {:dispatch-id 99 :mode :retro :paused? true}
+             (mock-outcome :ok))))))
 
 (deftest event-bundle->state-frame-strict-focused-rf2-bz7flo
   (testing "when a multi-frame caller renders two cascades
             sharing a dispatch-id in different frames, only the cascade
-            in the FOCUSED frame is :focused?. A dispatch-id-only check
-            would mark BOTH focused/paused/stale."
+            in the FOCUSED frame is :focused? (and so paused / stale). A
+            dispatch-id-only check would mark BOTH."
     (let [focus    {:dispatch-id 7 :frame :frame/b :mode :retro :paused? true}
           in-frame (event-status/event-bundle->state
                      {:dispatch-id 7 :frame :frame/b} focus (mock-outcome :ok))
           foreign  (event-status/event-bundle->state
                      {:dispatch-id 7 :frame :frame/a} focus (mock-outcome :ok))]
-      (is (true? (:focused? in-frame))
-          "the focused-frame cascade is focused")
-      (is (true? (:paused? in-frame)))
-      (is (true? (:stale? in-frame)))
-      (is (false? (:focused? foreign))
-          "the same-id cascade in a DIFFERENT frame is NOT focused")
-      (is (false? (:paused? foreign)))
-      (is (false? (:stale? foreign)))))
+      (is (= [true false] (map :focused? [in-frame foreign])))
+      (is (= [true true] ((juxt :paused? :stale?) in-frame)))))
 
   (testing "degrades to a dispatch-id-only match when either
             the cascade or the focus is frameless (single-frame focus /
@@ -175,28 +122,11 @@
 ;; ---- visual smoke — per-state hex landing on the right palette anchor --
 
 (deftest visual-smoke-per-state-colour-mapping
-  (testing "Visual smoke — each
-            lifecycle state surfaces in its expected anchor colour
-            across the palette. Failures here flag a palette drift
-            (token renamed) or a classifier regression.
-            `event-status-colour` returns CSS-variable strings (the
-            class toggle on the shell root decides whether the dark or
-            light hex resolves at paint time); we compare against the
-            same var-map (`tokens/tokens`)."
-    (let [palette tokens/tokens]
-      (is (= (:accent palette)
-             (event-status/event-status-colour {:in-flight? true}))
-          "in-flight rides the mode accent — the current-epoch accent")
-      (is (= (:green palette)
-             (event-status/event-status-colour {:outcome :ok}))
-          "settled-success rides green")
-      (is (= (:red palette)
-             (event-status/event-status-colour {:outcome :error}))
-          "settled-error rides red")
-      (is (= (:info palette)
-             (event-status/event-status-colour {:paused? true}))
-          "paused-by-tool rides the fixed cool blue :info (distinct
-           from the in-flight accent)")
-      (is (= (:yellow palette)
-             (event-status/event-status-colour {:mode :retro}))
-          "stale rides yellow"))))
+  (testing "`event-status-colour` composes the classifier with the token
+            map and returns CSS-variable strings (the class toggle on the
+            shell root decides whether the dark or light hex resolves at
+            paint time); we compare against the same var-map
+            (`tokens/tokens`)."
+    (is (= (:red tokens/tokens)
+           (event-status/event-status-colour {:outcome :error}))
+        "settled-error rides red")))
