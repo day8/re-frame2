@@ -103,8 +103,8 @@
   wire as `:preview`. Long enough to identify the shape, short enough to
   stay well under the token cap on its own.
 
-  Public so the test-only `test-utils/truncate-preview`
-  pins against the SAME single-sourced cap the runtime wrap embeds."
+  Public so `result_envelope_test` pins the runtime wrap against the
+  SAME single-sourced cap it embeds."
   240)
 
 ;; ---------------------------------------------------------------------------
@@ -343,9 +343,3 @@
   defect as a success, against spec/003's universal isError rule."
   [result-map]
   (with-meta result-map {::codec-error true}))
-
-;; `truncate-preview` (the test-only preview-shape helper) lives in
-;; `re-frame2-pair-mcp.test-utils/truncate-preview` — the
-;; MCP server never calls it; only tests assert the preview contract.
-;; It pins against the same `preview-cap` constant above (public so
-;; the single source of truth stays here).
