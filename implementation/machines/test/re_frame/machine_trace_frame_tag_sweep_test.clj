@@ -66,9 +66,13 @@
      :states  {:start {:on {:go :a}}
                :a     {:always [{:guard :p? :target :b}]}
                :b     {:always [{:guard :p? :target :a}]}}})
-  (is (= {:rf.error/machine-always-depth-exceeded [:rf/default]}
-         (frames-by-op #{:rf.error/machine-always-depth-exceeded}
-                       #(rf/dispatch-sync [:ft/always-loop [:go]])))))
+  (is (= [{:frame :rf/default :recovery :no-recovery}]
+         (rf.machines.test-support/with-trace-capture seen
+           (rf/dispatch-sync [:ft/always-loop [:go]])
+           (into []
+                 (comp (filter #(= :rf.error/machine-always-depth-exceeded (:operation %)))
+                       (map (fn [ev] {:frame (get-in ev [:tags :frame]) :recovery (:recovery ev)})))
+                 @seen)))))
 
 (deftest on-done-throw-tag-carries-frame
   (rf/reg-machine :ft/child-od
