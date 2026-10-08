@@ -1,82 +1,23 @@
 (ns re-frame.always-on-validation-production-test
-  "The two schema-validation surfaces Spec 010 keeps ALWAYS-ON in
-  production, pinned under the REAL gate.
+  "The two schema-validation surfaces Spec 010 keeps ALWAYS-ON in production,
+  pinned under the REAL gate:
 
-  ## Why this namespace exists
+    1. **Recordable-coeffect `:schema`** (010:165, 010:179) — a production hard
+       error: an out-of-contract recordable value throws
+       `:rf.error/cofx-value-invalid` before the handler sees it, because
+       folding it into the durable causal ledger is corrupt state.
+    2. **`:boundary? true`** (010:204, 010:220) — boundary validation runs even
+       when global validation is elided, and its rejection is REPORTED: one
+       structural-only always-on record (`:source :boundary`) and
+       `:outcome :rejected`, never a silent skip that reads `:ok` off-box.
 
-  Spec 010 §Validation order elides validation by default: every `validate-*!`
-  body sits inside `(when re-frame.interop/debug-enabled? …)`, and
-  `spec/Security.md` §Production gates lists \"schema-validation calls\" among
-  what the production gate strips. Under `-Dre-frame.debug=false` roughly a
-  hundred validation call sites genuinely stop running, and dev-posture test
-  namespaces fail in the `jvm-core-prod-gate` lane for exactly that reason —
-  correctly.
-
-  Spec 010 carves out TWO surfaces from that elision, and this namespace pins
-  both in a lane that runs under the gate:
-
-    1. **Recordable-coeffect `:schema`** (010:165, 010:179) — \"a PRODUCTION
-       HARD ERROR, not the dev-only schema-validation trace\". A recordable
-       coeffect's value — supplied on the dispatch token, replayed from a
-       record, or freshly generated — is validated as it is satisfied; a
-       mismatch emits `:rf.error/cofx-value-invalid` and THROWS, halting the
-       run before the handler sees it. The spec's rationale: \"Folding an
-       out-of-contract value into the durable causal ledger is corrupt state,
-       so the check fires in production too.\"
-
-    2. **The `:boundary? true` registration flag** (010:204, 010:220) —
-       \"Boundary validation runs even when global validation is elided.\" It
-       is the opt-back-in for handlers fed by an untrusted system boundary
-       (HTTP response, websocket frame, postMessage, query string), and it is
-       INVERTED relative to everything else: a no-op in dev (step-1 already
-       ran) and load-bearing only in production.
-
-  That is precisely the shape that dies silently under a load-time gate — a
-  validation call everyone assumes survives, sitting beside a hundred that
-  provably do not — and a suite that never executes the gated posture stays
-  green over it.
-
-  ## How it is pinned
-
-  Modelled on `re-frame.privacy-production-egress-test`. Every
-  assertion outside the one `^:prod-gate`-tagged deftest is
-  POSTURE-INDEPENDENT and must hold in dev AND under the real gate, so this
-  namespace runs in the ordinary `clojure -M:test` suite and joins
-  `scripts/test-core-prod-gate.sh` automatically (that lane's roster is an
-  EXCLUSION list — a new namespace joins by default).
-
-  Posture-independence is not a weakening here, it is the contract: both
-  surfaces are specified to behave IDENTICALLY in both postures. What differs
-  is only WHICH code enforces surface 2 — step-1 `validate-event!` in dev, the
-  boundary interceptor in production — and the observable (the handler does
-  not run) is the same either way.
-
-  The single `^:prod-gate` deftest at the foot is the discriminator that stops
-  the rest passing vacuously. It runs ONLY in the gate lane (the default
-  `:test` alias excludes the tag) and asserts the NEGATIVE control: in this
-  same JVM, a handler carrying the identical `:schema` but NOT referencing
-  `:boundary? true` accepts a non-conforming event, because ordinary
-  step-1 validation really has been elided. Without it, \"the handler did not
-  run\" would prove nothing about which mechanism stopped it.
-
-  ## Surface 2 has a SECOND half
-
-  Surface 2 above pins that the boundary REFUSAL survives the gate; its REPORT
-  must survive too. \"The handler was skipped\" alone would pass over a
-  rejection that was silent AND whose `:events` record read `:outcome :ok` —
-  an off-box shipper would see a dispatch that succeeded. The rejection fans
-  one always-on
-  STRUCTURAL-ONLY `:rf.error/schema-validation-failure` record (`:source
-  :boundary`) and settles `:outcome :rejected`, and the deftests below pin
-  BOTH, under this same real gate, including the key set CLOSED and the
-  ABSENCE of every payload-bearing slot. That absence is the egress contract:
-  whatever this record carries ships to Sentry / Datadog, and a rejected
-  boundary payload is attacker-controlled by definition.
-
-  Deliberately NOT used: `with-redefs` on `rf.interop/debug-enabled?`. The flag is
-  read once at namespace-load time; a rebind cannot reach it."
-  (:require [clojure.set :as set]
-            [clojure.string :as str]
+  Every deftest but the `^:prod-gate` one is posture-independent, so this
+  namespace runs in `clojure -M:test` AND joins `scripts/test-core-prod-gate.sh`.
+  The `^:prod-gate` deftest is the discriminator: in the gate JVM an
+  unguarded handler with the same `:schema` ACCEPTS a bad event, so \"the
+  handler did not run\" cannot be step-1 doing the work. `with-redefs` on
+  `debug-enabled?` is deliberately not used: the flag is read at load time."
+  (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
@@ -86,8 +27,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.trace.tooling :as rf.trace.tooling]
-            [re-frame.trace :as rf.trace]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (defn- reset-runtime [test-fn]
   (rf.registrar/clear-all!)
@@ -97,10 +37,7 @@
   (rf.error-emit/clear-error-listeners!)
   (rf.event-emit/clear-event-listeners!)
   (rf/init! rf.substrate.plain-atom/adapter)
-  ;; `rf.registrar/clear-all!` drops the framework-standard interceptor
-  ;; registrations; `init!` re-seeds them. Reloading the schemas
-  ;; artefact republishes the late-bind validation hooks the two surfaces
-  ;; under test reach through.
+  ;; republish the late-bind validation hooks both surfaces reach through
   (require 're-frame.schemas :reload)
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
@@ -108,31 +45,9 @@
 
 (use-fixtures :each reset-runtime)
 
-(defn- record-always-on-errors
-  "Capture through the ALWAYS-ON error registry — NOT `register-listener!
-  :trace`, which is dev-only and sees nothing under the production gate.
-  These records are what an off-box shipper receives from a production build."
-  [body-fn]
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
-    (try (body-fn)
-         (finally (rf.error-emit/unregister-error-listener! ::rec)))
-    @seen))
-
-(defn- record-of [records error-kw]
-  (first (filter #(= error-kw (:error %)) records)))
-
 (defn- record-both-axes
-  "Capture BOTH always-on axes across one body — the `:errors` axis
-  (`register-error-listener!`) and the `:events` axis
-  (`register-event-listener!`). Returns `{:errors [...] :events [...]}`.
-
-  Together these two records are the WHOLE of what an off-box shipper receives
-  from a production build: the dev trace surface is gated on
-  `rf.interop/debug-enabled?` and sees nothing here. A silent boundary
-  rejection lives precisely in the gap between them — no record on the
-  `:errors` axis and `:outcome :ok` on the `:events` axis — so a test that
-  reads one axis alone cannot see it."
+  "Capture both ALWAYS-ON axes — `:errors` and `:events` — across one body:
+  the whole of what an off-box shipper receives from a production build."
   [body-fn]
   (let [errors (atom [])
         events (atom [])]
@@ -144,424 +59,164 @@
            (rf.event-emit/unregister-event-listener! ::rec)))
     {:errors @errors :events @events}))
 
+(defn- dispatch-capturing
+  "Dispatch `event` with `opts`; return the always-on axes plus the thrown
+  ex-info, if any."
+  [event opts]
+  (let [ex (atom nil)
+        captured (record-both-axes
+                   #(reset! ex (try (rf/dispatch-sync event opts) nil
+                                    (catch clojure.lang.ExceptionInfo e e))))]
+    (assoc captured :ex @ex)))
+
+(defn- record-of [{:keys [errors]} error-kw]
+  (first (filter #(= error-kw (:error %)) errors)))
+
 (defn- boundary-records [{:keys [errors]}]
   (filterv #(= :rf.error/schema-validation-failure (:error %)) errors))
 
-(defn- event-record-for [{:keys [events]} event-id]
-  (first (filter #(= event-id (:event-id %)) events)))
+(defn- outcome-of [{:keys [events]} event-id]
+  (:outcome (first (filter #(= event-id (:event-id %)) events))))
 
 (def ^:private boundary-record-keys
-  "The CLOSED key set of the always-on boundary-rejection record.
-
-  Pinned rather than sampled: this record egresses to Sentry / Datadog, so a
-  slot added later reaches a shipper whether or not anyone reviewed it. Every
-  member is a framework keyword or a structural identifier — `:event-id` /
-  `:failing-id` / `:schema-id` are all the registered handler's id, not caller
-  data. Widening this set is an EGRESS decision; read
+  "The CLOSED key set of the always-on boundary-rejection record. It egresses
+  to Sentry / Datadog, so widening it is an EGRESS decision: read
   `re-frame.egress-chokepoint-conformance-test`'s allow-list entry first."
   #{:error :where :source :event-id :failing-id :schema-id :frame :recovery :time})
 
-(def ^:private payload-bearing-keys
-  "Slots the RICH DEV TRACE carries that the always-on record must NEVER.
-
-  `:value` / `:received` are the rejected event vector itself; `:explain` is
-  the validator's explanation, which quotes it; `:schema` is the declared form;
-  `:reason` is prose that INTERPOLATES the offending value. At a system
-  boundary that value is attacker-controlled or user-private by definition and
-  may carry secrets in keys the schema never declared, so it is omitted
-  outright rather than scrubbed — no schema-aware redactor can be trusted to
-  have seen an undeclared key."
-  #{:event :value :received :explain :schema :reason})
-
 (defn- db-of [] (rf/app-db-value :rf/default))
 
-;; ===========================================================================
-;; Surface 1 — recordable-coeffect `:schema` is a PRODUCTION hard error
-;; ===========================================================================
+;; ---- surface 1: recordable-coeffect `:schema` is a production hard error --
 
 (deftest supplied-recordable-value-violating-its-schema-throws-in-every-posture
-  (testing "Spec 010:179 — a recordable coeffect SUPPLIED on the
-            dispatch token (the replay-hole shape) is validated against its
-            `reg-cofx` `:schema` before it folds into the handler context. A
-            mismatch throws `:rf.error/cofx-value-invalid` and the handler
-            never runs, in dev AND under `-Dre-frame.debug=false`. This is the
-            durable-ledger contract: an out-of-contract recordable value is
-            corrupt state whatever the build."
-    (let [ran (atom false)]
-      (rf/reg-cofx :prod/positive
-        {:recordable? true :schema [:int {:min 1}]}
-        (fn [] 1))
-      (rf/reg-event :prod/uses-positive
-        {:rf.cofx/requires [:prod/positive]}
-        (fn [{:keys [db]} _]
-          (reset! ran true)
-          {:db (assoc db :folded true)}))
-      (let [records (atom nil)
-            ex      (atom nil)]
-        (reset! records
-                (record-always-on-errors
-                  (fn []
-                    (reset! ex (try (rf/dispatch-sync [:prod/uses-positive]
-                                                      {:rf.cofx {:prod/positive -5}})
-                                    nil
-                                    (catch clojure.lang.ExceptionInfo e e))))))
-        (is (some? @ex)
-            "the dispatch THREW rather than folding the out-of-contract value")
-        (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data @ex)))
-            "the throw is the specified hard error, not a generic failure")
-        (is (= :prod/positive (:rf.cofx/id (ex-data @ex)))
-            "the ex-data names the offending recordable fact")
-        (is (false? @ran)
-            "the handler never ran — the run halted before the fold")
-        (is (nil? (:folded (db-of)))
-            "app-db is untouched: nothing from the halted run committed")
-        (let [err (record-of @records :rf.error/cofx-value-invalid)]
-          (is (some? err)
-              (str "the ALWAYS-ON error record fired. Red here under the gate "
-                   "means recordable-coeffect validation is elided in "
-                   "production, contradicting Spec 010:179 — an "
-                   "operator-grade finding, not a test-spelling problem."))
-          ;; The offending COFX id rides the throw's `ex-data`, asserted above.
-          ;; It is deliberately absent from the always-on record: this category
-          ;; passes the EVENT id as `:failing-id`, and `emit-error-both!` lifts
-          ;; `:failing-id` / `:reason` onto the record only when they differ
-          ;; from `:event-id`. So the record names the dispatch, not the fact.
-          (is (= :prod/uses-positive (:event-id err))
-              "the off-box record attributes the failure to the dispatch")
-          (is (= :rf/default (:frame err))
-              "and to the owning frame, so a shipper can route it"))))))
+  ;; Spec 010:179 — a value SUPPLIED on the dispatch token (the replay-hole
+  ;; shape) is validated before it folds into the handler context
+  (let [ran (atom false)]
+    (rf/reg-cofx :prod/positive {:recordable? true :schema [:int {:min 1}]} (fn [] 1))
+    (rf/reg-event :prod/uses-positive
+      {:rf.cofx/requires [:prod/positive]}
+      (fn [{:keys [db]} _] (reset! ran true) {:db (assoc db :folded true)}))
+    (let [c (dispatch-capturing [:prod/uses-positive] {:rf.cofx {:prod/positive -5}})]
+      (is (= [:rf.error/cofx-value-invalid :prod/positive false nil]
+             [(:rf.error/id (ex-data (:ex c))) (:rf.cofx/id (ex-data (:ex c))) @ran (:folded (db-of))])
+          "the run halted with the specified hard error before the fold")
+      ;; the record names the DISPATCH (the cofx id rides the throw's ex-data)
+      (is (= {:event-id :prod/uses-positive :frame :rf/default}
+             (select-keys (record-of c :rf.error/cofx-value-invalid) [:event-id :frame]))
+          "the always-on record fired; red under the gate means Spec 010:179 is elided"))))
 
-;; ---- an explicit `[:ref ...]` schema redacts on this surface --------------
-;;
-;; Everything else the sensitivity walker feeds is dev-only, behind
-;; `interop/debug-enabled?`; THIS surface is always-on, so a walker that
-;; classified `[:ref ::k]` as walkable-and-flag-free would ship the failing
-;; value verbatim off-box in a PRODUCTION build — on the record an off-box
-;; shipper receives AND in the thrown `ex-data`, which is public error data.
-;;
-;; The reference target is deliberately UNREGISTERED. Real Malli throws
-;; `:malli.core/invalid-ref` on it, and `validate-recordable-value!` FAILS
-;; CLOSED on a throwing validator (`ok?` → false), so the emit is reached and
-;; the redaction decision is made by the walker against the declared schema —
-;; which is exactly the path under test. (Registering the target in Malli's
-;; DEFAULT registry would be a shared-process mutation and is not done here.)
+;; The `[:ref ...]` target is deliberately UNREGISTERED: Malli throws on it, the
+;; recordable check fails closed, and the redaction decision is the walker's
+;; against the declared schema — the path under test. This surface is
+;; always-on, so a walker that treated `:ref` as walkable-and-flag-free would
+;; ship the value off-box in a production build.
 
 (deftest recordable-cofx-with-ref-schema-redacts-off-box-in-every-posture
-  (testing "a recordable coeffect whose `reg-cofx` `:schema` is an
-            explicit `[:ref ...]` names a shape held in a registry the
-            pure-data walker never consults, so a `{:sensitive? true}` slot on
-            that shape is honoured by Malli and INVISIBLE to the walker. The
-            walker therefore fails CLOSED: the value-bearing slots scrub to
-            `:rf/redacted` and `:sensitive? true` is stamped, on BOTH off-box
-            surfaces, in dev AND under `-Dre-frame.debug=false`. Were `:ref`
-            in the walker's `opacity-literal-ops`, every assertion below
-            would ship the secret instead."
-    (rf/reg-cofx :prod/ref-ctx
-      {:recordable? true :schema [:ref :fixture/user]}
-      (fn [] {:token "placeholder"}))
-    (rf/reg-event :prod/uses-ref-ctx
-      {:rf.cofx/requires [:prod/ref-ctx]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [records (atom nil)
-          ex      (atom nil)]
-      (reset! records
-              (record-always-on-errors
-                (fn []
-                  (reset! ex (try (rf/dispatch-sync
-                                    [:prod/uses-ref-ctx]
-                                    {:rf.cofx {:prod/ref-ctx
-                                               {:token "SECRET-REF-TOKEN"}}})
-                                  nil
-                                  (catch clojure.lang.ExceptionInfo e e))))))
-      (is (some? @ex) "the dispatch threw the recordable-value hard error")
-      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data @ex)))
-          "the throw is the specified always-on hard error")
-      (is (= :rf/redacted (:value (ex-data @ex)))
-          "THE THROW'S ex-data REDACTS — this is public error data, and the
-           referenced shape may declare the failing slot sensitive")
-      (is (true? (:sensitive? (ex-data @ex)))
-          "and is stamped :sensitive?, so a consumer can see it was withheld")
-      (is (not (str/includes? (pr-str (ex-data @ex)) "SECRET-REF-TOKEN"))
-          "NO raw recordable value survives anywhere in the thrown ex-data")
-      (let [err (record-of @records :rf.error/cofx-value-invalid)]
-        (is (some? err) "the always-on off-box record fired")
-        ;; The payload slot is NOT lifted onto the always-on record — that
-        ;; record names the dispatch, not the value (the same lifting
-        ;; behaviour the `:rf.cofx/id` comment above describes). So the
-        ;; payload-bearing off-box surface for this category is the THROW's
-        ;; ex-data, asserted above; this is the belt-and-braces sweep.
-        (is (nil? (:value err))
-            "the off-box record carries no payload slot to leak")
-        (is (not (str/includes? (pr-str err) "SECRET-REF-TOKEN"))
-            "no raw recordable value survives anywhere in the off-box record")))))
+  (rf/reg-cofx :prod/ref-ctx {:recordable? true :schema [:ref :fixture/user]}
+    (fn [] {:token "placeholder"}))
+  (rf/reg-event :prod/uses-ref-ctx {:rf.cofx/requires [:prod/ref-ctx]} (fn [{:keys [db]} _] {:db db}))
+  (let [c    (dispatch-capturing [:prod/uses-ref-ctx]
+                                 {:rf.cofx {:prod/ref-ctx {:token "SECRET-REF-TOKEN"}}})
+        data (ex-data (:ex c))
+        err  (record-of c :rf.error/cofx-value-invalid)]
+    (is (= [:rf.error/cofx-value-invalid :rf/redacted true]
+           [(:rf.error/id data) (:value data) (:sensitive? data)])
+        "the throw's ex-data (public error data) redacts and says so")
+    (is (= [true nil false false]
+           [(some? err) (:value err)
+            (str/includes? (pr-str data) "SECRET-REF-TOKEN")
+            (str/includes? (pr-str err) "SECRET-REF-TOKEN")])
+        "no raw value survives in the ex-data or the off-box record")))
 
 (deftest recordable-cofx-with-plain-map-schema-rides-verbatim-control
-  (testing "the CONTROL for the test above, in the same posture. A
-            plain walkable `[:map ...]` schema declaring NO sensitive slot is
-            fully introspectable, so its failing value rides VERBATIM and is
-            not stamped. Without this, 'everything redacts' would pass the test
-            above just as well as correct redaction does."
-    (rf/reg-cofx :prod/plain-ctx
-      {:recordable? true :schema [:map [:n :int]]}
-      (fn [] {:n 1}))
-    (rf/reg-event :prod/uses-plain-ctx
-      {:rf.cofx/requires [:prod/plain-ctx]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [ex (atom nil)]
-      (record-always-on-errors
-        (fn []
-          (reset! ex (try (rf/dispatch-sync
-                            [:prod/uses-plain-ctx]
-                            {:rf.cofx {:prod/plain-ctx {:n "not-an-int"}}})
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e)))))
-      (is (some? @ex) "the control dispatch threw for the same reason")
-      (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data @ex))))
-      (is (= {:n "not-an-int"} (:value (ex-data @ex)))
-          "a walkable, non-sensitive schema's failing value rides verbatim —
-           the diagnostic stays useful")
-      (is (not (contains? (ex-data @ex) :sensitive?))
-          "and carries no :sensitive? stamp"))))
+  ;; the control for the test above: a walkable, non-sensitive schema's
+  ;; failing value rides verbatim and unstamped — 'everything redacts' fails here
+  (rf/reg-cofx :prod/plain-ctx {:recordable? true :schema [:map [:n :int]]} (fn [] {:n 1}))
+  (rf/reg-event :prod/uses-plain-ctx {:rf.cofx/requires [:prod/plain-ctx]} (fn [{:keys [db]} _] {:db db}))
+  (let [data (ex-data (:ex (dispatch-capturing [:prod/uses-plain-ctx]
+                                               {:rf.cofx {:prod/plain-ctx {:n "not-an-int"}}})))]
+    (is (= [:rf.error/cofx-value-invalid {:n "not-an-int"} false]
+           [(:rf.error/id data) (:value data) (contains? data :sensitive?)]))))
 
 (deftest conforming-recordable-value-still-folds-in-every-posture
-  (testing "the negative control for surface 1. A CONFORMING
-            supplied value passes the always-on check and folds normally, so
-            the assertion above is about the schema and not about recordable
-            coeffects being broken outright."
-    (let [seen (atom nil)]
-      (rf/reg-cofx :prod/positive
-        {:recordable? true :schema [:int {:min 1}]}
-        (fn [] 1))
-      (rf/reg-event :prod/uses-positive
-        {:rf.cofx/requires [:prod/positive]}
-        (fn [{:keys [db prod/positive]} _]
-          (reset! seen positive)
-          {:db (assoc db :folded positive)}))
-      (rf/dispatch-sync [:prod/uses-positive] {:rf.cofx {:prod/positive 7}})
-      (is (= 7 @seen) "the conforming supplied value reached the handler")
-      (is (= 7 (:folded (db-of))) "and committed to app-db"))))
+  (rf/reg-cofx :prod/positive {:recordable? true :schema [:int {:min 1}]} (fn [] 1))
+  (rf/reg-event :prod/uses-positive
+    {:rf.cofx/requires [:prod/positive]}
+    (fn [{:keys [db prod/positive]} _] {:db (assoc db :folded positive)}))
+  (rf/dispatch-sync [:prod/uses-positive] {:rf.cofx {:prod/positive 7}})
+  (is (= 7 (:folded (db-of)))))
 
 (deftest generated-recordable-value-violating-its-schema-throws-in-every-posture
-  (testing "Spec 010:165 — the same hard error on the GENERATED
-            arm. A generator-backed recordable fact runs at processing-start
-            and its produced value is validated BEFORE the write-back into the
-            durable `:rf.cofx` record, so a bad generator cannot poison the
-            epoch ledger in production any more than in dev."
-    (let [ran (atom false)]
-      (rf/reg-cofx :prod/generated-positive
-        {:recordable? true :schema [:int {:min 1}]}
-        (fn [] -5))                                  ;; violates its own schema
-      (rf/reg-event :prod/uses-generated
-        {:rf.cofx/requires [:prod/generated-positive]}
-        (fn [_ _] (reset! ran true) {}))
-      (let [records (atom nil)
-            ex      (atom nil)]
-        (reset! records
-                (record-always-on-errors
-                  (fn []
-                    (reset! ex (try (rf/dispatch-sync [:prod/uses-generated])
-                                    nil
-                                    (catch clojure.lang.ExceptionInfo e e))))))
-        (is (some? @ex) "the generated mismatch threw")
-        (is (= :rf.error/cofx-value-invalid (:rf.error/id (ex-data @ex))))
-        (is (false? @ran) "the handler never ran")
-        (is (some? (record-of @records :rf.error/cofx-value-invalid))
-            "the always-on error record fired for the generated arm too")))))
+  ;; Spec 010:165 — a generated value is validated before the write-back into
+  ;; the durable :rf.cofx record
+  (let [ran (atom false)]
+    (rf/reg-cofx :prod/generated-positive {:recordable? true :schema [:int {:min 1}]} (fn [] -5))
+    (rf/reg-event :prod/uses-generated
+      {:rf.cofx/requires [:prod/generated-positive]}
+      (fn [_ _] (reset! ran true) {}))
+    (let [c (dispatch-capturing [:prod/uses-generated] {})]
+      (is (= [:rf.error/cofx-value-invalid false true]
+             [(:rf.error/id (ex-data (:ex c))) @ran (some? (record-of c :rf.error/cofx-value-invalid))])))))
 
-;; ===========================================================================
-;; Surface 2 — `:boundary? true` runs even when global validation is
-;;             elided
-;; ===========================================================================
+;; ---- surface 2: `:boundary? true` runs, and reports, in every posture ----
 
-;; ===========================================================================
-;; Surface 2, second half — the rejection is OBSERVABLE, and says so truthfully
-;; ===========================================================================
+(defn- reg-boundary-handler! [calls]
+  (rf/reg-event :prod/boundary
+    {:schema [:cat [:= :prod/boundary] :int] :boundary? true}
+    (fn [{:keys [db]} [_ n]] (swap! calls inc) {:db (assoc db :n n)})))
 
 (deftest at-boundary-rejection-fans-one-structural-record-in-every-posture
-  (testing "the refusal reaches an off-box shipper. `rf.trace/emit-error!`
-            sits behind `rf.interop/debug-enabled?`, so as a boundary
-            rejection's only report it would leave an opt-in production
-            security gate invisible to the person who opted in.
-
-            The rejection fans exactly ONE always-on record. `EXACTLY ONE` is
-            load-bearing in the DEV arm of this posture-independent deftest:
-            dev refuses in step-1 and production refuses inside the boundary
-            arm, and both routes converge on a single emit site in the
-            router tail, so neither posture can double-report a rejection."
-    (let [calls (atom 0)]
-      (rf/reg-event :prod/boundary
-        {:schema    [:cat [:= :prod/boundary] :int]
-         :boundary? true}
-        (fn [{:keys [db]} [_ n]]
-          (swap! calls inc)
-          {:db (assoc db :n n)}))
-      (let [captured (record-both-axes
-                       #(rf/dispatch-sync [:prod/boundary "not-an-int"]))
-            records  (boundary-records captured)
-            rec      (first records)]
-        (is (zero? @calls)
-            "precondition: the handler was skipped (the security half)")
-        (is (nil? (:n (db-of)))
-            "precondition: nothing committed to app-db")
-        (is (= 1 (count records))
-            (str "EXACTLY ONE always-on boundary record. Red at 0 means the "
-                 "rejection is silent in this posture. "
-                 "Red above 1 means the dev and production "
-                 "enforcement routes have both emitted, which the single "
-                 "router-tail emit site exists to prevent."))
-        (is (= :event (:where rec))
-            "`:where :event` — the slot the SSR default projector reads to
-             answer 400 rather than the locked generic 500")
-        (is (= :boundary (:source rec))
-            "`:source :boundary` — the discriminator separating this
-             production-reachable arm from the dev-only `validate-*!` arms of
-             the same category")
-        (is (= :prod/boundary (:event-id rec))
-            "attributed to the dispatch, so a shipper can count per-event")
-        (is (= :prod/boundary (:failing-id rec)))
-        (is (= :prod/boundary (:schema-id rec)))
-        (is (= :rf/default (:frame rec))
-            "and to the owning frame, so a multi-frame server host can route
-             it per-request")
-        (is (= :no-recovery (:recovery rec)))
-        (is (number? (:time rec)))
-        (testing "and it settles `:outcome :rejected`. The handler produces no
-                  `:db`, so a cascade reaching its ordinary tail would settle
-                  `:ok`, and an off-box shipper watching the always-on
-                  `:events` stream would see a dispatch that worked. Neither
-                  other non-`:ok` value fits: `:error` means the interceptor
-                  chain threw (it did not) and `:rolled-back` means a candidate
-                  state transition was refused before install (no candidate
-                  ever existed — the handler never ran)."
-          (let [evt (event-record-for captured :prod/boundary)]
-            (is (some? evt) "the always-on `:events` record fired for the dispatch")
-            (is (= :rejected (:outcome evt))
-                (str "`:outcome :rejected`. Red with `:ok` means production "
-                     "monitoring is being told a refused untrusted payload "
-                     "settled cleanly — it cannot separate hostile input from a "
-                     "healthy dispatch."))))))))
-
-(deftest at-boundary-rejection-record-is-structural-only-in-every-posture
-  (testing "the EGRESS contract. Whatever this record carries ships
-            off-box. A schema failure's natural detail is THE VALUE THAT
-            FAILED, and at a system boundary (an HTTP response, a websocket
-            frame, a `postMessage`, a query string) that value is
-            attacker-controlled or user-private by definition — it can carry
-            secrets in keys the declared schema never anticipated, so no
-            schema-aware redactor can be trusted to have seen them.
-
-            Structural-only is therefore STRICTER here than the EP-0015 scrub
-            the safe-redirect / route-miss records use: there the untrusted URL
-            IS the observability payload and is redacted in place; here every
-            payload-derived slot is omitted OUTRIGHT and no scrub applies.
-
-            The key set is pinned CLOSED, not sampled. A slot added later
-            reaches a shipper whether or not anyone reviewed it, and this
-            assertion is the review."
-    (rf/reg-event :prod/boundary
-      {:schema    [:cat [:= :prod/boundary] :int]
-       :boundary? true}
-      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (let [secret   "sentinel-secret-value"
-          captured (record-both-axes
-                     #(rf/dispatch-sync [:prod/boundary {:password secret}]))
-          rec      (first (boundary-records captured))]
-      (is (some? rec) "precondition: the rejection fanned its record")
-      (is (= boundary-record-keys (set (keys rec)))
-          (str "the key set is CLOSED. A NEW slot here is an egress decision: "
-               "read the `re-frame.router` entry on "
-               "`egress-chokepoint-conformance-test`'s structural-only "
-               "allow-list before widening it."))
-      (is (empty? (set/intersection payload-bearing-keys (set (keys rec))))
-          (str "no payload-bearing slot rides the always-on record — the "
-               "event vector, `:value`, `:received`, `:explain`, the schema "
-               "form and the interpolated `:reason` are DEV-TRACE ONLY."))
-      (is (not (str/includes? (pr-str rec) secret))
-          (str "and the rejected payload's own content appears NOWHERE in the "
-               "record, by any route — not in a `:reason` sentence, not in an "
-               "`:explain` map, not stringified into an identifier.")))))
+  ;; dev refuses in step-1 and production in the boundary arm; both converge on
+  ;; one router-tail emit, so EXACTLY ONE record in either posture. The record
+  ;; is STRUCTURAL-ONLY: a boundary payload is attacker-controlled or private
+  ;; by definition, so every payload-derived slot is omitted outright.
+  (let [calls    (atom 0)
+        secret   "sentinel-secret-value"
+        _        (reg-boundary-handler! calls)
+        captured (record-both-axes #(rf/dispatch-sync [:prod/boundary {:password secret}]))
+        records  (boundary-records captured)
+        rec      (first records)]
+    (is (= [0 nil 1] [@calls (:n (db-of)) (count records)])
+        "the handler was skipped, nothing committed, and exactly one record fanned")
+    (is (= {:where :event :source :boundary :event-id :prod/boundary :failing-id :prod/boundary
+            :schema-id :prod/boundary :frame :rf/default :recovery :no-recovery}
+           (dissoc rec :error :time))
+        ":where :event (the SSR projector answers 400) and :source :boundary")
+    (is (= boundary-record-keys (set (keys rec))) "the key set is CLOSED")
+    (is (number? (:time rec)))
+    (is (not (str/includes? (pr-str rec) secret))
+        "the rejected payload appears nowhere in the record, by any route")
+    (is (= :rejected (outcome-of captured :prod/boundary))
+        "not :ok — monitoring must separate a refused payload from a healthy dispatch")))
 
 (deftest at-boundary-pass-emits-no-record-and-settles-ok-in-every-posture
-  (testing "the negative control for both halves. The boundary
-            interceptor is not simply breaking every dispatch: a CONFORMING
-            payload flows through and the handler runs exactly once, in both
-            postures. Nor is the boundary record simply stamped on every
-            dispatch through a guarded handler: a CONFORMING payload fans no
-            boundary record and settles `:ok`, so a shipper's `:rejected`
-            count is a count of real refusals and its silence is real
-            silence."
-    (let [calls (atom 0)]
-      (rf/reg-event :prod/boundary
-        {:schema    [:cat [:= :prod/boundary] :int]
-         :boundary? true}
-        (fn [{:keys [db]} [_ n]]
-          (swap! calls inc)
-          {:db (assoc db :n n)}))
-      (let [captured (record-both-axes #(rf/dispatch-sync [:prod/boundary 42]))]
-        (is (= 1 @calls) "the conforming payload reached the handler")
-        (is (= 42 (:n (db-of))) "and committed")
-        (is (empty? (boundary-records captured))
-            "a passing payload fans NO always-on boundary record")
-        (is (= :ok (:outcome (event-record-for captured :prod/boundary)))
-            "and settles `:ok`")))))
+  (let [calls    (atom 0)
+        _        (reg-boundary-handler! calls)
+        captured (record-both-axes #(rf/dispatch-sync [:prod/boundary 42]))]
+    (is (= [1 42 [] :ok]
+           [@calls (:n (db-of)) (boundary-records captured) (outcome-of captured :prod/boundary)])
+        "a conforming payload runs once, fans no record, and settles :ok")))
 
 (deftest unguarded-schema-refusal-is-not-a-boundary-rejection-in-every-posture
-  (testing "the always-on report's NARROWNESS, pinned. A handler carrying
-            a `:schema` but NOT declaring `:boundary? true` is a
-            DEV-ONLY validation surface (Spec 010 §Production builds):
-            in dev step-1 refuses it, in production it is elided
-            and the handler simply runs. Neither posture may fan the always-on
-            record or report `:rejected` — that would invent a production
-            signal which, for this handler, cannot exist.
+  ;; a :schema without :boundary? true is dev-only validation: neither posture
+  ;; may fan the always-on record or report :rejected
+  (rf/reg-event :prod/unguarded-obs
+    {:schema [:cat [:= :prod/unguarded-obs] :int]}
+    (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+  (let [captured (record-both-axes #(rf/dispatch-sync [:prod/unguarded-obs "not-an-int"]))]
+    (is (empty? (boundary-records captured)))
+    (is (not= :rejected (outcome-of captured :prod/unguarded-obs)))))
 
-            Posture-independent by construction: it asserts only the two facts
-            that hold either way. WHETHER the handler ran differs by posture
-            and is the `^:prod-gate` discriminator's business, not this one's."
-    (rf/reg-event :prod/unguarded-obs
-      {:schema [:cat [:= :prod/unguarded-obs] :int]}      ;; no at-boundary ref
-      (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-    (let [captured (record-both-axes
-                     #(rf/dispatch-sync [:prod/unguarded-obs "not-an-int"]))]
-      (is (empty? (boundary-records captured))
-          (str "no always-on record: the boundary interceptor is not in this "
-               "handler's chain, so there is no production gate to report on."))
-      (is (not= :rejected (:outcome (event-record-for captured
-                                                      :prod/unguarded-obs)))
-          "and no `:rejected` outcome — `:rejected` means a BOUNDARY refusal"))))
-
-;; ===========================================================================
-;; The discriminator — gate lane ONLY
-;; ===========================================================================
+;; ---- the discriminator — gate lane ONLY ----------------------------------
 
 (deftest ^:prod-gate ordinary-event-schema-validation-really-is-elided-here
-  (testing "the control that stops every posture-independent
-            assertion above from passing vacuously.
-
-            This deftest runs ONLY in the `jvm-core-prod-gate` lane (the
-            default `:test` alias excludes `^:prod-gate`), so it is a
-            statement about the JVM it is running in. It asserts the NEGATIVE:
-            a handler carrying the IDENTICAL `:schema` but NOT declaring
-            `:boundary? true` ACCEPTS a non-conforming event here,
-            because ordinary step-1 validation has been elided by the load-time
-            gate exactly as Spec 010 §Validation order says it should be.
-
-            That is what makes `at-boundary-rejection-fans-one-structural-record-
-            in-every-posture` meaningful under the gate: the rejection cannot be
-            step-1 doing the work, because step-1 demonstrably is not running
-            in this JVM."
-    (is (false? rf.interop/debug-enabled?)
-        "precondition: this JVM really is under the production gate")
-    (let [calls (atom 0)]
-      (rf/reg-event :prod/unguarded
-        {:schema [:cat [:= :prod/unguarded] :int]}      ;; no at-boundary ref
-        (fn [{:keys [db]} [_ n]]
-          (swap! calls inc)
-          {:db (assoc db :n n)}))
-      (rf/dispatch-sync [:prod/unguarded "not-an-int"])
-      (is (= 1 @calls)
-          (str "under the gate an unguarded handler runs on a non-conforming "
-               "event — dev-time step-1 validation is elided. If this is RED, "
-               "step-1 validation is still running in this JVM and the "
-               "at-boundary assertions above are not proving what they claim."))
-      (is (= "not-an-int" (:n (db-of)))
-          "the unvalidated payload committed, as the elision contract implies"))))
+  ;; an unguarded handler with the identical :schema ACCEPTS a bad event in this
+  ;; JVM, so the boundary rejection above cannot be step-1 doing the work
+  (is (false? rf.interop/debug-enabled?) "precondition: the real production gate")
+  (let [calls (atom 0)]
+    (rf/reg-event :prod/unguarded
+      {:schema [:cat [:= :prod/unguarded] :int]}
+      (fn [{:keys [db]} [_ n]] (swap! calls inc) {:db (assoc db :n n)}))
+    (rf/dispatch-sync [:prod/unguarded "not-an-int"])
+    (is (= [1 "not-an-int"] [@calls (:n (db-of))])
+        "red means step-1 validation still runs here and the boundary tests prove nothing")))
