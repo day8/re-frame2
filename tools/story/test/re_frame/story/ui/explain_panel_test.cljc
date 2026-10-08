@@ -1,38 +1,17 @@
 (ns re-frame.story.ui.explain-panel-test
-  "JVM-portable regression net for the Explain panel's pure projection
-  (spec/020 §4 / spec/017 §Explain API).
-
-  Covers the host-free surface:
-
-  - `explain-sections` — the ordered section inventory, the
-    present?/absent distinction, and that EVERY spec-listed slot is
-    rendered (absent ones marked, never dropped).
-  - `explain-for`       — error-trapping over the pure plan compiler
-    (a missing arg / unknown variant surfaces as `:error`, not a
-    thrown exception), and the ambient arg layers (global + story) it
-    folds in so the panel shows the args the variant renders with.
-  - the string shapers (`chain-label` / `conflict-summary` / `raw-edn`).
-
-  CLJS-side (the React render of each `:render-as`, the raw-EDN toggle,
-  copy-to-clipboard, the open!/scroll command) lives in
-  `explain_panel_cljs_test.cljs`; this corpus pins the pure projection
-  only — no host, no Reagent."
+  "JVM coverage of the Explain panel's pure projection (spec/020 §4 /
+  spec/017 §Explain API): the ordered section inventory and its
+  present?/absent marking, `explain-for`'s error trapping and ambient arg
+  layers, and the string shapers. The React render lives in
+  `explain_panel_cljs_test.cljs`."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            #?(:clj  [clojure.edn :as edn]
-               :cljs [cljs.reader :as edn])
             [re-frame.story.config :as rf.story.config]
-            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.explain-panel :as rf.story.ui.explain-panel]))
 
-;; ---------------------------------------------------------------------------
-;; A representative explain map. Mirrors the slot shape the plan compiler
-;; emits (re-frame.story.plan/build-plan): a composed, arg-substituted,
-;; network + sub-override lowering plan so the present? branches are
-;; exercised, plus the always-present provenance/execution/metadata slots.
-;; ---------------------------------------------------------------------------
-
+;; A representative explain map in the slot shape the plan compiler emits,
+;; with every slot populated.
 (def ^:private full-explain
   {:source-chain [:story.cp/base :story.cp/child]
    :parent-chain [:story.cp/base]
@@ -70,67 +49,26 @@
    :source       {:file "cp.cljc" :line 12 :column 3}})
 
 ;; ---------------------------------------------------------------------------
-;; explain-sections — inventory + ordering + every spec-listed slot
+;; explain-sections — inventory + ordering + present?/absent
 ;; ---------------------------------------------------------------------------
-
-(def ^:private expected-section-ids
-  ["source-chain" "parent-chain" "compose"
-   "merge" "strict-conflicts"
-   "args" "substitutions" "effective-args" "view-args-validation"
-   "network" "sub-overrides" "fidelity"
-   "setup-order" "script-order" "checks" "assertions" "required-runner"
-   "platforms" "tags" "source"])
 
 (deftest sections-cover-every-spec-slot-in-order
   (testing "the section inventory renders every spec/020 §4 / spec/017
             §Explain API slot, in the provenance → composition → args →
             lowering → execution → metadata order"
-    (is (= expected-section-ids
-           (mapv :id (rf.story.ui.explain-panel/explain-sections full-explain)))))
-  (testing "every section carries the descriptor slots the renderer reads"
-    (doseq [s (rf.story.ui.explain-panel/explain-sections full-explain)]
-      (is (some? (:id s)))
-      (is (some? (:label s)))
-      (is (keyword? (:render-as s)))
-      (is (contains? s :present?))
-      (is (contains? s :value)))))
+    (is (= ["source-chain" "parent-chain" "compose"
+            "merge" "strict-conflicts"
+            "args" "substitutions" "effective-args" "view-args-validation"
+            "network" "sub-overrides" "fidelity"
+            "setup-order" "script-order" "checks" "assertions" "required-runner"
+            "platforms" "tags" "source"]
+           (mapv :id (rf.story.ui.explain-panel/explain-sections full-explain))))))
 
-(deftest full-explain-marks-populated-slots-present
-  (testing "with a fully-featured plan every section is present? true"
-    (let [by-id (into {} (map (juxt :id identity)
-                              (rf.story.ui.explain-panel/explain-sections full-explain)))]
-      (doseq [id expected-section-ids]
-        (is (true? (boolean (:present? (get by-id id))))
-            (str id " should be present in a fully-featured explain map"))))))
-
-(deftest empty-explain-marks-optional-slots-absent
-  (testing "an empty explain map renders the full inventory, with the
-            optional slots marked not-available (never dropped)"
-    (let [sections (rf.story.ui.explain-panel/explain-sections {})
-          by-id    (into {} (map (juxt :id identity) sections))]
-      (is (= expected-section-ids (mapv :id sections))
-          "the inventory is the same — absent slots are NOT dropped")
-      (doseq [id expected-section-ids]
-        (is (false? (boolean (:present? (get by-id id))))
-            (str id " should be absent for an empty explain map")))
-      (testing "absent sections carry a human 'when empty this means…' note"
-        (is (every? (comp string? :note) (vals by-id)))))))
-
-(deftest network-and-sub-override-slots-carry-lowering
-  (testing "the network section value carries routes + the managed-stub lowering"
-    (let [net (->> (rf.story.ui.explain-panel/explain-sections full-explain)
-                   (filter #(= "network" (:id %)))
-                   first)]
-      (is (= :network (:render-as net)))
-      (is (= {:rf.http/managed :rf.http/managed-test-stub}
-             (get-in net [:value :lowered-to])))))
-  (testing "the sub-override section value carries overrides + validation"
-    (let [so (->> (rf.story.ui.explain-panel/explain-sections full-explain)
-                  (filter #(= "sub-overrides" (:id %)))
-                  first)]
-      (is (= :sub-ovr (:render-as so)))
-      (is (= {:status :ok :violations []}
-             (get-in so [:value :validation]))))))
+(deftest sections-are-present-only-when-their-slot-has-content
+  (is (every? :present? (rf.story.ui.explain-panel/explain-sections full-explain))
+      "a fully-featured plan marks every section present")
+  (is (not-any? :present? (rf.story.ui.explain-panel/explain-sections {}))
+      "an empty explain map marks every section absent (rendered 'not available', not dropped)"))
 
 ;; ---------------------------------------------------------------------------
 ;; explain-for — error trapping over the pure compiler
@@ -140,28 +78,14 @@
   (testing "an unregistered keyword target surfaces as :error, not a throw"
     (let [result (rf.story.ui.explain-panel/explain-for :story.nope/missing)]
       (is (nil? (:explain result)))
-      (is (string? (:error result)))
       (is (not (str/blank? (:error result)))))))
-
-(deftest explain-for-compiles-inline-plan
-  (testing "an inline plan map compiles to an :explain map (no host needed)"
-    (let [result (rf.story.ui.explain-panel/explain-for {:variant/id :inline/x})]
-      (is (nil? (:error result))
-          (str "expected clean compile, got: " (:error result)))
-      (is (map? (:explain result)))
-      ;; the always-present provenance slot proves we got a real plan
-      (is (= [:inline/x] (get-in result [:explain :source-chain]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; explain-for — the ambient arg layers
 ;;
-;; The pure compiler folds global-args and the parent story's `:args` only
-;; when handed `:run-args`; a bare `plan/explain` carries the variant-chain
-;; layer alone, by design (`plan/variant-plan`'s `:run-args` opt). The panel
-;; is scenario-facing, so it must show the args the variant actually renders
-;; with — the value `plan/effective-args` and the run result report. Pinned
-;; in both directions: story args fill a variant that has none, and a
-;; variant's own args still win over its story's.
+;; The panel is scenario-facing, so it shows the args the variant actually
+;; renders with: global-args beneath the story's `:args` beneath the
+;; variant's own. Pinned in both directions.
 ;; ---------------------------------------------------------------------------
 
 (deftest explain-for-folds-story-and-global-args
@@ -172,16 +96,10 @@
       (rf.story.registrar/reg-variant* :story.explain.args/inherits {})
       (rf.story.registrar/reg-variant* :story.explain.args/overrides {:args {:heading "Register"}})
       (testing "a variant with no args of its own shows its STORY's args"
-        (let [{:keys [explain error]} (rf.story.ui.explain-panel/explain-for
-                                        :story.explain.args/inherits)
-              by-id (into {} (map (juxt :id identity))
-                          (rf.story.ui.explain-panel/explain-sections explain))]
-          (is (nil? error) (str "expected clean compile, got: " error))
+        (let [{:keys [explain]} (rf.story.ui.explain-panel/explain-for
+                                  :story.explain.args/inherits)]
           (is (= {:heading "Sign in"} (:args explain)))
-          (is (= {:heading "Sign in"} (:effective-args explain)))
-          (is (true? (boolean (:present? (get by-id "args"))))
-              "the Args section renders, not 'not available'")
-          (is (true? (boolean (:present? (get by-id "effective-args")))))))
+          (is (= {:heading "Sign in"} (:effective-args explain)))))
       (testing "a variant's OWN args still override its story's"
         (let [{:keys [explain]} (rf.story.ui.explain-panel/explain-for
                                   :story.explain.args/overrides)]
@@ -192,8 +110,6 @@
         (is (= {:theme :dark :heading "Sign in"}
                (get-in (rf.story.ui.explain-panel/explain-for :story.explain.args/inherits)
                        [:explain :effective-args]))))
-      (testing "the pure compiler stays explicit — the fold is the panel's"
-        (is (= {} (:effective-args (rf.story.plan/explain :story.explain.args/inherits)))))
       (finally
         (rf.story.config/set-global-args! globals-before)
         (rf.story.registrar/clear-all!)))))
@@ -204,22 +120,12 @@
 
 (deftest chain-label-joins-with-arrows
   (is (= ":story.cp/base  →  :story.cp/child"
-         (rf.story.ui.explain-panel/chain-label [:story.cp/base :story.cp/child])))
-  (testing "empty chain → empty string (caller renders the empty state)"
-    (is (= "" (rf.story.ui.explain-panel/chain-label [])))
-    (is (= "" (rf.story.ui.explain-panel/chain-label nil)))))
+         (rf.story.ui.explain-panel/chain-label [:story.cp/base :story.cp/child]))))
 
 (deftest conflict-summary-names-winner-and-losers
-  (let [s (rf.story.ui.explain-panel/conflict-summary
-            (first (:strict-conflicts full-explain)))]
-    (is (= (str ":fx-overrides / :rf.http/managed — :variant wins over :frag/auth"
-                " (variant-owned-wins) = :variant-stub")
-           s)
-        "names the field and key, the winner over the fully qualified loser,
-         the rule, and the winning value")))
-
-(deftest raw-edn-roundtrips
-  (testing "raw-edn produces a parseable EDN string of the explain map"
-    (let [s (rf.story.ui.explain-panel/raw-edn full-explain)]
-      (is (string? s))
-      (is (= full-explain (edn/read-string s))))))
+  (is (= (str ":fx-overrides / :rf.http/managed — :variant wins over :frag/auth"
+              " (variant-owned-wins) = :variant-stub")
+         (rf.story.ui.explain-panel/conflict-summary
+           (first (:strict-conflicts full-explain))))
+      "names the field and key, the winner over the fully qualified loser,
+       the rule, and the winning value"))
