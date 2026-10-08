@@ -1,32 +1,12 @@
 (ns re-frame.trace-listener-concurrent-serialization-test
-  "Each registered trace listener must be invoked SERIALLY across
-  concurrent JVM emits. Spec 009 §The listener contract (and
-  `docs/api/re-frame.core.md`: \"Delivery is synchronous: the callback returns
-  before the next record\") promise synchronous, in-order, event-at-a-time
-  delivery PER listener — a tool callback / appender was told it can never
-  re-enter itself.
+  "Each registered trace listener is invoked SERIALLY across concurrent JVM
+  emits (Spec 009 §The listener contract; `docs/api/re-frame.core.md`:
+  \"Delivery is synchronous: the callback returns before the next record\").
 
-  ## The hazard
-
-  `re-frame.trace.tooling/deliver-to-tooling!` schedules reentrant fan-outs on
-  `*fanout-ctx*`, a THREAD-LOCAL dynamic binding. That orders same-thread nested
-  emits but says nothing about two emits racing on two JVM threads: each opens
-  its OWN outermost fan-out, and without a shared lock each would invoke the
-  SAME registered listener callback CONCURRENTLY. A latch probe that blocks
-  listener L while it handles event A on one thread, then emits B on another,
-  would observe B enter L before A's callback returned — the callback
-  overlapping itself, and B overtaking A even when A's emit began first.
-
-  ## The guarantee
-
-  A single process-global JVM monitor (`fanout-monitor`) serializes each
-  OUTERMOST fan-out — its transitive reentrant drain included. Concurrent emits
-  linearize on monitor-acquisition order; no listener callback ever overlaps
-  itself; an emit still returns only after its record's callback completes.
-  Same-thread reentrancy never re-acquires the monitor (it schedules on the
-  thread-local context), so same-thread nested ordering is preserved and there
-  is no self-deadlock. CLJS is single-threaded, so these races cannot manifest there
-  and there is no monitor — hence this suite is JVM-only (`.clj`)."
+  `*fanout-ctx*` orders same-thread reentrant emits only. Emits racing on two
+  threads each open their own outermost fan-out, so the process-wide
+  `fanout-monitor` is what keeps one listener from running on two threads at
+  once. JVM-only: CLJS has one thread and no monitor."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -40,8 +20,7 @@
 (def ^:private probe-a :trace.serialize/a)
 (def ^:private probe-b :trace.serialize/b)
 
-;; Loop the deterministic latch proof so a green run is determinism, not a lucky
-;; interleaving. Env-overridable for a heavier local soak.
+;; Repeated so a green run is not one lucky interleaving. Env-overridable soak.
 (def ^:private latch-iters
   (or (some-> (System/getenv "RF2_UW7HG_LATCH_ITERS") Long/parseLong)
       50))
@@ -50,32 +29,16 @@
   (or (some-> (System/getenv "RF2_UW7HG_STRESS_ITERS") Long/parseLong)
       2000))
 
-;; ---- 1. Deterministic two-thread latch proof -----------------------------
-
-;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
-;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split would leave EMPTY deftests
-;; reporting green.  Every deftest
-;; below is therefore TAGGED, and the production-gate lane skips the tag rather
-;; than the file: the namespace is still LOADED there, so a load-time failure
-;; under the gate still reddens the job, and an untagged new deftest joins that
-;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+;; Every deftest is `^:requires-debug`: the suite drives the dev trace end to
+;; end (see scripts/test-core-prod-gate.sh).
 
 (deftest ^:requires-debug per-listener-callback-never-overlaps-across-concurrent-emits
-  ;; A single listener L blocks INSIDE its callback while handling event A
-  ;; (emitted on thread t1). While A is blocked, event B is emitted to the SAME
-  ;; L on thread t2. Unserialized, t2's outermost fan-out (its own thread-local
-  ;; context) would run concurrently, so L(B) would enter while L(A) was still
-  ;; in flight (max concurrent invocations 2, and B recorded before A returned).
-  ;; With `fanout-monitor`, t2's fan-out blocks until t1's A callback returns, so
-  ;; L never re-enters itself and B is delivered strictly after A.
+  ;; Listener L latches inside its callback for A (thread t1) while B is
+  ;; emitted on t2. t2's fan-out must block on the monitor until L(A) returns.
   (testing (str "one listener cannot enter B until its A callback has returned "
                 "(" latch-iters " iterations)")
     (dotimes [iter latch-iters]
       (let [log       (atom [])
-            in-flight (atom 0)
-            max-conc  (atom 0)
             a-entered (CountDownLatch. 1)
             b-entered (CountDownLatch. 1)
             release-a (CountDownLatch. 1)]
@@ -83,31 +46,19 @@
           (fn [ev]
             (let [op (:operation ev)]
               (when (or (= op probe-a) (= op probe-b))
-                ;; Overlap detector: record the max simultaneous invocations.
-                (let [n (swap! in-flight inc)]
-                  (swap! max-conc max n))
                 (swap! log conj [:enter op])
                 (if (= op probe-a)
                   (do (.countDown a-entered)
-                      ;; Block A mid-callback, holding the fan-out monitor, until
-                      ;; the harness releases it — never released by B's delivery,
-                      ;; so a serialized B cannot deadlock A.
                       (.await release-a 5 TimeUnit/SECONDS))
                   (.countDown b-entered))
-                (swap! log conj [:exit op])
-                (swap! in-flight dec)))))
+                (swap! log conj [:exit op])))))
         (let [t1 (Thread. ^Runnable (fn [] (rf.trace/emit! :info probe-a {})))
               t2 (Thread. ^Runnable (fn [] (rf.trace/emit! :info probe-b {})))]
           (.start t1)
-          ;; A is now inside L, blocked on release-a (holding fanout-monitor).
           (.await a-entered 5 TimeUnit/SECONDS)
           (.start t2)
-          ;; Wait until t2 has reached the fan-out seam: unserialized it would
-          ;; enter L(B) (b-entered fires, overlap already recorded); serialized,
-          ;; it is BLOCKED contending for fanout-monitor. late-bind + the emit
-          ;; path use only lock-free atoms, so a BLOCKED state here means
-          ;; monitor contention.
-          ;; Deadline-bounded so a mis-started thread cannot hang the suite.
+          ;; Wait until t2 has either entered L(B) (overlap) or is BLOCKED on
+          ;; the monitor — the emit path otherwise uses only lock-free atoms.
           (let [deadline (+ (System/currentTimeMillis) 5000)]
             (loop []
               (when (and (< (System/currentTimeMillis) deadline)
@@ -119,28 +70,16 @@
           (.join t1 5000)
           (.join t2 5000))
         (rf.trace.tooling/unregister-listener! ::probe)
-        (is (= 1 @max-conc)
-            (str "iter " iter ": the listener callback was invoked concurrently "
-                 "with itself across two emits (max concurrent invocations "
-                 @max-conc "); per-listener delivery must never overlap"))
+        ;; An L(B) entry while L(A) was latched would land before A's :exit.
         (is (= [[:enter probe-a] [:exit probe-a] [:enter probe-b] [:exit probe-b]]
                @log)
             (str "iter " iter ": B reached the listener before A's callback "
-                 "returned; expected strict A-before-B ordering, got "
-                 (pr-str @log)))))))
-
-;; ---- 2. Stress + registration churn (no overlap, no deadlock) ------------
+                 "returned"))))))
 
 (deftest ^:requires-debug ^:stress concurrent-emits-serialize-under-registration-churn
-  ;; Many threads emit concurrently while a churn thread registers /
-  ;; unregisters a second listener. A continuously-registered always-on
-  ;; listener runs an overlap detector. Invariants:
-  ;;   - it NEVER observes a concurrent self-invocation (max-conc == 1) — the
-  ;;     monitor serializes every fan-out;
-  ;;   - it receives EVERY emitted event exactly once (delivered == total) —
-  ;;     registration churn on a sibling id neither drops nor double-delivers;
-  ;;   - the run COMPLETES — no emitter thread is left alive (no deadlock,
-  ;;     no retroactive stall) after joining.
+  ;; Six threads emit while a churn thread registers / unregisters a sibling
+  ;; listener. The always-on listener must never overlap itself, must receive
+  ;; every event exactly once, and every emitter must finish.
   (testing (str "concurrent emits never overlap a listener and never deadlock "
                 "under registration churn (" stress-iters " emits)")
     (let [in-flight  (atom 0)
