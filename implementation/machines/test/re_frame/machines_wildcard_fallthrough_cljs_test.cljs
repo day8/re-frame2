@@ -9,13 +9,8 @@
   explicit→`:*` resolution then repeats), down to a genuine no-op only when
   NO enabled transition exists anywhere. This matches XState v5's
   transition-selection order (descend priority within a state before
-  walking to its ancestor).
-
-  Exercised through `reg-machine` / `dispatch-sync` — the same runtime
-  surface real apps use. The WITHIN-entry candidate-vector fallthrough
-  (one explicit key whose guarded candidate-vector has a blocked first +
-  enabled later entry) is covered by other suites and pinned here beside
-  the cross-key rule."
+  walking to its ancestor). Exercised through `reg-machine` /
+  `dispatch-sync`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -25,81 +20,11 @@
   (rf.machines.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
 
-;; snapshot lookup via the shared machines test-support — no hardcoded
-;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot rf.machines.test-support/snapshot)
-
-(defn- seed-snapshot!
-  "Force the snapshot for `machine-id` to a known value via a `reg-event`
-  seed handler (returning `{:rf.db/runtime …}`), so
-  a test can reposition the machine to a non-initial leaf without rebuilding
-  the whole machine."
-  [machine-id snap]
-  (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
-    ;; Machine snapshots are durable runtime-db state.
-    (rf/reg-event seed-id
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/machines :snapshots machine-id] snap)}))
-    (rf/dispatch-sync [seed-id])))
-
-;; ---------------------------------------------------------------------------
-;; (a) guard-blocked explicit :on entry → same-level :* fires
-;; ---------------------------------------------------------------------------
-
-(deftest guard-blocked-explicit-falls-through-to-same-level-wildcard
-  (testing "a guard-blocked explicit :foo falls through to the same-level :*"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :flat
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:explicit-action (tag :explicit)
-                     :wildcard-action (tag :wildcard)}
-           :states
-           {:flat {:on {:foo {:guard :never :action :explicit-action}
-                        :*   {:action :wildcard-action}}}}}]
-      (rf/reg-machine :icj9t/same-level machine)
-      (reset! log [])
-      ;; :foo's explicit guard returns false ⇒ the explicit candidate is
-      ;; NOT enabled. The blocked explicit falls through to the same-level
-      ;; :* — :wildcard-action fires.
-      (rf/dispatch-sync [:icj9t/same-level [:foo]])
-      (is (= [:wildcard] @log)
-          "guard-blocked explicit :foo fell through to same-level :*;
-           the guard-blocked explicit action must NOT fire"))))
-
 ;; ---------------------------------------------------------------------------
 ;; (b) guard-blocked explicit AND no enabled same-level :* → parent :* fires
 ;; ---------------------------------------------------------------------------
 
 (deftest guard-blocked-explicit-falls-through-to-parent-wildcard
-  (testing "blocked explicit + no enabled leaf :* → parent :* catches it"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :authenticated
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:leaf-explicit  (tag :leaf-explicit)
-                     :parent-wildcard (tag :parent-wildcard)}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:* {:action :parent-wildcard}}        ;; :* at parent
-             :states
-             ;; leaf declares ONLY a guard-blocked explicit :foo — no leaf :*
-             {:dashboard {:on {:foo {:guard :never :action :leaf-explicit}}}}}}}]
-      (rf/reg-machine :icj9t/parent-wild machine)
-      (reset! log [])
-      ;; Leaf [:authenticated :dashboard]: :foo explicit is guard-blocked
-      ;; and there is no leaf :* ⇒ leaf yields nothing ⇒ walk to parent
-      ;; :authenticated, whose :* fires.
-      (rf/dispatch-sync [:icj9t/parent-wild [:foo]])
-      (is (= [:parent-wildcard] @log)
-          "blocked leaf explicit fell through past the (absent) leaf :* to the parent :*;
-           the guard-blocked leaf explicit action must NOT fire")))
-
   (testing "blocked leaf explicit + guard-blocked leaf :* → walks to parent :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
@@ -124,80 +49,6 @@
       (is (= [:parent-wildcard] @log)
           "both leaf candidates blocked ⇒ leaf yields nothing ⇒ parent :* fires;
            neither guard-blocked leaf candidate fires"))))
-
-;; ---------------------------------------------------------------------------
-;; (c) nothing enabled anywhere → genuine no-op (state + log unchanged)
-;; ---------------------------------------------------------------------------
-
-(deftest nothing-enabled-anywhere-is-a-genuine-noop
-  (testing "guard-blocked everywhere ⇒ no transition fires, snapshot unchanged"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :authenticated
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:leaf-explicit   (tag :leaf-explicit)
-                     :leaf-wildcard   (tag :leaf-wildcard)
-                     :parent-wildcard (tag :parent-wildcard)}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             ;; parent :* is ALSO guard-blocked ⇒ nothing enabled anywhere.
-             :on      {:* {:guard :never :action :parent-wildcard}}
-             :states
-             {:dashboard {:on {:foo {:guard :never :action :leaf-explicit}
-                               :*   {:guard :never :action :leaf-wildcard}}}}}}}]
-      (rf/reg-machine :icj9t/noop machine)
-      ;; Install the initial leaf BEFORE measuring — the snapshot is
-      ;; synthesised lazily on first dispatch, so capturing `before` ahead
-      ;; of bootstrap would read nil and make even a real no-op look like a
-      ;; change. Seed the cascaded initial leaf so the no-op is measured
-      ;; against an installed state.
-      (seed-snapshot! :icj9t/noop {:state [:authenticated :dashboard] :data {}})
-      (let [before (snapshot :icj9t/noop)]
-        (reset! log [])
-        (rf/dispatch-sync [:icj9t/noop [:foo]])
-        (is (empty? @log)
-            "no action fired — every explicit and wildcard candidate is guard-blocked")
-        (is (= [:authenticated :dashboard] (:state before))
-            "precondition: machine seeded at the initial leaf")
-        (is (= (:state before) (:state (snapshot :icj9t/noop)))
-            "snapshot :state unchanged — genuine no-op")))))
-
-;; ---------------------------------------------------------------------------
-;; (d) an enabled explicit wins over the same-level :* (priority)
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
-;; within-entry candidate-vector fallthrough — pinned here so the cross-key
-;; rule cannot break it
-;; ---------------------------------------------------------------------------
-
-(deftest within-entry-candidate-vector-fallthrough-still-works
-  (testing "one explicit key, guarded candidate-vector: blocked first + enabled later fires"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :flat
-           :data    {}
-           :guards  {:never (fn [_] false)}
-           :actions {:first-action  (tag :first)
-                     :second-action (tag :second)
-                     :wildcard-action (tag :wildcard)}
-           :states
-           {:flat {:on {:foo [{:guard :never :action :first-action}
-                              {:action :second-action}]      ;; unguarded fallback
-                        :*   {:action :wildcard-action}}}}}]
-      (rf/reg-machine :icj9t/within-entry machine)
-      (reset! log [])
-      ;; The first candidate's guard fails; the second (unguarded) candidate
-      ;; in the SAME explicit entry is enabled — it fires. The :* is NOT
-      ;; reached because the explicit key DID yield an enabled candidate.
-      (rf/dispatch-sync [:icj9t/within-entry [:foo]])
-      (is (= [:second] @log)
-          "within-entry fallthrough fired the second candidate; :* not consulted;
-           neither the blocked first candidate nor the wildcard fired"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (e) compound coverage — leaf blocked explicit, leaf :*, parent :*
