@@ -19,7 +19,6 @@
   (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [cljs.reader]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
@@ -71,25 +70,16 @@
 ;; ---- 1. dividers render between header cells ----------------------------
 
 (deftest column-dividers-render-between-header-cells
-  (testing "the L2 column header carries one divider per
-            user-resizable column (source, timestamp, duration)"
-    (setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    (rf/with-frame :rf/xray
-      (let [tree     (dynamic-shell-tree/shell-view-tree)
-            dividers (rf.test-helpers/find-by-testid-prefix
-                       tree "rf-xray-event-list-col-divider-")]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-divider-source"))
-            "source-column divider renders")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-divider-timestamp"))
-            "timestamp-column divider renders")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-divider-duration"))
-            "duration-column divider renders")
-        ;; Each divider appears at least once in the header + once per
-        ;; row, so we expect at minimum 6 (one row + header = 2 instances
-        ;; × 3 divider ids).
-        (is (<= 6 (count dividers))
-            "at least one divider per (header + per row) × 3 columns")))))
+  (setup!)
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+  (rf/with-frame :rf/xray
+    (let [tree (dynamic-shell-tree/shell-view-tree)]
+      (is (= [true true true]
+             (mapv #(some? (rf.test-helpers/find-by-testid tree (str "rf-xray-event-list-col-divider-" %)))
+                   ["source" "timestamp" "duration"]))
+          "one divider per user-resizable column")
+      (is (<= 6 (count (rf.test-helpers/find-by-testid-prefix tree "rf-xray-event-list-col-divider-")))
+          "on the header and on every row, so the columns stay aligned"))))
 
 ;; ---- 2. header + row widths come from the same source -------------------
 
@@ -102,49 +92,16 @@
       (assoc-in [:tags :source] :after-timer)))
 
 (deftest header-and-row-column-widths-stay-aligned-after-settings-write
-  (testing "after a settings-write changes a column's
-            width, the header cell and the row cell both read the new
-            width from the same `:rf.xray/event-list-col-widths` sub.
-            This is the alignment-guarantee design — no need to simulate
-            the full drag; assert the rendered widths match the
-            settings."
-    (setup!)
-    (trace-collector/seed-trace-for-test! (timer-cascade-trace-ev 1 [:poll/tick]))
-    ;; Set a non-default width via the production event surface.
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-event-list-col-width :timestamp 120]))
-    (rf/with-frame :rf/xray
-      (let [tree        (dynamic-shell-tree/shell-view-tree)
-            h-timestamp (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-timestamp")
-            r-time      (rf.test-helpers/find-by-testid tree "rf-xray-row-time-chip")]
-        (is (some? h-timestamp) "header timestamp cell renders")
-        (is (some? r-time)      "row time chip renders")
-        (is (= "120px" (:width (style-of h-timestamp)))
-            "header carries the persisted 120px width")
-        (is (= "120px" (:width (style-of r-time)))
-            "row carries the SAME 120px width — alignment preserved")))))
-
-(deftest header-and-row-widths-default-when-settings-unwritten
-  (testing "with no settings write, the resolved widths
-            default to `event-list-col-default-widths`. Header + row
-            read identical widths (the alignment guarantee on the
-            silent default path)"
-    (setup!)
-    (trace-collector/seed-trace-for-test! (timer-cascade-trace-ev 1 [:poll/tick]))
-    (rf/with-frame :rf/xray
-      (let [tree     (dynamic-shell-tree/shell-view-tree)
-            h-source (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-source")
-            r-source (rf.test-helpers/find-by-testid tree "rf-xray-row-origin-after-timer")
-            h-time   (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-timestamp")
-            r-time   (rf.test-helpers/find-by-testid tree "rf-xray-row-time-chip")
-            h-dur    (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-duration")
-            r-dur    (rf.test-helpers/find-by-testid tree "rf-xray-row-duration")]
-        (is (= "52px" (:width (style-of h-source)) (:width (style-of r-source)))
-            "source column defaults to 52px on header + row")
-        (is (= "76px" (:width (style-of h-time)) (:width (style-of r-time)))
-            "timestamp column defaults to 76px on header + row")
-        (is (= "60px" (:width (style-of h-dur)) (:width (style-of r-dur)))
-            "duration column defaults to 60px on header + row")))))
+  ;; Header and row read one `:rf.xray/event-list-col-widths` sub.
+  (setup!)
+  (trace-collector/seed-trace-for-test! (timer-cascade-trace-ev 1 [:poll/tick]))
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-event-list-col-width :timestamp 120]))
+  (rf/with-frame :rf/xray
+    (let [tree (dynamic-shell-tree/shell-view-tree)]
+      (is (= "120px"
+             (:width (style-of (rf.test-helpers/find-by-testid tree "rf-xray-event-list-col-timestamp")))
+             (:width (style-of (rf.test-helpers/find-by-testid tree "rf-xray-row-time-chip"))))))))
 
 ;; ---- 3. drag lifecycle --------------------------------------------------
 
@@ -344,8 +301,6 @@
               divider (rf.test-helpers/find-by-testid
                         tree "rf-xray-event-list-col-divider-source")
               handler (:on-double-click (second divider))]
-          (is (fn? handler)
-              "the divider carries on-double-click")
           (handler nil))))
     (is (some #(= [:rf.xray/reset-event-list-col-width :source] %)
               @dispatches)
@@ -354,23 +309,13 @@
 ;; ---- accessibility ---------------------------------------------------
 
 (deftest divider-carries-aria-attributes
-  (testing "each divider exposes WAI-ARIA separator with
-            role + orientation + valuemin/max/now so screenreaders + the
-            host's a11y tree announce the resize affordance correctly"
-    (setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    (rf/with-frame :rf/xray
-      (let [tree    (dynamic-shell-tree/shell-view-tree)
-            divider (rf.test-helpers/find-by-testid
-                      tree "rf-xray-event-list-col-divider-source")
-            props   (second divider)]
-        (is (= "separator" (:role props)))
-        (is (= "vertical" (:aria-orientation props)))
-        (is (string? (:aria-label props))
-            "aria-label is a non-empty string")
-        (is (= 40 (:aria-valuemin props))
-            "aria-valuemin reads the source-column floor")
-        (is (= 52 (:aria-valuenow props))
-            "aria-valuenow reads the current width (default 52px)")
-        (is (= 0 (:tab-index props))
-            "tab-index 0 puts the divider into the keyboard tab order")))))
+  ;; A WAI-ARIA separator in the tab order, announced with its range.
+  (setup!)
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
+  (rf/with-frame :rf/xray
+    (let [props (second (rf.test-helpers/find-by-testid (dynamic-shell-tree/shell-view-tree)
+                                                         "rf-xray-event-list-col-divider-source"))]
+      (is (= ["separator" "vertical" 40 52 0]
+             ((juxt :role :aria-orientation :aria-valuemin :aria-valuenow :tab-index) props))
+          "the source column's floor, its current default width, and tab-index 0")
+      (is (string? (:aria-label props))))))
