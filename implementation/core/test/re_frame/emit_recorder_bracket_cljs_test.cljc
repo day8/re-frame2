@@ -1,38 +1,9 @@
 (ns re-frame.emit-recorder-bracket-cljs-test
-  "The `with-emit-recorder!` capture bracket, and the tier split it exists to
-  express.
-
-  `:events` / `:errors` are not in the public `register-listener!`
-  vocabulary. They would be a SECOND production observation door —
-  unprojected, raw `:exception`, no frame policy, fanned across every frame —
-  beside the projected door Spec 015 calls normal, and independent corpus
-  observation regardless of a frame's policy is not a public primitive.
-
-  The substrates stand. `re-frame.event-emit` and `re-frame.error-emit` are
-  IMPLEMENTATION-tier registries for two named consumers: the framework's own
-  synchronous-window capture sites (the Fresco server's one-render error
-  window, the test kit's intent capture) and TESTS.
-  `re-frame.test-support/with-emit-recorder!` is the test half — ONE bracket
-  over both registries rather than a hand-rolled
-  register/try/finally/unregister wrapper per file, the same consolidation
-  `with-trace-recorder!` gives the trace side.
-
-  Pins:
-
-    - one SINK and one temporary error-emit listener observe the SAME live
-      failure, each with its own documented shape (projected vs raw) — the
-      two tiers are parallel, not alternatives;
-    - the bracket captures under an EMPTY frame policy, where no sink route
-      exists at all;
-    - leaving the bracket ENDS capture — a failure after the body is not
-      recorded;
-    - the `:events` arm brackets the event substrate, and `:pred` filters;
-    - the public facade refuses both stream keywords, and the thrown
-      vocabulary names the two raw dev streams it accepts.
-
-  Dual-runtime `*_cljs_test.cljc`: the shadow-cljs `:node-test`
-  (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both pick it up.
-  Plain CLJC; no DOM dependency."
+  "`re-frame.test-support/with-emit-recorder!`, the test-tier bracket over the
+  implementation-tier `re-frame.error-emit` / `re-frame.event-emit`
+  registries, and the tier split it expresses: those raw streams are not in
+  the public `register-listener!` vocabulary, and a frame's `:observability`
+  sink sees the projected record of the same failure."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -40,10 +11,8 @@
             [re-frame.event-emit :as rf.event-emit]
             [re-frame.observability :as rf.observability]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            ;; The bracket is a macro defined in the `#?(:clj …)` arm of
-            ;; `re-frame.test-support`, so JVM refers it directly and CLJS
-            ;; reaches it through `:require-macros` below — the same shape
-            ;; `with-trace-recorder!`'s consumers use.
+            ;; The bracket is a macro in `re-frame.test-support`'s `#?(:clj …)`
+            ;; arm: JVM refers it directly, CLJS through `:require-macros`.
             #?(:clj [re-frame.test-support :as rf.test-support
                      :refer [with-emit-recorder!]]
                :cljs [re-frame.test-support :as rf.test-support]))
@@ -58,23 +27,15 @@
                 (rf.observability/clear-observability-sinks!))}))
 
 (defn- reg-boom!
-  "Register a handler on `frame-id` that throws when dispatched."
   [frame-id event-id]
   (rf/reg-event event-id
                 {:frame frame-id}
                 (fn [_ _] (throw (ex-info "boom" {:probe event-id})))))
 
-;; ---------------------------------------------------------------------------
-;; 1. The two tiers observe the SAME failure, each in its own shape.
-;; ---------------------------------------------------------------------------
-
 (deftest sink-and-bracket-observe-the-same-failure-in-their-own-shapes
-  (testing "a frame-declared :errors sink and a bracketed error-emit listener
-            both see ONE live handler exception. The sink's record is the
-            PROJECTED :rf.observe/error; the bracket's is the RAW substrate
-            record. Neither is a fallback for the other — the tiers are
-            parallel, which is what makes keeping these streams out of the
-            public listener vocabulary safe."
+  (testing "a frame's :errors sink and a bracketed error-emit listener both see one
+            handler exception: the sink a projected :rf.observe/error, the bracket
+            the raw substrate record carrying the host throwable"
     (let [sunk (atom [])]
       (rf/register-observability-sink! :test.sinks/sentry
                                        (fn [record] (swap! sunk conj record)))
@@ -83,78 +44,34 @@
       (reg-boom! :bracket/paired :paired/boom)
       (with-emit-recorder! [raw]
         (rf/dispatch-sync [:paired/boom] {:frame :bracket/paired})
-        (is (= 1 (count @raw))
-            "the bracketed listener saw exactly one record")
-        (is (= 1 (count @sunk))
-            "the declared sink saw exactly one record")
-        (let [r (first @raw)
-              s (first @sunk)]
-          ;; RAW shape: the substrate record is error-keyed and carries the
-          ;; host throwable.
-          (is (= :rf.error/handler-exception (:error r))
-              "the raw record is keyed by :error")
-          (is (some? (:exception r))
-              "the raw record carries the host throwable")
-          (is (= :bracket/paired (:frame r)))
-          ;; PROJECTED shape: the sink record is kind-keyed.
-          (is (= :rf.observe/error (:kind s))
-              "the sink record is a canonical :rf.observe/error")
-          (is (= :bracket/paired (:frame s)))
-          ;; It is the SAME failure seen twice, not two failures: both
-          ;; records name the same category.
-          (is (= (:error r) (:error s))
-              "both tiers report the same :rf.error/* category")
-          ;; The shapes are genuinely different — the discriminator is the
-          ;; record's own top-level key set. `:kind` is the projected
-          ;; record's; the raw substrate record carries none.
-          (is (not (contains? r :kind))
-              "the raw record is NOT a projected record"))))))
-
-;; ---------------------------------------------------------------------------
-;; 2. Leaving the bracket ends capture.
-;; ---------------------------------------------------------------------------
+        (is (= [[:rf.error/handler-exception :bracket/paired true false]]
+               (mapv (fn [r] [(:error r) (:frame r) (some? (:exception r)) (contains? r :kind)])
+                     @raw))
+            "raw: error-keyed, carries the throwable, is not a projected record")
+        (is (= [[:rf.observe/error :rf.error/handler-exception :bracket/paired]]
+               (mapv (juxt :kind :error :frame) @sunk))
+            "sink: the projected record of the same failure")))))
 
 (deftest leaving-the-bracket-unregisters
-  (testing "the bracket unregisters in a `finally`, so a failure driven AFTER
-            the body is not recorded. Without this the atom a test asserts on
-            keeps growing under sibling tests in the same namespace."
+  (testing "the bracket unregisters in a `finally`: a failure after the body, on
+            the normal and the exceptional exit alike, is not recorded"
     (rf/make-frame {:id :bracket/scoped})
     (reg-boom! :bracket/scoped :scoped/boom)
-    (let [captured (with-emit-recorder! [raw]
-                     (rf/dispatch-sync [:scoped/boom] {:frame :bracket/scoped})
-                     raw)]
-      (is (= 1 (count @captured)) "one record inside the bracket")
-      ;; Same failure again, now outside the bracket.
-      (rf/dispatch-sync [:scoped/boom] {:frame :bracket/scoped})
-      (is (= 1 (count @captured))
-          "the listener was unregistered on exit — the second failure is not
-           captured"))))
-
-(deftest bracket-unregisters-even-when-the-body-throws
-  (testing "the `finally` holds when the body itself throws — otherwise one
-            failing test leaks a listener into every test after it."
-    (rf/make-frame {:id :bracket/throwing})
-    (reg-boom! :bracket/throwing :throwing/boom)
-    (let [escaped (atom nil)]
+    (let [boom!   #(rf/dispatch-sync [:scoped/boom] {:frame :bracket/scoped})
+          normal  (with-emit-recorder! [raw] (boom!) raw)
+          escaped (atom nil)]
       (is (thrown? #?(:clj Exception :cljs js/Error)
                    (with-emit-recorder! [raw]
                      (reset! escaped raw)
-                     (rf/dispatch-sync [:throwing/boom] {:frame :bracket/throwing})
+                     (boom!)
                      (throw (ex-info "body blew up" {}))))
           "the body's exception propagates out of the bracket")
-      ;; `escaped` holds the bracket's recording ATOM, so read through both.
-      (is (= 1 (count @@escaped)) "the record captured before the throw is kept")
-      (rf/dispatch-sync [:throwing/boom] {:frame :bracket/throwing})
-      (is (= 1 (count @@escaped))
-          "the listener was still unregistered on the exceptional path"))))
-
-;; ---------------------------------------------------------------------------
-;; 3. The `:events` arm, and `:pred`.
-;; ---------------------------------------------------------------------------
+      (boom!)
+      (is (= [1 1] [(count @normal) (count @@escaped)])
+          "each bracket kept the one record from its body and nothing after"))))
 
 (deftest pred-filters-what-is-recorded
-  (testing "`:pred` narrows the capture without a per-file wrapper — the
-            option that stops each test growing its own filtering listener."
+  (testing "`:pred` narrows what an `:events` bracket records"
     (rf/make-frame {:id :bracket/pred})
     (rf/reg-event :pred/a {:frame :bracket/pred} (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :pred/b {:frame :bracket/pred} (fn [{:keys [db]} _] {:db db}))
@@ -162,43 +79,31 @@
                                 :pred   #(= :pred/b (:event-id %))}]
       (rf/dispatch-sync [:pred/a] {:frame :bracket/pred})
       (rf/dispatch-sync [:pred/b] {:frame :bracket/pred})
-      (is (= [:pred/b] (mapv :event-id @seen))
-          "only records matching :pred are conj'd"))))
+      (is (= [:pred/b] (mapv :event-id @seen))))))
 
 (deftest two-brackets-in-one-test-do-not-collide
-  (testing "the default key is gensym'd each time a bracket runs, so nesting or
-            sequencing two brackets does not have the second replace the
-            first's registration."
+  (testing "the default key is gensym'd per bracket, so a nested bracket does not
+            replace the outer one's registration"
     (rf/make-frame {:id :bracket/two})
     (reg-boom! :bracket/two :two/boom)
     (with-emit-recorder! [outer]
       (with-emit-recorder! [inner]
         (rf/dispatch-sync [:two/boom] {:frame :bracket/two})
-        (is (= 1 (count @inner)) "the inner bracket captured"))
-      (is (= 1 (count @outer))
-          "the outer bracket captured the same record — the inner
-           registration did not replace it"))))
-
-;; ---------------------------------------------------------------------------
-;; 4. The public facade refuses the raw always-on streams.
-;; ---------------------------------------------------------------------------
+        (is (= 1 (count @inner))))
+      (is (= 1 (count @outer))))))
 
 (deftest the-public-facade-no-longer-offers-the-always-on-streams
-  (testing "both verbs refuse both stream keywords
-            with `:rf.error/unknown-listener-stream`,
-            and the refusal's `:valid` slot names the TWO raw dev streams
-            it accepts. This is the tier split asserted from the public
-            surface."
+  (testing "both public listener verbs refuse both raw always-on streams, naming
+            the two dev streams they accept"
     (doseq [stream      [:errors :events]
             [verb call] [['rf/register-listener! #(rf/register-listener! % ::probe (fn [_]))]
                          ['rf/unregister-listener! #(rf/unregister-listener! % ::probe)]]]
-      (let [e    (try (call stream)
+      (let [data (try (call stream)
                       nil
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) ex
-                        ex))
-            data (ex-data e)]
-        (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
-            (str verb " refuses " stream))
-        (is (= stream (:stream data)) ":stream names the refused member")
-        (is (= #{:trace :epoch} (:valid data))
-            "the closed vocabulary is the two raw dev streams")))))
+                        (ex-data ex)))]
+        (is (= {:rf.error/id :rf.error/unknown-listener-stream
+                :stream      stream
+                :valid       #{:trace :epoch}}
+               (select-keys data [:rf.error/id :stream :valid]))
+            (str verb " refuses " stream))))))
