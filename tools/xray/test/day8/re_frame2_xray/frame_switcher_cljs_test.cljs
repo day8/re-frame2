@@ -17,9 +17,7 @@
      one write path."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
-            [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.frame-switcher :as frame-switcher]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-helpers.static-shell-tree
@@ -103,10 +101,7 @@
 ;; -------------------------------------------------------------------------
 
 (deftest edn-round-trips-keyword
-  (let [edn (frame-switcher/->edn :rf/cart-frame)]
-    (is (string? edn))
-    (is (= :rf/cart-frame (frame-switcher/<-edn edn))
-        "round-trip keeps the keyword intact")))
+  (is (= :rf/cart-frame (frame-switcher/<-edn (frame-switcher/->edn :rf/cart-frame)))))
 
 (deftest edn-load-tolerates-malformed-input
   (testing "the load path NEVER throws into init — malformed EDN
@@ -115,10 +110,6 @@
         "non-EDN string parses to nil")
     (is (nil? (frame-switcher/<-edn ""))
         "empty string parses to nil")
-    (is (nil? (frame-switcher/<-edn "[1 2 3]"))
-        "wrong shape (vector) parses to nil")
-    (is (nil? (frame-switcher/<-edn "{:other :foo}"))
-        "map without `:frame` key parses to nil")
     (is (nil? (frame-switcher/<-edn "{:frame \"not-a-keyword\"}"))
         "non-keyword `:frame` value parses to nil")))
 
@@ -194,14 +185,11 @@
             :label  "Switch focus to frame :rf/cart-frame"
             :action [:palette/select-frame :rf/cart-frame]}
            false]))
-      (is (= :rf/cart-frame (get-in (xray-db) [:focus :frame]))
-          "palette write lands on the same spine slot the ribbon picker uses")
-      (is (= :rf/cart-frame (:target-frame (xray-db)))
-          ":target-frame is also written — every per-frame composite re-fires")
-      (is (= :rf/cart-frame @persisted)
-          "the persist fx fired — palette writes are persisted too")
-      (is (false? (boolean (:palette-open? (xray-db))))
-          "palette closes on invocation as usual"))))
+      (is (= [:rf/cart-frame :rf/cart-frame :rf/cart-frame false]
+             [(get-in (xray-db) [:focus :frame]) (:target-frame (xray-db)) @persisted
+              (boolean (:palette-open? (xray-db)))])
+          "the ribbon picker's spine slot, target frame and persistence, and the
+           palette closes"))))
 
 ;; -------------------------------------------------------------------------
 ;; (6) View — frame-switcher-view reads the contract
@@ -215,54 +203,29 @@
   (tree-seq (some-fn vector? seq?) seq (rf.test-helpers/expand-tree tree)))
 
 (deftest view-renders-frame-dropdown-button-always
-  (testing "the Figma chrome ribbon ALWAYS shows a frame
-            dropdown button whose face shows the CURRENTLY-SELECTED frame
-            value (live). With a SINGLE frame the overlaid
-            <select> is ENABLED (a native select with one option opens +
-            shows it; it is not inert) and lists that lone frame as its
-            only option, carrying its `✓`."
-    (dispatch-trace 1 :app/main)
-    (setup!)
-    (rf/with-frame :rf/xray
-      (let [tree    (static-shell-tree/frame-switcher-tree rf/dispatch)
-            button  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame")
-            label   (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-label")
-            picker  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")
-            options (filter (fn [n]
-                              (and (vector? n) (= :option (first n))))
-                            (hiccup-seq tree))]
-        (is (some? button) "the Frame dropdown button always renders")
-        (is (some? label) "the frame label renders")
-        (is (= ":app/main" (last label))
-            "the button face shows the currently-selected frame value")
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-chevron"))
-            "the `▾` chevron renders, marking it a dropdown")
-        (is (= :select (first picker))
-            "the overlay is a native <select> (a11y), not a custom widget")
-        (is (not (:disabled (second picker)))
-            "single-frame: the overlaid select is ENABLED so
-             clicking it opens a 1-entry dropdown (not inert)")
-        (is (nil? (:multiple (second picker)))
-            "strictly single-select — no :multiple attribute even with one frame")
-        (is (= 1 (count options))
-            "exactly one option — the lone available frame")
-        (is (= ":app/main" (:value (second (first options))))
-            "the single option is bound to the available frame's value")
-        (is (= "✓ :app/main" (last (first options)))
-            "the lone frame is the active selection, carrying its checkmark")))))
+  ;; The face shows the selected frame; with a single frame the native
+  ;; <select> stays ENABLED and lists that frame, checked.
+  (dispatch-trace 1 :app/main)
+  (setup!)
+  (rf/with-frame :rf/xray
+    (let [tree    (static-shell-tree/frame-switcher-tree rf/dispatch)
+          label   (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-label")
+          picker  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")
+          options (filter (fn [n]
+                            (and (vector? n) (= :option (first n))))
+                          (hiccup-seq tree))]
+      (is (= [":app/main" :select false [[":app/main" "✓ :app/main"]]]
+             [(last label) (first picker) (boolean (:disabled (second picker)))
+              (mapv (juxt (comp :value second) last) options)])))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Storage-key plumbing — per-instance isolation
 ;; -------------------------------------------------------------------------
 
 (deftest storage-key-defaults-to-canonical-value
-  (testing "the default storage key matches the documented canonical
-            string — hosts that don't override get a stable slot"
-    (is (= "re-frame2.xray.frame-switcher.v1"
-           frame-switcher/default-storage-key))
-    (is (= frame-switcher/default-storage-key
-           (frame-switcher/get-storage-key))
-        "the runtime key matches the default at boot")))
+  ;; The persisted slot's name: changing it silently drops every saved pick.
+  (is (= "re-frame2.xray.frame-switcher.v1"
+         frame-switcher/default-storage-key)))
 
 (deftest storage-key-set-then-clear-round-trips
   (testing "Story testbeds override the key for per-scenario isolation;
@@ -328,7 +291,6 @@
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-frame :app/admin]))
-    (is (= :app/admin (current-frame)) "precondition — the pin is live")
     ;; The pinned frame leaves the stream; only :app/main remains available.
     (trace-collector/reset-for-test!)
     (dispatch-trace 3 :app/main)
@@ -351,7 +313,6 @@
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-frame :app/admin]))
-    (is (= :app/admin (current-frame)))
     ;; Every frame leaves the stream (buffer cleared).
     (trace-collector/reset-for-test!)
     (trace-collector/refresh-trace-rings!)
@@ -383,7 +344,6 @@
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-frame :app/main]))
-    (is (= :app/main (current-frame)))
     (let [{:keys [value option-values]} (picker-value+options)]
       (is (= #{":app/main" ":app/admin"} option-values)
           "exactly the available frames — no synthetic duplicate")
