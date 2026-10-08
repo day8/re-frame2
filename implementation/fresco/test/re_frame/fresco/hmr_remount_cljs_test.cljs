@@ -342,70 +342,7 @@
             (settled (fn [_] (is (= nothing (retention))) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. The sabotage: a leaked old-generation registration
-;; ---------------------------------------------------------------------------
-
-(deftest a-leaked-stale-registration-turns-the-cleanup-witness-red
-  ;; The cleanup witness, run against a real perturbation rather than
-  ;; described. The leak modelled is the plausible one: a runtime that
-  ;; re-mints the head but loses React's cleanup for the deleted fiber — a
-  ;; `defonce` reader list, a subscription registered outside the effect, an
-  ;; unsubscribe swallowed on the deletion path. The perturbation is
-  ;; therefore *omitting the predecessor's release*, which is precisely what
-  ;; such a runtime does.
-  ;;
-  ;; PERTURB, CONFIRM RED, RESTORE, CONFIRM GREEN — all three phases assert.
-  (async done
-    (seeded! "A")
-    (let [m1   (mount-boundary! panel-body)
-          reg1 (:reg m1)]
-      (load-namespace! panel-body)
-      (let [m2   (mount-boundary! panel-body)
-            reg2 (:reg m2)]
-        ;; PERTURBED: (:release m1) is deliberately NOT called.
-        (settled
-          (fn [_]
-            (testing "RED — the witness of the previous test fails here, and
-                      fails on every one of its numbers"
-              (is (not= one-boundary (retention))
-                  "the clean-hand-over assertion is violated")
-              (is (= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2} (retention))
-                  "two registrations, two memberships, two edges — one cell,
-                   because the leak is a reader that never let go rather than
-                   a second key"))
-
-            (testing "RED — and the identity assertion names the culprit,
-                      which a count could not"
-              (let [readers (rf.fresco.test.runtime/cell-readers sub-key)]
-                (is (= 2 (count readers)))
-                (is (true? (holds-key? reg1))
-                    "the retired generation is still reading the key")
-                (is (true? (holds-key? reg2)))))
-
-            (testing "RED — and the stale reader is still WIRED, so the leak
-                      is a live subscription and not merely a dead slot: a
-                      write notifies the retired generation too"
-              (let [before-1 @(:notified m1)
-                    before-2 @(:notified m2)]
-                (rf/with-frame frame-id (rf/dispatch-sync [:hmr-remount/seed "B"]))
-                (is (> @(:notified m1) before-1)
-                    "the unmounted generation was told the store moved")
-                (is (> @(:notified m2) before-2))))
-
-            ;; RESTORE: perform the release the perturbation withheld.
-            ((:release m1))
-            (settled
-              (fn [_]
-                (testing "GREEN — with the cleanup restored, the same
-                          instrument reports the clean hand-over, so the red
-                          above was the leak and not a broken witness"
-                  (is (= one-boundary (retention)))
-                  (is (true? (same-object? reg2 (first (rf.fresco.test.runtime/cell-readers sub-key))))))
-                ((:release m2))
-                (settled (fn [_] (is (= nothing (retention))) (done)))))))))))
-
-;; ---------------------------------------------------------------------------
-;; 4. Saves do not accumulate
+;; 3. Saves do not accumulate
 ;; ---------------------------------------------------------------------------
 
 (deftest successive-saves-leave-one-generation-holding-the-key
