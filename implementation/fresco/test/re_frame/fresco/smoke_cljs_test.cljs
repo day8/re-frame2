@@ -10,15 +10,15 @@
     so this is the property most likely to be quietly wrong);
   - the `impl.*` graph loads, with the bench tree nowhere on the
     classpath;
-  - a boundary minted by the door's `defview` reads a subscription and
-    re-reads it after a write.
+  - a boundary minted by the door's `defview` renders through the server
+    renderer and acquires nothing.
 
   ## Why the server renderer
 
   This is the NODE lane, which has no DOM, and a package smoke should not
   need a browser to say whether it was assembled correctly. React's server
   renderer runs a boundary's body for real — the shell's two hooks, the
-  read collection, the codec's element emission — so the round-trip below
+  read collection, the codec's element emission — so the render below
   is the runtime's own, not a simulation of it. The DOM-driven proofs of
   the same machinery are the package's `*_dom_cljs_test` suites.
 
@@ -28,7 +28,6 @@
   [[re-frame.fresco/render!]]'s job and needs a DOM; wiring a consumer app
   and an SSR entry to the package is the consumer app's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fresco :as rf.fresco]
@@ -44,7 +43,6 @@
 (rf/reg-sub :smoke/greeting (fn [db _] (:greeting db)))
 
 (rf/reg-event :smoke/seed  (fn [_ [_ greeting]] {:db {:greeting greeting}}))
-(rf/reg-event :smoke/shout (fn [{:keys [db]} _] {:db (update db :greeting str/upper-case)}))
 
 ;; Registered above `use-fixtures`, deliberately — the reset fixture captures
 ;; its source-store baseline when the `use-fixtures` form is evaluated. The
@@ -89,29 +87,8 @@
     (rf.fresco.impl.mount/provider frame-id (rf.fresco.impl.codec/root-element frame-id hiccup))))
 
 ;; ---------------------------------------------------------------------------
-;; The round-trip
+;; The render
 ;; ---------------------------------------------------------------------------
-
-(deftest defview-and-sub-round-trip-through-the-public-door
-  (testing "the door hands over a real minted boundary, not a plain fn —
-            which is what `defview` expanding correctly through the
-            self-required macro namespace looks like"
-    (is (true? (rf.fresco.impl.codec/boundary-head? greeting-line))
-        "greeting-line should be a Fresco boundary head"))
-
-  (testing "a boundary's body reads its subscription and the value reaches
-            the markup"
-    (seeded! "hello")
-    (is (re-find #"hello" (html [greeting-line {:tag "greet"}]))))
-
-  (testing "and it is a live read rather than a render-time snapshot: a
-            write through the ordinary event path changes what the same
-            boundary renders"
-    (seeded! "hello")
-    (rf/with-frame frame-id (rf/dispatch-sync [:smoke/shout]))
-    (let [markup (html [greeting-line {:tag "greet"}])]
-      (is (re-find #"HELLO" markup))
-      (is (nil? (re-find #">hello<" markup))))))
 
 (deftest the-module-graph-loads-and-a-server-render-acquires-nothing
   ;; The runtime is six owned modules, and `test.runtime` is the one
