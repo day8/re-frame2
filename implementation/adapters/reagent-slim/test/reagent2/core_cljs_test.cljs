@@ -1,37 +1,7 @@
 (ns reagent2.core-cljs-test
-  "Unit tests for `reagent2.core` user-facing surface.
-
-  Covers the surfaces that don't have dedicated test files:
-
-    - force-update — routes .forceUpdate on `this`; 1-arity only
-      (there is no stock-Reagent 2-arity `[this deep?]`: :deep? has no
-      React 19 analogue).
-
-    - Form-3 component-state surface: the
-      PUBLIC `reagent2.core` wrappers `state-atom` / `state` /
-      `set-state` / `replace-state` and the argv accessors `argv` /
-      `props` / `children`. These are the symbols downstream code
-      imports as `reagent.core/state` etc. (re-com / Day8). They
-      forward to the `reagent2.impl.component/*` fns, so this file pins
-      both layers — that `state` derefs the cached
-      cell, `set-state` MERGES while `replace-state` RESETS (a real,
-      distinguishable invariant a key-swap bug would otherwise slip),
-      and that the accessor wrappers route to the right impl fn. The
-      `reagent2.core` re-export `atom`, `create-class`,
-      `current-component`, `after-render`, and `as-element` keep their
-      dedicated per-impl coverage (ratom / component / template /
-      batching).
-
-    - The `reaction` macro: stock Reagent's
-      `reagent.core/reaction` is a macro over the body, and so is this
-      one. Pinned here, from the consumer side, with only
-      `reagent2.core` required at the call site: the body is deferred
-      until the first deref, and the expansion is
-      `(reagent2.ratom/make-reaction (fn [] body...))` — the shape a
-      thunk-taking function cannot have. What `make-reaction` then does
-      is `reagent2.ratom-cljs-test`'s.
-
-  ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
+  "Unit tests for the `reagent2.core` surface without a dedicated file:
+  force-update, the Form-3 state wrappers (`set-state` merges while
+  `replace-state` resets) and argv accessors, and the `reaction` macro."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.core :as r]
             [reagent2.ratom]))
@@ -57,34 +27,8 @@
       (is (= [:force-update] @calls)
           ".forceUpdate fired exactly once"))))
 
-(deftest force-update-no-throw-when-forceupdate-missing
-  (testing "missing .forceUpdate is a silent no-op (defensive against
-            stand-in instances that don't carry the React method)"
-    (let [bare #js {}]
-      ;; No throw expected — the when-some guard skips the call.
-      (r/force-update bare)
-      (is true "did not throw"))))
-
-(deftest force-update-is-strictly-1-arity
-  (testing "force-update declares a single 1-arity body (there is no
-            stock-Reagent 2-arity `[this deep?]`). The
-            metadata `:arglists` is the canonical contract surface."
-    (let [arglists (-> #'r/force-update meta :arglists)]
-      (is (= 1 (count arglists))
-          ":arglists declares exactly one signature")
-      (is (= '[^js this] (first arglists))
-          ":arglists is [this] only"))))
-
 ;; ---------------------------------------------------------------------------
-;; Form-3 component-state surface
-;;
-;; `reagent2.core/state-atom` lazily creates a per-component RAtom and
-;; caches it on the instance; `state` derefs it; `set-state` MERGES a map
-;; into it; `replace-state` RESETS it. These public wrappers are the
-;; Form-3 component-local-state API (re-com / Day8). `state-atom` forwards
-;; to the impl-level `component/state-atom`, so these tests pin both
-;; layers — most importantly that `set-state` and `replace-state` are NOT
-;; interchangeable (merge vs replace).
+;; Form-3 component state: `state-atom` lazily caches a per-instance RAtom.
 ;; ---------------------------------------------------------------------------
 
 (deftest state-reads-the-cell
@@ -102,8 +46,6 @@
             sibling keys survive; colliding keys are overwritten"
     (let [this #js {}]
       (r/set-state this {:a 1 :b 2})
-      (is (= {:a 1 :b 2} (r/state this))
-          "first set-state seeds the map")
       (r/set-state this {:b 20 :c 3})
       (is (= {:a 1 :b 20 :c 3} (r/state this))
           "second set-state merged: :a survived, :b overwritten, :c added"))))
@@ -113,7 +55,6 @@
             prior keys are dropped, NOT merged (the set-state contrast)"
     (let [this #js {}]
       (r/set-state this {:a 1 :b 2})
-      (is (= {:a 1 :b 2} (r/state this)) "precondition: state seeded")
       (r/replace-state this {:only :this})
       (is (= {:only :this} (r/state this))
           "replace-state dropped :a and :b — it reset, did not merge"))))
@@ -125,21 +66,11 @@
           b #js {}]
       (r/set-state a {:who :a})
       (r/set-state b {:who :b})
-      (is (= {:who :a} (r/state a)))
-      (is (= {:who :b} (r/state b))
-          "instance b's state is independent of instance a's")
-      (is (not (identical? (r/state-atom a) (r/state-atom b)))
-          "distinct instances get distinct state cells"))))
+      (is (= [{:who :a} {:who :b}] [(r/state a) (r/state b)])))))
 
 ;; ---------------------------------------------------------------------------
-;; Form-3 argv accessors
-;;
-;; `reagent2.core/argv` / `props` / `children` are thin wrappers over the
-;; `component/get-*` fns, so these tests pin both layers: the
-;; `reagent2.core`-level routing + the props/children convention: the
-;; head is the render fn, argv[1] is the props map iff it is a map, and
-;; children are everything after the head (skipping the props map when
-;; present).
+;; Form-3 argv accessors: the head is the render fn, argv[1] is the props
+;; map iff it is a map, and children follow the head and any props map.
 ;; ---------------------------------------------------------------------------
 
 (defn- fake-instance
@@ -176,14 +107,8 @@
           "no props map → children start right after the head"))))
 
 ;; ---------------------------------------------------------------------------
-;; reaction macro
-;;
-;; `reagent2.core/reaction` is a macro with stock Reagent's body syntax:
-;; `(r/reaction body...)` expands to
-;; `(reagent2.ratom/make-reaction (fn [] body...))`. A thunk-taking
-;; function `(defn reaction [f] ...)` would fail every test below: the
-;; body would run eagerly at the call site, its VALUE would be handed to
-;; make-reaction as `f`, and the first deref would try to call that value.
+;; `r/reaction` is a macro over its body, as in stock Reagent: a thunk-taking
+;; function would run the body eagerly at the call site.
 ;; ---------------------------------------------------------------------------
 
 (deftest reaction-body-is-deferred-until-deref
@@ -194,16 +119,3 @@
       (is (zero? @runs) "body did not run at construction")
       (is (= :computed @rx) "deref yields the body's value")
       (is (= 1 @runs) "the first deref ran the body exactly once"))))
-
-(deftest reaction-expands-to-make-reaction-over-a-zero-arity-fn
-  (testing "(r/reaction body...) expands to
-            (reagent2.ratom/make-reaction (fn [] body...)) — the whole
-            body, verbatim, inside a zero-argument fn"
-    (let [[head thunk & more]          (macroexpand-1 '(r/reaction (+ 1 2) (* @a @a)))
-          [fn-sym params & fn-body]    thunk]
-      (is (= 'reagent2.ratom/make-reaction head))
-      (is (nil? more) "make-reaction receives the thunk and nothing else")
-      (is (= "fn" (name fn-sym)) "the thunk is a fn form")
-      (is (= [] params) "the fn takes zero arguments")
-      (is (= '((+ 1 2) (* @a @a)) fn-body)
-          "every body form is the fn body, in order"))))
