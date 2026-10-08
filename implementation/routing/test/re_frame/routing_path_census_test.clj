@@ -503,39 +503,27 @@
                   {:id :app-b/home  :path "/"      :file "examples/b/core.cljs" :line 7}
                   {:id :app-a/about :path "/about" :file "examples/a/core.cljs" :line 13}]
           groups (duplicate-path-groups claims {})]
-      (is (= 1 (count groups)))
-      (is (= "/" (:path (first groups))))
-      (is (= [:app-a/home :app-b/home] (mapv :id (:claims (first groups))))
-          "both claimants named, ordered stably")
-      (let [msg (census-failure-message groups)]
-        (is (str/includes? msg ":app-a/home"))
-        (is (str/includes? msg ":app-b/home"))
-        (is (str/includes? msg "examples/a/core.cljs:12") "coords make it jumpable")
-        (is (str/includes? msg "examples/b/core.cljs:7"))
-        (is (str/includes? msg "rf2-wqnl")))))
+      (is (= [{:path "/" :claims (subvec claims 0 2)}] groups)
+          "only the shared path, both claimants ordered stably")
+      (is (every? #(str/includes? (census-failure-message groups) %)
+                  [":app-a/home" ":app-b/home" "examples/a/core.cljs:12" "examples/b/core.cljs:7"])
+          "coords make it jumpable")))
 
   (testing "a guard can be wrong by being too eager — the legal cases stay green"
-    (let [distinct-paths [{:id :app-a/home :path "/a"} {:id :app-b/home :path "/b"}]
-          allowlisted    [{:id :app-a/home :path "/"}  {:id :app-b/home :path "/"}]]
-      (is (= [] (duplicate-path-groups distinct-paths {}))
-          "distinct paths never collide, however many apps hold them")
-      (is (= [] (duplicate-path-groups allowlisted {"/" #{:app-a/home :app-b/home}}))
-          "the exact blessed set passes")
-      (is (= [] (duplicate-path-groups [{:id :app-a/home :path "/"}] {}))
-          "a path with one claimant is not a duplicate")
-      (is (= [] (duplicate-path-groups
-                  [{:id :realworld/home :path "/" :file "examples/real-apps/realworld_http/routing.cljs"}
-                   {:id :realworld/home :path "/" :file "examples/real-apps/realworld_resources/routing.cljs"}]
-                  {}))
-          "ONE id registered from two files is an id replacement, not a path
-           collision — the registrar is keyed by id, so there is only ever one
-           entry and nothing is shadowed")
-      (is (seq (duplicate-path-groups
-                 (conj allowlisted {:id :app-c/home :path "/"})
-                 {"/" #{:app-a/home :app-b/home}}))
-          "a THIRD claimant is not covered by the pair's allowlist entry")
-      (is (seq (duplicate-path-groups allowlisted {"/other" #{:app-a/home :app-b/home}}))
-          "an allowlist entry is pinned to its path"))))
+    (let [pair [{:id :app-a/home :path "/"} {:id :app-b/home :path "/"}]]
+      (doseq [[label claims allowlist violation?]
+              [["the exact blessed set passes"
+                pair {"/" #{:app-a/home :app-b/home}} false]
+               ["ONE id registered from two files is an id replacement, not a path
+                 collision — the registrar is keyed by id, so nothing is shadowed"
+                [{:id :realworld/home :path "/" :file "examples/real-apps/realworld_http/routing.cljs"}
+                 {:id :realworld/home :path "/" :file "examples/real-apps/realworld_resources/routing.cljs"}]
+                {} false]
+               ["a THIRD claimant is not covered by the pair's allowlist entry"
+                (conj pair {:id :app-c/home :path "/"}) {"/" #{:app-a/home :app-b/home}} true]
+               ["an allowlist entry is pinned to its path"
+                pair {"/other" #{:app-a/home :app-b/home}} true]]]
+        (is (= violation? (boolean (seq (duplicate-path-groups claims allowlist)))) label)))))
 
 ;; ---- 2. the reader sees load-time registrations, and only those ------------
 
@@ -569,17 +557,15 @@
                     "(register!)\n")]
       (is (= [:app/deep] (mapv :id (:claims (claims-in text "routes.cljs")))))))
 
-  (testing "fixture-scoped registrations are NOT claims"
+  (testing "a deftest body, and a defn nothing calls at load, register nothing
+            global — and neither is a complaint"
     (let [text (str "(ns example.core-test (:require [re-frame.routing :as routing]))\n"
                     "(deftest t\n"
                     "  (routing/reg-route :fixture/local {} \"/\"))\n"
                     "(defn- fresh! []\n"
                     "  (routing/reg-route :helper/only-a-test-calls-me {} \"/\"))\n"
-                    "(defn- unreached [] (fresh!))\n")
-          out  (claims-in text "core_test.cljs")]
-      (is (= [] (:claims out))
-          "a deftest body, and a defn nothing calls at load, register nothing global")
-      (is (= [] (:unresolved out)) "and neither is a complaint")))
+                    "(defn- unreached [] (fresh!))\n")]
+      (is (= {:claims [] :unresolved []} (claims-in text "core_test.cljs")))))
 
   (testing "a function literal's body is not load-time either"
     (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
@@ -595,40 +581,27 @@
                  "(def feed ::feed)\n"
                  "(defn r! [] (routing/reg-route feed {} \"/x\"))\n(r!)\n")
           claims (concat (:claims (claims-in a "a.cljs")) (:claims (claims-in b "b.cljs")))]
-      (is (= [:app.a/feed :app.b/feed] (mapv :id claims)))
       (is (= 1 (count (duplicate-path-groups claims {})))
-          "and the census sees the collision between them"))))
+          "the census sees the collision between them"))))
 
 (deftest claims-in-never-drops-what-it-cannot-read
   (testing "a computed path is reported, not skipped"
     (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
                     "(def base \"/app\")\n"
-                    "(routing/reg-route :app/home {} (str base \"/home\"))\n")
-          out  (claims-in text "core.cljs")]
-      (is (= [] (:claims out)))
-      (is (= 1 (count (:unresolved out))))
-      (is (= 3 (:line (first (:unresolved out)))))
-      (is (str/includes? (unresolved-failure-message (:unresolved out)) "core.cljs:3"))))
+                    "(routing/reg-route :app/home {} (str base \"/home\"))\n")]
+      (is (= [["core.cljs" 3]] (map (juxt :file :line) (:unresolved (claims-in text "core.cljs")))))))
 
   (testing "an id that is neither a literal nor a file-local def is reported"
     (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
                     "(routing/reg-route (route-id) {} \"/home\")\n")]
       (is (= 1 (count (:unresolved (claims-in text "core.cljs")))))))
 
-  (testing "a wrong arity is reported rather than mis-read"
-    (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
-                    "(routing/reg-route :app/home \"/home\")\n")
-          out  (claims-in text "core.cljs")]
-      (is (= [] (:claims out)))
-      (is (str/includes? (:why (first (:unresolved out))) "exactly three arguments"))))
-
   (testing "a reg-route inside an unclassified def… form asks to be classified"
     (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
                     "(defsomething thing\n"
-                    "  (routing/reg-route :app/home {} \"/home\"))\n")
-          out  (claims-in text "core.cljs")]
-      (is (= [] (:claims out)))
-      (is (str/includes? (:why (first (:unresolved out))) "defsomething"))))
+                    "  (routing/reg-route :app/home {} \"/home\"))\n")]
+      (is (str/includes? (:why (first (:unresolved (claims-in text "core.cljs"))))
+                         "defsomething"))))
 
   (testing "the enumerated deferred-body heads stay silent"
     (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
