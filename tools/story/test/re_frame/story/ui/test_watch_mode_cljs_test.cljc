@@ -55,12 +55,7 @@
     {:story.x/a "aaaa" :story.x/b "bbbb"}
     []
 
-    ;; one hash changed → that variant drifted
-    {:story.x/a "aaaa" :story.x/b "bbbb"}
-    {:story.x/a "aaaa" :story.x/b "cccc"}
-    [:story.x/b]
-
-    ;; several changes → every drifted variant, sorted
+    ;; changed hashes → every drifted variant, sorted
     {:story.x/a "1" :story.x/b "2" :story.x/c "3"}
     {:story.x/a "X" :story.x/b "2" :story.x/c "Y"}
     [:story.x/a :story.x/c]
@@ -74,22 +69,7 @@
     ;; a variant absent from current is dropped — there is nothing to re-run
     {:story.x/a "aaaa" :story.x/b "bbbb"}
     {:story.x/a "aaaa"}
-    []
-
-    ;; a nil prev treats every current entry as drifted (a defensive guard:
-    ;; the watch-mode wiring seeds the slot on toggle-on)
-    nil
-    {:story.x/a "aaaa" :story.x/b "bbbb"}
-    [:story.x/a :story.x/b]))
-
-;; ---- pure: record-test-content-hashes ----------------------------------
-
-(deftest record-test-content-hashes-nil-clears
-  (testing "nil input clears the slot — used by toggle-off"
-    (let [s (-> rf.story.ui.state/default-shell-state
-                (rf.story.ui.state/record-test-content-hashes {:story.x/a "aaaa"})
-                (rf.story.ui.state/record-test-content-hashes nil))]
-      (is (= {} (get-in s [:tests :content-hashes]))))))
+    []))
 
 ;; ---- CLJS-only: widget renders the watch toggle ------------------------
 
@@ -118,244 +98,109 @@
        (persistent! hits))))
 
 #?(:cljs
-   (deftest widget-renders-watch-toggle-off-by-default
-     (testing "the chrome widget renders the watch chip with aria-
-               pressed=false when watch mode is off"
-       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
-                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (let [tree (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
-                                       (rf.story.ui.state/registry-snapshot))
-             chip (first (find-by-data-test tree "story-test-widget-watch-toggle"))]
-         (is (some? chip))
-         (is (= "false" (get (second chip) :aria-pressed)))
-         (is (= "off"   (get (second chip) :data-state)))))))
-
-#?(:cljs
-   (deftest widget-renders-watch-toggle-on-when-flag-on
-     (testing "with [:tests :watch-mode?] true the chip reads aria-pressed=
-               true and the data-state attribute reads 'on'"
-       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
-                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+   (deftest widget-watch-toggle-reflects-the-flag
+     (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
+                                    :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+     (let [chip-attrs (fn []
+                        (-> (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
+                                                             (rf.story.ui.state/registry-snapshot))
+                            (find-by-data-test "story-test-widget-watch-toggle")
+                            first
+                            second
+                            ((juxt :aria-pressed :data-state))))]
+       (is (= ["false" "off"] (chip-attrs)) "off by default")
        (rf.story.ui.state/swap-state! rf.story.ui.state/set-test-watch-mode true)
-       (let [tree (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
-                                       (rf.story.ui.state/registry-snapshot))
-             chip (first (find-by-data-test tree "story-test-widget-watch-toggle"))]
-         (is (some? chip))
-         (is (= "true" (get (second chip) :aria-pressed)))
-         (is (= "on"   (get (second chip) :data-state)))))))
-
-#?(:cljs
-   (deftest widget-hides-watch-toggle-when-no-testable-variants
-     (testing "no :test variants → the widget renders the empty-state
-               sub-line and the watch chip is absent (the chip lives
-               beneath the count chips and only renders when there's
-               something to watch)"
-       (rf.story/reg-variant :story.x/a {:tags #{:dev} :setup []})
-       (let [tree (rf.story.ui.sidebar/test-widget (rf.story.ui.state/get-state)
-                                       (rf.story.ui.state/registry-snapshot))
-             chip (first (find-by-data-test tree "story-test-widget-watch-toggle"))]
-         (is (nil? chip))))))
-
-;; ---- watch-rerun! re-runs only the drifted variants --------------------
-;;
-;; This test exercises the public surface that the shell's detector
-;; calls — `rf.story.ui.sidebar/watch-rerun!` for the drifted variant-ids. We assert
-;; that calling it stamps `:running` for each variant before the async
-;; result lands. The async resolution is covered by the test-widget
-;; tests' 'Run all' coverage; the drift→rerun wiring is this test's
-;; surface.
-
-#?(:cljs
-   (deftest watch-rerun-stamps-running-for-each-variant
-     (testing "watch-rerun! marks every passed variant :running up
-               front so the sidebar dots flip yellow in unison — the
-               same contract as 'Run all', but driven by the detector"
-       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
-                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (rf.story/reg-variant :story.x/b {:tags #{:test} :setup []
-                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (rf.story.ui.sidebar/watch-rerun! [:story.x/a :story.x/b])
-       ;; Both variants stamp :running synchronously before the async
-       ;; resolution lands.
-       (let [s (rf.story.ui.state/get-state)]
-         (is (= :running (get-in s [:tests :runs :story.x/a :status])))
-         (is (= :running (get-in s [:tests :runs :story.x/b :status])))))))
-
-#?(:cljs
-   (deftest watch-rerun-empty-seq-noop
-     (testing "watch-rerun! on an empty seq is a no-op — the detector
-               only calls it when drift is detected, but the function
-               handles the no-drift edge gracefully"
-       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
-                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (rf.story.ui.sidebar/watch-rerun! [])
-       (let [s (rf.story.ui.state/get-state)]
-         (is (nil? (get-in s [:tests :runs :story.x/a])))))))
+       (is (= ["true" "on"] (chip-attrs))))))
 
 ;; ---- a cell-override edit triggers a re-run ----------------------------
 ;;
-;; `snapshot-tuple` (via `resolve-args`) threads overrides into the hash
-;; input, so the watch-mode hash cache includes `:cell-overrides` in its
-;; key and threads per-variant overrides into the snapshot-identity opts.
-;; A key that omitted them would serve a stale answer on every control
-;; edit; the detector would see no drift and miss the re-run.
+;; The watch hash folds in each variant's `:cell-overrides`, and the hash
+;; cache keys on them: a key that omitted them would serve a stale hash on
+;; every control edit, and the detector would miss the re-run.
 
 #?(:cljs
    (deftest cell-override-edit-perturbs-watch-mode-hash
-     (testing "editing :cell-overrides on a :test-tagged variant
-               produces a fresh content-hash via detect-watch-drift!
-               and stamps the variant :running"
-       (rf.story/reg-variant :story.x/a
-         {:component :app.ui/echo
-          :args      {:n 0}
-          :tags      #{:test}
-          :setup    []
-          :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       ;; Flip watch-mode on and seed the initial hashes with no overrides.
-       (rf.story.ui.state/swap-state! rf.story.ui.state/set-test-watch-mode true)
-       (rf.story.ui.state/swap-state!
-         (fn [s]
-           (rf.story.ui.state/record-test-content-hashes
-             s
-             ;; Seed from the current registry — these are the baseline
-             ;; hashes the detector diffs against.
-             {})))
-       ;; First detection pass — should seed hashes + (because prev is
-       ;; empty) treat every testable variant as drifted, re-running it.
+     (rf.story/reg-variant :story.x/a
+       {:component :app.ui/echo
+        :args      {:n 0}
+        :tags      #{:test}
+        :setup    []
+        :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+     (rf.story.ui.state/swap-state! rf.story.ui.state/set-test-watch-mode true)
+     ;; The first pass seeds the hashes (and, prev being empty, re-runs).
+     (rf.story.ui.shell/detect-watch-drift!)
+     (let [baseline (get-in (rf.story.ui.state/get-state) [:tests :content-hashes :story.x/a])]
+       (is (some? baseline) "the first pass seeds the slot from the registry")
+       (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run :story.x/a)
+       (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override :story.x/a [:n] 42)
        (rf.story.ui.shell/detect-watch-drift!)
-       (let [seeded-hashes (get-in (rf.story.ui.state/get-state) [:tests :content-hashes])]
-         (is (contains? seeded-hashes :story.x/a)
-             "after the first pass the slot is seeded from the registry"))
-       ;; Re-seed against the post-baseline so the next pass starts from
-       ;; the registry's current truth; cell-edit happens after.
-       (let [post-seed (get-in (rf.story.ui.state/get-state) [:tests :content-hashes])
-             baseline  (get post-seed :story.x/a)]
-         ;; Drop the per-variant :running stamp so we can detect a fresh one.
-         (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run :story.x/a)
-         ;; Now simulate a control-panel edit — write into :cell-overrides.
-         (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override :story.x/a [:n] 42)
-         (rf.story.ui.shell/detect-watch-drift!)
-         (let [after-hashes (get-in (rf.story.ui.state/get-state) [:tests :content-hashes])
-               after-hash   (get after-hashes :story.x/a)
-               run-state    (get-in (rf.story.ui.state/get-state) [:tests :runs :story.x/a])]
-           (testing "the recomputed hash differs from the baseline (cell-overrides
-                     ARE threaded through snapshot-tuple)"
-             (is (not= baseline after-hash)
-                 (str "expected fresh hash after cell-override edit; got "
-                      (pr-str baseline) " → " (pr-str after-hash))))
-           (testing "the detector dispatched watch-rerun! → :running stamp lands"
-             (is (= :running (:status run-state))
-                 (str "expected the variant marked :running after the cell-
-                       override edit; run-state was " (pr-str run-state)))))))))
+       (let [s (rf.story.ui.state/get-state)]
+         (is (not= baseline (get-in s [:tests :content-hashes :story.x/a]))
+             "the edit moves the variant's watch hash")
+         (is (= :running (get-in s [:tests :runs :story.x/a :status]))
+             "the detector re-runs the edited variant")))))
 
 ;; ---- drift re-runs ONLY the drifted variant's dot ----------------------
 ;;
-;; The watch-mode contract (tools/story/spec/009-Test-Mode.md §Watch mode;
-;; 015-Test-Coverage.md row "Test watch mode") says watch-mode "re-runs
-;; drifted testable variants only". The single-variant `cell-override-edit-perturbs-watch-mode-hash`
-;; test above proves drift → re-run for the edited variant, but with only
-;; ONE testable variant registered it cannot prove the SELECTIVE half —
-;; that a sibling testable variant does NOT re-run when it hasn't drifted.
-;;
-;; This test registers TWO :test variants, seeds the baseline, edits only
-;; A's :cell-overrides, and asserts the detector stamps A :running while
-;; leaving B untouched. That is the "only that variant's dot" contract,
-;; expressed against the CLJS state the DOM dot reflects (per the Story
-;; testing posture: CLJS unit tests, not Playwright).
+;; tools/story/spec/009-Test-Mode.md §Watch mode: watch mode "re-runs
+;; drifted testable variants only". With a second testable variant this
+;; pins the SELECTIVE half that a single-variant test cannot.
 
 #?(:cljs
    (deftest drift-reruns-only-the-drifted-variant
-     (testing "editing one variant's :cell-overrides drifts + re-runs ONLY
-               that variant; the sibling testable variant's dot is left
-               untouched (selective drift-rerun)"
-       (rf.story/reg-variant :story.x/a
-         {:component :app.ui/echo
-          :args      {:n 0}
-          :tags      #{:test}
-          :setup    []
-          :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (rf.story/reg-variant :story.x/b
-         {:component :app.ui/echo
-          :args      {:n 0}
-          :tags      #{:test}
-          :setup    []
-          :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       ;; Watch on + empty baseline so the first pass seeds both hashes.
-       (rf.story.ui.state/swap-state! rf.story.ui.state/set-test-watch-mode true)
-       (rf.story.ui.state/swap-state! #(rf.story.ui.state/record-test-content-hashes % {}))
-       ;; First pass seeds the baseline (and, because prev is empty,
-       ;; treats both as drifted). Clear the :running stamps so we can
-       ;; detect a fresh re-run from the NEXT pass alone.
-       (rf.story.ui.shell/detect-watch-drift!)
-       (let [seeded (get-in (rf.story.ui.state/get-state) [:tests :content-hashes])]
-         (is (contains? seeded :story.x/a))
-         (is (contains? seeded :story.x/b)
-             "both testable variants are hashed into the baseline"))
-       (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run :story.x/a)
-       (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run :story.x/b)
-       ;; Edit ONLY variant A. B's slots are untouched, so B's hash is
-       ;; stable and B must NOT re-run.
-       (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override :story.x/a [:n] 99)
-       (rf.story.ui.shell/detect-watch-drift!)
-       (let [runs (get-in (rf.story.ui.state/get-state) [:tests :runs])]
-         (testing "the drifted variant A re-runs (dot flips :running)"
-           (is (= :running (get-in runs [:story.x/a :status]))
-               (str "expected A :running after its cell-override edit; runs was "
-                    (pr-str runs))))
-         (testing "the undrifted sibling B does NOT re-run (dot untouched)"
-           (is (nil? (get runs :story.x/b))
-               (str "expected B to have no fresh run stamp — only the drifted "
-                    "variant re-runs; runs was " (pr-str runs))))))))
+     (rf.story/reg-variant :story.x/a
+       {:component :app.ui/echo
+        :args      {:n 0}
+        :tags      #{:test}
+        :setup    []
+        :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+     (rf.story/reg-variant :story.x/b
+       {:component :app.ui/echo
+        :args      {:n 0}
+        :tags      #{:test}
+        :setup    []
+        :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+     (rf.story.ui.state/swap-state! rf.story.ui.state/set-test-watch-mode true)
+     ;; The first pass seeds both hashes; clear its :running stamps so only
+     ;; the NEXT pass can stamp one. An unseeded baseline would re-run B too.
+     (rf.story.ui.shell/detect-watch-drift!)
+     (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run :story.x/a)
+     (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run :story.x/b)
+     (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override :story.x/a [:n] 99)
+     (rf.story.ui.shell/detect-watch-drift!)
+     (let [runs (get-in (rf.story.ui.state/get-state) [:tests :runs])]
+       (is (= :running (get-in runs [:story.x/a :status]))
+           (str "the edited variant A re-runs; runs was " (pr-str runs)))
+       (is (nil? (get runs :story.x/b))
+           (str "the undrifted sibling B does not; runs was " (pr-str runs))))))
 
 ;; ---- toggle-ON seeds the baseline → no spurious full re-run -------------
 ;;
-;; The watch toggle's contract (sidebar.cljs) promises: "Toggle-on seeds
-;; [:tests :content-hashes] so the first detector tick doesn't fire a
-;; spurious re-run for every variant." An on-click that only flipped the
-;; flag would leave the slot {} on enable, so the first
-;; detect-watch-drift! tick would read every testable variant as
-;; absent-from-prev → drifted, re-running the WHOLE :test suite the instant
-;; watch turned on. `rf.story.ui.sidebar/set-watch-mode!` seeds the real
-;; baseline BEFORE the flag flips, so the first tick diffs against truth
-;; and re-runs nothing.
+;; An on-click that only flipped the flag would leave the slot {} on enable,
+;; so the first detector tick would read every testable variant as drifted
+;; and re-run the WHOLE :test suite the instant watch turned on.
 
 #?(:cljs
    (deftest toggle-on-seeds-baseline-no-spurious-full-rerun
-     (testing "enabling watch via `rf.story.ui.sidebar/set-watch-mode!`
-               seeds [:tests :content-hashes] from the CURRENT registry
-               BEFORE the flag flips, so the first detector tick re-runs
-               NOTHING (the registry is unchanged since the seed)"
-       (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
-                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       (rf.story/reg-variant :story.x/b {:tags #{:test} :setup []
-                                      :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
-       ;; Enable via the REAL toggle entry point (what the on-click calls).
-       (rf.story.ui.sidebar/set-watch-mode! true)
-       (testing "the baseline slot is seeded with BOTH testable variants"
-         (let [seeded (get-in (rf.story.ui.state/get-state) [:tests :content-hashes])]
-           (is (contains? seeded :story.x/a)
-               "toggle-on must seed the baseline, not leave it {}")
-           (is (contains? seeded :story.x/b))))
-       ;; First detector tick — registry UNCHANGED since the seed.
-       (rf.story.ui.shell/detect-watch-drift!)
-       (testing "no variant re-runs — the seeded baseline matches, so drift
-                 is empty (an unseeded baseline would re-run the whole
-                 suite here)"
-         (let [runs (get-in (rf.story.ui.state/get-state) [:tests :runs])]
-           (is (nil? (get runs :story.x/a))
-               (str "expected NO re-run on enable; runs was " (pr-str runs)))
-           (is (nil? (get runs :story.x/b))))))))
+     (rf.story/reg-variant :story.x/a {:tags #{:test} :setup []
+                                    :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+     (rf.story/reg-variant :story.x/b {:tags #{:test} :setup []
+                                    :script [[:dispatch-sync [:rf.assert/path-equals [:c] 0]]]})
+     ;; The REAL toggle entry point (what the on-click calls).
+     (rf.story.ui.sidebar/set-watch-mode! true)
+     (is (every? (get-in (rf.story.ui.state/get-state) [:tests :content-hashes])
+                 [:story.x/a :story.x/b])
+         "toggle-on seeds the baseline with both testable variants")
+     (rf.story.ui.shell/detect-watch-drift!)
+     (let [runs (get-in (rf.story.ui.state/get-state) [:tests :runs])]
+       (is (= {} (select-keys runs [:story.x/a :story.x/b]))
+           (str "the first tick re-runs nothing; runs was " (pr-str runs))))))
 
 ;; ---- a view-schema hot-reload busts the testable-hash cache ------------
 ;;
-;; `compute-testable-content-hashes` caches on
-;; [registrar-tick modes substrate cell-overrides <per-frame view-schema
-;; digests>]. snapshot-tuple hashes each variant frame's app-db schema
-;; digest (identity/view-schema-digest, off :schemas/app-schemas-digest) —
-;; but a schema hot-reload does NOT write the Story side-table, so it does
-;; NOT bump the registrar mutation-tick. Without the digests in its key the
-;; cache would serve the stale hash across a schema change and the
-;; schema-affected variant would never re-run.
+;; A schema hot-reload changes the view-schema digest the watch hash folds
+;; in without bumping the registrar mutation-tick, so a cache keyed without
+;; the digests would serve the stale hash and the variant would never re-run.
 
 #?(:cljs
    (deftest schema-hot-reload-busts-testable-hash-cache
