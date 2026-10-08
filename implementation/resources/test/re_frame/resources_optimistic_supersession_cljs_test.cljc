@@ -1,25 +1,13 @@
 (ns re-frame.resources-optimistic-supersession-cljs-test
   "A superseded or cleared PENDING optimistic apply is rolled back, not
-  forgotten (Spec 016 §Optimistic settle; EP-0019 Decision 3 amendment).
-
-  Flagship-shaped: favorite then unfavorite under ONE instance id, each an
-  optimistic toggle of `:favorited` plus a ±1 nudge of `:favoritesCount`.
-
-    - a same-instance RE-EXECUTE paints on the CURRENT value (the in-flight
-      delta stays right) and INHERITS the superseded pre-paint `:before` for
-      the keys it re-touches; keys it does not re-touch roll back at once;
-    - `:rf.mutation/clear` of a pending apply rolls it back;
-    - a rollback whose baseline came from an abandoned attempt restores the
-      pre-paint snapshot, marks the key STALE, and refetches it when owned —
-      the abandoned write may still have reached the server. An ordinary
-      single-attempt rollback stays exact (pinned by the settle suite's
-      `failure-rolls-back-to-the-recorded-before-verbatim`).
-
-  This is recovery, not write ordering: a re-execute does not abort the
-  earlier request."
+  forgotten (Spec 016 §Optimistic settle). A same-instance re-execute paints on
+  the current value and inherits the superseded pre-paint :before; a rollback
+  whose baseline came from an abandoned attempt restores it, marks the key
+  stale and refetches it when owned, because the abandoned write may still
+  have reached the server."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    [re-frame.resources]
@@ -31,8 +19,6 @@
    [re-frame.trace.tooling :as rf.trace.tooling]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
-
-;; ---- capturing transport ----------------------------------------------------
 
 (def ^:private requests (atom []))
 
@@ -49,12 +35,11 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
-;; ---- helpers ----------------------------------------------------------------
-
 (def ^:private scope :rf.scope/global)
 (def ^:private instance-id [:favorite "w"])
 (def ^:private article-q {:resource :sp/article :scope scope :params {:slug "w"}})
 (def ^:private article-key (rf.resources.state/scoped-resource-key scope :sp/article {:slug "w"}))
+(def ^:private unpainted {:favorited false :favoritesCount 5})
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- entry [] (get-in (runtime-db) (rf.resources.state/entry-path article-key)))
@@ -71,10 +56,8 @@
     (rf/dispatch-sync ev {:rf.cofx {:rf/time-ms time-ms}})
     (rf/dispatch-sync ev)))
 
-(defn- succeed!
-  ([args value] (succeed! args value nil))
-  ([args value time-ms]
-   (dispatch-at! (conj (:on-success args) {:status :ok :value value}) time-ms)))
+(defn- succeed! [args value]
+  (dispatch-at! (conj (:on-success args) {:status :ok :value value}) nil))
 
 (defn- fail!
   ([args] (fail! args nil))
@@ -84,7 +67,7 @@
                  time-ms)))
 
 (defn- toggle
-  "The flagship's forward patch: set `:favorited`, nudge the count by ±1."
+  "The forward patch: set :favorited, nudge the count by 1 either way."
   [favorited? data]
   (update data :article
           #(-> % (assoc :favorited favorited?)
@@ -99,8 +82,8 @@
                 {{:resource :sp/article :params {:slug slug} :scope scope} result})})
 
 (defn- setup!
-  "Register the article + the two mutations; load the article
-  `{:favorited false :favoritesCount 5}`, owned unless `owner` is nil."
+  "Register the article and the two mutations; load the article unpainted,
+  owned unless `owner` is nil."
   ([] (setup! [:view :detail]))
   ([owner]
    (rf/reg-resource :sp/article
@@ -113,7 +96,7 @@
    (rf/reg-mutation :sp/unfavorite (fav-mutation false)
      (fn [{:keys [slug]} _] {:request {:method :delete :url (str "/a/" slug "/fav")}}))
    (rf/dispatch-sync [:rf.resource/ensure (cond-> article-q owner (assoc :owner owner))])
-   (succeed! (last @requests) {:article {:favorited false :favoritesCount 5}})))
+   (succeed! (last @requests) {:article unpainted})))
 
 (defn- click!
   "Execute `mutation` under the shared instance id; return its captured request."
@@ -134,49 +117,19 @@
     (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
-;; ===========================================================================
-;; R1 / C1 — favorite then unfavorite, both rejected, the stale reply first
-;; ===========================================================================
-
 (deftest re-execute-both-rejected-restores-the-pre-paint-value-stale
   (setup!)
   (let [click-1 (click! :sp/favorite)
         _       (is (= {:favorited true :favoritesCount 6} (article)))
         click-2 (click! :sp/unfavorite)]
-    (testing "C1 delta: the successor paints on the CURRENT value — 5, not 4"
-      (is (= {:favorited false :favoritesCount 5} (article))))
+    (is (= unpainted (article)) "the successor paints on the current value: 5, not 4")
     (fail! click-1 7000)
-    (is (= {:favorited false :favoritesCount 5} (article))
-        "the superseded reply is still stale-suppressed: it writes nothing")
+    (is (= unpainted (article)) "the superseded reply is stale-suppressed: it writes nothing")
     (let [before-reads (reads)]
       (fail! click-2 8000)
-      (testing "the successor's rollback restores the SUPERSEDED pre-paint value, stale"
-        (is (= {:favorited false :favoritesCount 5} (article)))
-        (is (stale?))
-        (is (= 8000 (:invalidated-at (entry))) "stamped with the rejecting reply's time")
-        (is (= :error (:status (instance)))))
-      (testing "the owned key refetches exactly once"
-        (is (= 1 (- (reads) before-reads)))))))
-
-;; ===========================================================================
-;; R2 — the superseded write succeeded (200, suppressed); the successor fails
-;; ===========================================================================
-
-(deftest superseded-success-then-successor-failure-ends-stale-and-refetches
-  (setup!)
-  (let [click-1 (click! :sp/favorite)
-        click-2 (click! :sp/unfavorite)]
-    (succeed! click-1 {:article {:favorited true :favoritesCount 6}})
-    (is (= {:favorited false :favoritesCount 5} (article)) "the 200 is suppressed")
-    (let [before-reads (reads)]
-      (fail! click-2)
-      (is (= {:favorited false :favoritesCount 5} (article)))
-      (is (stale?) "the server may hold the superseded write: the cache revalidates")
-      (is (= 1 (- (reads) before-reads))))))
-
-;; ===========================================================================
-;; R3 — clear while pending
-;; ===========================================================================
+      (is (= [unpainted true 8000 :error 1]
+             [(article) (stale?) (:invalidated-at (entry)) (:status (instance)) (- (reads) before-reads)])
+          "restored to the superseded pre-paint value, stale at the rejecting reply's time, refetched once"))))
 
 (deftest clear-while-pending-rolls-back-and-stales
   (setup!)
@@ -185,31 +138,17 @@
         before-reads (reads)
         rolled       (traces-of :rf.mutation/optimistic-rolled-back
                        #(rf/dispatch-sync [:rf.mutation/clear {:instance instance-id}]))]
-    (is (= {:favorited false :favoritesCount 5} (article)))
-    (is (stale?))
-    (is (nil? (instance)) "the instance row is gone")
-    (is (= [snapshot-id] (mapv :snapshot-id rolled))
-        "the rollback names the CLEARED apply's snapshot")
-    (is (= [article-key] (:restored (first rolled))))
-    (is (= 1 (- (reads) before-reads)) "the owned key refetches")))
-
-;; ===========================================================================
-;; R4 — a non-optimistic successor under the same instance
-;; ===========================================================================
+    (is (= [unpainted true nil 1] [(article) (stale?) (instance) (- (reads) before-reads)])
+        "rolled back, stale, the instance row gone, the owned key refetched")
+    (is (= [[snapshot-id] [article-key]] [(mapv :snapshot-id rolled) (:restored (first rolled))])
+        "the rollback names the cleared apply's snapshot")))
 
 (deftest a-non-optimistic-successor-rolls-the-superseded-apply-back-at-execute
   (setup!)
   (click! :sp/favorite)
   (let [before-reads (reads)]
     (click! :sp/unfavorite {:optimistic? false})
-    (testing "the superseded keys are restored and staled at execute time"
-      (is (= {:favorited false :favoritesCount 5} (article)))
-      (is (stale?))
-      (is (= 1 (- (reads) before-reads))))))
-
-;; ===========================================================================
-;; R5 — a three-attempt chain restores the EARLIEST baseline
-;; ===========================================================================
+    (is (= [unpainted true 1] [(article) (stale?) (- (reads) before-reads)]))))
 
 (deftest a-three-attempt-chain-restores-the-original-baseline
   (setup!)
@@ -218,34 +157,27 @@
   (let [click-3 (click! :sp/favorite)]
     (is (= {:favorited true :favoritesCount 6} (article)))
     (fail! click-3)
-    (is (= {:favorited false :favoritesCount 5} (article)))
-    (is (stale?))))
-
-;; ===========================================================================
-;; Controls
-;; ===========================================================================
+    (is (= [unpainted true] [(article) (stale?)]))))
 
 (deftest c3-a-successful-successor-commits-without-a-stale-mark
   (setup!)
   (click! :sp/favorite)
   (let [click-2 (click! :sp/unfavorite)]
-    (succeed! click-2 {:article {:favorited false :favoritesCount 5}})
-    (is (= {:favorited false :favoritesCount 5} (article)))
-    (is (not (stale?)) "no stale mark lands on a populated key")
-    (is (= :success (:status (instance))))))
+    (succeed! click-2 {:article unpainted})
+    (is (= [unpainted false :success] [(article) (stale?) (:status (instance))])
+        "no stale mark lands on a populated key")))
 
 (deftest c4-no-blind-restore-across-an-authoritative-write
   (setup!)
   (click! :sp/favorite)
-  ;; an authoritative read lands between the clicks: the server has click 1.
+  ;; an authoritative read lands between the clicks: the server has click 1
   (rf/dispatch-sync [:rf.resource/refetch article-q])
   (succeed! (last @requests) {:article {:favorited true :favoritesCount 6}})
   (let [click-2 (click! :sp/unfavorite)]
-    (is (= {:favorited false :favoritesCount 5} (article)))
+    (is (= unpainted (article)))
     (fail! click-2)
-    (is (= {:favorited true :favoritesCount 6} (article))
-        "the successor keeps its own post-write snapshot — never click 1's")
-    (is (stale?))))
+    (is (= [{:favorited true :favoritesCount 6} true] [(article) (stale?)])
+        "the successor restores its own post-write snapshot, never click 1's")))
 
 (deftest c5-an-owner-free-restored-key-stays-stale-through-a-read-in-flight
   (setup! nil)
@@ -254,5 +186,5 @@
   (let [read (last @requests)]
     (rf/dispatch-sync [:rf.mutation/clear {:instance instance-id}])
     (is (stale?))
-    (succeed! read {:article {:favorited false :favoritesCount 5}})
+    (succeed! read {:article unpainted})
     (is (stale?) "the read in flight when the mark landed does not clear it")))
