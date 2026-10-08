@@ -2,7 +2,7 @@
   "The spec/015 §MCP surface scenarios, from the vantage of the story-mcp jar's
   in-process calls: the id-set reads, the run-variant result shape, a
   frame-scoped dispatch, and snapshot-identity stability."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
             [re-frame.machines         :as rf.machines]
