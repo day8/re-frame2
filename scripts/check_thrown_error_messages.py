@@ -22,8 +22,8 @@ WHY THIS GATE EXISTS
 
 The conformance test
 (`implementation/core/test/re_frame/thrown_error_message_conformance_cljs_test.cljc`)
-is a CURATED allow-list: it `:require`s a handful of namespaces and exercises
-those sites directly. A NEW `(ex-info ":rf.error/…" …)` site is invisible to
+pins the central builder, the two message predicates and ONE real throw site
+(the flows topo-sort cycle). A NEW `(ex-info ":rf.error/…" …)` site is invisible to
 it, and would ship the bare keyword as `ex-message` with CI unable to see it.
 This gate is a CORPUS SWEEP that fails on ANY framework `(ex-info …)` whose
 MESSAGE position is a bare `:rf.*` discriminator keyword, so the contract

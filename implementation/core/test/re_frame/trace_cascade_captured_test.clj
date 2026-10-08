@@ -138,7 +138,8 @@
 
 (deftest aggregate-cascade-honours-bounds
   ;; Spec 009 caps a capture at 50 subs and 100 views; only an entry past the
-  ;; cap sets the truncation flag. `:rf.sub/run` and `:rf.sub/skip` share it.
+  ;; cap sets the truncation flag. `:subs-recomputed` and `:subs-skipped` are
+  ;; each capped at 50 on their own.
   (doseq [[op n k kept sub-truncated? view-truncated?]
           [[:rf.sub/run     50  :subs-recomputed 50  false false]
            [:rf.sub/run     51  :subs-recomputed 50  true  false]
@@ -149,7 +150,14 @@
     (let [dag (rf.trace.cascade/aggregate-cascade (repeat n {:operation op}))]
       (is (= [kept sub-truncated? view-truncated?]
              [(count (get dag k)) (:sub-cap-truncated? dag) (:view-cap-truncated? dag)])
-          (str n " x " op)))))
+          (str n " x " op))))
+  (let [dag (rf.trace.cascade/aggregate-cascade
+              (concat (repeat 50 {:operation :rf.sub/run})
+                      (repeat 50 {:operation :rf.sub/skip})))]
+    (is (= [50 50 false]
+           [(count (:subs-recomputed dag)) (count (:subs-skipped dag))
+            (:sub-cap-truncated? dag)])
+        "50 recomputed + 50 skipped fit: the two vectors do not share the cap")))
 
 (deftest aggregate-cascade-shape-pin
   ;; `:subs-recomputed` records also carry nil-padded attribution slots; only

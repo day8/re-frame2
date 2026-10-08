@@ -40,8 +40,7 @@
   measure-naming convention. The `:render` bucket fires inside the
   Reagent `frame-aware-view` wrapper — driving it requires a live React
   render tree, which is browser-only (covered by the bundle-presence
-  grep in `scripts/check-perf-bundle.cjs`, plus the per-call macro
-  round-trip in `re-frame.performance-cljs-test`). The naming
+  grep in `scripts/check-perf-bundle.cjs`). The naming
   convention and macro shape for `:render` is locked by
   `performance-cljs-test/build-name-shape` —
   `(rf.performance/build-name :render :my.app/page)` returns
@@ -65,11 +64,12 @@
 ;; runner sets `:closure-defines {re-frame.performance/retain-entries?
 ;; true}` (alongside `enabled? true`) so the entries PERSIST in the
 ;; retained buffer and these emission assertions can read them
-;; synchronously. The clear-after-emit behaviour itself is
-;; unit-tested in `re-frame.performance-cljs-test` — a synchronous
-;; PerformanceObserver read is unreliable on the node runner (the
-;; callback runs later, as a queued task), so retention is the robust way
-;; to assert the entry NAMES / BUCKETS here.
+;; synchronously. Retention is the robust way to assert the entry
+;; NAMES / BUCKETS here, because a synchronous PerformanceObserver read is
+;; unreliable on the node runner (the callback runs later, as a queued
+;; task). It also means this runner cannot observe clear-after-emit, and
+;; the assertions for it in `re-frame.performance-cljs-test` are guarded off
+;; in the flag-off lane that runs that namespace.
 (defn- clear-measures!
   []
   (when (exists? js/performance.clearMeasures)
