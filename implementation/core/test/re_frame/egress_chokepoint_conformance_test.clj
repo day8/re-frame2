@@ -1,153 +1,56 @@
 (ns re-frame.egress-chokepoint-conformance-test
-  "The conformance PIN that makes the egress-redaction
-  CHOKE-POINT real, not documentary, for the ALWAYS-ON (production-surviving)
-  union-record fan-out.
+  "The egress-redaction choke-point, enforced at the ALWAYS-ON union-record
+  fan-out.
 
-  ## What this pins
-
-  Security.md §The privacy / classification surface is NORMATIVE:
-
-    > Projection is centralized at trust boundaries via `project-egress`
-    > (the record-level primitive) over `elide-wire-value` (the low-level
-    > walker) … per-tool reimplementation of the projection is prohibited.
-    > Sinks consume already-projected records only.
-
-  The choke-point is `re-frame.projection/project-egress`
-  (projection.cljc). The EP-0015 §9 frame-owned observability route
-  (`route-error!` / `route-error-record!`) funnels error records
-  through it. The risk this ratchet governs is the
-  `forgot the always-on half` bug family at the EGRESS boundary: a NEW site
-  that ships a payload-bearing always-on union record to the corpus-wide
-  `register-error-listener!` registry WITHOUT routing the untrusted slots
-  through `project-egress` first.
-
-  The two always-on union-record fan-out chokepoints are
+  Security.md §The privacy / classification surface: projection is
+  centralized at trust boundaries via `project-egress`, and sinks consume
+  already-projected records only. The always-on fan-out chokepoints
   `re-frame.error-emit/dispatch-error-record!` and
-  `…/dispatch-frame-teardown-report!` (error_emit.cljc). Their corpus-listener
-  leg (`((:fan-out registry) record)`) ships the record UNCHANGED — the
-  off-box-shipper (Sentry / Datadog) API, deliberately NOT privacy-gated for
-  the host `:exception` residual. Safety therefore rests on every CALLER
-  either (a) carrying ONLY structural identifiers / a host-exception residual,
-  or (b) routing the untrusted payload-bearing slots through `project-egress`
-  BEFORE the fan-out. There is otherwise ZERO framework enforcement.
+  `dispatch-frame-teardown-report!` ship their record to corpus listeners
+  (Sentry / Datadog shippers) unchanged, so safety rests on every CALLER.
+  Each calling namespace must be the chokepoint namespace itself, reference
+  `project-egress` (it routes its untrusted slots first, the ssr/hydrate
+  model), or sit on `structural-only-allow-list` (vetted to carry value-free
+  slots only).
 
-  ## The ratchet (modelled exactly on error_catalogue_channel_conformance_test)
+  The scan walks `re-frame.impl-source-corpus`, shared with
+  error_catalogue_channel_conformance_test, whose corpus cross-check proves
+  the walk reaches every artefact. It reads direct calls, so it under-reports
+  variable-arg indirection rather than false-positiving. Record-level slots
+  only: a host `:exception` and its ex-data are an opaque residual
+  (Security.md §Out-of-scope).
 
-  SOURCE-SCAN every artefact `src/` tree — the corpus defined once in
-  `re-frame.impl-source-corpus` and shared with the error-catalogue test —
-  for the namespaces that CALL either chokepoint, and assert each calling
-  namespace is EITHER:
-
-    - the `error-emit` chokepoint namespace ITSELF (it defines the fns and its
-      `dispatch-frame-teardown-report!` → `dispatch-error-record!` internal
-      call routes the frame leg through `route-error-record!` → `project-egress`
-      by construction); OR
-    - a namespace that ALSO references `project-egress` (it routes its
-      untrusted slots through the choke-point before the fan-out — the
-      ssr/hydrate.cljc model); OR
-    - on the explicit `structural-only-allow-list` — a caller VETTED to carry
-      ONLY value-free structural slots (a fixed diagnostic `:reason` string, a
-      frame id, a DOM element id, a recovery enum), so its raw fan-out is safe.
-
-  A NEW caller that is none of these fails CI with a missing-routing
-  diagnostic — exactly how the error-catalogue test fails on a new
-  uncatalogued emit site. `allow-list-stays-honest` keeps the allow-list from
-  rotting: an entry that stops calling the chokepoint, or that starts routing
-  through `project-egress`, must be dropped in the same PR.
-
-  ## Scope boundary
-
-  RECORD-LEVEL slots only. Per Security.md §Out-of-scope (\"the framework does
-  NOT walk exception messages or ex-data maps automatically\") this gate
-  asserts the always-on record carries no raw app-db / event slice AT THE
-  RECORD LEVEL; it treats a host `:exception` / its ex-data as an opaque host
-  residual (the taint-tracking non-goal). The
-  no-secrets-in-ex-data discipline stays a review/lint rule, NOT a structural
-  guarantee. The teardown report's `:hook-failures[].exception` ex-data and
-  the SSR `:exception` legs are therefore the documented exception residual,
-  not a ratchet failure.
-
-  CONSERVATIVE by design (same posture as the error-catalogue scan): the scan
-  reads the dominant direct idiom (a namespace that calls the chokepoint fn /
-  the published `:error-emit/dispatch-error-record` hook). It under-reports via
-  variable-arg indirection rather than false-positiving — acceptable for a
-  ratchet whose job is to catch NEW direct fan-out sites.
-
-  JVM-only (`.clj`, NOT `*-cljs-test`): it `slurp`s repo source files, which
-  only the JVM `clojure -M:test` runner can do."
+  JVM-only: it `slurp`s repo source files."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.impl-source-corpus :as rf.impl-source-corpus]))
 
-;; ---------------------------------------------------------------------------
-;; Source roots + file enumeration — `re-frame.impl-source-corpus`, shared with
-;; error_catalogue_channel_conformance_test.
-;;
-;; One shared definition keeps both ratchets walking the same corpus. A
-;; private copy of the enumeration could drift on its own — artefact roots
-;; enumerated as `.listFiles(implementation/)` mapped to `<child>/src` never
-;; reach the adapter artefacts one level deeper — and this ratchet would then
-;; run on adapter PRs while walking past their production files.
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
-;; The always-on union-record fan-out chokepoints + the routing primitive
-;; ---------------------------------------------------------------------------
-
 (def ^:private chokepoint-call-re
-  "Matches a CALL to either always-on union-record fan-out chokepoint —
-  `dispatch-error-record!` or `dispatch-frame-teardown-report!`. The fn may be
-  ns-qualified (`error-emit/dispatch-error-record!`) or bare (a late-bound
-  local rebinding, as ssr/hydrate / ssr/boot / ssr-ring do:
-  `(when-let [dispatch-error-record! (late-bind/get-fn …)] (dispatch-error-
-  record! record))`). Anchored on `(` so a docstring/comment MENTION of the fn
-  name (no preceding paren) does NOT count as a call — only a genuine call form
-  pins a namespace as a caller."
+  "A CALL to either chokepoint, ns-qualified or bare (the late-bound local
+  rebinding ssr/hydrate, ssr/boot and ssr-ring use). Anchored on `(` so a
+  docstring mention does not count."
   #"\(\s*(?:[a-zA-Z0-9_.-]+/)?(dispatch-error-record!|dispatch-frame-teardown-report!)")
 
 (def ^:private chokepoint-def-ns
-  "The namespace that DEFINES the chokepoint fns — `re-frame.error-emit`. Its
-  own `dispatch-frame-teardown-report!` → `dispatch-error-record!` internal
-  call, and the fan-out itself, route the frame leg through
-  `route-error-record!` → `project-egress` by construction (EP-0015 §9). It is
-  the choke-point owner, not a bypassing caller."
+  "Defines the chokepoints; its own internal call routes the frame leg through
+  `route-error-record!` -> `project-egress`."
   're-frame.error-emit)
 
-(def ^:private routing-marker-re
-  "A namespace ROUTES through the choke-point when its source references
-  `project-egress` (directly, or via the `projection/project-egress` /
-  `re-frame.projection` alias). A caller that projects its untrusted
-  payload-bearing slots before the fan-out (the ssr/hydrate.cljc model)
-  matches here and is NOT required on the structural-only allow-list."
-  #"project-egress")
+(def ^:private routing-marker-re #"project-egress")
 
 (def ^:private ns-decl-re
-  "Match a source file's leading `(ns <fully.qualified.name>` declaration and
-  capture the namespace symbol. A text scan rather than `read-string` because
-  `.cljc` files carry reader conditionals (`#?(:cljs …)`) that plain
-  `read-string` rejects (`Conditional read not allowed`). Anchored on `(ns` at
-  a line start (after optional leading whitespace) so a `(ns …)` MENTION inside
-  a docstring/comment does not win over the real declaration; `(?m)` makes `^`
-  match each line. The name class allows the `.`/`-`/digit chars a re-frame ns
-  uses."
+  "The leading `(ns <name>` declaration. A text scan, because `read-string`
+  rejects the reader conditionals in `.cljc` files."
   #"(?m)^\s*\(ns\s+([a-zA-Z][a-zA-Z0-9_.*+!?<>=-]*)")
 
-(defn- ns-form-symbol
-  "Extract the namespace symbol from a source file's leading `(ns …)`
-  declaration via the text scan (reader-conditional-safe). Returns nil when no
-  `(ns …)` form is found."
-  [src]
+(defn- ns-form-symbol [src]
   (when-let [[_ ns-name] (re-find ns-decl-re src)]
     (symbol ns-name)))
 
 (defn- chokepoint-caller-namespaces
-  "Scan every non-test source file and return a map
-  `{<ns-symbol> {:file <path> :routes? <bool>}}` for each namespace that CALLS
-  a fan-out chokepoint. `:routes?` is whether the same file references
-  `project-egress` (it routes its untrusted slots through the choke-point).
-  Pure text scan — no classpath load — so it sees every artefact regardless of
-  the test classpath."
+  "`{<ns-symbol> {:file <path> :routes? <bool>}}` for every non-test source
+  namespace that calls a chokepoint."
   []
   (reduce
     (fn [acc f]
@@ -162,349 +65,71 @@
     {}
     (rf.impl-source-corpus/non-test-source-files)))
 
-;; ---------------------------------------------------------------------------
-;; The self-honest structural-only allow-list
-;; ---------------------------------------------------------------------------
-
 (def ^:private structural-only-allow-list
-  "Namespaces that CALL a fan-out chokepoint with a record VETTED to carry ONLY
-  value-free structural slots — so the raw corpus-leg fan-out is safe WITHOUT
-  routing the record through `project-egress`. Each entry is a caller + the
-  reason its record is structural-only. A NEW caller not
-  on this list and not routing through `project-egress` fails the coverage test;
-  `allow-list-stays-honest` fails if a listed entry stops calling the chokepoint
-  or starts routing (forcing the co-edit).
+  "Callers vetted to ship value-free structural slots only, so the raw corpus
+  fan-out is safe without `project-egress`. Each entry says why.
 
-    - re-frame.ssr.boot — `dispatch-malformed-hydration-frameless!`
-      ships a FRAMELESS (`:frame nil`) `:rf.error/malformed-hydration-payload`
-      record carrying `:where` (a quoted symbol), `:failing-id :rf/hydrate`,
-      `:element-id` (a DOM element id — a structural locator, not app data),
-      `:reason` (a framework-authored sentence), `:recovery :no-recovery`. No
-      slot lifts a value OUT of the untrusted payload — the parse FAILED, so
-      there is no parsed value to carry; only the structural fact that it failed.
+  `re-frame.ssr.hydrate` is deliberately absent: it lifts the untrusted
+  `:payload-frame-id` out of the payload, so it routes through
+  `project-egress` and the routing arm governs it."
+  '#{;; Frameless `:rf.error/malformed-hydration-payload`: `:where`,
+     ;; `:failing-id`, a DOM `:element-id`, a framework `:reason`,
+     ;; `:recovery`. The parse failed, so there is no parsed value to carry.
+     re-frame.ssr.boot
 
-    - re-frame.ssr.error-projector — `emit-always-on-error!` ships
-      the `:rf.error/sanitised-on-projection` FALLBACK record (the public
-      boundary fell back to the locked generic-500). Structural status fact;
-      carries no app value (the whole point of the fallback is that projection
-      failed, so the unprojected payload is NOT carried forward — re-entry
-      guard).
-
-    - re-frame.ssr.ring.lifecycle — `emit-always-on-error!` ships
-      the ring-host lifecycle error record (`:rf.error/ssr-ring-error-view-
-      failed` and siblings): structural host-lifecycle facts + a host
-      `:exception` residual (the documented exception non-goal — Security.md
-      §Out-of-scope), no app-db / event slice.
-
-    - re-frame.router — `handle-depth-exceeded!` ships the
-      `:rf.error/drain-depth-exceeded` halt record. VETTED structural-only: it
-      carries `:depth` / `:queue-size` (ints), `:last-event-id` /
-      `:tail-event-ids` (the cycle-evidence ring) / `:dropped-event-ids` (event
-      ID KEYWORDS only — the halt path deliberately extracts `(first event)`, so
-      NO event args ride), `:rollback?` (bool), `:recovery :no-recovery`, and
-      `:time`. No slot lifts a value out of an event / app-db slice, and there
-      is no exception residual (a depth halt is a control-flow limit, not a
-      thrown error), so the raw corpus-leg fan-out is value-free. The rich human
-      `:reason` prose + full `:last-event` vector ride the DCE'd dev trace ONLY,
-      never this record.
-
-      A SECOND record from the same namespace —
-      `emit-boundary-rejection-record!` ships the `:boundary? true`
-      refusal (`:rf.error/schema-validation-failure`, `:source :boundary`) so an
-      opt-in production security gate is observable to the person who opted in;
-      without it, a refused untrusted payload would skip its handler, emit
-      nothing on either axis, and have its `:events` record report `:outcome
-      :ok`. VETTED structural-only, and on THIS record that is a stricter
-      guarantee than a scrub rather than a weaker one. A validation failure's
-      natural detail is THE VALUE THAT FAILED, which at a system boundary is
-      attacker-controlled or user-private by definition and can carry secrets in
-      keys the declared schema never anticipated — so no schema-aware redactor
-      can be trusted to have seen them, and the sibling treatment on
-      `re-frame.routing.url-change` / `re-frame.ssr.response` (scrub the one
-      untrusted slot, because that slot IS the observability payload) does not
-      transfer. Every payload-derived slot is therefore OMITTED OUTRIGHT: no
-      event vector, no `:value`, no `:received`, no `:explain`, no schema form,
-      and no human `:reason` — the last deliberately, since the dev trace's
-      `:reason` interpolates the offending value and would reintroduce the
-      `ssr/hydrate` prose hazard. What remains is a CLOSED key set of framework
-      keywords and structural identifiers: `:error`, `:where :event`, `:source
-      :boundary`, `:event-id` / `:failing-id` / `:schema-id` (all the event id —
-      a registered handler keyword, not caller data), `:frame`, `:recovery
-      :no-recovery`, `:time`. Nothing lifts a value out of the event vector or an
-      app-db slice, and there is no exception residual (a refusal is a gate
-      decision, not a throw). The key set is pinned CLOSED by
-      `re-frame.always-on-validation-production-test`, which also asserts the
-      ABSENCE of every payload-bearing key by name. The rich diagnosis
-      (`:value` / `:received` / `:explain` / interpolated `:reason`) rides the
-      DCE'd dev trace in `re-frame.spec` ONLY, exactly as the depth-halt prose
-      does — so this namespace's two records share one discipline.
-
-      A THIRD, and the only DEV-GATED record in this
-      namespace: `run-candidate-validation!`'s `emit-throw-reject!` ships the
-      `:rf.error/malformed-schema` fail-closed backstop (a wholesale
-      validator-machinery throw rejects the whole candidate transition) behind
-      an explicit `rf.interop/debug-enabled?` check, so it reaches an off-box
-      shipper in no build at all. VETTED structural-only: `:error`, `:where`
-      (`:app-db` / `:machine-data` — the partition arm, a framework keyword),
-      `:event-id` / `:failing-id` (the dispatched event's registered keyword),
-      `:frame`, `:rollback? true`, `:recovery :no-recovery`, `:time`, and a
-      `:reason` composed HERE. That last is the load-bearing difference from
-      the trace beside it: the TRACE's reason interpolates the throwing
-      validator's own message, which is author-controlled and unbounded — a
-      user-supplied `set-schema-fns!` validator may say anything, the value it
-      choked on included — so the record names the boundary and nothing else.
-      No exception residual either: `ex` is used for the dev trace's message
-      and never rides the record.
-
-  NOTE `re-frame.ssr.hydrate` is DELIBERATELY ABSENT: it
-  lifts the untrusted `:payload-frame-id` out of the deserialised payload, so it
-  is NOT structural-only — it ROUTES through `project-egress` and
-  is governed by the routing arm, not this list. If it ever stopped routing it
-  would fail the coverage test, which is the point."
-  '#{re-frame.ssr.boot
+     ;; The `:rf.error/sanitised-on-projection` fallback: a status fact. The
+     ;; unprojected payload is deliberately not carried forward.
      re-frame.ssr.error-projector
+
+     ;; Ring-host lifecycle records: structural host facts plus a host
+     ;; `:exception` residual.
      re-frame.ssr.ring.lifecycle
+
+     ;; Three records, each built from a closed key set with every
+     ;; payload-derived slot omitted: the `:rf.error/drain-depth-exceeded`
+     ;; halt (counts and event-id keywords only), the `:boundary? true`
+     ;; schema refusal (no value, explain, schema or interpolated `:reason`;
+     ;; pinned closed by `re-frame.always-on-validation-production-test`), and
+     ;; the dev-gated `:rf.error/malformed-schema` backstop, whose `:reason`
+     ;; is composed here rather than taken from the validator's message.
      re-frame.router
 
-     ;; `re-frame.routing.url-change`'s
-     ;; `emit-route-miss-error!` ships the URL-driven `:rf.error/no-such-handler`
-     ;; `:kind :route` miss on the always-on axis, so an unroutable SSR request
-     ;; answers 404 rather than a soft-404 200 under `-Dre-frame.debug=false`.
-     ;; VETTED structural-only: every slot but one is a fixed framework keyword
-     ;; or a structural id — `:error`, `:kind :route`,
-     ;; `:recovery :replaced-with-default`, `:frame`, `:time`, and `:reason`,
-     ;; which is only ever `:match-error` (the `match-url-fail-closed`
-     ;; discriminator) or `:malformed-url`. No prose and so no interpolation of
-     ;; an untrusted value into it (the ssr/hydrate hazard), no exception
-     ;; residual, and no slot lifts a value out of an event vector or an app-db
-     ;; slice.
-     ;;
-     ;; The one non-enum slot, `:url`, is the navigation LOCATOR, scrubbed by
-     ;; `privacy.url/redact-url-tag` inside `route-miss-tags` — BEFORE either
-     ;; axis sees it — so query VALUES and the whole opaque `#fragment` are
-     ;; already the `rf/redacted` sentinel on the record that fans out. It sits
-     ;; on THIS list rather than the routing arm because `project-egress` is the
-     ;; wrong instrument here, not the costlier one: it projects tree slots
-     ;; against the FRAME'S CLASSIFICATION registry, and a route MISS has no
-     ;; matched route → no `:params` / `:query` schema to path-target — which is
-     ;; precisely why the blanket `redact-url-carriers` policy exists. Under a
-     ;; live frame no declared path covers `:url`, so `project-egress` would ride
-     ;; it through untouched; under a frameless one it would blanket-redact the
-     ;; structured path the record deliberately keeps. The carrier scrub is the
-     ;; stronger guarantee on this path.
+     ;; The `:kind :route` `:rf.error/no-such-handler` miss: framework enums
+     ;; plus `:url`, scrubbed by `privacy.url/redact-url-tag` before either
+     ;; axis sees it. `project-egress` is the wrong instrument here: a route
+     ;; miss has no schema to path-target.
      re-frame.routing.url-change
 
-     ;; `re-frame.ssr.response`'s `dispatch-safe-redirect-record!`
-     ;; ships the three `:rf.error/safe-redirect-*` rejections on the always-on
-     ;; axis, so an attempted open redirect / `javascript:` scheme reaches an
-     ;; off-box shipper in a production build instead of being silently
-     ;; no-op'd. (The CRLF / NUL gate on the SAME fx rides
-     ;; `:rf.error/fx-handler-exception`, which is always-on too, so both halves
-     ;; of one security surface are observable in production.)
-     ;; VETTED structural-only: every slot but one is a fixed framework keyword
-     ;; or a parsed URL component — `:error`, `:recovery :no-recovery`,
-     ;; `:frame`, `:time`, `:scheme` and `:host` (parsed off the location, and
-     ;; on this path they ARE the security signal), `:reason` (a framework enum
-     ;; plus one framework-authored string on the parse-failure arm), and
-     ;; `:allowlist`, which is the CALL'S OWN policy input rather than caller
-     ;; data. No prose interpolating an untrusted value (the ssr/hydrate
-     ;; hazard), no exception residual, and no slot lifts a value out of an
-     ;; event vector or an app-db slice. The key set is pinned CLOSED by
-     ;; `re-frame.ssr-safe-redirect-production-test`.
-     ;;
-     ;; The one non-enum slot, `:location`, is BY CONSTRUCTION caller-untrusted
-     ;; — that is the entire reason `:rf.server/safe-redirect` exists as the
-     ;; sibling of the caller-trusted `:rf.server/redirect` — and it is
-     ;; scrubbed by `privacy.url/redact-url-tag` inside `safe-redirect-tags`,
-     ;; BEFORE either axis sees it, so query VALUES and the whole opaque
-     ;; `#fragment` are already the `rf/redacted` sentinel on the record that
-     ;; fans out. It sits on THIS list rather than the routing arm for the same
-     ;; reason `re-frame.routing.url-change` does: `project-egress` projects
-     ;; tree slots against the FRAME'S CLASSIFICATION registry, and a REJECTED
-     ;; redirect has no matched route and no schema to path-target. Under a
-     ;; live frame no declared path covers `:location`, so `project-egress`
-     ;; would ride it through untouched; under a frameless one it would
-     ;; blanket-redact the scheme and host that are the whole point of the
-     ;; record. The carrier scrub is the stronger guarantee on this path.
+     ;; The `:rf.error/safe-redirect-*` rejections: enums, the parsed
+     ;; `:scheme` / `:host`, the call's own `:allowlist`, and `:location`,
+     ;; scrubbed by `privacy.url/redact-url-tag` for the same reason as
+     ;; url-change. Pinned closed by `re-frame.ssr-safe-redirect-production-test`.
      re-frame.ssr.response
 
-     ;; `emit-app-db-rejection-record!` ships the `:where
-     ;; :app-db`, `:rollback? true` candidate rejection on the always-on
-     ;; `:errors` stream, from INSIDE `validate-app-schema!`'s own
-     ;; `debug-enabled?` gate, so a dev build's rejected transaction is not
-     ;; silent on the stream an application registers to hear about its own
-     ;; errors. This caller is unusual on this list in one respect and it is
-     ;; worth stating: it is DEV-GATED, so it reaches an off-box shipper in no
-     ;; build at all — the vetting below is therefore a floor, not the ceiling
-     ;; the SSR entries above need.
-     ;;
-     ;; VETTED structural-only, and BUILT FROM a closed allow-list rather than
-     ;; filtered down from the dev trace's tags — the `re-frame.router`
-     ;; boundary-arm discipline, applied for the same reason. Every slot is a
-     ;; framework keyword (`:error`, `:where :app-db`, `:rollback? true`,
-     ;; `:recovery :no-recovery`), a structural id (`:frame`, and `:event-id` /
-     ;; `:failing-id`, both the dispatched event's registered keyword), the
-     ;; developer's OWN `reg-app-schema` registration root (`:registered-path`
-     ;; — a literal vector the application author wrote, never a value lifted
-     ;; out of app-db), `:time`, or `:reason`.
-     ;;
-     ;; `:reason` is prose, and the two questions that matters for are both
-     ;; answered by composing it here instead of reusing the trace's. It is
-     ;; built from `:registered-path` plus `re-frame.error/type-of-value` of
-     ;; the failing leaf — a closed eight-tag vocabulary with a host class-name
-     ;; fallback — so the VALUE never reaches it. The dev trace's own `:reason`
-     ;; (`reason-string`) could not: it interpolates `(pr-str schema)`, which
-     ;; is unbounded, and the leaf path, whose Malli `:in` segments are not all
-     ;; structural (a `:set` failure's segment IS the failing element value).
-     ;; Which is also why `:path` is omitted outright rather than scrubbed, as
-     ;; are `:value`, `:received`, `:explain`, `:explain-humanized` and
-     ;; `:schema` — all of them stay on the DCE'd dev trace. No exception
-     ;; residual (a rejected candidate is a validator verdict, not a throw).
-     ;;
-     ;; A SECOND record from the same namespace —
-     ;; `emit-malformed-schema-rejection-record!` ships the
-     ;; `:rf.error/malformed-schema` per-entry rejection (a registered app-db
-     ;; schema whose FORM is malformed, so the validator throws and the
-     ;; candidate is rejected fail-closed). Same closed shape, one slot
-     ;; different: `:registered-path` / `:event-id` / `:failing-id` / `:frame`
-     ;; / `:rollback? true` / `:recovery :no-recovery` / `:time`, and a
-     ;; `:reason` that is deliberately NOT the trace's. The trace's reason for
-     ;; this arm interpolates THE THROWING VALIDATOR'S MESSAGE — unbounded,
-     ;; author-controlled, and on Malli's own form errors a `pr-str` of the
-     ;; offending schema — so the record composes its own sentence from the
-     ;; registered path plus framework prose instead. `:schema` (the malformed
-     ;; registration form) is omitted with it. No value-bearing slot exists to
-     ;; omit on this arm in the first place: the validator THREW, so it never
-     ;; proved the slot's sensitivity, and the category was built fail-closed
-     ;; without the value for exactly that reason.
+     ;; The dev-gated `:where :app-db` rejection and `:rf.error/malformed-schema`
+     ;; records, built from a closed key set: framework keywords, structural
+     ;; ids, the author's own `:registered-path`, and a `:reason` composed
+     ;; from that path (plus `type-of-value` on the rejection), never from the
+     ;; value, the leaf path, the schema or the validator's message.
      re-frame.schemas.validate
 
-     ;; `re-frame.machines.data-validation`'s
-     ;; `emit-machine-data-rejection-record!` ships the `:where :machine-data`,
-     ;; `:rollback? true` candidate rejection (a machine snapshot's `:data`
-     ;; violating its `[:schemas :data]` schema at the `:macrostep` /
-     ;; `:bootstrap` boundary discards the WHOLE candidate frame transition).
-     ;; The same posture as the `re-frame.schemas.validate`
-     ;; entry above: DEV-GATED — every caller sits inside a
-     ;; `(when rf.interop/debug-enabled? …)` gate, so it reaches an off-box
-     ;; shipper in no build at all, and the vetting below is a floor rather
-     ;; than the ceiling the SSR entries need.
-     ;;
-     ;; VETTED structural-only, and BUILT FROM a closed allow-list rather than
-     ;; filtered down from the dev trace's tags. Every slot is a framework
-     ;; keyword (`:error`, `:where :machine-data`, `:rollback? true`,
-     ;; `:recovery :no-recovery`, and `:phase`, a closed lifecycle vocabulary)
-     ;; or a structural id (`:machine-id` / `:failing-id`, both the machine's
-     ;; REGISTERED keyword; `:frame`), plus `:time` and `:reason`. The reason
-     ;; is composed HERE from the machine id and the phase alone — two
-     ;; keywords — so neither the failing `:data` map nor the schema form can
-     ;; reach it. The dev trace's own reason could have ridden (it interpolates
-     ;; the same two ids), but composing it at the record keeps this arm
-     ;; identical in discipline to its two siblings rather than relying on a
-     ;; property of a string built elsewhere.
-     ;;
-     ;; Deliberately OMITTED: `:value` and `:received` (the machine's `:data`
-     ;; map — its working memory, and the slot a machine's `:sensitive`
-     ;; classification exists to protect), `:explain` / `:explain-humanized`,
-     ;; and `:schema` (the registered form, unbounded under `pr-str`). All of
-     ;; them stay on the DCE'd dev trace. No exception residual (a rejected
-     ;; candidate is a validator verdict, not a throw).
+     ;; The dev-gated `:where :machine-data` rejection: framework keywords,
+     ;; the machine's registered id, `:phase`, and a `:reason` composed from
+     ;; those two keywords. The machine's `:data`, explain and schema stay on
+     ;; the dev trace.
      re-frame.machines.data-validation
 
-     ;; `re-frame.ssr.streaming.client`'s
-     ;; `always-on-boundary-failure!` ships `:rf.ssr/suspense-boundary-failed`
-     ;; on the always-on axis, so a streaming-SSR boundary that fails in a
-     ;; PRODUCTION browser is not absorbed in silence. Reported through
-     ;; `trace/emit-error!` alone, which is DCE'd under `:advanced` +
-     ;; `goog.DEBUG=false`, all three fail-closed arms would skip, quarantine
-     ;; or replace the delta by its fallback with nothing saying so.
-     ;;
-     ;; VETTED structural-only, and the key set is CLOSED and literal:
-     ;; `:error`, `:frame`, `:where` (a quoted symbol), `:recovery` (one of
-     ;; three framework keywords — `:skipped-delta` / `:quarantined-delta` /
-     ;; `:inline-fallback`, which is the whole of the arm discrimination),
-     ;; `:time`, and `:id`.
-     ;;
-     ;; `:id` is the boundary id THE HICCUP AUTHOR WROTE, parsed back by
-     ;; `read-boundary-id` from the attribute the server stamped — a
-     ;; structural locator, the same class as `re-frame.ssr.boot`'s
-     ;; `:element-id` above, not app data.
-     ;;
-     ;; Deliberately OMITTED, and this is the point of the entry rather than a
-     ;; detail: THE DELTA NEVER RIDES. The delta IS an app-db fragment, and it
-     ;; is exactly what every one of these three failures is about, so the
-     ;; record names the failure and carries none of it. With it go the
-     ;; branch-specific `:reason` (the quarantine arm's interpolates the raw
-     ;; `wire-id-string` — the `ssr/hydrate` prose hazard), the reader
-     ;; `:exception` and `:malformed-value-type` (both derived from UNTRUSTED
-     ;; wire bytes). All stay on the DCE'd dev trace. No exception residual.
-     ;;
-     ;; It sits on THIS list rather than the routing arm because
-     ;; `project-egress` has nothing to project: it projects tree slots against
-     ;; the frame's classification registry, and no slot here is lifted out of
-     ;; the delta or an app-db slice — the closed literal key set above is the
-     ;; stronger guarantee, as it is for the two URL-carrier entries.
+     ;; `:rf.ssr/suspense-boundary-failed`: a closed literal key set (`:error`,
+     ;; `:frame`, `:where`, `:recovery`, `:time` and the author-written
+     ;; boundary `:id`). The delta, the branch `:reason` and the reader
+     ;; exception never ride.
      re-frame.ssr.streaming.client})
 
-;; ---------------------------------------------------------------------------
-;; Tests
-;; ---------------------------------------------------------------------------
-
-(deftest source-scan-finds-the-chokepoint-callers
-  (testing "Sanity: the source scan reaches the artefact src trees and finds
-            the known always-on fan-out chokepoint callers. A zero / tiny
-            result means the src roots did not resolve from the test CWD (a
-            path-layout change) — fail loudly rather than vacuously passing the
-            coverage invariant below with an empty caller set.
-
-            `(seq roots)` alone is NOT that guard: a scan that enumerated
-            roots at depth 1 would resolve some of them, walk hundreds of
-            files, reach none of the nested adapter artefacts, and pass
-            here. A floor on whether the walk
-            found ANYTHING says nothing about whether it found EVERYTHING, so
-            the coverage claim is the cross-check — this corpus against the
-            independently-shaped one the repo's other source-scanning lints
-            use."
-    (let [roots   rf.impl-source-corpus/src-roots
-          callers (chokepoint-caller-namespaces)
-          {:keys [missing extra]} (rf.impl-source-corpus/corpus-cross-check)]
-      (is (seq roots)
-          "at least one artefact src root resolved from the JVM test CWD")
-      (is (empty? missing)
-          (str "the scan MISSED production source that the path-shaped "
-               "enumeration of implementation/**/src/ finds — an artefact root "
-               "the walk does not reach, which is how nested artefacts go "
-               "unscanned. Missing: " (pr-str (vec missing))))
-      (is (empty? extra)
-          (str "the scan reached source OUTSIDE implementation/**/src/: "
-               (pr-str (vec extra))))
-      ;; The chokepoint definer + at least the SSR caller family must be found.
-      (is (contains? callers chokepoint-def-ns)
-          (str chokepoint-def-ns " (the chokepoint definer) is among the "
-               "scanned callers"))
-      (is (>= (count callers) 4)
-          (str "source scan found the known fan-out chokepoint callers "
-               "(>= 4 namespaces: the definer + the SSR family), not a broken "
-               "/ empty scan; found " (count callers) ": "
-               (pr-str (sort (keys callers)))))
-      ;; Anchor on the ssr/hydrate routing site — proves the routing arm is live.
-      (is (get-in callers ['re-frame.ssr.hydrate :routes?])
-          "re-frame.ssr.hydrate routes through project-egress"))))
-
 (deftest every-chokepoint-caller-routes-or-is-allow-listed
-  (testing "The enforcement spine: every namespace that CALLS an
-            always-on union-record fan-out chokepoint
-            (`dispatch-error-record!` / `dispatch-frame-teardown-report!`)
-            either (a) IS the `error-emit` chokepoint definer (routes the frame
-            leg via route-error-record! → project-egress), (b) routes its
-            untrusted slots through `project-egress` in the same namespace, or
-            (c) is on the explicit `structural-only-allow-list` (a record vetted
-            value-free). A NEW caller that does none of these ships a
-            payload-bearing always-on record to corpus listeners UNREDACTED —
-            the egress-boundary analogue of the `forgot the always-on
-            half` bug — and fails HERE with a missing-routing diagnostic."
-    (let [callers   (chokepoint-caller-namespaces)
-          unhandled (->> callers
+  (testing "a caller that neither routes through `project-egress` nor is
+            allow-listed ships a payload-bearing record to corpus listeners
+            raw"
+    (let [unhandled (->> (chokepoint-caller-namespaces)
                          (remove (fn [[ns-sym {:keys [routes?]}]]
                                    (or (= ns-sym chokepoint-def-ns)
                                        routes?
@@ -513,38 +138,26 @@
                          (map (fn [[ns-sym info]] [ns-sym (:file info)]))
                          (into {}))]
       (is (empty? unhandled)
-          (str "always-on union-record fan-out callers that NEITHER route "
-               "their untrusted slots through `project-egress` NOR are on the "
-               "structural-only-allow-list (they ship a "
-               "payload-bearing record to corpus listeners raw): "
-               (pr-str unhandled)
-               " — either route the untrusted slots through `project-egress` "
-               "before the fan-out (the ssr/hydrate model), or, if the "
-               "record is VETTED value-free (structural ids + a host exception "
-               "residual only), add the namespace to structural-only-allow-list "
-               "with a one-line rationale.")))))
+          (str "always-on fan-out callers that neither route their untrusted "
+               "slots through `project-egress` nor are on "
+               "structural-only-allow-list: " (pr-str unhandled)
+               " — route the untrusted slots through `project-egress` before "
+               "the fan-out, or, if the record is vetted value-free, add the "
+               "namespace to structural-only-allow-list with its reason.")))))
 
 (deftest allow-list-stays-honest
-  (testing "Every namespace on the structural-only-allow-list must
-            call a fan-out chokepoint AND must NOT route through
-            `project-egress`. This keeps the allow-list from rotting: an entry
-            that stops calling the chokepoint (the caller was deleted /
-            refactored) must be dropped, and an entry that routes through
-            `project-egress` (it projects its slots) must ALSO be
-            dropped so the routing arm — not this list — governs it. Both
-            drifts fail here, forcing the co-edit."
+  (testing "every allow-listed namespace still calls a chokepoint and does not
+            route; this is also what keeps the call scan and the routing
+            marker from going vacuous"
     (let [callers          (chokepoint-caller-namespaces)
           no-longer-caller (set/difference structural-only-allow-list
                                            (set (keys callers)))
-          now-routes       (->> structural-only-allow-list
-                                (filter (fn [ns-sym]
-                                          (get-in callers [ns-sym :routes?])))
-                                set)]
+          now-routes       (set (filter #(get-in callers [% :routes?])
+                                        structural-only-allow-list))]
       (is (empty? no-longer-caller)
-          (str "structural-only-allow-list entries that no longer call a "
-               "fan-out chokepoint (drop them): "
-               (pr-str (sort no-longer-caller))))
+          (str "allow-list entries that no longer call a chokepoint (drop "
+               "them): " (pr-str (sort no-longer-caller))))
       (is (empty? now-routes)
-          (str "structural-only-allow-list entries that NOW route through "
-               "`project-egress` (drop them so the routing arm governs "
-               "them): " (pr-str (sort now-routes)))))))
+          (str "allow-list entries that now route through `project-egress` "
+               "(drop them so the routing arm governs them): "
+               (pr-str (sort now-routes)))))))
