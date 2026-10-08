@@ -77,7 +77,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
     (is (= "nav-10" (nav-token)))))
 
-(deftest strict-replay-rejects-a-missing-or-malformed-pending-nav-allocation
+(deftest strict-replay-rejects-a-malformed-pending-nav-allocation
   (testing "a present-but-malformed recorded pending-nav allocation fails its
             :schema before the block folds a corrupt id into runtime-db"
     (block-fixture!)
@@ -86,7 +86,7 @@
       (is (= [:rf.error/cofx-value-invalid :rf.route/pending-nav-allocation nil]
              [(:rf.error/id data) (:rf.cofx/id data) (pending-id)])))))
 
-(deftest strict-replay-rejects-a-missing-or-malformed-nav-allocation
+(deftest strict-replay-rejects-a-malformed-nav-allocation
   (testing "a present-but-malformed recorded nav allocation fails its :schema
             before the commit folds a corrupt token into the route slice"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
