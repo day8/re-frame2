@@ -1,30 +1,20 @@
 (ns re-frame.machine-action-exception-always-on-cljs-test
-  "Always-on `:rf.error/machine-action-exception` coverage.
-
-  Drives throwing action and guard paths through the real handler boundary and
-  verifies that both reach `register-error-listener!` with `:failing-id` and
-  `:state` attribution. The production-surviving record must remain structural:
-  arbitrary `:exception-data` does not ride the always-on channel.
-
-  Dual-runtime: named `*_cljs_test.cljc` so the shadow-cljs `:node-test`
-  build (`cljs-test$`) AND the JVM `clojure -M:test` runner both pick it up —
-  the always-on axis is production-shaped on both."
+  "A throwing machine action or guard fans `:rf.error/machine-action-exception`
+  out on the always-on error-listener axis (the production-surviving channel)
+  with `:failing-id` + `:state` attribution. That record is structural only:
+  the thrown `ex-data` — which may embed app secrets the privacy-gated dev
+  trace redacts — never rides it (Spec 009 §Error event catalogue)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
-            ;; Loading the machines facade installs the late-bind hooks
-            ;; `reg-machine` resolves through.
+            ;; Installs the late-bind hooks `reg-machine` resolves through.
             [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
-;; Fresh registrar + plain-atom adapter per test; the always-on error-listener
-;; registry (a `defonce` atom) cleared so a listener from one test cannot leak
-;; into the next (mirrors machine_spawn_unregistered_type_cljs_test /
-;; write_after_destroy_always_on_cljs_test).
+;; The always-on listener registry is a `defonce` atom, so it is cleared per test.
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture
     {:adapter rf.substrate.plain-atom/adapter
@@ -34,144 +24,68 @@
   #?(:clj  (instance? Throwable x)
      :cljs (instance? js/Error x)))
 
-(defn- state-mentions?
-  "The active-state slot is a leaf keyword OR a root→leaf vector path (Spec
-  005 §State paths); accept either form naming `kw`."
-  [state kw]
-  (or (= state kw)
-      (and (sequential? state) (boolean (some #{kw} state)))))
-
-(defn- with-always-on-records
-  "Run `thunk` while a corpus-wide always-on `:errors` listener records every
-  fanned-out record; return the records filtered to the
-  `:rf.error/machine-action-exception` category (the production-survivable
-  axis). Always unregisters in a `finally`."
-  [thunk]
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! ::recorder (fn [r] (swap! seen conj r)))
+(defn- action-exceptions
+  "Dispatch `event` and return the `:rf.error/machine-action-exception` records
+  it fans out: `:always-on` from the error-listener axis, with the raw
+  `:exception` and `:time` reduced to type checks and `:state` read as a path
+  (the slot is a leaf keyword or a root→leaf vector, Spec 005 §State paths),
+  and `:dev` from the dev trace stream."
+  [event]
+  (let [always-on (atom [])
+        dev       (atom [])]
+    (rf.error-emit/register-error-listener! ::recorder #(swap! always-on conj %))
+    (rf.trace.tooling/register-listener! ::trace #(swap! dev conj %))
     (try
-      (thunk)
-      (filterv #(= :rf.error/machine-action-exception (:error %)) @seen)
-      (finally (rf.error-emit/unregister-error-listener! ::recorder)))))
-
-(defn- dev-traces-of
-  "Capture the dev-trace stream for `op` while `thunk` runs (axis 2 — DCE'd in
-  production). Proves BOTH channels fire, so the acceptance hits the real path
-  rather than routing around it."
-  [op thunk]
-  (let [seen (atom [])]
-    (rf.trace.tooling/register-listener! ::trace (fn [ev] (swap! seen conj ev)))
-    (try
-      (thunk)
-      (filterv #(= op (:operation %)) @seen)
-      (finally (rf.trace.tooling/clear-listeners!)))))
-
-;; ===========================================================================
-;; (1)+(2) A throwing ACTION reaches the always-on axis WITH attribution.
-;; ===========================================================================
+      (rf/dispatch-sync event)
+      {:always-on (into [] (comp (filter #(= :rf.error/machine-action-exception (:error %)))
+                                 (map #(-> %
+                                           (update :exception throwable?)
+                                           (update :time number?)
+                                           (update :state (fn [s] (cond-> s (keyword? s) vector))))))
+                        @always-on)
+       :dev       (filterv #(= :rf.error/machine-action-exception (:operation %)) @dev)}
+      (finally
+        (rf.error-emit/unregister-error-listener! ::recorder)
+        (rf.trace.tooling/clear-listeners!)))))
 
 (deftest throwing-action-fans-out-on-always-on-axis-with-attribution
-  (testing "a machine transition action that throws fans ONE
-            :rf.error/machine-action-exception record out through the
-            corpus-wide always-on error listener, carrying :failing-id (the
-            action keyword) + :state (the active state path)"
-    (rf/reg-machine :cprm0q/action-throws
+  (testing "ONE structural always-on record attributed to the throwing action
+            and its state, carrying none of the thrown ex-data; the dev trace
+            fires once from the same emit site"
+    (rf/reg-machine :throw/action
       {:initial :idle
-       :actions {:boom (fn [_] (throw (ex-info "boom" {})))}
+       :actions {:boom (fn [_] (throw (ex-info "boom" {:token "super-secret-jwt"})))}
        :states  {:idle {:on {:go {:target :done :action :boom}}}
                  :done {}}})
-    ;; Boot to :idle cleanly OUTSIDE the capture so only the :go transition's
-    ;; action throw is recorded.
-    (rf/dispatch-sync [:cprm0q/action-throws [:rf.machine/start]])
-    (let [records (with-always-on-records
-                    #(rf/dispatch-sync [:cprm0q/action-throws [:go]]))]
-      (is (= 1 (count records))
-          "exactly ONE always-on record for the throwing action, in the
-           :rf.error/machine-action-exception category the recorder keeps")
-      (let [r (first records)]
-        (is (= :boom (:failing-id r))
-            ":failing-id is the throwing ACTION's keyword — the attribution")
-        (is (state-mentions? (:state r) :idle)
-            ":state names the active state the transition fired from")
-        (is (= :cprm0q/action-throws (:actor-id r))
-            ":actor-id names the live actor instance")
-        (is (= :rf/default (:frame r)) ":frame names the owning frame")
-        (is (throwable? (:exception r))
-            ":exception carries the raw host throwable for off-box shippers")
-        (is (number? (:time r)) ":time is a wall-clock millis number")))))
-
-;; ===========================================================================
-;; (1)+(2) A throwing GUARD converges on the SAME surface (005:603).
-;; ===========================================================================
+    (rf/dispatch-sync [:throw/action [:rf.machine/start]])
+    (let [{:keys [always-on dev]} (action-exceptions [:throw/action [:go]])]
+      (is (= [{:error      :rf.error/machine-action-exception
+               :actor-id   :throw/action
+               :failing-id :boom
+               :state      [:idle]
+               :frame      :rf/default
+               :recovery   :no-recovery
+               :exception  true
+               :time       true}]
+             always-on))
+      (is (= [{:action-id :boom :failing-id :boom}]
+             (mapv #(select-keys (:tags %) [:action-id :failing-id]) dev))))))
 
 (deftest throwing-guard-fans-out-on-always-on-axis-with-attribution
-  (testing "a guard that throws SURFACES + aborts the macrostep (XState v5
-            alignment) through the SAME :rf.error/machine-action-exception
-            surface — so it ALSO reaches the always-on axis, with :failing-id
-            = the guard keyword"
-    (rf/reg-machine :cprm0q/guard-throws
+  (testing "a throwing guard aborts the macrostep through the SAME surface,
+            with `:failing-id` = the guard keyword"
+    (rf/reg-machine :throw/guard
       {:initial :idle
        :guards  {:boom (fn [_] (throw (ex-info "guard boom" {})))}
        :states  {:idle {:on {:go [{:guard :boom :target :a}]}}
                  :a    {}}})
-    (rf/dispatch-sync [:cprm0q/guard-throws [:rf.machine/start]])
-    (let [records (with-always-on-records
-                    #(rf/dispatch-sync [:cprm0q/guard-throws [:go]]))]
-      (is (= 1 (count records))
-          "exactly ONE always-on record for the throwing guard: guard throws
-           converge on the :rf.error/machine-action-exception category the
-           recorder keeps")
-      (let [r (first records)]
-        (is (= :boom (:failing-id r))
-            ":failing-id is the throwing GUARD's keyword")
-        (is (state-mentions? (:state r) :idle)
-            ":state names the active state the guard was evaluated against")
-        (is (throwable? (:exception r)) ":exception carries the host throwable")))))
-
-;; ===========================================================================
-;; (3) Privacy — the production-surviving record carries NO :exception-data.
-;; ===========================================================================
-
-(deftest always-on-record-is-structural-only-no-exception-data-leak
-  (testing "the always-on record is NOT privacy-gated like the dev trace, so
-            it must carry STRUCTURAL identifiers only — the developer's
-            arbitrary :exception-data (which may embed app secrets the dev
-            trace redacts at the marks chokepoint) must NOT ride it"
-    (let [secret "super-secret-jwt"]
-      (rf/reg-machine :cprm0q/secret-throws
-        {:initial :idle
-         :actions {:leak (fn [_] (throw (ex-info "boom" {:token secret})))}
-         :states  {:idle {:on {:go {:target :done :action :leak}}}
-                   :done {}}})
-      (rf/dispatch-sync [:cprm0q/secret-throws [:rf.machine/start]])
-      (let [records (with-always-on-records
-                      #(rf/dispatch-sync [:cprm0q/secret-throws [:go]]))
-            r       (first records)]
-        (is (some? r) "(precondition) the record fired")
-        (is (nil? (:exception-data r))
-            "no :exception-data slot rides the always-on record")
-        (is (not (str/includes? (pr-str (dissoc r :exception)) secret))
-            "no structural slot echoes the secret ex-data payload")))))
-
-;; ===========================================================================
-;; Both channels fire — the acceptance hits the REAL path, not a route-around.
-;; ===========================================================================
-
-(deftest both-error-channels-fire-for-a-machine-action-throw
-  (testing "a throw fans BOTH the always-on record AND the dev trace — the
-            dev-only trace (axis 2, DCE'd in prod) fires exactly once
-            with the :action-id, proving the same real emit site drives both"
-    (rf/reg-machine :cprm0q/both-channels
-      {:initial :idle
-       :actions {:boom (fn [_] (throw (ex-info "boom" {})))}
-       :states  {:idle {:on {:go {:target :done :action :boom}}}
-                 :done {}}})
-    (rf/dispatch-sync [:cprm0q/both-channels [:rf.machine/start]])
-    (let [dev-evs (dev-traces-of :rf.error/machine-action-exception
-                    #(rf/dispatch-sync [:cprm0q/both-channels [:go]]))]
-      (is (= 1 (count dev-evs))
-          "the dev trace (axis 2) fires exactly once")
-      (is (= :boom (get-in (first dev-evs) [:tags :action-id]))
-          "the dev trace carries the :action-id")
-      (is (= :boom (get-in (first dev-evs) [:tags :failing-id]))
-          "the dev trace's :failing-id is the action keyword too"))))
+    (rf/dispatch-sync [:throw/guard [:rf.machine/start]])
+    (is (= [{:error      :rf.error/machine-action-exception
+             :actor-id   :throw/guard
+             :failing-id :boom
+             :state      [:idle]
+             :frame      :rf/default
+             :recovery   :no-recovery
+             :exception  true
+             :time       true}]
+           (:always-on (action-exceptions [:throw/guard [:go]]))))))
