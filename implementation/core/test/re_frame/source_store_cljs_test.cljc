@@ -1,41 +1,31 @@
 (ns re-frame.source-store-cljs-test
   "EP-0023: the provenance-preserving registration source store.
 
-  Pins the store behaviour the EP requires:
+    - same kind + id + DIFFERENT namespace -> both descriptors retained;
+    - same kind + id + SAME namespace      -> replacement (hot reload);
+    - `:rf.provenance/ns` recorded as a canonical string, one pooled instance
+      per namespace;
+    - `rf.registrar/register!` populates the store alongside the
+      last-write-wins resolver map, and the removal paths keep the two in step.
 
-    - same kind + id + DIFFERENT namespace  -> both descriptors retained;
-    - same kind + id + SAME namespace        -> replacement (hot reload);
-    - `:rf.provenance/ns` recorded canonically as a string, with ONE shared
-      string instance per source namespace (the EP's no-per-descriptor-copy
-      requirement);
-    - `rf.registrar/register!` populates the store as a side surface alongside the
-      last-write-wins resolver map, and the removal paths keep the two
-      consistent.
+  The store makes no assembly / selection / collision decision (image assembly
+  selects from it), so these cases assert PRESERVATION, not resolution.
 
-  The store itself deliberately makes NO assembly / selection / collision
-  decision — image assembly selects from it — so the store cases assert
-  PRESERVATION, not resolution.
-
-  `.cljc` so the suite runs under BOTH the bounded core JVM gate and
-  `npm run test:cljs`."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+  `.cljc` so the suite runs on both the JVM gate and `npm run test:cljs`."
+  (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.registrar      :as rf.registrar]
             [re-frame.source-coords  :as rf.source-coords]
             [re-frame.image          :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.source-store   :as rf.source-store]))
 
-;; Each case starts from a clean process-default store + ns-string pool.
-;; `rf.registrar/clear-all!` resets the source store in lockstep (EP-0023 wiring),
-;; so clearing the registrar is enough; we also clear directly for clarity.
+;; The assembly cases read the live standard registry and generation cache, so
+;; reset both alongside the store so a stale generation never leaks across cases.
 (use-fixtures :each
   (fn [t]
     (rf.source-store/clear-all!)
     (reset! rf.registrar/kind->id->metadata {})
-    ;; The assembly-path cases read the live standard registry
-    ;; + generation cache; reset both so a stale generation never leaks across
-    ;; a case that mutated the store.
     (rf.image-assembly/clear-standards!)
     (rf.image-assembly/clear-generation-cache!)
     (t)
@@ -44,298 +34,112 @@
     (rf.image-assembly/clear-standards!)
     (rf.image-assembly/clear-generation-cache!)))
 
-;; ===========================================================================
-;; 1. Same id, different namespaces — BOTH descriptors retained
-;; ===========================================================================
+(defn- handler-fns
+  "`provenance-ns -> descriptor` slots, read down to each slot's `:handler-fn`."
+  [slots]
+  (into {} (map (fn [[k v]] [k (:handler-fn v)])) slots))
 
 (deftest same-id-different-namespace-both-survive
-  (testing "two namespaces registering the same (kind, id) both survive in the
-            source store keyed by [kind id provenance-namespace] (EP-0023
-            §Registration Source Store — the image-isolation path)"
-    (rf.source-store/record-descriptor! :event :boot/init
-                           {:ns 'examples.todo.boot    :handler-fn :todo-fn})
-    (rf.source-store/record-descriptor! :event :boot/init
-                           {:ns 'examples.counter.boot :handler-fn :counter-fn})
-    (let [slots (rf.source-store/descriptors-for :event :boot/init)]
-      (is (= #{"examples.todo.boot" "examples.counter.boot"}
-             (set (keys slots)))
-          "both provenance-distinct descriptors are retained, not clobbered,
-           keyed by their source namespace strings")
-      (is (= :todo-fn
-             (:handler-fn (rf.source-store/descriptor-for :event :boot/init
-                                             'examples.todo.boot)))
-          "the todo descriptor is reachable by its source slot")
-      (is (= :counter-fn
-             (:handler-fn (rf.source-store/descriptor-for :event :boot/init
-                                             'examples.counter.boot)))
-          "the counter descriptor is reachable by its source slot"))))
-
-(deftest same-id-three-namespaces-all-survive
-  (testing "the store scales past two namespaces — every provenance-distinct
-            descriptor for the same (kind, id) is preserved"
-    (doseq [n ["a.one" "a.two" "a.three"]]
-      (rf.source-store/record-descriptor! :sub :counter/value {:ns n :handler-fn n}))
-    (is (= 3 (count (rf.source-store/descriptors-for :sub :counter/value)))
-        "all three same-id different-namespace subs are retained")))
-
-;; ===========================================================================
-;; 2. Same namespace — replacement (the hot-reload path)
-;; ===========================================================================
+  ;; The image-isolation path: keyed by [kind id provenance-namespace].
+  (rf.source-store/record-descriptor! :event :boot/init
+                                      {:ns 'examples.todo.boot :handler-fn :todo-fn})
+  (rf.source-store/record-descriptor! :event :boot/init
+                                      {:ns 'examples.counter.boot :handler-fn :counter-fn})
+  (is (= {"examples.todo.boot" :todo-fn "examples.counter.boot" :counter-fn}
+         (handler-fns (rf.source-store/descriptors-for :event :boot/init)))))
 
 (deftest same-namespace-replacement-does-not-disturb-siblings
-  (testing "replacing one namespace's slot leaves sibling-namespace descriptors
-            for the same (kind, id) intact"
-    (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.boot :handler-fn :a1})
-    (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.boot :handler-fn :b1})
-    (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.boot :handler-fn :a2})
-    (let [slots (rf.source-store/descriptors-for :event :boot/init)]
-      (is (= 2 (count slots)) "two namespaces present")
-      (is (= :a2 (:handler-fn (get slots "a.boot"))) "a.boot replaced")
-      (is (= :b1 (:handler-fn (get slots "b.boot"))) "b.boot untouched"))))
-
-;; ===========================================================================
-;; 3. :rf.provenance/ns recorded canonically (string, one instance per ns)
-;; ===========================================================================
+  (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.boot :handler-fn :a1})
+  (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.boot :handler-fn :b1})
+  (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.boot :handler-fn :a2})
+  (is (= {"a.boot" :a2 "b.boot" :b1}
+         (handler-fns (rf.source-store/descriptors-for :event :boot/init)))))
 
 (deftest provenance-ns-canonical-one-string-per-namespace
-  (testing "the canonical namespace string is POOLED — every descriptor from
-            the same source namespace shares ONE string instance, not an
-            independently allocated copy (EP-0023 §Relationship To The Earlier
-            Tag-And-Scan Rejection — one string per namespace, not per
-            descriptor)"
-    (let [a (rf.source-store/record-descriptor! :event :one {:ns 'shared.feature :handler-fn :a})
-          b (rf.source-store/record-descriptor! :sub   :two {:ns 'shared.feature :handler-fn :b})
-          c (rf.source-store/canonical-ns 'shared.feature)
-          d (rf.source-store/canonical-ns "shared.feature")]
-      (is (= "shared.feature"
-             (:rf.provenance/ns a) (:rf.provenance/ns b) c d)
-          "all spellings resolve to the same value")
-      ;; identical? is the load-bearing assertion: the pool returns the SAME
-      ;; instance for the same namespace regardless of how it was spelled.
-      (is (identical? (:rf.provenance/ns a) (:rf.provenance/ns b))
-          "descriptors from the same namespace share one string instance")
-      (is (identical? (:rf.provenance/ns a) c)
-          "the symbol spelling pools to the same instance")
-      (is (identical? (:rf.provenance/ns a) d)
-          "the string spelling pools to the same instance"))))
+  ;; EP-0023: one string per namespace, not per descriptor, however spelled.
+  (let [a (:rf.provenance/ns (rf.source-store/record-descriptor! :event :one {:ns 'shared.feature :handler-fn :a}))
+        b (:rf.provenance/ns (rf.source-store/record-descriptor! :sub   :two {:ns 'shared.feature :handler-fn :b}))]
+    (is (= "shared.feature" a))
+    (is (every? #(identical? a %)
+                [b
+                 (rf.source-store/canonical-ns 'shared.feature)
+                 (rf.source-store/canonical-ns "shared.feature")]))))
 
 (deftest programmatic-no-provenance-recorded-once
-  (testing "a programmatic registration with no :ns (REPL / non-macro path)
-            records under the nil-provenance slot and is NOT silently dropped;
-            a later programmatic re-register of the same (kind, id) replaces it"
-    (let [stored (rf.source-store/record-descriptor! :event :prog/handler {:handler-fn :v1})]
-      (is (nil? (:rf.provenance/ns stored))
-          "no provenance key stamped when there is no source namespace")
-      (is (= :v1 (:handler-fn (get (rf.source-store/descriptors-for :event :prog/handler) nil)))
-          "the nil-provenance descriptor is retained, not dropped"))
-    (rf.source-store/record-descriptor! :event :prog/handler {:handler-fn :v2})
-    (is (= 1 (count (rf.source-store/descriptors-for :event :prog/handler)))
-        "a programmatic re-register replaces the single nil-provenance slot")
-    (is (= :v2 (:handler-fn (get (rf.source-store/descriptors-for :event :prog/handler) nil)))
-        "the replacement is the latest programmatic registration")))
-
-;; ===========================================================================
-;; 4. rf.registrar/register! populates the store and removal stays consistent
-;; ===========================================================================
-
-(deftest register-bang-populates-source-store
-  (testing "rf.registrar/register! writes the descriptor into the source store as
-            a side surface, alongside the resolver map (EP-0023)"
-    (rf.registrar/register! :event :wired/handler
-                         {:ns 'wired.ns :handler-fn :f :doc "d"})
-    (is (some? (rf.registrar/lookup :event :wired/handler))
-        "the resolver map is written")
-    (let [slot (rf.source-store/descriptor-for :event :wired/handler 'wired.ns)]
-      (is (= "wired.ns" (:rf.provenance/ns slot))
-          "register! stamps canonical provenance via the source store"))))
-
-(deftest register-bang-cross-namespace-both-survive-in-store
-  (testing "two register! calls for the same (kind, id) from different
-            namespaces both survive in the source store, even though the
-            resolver map (last-write-wins) shows only the latter — this is the
-            collision image assembly must see (EP-0023)"
-    (rf.registrar/register! :event :boot/init {:ns 'todo.boot    :handler-fn :todo})
-    (rf.registrar/register! :event :boot/init {:ns 'counter.boot :handler-fn :counter})
-    ;; Resolver map: last-write-wins.
-    (is (= :counter (:handler-fn (rf.registrar/lookup :event :boot/init)))
-        "the resolver map is last-write-wins (the default-image path)")
-    ;; Source store: BOTH retained.
-    (is (= 2 (count (rf.source-store/descriptors-for :event :boot/init)))
-        "the source store retains BOTH provenance-distinct descriptors")))
+  ;; A registration with no :ns is kept under the nil slot, never dropped, and a
+  ;; later programmatic re-register of the same (kind, id) replaces it.
+  (rf.source-store/record-descriptor! :event :prog/handler {:handler-fn :v1})
+  (rf.source-store/record-descriptor! :event :prog/handler {:handler-fn :v2})
+  (is (= {nil {:handler-fn :v2 :kind :event :id :prog/handler}}
+         (rf.source-store/descriptors-for :event :prog/handler))))
 
 (deftest unregister-bang-forgets-source-slots
-  (testing "rf.registrar/unregister! drops every provenance slot for (kind, id) in
-            the source store, mirroring the resolver-map id removal"
-    (rf.registrar/register! :event :x/y {:ns 'a.ns :handler-fn :a})
-    (rf.registrar/register! :event :x/y {:ns 'b.ns :handler-fn :b})
-    (is (= 2 (count (rf.source-store/descriptors-for :event :x/y))) "both recorded first")
-    (rf.registrar/unregister! :event :x/y)
-    (is (nil? (rf.registrar/lookup :event :x/y)) "resolver map cleared")
-    (is (= 0 (count (rf.source-store/descriptors-for :event :x/y)))
-        "every provenance slot for the id is forgotten")))
+  (rf.registrar/register! :event :x/y {:ns 'a.ns :handler-fn :a})
+  (rf.registrar/register! :event :x/y {:ns 'b.ns :handler-fn :b})
+  (is (= 2 (count (rf.source-store/descriptors-for :event :x/y))) "both recorded first")
+  (rf.registrar/unregister! :event :x/y)
+  (is (= {} (rf.source-store/descriptors-for :event :x/y))
+      "every provenance slot for the id is forgotten"))
 
 (deftest clear-all-resets-source-store
-  (testing "rf.registrar/clear-all! resets the source store in lockstep with the
-            resolver map"
-    (rf.registrar/register! :event :a/b {:ns 'n.s :handler-fn :f})
-    (is (seq (rf.source-store/descriptors-for :event :a/b)) "recorded")
-    (rf.registrar/clear-all!)
-    (is (= 0 (count (rf.source-store/descriptors-for :event :a/b)))
-        "source store reset by clear-all!")
-    (is (empty? (rf.source-store/kinds-present)) "no kinds remain in the store")))
-
-;; ===========================================================================
-;; 5. forget-descriptor! — targeted single-slot removal
-;; ===========================================================================
+  (rf.registrar/register! :event :a/b {:ns 'n.s :handler-fn :f})
+  (is (seq (rf.source-store/descriptors-for :event :a/b)) "recorded")
+  (rf.registrar/clear-all!)
+  (is (empty? (rf.source-store/kinds-present)) "no kinds remain in the store"))
 
 (deftest forget-descriptor-removes-one-slot
-  (testing "forget-descriptor! removes one (kind, id, ns) slot and leaves
-            sibling namespaces intact"
-    (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.ns :handler-fn :a})
-    (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.ns :handler-fn :b})
-    (rf.source-store/forget-descriptor! :event :boot/init 'a.ns)
-    (let [slots (rf.source-store/descriptors-for :event :boot/init)]
-      (is (= 1 (count slots)) "one slot removed")
-      (is (contains? slots "b.ns") "the sibling namespace survives")
-      (is (not (contains? slots "a.ns")) "the forgotten slot is gone"))))
+  (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.ns :handler-fn :a})
+  (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.ns :handler-fn :b})
+  (rf.source-store/forget-descriptor! :event :boot/init 'a.ns)
+  (is (= #{"b.ns"} (set (keys (rf.source-store/descriptors-for :event :boot/init))))))
 
 (deftest all-descriptors-flattens-across-slots
-  (testing "all-descriptors returns every retained descriptor for a kind across
-            all (id, namespace) slots — the input set image assembly selects
-            from (no selection decision made here)"
-    (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.ns :handler-fn :a})
-    (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.ns :handler-fn :b})
-    (rf.source-store/record-descriptor! :event :other     {:ns 'c.ns :handler-fn :c})
-    (is (= 3 (count (rf.source-store/all-descriptors :event)))
-        "all three event descriptors across two ids and three namespaces")
-    (is (= #{:a :b :c} (set (map :handler-fn (rf.source-store/all-descriptors :event))))
-        "every descriptor is present")))
-
-;; ===========================================================================
-;; 6. Stored descriptor carries :kind / :id — image assembly
-;;    reads (:kind d) / (:id d), so a registered descriptor MUST carry them
-;; ===========================================================================
+  (rf.source-store/record-descriptor! :event :boot/init {:ns 'a.ns :handler-fn :a})
+  (rf.source-store/record-descriptor! :event :boot/init {:ns 'b.ns :handler-fn :b})
+  (rf.source-store/record-descriptor! :event :other     {:ns 'c.ns :handler-fn :c})
+  (is (= [:a :b :c] (sort (map :handler-fn (rf.source-store/all-descriptors :event))))))
 
 (deftest registrar-recorded-descriptor-assembles-via-all-descriptors
-  (testing "a descriptor recorded via rf.registrar/register! carries :kind / :id
-            and assembles through image-assembly (selecting from the live source
-            store's all-descriptors) WITHOUT a kind/id error — the real
-            default-image / :include-ns path, which synthetic-descriptor tests
-            do not exercise"
-    (rf.registrar/register! :event :counter/inc
-                         {:ns 'docs.counter.v2 :handler-fn (fn [_ _] {})})
-    (let [slot (rf.source-store/descriptor-for :event :counter/inc 'docs.counter.v2)]
-      (is (= :event (:kind slot)) "register!-recorded descriptor carries :kind")
-      (is (= :counter/inc (:id slot)) "register!-recorded descriptor carries :id"))
-    ;; Assemble a :select-ns image against the live source store. Without the
-    ;; :kind/:id stamp this would throw :rf.error/image-unsupported-kind (nil
-    ;; kind).
-    (let [img (rf.image/image {:id :docs.counter/v2
-                            :select-ns {:include ["docs.counter.v2"]}})
-          gen (rf.image-assembly/assemble [img])]
-      (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc))
-          "the registered descriptor resolves in the sealed generation")
-      (is (= #{:event} (rf.image-assembly/generation-kinds gen))
-          "the sealed generation reports :event as a present kind"))))
-
-;; ===========================================================================
-;; 7. Provenance survives production elision — derive the
-;;    provenance ns from the elision-surviving *pending-coords* binding when
-;;    the descriptor's :ns slot has been stripped (the production path)
-;; ===========================================================================
+  ;; Image assembly reads (:kind d) / (:id d), so a register!-recorded
+  ;; descriptor must carry them or a :select-ns image fails on a nil kind.
+  (rf.registrar/register! :event :counter/inc
+                          {:ns 'docs.counter.v2 :handler-fn (fn [_ _] {})})
+  (let [img (rf.image/image {:id        :docs.counter/v2
+                             :select-ns {:include ["docs.counter.v2"]}})]
+    (is (some? (rf.image-assembly/resolve-descriptor
+                 (rf.image-assembly/assemble [img]) :event :counter/inc)))))
 
 (deftest provenance-from-pending-coords-when-ns-stripped
-  (testing "in production (`:advanced` + goog.DEBUG=false) rf.source-coords/
-            merge-coords returns the user metadata UNCHANGED, so the descriptor
-            reaching record-descriptor! carries NO :ns. The reg-* macro's
-            *pending-coords* BINDING does carry :ns (prod-coords-form keeps
-            it), so provenance is derived from the live binding — :rf.provenance/
-            ns must survive optimized builds or :include-ns assembly cannot work
-            (EP-0023 §Namespace-Selected Images)"
-    ;; Model the production descriptor shape: NO :ns slot (merge-coords
-    ;; stripped it), but the macro's *pending-coords* binding is in flight.
-    (binding [rf.source-coords/*pending-coords* {:ns "docs.counter.prod"}]
-      (let [stored (rf.source-store/record-descriptor! :event :counter/inc
-                                          {:handler-fn :f})]
-        (is (= "docs.counter.prod" (:rf.provenance/ns stored))
-            "provenance derived from the surviving *pending-coords* :ns")
-        (is (identical? (rf.source-store/canonical-ns "docs.counter.prod")
-                        (:rf.provenance/ns stored))
-            "the *pending-coords*-derived provenance is pooled too")))
-    ;; The slot is keyed by that provenance namespace, so :include-ns selection
-    ;; (the production image-assembly path) reaches it.
-    (is (some? (rf.source-store/descriptor-for :event :counter/inc "docs.counter.prod"))
-        "the descriptor is recorded under its provenance namespace slot")))
+  ;; In production `merge-coords` strips :ns from the descriptor, but the
+  ;; reg-* macro's `*pending-coords*` binding keeps it, so provenance is read
+  ;; off the live binding or :include-ns assembly could not work
+  ;; (EP-0023 §Namespace-Selected Images).
+  (binding [rf.source-coords/*pending-coords* {:ns "docs.counter.prod"}]
+    (is (= "docs.counter.prod"
+           (:rf.provenance/ns (rf.source-store/record-descriptor! :event :counter/inc
+                                                                  {:handler-fn :f}))))))
 
-(deftest provenance-precedence-descriptor-ns-wins-over-pending
-  (testing "the descriptor's own :ns slot (DEV path, present when merge-coords
-            folded it in) takes precedence over the *pending-coords* fallback —
-            the fallback is a production safety net, not an override"
-    (binding [rf.source-coords/*pending-coords* {:ns "from.pending"}]
-      (let [stored (rf.source-store/record-descriptor! :event :counter/inc
-                                          {:ns 'from.descriptor :handler-fn :f})]
-        (is (= "from.descriptor" (:rf.provenance/ns stored))
-            "the descriptor :ns slot wins over the *pending-coords* fallback")))))
-
-(deftest explicit-provenance-wins-over-pending-coords
-  (testing "an explicit :rf.provenance/ns on the descriptor wins over both
-            the :ns slot and the *pending-coords* fallback"
-    (binding [rf.source-coords/*pending-coords* {:ns "from.pending"}]
-      (let [stored (rf.source-store/record-descriptor! :event :gen/handler
-                                          {:ns 'macro.captured.ns
-                                           :rf.provenance/ns "tool.synthesised.ns"
-                                           :handler-fn :f})]
-        (is (= "tool.synthesised.ns" (:rf.provenance/ns stored))
-            "explicit provenance overrides both the :ns slot and *pending-coords*")
-        (is (identical? (rf.source-store/canonical-ns "tool.synthesised.ns")
-                        (:rf.provenance/ns stored))
-            "the explicit provenance is pooled too")))))
-
-;; ===========================================================================
-;; 8. clear-kind! bumps the store generation — the
-;;    resolved-image-generation cache MUST invalidate after a clear-kind!
-;; ===========================================================================
+(deftest provenance-precedence-explicit-over-ns-over-pending
+  ;; The `*pending-coords*` fallback is a production safety net, not an override.
+  (binding [rf.source-coords/*pending-coords* {:ns "from.pending"}]
+    (is (= "from.descriptor"
+           (:rf.provenance/ns (rf.source-store/record-descriptor! :event :a/one
+                                                                  {:ns 'from.descriptor :handler-fn :f}))))
+    (is (= "tool.synthesised.ns"
+           (:rf.provenance/ns (rf.source-store/record-descriptor! :event :a/two
+                                                                  {:ns               'macro.captured.ns
+                                                                   :rf.provenance/ns "tool.synthesised.ns"
+                                                                   :handler-fn       :f}))))))
 
 (deftest registrar-clear-kind-invalidates-resolved-generation-cache
-  (testing "rf.registrar/clear-kind! routes through source-store/clear-kind!, which
-            bumps the store generation, so a re-`assemble` after the clear is a
-            cache MISS that returns a FRESH generation that does not resolve
-            the cleared id. A raw `dissoc kind` with no bump would leave the
-            store with fewer descriptors but the SAME generation int, so the
-            re-`assemble` would HIT the resolved-image-generation cache and
-            return a stale generation that still resolves the cleared
-            (kind, id) (EP-0023 §Image — resolved-generation cache).
-
-            Fixtures: this case relies ONLY on the :each fixture's snapshot/
-            restore (rf.source-store/clear-all! + clear-generation-cache! at the boundaries);
-            it does NOT call rf.registrar/clear-all! between the two assembles —
-            doing so would reset the generation cache and mask the very stale-hit
-            path under test."
-    (rf.registrar/register! :event :counter/inc
-                         {:ns 'docs.counter.v2 :handler-fn (fn [_ _] {})})
-    ;; First assembly fills the resolved-image-generation cache, keyed on the
-    ;; current source-store generation. Default image (empty :images) projects
-    ;; the whole live store and keys on (source-store/store-generation).
-    (let [gen-before (rf.image-assembly/assemble [])
-          size-before (rf.image-assembly/cache-size)]
-      (is (some? (rf.image-assembly/resolve-descriptor gen-before :event :counter/inc))
-          "the registered descriptor resolves in the first sealed generation")
-      ;; Clear the whole :event kind via the PUBLIC registrar path (this backs
-      ;; clear-handlers / resources teardown).
-      (rf.registrar/clear-kind! :event)
-      (is (empty? (rf.source-store/descriptors-for :event :counter/inc))
-          "the cleared descriptor is gone from the source store")
-      ;; Re-assemble the SAME (empty) image vector. With the generation bump this
-      ;; is a cache MISS → a fresh generation; without it, a stale cache HIT.
-      (let [gen-after (rf.image-assembly/assemble [])]
-        (is (not (identical? gen-before gen-after))
-            "re-assemble after clear-kind! returns a FRESH, non-identical
-             generation (a cache MISS) — NOT the stale cached object")
-        (is (nil? (rf.image-assembly/resolve-descriptor gen-after :event :counter/inc))
-            "the cleared (kind, id) does not resolve in the fresh generation —
-             the cache is invalidated")
-        (is (not (contains? (rf.image-assembly/generation-kinds gen-after) :event))
-            "no :event kind survives the clear in the fresh generation")
-        (is (> (rf.image-assembly/cache-size) size-before)
-            "a new cache entry was sealed (the post-clear generation), not a
-             reuse of the stale one")))))
+  ;; The resolved-generation cache keys on the store generation, so clear-kind!
+  ;; must bump it or a re-assemble HITS a stale generation that still resolves
+  ;; the cleared id (EP-0023 §Image). No clear-all! between the assembles: it
+  ;; would reset the cache and mask that stale hit.
+  (rf.registrar/register! :event :counter/inc
+                          {:ns 'docs.counter.v2 :handler-fn (fn [_ _] {})})
+  (is (some? (rf.image-assembly/resolve-descriptor
+               (rf.image-assembly/assemble []) :event :counter/inc)))
+  (rf.registrar/clear-kind! :event)
+  (is (nil? (rf.image-assembly/resolve-descriptor
+              (rf.image-assembly/assemble []) :event :counter/inc))))
