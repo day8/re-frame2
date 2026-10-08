@@ -1,45 +1,14 @@
 (ns re-frame.live-run-frame-resolution-cljs-test
-  "EP-0023 §Frame-derived live registration resolution — the OPERATIONAL
-  acceptance. The resolution SEAM (`rf.registrar/*generation*` +
-  `live-frame/call-with-frame-resolution`) routes `rf.registrar/lookup` when
-  bound. This suite proves the seam is invoked from the LIVE event run (one real
-  dispatch's traversal): a REAL
-  `(rf/dispatch [...] {:frame F})` (and
-  a real `(rf/subscribe [...] {:frame F})`) resolves the event / sub handler
-  through the TARGET frame's resolved image generation END-TO-END — NOT
-  through the global registrar, and NOT via a manual `*generation*` binding.
+  "EP-0023 §Frame-derived live registration resolution, operationally: a REAL
+  frame-targeted `dispatch` / `subscribe` resolves its handler through the
+  target frame's resolved image generation end-to-end — not the global
+  registrar, and not via a manual `*generation*` binding. Each case registers
+  a same-id global handler that must never run. A frame with no image resolves
+  globally (absence-is-default).
 
-  > target frame -> resolved image generation -> registration resolution
-
-  The headline case: a globally-registered handler/sub for `[:counter/inc]` /
-  `[:counter/value]` writes/returns one value; the frame's IMAGE registers the
-  SAME ids with a DIFFERENT impl. A frame-targeted dispatch/subscribe must run
-  the IMAGE's impl, proving `router/process-event!` and `subs/subscribe` wrap the
-  event run with `call-with-frame-resolution`. A realm-only / no-image
-  frame is unaffected (absence-is-default).
-
-  ## One runnable image-loaded frame (EP-0024 §One live frame registry)
-
-  `make-frame` returns a SINGLE runnable image-loaded frame VALUE: it
-  creates/updates its backing runnable record (app-db / queue / sub-cache /
-  lifecycle) keyed by the frame's runnable-id, and the resolved
-  image GENERATION lives ON that record (the `:generation` slot), so an event
-  stream runs against an image with no separately-made record to pair it with.
-  There is ONE registry (EP-0024): dispatch / subscribe re-derive the
-  generation from the record by id (a frame VALUE and its id resolve the same
-  generation). Most cases below first call `make-frame` without `:images`
-  (harmless — the later `make-frame` with `:images` updates that same record in
-  place); the router drains that record and `process-event!` derives the
-  generation from the record of the same id. The
-  `two-frames-from-one-image-keep-…` test exercises the single record directly —
-  two RUNNABLE values built from ONE image keep INDEPENDENT app-db + sub-cache,
-  with no image-less `make-frame` in sight.
-
-  Fixtures snapshot/restore the registrar via `make-reset-runtime-fixture`
-  (NOT `rf.registrar/clear-all!`, which would wipe the shared node-test-bundle
-  registrations) and reset the ONE `rf.frame/frames` registry between cases.
-  `.cljc` ending `-cljs-test`
-  rides `npm run test:cljs` AND `clojure -M:test`."
+  `make-frame` returns one runnable image-loaded frame VALUE; its generation
+  lives on the frame's record in the one `rf.frame/frames` registry (EP-0024),
+  so a frame value and its id resolve the same generation."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
@@ -52,27 +21,13 @@
             [re-frame.test-support   :as rf.test-support]
             [re-frame.trace.tooling  :as rf.trace.tooling]))
 
-;; ---------------------------------------------------------------------------
-;; Fixture: install the plain-atom adapter (so frames are runnable), opt OUT of
-;; the ambient `:rf/default` scope (we drive explicit `{:frame …}` targets). The
-;; runtime fixture resets the ONE `frame/frames` registry between cases — clearing
-;; every record AND its generation — so an `:id` from one case does not collide
-;; with the next (there is no separate live-frame index to clear).
-;; ---------------------------------------------------------------------------
-
+;; explicit {:frame …} targets throughout, so no ambient :rf/default
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter        rf.substrate.plain-atom/adapter
-                                            :ambient-frame  nil}))
+                                               :ambient-frame  nil}))
 
-;; ---------------------------------------------------------------------------
-;; Helpers — build a RUNNABLE event-handler descriptor for an image resolver.
-;;
-;; The descriptor the image's `:rf.gen/resolver` carries is the SAME shape
-;; `register!` stores — for an event that is `rf.events/event-handler-meta` (carries
-;; `:handler-fn` + the wrapping `:interceptors`), merged with the provenance /
-;; kind / id keys image assembly groups + dedupes by. So a generation-routed
-;; `rf.registrar/lookup :event` returns a descriptor the run can execute directly.
-;; ---------------------------------------------------------------------------
+;; Image-resolver descriptors carry the shape `register!` stores, so a
+;; generation-routed `rf.registrar/lookup` returns something the run executes.
 
 (defn- event-desc
   "An image-resolver descriptor for an event id whose handler is `handler-fn` —
@@ -130,422 +85,194 @@
          (finally (rf.trace.tooling/unregister-listener! id)))
     @seen))
 
-;; ===========================================================================
-;; 1. THE ACCEPTANCE — a REAL frame-targeted dispatch resolves the event
-;;    handler through the TARGET frame's image, not the global registrar.
-;;    Sections 3 and 5 run it against a same-id global handler.
-;; ===========================================================================
+(defn- counter-pool
+  "An image pool whose :counter/inc increments :n and whose :counter/value reads it."
+  [provenance-ns step]
+  [(event-desc provenance-ns :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) step)}))
+   (sub-desc   provenance-ns :counter/value (fn [db _] (:n db)))])
 
-;; ===========================================================================
-;; 2. THE ACCEPTANCE — a REAL frame-targeted subscribe resolves the sub
-;;    handler through the TARGET frame's image, not the global registrar.
-;; ===========================================================================
+(defn- reg-global-counter! []
+  (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
+  (rf/reg-sub   :counter/value (fn [_db _] :global)))
 
 (deftest real-subscribe-resolves-sub-handler-through-frame-image
-  (testing "a globally-registered [:counter/value] returns :global; the frame's
-            IMAGE registers the SAME id returning :image. A REAL
-            (rf/subscribe [:counter/value] {:frame :counter/main}) builds the IMAGE sub
-            END-TO-END — proving subscribe wraps the build with
-            call-with-frame-resolution."
-    (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
-    ;; GLOBAL sub.
-    (rf/reg-sub :counter/value (fn [_db _] :global))
-    ;; The frame's IMAGE registers the SAME sub id with a DIFFERENT computation.
-    (let [pool  [(sub-desc "examples.counter" :counter/value (fn [_db _] :image))]
-          img   (rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          _     (rf.live-frame/make-frame {:id :counter/main :images [img]} pool)]
-      (is (= :image @(rf/subscribe [:counter/value] {:frame :counter/main}))
-          "the IMAGE sub computed — subscribe resolved [:sub :counter/value]
-           through the target frame's resolved image generation, end-to-end")
-      (is (nil? rf.registrar/*generation*)
-          "the generation binding did NOT leak past the build"))))
-
-;; ===========================================================================
-;; 3. THE HEADLINE — two frames, two DIFFERENT images, SAME id, via REAL
-;;    dispatch: each resolves to its OWN image's handler (no global clobber).
-;; ===========================================================================
+  (rf/make-frame {:id :counter/main})
+  (rf/reg-sub :counter/value (fn [_db _] :global))
+  (rf.live-frame/make-frame
+    {:id :counter/main
+     :images [(rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})]}
+    [(sub-desc "examples.counter" :counter/value (fn [_db _] :image))])
+  (is (= [:image nil] [@(rf/subscribe [:counter/value] {:frame :counter/main}) rf.registrar/*generation*])
+      "the IMAGE sub computed, and the generation binding did not leak past the build"))
 
 (deftest two-frames-different-images-same-id-via-real-dispatch
-  (testing "two runnable frames each loaded with a DIFFERENT image both
-            handling [:boot/init] resolve that id to their OWN image's handler
-            under a REAL frame-targeted dispatch (EP-0023 §Independent Surfaces
-            On One Page — the heart of the same-id story, end-to-end)"
-    (rf/make-frame {:id :todo/main :doc "todo surface"})
-    (rf/make-frame {:id :counter/main :doc "counter surface"})
-    ;; A GLOBAL [:boot/init] neither frame should ever run.
-    (rf/reg-event :boot/init
-      (fn [{:keys [db]} _] {:db (assoc db :booted-by :global)}))
-    (let [todo-pool    [(event-desc "examples.todo" :boot/init
-                                    (fn [{:keys [db]} _] {:db (assoc db :booted-by :todo)}))]
-          counter-pool [(event-desc "examples.counter" :boot/init
-                                    (fn [{:keys [db]} _] {:db (assoc db :booted-by :counter)}))]
-          todo-img     (rf.image/image {:id :examples/todo    :select-ns {:include ["examples.todo"]}})
-          counter-img  (rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          _ (rf.live-frame/make-frame {:id :todo/main    :images [todo-img]}    todo-pool)
-          _ (rf.live-frame/make-frame {:id :counter/main :images [counter-img]} counter-pool)]
-      (rf/dispatch-sync [:boot/init] {:frame :todo/main})
-      (rf/dispatch-sync [:boot/init] {:frame :counter/main})
-      (is (= :todo (:booted-by (rf/app-db-value :todo/main)))
-          "the todo frame ran the TODO image's handler")
-      (is (= :counter (:booted-by (rf/app-db-value :counter/main)))
-          "the counter frame ran the COUNTER image's handler")
-      (testing "neither image leaked into the other (no global clobber)"
-        (is (not= :global (:booted-by (rf/app-db-value :todo/main))))
-        (is (not= :global (:booted-by (rf/app-db-value :counter/main))))))))
-
-;; ===========================================================================
-;; 4. ABSENCE-IS-DEFAULT — a frame with NO image-loaded object resolves through
-;;    the global registrar.
-;; ===========================================================================
+  ;; EP-0023 §Independent Surfaces On One Page: one id, each frame its own image
+  (rf/make-frame {:id :todo/main})
+  (rf/make-frame {:id :counter/main})
+  (rf/reg-event :boot/init (fn [{:keys [db]} _] {:db (assoc db :booted-by :global)}))
+  (doseq [[fid ns-name tag] [[:todo/main "examples.todo" :todo] [:counter/main "examples.counter" :counter]]]
+    (rf.live-frame/make-frame
+      {:id fid :images [(rf.image/image {:id (keyword "examples" (name tag)) :select-ns {:include [ns-name]}})]}
+      [(event-desc ns-name :boot/init (fn [{:keys [db]} _] {:db (assoc db :booted-by tag)}))])
+    (rf/dispatch-sync [:boot/init] {:frame fid}))
+  (is (= [:todo :counter] (map #(:booted-by (rf/app-db-value %)) [:todo/main :counter/main]))))
 
 (deftest no-image-frame-resolves-through-the-global-registrar
-  (testing "a runnable frame with NO live-frame image OBJECT (a realm-only /
-            EP-0013 frame) resolves a frame-targeted dispatch + subscribe through
-            the GLOBAL registrar — the load-bearing absence-is-default
-            fall-through that keeps every image-less caller on the global
-            registrar"
-    (rf/make-frame {:id :plain/main :doc "no image-loaded object for this frame"})
-    (rf/reg-event :plain/set
-      (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
-    (rf/reg-sub :plain/value (fn [db _] (:written-by db)))
-    ;; NO `rf.live-frame/make-frame` — the frame names no image-loaded object.
-    (rf/dispatch-sync [:plain/set] {:frame :plain/main})
-    (is (= :global (:written-by (rf/app-db-value :plain/main)))
-        "with no image generation, the dispatch resolved the GLOBAL handler")
-    (is (= :global @(rf/subscribe [:plain/value] {:frame :plain/main}))
-        "with no image generation, the subscribe resolved the GLOBAL sub")
-    (is (nil? rf.registrar/*generation*)
-        "no generation was ever bound for an image-less frame")))
-
-;; ===========================================================================
-;; 5. CHILD DISPATCH coherence — a child dispatch emitted from inside the
-;;    image handler's :fx re-enters process-event! for the SAME frame and
-;;    re-derives the generation, so it ALSO resolves through the frame's image.
-;; ===========================================================================
+  (rf/make-frame {:id :plain/main})
+  (rf/reg-event :plain/set (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
+  (rf/reg-sub :plain/value (fn [db _] (:written-by db)))
+  (rf/dispatch-sync [:plain/set] {:frame :plain/main})
+  (is (= [:global :global nil]
+         [(:written-by (rf/app-db-value :plain/main))
+          @(rf/subscribe [:plain/value] {:frame :plain/main})
+          rf.registrar/*generation*])))
 
 (deftest child-dispatch-stays-in-the-frames-image
-  (testing "a child [:counter/step] dispatched via :fx from the image's
-            [:counter/inc] handler re-enters process-event! for :counter/main
-            and re-derives the generation — so it ALSO resolves through the
-            frame's image (the drain stays coherent across child dispatches)"
-    (rf/make-frame {:id :counter/main :doc "image-loaded counter frame"})
-    ;; GLOBAL versions both children should NEVER run.
-    (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (assoc db :inc :global)}))
-    (rf/reg-event :counter/step (fn [{:keys [db]} _] {:db (assoc db :step :global)}))
-    (let [pool [(event-desc "examples.counter" :counter/inc
-                            ;; image inc: write its own marker, then dispatch the
-                            ;; child step via :fx (the fx-walker threads the frame).
-                            (fn [{:keys [db]} _]
-                              {:db (assoc db :inc :image)
-                               :fx [[:dispatch [:counter/step]]]}))
-                (event-desc "examples.counter" :counter/step
-                            (fn [{:keys [db]} _] {:db (assoc db :step :image)}))]
-          img  (rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          _    (rf.live-frame/make-frame {:id :counter/main :images [img]} pool)]
-      (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
-      (let [db (rf/app-db-value :counter/main)]
-        (is (= :image (:inc db))  "the parent resolved the image's inc handler")
-        (is (= :image (:step db))
-            "the CHILD dispatch re-derived the generation and resolved the
-             image's step handler too (coherent across the drain)")))))
-
-;; ===========================================================================
-;; 6. ONE RUNNABLE OBJECT — two RUNNABLE objects built from ONE image keep
-;;    INDEPENDENT app-db + sub-cache. ONE object carries both the image
-;;    generation AND its own runnable record, so it runs an event stream with no
-;;    separately-made record to pair it with.
-;; ===========================================================================
+  ;; a child dispatched via :fx re-enters process-event! for the same frame and
+  ;; re-derives the generation, so the drain stays coherent
+  (rf/make-frame {:id :counter/main})
+  (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (assoc db :inc :global)}))
+  (rf/reg-event :counter/step (fn [{:keys [db]} _] {:db (assoc db :step :global)}))
+  (rf.live-frame/make-frame
+    {:id :counter/main
+     :images [(rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})]}
+    [(event-desc "examples.counter" :counter/inc
+                 (fn [{:keys [db]} _] {:db (assoc db :inc :image) :fx [[:dispatch [:counter/step]]]}))
+     (event-desc "examples.counter" :counter/step
+                 (fn [{:keys [db]} _] {:db (assoc db :step :image)}))])
+  (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
+  (is (= {:inc :image :step :image} (select-keys (rf/app-db-value :counter/main) [:inc :step]))))
 
 (deftest two-frames-from-one-image-keep-independent-state
-  (testing "two runnable frames built from the SAME image — NO pre-made record,
-            NO shared id — maintain INDEPENDENT app-db and sub-cache: each frame's
-            event stream mutates only its own state, and each frame's subscribe
-            builds its own reaction (EP-0023 §Frame — the live frame object owns
-            app-db + subscription cache; two frames that run the same generation
-            still have independent state)"
-    ;; ONE image carries the runnable inc handler + the value sub. A GLOBAL
-    ;; version of each exists only so we can prove the image's impl ran (not the
-    ;; global) — neither frame is paired with a pre-made record.
-    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
-    (rf/reg-sub   :counter/value (fn [_db _] :global))
-    (let [pool [(event-desc "ex.counter" :counter/inc
-                            (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-                (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
-          img  (rf.image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
-          ;; TWO direct (no-id) runnable objects from the SAME image, seeded with
-          ;; DIFFERENT initial-db. No pre-made record, no shared frame id.
-          fa   (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
-          fb   (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 100}]]} pool)]
-      ;; The objects are distinct runnable frames sharing one image generation.
-      (is (rf.live-frame/frame-object? fa))
-      (is (rf.live-frame/frame-object? fb))
-      (is (= (rf.live-frame/frame-generation fa) (rf.live-frame/frame-generation fb))
-          "both frames run the SAME resolved image generation (shared value)")
-      (is (not= (:rf.frame/runnable-id fa) (:rf.frame/runnable-id fb))
-          "yet they are distinct runnable frames (distinct backing records)")
-      ;; Independent app-db: divergent event streams over divergent seeds. The
-      ;; frame OBJECT is the dispatch target via the `{:frame …}` opt (the
-      ;; canonical object-accepting form — build-envelope normalizes the object
-      ;; to its runnable-id).
-      (rf/dispatch-sync [:counter/inc] {:frame fa})
-      (rf/dispatch-sync [:counter/inc] {:frame fa})
-      (rf/dispatch-sync [:counter/inc] {:frame fb})
-      (is (= 2 (:n (rf/app-db-value fa)))
-          "frame A: seeded 0, inc'd twice — the IMAGE handler ran on A's OWN app-db")
-      (is (= 101 (:n (rf/app-db-value fb)))
-          "frame B: seeded 100, inc'd once — fully isolated from A")
-      (is (not= :global (:n (rf/app-db-value fa)))
-          "the IMAGE inc ran, not the global (generation routed to the frame's image)")
-      ;; Independent subscribe: each frame builds its OWN reaction over its OWN
-      ;; app-db, and the two reactions are NOT the same cached object.
-      (let [ra  (rf/subscribe [:counter/value] {:frame fa})
-            ra2 (rf/subscribe [:counter/value] {:frame fa})
-            rb  (rf/subscribe [:counter/value] {:frame fb})]
-        (is (= 2 @ra)   "frame A's sub reads A's own app-db")
-        (is (= 101 @rb) "frame B's sub reads B's own app-db")
-        (is (identical? ra ra2)
-            "A's repeat subscribe HITS A's own sub-cache (same reaction)")
-        (is (not (identical? ra rb))
-            "A and B build DISTINCT reactions — independent sub-caches")))))
-
-;; ===========================================================================
-;; 7. DIRECT-OBJECT RUNNABILITY (the spec harness form) — a no-id object is
-;;    runnable end-to-end without any pre-made record (EP-0023 §Frame).
-;; ===========================================================================
+  ;; two direct (no-id) runnable values from ONE image share its generation but
+  ;; own independent app-db and sub-cache (EP-0023 §Frame)
+  (reg-global-counter!)
+  (let [img (rf.image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
+        pool (counter-pool "ex.counter" 1)
+        fa  (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
+        fb  (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 100}]]} pool)]
+    (is (= [true false]
+           [(= (rf.live-frame/frame-generation fa) (rf.live-frame/frame-generation fb))
+            (= (:rf.frame/runnable-id fa) (:rf.frame/runnable-id fb))])
+        "one shared generation, two distinct backing records")
+    (rf/dispatch-sync [:counter/inc] {:frame fa})
+    (rf/dispatch-sync [:counter/inc] {:frame fa})
+    (rf/dispatch-sync [:counter/inc] {:frame fb})
+    (is (= [2 101] [(:n (rf/app-db-value fa)) (:n (rf/app-db-value fb))])
+        "the IMAGE inc ran on each frame's own app-db")
+    (let [ra  (rf/subscribe [:counter/value] {:frame fa})
+          ra2 (rf/subscribe [:counter/value] {:frame fa})
+          rb  (rf/subscribe [:counter/value] {:frame fb})]
+      (is (= [2 101 true false] [@ra @rb (identical? ra ra2) (identical? ra rb)])
+          "each frame reads its own app-db through its own sub-cache"))))
 
 (deftest direct-no-id-object-is-runnable-end-to-end
-  (testing "the spec's local-harness form: a no-id frame OBJECT is dispatched +
-            subscribed directly (object via the `{:frame …}` opt for both) and
-            runs the image's handlers against the object's OWN runnable state —
-            NO pre-made record, NO frame id (EP-0023 §Frame — a direct object is a
-            local reference a harness uses directly)"
-    (let [pool  [(event-desc "ex.counter" :counter/inc
-                             (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-                 (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
-          img   (rf.image/image {:select-ns {:include ["ex.counter"]}})
-          frame (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
-      (rf/dispatch-sync [:counter/inc] {:frame frame})
-      (is (= 1 @(rf/subscribe [:counter/value] {:frame frame}))
-          "the direct object ran the image's inc and read its own seeded app-db")
-      (testing "app-db-value + frame-state-value accept the object directly"
-        (is (= 1 (:n (rf/app-db-value frame))))
-        (is (= {:n 1} (:rf.db/app (rf/frame-state-value frame)))))
-      (testing "destroy-frame! accepts the object and tears its record down"
-        (rf/destroy-frame! frame)
-        (is (nil? (rf/app-db-value frame))
-            "after destroy the object's backing record is gone")))))
-
-;; ===========================================================================
-;; 8. THE {:frame …} OPTS FORM IS THE ONE EXPLICIT-TARGET SHAPE — there is no
-;;    frame-FIRST positional `(rf/dispatch-sync frame [...])` /
-;;    `(rf/dispatch frame [...])` form: every sig is `[event]` / `[event opts]`, no `vector?` shape-
-;;    discrimination on the first arg. `opts`'s `:frame` routes the carried
-;;    TARGET (a frame-id keyword OR a live frame OBJECT) identically for both
-;;    dispatch and subscribe.
-;; ===========================================================================
+  ;; the local-harness form: a no-id frame object is dispatched, subscribed,
+  ;; read and destroyed directly — no pre-made record, no frame id
+  (let [frame (rf.live-frame/make-frame
+                {:images [(rf.image/image {:select-ns {:include ["ex.counter"]}})]
+                 :initial-events [[:rf/set-db {:n 0}]]}
+                (counter-pool "ex.counter" 1))]
+    (rf/dispatch-sync [:counter/inc] {:frame frame})
+    (is (= [1 {:n 1}] [@(rf/subscribe [:counter/value] {:frame frame})
+                       (:rf.db/app (rf/frame-state-value frame))]))
+    (rf/destroy-frame! frame)
+    (is (nil? (rf/app-db-value frame)) "destroy-frame! accepts the object and tears its record down")))
 
 (deftest opts-form-routes-object-and-keyword-targets-end-to-end
-  (testing "EP-0023 §Public API: (rf/dispatch-sync event {:frame
-            f}) and (rf/dispatch event {:frame f}) target the carried frame —
-            for BOTH a live frame OBJECT and a frame-id keyword — END-TO-END
-            through the target frame's image"
-    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
-    (rf/reg-sub   :counter/value (fn [_db _] :global))
-    (let [pool [(event-desc "ex.counter" :counter/inc
-                            (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-                (sub-desc   "ex.counter" :counter/value (fn [db _] (:n db)))]
-          img  (rf.image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})]
-      (testing "frame OBJECT as the {:frame …} opts target"
-        (let [obj (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
-          (rf/dispatch-sync [:counter/inc] {:frame obj})
-          (rf/dispatch-sync [:counter/inc] {:frame obj})
-          (is (= 2 (:n (rf/app-db-value obj)))
-              "the IMAGE inc ran twice on the object's OWN app-db (not the global)")
-          (is (= 2 @(rf/subscribe [:counter/value] {:frame obj}))
-              "the opts-form object-target subscribe reads the same app-db")))
-      (testing "frame-id KEYWORD as the {:frame …} opts target"
-        (let [_ (rf.live-frame/make-frame {:id :counter/main :images [img] :initial-events [[:rf/set-db {:n 10}]]}
-                               pool)]
-          (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
-          (is (= 11 (:n (rf/app-db-value :counter/main)))
-              "the keyword opts-form target routes to the registered live frame")))
-      (testing "the async (queued) (rf/dispatch event {:frame f}) form also routes"
-        (let [obj (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
-          ;; `dispatch` enqueues; drain synchronously via a sync follow-up.
-          (rf/dispatch [:counter/inc] {:frame obj})
-          (rf/dispatch-sync [:counter/inc] {:frame obj})   ;; drains the queue + runs once more
-          (is (= 2 (:n (rf/app-db-value obj)))
-              "both the queued and the sync opts-form dispatches ran the image inc"))))))
+  ;; EP-0023 §Public API: {:frame f} routes a frame OBJECT and a frame-id
+  ;; keyword alike, for the queued dispatch as well as dispatch-sync
+  (reg-global-counter!)
+  (let [img  (rf.image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
+        pool (counter-pool "ex.counter" 1)
+        obj  (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
+    (rf.live-frame/make-frame {:id :counter/main :images [img] :initial-events [[:rf/set-db {:n 10}]]} pool)
+    (rf/dispatch [:counter/inc] {:frame obj})
+    (rf/dispatch-sync [:counter/inc] {:frame obj})   ; drains the queue, then runs once more
+    (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
+    (is (= [2 11] [(:n (rf/app-db-value obj)) (:n (rf/app-db-value :counter/main))]))))
 
-(deftest former-frame-first-dispatch-no-longer-resolves
-  (testing "there is no frame-first positional form — (dispatch-sync frame
-            event) does not target the named frame. `frame` (a frame value,
-            never a vector) is read
-            as `event` and `event` (a vector) as `opts`; `(:frame opts)` on a
-            vector is nil, so the call never resolves the intended target —
-            whether it throws or silently misses, the object's OWN image
-            handler observably does NOT run (never silently mis-routed to a
-            correct-looking result)."
-    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
-    (let [pool [(event-desc "ex.counter" :counter/inc
-                            (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))]
-          img  (rf.image/image {:id :ex/former-frame-first :select-ns {:include ["ex.counter"]}})
-          obj  (rf.live-frame/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]} pool)]
-      (try
-        (rf/dispatch-sync obj [:counter/inc])
-        (catch #?(:clj Throwable :cljs :default) _ nil))
-      (is (= 0 (:n (rf/app-db-value obj)))
-          "the object's OWN app-db was NOT mutated by the image inc — the
-           frame-first call never reached the intended handler"))))
-
-;; ===========================================================================
-;; 8b. INLINE :registrations FN-BODY ROUTES THROUGH DISPATCH
-;;     — an image built from inline `:registrations` with a
-;;     REAL fn body wires that handler into the dispatch / subscribe /
-;;     fx / cofx path identically to a `:include-ns`-selected registration.
-;;     An inline body lowered ONLY to `:impl` (inert data) would let a
-;;     frame-targeted dispatch resolve the descriptor but run nothing
-;;     (`rf.registrar/handler` reads `:handler-fn`, an event needs `:interceptors`).
-;;     EP-0023 §Image Fragments: "Both paths should lower to the same runtime
-;;     descriptor shape."
-;; ===========================================================================
+;; An image built from INLINE :registrations lowers to the same runtime
+;; descriptor shape as an :include-ns-selected one (EP-0023 §Image Fragments),
+;; so its fn bodies run through dispatch / subscribe / fx.
 
 (deftest inline-registrations-sub-fn-body-runs-through-subscribe
-  (testing "an image built from INLINE :registrations with a REAL layer-1 sub
-            fn body computes that sub END-TO-END under a frame-targeted
-            subscribe"
-    (rf/make-frame {:id :inline/main :doc "inline-image counter frame"})
-    (rf/reg-sub :counter/value (fn [_db _] :global))
-    (let [img (rf.image/image
+  (rf/make-frame {:id :inline/main})
+  (rf/reg-sub :counter/value (fn [_db _] :global))
+  (rf.live-frame/make-frame
+    {:id :inline/main
+     :images [(rf.image/image
                 {:id :inline/counter
                  :registrations
-                 {:reg-event [[:counter/inc {}
-                               (fn [{:keys [db]} _]
-                                 {:db (update db :count (fnil inc 0))})]]
-                  :reg-sub   [[:counter/value {:doc "Current counter value."}
-                               (fn [db _] (:count db 0))]]}})]
-      (rf.live-frame/make-frame {:id :inline/main :images [img] :initial-events [[:rf/set-db {:count 0}]]} [])
-      (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
-      (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
-      (is (= 2 @(rf/subscribe [:counter/value] {:frame :inline/main}))
-          "the INLINE sub body computed over the frame's own app-db, not the
-           global sub")
-      (is (nil? rf.registrar/*generation*)
-          "the generation binding did NOT leak past the build"))))
+                 {:reg-event [[:counter/inc {} (fn [{:keys [db]} _] {:db (update db :count (fnil inc 0))})]]
+                  :reg-sub   [[:counter/value {:doc "Current counter value."} (fn [db _] (:count db 0))]]}})]
+     :initial-events [[:rf/set-db {:count 0}]]}
+    [])
+  (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
+  (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
+  (is (= [2 nil] [@(rf/subscribe [:counter/value] {:frame :inline/main}) rf.registrar/*generation*])
+      "the inline event and sub bodies ran over the frame's own app-db"))
 
 (deftest inline-sub-schema-is-authoritative-for-ordinary-subscribe
-  (testing "a real inline image sub validates its return with the image schema,
-            not a conflicting global registration's schema"
-    (let [invalid-q :inline.schema/invalid
-          valid-q   :inline.schema/valid
-          calls     (atom [])]
-      ;; If generation resolution or metadata lowering is wrong, these global
-      ;; schemas produce the exact opposite outcome from the image schemas.
-      (rf/reg-sub invalid-q {:schema :global/string} (fn [_ _] ::global))
-      (rf/reg-sub valid-q   {:schema :global/string} (fn [_ _] ::global))
-      (let [img (rf.image/image
+  ;; conflicting global schemas would produce the opposite outcome if
+  ;; resolution or metadata lowering were wrong
+  (let [invalid-q :inline.schema/invalid
+        valid-q   :inline.schema/valid
+        calls     (atom [])
+        result    (atom ::unset)]
+    (rf/reg-sub invalid-q {:schema :global/string} (fn [_ _] ::global))
+    (rf/reg-sub valid-q   {:schema :global/string} (fn [_ _] ::global))
+    (rf.live-frame/make-frame
+      {:id :inline/schema-frame
+       :images [(rf.image/image
                   {:id :inline/schema
                    :registrations
-                   {:reg-sub
-                    [[invalid-q {:schema :image/int}
-                      (fn [_ _] "accepted-only-by-global")]
-                     [valid-q {:schema :image/int}
-                      (fn [_ _] 7)]]}})
-            _   (rf.live-frame/make-frame {:id :inline/schema-frame :images [img]} [])
-            result (atom ::unset)
-            errors (with-inline-sub-schema-port calls
-                     #(collect-error-events
-                        (fn []
-                          (reset! result
-                            [(rf/subscribe-once [invalid-q]
-                               {:frame :inline/schema-frame})
-                             (rf/subscribe-once [valid-q]
-                               {:frame :inline/schema-frame})]))))
-            failure (first
-                      (filter #(= :rf.error/schema-validation-failure
-                                  (:operation %))
-                              errors))]
-        (is (= [nil 7] @result)
-            "invalid image return recovers to nil; valid image return survives")
-        (is (= [[:image/int "accepted-only-by-global"]
-                [:image/int 7]]
-               @calls)
-            "both reads consult the image schema and never the global schema")
-        (is (some? failure) "invalid image return emits typed failure evidence")
-        (is (= :sub-return (-> failure :tags :where)))
-        (is (= :inline/schema-frame (-> failure :tags :frame)))
-        (is (= invalid-q (-> failure :tags :rf.sub/id)))
-        (is (= invalid-q (-> failure :tags :failing-id)))
-        (is (= [invalid-q] (-> failure :tags :rf.sub/query-v)))
-        (is (= invalid-q (-> failure :tags :schema-id)))
-        (is (= "accepted-only-by-global" (-> failure :tags :received)))
-        (is (= "accepted-only-by-global" (-> failure :tags :value)))
-        (is (= {:schema :image/int :value "accepted-only-by-global"}
-               (-> failure :tags :explain)))
-        (is (and (string? (-> failure :tags :reason))
-                 (re-find #":image/int" (-> failure :tags :reason)))
-            "failure reason names the authoritative image schema")))))
+                   {:reg-sub [[invalid-q {:schema :image/int} (fn [_ _] "accepted-only-by-global")]
+                              [valid-q {:schema :image/int} (fn [_ _] 7)]]}})]}
+      [])
+    (let [errors  (with-inline-sub-schema-port calls
+                    #(collect-error-events
+                       (fn []
+                         (reset! result
+                           [(rf/subscribe-once [invalid-q] {:frame :inline/schema-frame})
+                            (rf/subscribe-once [valid-q] {:frame :inline/schema-frame})]))))
+          failure (first (filter #(= :rf.error/schema-validation-failure (:operation %)) errors))]
+      (is (= [nil 7] @result) "an invalid image return recovers to nil; a valid one survives")
+      (is (= [[:image/int "accepted-only-by-global"] [:image/int 7]] @calls)
+          "both reads consult the image schema, never the global one")
+      (is (= {:where :sub-return :frame :inline/schema-frame :rf.sub/id invalid-q
+              :failing-id invalid-q :rf.sub/query-v [invalid-q] :schema-id invalid-q
+              :received "accepted-only-by-global" :value "accepted-only-by-global"
+              :explain {:schema :image/int :value "accepted-only-by-global"}}
+             (select-keys (:tags failure) [:where :frame :rf.sub/id :failing-id :rf.sub/query-v
+                                           :schema-id :received :value :explain])))
+      (is (re-find #":image/int" (str (-> failure :tags :reason)))
+          "the reason names the authoritative image schema"))))
 
 (deftest inline-registrations-fx-fn-body-runs-through-pipeline
-  (testing "an image built from INLINE :registrations with a REAL fx fn body
-            runs that effect END-TO-END when an inline event handler emits it"
-    (rf/make-frame {:id :inline/main :doc "inline-image fx frame"})
-    (let [fired (atom [])
-          img (rf.image/image
-                {:id :inline/fx
-                 :registrations
-                 {:reg-event [[:do/it {}
-                               (fn [_ _] {:fx [[:my/side-effect {:n 7}]]})]]
-                  :reg-fx    [[:my/side-effect {}
-                               (fn [_ctx args] (swap! fired conj args))]]}})]
-      (rf.live-frame/make-frame {:id :inline/main :images [img]} [])
-      (rf/dispatch-sync [:do/it] {:frame :inline/main})
-      (is (= [{:n 7}] @fired)
-          "the INLINE fx handler ran — its fn body executed with the emitted args"))))
-
-;; ===========================================================================
-;; 9. IMAGE HOT-RELOAD VIA RE-`MAKE-FRAME` — re-calling `make-frame` against
-;;    the SAME `:id` with a
-;;    NEW `:images` vector swaps the generation while PRESERVING FRAME MEMORY
-;;    (app-db continues); the reload diff is a READ (`generation-diff` over two
-;;    `frame-generation` values), not a bespoke verb. A no-id (direct-object)
-;;    frame has no `:id` to re-`make-frame` against — it is not reloadable in
-;;    place; discard it and make a new one.
-;; ===========================================================================
+  (rf/make-frame {:id :inline/main})
+  (let [fired (atom [])]
+    (rf.live-frame/make-frame
+      {:id :inline/main
+       :images [(rf.image/image
+                  {:id :inline/fx
+                   :registrations
+                   {:reg-event [[:do/it {} (fn [_ _] {:fx [[:my/side-effect {:n 7}]]})]]
+                    :reg-fx    [[:my/side-effect {} (fn [_ctx args] (swap! fired conj args))]]}})]}
+      [])
+    (rf/dispatch-sync [:do/it] {:frame :inline/main})
+    (is (= [{:n 7}] @fired))))
 
 (deftest re-make-frame-swaps-generation-preserving-memory
-  (testing "EP-0023 §Hot Reload / §Public API: re-`make-frame`-ing an `:id`-bearing
-            frame with a new :images vector re-assembles a fresh generation and
-            installs it onto the live frame WITHOUT tearing it down — app-db
-            (frame memory) continues, and the target frame's subsequent dispatch
-            resolves through the NEW image"
-    (let [;; v1 image: inc by 1. v2 image: inc by 10 (same id, different impl).
-          pool-v1 [(event-desc "ex.counter.v1" :counter/inc
-                               (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 1)}))
-                   (sub-desc   "ex.counter.v1" :counter/value (fn [db _] (:n db)))]
-          pool-v2 [(event-desc "ex.counter.v2" :counter/inc
-                               (fn [{:keys [db]} _] {:db (update db :n (fnil + 0) 10)}))
-                   (sub-desc   "ex.counter.v2" :counter/value (fn [db _] (:n db)))]
-          img-v1 (rf.image/image {:id :ex/counter-v1 :select-ns {:include ["ex.counter.v1"]}})
-          img-v2 (rf.image/image {:id :ex/counter-v2 :select-ns {:include ["ex.counter.v2"]}})
-          frame  (rf.live-frame/make-frame {:id :counter/main :images [img-v1] :initial-events [[:rf/set-db {:n 0}]]}
-                                pool-v1)]
-      ;; Run the v1 image once: n 0 -> 1.
-      (rf/dispatch-sync [:counter/inc] {:frame frame})
-      (is (= 1 (:n (rf/app-db-value :counter/main))) "v1 inc by 1")
-      ;; HOT RELOAD via re-`make-frame` — swap the whole composition to v2.
-      (let [before (rf/frame-generation :counter/main)
-            reloaded (rf.live-frame/make-frame {:id :counter/main :images [img-v2]} pool-v2)
-            after    (rf/frame-generation :counter/main)
-            diff     (rf/generation-diff before after)]
-        (is (rf.live-frame/frame-object? reloaded) "make-frame returns the (reloaded) frame value")
-        (is (map? diff) "generation-diff returns a plain diff map")
-        (is (every? diff [:added :changed :removed :retained])
-            "the diff carries all four [kind id] partitions"))
-      ;; FRAME MEMORY PRESERVED: app-db still holds the v1-computed value.
-      (is (= 1 (:n (rf/app-db-value :counter/main)))
-          "app-db (frame memory) survived the reload — not torn down + recreated")
-      ;; The frame now runs the v2 image: inc by 10.
-      (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
-      (is (= 11 (:n (rf/app-db-value :counter/main)))
-          "after reload the SAME live frame runs the v2 image's inc (1 + 10)"))))
+  ;; EP-0023 §Hot Reload: re-make-frame on the same :id installs a fresh
+  ;; generation without tearing the frame down; the next dispatch runs the new
+  ;; image against the preserved app-db
+  (let [img-v1 (rf.image/image {:id :ex/counter-v1 :select-ns {:include ["ex.counter.v1"]}})
+        img-v2 (rf.image/image {:id :ex/counter-v2 :select-ns {:include ["ex.counter.v2"]}})
+        frame  (rf.live-frame/make-frame {:id :counter/main :images [img-v1] :initial-events [[:rf/set-db {:n 0}]]}
+                                         (counter-pool "ex.counter.v1" 1))]
+    (rf/dispatch-sync [:counter/inc] {:frame frame})
+    (rf.live-frame/make-frame {:id :counter/main :images [img-v2]} (counter-pool "ex.counter.v2" 10))
+    (is (= 1 (:n (rf/app-db-value :counter/main))) "frame memory survived the reload")
+    (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
+    (is (= 11 (:n (rf/app-db-value :counter/main))) "the same live frame now runs the v2 inc (1 + 10)")))
