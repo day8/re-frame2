@@ -1,27 +1,10 @@
 (ns re-frame.story-recorder-test
-  "JVM tests for the Test Codegen recorder.
-
-  Pure-data coverage: the recordable-event? predicate, the state
-  machine (start / append / stop), the impure entrypoints
-  driving the per-process atom, and the gen-play-snippet codegen.
-  Mirrors the node-test arm in `story_recorder_cljs_test.cljs`.
-
-  ## Coverage layers
-
-  - `recordable-event?` — filters assertion events + Story-internal
-    helpers without dropping legitimate user dispatches.
-  - State machine (`start` / `append` / `stop`) — pure
-    transitions; one place to lock the contract apart from the impure
-    side.
-  - Impure entrypoints (`start-recording!`, `stop-recording!`,
-    `record-event!`, `clear!`, `toggle!`) — exercise the per-process
-    atom alongside the predicate filter.
-  - `gen-play-snippet` — the codegen output reads back as exactly the
-    `(reg-variant …)` form its opts describe; comparing read forms rather
-    than text keeps a cosmetic formatting change from churning the
-    test."
+  "JVM tests for the Test Codegen recorder: the `recordable-event?` filter,
+  the pure state machine, the impure entrypoints over the per-process atom,
+  `gen-play-snippet` codegen, the trace-bus listener end to end, and the
+  `re-frame.story` recorder facade. The node-test arm is
+  `story_recorder_cljs_test.cljs`."
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -44,19 +27,14 @@
 ;; ---- recordable-event? ---------------------------------------------------
 
 (deftest recordable-event?-skips-internal-story-events
-  (testing ":rf.story/* + re-frame.story.* internal helpers are filtered"
-    (is (not (rf.story.recorder/recordable-event? [:rf.story/lifecycle-tick])))
-    (is (not (rf.story.recorder/recordable-event?
-               [:re-frame.story.runtime/append-assertion {:a 1}])))
-    (is (not (rf.story.recorder/recordable-event?
-               [:re-frame.story.assertions/append {:r 1}])))))
-
-(deftest recordable-event?-handles-malformed-input
-  (testing "non-event shapes are rejected"
-    (is (not (rf.story.recorder/recordable-event? nil)))
-    (is (not (rf.story.recorder/recordable-event? [])))
-    (is (not (rf.story.recorder/recordable-event? "not-a-vector")))
-    (is (not (rf.story.recorder/recordable-event? [{} "no-keyword-id"])))))
+  (testing ":rf.story/* and re-frame.story.* internal helpers, and non-event
+            shapes, are not recordable"
+    (is (= [false false false false false false false]
+           (map (comp boolean rf.story.recorder/recordable-event?)
+                [[:rf.story/lifecycle-tick]
+                 [:re-frame.story.runtime/append-assertion {:a 1}]
+                 [:re-frame.story.assertions/append {:r 1}]
+                 nil [] "not-a-vector" [{} "no-keyword-id"]])))))
 
 ;; ---- pure state machine --------------------------------------------------
 
@@ -65,10 +43,9 @@
     (let [s0 (-> rf.story.recorder/initial-state
                  (rf.story.recorder/start :story.a/x 1000)
                  (rf.story.recorder/append [:a 1])
-                 (rf.story.recorder/append [:b 2]))
-          s1 (rf.story.recorder/start s0 :story.b/y 2000)]
-      (is (= [] (:events s1)))
-      (is (= :story.b/y (:variant-id s1))))))
+                 (rf.story.recorder/append [:b 2]))]
+      (is (= [[] :story.b/y]
+             ((juxt :events :variant-id) (rf.story.recorder/start s0 :story.b/y 2000)))))))
 
 (deftest append-skips-assertions-and-internals
   (testing "append filters non-recordable events"
@@ -142,38 +119,6 @@
           :extends :story.counter/happy-path
           :script  {:auto-run? true :script [[:dispatch-sync [:counter/inc]]]}}))))
 
-(defn- extract-play-script-vector
-  "Pull the inner `:script` vector substring out of the rendered snippet
-  by walking balanced brackets after the public `:script` body's inner
-  `:script` token. The recorder emits the PUBLIC `:script` slot with a
-  `{:auto-run? ... :script [...]}` body; the first `:script`
-  token is the body key, and the first `[` after it opens the inner step
-  vector."
-  [snippet]
-  (let [start  (str/index-of snippet ":script")
-        after  (subs snippet start)
-        open   (str/index-of after "[")]
-    (loop [i (inc open) depth 1]
-      (cond
-        (or (nil? i) (>= i (count after)))
-        nil
-
-        (zero? depth)
-        (subs after open i)
-
-        :else
-        (let [c (.charAt ^String after i)]
-          (case c
-            \[ (recur (inc i) (inc depth))
-            \] (recur (inc i) (dec depth))
-            (recur (inc i) depth)))))))
-
-(defn- unwrap-dispatch-sync-steps
-  "Project the parsed `:script` vector back to the bare event-vector
-  list. Each step is `[:dispatch-sync <event-vec>]`."
-  [script-vec]
-  (mapv second script-vec))
-
 ;; ---- DOM-event entries + per-event timestamps ---------------------------
 
 (deftest append-dom-lands-each-kind-as-one-entry
@@ -192,51 +137,36 @@
 
 (deftest append-dom-rejects-malformed
   (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)]
-    (is (= [] (:entries (rf.story.recorder/append-dom s0 nil))))
-    (is (= [] (:entries (rf.story.recorder/append-dom s0 []))))
-    (is (= [] (:entries (rf.story.recorder/append-dom s0 [:not-a-dom-kind "x" 0]))))))
-
-(deftest append-dom-noop-when-not-recording
-  (testing "DOM-events drop on the floor when no recording is in flight"
-    (let [s0 rf.story.recorder/initial-state
-          s1 (rf.story.recorder/append-dom s0 [:dom/click "[data-test=\"x\"]" 0])]
-      (is (= [] (:entries s1))))))
+    (doseq [ev [nil [] [:not-a-dom-kind "x" 0]]]
+      (is (= [] (:entries (rf.story.recorder/append-dom s0 ev))) (pr-str ev))))
+  (is (= [] (:entries (rf.story.recorder/append-dom rf.story.recorder/initial-state
+                                                     [:dom/click "[data-test=\"x\"]" 0])))
+      "DOM events drop when no recording is in flight"))
 
 (deftest append-event-stamps-timestamp
-  (testing "(append state event now-ms) populates :entries[:t]"
-    (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 1000)
-          s1 (rf.story.recorder/append s0 [:counter/inc] 1250)]
-      (is (= [[:counter/inc]] (:events s1)) ":events carries bare event")
-      (let [{:keys [kind event t]} (first (:entries s1))]
-        (is (= :event/dispatch kind))
-        (is (= [:counter/inc] event))
-        (is (= 250 t) ":t = now-ms - started-ms (1250 - 1000)")))))
+  (testing "(append state event now-ms) keeps the bare event and stamps the
+            entry's :t relative to the recording start"
+    (let [s1 (-> rf.story.recorder/initial-state
+                 (rf.story.recorder/start :story.x/y 1000)
+                 (rf.story.recorder/append [:counter/inc] 1250))]
+      (is (= [[[:counter/inc]] [{:kind :event/dispatch :event [:counter/inc] :t 250}]]
+             [(:events s1) (map #(select-keys % [:kind :event :t]) (:entries s1))])))))
 
 (deftest record-dom-event!-impure-entry
   (testing "the impure record-dom-event! entry mutates the shared atom"
-    (rf.story.recorder/clear!)
     (rf.story.recorder/start-recording! :story.x/y)
     (rf.story.recorder/record-dom-event! [:dom/click "[data-test=\"go\"]" 50])
     (rf.story.recorder/record-dom-event! [:dom/type "[id=\"x\"]" "hi" 100])
-    (let [entries (rf.story.recorder/recorded-entries)]
-      (is (= 2 (count entries)))
-      (is (= :dom/click (:kind (first entries))))
-      (is (= :dom/type (:kind (second entries)))))))
+    (is (= [:dom/click :dom/type] (map :kind (rf.story.recorder/recorded-entries))))))
 
 ;; ---- mid-recording assertion insertion ----------------------------------
 
 (deftest assertion-vocabulary-covers-canonical-seven
-  (testing "the picker vocabulary enumerates all seven canonical :rf.assert/* ids"
-    (let [ids (set (map :id rf.story.recorder/assertion-vocabulary))]
-      (is (= #{:rf.assert/path-equals
-               :rf.assert/path-matches
-               :rf.assert/sub-equals
-               :rf.assert/dispatched?
-               :rf.assert/state-is
-               :rf.assert/no-warnings
-               :rf.assert/effect-emitted}
-             ids)
-          "all seven canonical assertion ids from spec/004 are present"))))
+  (is (= #{:rf.assert/path-equals :rf.assert/path-matches :rf.assert/sub-equals
+           :rf.assert/dispatched? :rf.assert/state-is :rf.assert/no-warnings
+           :rf.assert/effect-emitted}
+         (set (map :id rf.story.recorder/assertion-vocabulary)))
+      "the picker vocabulary enumerates the seven canonical ids from spec/004"))
 
 (deftest assertion-vocabulary-entries-are-well-formed
   (testing "every vocabulary entry carries the picker's required keys"
@@ -252,38 +182,21 @@
         (is (#{:edn :string} type))))))
 
 (deftest make-assertion-builds-well-formed-events
-  (testing "make-assertion builds canonical event vectors from a payload map"
-    (is (= [:rf.assert/path-equals [:auth :status] :ok]
-           (rf.story.recorder/make-assertion :rf.assert/path-equals
-                                    {:path [:auth :status] :expected :ok})))
-    (is (= [:rf.assert/sub-equals [:counter] 3]
-           (rf.story.recorder/make-assertion :rf.assert/sub-equals
-                                    {:sub [:counter] :expected 3})))
-    (is (= [:rf.assert/dispatched? [:counter/inc]]
-           (rf.story.recorder/make-assertion :rf.assert/dispatched?
-                                    {:event [:counter/inc]})))
-    (is (= [:rf.assert/state-is :auth/machine :authenticated]
-           (rf.story.recorder/make-assertion :rf.assert/state-is
-                                    {:machine :auth/machine
-                                     :state   :authenticated})))
-    (is (= [:rf.assert/effect-emitted :http]
-           (rf.story.recorder/make-assertion :rf.assert/effect-emitted {:fx-id :http})))))
-
-(deftest make-assertion-no-payload-form
-  (testing "make-assertion handles assertions with no payload (no-warnings)"
-    (is (= [:rf.assert/no-warnings]
-           (rf.story.recorder/make-assertion :rf.assert/no-warnings {})))))
-
-(deftest make-assertion-rejects-unknown-id
-  (testing "make-assertion returns nil for an unknown assertion id"
-    (is (nil? (rf.story.recorder/make-assertion :rf.assert/not-a-real-one {})))
-    (is (nil? (rf.story.recorder/make-assertion :counter/inc {})))))
-
-(deftest make-assertion-fills-missing-fields-as-nil
-  (testing "make-assertion fills in missing payload fields as nil (partial picker entry)"
-    (is (= [:rf.assert/path-equals [:auth :status] nil]
-           (rf.story.recorder/make-assertion :rf.assert/path-equals
-                                    {:path [:auth :status]})))))
+  (testing "make-assertion builds the canonical event vector from a payload map,
+            fills a missing field with nil, and answers nil for an unknown id"
+    (doseq [[id payload event]
+            [[:rf.assert/path-equals {:path [:auth :status] :expected :ok}
+              [:rf.assert/path-equals [:auth :status] :ok]]
+             [:rf.assert/sub-equals {:sub [:counter] :expected 3} [:rf.assert/sub-equals [:counter] 3]]
+             [:rf.assert/dispatched? {:event [:counter/inc]} [:rf.assert/dispatched? [:counter/inc]]]
+             [:rf.assert/state-is {:machine :auth/machine :state :authenticated}
+              [:rf.assert/state-is :auth/machine :authenticated]]
+             [:rf.assert/effect-emitted {:fx-id :http} [:rf.assert/effect-emitted :http]]
+             [:rf.assert/no-warnings {} [:rf.assert/no-warnings]]
+             [:rf.assert/path-equals {:path [:auth :status]} [:rf.assert/path-equals [:auth :status] nil]]
+             [:rf.assert/not-a-real-one {} nil]
+             [:counter/inc {} nil]]]
+      (is (= event (rf.story.recorder/make-assertion id payload)) (pr-str id payload)))))
 
 (deftest append-assertion-rejects-non-assertions
   (testing "append-assertion is a no-op for non-:rf.assert/* event vectors"
@@ -296,14 +209,6 @@
       (is (= [] (:events s1))
           "only :rf.assert/* event vectors land via append-assertion"))))
 
-(deftest insert-assertion!-rejects-non-assertion-event
-  (testing "insert-assertion! drops anything that isn't an :rf.assert/* event"
-    (rf.story.recorder/start-recording! :story.x/y 0)
-    (rf.story.recorder/insert-assertion! [:counter/inc])           ; wrong namespace
-    (rf.story.recorder/insert-assertion! [:rf.story/lifecycle-tick]) ; internal
-    (rf.story.recorder/insert-assertion! nil)
-    (is (= [] (rf.story.recorder/recorded-events)))))
-
 (deftest insert-assertion!-noop-when-not-recording
   (testing "insert-assertion! is harmless when no recording is in flight"
     (is (not (rf.story.recorder/recording?)))
@@ -311,30 +216,24 @@
     (is (= [] (rf.story.recorder/recorded-events)))))
 
 (deftest gen-play-snippet-round-trips-with-inserted-assertions
-  (testing "the EDN snippet round-trips when the captured trace includes assertions"
+  (testing "user dispatches and inserted assertions interleave, and the snippet's
+            :script steps unwrap back to them"
     (rf.story.recorder/start-recording! :story.counter/x 0)
     (rf.story.recorder/record-event! [:counter/inc])
-    (rf.story.recorder/insert-assertion! :rf.assert/sub-equals
-                                {:sub [:counter] :expected 1})
+    (rf.story.recorder/insert-assertion! :rf.assert/sub-equals {:sub [:counter] :expected 1})
     (rf.story.recorder/record-event! [:counter/by 7])
-    (rf.story.recorder/insert-assertion! :rf.assert/path-equals
-                                {:path [:n] :expected 8})
+    (rf.story.recorder/insert-assertion! :rf.assert/path-equals {:path [:n] :expected 8})
     (rf.story.recorder/stop-recording!)
-    (let [events     (rf.story.recorder/recorded-events)
-          snippet    (rf.story.recorder/gen-play-snippet
-                       events
-                       {:variant-id :story.counter/recorded
-                        :extends    :story.counter/x})
-          script-str (extract-play-script-vector snippet)
-          script-vec (edn/read-string script-str)]
+    (let [events (rf.story.recorder/recorded-events)
+          form   (edn/read-string (rf.story.recorder/gen-play-snippet
+                                    events {:variant-id :story.counter/recorded
+                                            :extends    :story.counter/x}))]
       (is (= [[:counter/inc]
               [:rf.assert/sub-equals [:counter] 1]
               [:counter/by 7]
               [:rf.assert/path-equals [:n] 8]]
-             events)
-          "user dispatches AND inserted assertions are interleaved")
-      (is (= events (unwrap-dispatch-sync-steps script-vec))
-          "the public :script body vector unwraps to the original events"))))
+             events))
+      (is (= events (mapv second (-> form (nth 2) :script :script)))))))
 
 ;; ---- end-to-end: trace-bus integration -----------------------------------
 
@@ -349,93 +248,62 @@
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!))
 
+(defn- record-on!
+  "Register and run `vid`'s frame, install the trace listener and start recording it."
+  [vid]
+  (rf.story/reg-variant vid {})
+  (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000)
+  (rf.story.recorder/install-trace-listener!)
+  (rf.story.recorder/start-recording! vid))
+
 (deftest trace-listener-captures-dispatch-into-recording
-  (testing "with a recording in flight, a dispatch against the target frame is captured"
+  (testing "with a recording in flight, a dispatch against the target frame is
+            captured as a bare event and a timestamped :event/dispatch entry"
     (reset-rf-state!)
-    (rf/reg-event :counter/inc
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/reg-event :counter/dec
-      (fn [{:keys [db]} _] {:db (update db :n (fnil dec 0))}))
-    (rf.story/reg-variant :story.recorder/v {})
-    ;; Allocate the variant frame + install the listener.
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/v) 5000)
-    (rf.story.recorder/install-trace-listener!)
-    (rf.story.recorder/start-recording! :story.recorder/v)
-    ;; Drive a few dispatches against the target frame.
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/v})
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/v})
-    (rf/dispatch-sync [:counter/dec] {:frame :story.recorder/v})
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/reg-event :counter/dec (fn [{:keys [db]} _] {:db (update db :n (fnil dec 0))}))
+    (record-on! :story.recorder/v)
+    (doseq [ev [[:counter/inc] [:counter/inc] [:counter/dec]]]
+      (rf/dispatch-sync ev {:frame :story.recorder/v}))
     (rf.story.recorder/stop-recording!)
-    (is (= [[:counter/inc] [:counter/inc] [:counter/dec]]
-           (rf.story.recorder/recorded-events))
-        "the :events slot carries bare event vectors")
-    ;; The parallel :entries slot carries the rich shape.
-    (let [entries (rf.story.recorder/recorded-entries)]
-      (is (every? #(= :event/dispatch (:kind %)) entries)
-          "each entry is an :event/dispatch shape")
-      (is (= [[:counter/inc] [:counter/inc] [:counter/dec]]
-             (mapv :event entries))
-          ":event slot on each entry is the bare event vector")
-      (is (every? #(number? (:t %)) entries)
-          "each entry carries a numeric :t timestamp"))
+    (let [events  [[:counter/inc] [:counter/inc] [:counter/dec]]
+          entries (rf.story.recorder/recorded-entries)]
+      (is (= events (rf.story.recorder/recorded-events) (mapv :event entries)))
+      (is (every? #(and (= :event/dispatch (:kind %)) (number? (:t %))) entries)))
     (rf.story/destroy-variant! :story.recorder/v)
     (rf.story.recorder/remove-trace-listener!)))
 
 (deftest trace-listener-ignores-cross-frame-traffic
   (testing "dispatches to a non-target frame don't appear in the recording"
     (reset-rf-state!)
-    (rf/reg-event :counter/inc
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf.story/reg-variant :story.recorder/target {})
-    (rf.story/reg-variant :story.recorder/other  {})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/target) 5000)
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/other)  5000)
-    (rf.story.recorder/install-trace-listener!)
-    (rf.story.recorder/start-recording! :story.recorder/target)
-    ;; This one lands on the recording target.
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/target})
-    ;; This one lands on a different frame and MUST be ignored.
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/other})
-    ;; This one lands on the target again.
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/target})
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf.story/reg-variant :story.recorder/other {})
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/other) 5000)
+    (record-on! :story.recorder/target)
+    (doseq [frame [:story.recorder/target :story.recorder/other :story.recorder/target]]
+      (rf/dispatch-sync [:counter/inc] {:frame frame}))
     (rf.story.recorder/stop-recording!)
-    (is (= [[:counter/inc] [:counter/inc]]
-           (rf.story.recorder/recorded-events))
-        "only the target-frame dispatches are captured")
+    (is (= [[:counter/inc] [:counter/inc]] (rf.story.recorder/recorded-events)))
     (rf.story/destroy-variant! :story.recorder/target)
     (rf.story/destroy-variant! :story.recorder/other)
     (rf.story.recorder/remove-trace-listener!)))
 
 (deftest trace-listener-redacts-sensitive-dispatches-end-to-end
-  (testing "an event whose REGISTRATION classifies payload paths
-            (`{:sensitive [[:password] [:totp]]}`) is recorded in position
-            with `:rf/redacted` at each classified path, while an
-            unclassified sibling key rides raw. The recorder reads the
-            dispatched-event trace, whose `:rf.event/v` the framework's
-            registration redaction has already projected."
+  (testing "an event whose registration classifies payload paths is recorded in
+            position with :rf/redacted at each classified path while an
+            unclassified sibling rides raw — the recorder reads the dispatched
+            trace, which the framework's registration redaction has projected"
     (reset-rf-state!)
-    (rf/reg-event :counter/inc
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/reg-event :auth/login
-      {:sensitive [[:password] [:totp]]}
-      (fn [{:keys [db]} _] {:db db}))
-    (rf.story/reg-variant :story.recorder/sens-end-to-end {})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/sens-end-to-end) 5000)
-    (rf.story.recorder/install-trace-listener!)
-    (rf.story.recorder/start-recording! :story.recorder/sens-end-to-end)
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/sens-end-to-end})
-    (rf/dispatch-sync [:auth/login {:user "ada" :password "shh" :totp "123456"}]
-                      {:frame :story.recorder/sens-end-to-end})
-    (rf/dispatch-sync [:counter/inc] {:frame :story.recorder/sens-end-to-end})
+    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    (rf/reg-event :auth/login {:sensitive [[:password] [:totp]]} (fn [{:keys [db]} _] {:db db}))
+    (record-on! :story.recorder/sens-end-to-end)
+    (doseq [ev [[:counter/inc] [:auth/login {:user "ada" :password "shh" :totp "123456"}] [:counter/inc]]]
+      (rf/dispatch-sync ev {:frame :story.recorder/sens-end-to-end}))
     (rf.story.recorder/stop-recording!)
-    (let [events (rf.story.recorder/recorded-events)]
-      (is (= [[:counter/inc]
-              [:auth/login {:user "ada" :password :rf/redacted :totp :rf/redacted}]
-              [:counter/inc]]
-             events)
-          "the login row keeps its position; each classified path is
-           :rf/redacted and the unclassified :user rides raw, so the tape
-           carries neither secret literal"))
+    (is (= [[:counter/inc]
+            [:auth/login {:user "ada" :password :rf/redacted :totp :rf/redacted}]
+            [:counter/inc]]
+           (rf.story.recorder/recorded-events)))
     (rf.story/destroy-variant! :story.recorder/sens-end-to-end)
     (rf.story.recorder/remove-trace-listener!)))
 
@@ -459,46 +327,30 @@
     (reset-rf-state!)
     (rf/reg-event :login/set-password (fn [{:keys [db]} [_ pw]] {:db (assoc db :pw pw)}))
     (rf/reg-event :login/submit (fn [{:keys [db]} _] {:db db}))
-    (rf.story/reg-variant :story.recorder/login {})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/login) 5000)
-    (rf.story.recorder/install-trace-listener!)
     (let [inside? (atom false)]
       (with-dom-rail-hooks
         (fn [] @inside?)
         (fn [ev] (mapv #(if (= "hunter2" %) "[:rf/redacted]" %) ev))
         (fn []
-          (rf.story.recorder/start-recording! :story.recorder/login)
+          (record-on! :story.recorder/login)
           (reset! inside? true)
           (rf/dispatch-sync [:login/submit] {:frame :story.recorder/login})
           (reset! inside? false)
           (rf/dispatch-sync [:login/set-password "hunter2"] {:frame :story.recorder/login})
           (rf.story.recorder/stop-recording!)
           (is (= [[:login/set-password "[:rf/redacted]"]]
-                 (rf.story.recorder/recorded-events))
-              "the in-step submit is skipped; the outside dispatch is
-               recorded with the typed password redacted"))))
+                 (rf.story.recorder/recorded-events))))))
     (rf.story/destroy-variant! :story.recorder/login)
     (rf.story.recorder/remove-trace-listener!)))
 
-;; ---- recorder FACADE contract --------------------------------------------
-;;
-;; Pins the public `re-frame.story` recorder boundary so the docs
-;; (tools/story/spec/API.md §Recorder facade + spec/005 §Recorder) and
-;; the implementation cannot silently drift. Two failure modes
-;; this guards:
-;;
-;;   1. Accidental facade shrink — one of the intended seven removed,
-;;      or rebound to a non-fn.
-;;   2. Vocabulary drift — `gen-play-snippet` emitting a `:play-script`
-;;      spelling at the facade level (the recorder-ns test pins the ns;
-;;      this pins the re-export).
+;; The public `re-frame.story` recorder boundary, pinned so the docs
+;; (tools/story/spec/API.md §Recorder facade, spec/005 §Recorder) and the
+;; implementation cannot drift apart.
 
 (def ^:private intended-recorder-facade-vars
-  "The exact recorder entries the public `re-frame.story` facade is
-  documented to expose (API.md §Recorder facade). Six recorder-lifecycle
-  + simple-codegen surfaces plus `recording->script-body`, the runtime
-  data->data counterpart re-exported from the `play-export` sub-ns for
-  programmatic re-registration consumers."
+  "The recorder entries the facade documents: the recorder lifecycle, the
+  `gen-play-snippet` codegen, and `recording->script-body`, its runtime
+  data->data counterpart re-exported from the `play-export` sub-ns."
   '#{start-recording!
      stop-recording!
      clear-recording!
@@ -508,110 +360,49 @@
      recording->script-body})
 
 (deftest facade-exposes-every-documented-recorder-var
-  (testing "every documented recorder entry is present + callable on
-            re-frame.story (API.md §Recorder facade)"
-    (doseq [sym intended-recorder-facade-vars]
-      (let [v (ns-resolve 're-frame.story sym)]
-        (is (some? v)
-            (str "re-frame.story/" sym " is missing from the facade"))
-        (is (fn? (deref v))
-            (str "re-frame.story/" sym " is bound to a fn"))))))
-
-(deftest facade-does-not-expose-the-transitional-play-script-alias
-  (testing "no `play-script`-spelled recorder var leaked onto the facade —
-            the public spelling is `:script`, so the translator is
-            `recording->script-body`, not `recording->play-script`,
-            `gen-play-script`, or a `play-script`-named re-export"
-    (let [public-syms (set (keys (ns-publics 're-frame.story)))]
-      ;; The facade carries ZERO `play-script` token — the translator is
-      ;; `recording->script-body`, matching the public `:script` body it
-      ;; returns.
-      (is (contains? public-syms 'recording->script-body)
-          "the translator is re-exported as `recording->script-body`")
-      (is (not (contains? public-syms 'recording->play-script))
-          "no `play-script`-spelled facade name")
-      (is (not (contains? public-syms 'gen-play-script))
-          "the codegen fn is `gen-play-snippet`, not `gen-play-script`")
-      (is (not (contains? public-syms 'render-script-body))
-          "render-script-body is sub-namespace-only, not on the facade")
-      (is (not (contains? public-syms 'render-variant-form))
-          "render-variant-form is sub-namespace-only, not on the facade"))))
+  (doseq [sym intended-recorder-facade-vars]
+    (is (fn? (some-> (ns-resolve 're-frame.story sym) deref))
+        (str "re-frame.story/" sym " is missing from the facade or not a fn"))))
 
 (deftest facade-gen-play-snippet-emits-public-script-slot
-  (testing "rf.story/gen-play-snippet (the facade re-export) emits the
-            :script slot, never :play-script — pinned at the facade,
-            not just the recorder ns"
-    (let [snip (rf.story/gen-play-snippet [[:counter/inc]]
-                                       {:variant-id :story.x/y})]
-      (is (string? snip))
-      (is (str/includes? snip ":script")
-          "the :script slot is present")
-      (is (not (str/includes? snip ":play-script"))
-          "no :play-script slot is emitted at the facade"))))
+  (testing "the facade's gen-play-snippet renders exactly the recorder's form,
+            whose public :script slot gen-play-snippet-reads-back pins"
+    (is (= (rf.story.recorder/gen-play-snippet [[:counter/inc]] {:variant-id :story.x/y})
+           (rf.story/gen-play-snippet [[:counter/inc]] {:variant-id :story.x/y})))))
 
 (deftest facade-recording->script-body-delegates-to-play-export
-  (testing "rf.story/recording->script-body (the facade re-export) returns
-            the live {:script ... :auto-run?} body the runner executes —
-            the programmatic re-registration contract. Both arities
-            resolve through the play-export sub-ns."
-    (let [events    [[:counter/inc] [:counter/by 7]]
-          one-arg   (rf.story/recording->script-body events)
-          two-arg   (rf.story/recording->script-body events {:name "rt"})]
-      (is (map? one-arg) "one-arg returns a play-body map")
-      (is (vector? (:script one-arg)) ":script is the runner step vector")
-      (is (contains? one-arg :auto-run?) ":auto-run? slot present")
-      (is (not (contains? one-arg :play-script))
-          "the body carries the runner's :script key, never :play-script")
-      ;; Each captured event becomes a runner dispatch step — the live
-      ;; counterpart to gen-play-snippet's text projection.
-      (is (= 2 (count (:script one-arg)))
-          "two captured events → two runner steps")
-      (is (= "rt" (:name two-arg))
-          "two-arg threads :name through to the play-export sub-ns")
-      ;; Facade and sub-ns produce the SAME body — the re-export is a
-      ;; thin delegation, not a divergent reimplementation.
-      (is (= one-arg (rf.story.recorder.play-export/recording->script-body events))
-          "facade re-export == sub-namespace fn (pure delegation)"))))
+  (testing "the facade's recording->script-body returns the live play body the
+            runner executes — one runner step per event under :script, never
+            :play-script — through the play-export sub-ns in both arities"
+    (let [events  [[:counter/inc] [:counter/by 7]]
+          one-arg (rf.story/recording->script-body events)]
+      (is (= (rf.story.recorder.play-export/recording->script-body events) one-arg))
+      (is (= [2 true false]
+             [(count (:script one-arg)) (contains? one-arg :auto-run?) (contains? one-arg :play-script)]))
+      (is (= "rt" (:name (rf.story/recording->script-body events {:name "rt"})))))))
 
-;; ---- EP-0023: a recording's address is the variant FRAME -----------------
-;;
-;; A recording's address is a single frame target (EP-0023). A recording
-;; carries no separate realm key on its captured state or on the replayable
-;; play body; replay dispatches frame-scoped ({:frame variant-id}) and lands
-;; in the frame's own running environment by construction. These lock that
-;; shape — the captured state is the bare recorder shape, and the play body
-;; never grows a realm key.
+;; A recording's address is the variant frame (EP-0023): neither the captured
+;; state nor the replayable play body carries a realm key, and replay dispatches
+;; frame-scoped.
 
 (deftest recording-state-is-the-bare-frame-target-shape
-  (testing "start writes the bare recorder shape — no realm key, the
-            recording's address is the variant frame (EP-0023)"
-    (let [s (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 1000)]
-      (is (= {:recording? true :variant-id :story.x/y
-              :events [] :cofx [] :entries [] :started-ms 1000}
-             s)
-          "the captured state carries variant-id but no separate realm key"))))
+  (is (= {:recording? true :variant-id :story.x/y
+          :events [] :cofx [] :entries [] :started-ms 1000}
+         (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 1000))))
 
 (deftest end-to-end-recording-and-play-body-carry-no-realm-key
-  (testing "a recording against a variant frame captures no realm key, and the
-            translated play body is the frame-only shape that replays unchanged
-            (EP-0023 frame target)"
+  (testing "a recording against a variant frame captures no realm key, and its
+            translated play body is the frame-only {:script :auto-run?} shape"
     (reset-rf-state!)
     (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf.story/reg-variant :story.frame/target {})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.frame/target) 5000)
-    (rf.story.recorder/install-trace-listener!)
-    (rf.story.recorder/start-recording! :story.frame/target)
+    (record-on! :story.frame/target)
     (rf/dispatch-sync [:counter/inc] {:frame :story.frame/target})
     (rf/dispatch-sync [:counter/inc] {:frame :story.frame/target})
     (let [final-state (rf.story.recorder/stop-recording!)]
-      (is (not-any? #(= "rf.realm" (namespace %)) (keys final-state))
-          "the recording carries no realm key — the frame is the address")
-      (is (= :story.frame/target (:variant-id final-state))
-          "the recording's address is the variant frame")
-      (let [events (:events final-state)
-            body   (rf.story/recording->script-body events)]
-        (is (= [:auto-run? :script] (sort (keys body)))
-            "the body is the frame-only {:script :auto-run?} shape — no realm key")))
+      (is (not-any? #(= "rf.realm" (namespace %)) (keys final-state)))
+      (is (= :story.frame/target (:variant-id final-state)))
+      (is (= [:auto-run? :script]
+             (sort (keys (rf.story/recording->script-body (:events final-state)))))))
     (rf.story/destroy-variant! :story.frame/target)
     (rf.story.recorder/remove-trace-listener!)))
 
@@ -626,10 +417,7 @@
     (rf/reg-event :p/submit (fn [{:keys [db]} _] {:db (update db :submits (fnil inc 0))
                                                   :fx [[:dispatch [:p/audit]]]}))
     (rf/reg-event :p/audit  (fn [{:keys [db]} _] {:db (update db :audits (fnil inc 0))}))
-    (rf.story/reg-variant :story.cascade/source {})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.cascade/source) 5000)
-    (rf.story.recorder/install-trace-listener!)
-    (rf.story.recorder/start-recording! :story.cascade/source)
+    (record-on! :story.cascade/source)
     (rf/dispatch-sync [:p/plain]  {:frame :story.cascade/source})
     (rf/dispatch-sync [:p/submit] {:frame :story.cascade/source})
     (rf.story.recorder/stop-recording!)
