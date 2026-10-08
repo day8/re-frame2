@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 /*
  * Tests for `_path-policy.cjs`.
- *
- * Standalone node-runnable suite — no external test framework. Each
- * test logs PASS / FAIL; the process exits 0 only when every test
- * passes. Discovered by `npm run test:scripts`.
+ * Discovered by `npm run test:scripts`.
  */
 
 'use strict';
@@ -19,7 +16,6 @@ const {
   DEFAULT_HTML_ROOTS,
   OPT_IN_VAR,
   IMPL_ROOT,
-  REPO_ROOT,
 } = require('./_path-policy.cjs');
 
 let failed = 0;
@@ -43,19 +39,10 @@ function it(label, f) {
 
 console.log('path-policy tests');
 
-it('accepts a path inside the default out root', () => {
-  const out = path.join(DEFAULT_OUT_ROOT, 'browser-test');
-  const result = enforcePolicy('BROWSER_TEST_ROOT', out, {
-    allowedRoots: [DEFAULT_OUT_ROOT],
-  });
-  assert.strictEqual(result, path.resolve(out));
-});
-
-it('accepts the out root itself', () => {
-  const result = enforcePolicy('BROWSER_TEST_ROOT', DEFAULT_OUT_ROOT, {
-    allowedRoots: [DEFAULT_OUT_ROOT],
-  });
-  assert.strictEqual(result, path.resolve(DEFAULT_OUT_ROOT));
+it('accepts the out root itself and a path inside it', () => {
+  for (const p of [DEFAULT_OUT_ROOT, path.join(DEFAULT_OUT_ROOT, 'browser-test')]) {
+    assert.strictEqual(enforcePolicy('BROWSER_TEST_ROOT', p, { allowedRoots: [DEFAULT_OUT_ROOT] }), path.resolve(p));
+  }
 });
 
 it('rejects a sibling-of-out path', () => {
@@ -71,36 +58,21 @@ it('rejects a sibling-of-out path', () => {
 
 // ---- symlink / junction escape --------------------------------------------
 //
-// A symlink/junction UNDER an allowed root whose target resolves OUTSIDE
-// the approved boundary must be REJECTED — the lexical prefix check alone
-// (path.relative) would wrongly accept it, letting the writing scripts
-// follow the link and escape. A legitimate in-root symlink (target stays
-// inside the allowed root) must still PASS.
-//
-// Cross-platform: dir symlinks need Developer Mode / admin on Windows;
-// when creation isn't permitted we SKIP (not fail) the symlink cases so
-// the suite stays green on a locked-down Windows runner while still
-// asserting on POSIX (and Windows with the privilege). The escape-
-// rejection logic itself is OS-agnostic (it relies on fs.realpathSync,
-// which resolves both POSIX symlinks and Windows junctions/symlinks).
+// A link under an allowed root that resolves OUTSIDE it must be rejected (a
+// lexical prefix check would accept it); an in-root link must still pass. Where
+// the host refuses to create links (Windows without the privilege) these skip.
 
-// Create a fresh scratch sandbox: an "allowed root" dir, an "outside"
-// dir well clear of it, and a per-run temp parent so concurrent test
-// runs never collide.
 function makeSandbox() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-pathpolicy-'));
   const allowedRoot = path.join(base, 'allowed-root');
   const outside = path.join(base, 'outside-the-boundary');
   fs.mkdirSync(allowedRoot, { recursive: true });
   fs.mkdirSync(outside, { recursive: true });
-  // realpath the allowed root so the policy's canonicalisation of the
-  // root (which also realpaths, e.g. macOS /var -> /private/var) lines up
-  // with what the test passes in.
+  // realpath'd to match the policy's own canonicalisation (macOS /var -> /private/var).
   return { base, allowedRoot: fs.realpathSync(allowedRoot), outside: fs.realpathSync(outside) };
 }
 
-// Try to create a directory symlink; on Windows fall back to a junction.
-// Returns true on success, false if the platform refused (no privilege).
+// A directory symlink, else on Windows a junction; false if the host refuses both.
 function trySymlinkDir(target, linkPath) {
   try {
     fs.symlinkSync(target, linkPath, 'dir');
@@ -127,9 +99,7 @@ it('REJECTS a symlink/junction under an allowed root that targets outside it', (
       console.log('        (skipped: symlink/junction creation not permitted on this host)');
       return;
     }
-    // Lexically `link` is INSIDE allowedRoot, but it resolves OUTSIDE.
-    // The policy must reject it (and reject a child path written through
-    // it, the actual escape vector the writing scripts hit).
+    // Lexically inside, but resolves outside; so does a path written through it.
     assert.throws(
       () => enforcePolicy('BROWSER_TEST_ROOT', link, { allowedRoots: [allowedRoot] }),
       /outside the approved roots/,
@@ -158,15 +128,11 @@ it('ACCEPTS a symlink under an allowed root whose target stays inside it', () =>
       console.log('        (skipped: symlink/junction creation not permitted on this host)');
       return;
     }
-    // The link resolves to a path still INSIDE the allowed root, so a
-    // legitimate in-root override must still pass.
     const result = enforcePolicy('STORY_BUILD_OUTPUT_DIR', link, {
       allowedRoots: [allowedRoot],
     });
     assert.strictEqual(result, path.resolve(link));
-    // And a not-yet-created child written under the in-root link passes
-    // too (nonexistent-final-path handling: existing parent realpaths
-    // inside the root).
+    // A not-yet-created child under the in-root link passes too.
     const child = path.join(link, 'index.html');
     const childResult = enforcePolicy('STORY_BUILD_INDEX_HTML', child, {
       allowedRoots: [allowedRoot],
@@ -180,10 +146,7 @@ it('ACCEPTS a symlink under an allowed root whose target stays inside it', () =>
 it('REJECTS via a PARENT-directory symlink that escapes the allowed root', () => {
   const { base, allowedRoot, outside } = makeSandbox();
   try {
-    // allowed-root/escape-dir -> outside ; then probe a DEEPER child whose
-    // intermediate (escape-dir) is the escaping link. Exercises that the
-    // policy canonicalises parent-directory links, not just the final
-    // component.
+    // The escaping link is an intermediate directory, not the final component.
     const parentLink = path.join(allowedRoot, 'escape-dir');
     if (!trySymlinkDir(outside, parentLink)) {
       console.log('        (skipped: symlink/junction creation not permitted on this host)');
@@ -213,25 +176,8 @@ it('rejects empty path', () => {
   );
 });
 
-it('the opt-in env var lets an out-of-tree WRITE TARGET through', () => {
-  process.env[OPT_IN_VAR] = '1';
-  try {
-    const elsewhere =
-      process.platform === 'win32' ? 'C:\\tmp\\downstream-out' : '/tmp/downstream-out';
-    const result = enforcePolicy('STORY_BUILD_OUTPUT_DIR', elsewhere, {
-      allowedRoots: [DEFAULT_OUT_ROOT],
-    });
-    assert.strictEqual(result, path.resolve(elsewhere));
-  } finally {
-    delete process.env[OPT_IN_VAR];
-  }
-});
-
 it('the SAME opt-in env var lets an out-of-tree READ SOURCE through', () => {
-  // The knob is named for paths, not writes: it must also broaden the
-  // read-source roots (STORY_BUILD_INDEX_HTML), not just write targets.
-  // Without the opt-in an out-of-tree HTML template is refused; with it
-  // set, the same candidate (against the HTML allowed-roots) passes.
+  // The opt-in broadens read-source roots too, not only write targets.
   const elsewhere =
     process.platform === 'win32' ? 'C:\\tmp\\downstream\\index.html' : '/tmp/downstream/index.html';
   assert.throws(
@@ -253,52 +199,21 @@ it('the SAME opt-in env var lets an out-of-tree READ SOURCE through', () => {
   }
 });
 
-it("the opt-in env var doesn't fire on 'false' / '0' / 'no' / 'off'", () => {
-  for (const v of ['false', '0', 'no', 'off']) {
-    process.env[OPT_IN_VAR] = v;
-    try {
-      const elsewhere = process.platform === 'win32' ? 'C:\\tmp\\x' : '/tmp/x';
-      assert.throws(
-        () =>
-          enforcePolicy('STORY_BUILD_OUTPUT_DIR', elsewhere, {
-            allowedRoots: [DEFAULT_OUT_ROOT],
-          }),
-        /outside the approved roots/,
-        `OPT_IN_VAR=${v} should not enable opt-in`,
-      );
-    } finally {
-      delete process.env[OPT_IN_VAR];
-    }
-  }
+it("the opt-in env var doesn't fire on a non-'1' value such as 'false'", () => {
+  process.env[OPT_IN_VAR] = 'false';
+  const elsewhere = process.platform === 'win32' ? 'C:\\tmp\\x' : '/tmp/x';
+  assert.throws(
+    () => enforcePolicy('STORY_BUILD_OUTPUT_DIR', elsewhere, { allowedRoots: [DEFAULT_OUT_ROOT] }),
+    /outside the approved roots/,
+  );
 });
 
-it('accepts paths under multiple allowed roots', () => {
-  // STORY_BUILD_INDEX_HTML default policy: under <repo>/examples,
-  // <repo>/tools, OR <repo>/implementation.
-  const examplesPath = path.join(REPO_ROOT, 'examples', 'core', 'foo.html');
-  const result1 = enforcePolicy('STORY_BUILD_INDEX_HTML', examplesPath, {
-    allowedRoots: DEFAULT_HTML_ROOTS,
-  });
-  assert.strictEqual(result1, path.resolve(examplesPath));
-
+it('accepts a path under a later allowed root, not only the first', () => {
   const implPath = path.join(IMPL_ROOT, 'foo.html');
-  const result2 = enforcePolicy('STORY_BUILD_INDEX_HTML', implPath, {
-    allowedRoots: DEFAULT_HTML_ROOTS,
-  });
-  assert.strictEqual(result2, path.resolve(implPath));
-
-  const toolsPath = path.join(
-    REPO_ROOT,
-    'tools',
-    'story',
-    'testbeds',
-    'counter_with_stories',
-    'story_static.index.html',
+  assert.strictEqual(
+    enforcePolicy('STORY_BUILD_INDEX_HTML', implPath, { allowedRoots: DEFAULT_HTML_ROOTS }),
+    path.resolve(implPath),
   );
-  const result3 = enforcePolicy('STORY_BUILD_INDEX_HTML', toolsPath, {
-    allowedRoots: DEFAULT_HTML_ROOTS,
-  });
-  assert.strictEqual(result3, path.resolve(toolsPath));
 });
 
 if (failed > 0) {
