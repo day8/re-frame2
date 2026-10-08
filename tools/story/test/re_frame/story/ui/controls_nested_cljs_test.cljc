@@ -14,6 +14,7 @@
   (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             #?(:cljs [re-frame.core :as rf])
             [re-frame.story :as rf.story]
+            [re-frame.story.args :as rf.story.args]
             #?(:cljs [re-frame.story.ui.controls :as rf.story.ui.controls])
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
@@ -147,7 +148,11 @@
     (let [s1 (-> rf.story.ui.state/default-shell-state
                  (rf.story.ui.state/set-cell-override-scalar :story.a/x :tags #{"x" "b"})
                  (rf.story.ui.state/set-cell-override :story.a/x [:tags 0] "y"))]
-      (is (= #{"y" "x"} (get-in s1 [:cell-overrides :story.a/x :tags]))))))
+      (is (= #{"y" "x"} (get-in s1 [:cell-overrides :story.a/x :tags])))
+      (rf.story/reg-variant :story.a/x {:args {:tags #{"a" "b"}} :setup []})
+      (is (= #{"y" "x"} (:tags (rf.story.args/resolve-args
+                                  :story.a/x {:cell-overrides (get-in s1 [:cell-overrides :story.a/x])})))
+          "the effective args read the override set, which replaces the base set rather than merging into it"))))
 
 ;; ---- JVM + CLJS: per-arg clear-cell-override -----------------------------
 
