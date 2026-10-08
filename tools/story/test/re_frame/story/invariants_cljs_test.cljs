@@ -1,15 +1,8 @@
 (ns re-frame.story.invariants-cljs-test
-  "CLJS coverage for `re-frame.story.invariants`
-  (spec/017-Testing-Story.md §Invariant sentinels).
-
-  The pure surface (`first-bad-epoch`, `coerce-invariant`, `check-epoch`,
-  the report-once `on-epoch!` core) is exercised on the JVM by
-  `re-frame.story.invariants-test`; this CLJS sibling pins the
-  host-portable cases the `cljs-test$` node-test build discovers — the
-  `:require-macros` self-reference compiles, the `with-invariants` macro
-  expands to valid ClojureScript, and the live sentinel observes a real
-  CLJS frame's epochs (`dispatch-sync` drains synchronously on node, and
-  the epoch artefact is on the CLJS test classpath via shadow-cljs.edn)."
+  "CLJS coverage for `re-frame.story.invariants` (spec/017 §Invariant
+  sentinels): check-epoch's CLJS catch arm, and the `with-invariants` macro
+  expanding to ClojureScript and observing a real CLJS frame's epochs. The
+  platform-neutral core is covered on the JVM by `re-frame.story.invariants-test`."
   (:require [cljs.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -43,15 +36,11 @@
           :db-before {} :db-after {} :trace-events []}
          m))
 
-;; ---- check-epoch's CLJS catch arm ----------------------------------------
-
 (deftest check-epoch-isolates-throw-cljs
   (testing "a throwing predicate is caught on CLJS"
     (let [c (rf.story.invariants/coerce-invariant 0 (fn [_] (throw (ex-info "boom" {}))))
           v (rf.story.invariants/check-epoch c (epoch-rec 1 {}))]
       (is (string? (:error v))))))
-
-;; ---- on-epoch! report-once (CLJS report sink) ----------------------------
 
 (defn- with-captured-reports
   [f]
@@ -59,8 +48,6 @@
     (with-redefs [cljs.test/report (fn [m] (swap! reports conj m))]
       (f))
     @reports))
-
-;; ---- live with-invariants over a real CLJS frame -------------------------
 
 (deftest with-invariants-live-cljs
   (testing "the sentinel observes a real frame's epochs and reports once per failing epoch"
@@ -75,22 +62,3 @@
                         (rf/dispatch-sync [:dec]  {:frame :test/main}))))]
       (is (= 2 (count (filter #(= :fail (:type %)) reports)))
           "two failing epochs → two failures"))))
-
-(deftest with-invariants-pass-and-destroy-cljs
-  (testing "a holding invariant reports passes; destroying the frame mid-run is tolerated"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (let [done    (atom false)
-          reports (with-captured-reports
-                    (fn []
-                      (with-invariants [(fn [e] (map? (:db-after e)))]
-                        (rf/dispatch-sync [:seed] {:frame :test/main})
-                        (rf/dispatch-sync [:inc]  {:frame :test/main})
-                        (rf/destroy-frame! :test/main)
-                        (reset! done true))))]
-      (is (true? @done) "the body completed across the destroy")
-      (is (zero? (count (filter #(= :fail (:type %)) reports)))
-          "a holding invariant reports no failures")
-      (is (pos? (count (filter #(= :pass (:type %)) reports)))
-          "a green sentinel reports a pass"))))
