@@ -1,36 +1,15 @@
 (ns re-frame.resources-timer-rearm-cljs-test
-  "Sibling-timer preservation across a PARTIAL timer re-arm.
-
-  The resource freshness-timer family has three kinds — `:stale`, `:gc`,
-  `:poll` — that share one host side table (`re-frame.resources.timers`). Two
-  distinct scheduling operations write it:
-
-    - FULL-SETTLEMENT RECONCILE — a successful load / mutation settle
-      reconciles ALL declared kinds: it arms the kinds carrying a positive
-      delay and CANCELS the kinds whose policy is absent (so a hot-reload that
-      dropped a policy leaves no lingering timer).
-    - PARTIAL RE-ARM — a poll tick re-arms ONLY `:poll`; a GC skip
-      (`:has-owner` / `:in-flight`) re-arms ONLY `:gc`. A partial re-arm MUST
-      leave the SIBLING kinds it does not name untouched.
-
-  The scheduling effect keeps the two operations explicit: it carries a
-  `:timers` map keyed by kind — a PRESENT key is reconciled (positive ⇒ arm,
-  nil ⇒ cancel), an ABSENT key is PRESERVED. Overloading a nil per-kind delay
-  to mean BOTH \"preserve this sibling\" (partial re-arm) AND \"disarm this
-  kind\" (full settlement) would let a poll re-arm silently cancel the entry's
-  GC reaper (and a GC skip silently cancel the entry's poll). These JVM+CLJS
-  unit tests pin that contract at the timer substrate
-  (`schedule-timers-handler` + `timer-table`) and end-to-end through the poll /
-  GC re-check events. Per Spec 016 §Stale and GC scheduling / §Polling."
+  "The :stale, :gc and :poll timers share one host side table. The
+  schedule-timers effect reconciles only the kinds its :timers map names (a
+  positive delay arms, nil cancels) and preserves absent ones, so a poll tick
+  or a GC skip re-arms its own kind without cancelling the others (Spec 016
+  §Stale and GC scheduling / §Polling)."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
    [re-frame.interop :as rf.interop]
-   ;; load-bearing side-effecting require: the façade registers the
-   ;; :rf.resource/* events (incl. the internal poll-fired / gc-fired events +
-   ;; the timer fxs) and the test-support reset hook that clears timer-table.
    [re-frame.resources]
    [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
@@ -41,24 +20,13 @@
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
        :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-;; ---- capturing transport (deterministic) ----------------------------------
-;;
-;; We do NOT override :rf.resource/schedule-timers — this suite drives the REAL
-;; timer side table so it can prove sibling handles survive a partial re-arm.
-;; We DO override the HTTP fxs with capturing no-ops so a poll-tick refetch does
-;; not touch a real endpoint, and arm long (never-firing) delays so no wall-
-;; clock timer fires during the test.
-
+;; The real timer side table is driven here; delays are long enough never to fire.
 (def ^:private long-ms 1000000)
 
 (defn- capturing-fixture [f]
   (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx _work-id] nil))
-  ;; The caller-supplied cache scope, declared the canonical way (Spec 016
-  ;; §Every resource declares a scope policy): a NAMED RESOLVER over an app-db
-  ;; slot. This suite's ensures pass an explicit `:scope` override, so the slot
-  ;; stays unwritten and a bare ensure fails closed — the "the caller must say"
-  ;; property the fixture wants, with no policy tier of its own.
+  ;; ensures here pass an explicit :scope; the resolver's slot stays unwritten
   (rf/reg-resource-scope :t/caller-scope
     {:inputs {:scope [:db [:t/scope]]}}
     (fn [{:keys [scope]} _ctx] scope))
@@ -70,9 +38,10 @@
        :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
-;; ---- helpers --------------------------------------------------------------
-
 (def ^:private frame-id :rf/default)
+(def ^:private stale rf.resources.timers/stale-kind)
+(def ^:private gc rf.resources.timers/gc-kind)
+(def ^:private poll rf.resources.timers/poll-kind)
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value frame-id)))
 (defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
@@ -81,36 +50,28 @@
 (defn- timer-handle [scoped-key kind] (get @rf.resources.timers/timer-table (tkey scoped-key kind)))
 (defn- armed? [scoped-key kind] (contains? @rf.resources.timers/timer-table (tkey scoped-key kind)))
 
-(defn- article-spec [overrides]
-  (merge {:scope         {:from-db :t/caller-scope}
-          :params-schema [:map [:slug :string]]}
-         overrides))
-
 (def ^:private article-spec-request
   (fn [{:keys [slug]} _ctx] {:request {:method :get :url (str "/api/articles/" slug)}}))
 
-(defn- ensure! [resource scope slug owner]
-  (rf/dispatch-sync [:rf.resource/ensure
-                     {:resource resource :scope scope :params {:slug slug} :owner owner}]))
-
-(defn- succeed! [scoped-key data]
-  (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/succeeded
-                       {:resource/key scoped-key :work/id (:current-work e)
-                        :generation (:generation e) :data data}])))
-
-(defn- poll-fired!
-  ([scoped-key] (poll-fired! scoped-key false))
-  ([scoped-key hidden?]
-   (rf/dispatch-sync [:rf.resource.internal/poll-fired
-                      {:resource/key scoped-key :hidden? hidden?}])))
-
-(defn- gc-fired! [scoped-key]
-  (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key scoped-key}]))
-
-;; ===========================================================================
-;; SUBSTRATE — the schedule-timers fx handler reconciles ONLY the named kinds
-;; ===========================================================================
+(defn- loaded-polling!
+  "Register `resource` with poll and GC policies and load it under an owner;
+  return its scoped key."
+  [resource]
+  (rf/reg-resource resource
+                   {:scope            {:from-db :t/caller-scope}
+                    :params-schema    [:map [:slug :string]]
+                    :poll-interval-ms long-ms
+                    :gc-after-ms      long-ms}
+                   article-spec-request)
+  (let [scope {:user "u"}
+        k     (rf.resources.state/scoped-resource-key scope resource {:slug "w"})]
+    (rf/dispatch-sync [:rf.resource/ensure
+                       {:resource resource :scope scope :params {:slug "w"} :owner [:route :r 1]}])
+    (let [e (entry k)]
+      (rf/dispatch-sync [:rf.resource.internal/succeeded
+                         {:resource/key k :work/id (:current-work e)
+                          :generation (:generation e) :data {:title "W"}}]))
+    k))
 
 (defn- reconcile! [scoped-key timers-map]
   (rf.resources.timers/schedule-timers-handler
@@ -119,53 +80,37 @@
 (deftest poll-only-rearm-preserves-sibling-stale-and-gc
   (rf.resources.timers/reset-cache!)
   (let [k [:rf.scope/global :tr/combo {:id 1}]]
-    ;; a full-settlement reconcile arms all three kinds
-    (reconcile! k {rf.resources.timers/stale-kind long-ms rf.resources.timers/gc-kind long-ms rf.resources.timers/poll-kind long-ms})
-    (is (armed? k rf.resources.timers/stale-kind) "stale armed")
-    (is (armed? k rf.resources.timers/gc-kind) "gc armed")
-    (is (armed? k rf.resources.timers/poll-kind) "poll armed")
-    (let [stale-h (timer-handle k rf.resources.timers/stale-kind)
-          gc-h    (timer-handle k rf.resources.timers/gc-kind)
-          poll-h  (timer-handle k rf.resources.timers/poll-kind)]
-      ;; a POLL-ONLY partial re-arm names ONLY :poll
-      (reconcile! k {rf.resources.timers/poll-kind long-ms})
-      (testing "a poll-only re-arm PRESERVES the sibling stale
-                + GC handles (they are not named, so untouched)"
-        (is (= stale-h (timer-handle k rf.resources.timers/stale-kind)) "stale handle unchanged")
-        (is (= gc-h (timer-handle k rf.resources.timers/gc-kind)) "gc handle unchanged"))
-      (testing "the named :poll kind IS replaced (cancel-then-arm)"
-        (is (armed? k rf.resources.timers/poll-kind) "poll still armed")
-        (is (not= poll-h (timer-handle k rf.resources.timers/poll-kind)) "poll handle replaced")))
+    (reconcile! k {stale long-ms gc long-ms poll long-ms})
+    (is (= [true true true] (map #(armed? k %) [stale gc poll])))
+    (let [stale-h (timer-handle k stale)
+          gc-h    (timer-handle k gc)
+          poll-h  (timer-handle k poll)]
+      (reconcile! k {poll long-ms})
+      (is (= [stale-h gc-h] [(timer-handle k stale) (timer-handle k gc)])
+          "the unnamed stale and GC handles are untouched")
+      (is (= [true true] [(armed? k poll) (not= poll-h (timer-handle k poll))])
+          "the named poll kind is replaced"))
     (rf.resources.timers/cancel-for-key! frame-id k)))
 
 (deftest full-reconcile-cancels-a-kind-whose-policy-was-removed
-  ;; A full settlement names ALL declared kinds; a kind carrying a nil delay
-  ;; (its policy was dropped by a hot reload) is CANCELLED, not preserved.
+  ;; a later settle whose resource no longer declares a poll policy names
+  ;; :poll with a nil delay
   (rf.resources.timers/reset-cache!)
   (let [k [:rf.scope/global :tr/hotreload {:id 1}]]
-    (reconcile! k {rf.resources.timers/stale-kind long-ms rf.resources.timers/gc-kind long-ms rf.resources.timers/poll-kind long-ms})
-    (is (armed? k rf.resources.timers/poll-kind) "poll armed before reload")
-    ;; a later settle where the resource no longer declares a poll policy:
-    ;; poll is NAMED with a nil delay ⇒ explicit cancel; stale/gc re-armed.
-    (reconcile! k {rf.resources.timers/stale-kind long-ms rf.resources.timers/gc-kind long-ms rf.resources.timers/poll-kind nil})
-    (testing "a NAMED nil-delay kind is CANCELLED (a removed
-              policy leaves no lingering timer); the still-declared kinds stay"
-      (is (not (armed? k rf.resources.timers/poll-kind)) "poll cancelled (policy removed)")
-      (is (armed? k rf.resources.timers/stale-kind) "stale still armed")
-      (is (armed? k rf.resources.timers/gc-kind) "gc still armed"))
+    (reconcile! k {stale long-ms gc long-ms poll long-ms})
+    (is (armed? k poll) "precondition: poll armed")
+    (reconcile! k {stale long-ms gc long-ms poll nil})
+    (is (= [false true true] (map #(armed? k %) [poll stale gc]))
+        "the named nil-delay kind is cancelled; the declared kinds stay armed")
     (rf.resources.timers/cancel-for-key! frame-id k)))
 
 (deftest positive-rearm-cancels-the-prior-host-handle
-  ;; A same-kind POSITIVE re-arm must release the host timer it replaces. The
-  ;; fresh token already stops the old callback from dispatching, so the slot
-  ;; alone cannot show whether the old host timer was cancelled or left
-  ;; running as a zombie; only the host's cancel calls can.
+  ;; The fresh token already stops the old callback from dispatching, so only
+  ;; the host's cancel calls show whether the old host timer was released.
   (rf.resources.timers/reset-cache!)
-  (let [k         [:rf.scope/global :tr/rearm-cancel {:id 1}]
-        sibling-k [:rf.scope/global :tr/rearm-cancel {:id 2}]
-        stale     rf.resources.timers/stale-kind
-        gc        rf.resources.timers/gc-kind
-        cancelled (atom [])
+  (let [k          [:rf.scope/global :tr/rearm-cancel {:id 1}]
+        sibling-k  [:rf.scope/global :tr/rearm-cancel {:id 2}]
+        cancelled  (atom [])
         cancelled? (fn [h] (boolean (some #(identical? h %) @cancelled)))]
     (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] #?(:clj (Object.) :cljs #js {}))
                   rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
@@ -178,58 +123,31 @@
         (is (empty? @cancelled) "precondition: arming a fresh slot cancels nothing")
         (rf.resources.timers/schedule! frame-id k stale long-ms)
         (let [replacement (:handle (timer-handle k stale))]
-          (is (not (identical? original replacement)) "the re-arm armed a fresh host timer")
-          (is (cancelled? original) "the replaced host handle was cancelled")
-          (is (not (cancelled? replacement)) "the replacement stays live")
-          (is (not (cancelled? gc-h)) "the same key's other kind is untouched")
-          (is (not (cancelled? sibling-h)) "the other key's same kind is untouched")))
+          (is (= {:fresh-handle true :original true :replacement false :same-key-gc false :sibling-key false}
+                 {:fresh-handle (not (identical? original replacement))
+                  :original     (cancelled? original)
+                  :replacement  (cancelled? replacement)
+                  :same-key-gc  (cancelled? gc-h)
+                  :sibling-key  (cancelled? sibling-h)})
+              "only the replaced host handle is cancelled")))
       ;; release the fake handles while the stub is still installed
       (rf.resources.timers/cancel-for-key! frame-id k)
       (rf.resources.timers/cancel-for-key! frame-id sibling-k))))
 
-;; ===========================================================================
-;; EVENT LEVEL — a poll tick preserves the GC reaper; a GC skip keeps polling
-;; ===========================================================================
-
 (deftest poll-tick-preserves-the-gc-timer
-  ;; A resource with BOTH poll + GC policies. A settle arms poll + gc in the
-  ;; real side table. A poll tick re-arms poll ONLY — the GC reaper MUST
-  ;; survive (were the poll re-arm to cancel it, an owner-free entry would
-  ;; never be collected).
-  (rf/reg-resource :tre/pg (article-spec {:poll-interval-ms long-ms :gc-after-ms long-ms})
-                   article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :tre/pg {:slug "w"})]
-    (ensure! :tre/pg scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (is (armed? k rf.resources.timers/gc-kind) "GC timer armed on settle")
-    (is (armed? k rf.resources.timers/poll-kind) "poll timer armed on settle")
-    (let [gc-h (timer-handle k rf.resources.timers/gc-kind)]
-      (poll-fired! k) ;; poll tick → background refetch + poll-only re-arm
-      (testing "the GC timer is PRESERVED across a poll tick"
-        (is (armed? k rf.resources.timers/gc-kind) "GC timer still armed after the poll tick")
-        (is (= gc-h (timer-handle k rf.resources.timers/gc-kind)) "GC handle unchanged (not re-armed)"))
-      (testing "the poll timer IS re-armed (cancel-then-arm)"
-        (is (armed? k rf.resources.timers/poll-kind) "poll timer re-armed")))))
+  ;; were the poll re-arm to cancel GC, an owner-free entry would never be collected
+  (let [k (loaded-polling! :tre/pg)]
+    (is (= [true true] [(armed? k gc) (armed? k poll)]) "precondition: the settle armed GC and poll")
+    (let [gc-h (timer-handle k gc)]
+      (rf/dispatch-sync [:rf.resource.internal/poll-fired {:resource/key k :hidden? false}])
+      (is (= [gc-h true] [(timer-handle k gc) (armed? k poll)])
+          "the GC handle is unchanged and poll re-armed"))))
 
 (deftest gc-skip-while-owned-preserves-the-poll-timer
-  ;; A GC timer that fires while the entry is still OWNED skips collection and
-  ;; re-arms GC ONLY — the entry's active poll MUST survive (cancelling it
-  ;; would silently stop periodic refresh on a still-owned, still-polling
-  ;; entry).
-  (rf/reg-resource :tre/gp (article-spec {:poll-interval-ms long-ms :gc-after-ms long-ms})
-                   article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :tre/gp {:slug "w"})]
-    (ensure! :tre/gp scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (is (armed? k rf.resources.timers/poll-kind) "poll timer armed on settle")
-    (is (armed? k rf.resources.timers/gc-kind) "GC timer armed on settle")
-    (let [poll-h (timer-handle k rf.resources.timers/poll-kind)]
-      (gc-fired! k) ;; entry still owned → GC skip → gc-only re-arm
-      (is (some? (entry k)) "entry not collected (still owned)")
-      (testing "the poll timer is PRESERVED across a GC skip"
-        (is (armed? k rf.resources.timers/poll-kind) "poll timer still armed after the GC skip")
-        (is (= poll-h (timer-handle k rf.resources.timers/poll-kind)) "poll handle unchanged"))
-      (testing "the GC timer IS re-armed (cancel-then-arm)"
-        (is (armed? k rf.resources.timers/gc-kind) "GC timer re-armed")))))
+  ;; were the GC re-arm to cancel poll, an owned entry would silently stop refreshing
+  (let [k (loaded-polling! :tre/gp)]
+    (is (= [true true] [(armed? k poll) (armed? k gc)]) "precondition: the settle armed poll and GC")
+    (let [poll-h (timer-handle k poll)]
+      (rf/dispatch-sync [:rf.resource.internal/gc-fired {:resource/key k}])
+      (is (= [true poll-h true] [(some? (entry k)) (timer-handle k poll) (armed? k gc)])
+          "the owned entry is kept, the poll handle unchanged, GC re-armed"))))
