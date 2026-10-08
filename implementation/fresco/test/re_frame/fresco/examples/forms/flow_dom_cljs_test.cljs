@@ -48,7 +48,7 @@
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`),
   and each row degrades there to a STATED skip rather than a false
   green."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
