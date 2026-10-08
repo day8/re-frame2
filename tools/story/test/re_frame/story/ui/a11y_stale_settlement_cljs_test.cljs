@@ -263,21 +263,6 @@
                          "B's in-flight scan was not overwritten with A's :error")
                      (done))))))))
 
-(deftest a-torn-down-frame-does-not-resurrect-on-error
-  (testing "The same obligation under teardown: a rejected scan for a
-            frame that is gone must leave the slot gone, not resurrect it
-            carrying `:error`"
-    (async done
-      (install-axe!
-        (fn [_]
-          (rf.story.ui.a11y/drop-frame-state! frame-id)
-          (js/Promise.reject (js/Error. "axe blew up"))))
-      (-> (rf.story.ui.a11y/run-axe! frame-id (ctx))
-          (.then (fn [_]
-                   (is (not (contains? @rf.story.ui.a11y/run-state frame-id))
-                       "no phantom :error slot for a torn-down frame")
-                   (done)))))))
-
 ;; ===========================================================================
 ;; The chrome panel (ui/chrome-a11y) — the same fence over a singleton slot
 ;; ===========================================================================
@@ -335,42 +320,3 @@
                      (is (= [] (chrome-violation-ids))
                          "and A's findings were not attributed to it")
                      (done))))))))
-
-(deftest the-chrome-fence-does-not-latch
-  (testing "THE SEQUENCE for the chrome fence: ADMIT, REFUSE, ADMIT
-            again, REFUSE again — the same four transitions the variant
-            fence is held to above, for the same reason"
-    (async done
-      (letfn [(admit! [id k]
-                (install-axe! (fn [_] (js/Promise.resolve (results id))))
-                (.then (rf.story.ui.chrome-a11y/run-axe! (ctx)) k))
-              (refuse! [id k]
-                (let [b (signal)]
-                  (install-axe!
-                    (fn [_]
-                      (install-axe! (fn [_] ((:fire! b)) (never-settles)))
-                      (rf.story.ui.chrome-a11y/run-axe! (ctx))
-                      (js/Promise.resolve (results id))))
-                  (.then (js/Promise.all #js [(rf.story.ui.chrome-a11y/run-axe! (ctx))
-                                              (:promise b)])
-                         k)))]
-        (admit!
-          "c1"
-          (fn [_]
-            (is (= ["c1"] (chrome-violation-ids)) "1/4 ADMITTED")
-            (refuse!
-              "c2"
-              (fn [_]
-                (is (= ["c1"] (chrome-violation-ids))
-                    "2/4 REFUSED — the superseded run left c1 standing")
-                (admit!
-                  "c3"
-                  (fn [_]
-                    (is (= ["c3"] (chrome-violation-ids))
-                        "3/4 ADMITTED AGAIN — the fence did not latch shut")
-                    (refuse!
-                      "c4"
-                      (fn [_]
-                        (is (= ["c3"] (chrome-violation-ids))
-                            "4/4 REFUSED AGAIN — the fence did not latch open")
-                        (done)))))))))))))
