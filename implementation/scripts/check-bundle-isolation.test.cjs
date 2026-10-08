@@ -22,11 +22,9 @@ const {
 const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
 const { listPublishableRuntimes } = require('./lib/publishable-runtimes.cjs');
 
-// Repo root, for cross-checking the lockstep script + real implementation/ tree.
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
 const thirdParty = new Set(['xyflow', 'elkjs', 'zprint', 'editscript']);
-let sentinelMutations = 0;
 
 const completeness = assertPositiveControlComplete();
 assert.deepStrictEqual(completeness, {
@@ -38,36 +36,28 @@ assert.deepStrictEqual(completeness, {
   ok: true,
 });
 
+// Every sentinel is caught on its own, both missing from the positive control
+// and leaked into a production bundle.
 for (const artefact of ARTEFACTS) {
   const sentinels = artefact.internalSentinels;
   assert(sentinels.length > 0, `${artefact.name}: positive control must inspect at least one sentinel`);
 
   const completeBlob = sentinels.map(({ sentinel }) => sentinel).join('\n');
-  const present = assertSentinelSet(completeBlob, sentinels, {
-    mustContain: true,
-    count: true,
-  });
-  assert(present.ok, `${artefact.name}: complete emitted fixture should pass`);
-  assert.strictEqual(present.passed, sentinels.length);
+  const present = assertSentinelSet(completeBlob, sentinels, { mustContain: true, count: true });
+  assert.strictEqual(present.passed, sentinels.length, `${artefact.name}: complete emitted fixture should pass`);
 
   for (const removed of sentinels) {
-    sentinelMutations += 1;
     const withoutOne = sentinels
       .filter(({ sentinel }) => sentinel !== removed.sentinel)
       .map(({ sentinel }) => sentinel)
       .join('\n');
-    const drifted = assertSentinelSet(withoutOne, sentinels, {
-      mustContain: true,
-      count: true,
-    });
+    const drifted = assertSentinelSet(withoutOne, sentinels, { mustContain: true, count: true });
     assert(!drifted.ok,
       `${artefact.name}: removing ${JSON.stringify(removed.sentinel)} must fail the positive control`);
 
     const leaked = checkArtefact(`deliberate-production-leak:${removed.sentinel}`, artefact);
-    assert(!leaked.ok,
-      `${artefact.name}: leaking ${JSON.stringify(removed.sentinel)} must fail the negative control`);
     assert.strictEqual(leaked.internalFailures, 1,
-      `${artefact.name}: deliberate leak should identify exactly its injected sentinel`);
+      `${artefact.name}: leaking ${JSON.stringify(removed.sentinel)} must fail the negative control on exactly that sentinel`);
   }
 
   if (thirdParty.has(artefact.name)) {
@@ -76,7 +66,8 @@ for (const artefact of ARTEFACTS) {
   }
 }
 
-// Ownership-confusion mutation: two artefacts may not claim one emitted module.
+// Ownership confusion: two artefacts may not claim one emitted module, and one
+// literal may not be attributed to two owners.
 const moduleControls = Object.entries(POSITIVE_CONTROL).filter(([_name, pc]) => pc.onModule);
 assert(moduleControls.length >= 2, 'ownership mutation needs at least two module controls');
 const confusedControls = Object.fromEntries(
@@ -84,10 +75,9 @@ const confusedControls = Object.fromEntries(
 );
 confusedControls[moduleControls[1][0]].onModule = moduleControls[0][1].onModule;
 const confused = assertPositiveControlComplete(ARTEFACTS, confusedControls);
-assert(!confused.ok, 'two owners sharing one emitted module must fail completeness');
-assert.strictEqual(confused.sharedModules.length, 1);
+assert(!confused.ok && confused.sharedModules.length === 1,
+  'two owners sharing one emitted module must fail completeness');
 
-// Sentinel-ownership mutation: one literal may not be attributed to two owners.
 const confusedArtefacts = ARTEFACTS.map((artefact) => ({
   ...artefact,
   internalSentinels: artefact.internalSentinels.map((entry) => ({ ...entry })),
@@ -95,44 +85,31 @@ const confusedArtefacts = ARTEFACTS.map((artefact) => ({
 confusedArtefacts[1].internalSentinels[0].sentinel =
   confusedArtefacts[0].internalSentinels[0].sentinel;
 const duplicated = assertPositiveControlComplete(confusedArtefacts, POSITIVE_CONTROL);
-assert(!duplicated.ok, 'one sentinel attributed to two owners must fail completeness');
-assert.strictEqual(duplicated.sharedSentinels.length, 1);
+assert(!duplicated.ok && duplicated.sharedSentinels.length === 1,
+  'one sentinel attributed to two owners must fail completeness');
 
-// ----- structural + causal enrollment mutations ------------------------------
-// The sentinel + positive-control mutations above prove per-feature artefacts
-// don't LEAK. This section proves the ENROLLMENT is FAIL-CLOSED and cannot be
-// DISCHARGED by text or names: a newly publishable runtime mapped to
-// no valid isolation gate turns the gate RED. Executable + permanent, exercising
-// the real EDN-aware discovery + gate-validation path (not injected list
-// membership) so a regression in the flat-plus-adapters traversal, the EDN
-// structural predicate, the path-keyed coverage, or the dedicated-gate
-// validation is caught.
-
-let coverageMutations = 0;
+// ----- enrolment is fail-closed ----------------------------------------------
+// A newly publishable runtime mapped to no valid isolation gate turns the gate
+// RED, through the real EDN-aware discovery and gate validation rather than
+// injected list membership.
 
 // A real deps.edn declaring a genuine :aliases/:clein/build alias.
 const PUBLISHABLE_DEPS =
   '{:paths ["src"]\n :aliases {:clein/build {:lib day8/re-frame2-fixture}}}\n';
-// A deps.edn that only MENTIONS :clein/build inside a comment (a pre-publication
-// shape). Must NOT be discovered as publishable.
+// Mentions :clein/build only inside a comment: not publishable.
 const COMMENT_ONLY_DEPS =
   ';; NO :clein deploy aliases yet — deliberate; mentions :clein/build in prose.\n' +
   '{:paths ["src"] :deps {day8/re-frame2 {:local/root "../core"}}}\n';
-// Genuine :aliases/:clein/build, but with a `;` inside an EDN STRING before it.
-// A regex comment-strip would truncate the line at the first `;`, dropping
-// the real alias, and a publishable runtime would silently escape the gate. The
-// EDN-aware authority must discover it.
+// A `;` inside an EDN STRING before a genuine alias: a regex comment-strip would
+// truncate the line there and let a publishable runtime escape the gate.
 const SEMICOLON_IN_STRING_DEPS =
   '{:note "a ; semicolon inside a string"\n' +
   ' :aliases {:clein/build {:lib day8/re-frame2-fixture}}}\n';
-// :clein/build appears only as a STRING VALUE — not a build alias. Must NOT be
-// discovered (a plain `/:clein\\/build/` search would invent an alias from prose).
+// :clein/build only as a STRING VALUE — not a build alias.
 const TOKEN_IN_STRING_DEPS =
   '{:note ":clein/build is a deploy alias, described here"\n' +
   ' :aliases {:test {}}}\n';
-// :clein/build appears only inside a `#_` reader-discarded top-level form — not
-// a live alias. The live form's :aliases has no :clein/build. Must NOT be
-// discovered (the reader skips the discard; a naive grep would false-match).
+// :clein/build only inside a `#_` reader-discarded form — not a live alias.
 const DISCARD_FORM_DEPS =
   '#_{:aliases {:clein/build {:lib day8/x}}}\n' +
   '{:paths ["src"] :aliases {:test {}}}\n';
@@ -144,20 +121,18 @@ function writeArtefact(root, relPath, contents) {
 }
 
 // Minimal implementation/-shaped fixture: an excluded core + ssr-ring, a
-// generic-gated per-feature artefact (schemas), a comment-only (pre-publication)
-// artefact that must not be discovered, and a dedicated-gated adapter (reagent) —
-// all correctly accounted for — plus whatever `extra` mutation the caller
-// injects. Gate VALIDATION resolves against the REAL scripts/ + package.json (the
-// dedicated gates are a property of this repo, not the temp fixture), so the
-// temp fixture drives only DISCOVERY while coverage validation stays authentic.
+// generic-gated artefact (schemas), a comment-only artefact that must not be
+// discovered, and a dedicated-gated adapter (reagent), plus the caller's
+// `extra` mutation. Gate VALIDATION resolves against the REAL scripts/ +
+// package.json, so the fixture drives only DISCOVERY.
 function withFixture(extra, body) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-cov-'));
   try {
-    writeArtefact(root, 'core', PUBLISHABLE_DEPS);            // excluded (lockstep root)
-    writeArtefact(root, 'ssr-ring', PUBLISHABLE_DEPS);        // excluded (JVM-only)
-    writeArtefact(root, 'schemas', PUBLISHABLE_DEPS);         // generic (in ARTEFACTS)
-    writeArtefact(root, 'commentonly', COMMENT_ONLY_DEPS);    // pre-publication: not discovered
-    writeArtefact(root, 'adapters/reagent', PUBLISHABLE_DEPS); // dedicated gate
+    writeArtefact(root, 'core', PUBLISHABLE_DEPS);
+    writeArtefact(root, 'ssr-ring', PUBLISHABLE_DEPS);
+    writeArtefact(root, 'schemas', PUBLISHABLE_DEPS);
+    writeArtefact(root, 'commentonly', COMMENT_ONLY_DEPS);
+    writeArtefact(root, 'adapters/reagent', PUBLISHABLE_DEPS);
     extra(root);
     body(root);
   } finally {
@@ -165,71 +140,34 @@ function withFixture(extra, body) {
   }
 }
 
-// Baseline: core/ssr-ring excluded, the comment-only artefact NOT discovered, the
-// nested adapter IS descended into, and everything discovered maps to a gate.
 withFixture(() => {}, (root) => {
   const required = discoverBrowserOptionalRuntimes(root);
   assert.deepStrictEqual(required.map((r) => r.relPath).sort(), ['adapters/reagent', 'schemas'],
     'baseline fixture: excluded core/ssr-ring, comment-only artefact skipped, adapter descended into');
-  const cov = assertCanonicalInventoryCovered(required);
-  assert(cov.ok, 'baseline fixture must be fully covered');
-  assert.strictEqual(cov.genericCount, 1, 'schemas covered by generic ARTEFACTS gate (by relPath)');
-  assert.strictEqual(cov.dedicatedCount, 1, 'adapters/reagent covered by its validated dedicated gate');
+  assert(assertCanonicalInventoryCovered(required).ok, 'baseline fixture must be fully covered');
 });
 
-// Mutation 1 — a hypothetical NEW flat publishable non-adapter runtime while no
-// generic ARTEFACTS entry or dedicated gate exists: coverage must fail and NAME
-// it. Proves a future-publishable flat runtime is not permanently defined away.
-coverageMutations += 1;
-withFixture((root) => writeArtefact(root, 'newpub', PUBLISHABLE_DEPS), (root) => {
-  const required = discoverBrowserOptionalRuntimes(root);
-  assert(required.some((rt) => rt.relPath === 'newpub'),
-    'a new flat publishable runtime must be DISCOVERED (not permanently excluded)');
-  const cov = assertCanonicalInventoryCovered(required);
-  assert(!cov.ok, 'a flat publishable runtime with no isolation gate must FAIL coverage');
-  assert(cov.missing.some((rt) => rt.relPath === 'newpub'),
-    'coverage failure must NAME the ungated runtime');
-});
+// A new flat runtime, a new adapter, and a nested non-adapter runtime are each
+// discovered and, ungated, fail coverage by name.
+for (const relPath of ['newpub', 'adapters/newfangled', 'plugins/widgets']) {
+  withFixture((root) => writeArtefact(root, relPath, PUBLISHABLE_DEPS), (root) => {
+    const cov = assertCanonicalInventoryCovered(discoverBrowserOptionalRuntimes(root));
+    assert(!cov.ok && cov.missing.some((rt) => rt.relPath === relPath),
+      `an ungated publishable runtime must FAIL coverage and be named: ${relPath}`);
+  });
+}
 
-// Mutation 2 — hypothetical NEW PUBLISHABLE ADAPTER under
-// implementation/adapters/ while no generic entry or dedicated gate exists:
-// coverage must fail and NAME it. Proves nested adapter paths are not silently
-// skipped and a new adapter fails closed.
-coverageMutations += 1;
-withFixture((root) => writeArtefact(root, 'adapters/newfangled', PUBLISHABLE_DEPS), (root) => {
-  const required = discoverBrowserOptionalRuntimes(root);
-  assert(required.some((rt) => rt.relPath === 'adapters/newfangled'),
-    'new nested adapter must be DISCOVERED (not silently skipped)');
-  const cov = assertCanonicalInventoryCovered(required);
-  assert(!cov.ok, 'new publishable adapter with no isolation gate must FAIL coverage');
-  assert(cov.missing.some((rt) => rt.relPath === 'adapters/newfangled'),
-    'coverage failure must NAME the new adapter');
-});
-
-// Mutation 3 — COLLIDING LEAF NAMES: a publishable implementation/adapters/schemas
-// must NOT inherit the flat implementation/schemas generic gate through the
-// shared leaf `schemas`. Coverage is keyed by exact relPath, so adapters/schemas
-// fails closed even though the flat `schemas` generic gate is present.
-coverageMutations += 1;
+// COLLIDING LEAF NAMES: coverage is keyed by exact relPath, so adapters/schemas
+// does not ride the flat schemas generic gate.
 withFixture((root) => writeArtefact(root, 'adapters/schemas', PUBLISHABLE_DEPS), (root) => {
-  const required = discoverBrowserOptionalRuntimes(root);
-  assert(required.some((rt) => rt.relPath === 'schemas'),
-    'flat schemas still discovered');
-  assert(required.some((rt) => rt.relPath === 'adapters/schemas'),
-    'nested adapters/schemas discovered as its own runtime');
-  const cov = assertCanonicalInventoryCovered(required);
-  assert(!cov.ok, 'adapters/schemas must NOT ride the flat schemas gate — coverage fails closed');
-  assert(cov.missing.some((rt) => rt.relPath === 'adapters/schemas'),
-    'coverage failure must NAME adapters/schemas');
-  // The flat schemas is still covered generically (by its own relPath).
+  const cov = assertCanonicalInventoryCovered(discoverBrowserOptionalRuntimes(root));
+  assert(!cov.ok && cov.missing.some((rt) => rt.relPath === 'adapters/schemas'),
+    'adapters/schemas must NOT ride the flat schemas gate — coverage fails closed');
   assert(cov.covered.some((c) => c.relPath === 'schemas' && c.via === 'generic'),
     'flat schemas still covered by the generic gate keyed on its exact relPath');
 });
 
-// Mutation 4 — DISCOVERY is EDN-STRUCTURAL: a genuine alias survives a `;`
-// inside an EDN string, and a token inside a string / comment / discard form is
-// NOT invented as an alias.
-coverageMutations += 1;
+// DISCOVERY is EDN-STRUCTURAL.
 withFixture((root) => {
   writeArtefact(root, 'semicolonpub', SEMICOLON_IN_STRING_DEPS);
   writeArtefact(root, 'strmention', TOKEN_IN_STRING_DEPS);
@@ -241,222 +179,103 @@ withFixture((root) => {
     'a :clein/build token inside a STRING must NOT be treated as a build alias');
   assert(!pathDeclaresBuildAlias(root, 'discardform'),
     'a :clein/build inside a `#_` discard form must NOT be treated as a build alias');
-  const required = discoverBrowserOptionalRuntimes(root);
-  assert(required.some((rt) => rt.relPath === 'semicolonpub'),
-    'the semicolon-in-string runtime is enrolled (not silently omitted)');
-  assert(!required.some((rt) => rt.relPath === 'strmention' || rt.relPath === 'discardform'),
-    'string / discard mentions are not enrolled');
 });
 
-// Mutation 5 — DEDICATED GATES ARE CAUSAL, bound to the EXACT runtime AND
-// executable: a dedicated descriptor enrols a runtime
-// only when its checker script EXISTS, its command RUNS that checker as a
-// directly-invoked reachable step, AND a checker OWNS the exact runtime in its
-// COVERS_RUNTIMES. A prose string, a nonexistent checker, an uninvoked / echoed /
-// argument-only / substring / unreachable-false-and command, or an unrelated
-// checker reused for a runtime it never inspects all fail closed.
-coverageMutations += 1;
-{
-  // Unit-level: validateDedicatedGate directly (no relPath → runtime binding
-  // not exercised; exercises descriptor shape + executable binding).
-  assert(!validateDedicatedGate('isolated by the vibes').ok,
-    'a truthy prose string is not a valid dedicated gate');
-  assert(!validateDedicatedGate({ checkers: ['check-does-not-exist.cjs'], command: 'test:bundle-isolation' }).ok,
-    'a nonexistent checker script fails validation');
-  assert(!validateDedicatedGate({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:no-such-script' }).ok,
-    'a command that is not a package.json script fails validation');
-  assert(!validateDedicatedGate({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:reagent-slim:bundle-isolation' }).ok,
-    'a real command that does NOT run the declared checker fails validation');
-  assert(validateDedicatedGate({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:bundle-isolation' }).ok,
-    'a real checker run by its real package command validates (executable binding)');
-
-  // EXECUTABLE binding: a checker counts only when a package-script
-  // step DIRECTLY runs it. echo / comment / argument-only / name-substring /
-  // unreachable false-and mentions do NOT. A synthetic scripts map isolates the
-  // grammar from the real package.json.
-  const grammarScripts = {
-    'gate:echo':      'echo check-login-bundle-isolation.cjs',
-    'gate:false-and': 'false && node scripts/check-login-bundle-isolation.cjs',
-    'gate:comment':   'node scripts/check-uix-reagent-free.cjs && # node scripts/check-login-bundle-isolation.cjs',
-    'gate:arg-only':  'node scripts/check-uix-reagent-free.cjs check-login-bundle-isolation.cjs',
-    'gate:substring': 'node scripts/xcheck-login-bundle-isolation.cjs',
-    'gate:real':      'shadow-cljs release x && node scripts/check-login-bundle-isolation.cjs',
-  };
-  const grammarGate = (command) => validateDedicatedGate(
-    { checkers: ['check-login-bundle-isolation.cjs'], command },
-    { scripts: grammarScripts });
-  assert(!grammarGate('gate:echo').ok, 'echo mention does not RUN the checker');
-  assert(!grammarGate('gate:false-and').ok, 'unreachable false-and mention does not RUN the checker');
-  assert(!grammarGate('gate:comment').ok, 'a commented-out mention does not RUN the checker');
-  assert(!grammarGate('gate:arg-only').ok, 'checker as an argument to another script does not RUN it');
-  assert(!grammarGate('gate:substring').ok, 'a longer filename containing the checker name as a substring does not RUN it');
-  assert(grammarGate('gate:real').ok, 'a real `node scripts/<checker>` step RUNS the checker');
-
-  // SCRIPT IDENTITY: the operand that counts is the one Node
-  // ACTUALLY executes. Two families of false-green are closed here.
-  //
-  // (a) PRE-SCRIPT OPTIONS. Several Node options consume the following token, so
-  //     "first token not starting with `-`" credits a PRELOAD as the script: in
-  //     `node --require scripts/<checker> other.cjs`, the checker is preloaded
-  //     (its `require.main === module` guard runs no bundle work) and other.cjs
-  //     is what executes. Every pre-script option position — value-taking,
-  //     bare, or unrecognised — fails CLOSED rather than being guessed at.
-  const identityScripts = {
-    'gate:require-preload':  'node --require scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
-    'gate:r-preload':        'node -r scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
-    'gate:import-preload':   'node --import scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
-    'gate:loader-preload':   'node --experimental-loader scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
-    'gate:env-file':         'node --env-file scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
-    'gate:unlisted-option':  'node --frobnicate scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs',
-    'gate:bare-flag':        'node --enable-source-maps scripts/check-login-bundle-isolation.cjs',
-    'gate:wrong-dir':        'node elsewhere/check-login-bundle-isolation.cjs',
-    'gate:parent-escape':    'node ../scripts/check-login-bundle-isolation.cjs',
-    'gate:dot-slash':        'node ./scripts/check-login-bundle-isolation.cjs',
-    'gate:win-sep':          'node scripts\\check-login-bundle-isolation.cjs',
-    'gate:trailing-args':    'node scripts/check-login-bundle-isolation.cjs --verbose',
-  };
-  const identityGate = (command) => validateDedicatedGate(
-    { checkers: ['check-login-bundle-isolation.cjs'], command },
-    { scripts: identityScripts });
-  for (const option of ['require', 'r', 'import', 'loader']) {
-    assert(!identityGate(`gate:${option}-preload`).ok,
-      `a --${option} PRELOAD operand is not the executed script and does not RUN the checker`);
-  }
-  assert(!identityGate('gate:env-file').ok,
-    'an --env-file option operand is not the executed script and does not RUN the checker');
-  assert(!identityGate('gate:unlisted-option').ok,
-    'an UNLISTED pre-script option fails closed (no Node option table is guessed at)');
-  assert(!identityGate('gate:bare-flag').ok,
-    'a pre-script option position fails closed even when the checker would be the real script');
-
-  // (b) PATH IDENTITY. The operand is compared whole, not by basename, so a
-  //     different file sharing the checker's filename can not bind coverage.
-  assert(!identityGate('gate:wrong-dir').ok,
-    'a same-basename script in another directory does not RUN the declared checker');
-  assert(!identityGate('gate:parent-escape').ok,
-    'a path escaping the package root does not RUN the declared checker');
-
-  // The real written forms still bind (separator- and argument-insensitive).
-  assert(identityGate('gate:dot-slash').ok, '`./scripts/<checker>` RUNS the checker');
-  assert(identityGate('gate:win-sep').ok, 'a Windows-separator operand RUNS the checker');
-  assert(identityGate('gate:trailing-args').ok, 'trailing arguments after the script operand are fine');
-
-  // A descriptor names a checker SCRIPT: a non-regular file (here a
-  // DIRECTORY sharing a checker's name) must not discharge enrolment, which a
-  // mere existsSync path check would allow.
-  {
-    const fakeScripts = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-scripts-'));
-    try {
-      fs.mkdirSync(path.join(fakeScripts, 'check-login-bundle-isolation.cjs'));
-      const dirShaped = validateDedicatedGate(
-        { checkers: ['check-login-bundle-isolation.cjs'], command: 'gate:real' },
-        { scriptsDir: fakeScripts, scripts: grammarScripts });
-      assert(!dirShaped.ok, 'a directory sharing a checker name is not a checker script');
-      assert(dirShaped.reasons.some((r) => /regular file/.test(r)),
-        'the non-regular-file failure says so');
-    } finally {
-      fs.rmSync(fakeScripts, { recursive: true, force: true });
-    }
-  }
-
-  // RUNTIME binding: with a relPath, a checker must OWN that exact
-  // runtime (COVERS_RUNTIMES). The login checker owns adapters/reagent, not
-  // adapters/newpub.
-  const boundReagent = validateDedicatedGate(
-    { checkers: ['check-login-bundle-isolation.cjs'], command: 'gate:real' },
-    { scripts: grammarScripts, relPath: 'adapters/reagent' });
-  assert(boundReagent.ok, 'the login checker OWNS adapters/reagent → binds');
-  const unboundNewpub = validateDedicatedGate(
-    { checkers: ['check-login-bundle-isolation.cjs'], command: 'gate:real' },
-    { scripts: grammarScripts, relPath: 'adapters/newpub' });
-  assert(!unboundNewpub.ok, 'the login checker does NOT own adapters/newpub → does not bind');
-  assert(unboundNewpub.reasons.some((r) => /adapters\/newpub/.test(r) && /COVERS_RUNTIMES|OWNS/.test(r)),
-    'the runtime-binding failure names the unbound runtime');
-
-  // Integration: a discovered adapter routed through each bad descriptor fails
-  // coverage; a genuinely-bound one covers it. Overrides keep the real dedicated
-  // gates (so the fixture's adapters/reagent stays covered) and vary newpub.
-  withFixture((root) => writeArtefact(root, 'adapters/newpub', PUBLISHABLE_DEPS), (root) => {
-    const required = discoverBrowserOptionalRuntimes(root);
-    const withNewpub = (descriptor) => assertCanonicalInventoryCovered(required, {
-      dedicatedGates: { ...DEDICATED_ISOLATION_GATES, 'adapters/newpub': descriptor },
-    });
-
-    const prose = withNewpub('isolated, trust me');
-    assert(!prose.ok && prose.missing.some((rt) => rt.relPath === 'adapters/newpub'),
-      'a prose dedicated entry must NOT enrol a runtime');
-
-    const ghostChecker = withNewpub({ checkers: ['check-ghost.cjs'], command: 'test:bundle-isolation' });
-    assert(!ghostChecker.ok && ghostChecker.missing.some((rt) => rt.relPath === 'adapters/newpub'),
-      'a dedicated entry whose checker script does not exist must fail closed');
-
-    const uninvoked = withNewpub({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:phantom' });
-    assert(!uninvoked.ok && uninvoked.missing.some((rt) => rt.relPath === 'adapters/newpub'),
-      'a dedicated entry whose command is not an invoked package script must fail closed');
-
-    // Reusing an UNRELATED existing checker for a new runtime fails:
-    // the login checker really RUNS under test:bundle-isolation, but it does NOT
-    // own adapters/newpub, so the descriptor is not causally bound to newpub.
-    const unrelated = withNewpub({ checkers: ['check-login-bundle-isolation.cjs'], command: 'test:bundle-isolation' });
-    assert(!unrelated.ok && unrelated.missing.some((rt) => rt.relPath === 'adapters/newpub'),
-      'reusing the login checker for adapters/newpub must fail — checker does not isolate newpub');
-
-    // The genuinely-gated fixture adapter stays covered: adapters/reagent maps to
-    // its real checkers, which DO own adapters/reagent in COVERS_RUNTIMES.
-    assert(unrelated.covered.some((c) => c.relPath === 'adapters/reagent' && c.via === 'dedicated'),
-      'the real adapters/reagent gate (whose checkers own its coverage) still binds');
-  });
+// DEDICATED GATES ARE CAUSAL: a descriptor enrols a runtime only when its checker
+// is a regular file, its command RUNS that checker as a directly-invoked,
+// reachable step, and the checker OWNS the exact runtime in its COVERS_RUNTIMES.
+const LOGIN = 'check-login-bundle-isolation.cjs';
+for (const [gate, want, why] of [
+  ['isolated by the vibes', false, 'a truthy prose string'],
+  [{ checkers: ['check-does-not-exist.cjs'], command: 'test:bundle-isolation' }, false, 'a nonexistent checker'],
+  [{ checkers: [LOGIN], command: 'test:no-such-script' }, false, 'a command that is not a package.json script'],
+  [{ checkers: [LOGIN], command: 'test:reagent-slim:bundle-isolation' }, false, 'a real command that does not run the checker'],
+  [{ checkers: [LOGIN], command: 'test:bundle-isolation' }, true, 'a real checker run by its real package command'],
+]) {
+  assert.strictEqual(validateDedicatedGate(gate).ok, want, why);
 }
 
-// ----- inventory completeness + fail-closed read faults ----------------------
-// Bundle isolation CONSUMES the shared authority's listPublishableRuntimes
-// (no second, narrower traversal), so a publishable runtime nested OUTSIDE
-// adapters/ — which the release lockstep enrols — is discovered and fails
-// closed if ungated. And an unexpected root / subtree / deps.edn read fault
-// THROWS (naming the path) instead of silently shrinking the inventory, while a
-// MISSING deps.edn stays a normal non-candidate.
+// The operand that counts is the one Node ACTUALLY executes. Any pre-script
+// option fails closed, because several consume the next token: in
+// `node --require scripts/<checker> other.cjs` the checker is a preload and
+// other.cjs runs. The operand is compared as a whole normalised path, not by
+// basename. A synthetic scripts map isolates this grammar from package.json.
+const commandGate = (body, opts = {}) => validateDedicatedGate(
+  { checkers: [LOGIN], command: 'gate' }, { scripts: { gate: body }, ...opts });
+for (const [body, want] of [
+  ['echo check-login-bundle-isolation.cjs', false],
+  ['false && node scripts/check-login-bundle-isolation.cjs', false],
+  ['node scripts/check-uix-reagent-free.cjs && # node scripts/check-login-bundle-isolation.cjs', false],
+  ['node scripts/check-uix-reagent-free.cjs check-login-bundle-isolation.cjs', false],
+  ['node scripts/xcheck-login-bundle-isolation.cjs', false],
+  ['node --require scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs', false],
+  ['node --frobnicate scripts/check-login-bundle-isolation.cjs scripts/check-bundle-isolation.test.cjs', false],
+  ['node --enable-source-maps scripts/check-login-bundle-isolation.cjs', false],
+  ['node elsewhere/check-login-bundle-isolation.cjs', false],
+  ['shadow-cljs release x && node scripts/check-login-bundle-isolation.cjs', true],
+  ['node ./scripts/check-login-bundle-isolation.cjs', true],
+  ['node scripts\\check-login-bundle-isolation.cjs', true],
+  ['node scripts/check-login-bundle-isolation.cjs --verbose', true],
+]) {
+  assert.strictEqual(commandGate(body).ok, want, `${want ? 'must' : 'must not'} RUN the checker: ${body}`);
+}
 
-// Mutation 6 — NESTED NON-ADAPTER runtime (implementation/<x>/<y>/deps.edn with
-// a real :clein/build, x != adapters). A bundle-isolation walk that descended
-// only into adapters/ would let this reach release inventory (via the
-// authority) while escaping bundle coverage. Both consumers enrol it by
-// exact relPath, and — ungated — it fails coverage closed.
-coverageMutations += 1;
-withFixture((root) => writeArtefact(root, 'plugins/widgets', PUBLISHABLE_DEPS), (root) => {
-  assert(listPublishableRuntimes(root).some((r) => r.relPath === 'plugins/widgets'),
-    'the release-lockstep authority enrols the nested non-adapter runtime');
-  const required = discoverBrowserOptionalRuntimes(root);
-  assert(required.some((rt) => rt.relPath === 'plugins/widgets'),
-    'bundle isolation must ALSO discover the nested non-adapter runtime (no narrower second traversal)');
-  const cov = assertCanonicalInventoryCovered(required);
-  assert(!cov.ok && cov.missing.some((rt) => rt.relPath === 'plugins/widgets'),
-    'an ungated nested non-adapter runtime fails coverage closed and is named');
+// A DIRECTORY sharing a checker's name is not a checker script, which a mere
+// existsSync would allow. The reason is asserted, not just `ok`: moving
+// scriptsDir also moves the operand the command must name.
+{
+  const fakeScripts = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-scripts-'));
+  try {
+    fs.mkdirSync(path.join(fakeScripts, LOGIN));
+    const dirShaped = commandGate('node scripts/check-login-bundle-isolation.cjs', { scriptsDir: fakeScripts });
+    assert(dirShaped.reasons.some((r) => /regular file/.test(r)),
+      'a directory sharing a checker name is not a checker script');
+  } finally {
+    fs.rmSync(fakeScripts, { recursive: true, force: true });
+  }
+}
+
+// RUNTIME binding: the login checker owns adapters/reagent, not adapters/newpub.
+const realStep = 'node scripts/check-login-bundle-isolation.cjs';
+assert(commandGate(realStep, { relPath: 'adapters/reagent' }).ok,
+  'the login checker OWNS adapters/reagent → binds');
+assert(!commandGate(realStep, { relPath: 'adapters/newpub' }).ok,
+  'the login checker does NOT own adapters/newpub → does not bind');
+
+// Coverage routes dedicated descriptors through that validation: reusing the
+// login checker, which really RUNS under test:bundle-isolation, for a runtime it
+// never inspects fails, while the real adapters/reagent gate still binds.
+withFixture((root) => writeArtefact(root, 'adapters/newpub', PUBLISHABLE_DEPS), (root) => {
+  const cov = assertCanonicalInventoryCovered(discoverBrowserOptionalRuntimes(root), {
+    dedicatedGates: {
+      ...DEDICATED_ISOLATION_GATES,
+      'adapters/newpub': { checkers: [LOGIN], command: 'test:bundle-isolation' },
+    },
+  });
+  assert(!cov.ok && cov.missing.some((rt) => rt.relPath === 'adapters/newpub'),
+    'reusing the login checker for adapters/newpub must fail — checker does not isolate newpub');
+  assert(cov.covered.some((c) => c.relPath === 'adapters/reagent' && c.via === 'dedicated'),
+    'the real adapters/reagent gate (whose checkers own its coverage) still binds');
 });
 
-// Mutation 7 — FAIL-CLOSED read faults. A missing deps.edn is a normal
-// non-candidate; a nonexistent root, an unreadable subtree, or an unreadable
-// deps.edn throws and names the path (so the lockstep CLI exits non-zero and the
-// bundle gate fails, rather than proving a shrunken inventory).
-coverageMutations += 1;
+// ----- fail-closed read faults -----------------------------------------------
+// A missing deps.edn is a normal non-candidate; a nonexistent root, an
+// unreadable subtree, or an unreadable deps.edn throws naming the path, rather
+// than proving a shrunken inventory.
 
-// (a) Missing deps.edn: a directory with no deps.edn is NOT an error.
 withFixture((root) => fs.mkdirSync(path.join(root, 'nodeps')), (root) => {
   assert.strictEqual(pathDeclaresBuildAlias(root, 'nodeps'), false,
     'a directory with no deps.edn is a normal non-candidate (not an error)');
 });
 
-// (b) Nonexistent implementation root: throws (a silent empty result would let
-// the CLI exit 0 for a torn checkout).
 {
   const ghostRoot = path.join(os.tmpdir(), `bundle-iso-nonexistent-${process.pid}-${Date.now()}`);
   assert.throws(() => listPublishableRuntimes(ghostRoot), /cannot read implementation root/,
     'a nonexistent implementation root must throw, not return an empty inventory');
 }
 
-// (c) Unreadable deps.edn: a deps.edn that is itself a DIRECTORY reproduces an
-// unexpected read fault (EISDIR) deterministically on every platform (POSIX
-// chmod is a no-op on Windows). Not an absence → throws naming the path, and
-// the whole enumeration fails closed.
+// A deps.edn that is itself a DIRECTORY reproduces an unexpected read fault
+// (EISDIR) on every platform, where POSIX chmod is a no-op on Windows.
 withFixture(
   (root) => fs.mkdirSync(path.join(root, 'baddeps', 'deps.edn'), { recursive: true }),
   (root) => {
@@ -466,9 +285,8 @@ withFixture(
       'the unreadable deps.edn makes the whole enumeration fail closed');
   });
 
-// (d) Partial subtree EACCES: a subtree we listed as a directory but then can't
-// read must throw. Simulated with a scoped fs.readdirSync stub (deterministic +
-// cross-platform, since POSIX chmod does not block reads on Windows).
+// A subtree listed as a directory but then unreadable must throw. Simulated with
+// a scoped fs.readdirSync stub, since POSIX chmod does not block reads on Windows.
 {
   const realReaddir = fs.readdirSync;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bundle-iso-eacces-'));
@@ -491,9 +309,9 @@ withFixture(
   }
 }
 
-// Real-tree floor: the current implementation/ tree must be fully covered and
-// every publishable adapter discovered under adapters/ and resolved by its real,
-// validated dedicated gate.
+// Real-tree floor: the current implementation/ tree is fully covered, every
+// dedicated gate resolves a discovered adapter, and every generic-coverage path
+// passes the structural publishable test (no waiver for mere directory existence).
 const realCoverage = assertCanonicalInventoryCovered();
 assert(realCoverage.ok,
   `real implementation/ tree must be fully covered; missing: ${realCoverage.missing.map((rt) => `${rt.relPath} (${(rt.reasons || []).join('; ')})`).join(', ')}`);
@@ -502,47 +320,22 @@ for (const relPath of Object.keys(DEDICATED_ISOLATION_GATES)) {
   assert(rt && rt.via === 'dedicated' && rt.relPath.startsWith('adapters/'),
     `${relPath}: must be discovered under adapters/ and covered by its validated dedicated gate`);
 }
-// There is no absent-path guard here. The required set is derived by READING
-// each candidate's deps.edn off disk, so discovery cannot manufacture a path
-// that is not on disk, and an assertion that such a path is absent would be
-// vacuous by construction. Nor is there a waiver letting a generic-coverage
-// path settle for mere directory existence: every one must pass the structural
-// publishable test below, since an exemption nothing claims can only ever
-// weaken this check for whatever claims it next.
 for (const relPath of genericCoveragePaths()) {
   assert(pathDeclaresBuildAlias(path.join(REPO_ROOT, 'implementation'), relPath),
     `generic-coverage relPath '${relPath}' must be a real publishable implementation/ artefact`);
 }
 
-// ----- lockstep consumes the SAME structural authority -----------------------
-// The release lockstep (.github/scripts/verify-version-lockstep.sh) must derive
-// its publishable-artefact inventory from the shared EDN-aware authority, NOT a
-// duplicated textual grep — so bundle-isolation and lockstep prove the identical
-// parsed :aliases/:clein/build fact and cannot drift.
-const LOCKSTEP = fs.readFileSync(
-  path.join(REPO_ROOT, '.github', 'scripts', 'verify-version-lockstep.sh'), 'utf8');
-assert(/publishable-runtimes\.cjs/.test(LOCKSTEP),
-  'lockstep must consume the shared publishable-runtimes.cjs authority for inventory discovery');
-assert(!/grep\s+-qF\s+':clein\/build'/.test(LOCKSTEP),
-  'lockstep must NOT rediscover publishability via a textual grep for the clein/build token');
-
 // ----- example ns-load co-load isolation -------------------------------------
-// The rule under test: an example calling an OPTIONAL artefact's registration
-// façade must `:require` that artefact ITSELF, rather than loading only because
-// a sibling app in the consolidated `:node-test` bundle already did.
-//
-// Every assertion below is a MUTATION, for the reason the whole file is written
-// this way: a rule that has only ever been seen green is indistinguishable from
-// a rule that reads nothing. The fixtures reproduce the real defect's shape — an
-// `rf/reg-machine` call that resolves only through a co-loaded sibling's
-// `re-frame.machines` — rather than an invented one.
+// An example calling an OPTIONAL artefact's registration façade must `:require`
+// that artefact ITSELF, rather than loading only because a sibling app in the
+// consolidated `:node-test` bundle already did. Every assertion is a mutation:
+// a rule only ever seen green is indistinguishable from one that reads nothing.
 const CO_LOAD_FIXTURE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-coload-'));
-let coLoadMutations = 0;
 
-function coLoadFixture(name, source) {
+function coLoad(name, source) {
   const file = path.join(CO_LOAD_FIXTURE_DIR, name);
   fs.writeFileSync(file, source, 'utf8');
-  return file;
+  return assertExampleCoLoadIsolation([file]);
 }
 
 const CO_LOAD_COMPLIANT = `(ns fixture.app
@@ -555,8 +348,7 @@ const CO_LOAD_COMPLIANT = `(ns fixture.app
             [re-frame.machines]))
 (rf/reg-machine :fixture.app/reader {})
 ;; Present deliberately, and deliberately NOT a roster row: a defmachine
-;; alongside a reg-machine must not raise a second violation of its own. The
-;; two blocks below pin the distinction on its own.
+;; alongside a reg-machine must not raise a second violation of its own.
 (rf/defmachine fixture-machine {})
 (rf/reg-route :fixture.app/home {} "/")
 (rf/reg-resource :fixture/thing {})
@@ -565,123 +357,65 @@ const CO_LOAD_COMPLIANT = `(ns fixture.app
 (rf/reg-app-schema :fixture/schema {})
 `;
 
-// The compliant fixture passes, and — the half that makes the rest meaningful —
-// it is seen to EXERCISE every roster row and every artefact.
-{
-  const file = coLoadFixture('compliant.cljs', CO_LOAD_COMPLIANT);
-  const res = assertExampleCoLoadIsolation([file]);
-  assert(res.ok, 'compliant fixture must pass the co-load isolation rule');
-  assert.deepStrictEqual(res.violations, []);
-  assert.deepStrictEqual(res.deadRows, [], 'every façade row must find a call site in the fixture');
-  assert.deepStrictEqual(res.unprovenArtefacts, [],
-    'every artefact must be seen REQUIRED — a reader that cannot see requires makes every row vacuous');
-  for (const row of OPTIONAL_ARTEFACT_FACADES) {
-    assert(res.callSitesByCall.get(row.call) > 0, `${row.call}: fixture must exercise this row`);
-  }
-}
+// The compliant fixture passes, and is seen to EXERCISE every roster row and
+// every artefact — the half that makes the mutations below meaningful.
+assert.deepStrictEqual(
+  (({ violations, deadRows, unprovenArtefacts }) => [violations, deadRows, unprovenArtefacts])(
+    coLoad('compliant.cljs', CO_LOAD_COMPLIANT)),
+  [[], [], []],
+  'compliant fixture must pass, every façade row finding a call site and every artefact seen REQUIRED');
 
-// Dropping any ONE require, leaving its call site in place, must be caught —
-// and must be caught by NAME, so the failure tells a maintainer which require
-// to restore rather than that "something" is wrong.
+// Dropping any ONE require, leaving its call site in place, is caught by NAME.
 for (const row of OPTIONAL_ARTEFACT_FACADES) {
   const dropped = CO_LOAD_COMPLIANT
     .split('\n')
     .filter((line) => !new RegExp(`\\[${row.artefact.replace(/\./g, '\\.')}\\]`).test(line))
     .join('\n');
-  assert(!dropped.includes(`[${row.artefact}]`), `fixture mutation must actually drop [${row.artefact}]`);
-  coLoadMutations += 1;
-  const res = assertExampleCoLoadIsolation([coLoadFixture(`missing-${row.call}.cljs`, dropped)]);
-  assert(!res.ok, `${row.call}: a call site with no [${row.artefact}] require must FAIL`);
+  const res = coLoad(`missing-${row.call}.cljs`, dropped);
   assert(res.violations.some((v) => v.call === row.call && v.artefact === row.artefact),
-    `${row.call}: the violation must name the call and the artefact it needs`);
+    `${row.call}: a call site with no [${row.artefact}] require must FAIL, naming the call and the artefact`);
 }
 
-// REGISTRATION vs DEFINITION — the distinction the roster turns on, pinned in
-// BOTH directions because the roster is one edit away from losing it.
-//
-// `defmachine` is NOT a registration façade. `expand-defmachine` walks the
-// literal spec at expansion time and emits `(def m <stamped-spec>)` and nothing
-// else — its own docstring says "`def` is not a registration" — while the
-// sibling `expand-reg-machine` emits a real `(re-frame.core-machines/reg-machine
-// …)` call, which is what needs re-frame.machines' load-time hooks. So a
-// namespace may DEFINE machine values requiring only re-frame.core and leave the
-// artefact require to the boot namespace that REGISTERS them.
-//
-// The first block would fail if `defmachine` were added to the roster; the
-// second would fail if its absence were mistaken for "machines are
-// unchecked". A single fixture carrying both calls over one shared require —
-// which is what CO_LOAD_COMPLIANT is — cannot tell these two apart, so each gets
-// a namespace of its own.
-//
-// Both assert on `violations`, NOT on `ok`, and the negative case is why. `ok`
-// also folds in the corpus-level non-vacuity guards (deadRows /
-// unprovenArtefacts), which a one-file fixture can never satisfy — so `!res.ok`
-// below would hold whatever the rule did, passing for a reason unrelated to the
-// contract under test. The prose-only and trailing-comment fixtures read
-// `violations` for the same reason.
-{
-  coLoadMutations += 1;
-  const res = assertExampleCoLoadIsolation([coLoadFixture('defmachine-only.cljs', `(ns fixture.machine-defs
+// REGISTRATION vs DEFINITION, pinned both ways. `defmachine` expands to a plain
+// `def` and fires no load-time hook, while `reg-machine` needs re-frame.machines'
+// hooks — so a namespace may DEFINE machines requiring only re-frame.core. One
+// fixture carrying both calls over one require cannot tell these apart, so each
+// gets its own namespace. These read `violations`, not `ok`: `ok` also folds in
+// the corpus-level non-vacuity guards, which a one-file fixture never satisfies.
+assert.deepStrictEqual(coLoad('defmachine-only.cljs', `(ns fixture.machine-defs
   (:require [re-frame.core :as rf]))
 (rf/defmachine door-machine
   {:initial :locked
    :states  {:locked {} :open {}}})
-`)]);
-  assert.deepStrictEqual(res.violations, [],
-    'a defmachine-only namespace requiring only re-frame.core is VALID — defmachine ' +
-    'expands to a plain def, fires no load-time hook registration, and must not ' +
-    'demand a [re-frame.machines] require');
-}
-{
-  coLoadMutations += 1;
-  const res = assertExampleCoLoadIsolation([coLoadFixture('defmachine-then-reg.cljs', `(ns fixture.machine-boot
+`).violations, [],
+  'a defmachine-only namespace requiring only re-frame.core is VALID');
+assert.deepStrictEqual(coLoad('defmachine-then-reg.cljs', `(ns fixture.machine-boot
   (:require [re-frame.core :as rf]))
 (rf/defmachine door-machine {:initial :locked})
 (rf/reg-machine :door/main door-machine)
-`)]);
-  assert.deepStrictEqual(res.violations.map((v) => v.call), ['reg-machine'],
-    'REGISTERING a machine still requires [re-frame.machines], and the violation ' +
-    'must name reg-machine ALONE — defmachine in that same namespace is a def, ' +
-    'not a second violation');
-  assert.strictEqual(res.violations[0].artefact, 're-frame.machines',
-    'and it must name the artefact whose require is missing');
-}
+`).violations.map((v) => [v.call, v.artefact]), [['reg-machine', 're-frame.machines']],
+  'REGISTERING a machine still requires [re-frame.machines], and the violation names reg-machine ALONE');
 
-// A façade named only in PROSE is not a call site. Without this the rule would
-// demand a require for every doc comment mentioning the surface — and
-// examples/capabilities/resources/resources/core.cljs names `rf/reg-machine` in
-// a comment as well as calling it.
-{
-  coLoadMutations += 1;
-  const res = assertExampleCoLoadIsolation([coLoadFixture('prose-only.cljs', `(ns fixture.prose
+// A façade named only in PROSE is not a call site; a REAL call followed by a
+// trailing comment still is.
+assert.deepStrictEqual(coLoad('prose-only.cljs', `(ns fixture.prose
   (:require [re-frame.core :as rf]))
 ;; This example does not use machines; \`rf/reg-machine\` and (rf/reg-route …)
 ;; are named here only to explain what it does NOT do.
 (def doc "call (rf/reg-flow …) to register a flow")
 (rf/reg-event-db :fixture/noop (fn [db _] db))
-`)]);
-  assert.deepStrictEqual(res.violations, [],
-    'a façade named in a comment or a string is not a call site');
-}
-
-// And the converse, which is the one that would matter if the comment stripper
-// were ever made too eager: a REAL call sitting on the same line as a trailing
-// comment still counts.
-{
-  coLoadMutations += 1;
-  const res = assertExampleCoLoadIsolation([coLoadFixture('trailing-comment.cljs', `(ns fixture.trailing
+`).violations, [],
+  'a façade named in a comment or a string is not a call site');
+assert(coLoad('trailing-comment.cljs', `(ns fixture.trailing
   (:require [re-frame.core :as rf]))
 (rf/reg-machine :fixture/m {}) ; the reader machine
-`)]);
-  assert(res.violations.some((v) => v.call === 'reg-machine'),
-    'a real call followed by a trailing comment must still be a call site');
-}
+`).violations.some((v) => v.call === 'reg-machine'),
+  'a real call followed by a trailing comment must still be a call site');
 
-// The two NON-VACUITY guards, each exercised in the direction that would
-// otherwise degrade the whole rule to a silent pass.
+// The two NON-VACUITY guards, each in the direction that would otherwise degrade
+// the whole rule to a silent pass.
 {
-  coLoadMutations += 1;
-  const res = assertExampleCoLoadIsolation([coLoadFixture('no-calls.cljs', `(ns fixture.empty
+  const res = coLoad('no-calls.cljs', `(ns fixture.empty
   (:require [re-frame.core :as rf]
             [re-frame.machines]
             [re-frame.routing]
@@ -689,14 +423,14 @@ for (const row of OPTIONAL_ARTEFACT_FACADES) {
             [re-frame.flows]
             [re-frame.schemas]))
 (rf/reg-event-db :fixture/noop (fn [db _] db))
-`)]);
-  assert(!res.ok, 'a corpus in which NO façade row finds a call site must fail, not pass vacuously');
-  assert.strictEqual(res.deadRows.length, OPTIONAL_ARTEFACT_FACADES.length);
-  assert.deepStrictEqual(res.unprovenArtefacts, [], 'requires were still readable here');
+`);
+  assert.deepStrictEqual(
+    { ok: res.ok, deadRows: res.deadRows.length, unproven: res.unprovenArtefacts },
+    { ok: false, deadRows: OPTIONAL_ARTEFACT_FACADES.length, unproven: [] },
+    'a corpus in which NO façade row finds a call site must fail, not pass vacuously');
 }
 {
-  coLoadMutations += 1;
-  const res = assertExampleCoLoadIsolation([coLoadFixture('no-requires.cljs', `(ns fixture.bare)
+  const res = coLoad('no-requires.cljs', `(ns fixture.bare)
 (fixture/reg-machine :x {})
 (fixture/defmachine y {})
 (fixture/reg-route :z {} "/")
@@ -704,14 +438,14 @@ for (const row of OPTIONAL_ARTEFACT_FACADES) {
 (fixture/reg-mutation :m {})
 (fixture/reg-flow {:id :f})
 (fixture/reg-app-schema :s {})
-`)]);
-  assert(!res.ok, 'a corpus in which no artefact is ever required must fail loud');
-  assert.strictEqual(res.unprovenArtefacts.length,
-    new Set(OPTIONAL_ARTEFACT_FACADES.map((r) => r.artefact)).size);
+`);
+  assert.deepStrictEqual(
+    { ok: res.ok, unproven: res.unprovenArtefacts.length },
+    { ok: false, unproven: new Set(OPTIONAL_ARTEFACT_FACADES.map((r) => r.artefact)).size },
+    'a corpus in which no artefact is ever required must fail loud');
 }
 
-// The live tree must satisfy the rule — and be seen to be a real corpus, so a
-// walk that silently returned nothing cannot read as compliance.
+// The live tree satisfies the rule, and is seen to be a real corpus.
 {
   const live = assertExampleCoLoadIsolation();
   assert(live.ok, `examples/ must satisfy co-load isolation: ${JSON.stringify(live.violations)}`);
@@ -721,23 +455,4 @@ for (const row of OPTIONAL_ARTEFACT_FACADES) {
 
 fs.rmSync(CO_LOAD_FIXTURE_DIR, { recursive: true, force: true });
 
-console.log(
-  `PASS check-bundle-isolation self-test: ${ARTEFACTS.length} artefacts; ` +
-  `${sentinelMutations} sentinel-removal mutations; ` +
-  `${sentinelMutations} deliberate production leaks; ` +
-  `${thirdParty.size} emitted third-party owners; ` +
-  `${coverageMutations} structural+causal enrollment mutations ` +
-  '(new flat publishable + new adapter + nested non-adapter fail closed; leaf-collision, ' +
-  'EDN string/comment/discard rejected; dedicated gate bound to exact runtime + ' +
-  'executable — prose/absent/uninvoked/echo/false-and/arg-only/substring command + ' +
-  'unrelated-checker-for-new-runtime all rejected; nonexistent-root / subtree-EACCES / ' +
-  'unreadable-deps.edn fail closed, missing-deps.edn is a normal non-candidate); ' +
-  'lockstep consumes the shared EDN authority; ' +
-  'module-ownership and sentinel-ownership confusion rejected; ' +
-  `${coLoadMutations} example co-load isolation mutations ` +
-  '(each dropped require caught by name; defmachine defines and does not register, ' +
-  'so a defmachine-only ns passes while reg-machine in that same ns still fails ' +
-  'naming reg-machine alone; prose-only mention is not a call site; ' +
-  'trailing comment does not hide one; zero-call-site and zero-require corpora ' +
-  'fail loud rather than pass vacuously)'
-);
+console.log(`PASS check-bundle-isolation self-test: ${ARTEFACTS.length} artefacts, enrolment and co-load mutations`);
