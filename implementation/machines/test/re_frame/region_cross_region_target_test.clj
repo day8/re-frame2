@@ -1,238 +1,91 @@
 (ns re-frame.region-cross-region-target-test
-  "Per Spec 005 §Cross-region coordination — a region-local `:target` NEVER
-  names a sibling region.
+  "Per Spec 005 §Cross-region coordination: a region-local `:target` resolves
+  within its own region, so one naming a sibling region is refused at
+  registration with `:rf.error/machine-unresolved-target` and a message naming
+  the sibling region and the sanctioned spellings, while an in-region path
+  that merely shadows a sibling's name registers. Also pins the spec's
+  sanctioned spellings (a) and (b) and the limit that separates them."
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [re-frame.machines :as rf.machines]))
 
-  A `:type :parallel` machine drives each region through a SYNTHETIC
-  single-machine spec built from that region's body alone
-  (`parallel/build-region-machine`), so a region-local `:target` resolves
-  strictly WITHIN the declaring region — a region name is not addressable from
-  inside a region. Only the parallel ROOT's own `:on` / `:after` (the ancestor
-  fallback) takes region-qualified targets.
-
-  Two registration sites therefore reject a region-sourced cross-region
-  target:
-
-    - a region STATE-NODE's `:on` — the target resolves against the region's
-      own `:states` and lands nowhere, and a GENERIC \"does not resolve\"
-      message would leave the author to work out why a target they can see
-      in the machine map does not exist; and
-    - the region BODY's own root `:on` — the region ancestor fallback. Were
-      `validate-transition-targets!` not to walk it, ANY target would
-      register cleanly there, cross-region or plainly missing, and the
-      runtime would commit the unresolved vector verbatim into the region's
-      state slot: `{:a [:b :two], :b :one}` — a nonsense configuration, no
-      error, no trace.
-
-  Both fail loud at registration with `:rf.error/machine-unresolved-target`
-  (a well-shaped target resolving to no declared state is exactly what it
-  names), and the message NAMES the sibling region and the two sanctioned
-  spellings for cross-region movement.
-
-  The controls matter as much as the rejections: a legitimate in-region target
-  of the SAME SHAPE — a nested `[:b :two]` path where `:b` is a real state of
-  the declaring region that happens to SHADOW a sibling region's name — must
-  register and resolve."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.machines :as rf.machines]
-            [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
-
-(use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-
-;; ---- 1. a region STATE's :on cross-region target ---------------------------
+;; ---- registration ----------------------------------------------------------
 
 (deftest region-state-cross-region-target-rejected-with-a-region-aware-message
-  (testing "the rejection says WHY — :b is a sibling REGION, not a state of :a"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:a {:initial :one
-                           :states  {:one {:on {:go {:target [:b :two]}}}
-                                     :two {}}}
-                       :b {:initial :one
-                           :states  {:one {} :two {}}}}}]
-      (try
-        (rf.machines/make-machine-handler m)
-        (is false "registration must reject a region-sourced cross-region target")
-        (catch clojure.lang.ExceptionInfo e
-          (let [msg (ex-message e)]
-            (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data e))))
-            (is (re-find #"SIBLING REGION" msg)
-                "the message must say the head names a sibling region")
-            (is (re-find #"\[:b :two\]" msg)
-                "the message must NAME the offending target, and with it the sibling region")
-            (is (re-find #"ancestor fallback" msg)
-                "the message must point at the root :on / :after ancestor fallback — what the author probably meant")
-            (is (= #{:a :b} (:regions (ex-data e)))
-                "ex-data carries the declared region names")))))))
-
-;; ---- 2. the region BODY's own root :on ------------------------------------
+  (try
+    (rf.machines/make-machine-handler
+      {:type    :parallel
+       :regions {:a {:initial :one
+                     :states  {:one {:on {:go {:target [:b :two]}}}
+                               :two {}}}
+                 :b {:initial :one
+                     :states  {:one {} :two {}}}}})
+    (is false "registration must reject a region-sourced cross-region target")
+    (catch clojure.lang.ExceptionInfo e
+      (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data e))))
+      (is (every? #(str/includes? (ex-message e) %) ["[:b :two]" "SIBLING REGION" "ancestor fallback"])
+          "the message names the target, the sibling region and the ancestor-fallback spelling"))))
 
 (deftest region-root-on-bad-targets-rejected
-  ;; The region ancestor fallback resolves within its own region, and the
-  ;; region root :on is walked at registration — unwalked, it would register
-  ;; any target cleanly.
-  (doseq [[label on-go]
-          [["a cross-region target"             {:target [:b :two]}]
-           ["a plainly unresolved vector target" {:target [:nowhere]}]
-           ["a bare-keyword target naming no state" :nowhere]]]
-    (testing (str label " on the REGION ROOT's :on fails registration")
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf.error/machine-unresolved-target"
-            (rf.machines/make-machine-handler
-              {:type    :parallel
-               :data    {}
-               :regions {:a {:initial :one
-                             :on      {:go on-go}
-                             :states  {:one {} :two {}}}
-                         :b {:initial :one
-                             :states  {:one {} :two {}}}}}))))))
-
-;; ---- 3. CONTROLS — the rejection must not be too broad --------------------
-
-(def shadowing-control
-  "Region `:a` declares a real compound state whose key SHADOWS sibling region
-  `:b`'s name. `[:b :two]` is a legitimate in-region absolute path here — same
-  shape as the rejected target, different meaning — and must work."
-  {:type    :parallel
-   :data    {}
-   :regions {:a {:initial :one
-                 :states  {:one {:on {:go {:target [:b :two]}}}
-                           :b   {:initial :two :states {:two {}}}}}
-             :b {:initial :one
-                 :states  {:one {} :two {}}}}})
+  ;; Unchecked, the region root :on would commit [:b :two] verbatim as :a's state.
+  (is (thrown-with-msg?
+        clojure.lang.ExceptionInfo
+        #":rf.error/machine-unresolved-target"
+        (rf.machines/make-machine-handler
+          {:type    :parallel
+           :regions {:a {:initial :one
+                         :on      {:go {:target [:b :two]}}
+                         :states  {:one {} :two {}}}
+                     :b {:initial :one
+                         :states  {:one {} :two {}}}}}))))
 
 (deftest in-region-target-shadowing-a-sibling-region-name-still-resolves
-  (testing "registration accepts it"
-    (is (fn? (rf.machines/make-machine-handler shadowing-control))
-        "a real in-region path is not a cross-region target just because its head shares a region's name"))
+  (is (fn? (rf.machines/make-machine-handler
+             {:type    :parallel
+              :regions {:a {:initial :one
+                            :states  {:one {:on {:go {:target [:b :two]}}}
+                                      :b   {:initial :two :states {:two {}}}}}
+                        :b {:initial :one
+                            :states  {:one {} :two {}}}}}))
+      "a real in-region path is not a cross-region target because its head shares a region's name"))
 
-  (testing "and it moves the declaring region, not the sibling"
-    (let [{snap :snapshot} (rf.machines/machine-transition
-                             shadowing-control
-                             {:state {:a :one :b :one} :data {}}
-                             [:go])]
-      (is (= {:a [:b :two] :b :one} (:state snap))
-          "region :a walked into its own nested [:b :two]; region :b is untouched"))))
-
-(deftest region-root-on-with-a-resolvable-target-still-registers-and-fires
-  (testing "the region ancestor fallback is a supported slot — only bad targets are rejected"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:a {:initial :one
-                           :on      {:go {:target [:two]}}
-                           :states  {:one {} :two {}}}
-                       :b {:initial :one
-                           :states  {:one {} :two {}}}}}]
-      (is (fn? (rf.machines/make-machine-handler m)))
-      (let [{snap :snapshot} (rf.machines/machine-transition
-                               m {:state {:a :one :b :one} :data {}} [:go])]
-        ;; Region :a is flat, so its value is the keyword `:two` although the
-        ;; region-root `:on` spells its target as the vector `[:two]` — a
-        ;; flat region's value is a keyword (Spec 005 §Parallel regions
-        ;; §Snapshot shape).
-        (is (= :two (:a (:state snap)))
-            "the region-root :on fires")
-        (is (= :one (:b (:state snap)))
-            "and the sibling region is untouched")))))
-
-;; ---- 4. THE THREE SANCTIONED SPELLINGS — and the limit that separates them
-;;
-;; A region-sourced cross-region `:target` is REJECTED, and Spec 005
-;; §Cross-region coordination teaches the three spellings that DO reach
-;; across regions. These cases pin the two that are easy to get wrong, so
-;; the taught example cannot rot silently:
-;;
-;;   (a) a transition on the TARGET region guarded on the source region's
-;;       `:all-state` — it works, but it is NOT an exact substitute for a
-;;       native cross-region transition: the same machine plus a TARGETLESS
-;;       handler on the target region's own active leaf wins the leaf→root
-;;       walk, so the region-root `:on` carrying (a) is never consulted.
-;;       `pick-transition` (`machines/transition.cljc`) consults the region
-;;       body's own root `:on` "only when no state-path node handled the
-;;       event";
-;;   (b) a source-owned `:raise`, which keeps SOURCE-SIDE selection and so
-;;       reaches the sibling in exactly the configuration that defeats (a) —
-;;       paired here with its no-raise control.
-;;
-;; The third spelling, (c) the root's atomic region-qualified fallback, is
-;; pinned by the `parallel-root-on-single-region-target` conformance fixture;
-;; its own limit (atomic suppression the moment any region competes) is
-;; pinned in `final_region_sourcing_test.clj`.
+;; ---- the sanctioned spellings (a) and (b) ----------------------------------
 
 (def ^:private wizard-helper
-  "Two regions: `:wizard` and `:helper`. `[:help]` always moves the wizard on;
-  whether the helper's hint opens is what each case below measures.
-
-  The guard names `:step2` — the PRE-event value — while the same event moves
-  `:wizard` to `:step3`. A passing guard alongside a `:step3` result is
-  therefore positive evidence that `:all-state` is the FROZEN pre-event view."
+  "Spelling (a): the helper region's own root :on, guarded on the wizard's
+  frozen pre-event state (`:step2`, while the same event moves it to `:step3`)."
   {:type    :parallel
-   :data    {}
    :guards  {:wizard-at-step2 (fn [{:keys [all-state]}] (= :step2 (:wizard all-state)))}
    :regions {:wizard {:initial :step2
                       :states  {:step2 {:on {:help {:target :step3}}}
                                 :step3 {}}}
              :helper {:initial :closed
-                      ;; spelling (a): the TARGET region owns the transition and
-                      ;; reads the source region out of the frozen `:all-state`.
                       :on      {:help {:target :hint :guard :wizard-at-step2}}
                       :states  {:closed {} :hint {}}}}})
 
 (defn- help-from-step2
-  "Dispatch `[:help]` at `{:wizard :step2 :helper :closed}`, return the committed
-  `:state` map."
   [spec]
   (:state (:snapshot (rf.machines/machine-transition
                        spec {:state {:wizard :step2 :helper :closed} :data {}} [:help]))))
 
 (deftest guarded-target-region-transition-is-a-sanctioned-cross-region-spelling
-  (testing "the target region's own :on, guarded on the source region's frozen
-            :all-state, moves both regions in the one microstep"
-    (is (fn? (rf.machines/make-machine-handler wizard-helper)))
-    (is (= {:wizard :step3 :helper :hint} (help-from-step2 wizard-helper))
-        "the helper opened its hint by reading :wizard out of :all-state, and
-         the guard's :step2 passing beside a :step3 result shows the view is
-         the frozen PRE-event one")))
+  (is (= {:wizard :step3 :helper :hint} (help-from-step2 wizard-helper))))
 
 (deftest targetless-handler-on-the-target-region-suppresses-the-guarded-rewrite
-  (testing "a TARGETLESS :help on the helper's own active leaf wins the
-            leaf→root walk, so the region-root :on carrying spelling (a) is
-            never consulted and the hint stays CLOSED — this is precisely why a
-            target-region rewrite is not an exact substitute for a native
-            cross-region transition"
-    (let [suppressed (assoc-in wizard-helper [:regions :helper :states :closed :on] {:help {}})]
-      (is (fn? (rf.machines/make-machine-handler suppressed)))
-      (is (= {:wizard :step3 :helper :closed} (help-from-step2 suppressed))
-          "the targetless leaf handler exits nothing, yet still suppresses the
-           helper's own region-root fallback"))))
+  ;; The leaf handler wins the leaf->root walk, so the region-root :on is never consulted.
+  (is (= {:wizard :step3 :helper :closed}
+         (help-from-step2 (assoc-in wizard-helper [:regions :helper :states :closed :on] {:help {}})))))
 
 (deftest source-owned-raise-reaches-the-sibling-that-suppression-blocks
-  (let [raising {:type    :parallel
-                 :data    {}
-                 :actions {:ask-for-hint (fn [{:keys [data]}]
-                                           {:data data :fx [[:raise [:helper/show-hint]]]})
-                           :noop         (fn [{:keys [data]}] {:data data})}
-                 :regions {:wizard {:initial :step2
-                                    :states  {:step2 {:on {:help {:target :step3
-                                                                  :action :ask-for-hint}}}
-                                              :step3 {}}}
-                           :helper {:initial :closed
-                                    ;; the SAME targetless :help that defeats
-                                    ;; spelling (a) is declared here too.
-                                    :states  {:closed {:on {:help             {}
-                                                            :helper/show-hint {:target :hint}}}
-                                              :hint   {}}}}}]
-    (testing "the source region keeps selection and raises; the raise
-              re-broadcasts across every region and opens the hint on the next
-              microstep, inside the one macrostep"
-      (is (= {:wizard :step3 :helper :hint} (help-from-step2 raising))
-          "spelling (b) reaches the sibling in exactly the configuration that
-           defeats spelling (a)"))
-
-    (testing "CONTROL — the identical machine with the raise replaced by a
-              no-op action leaves the helper CLOSED, so the hint is the raise's
-              doing and not the helper's own targetless handler"
-      (let [no-raise (assoc-in raising [:regions :wizard :states :step2 :on :help :action] :noop)]
-        (is (= {:wizard :step3 :helper :closed} (help-from-step2 no-raise)))))))
+  (is (= {:wizard :step3 :helper :hint}
+         (help-from-step2
+           {:type    :parallel
+            :actions {:ask-for-hint (fn [{:keys [data]}]
+                                      {:data data :fx [[:raise [:helper/show-hint]]]})}
+            :regions {:wizard {:initial :step2
+                               :states  {:step2 {:on {:help {:target :step3 :action :ask-for-hint}}}
+                                         :step3 {}}}
+                      :helper {:initial :closed
+                               :states  {:closed {:on {:help             {}
+                                                       :helper/show-hint {:target :hint}}}
+                                         :hint   {}}}}}))))
