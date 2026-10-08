@@ -28,7 +28,7 @@
   Both edges assert the SAME invariant: `available?`, `get-item`,
   `set-item!`, and `remove-item!` never throw; reads return nil; writes
   / removes no-op and return nil."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [day8.re-frame2-xray.local-storage :as ls]))
 
 ;; -------------------------------------------------------------------------
@@ -84,34 +84,19 @@
 ;; -------------------------------------------------------------------------
 
 (deftest every-primitive-fails-soft-when-property-access-throws
-  (testing "a throwing `window.localStorage` getter degrades every primitive
-            rather than propagating the SecurityError into the caller — or
-            into the dispatch chain that drove a write"
-    (install-window-with-throwing-localStorage-getter!)
-    (is (false? (ls/available?))
-        "available? swallows the property-access throw and returns false")
-    (is (nil? (ls/get-item "k"))
-        "get-item returns nil instead of throwing into the caller")
-    (is (nil? (ls/set-item! "k" "v"))
-        "set-item! no-ops and returns nil")
-    (is (nil? (ls/remove-item! "k"))
-        "remove-item! no-ops and returns nil")))
+  ;; A throwing `window.localStorage` getter (sandboxed iframe) must not
+  ;; propagate into the caller or the dispatch chain that drove a write.
+  (install-window-with-throwing-localStorage-getter!)
+  (is (= [false nil nil nil]
+         [(ls/available?) (ls/get-item "k") (ls/set-item! "k" "v") (ls/remove-item! "k")])))
 
 ;; -------------------------------------------------------------------------
 ;; (b) localStorage methods throw (quota / hostile method)
 ;; -------------------------------------------------------------------------
 
 (deftest every-primitive-fails-soft-when-methods-throw
-  (testing "the property read succeeds, so available? is true — the (a)/(b)
-            distinction — while each primitive swallows its own method's
-            throw: a quota-exceeded setItem must not poison the dispatch
-            chain"
-    (install-window-with-throwing-methods!)
-    (is (true? (ls/available?))
-        "the property read succeeds; method throws are a separate concern")
-    (is (nil? (ls/get-item "k"))
-        "get-item swallows the method throw and returns nil")
-    (is (nil? (ls/set-item! "k" "v"))
-        "set-item! swallows the QuotaExceededError and returns nil")
-    (is (nil? (ls/remove-item! "k"))
-        "remove-item! swallows the method throw and returns nil")))
+  ;; The property read succeeds, so available? is true, while each
+  ;; primitive swallows its own method's throw (a quota-exceeded setItem).
+  (install-window-with-throwing-methods!)
+  (is (= [true nil nil nil]
+         [(ls/available?) (ls/get-item "k") (ls/set-item! "k" "v") (ls/remove-item! "k")])))
