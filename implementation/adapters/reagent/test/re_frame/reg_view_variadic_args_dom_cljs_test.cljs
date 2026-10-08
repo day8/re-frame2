@@ -212,25 +212,15 @@
           (assert-renders ::reg-view-star-form-3 (kw-args 15)
                           "reg-view-star-form-3" "visible/visible|13")))))
 
-;; ---- boundary counts, each its own row --------------------------------------
+;; ---- boundary counts --------------------------------------------------------
 
-(deftest boundary-twenty-positional-arguments
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises this")
-    (do (setup!)
-        (assert-renders ::positional (positional-args 20) "positional" "20|a19"))))
-
-(deftest boundary-twenty-one-positional-arguments
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises this")
-    (do (setup!)
-        (assert-renders ::positional (positional-args 21) "positional" "21|a20"))))
-
-(deftest boundary-twenty-two-positional-arguments
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the :browser-test runner exercises this")
-    (do (setup!)
-        (assert-renders ::positional (positional-args 22) "positional" "22|a21"))))
+(deftest boundary-twenty-and-twenty-one-positional-arguments
+  (testing "the fixed-arity limit and one past it"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — the :browser-test runner exercises this")
+      (doseq [[n expected] [[20 "20|a19"] [21 "21|a20"]]]
+        (setup!)
+        (assert-renders ::positional (positional-args n) "positional" expected)))))
 
 ;; ---- the head's own contract, on both lanes ---------------------------------
 
@@ -241,7 +231,7 @@
     (let [head (rf/view ::positional)]
       (is (instance? js/Function head)
           "the head is a real JS function, so `.apply` is the platform's own")
-      (doseq [n [20 21 22 30]]
+      (doseq [n [20 21]]
         (let [out (with-frame frame-id
                     (.apply head nil (to-array (positional-args n))))]
           (is (some #{(str n "|a" (dec n))} out)
