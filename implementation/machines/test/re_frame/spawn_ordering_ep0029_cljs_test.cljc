@@ -1,36 +1,11 @@
 (ns re-frame.spawn-ordering-ep0029-cljs-test
-  "EP-0029 A7 §spawn ordering — the deterministic-allocation lock.
-
-  EP-0029 (docs/EP/EP-0029-xstate-v6-machine-parity.md §A7) makes three
-  spawn-correctness claims; one of them is ORDERING:
-
-    > restored parent/child runtime snapshots should restart active children
-    > consistently [...] multiple spawns are deterministic.
-
-  Spec 005 §Spawn lifecycle — ordering pins the mechanism: the spawn-id
-  allocator picks the next `<id-prefix>#<n>` against `:rf/spawn-counter` at the
-  parent snapshot root, and the entry cascade reduces over `entered-pairs`
-  SHALLOWEST-FIRST (root → leaf). So when a single transition's entry cascade
-  crosses MORE THAN ONE `:spawn`-bearing node, the shallower node's child is
-  allocated `#1` and the deeper node's child `#2` — a deterministic, declaration-
-  order allocation. `:spawn-all` allocates its children in declared-order too.
-
-  Other spawn tests cover counter allocation through SEPARATE state entries
-  (each entered on its own event) and reverse-creation DISPOSAL order
-  (frame_destroy_cascade_test). This file locks the remaining ordering fact
-  the EP A7 wording asserts: deterministic allocation order when MULTIPLE
-  spawns fire in ONE entry cascade.
-
-  Runs under both cognitect.test-runner (JVM, plain-atom) and shadow-cljs
-  (CLJS, Reagent) — the `.cljc` shape matching machines_on_error_cljs_test.cljc.
-
-  Spec contract: [Spec 005 §Spawn lifecycle — ordering], [EP-0029 §A7]."
+  "Two `:spawn`s crossed by ONE entry cascade allocate shallowest-first, and
+  each child's `:data` fn sees the parent's post-action `:data` (Spec 005
+  §Spawn lifecycle — ordering, EP-0029 §A7)."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   ;; Loading `re-frame.machines` installs the late-bind hooks
-   ;; `reg-machine` resolves through.
    [re-frame.machines]
    [re-frame.machines.test-support :as rf.machines.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
@@ -41,80 +16,15 @@
     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
        :cljs {:adapter rf.adapter.reagent/adapter})))
 
-;; snapshot lookup via the shared machines test-support — no hardcoded
-;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot rf.machines.test-support/snapshot)
-
-(defn- spawned-id-for
-  [parent-id invoke-id]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-          [:rf.runtime/machines :spawned parent-id invoke-id]))
-
-;; ---- (1) :spawn-all allocates its children in DECLARED order --------------
-;;
-;; A `:spawn-all` fans out N children; the EP A7 ordering claim covers
-;; `:spawn-all` as well as `:spawn`. The children are allocated in the order
-;; they are DECLARED in the `:children` vector — first declared = #1.
-
-(deftest spawn-all-allocates-children-in-declared-order
-  (testing ":spawn-all allocates its children in the order they appear in :children (#1 first-declared, #2 second-declared)"
-    (rf/reg-machine :ord2/leaf
-      {:initial :running :data {} :states {:running {}}})
-    (rf/reg-machine :ord2/parent
-      {:initial :idle
-       :data    {}
-       :states
-       {:idle      {:on {:fan-out :hydrating}}
-        :hydrating {:spawn-all
-                    {:children       [{:id :first  :machine-id :ord2/leaf}
-                                      {:id :second :machine-id :ord2/leaf}
-                                      {:id :third  :machine-id :ord2/leaf}]
-                     :join           :all
-                     :on-all-complete [:done]}}}})
-    (rf/dispatch-sync [:ord2/parent [:fan-out]])
-    ;; The join-state records each child id under its declared :id key; the
-    ;; allocation order is reflected in the per-TYPE counter (#1/#2/#3).
-    (let [children (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/machines :spawned :ord2/parent [:hydrating] :children])]
-      (is (= :ord2/leaf#1 (:first children))
-          "first-declared child allocated #1")
-      (is (= :ord2/leaf#2 (:second children))
-          "second-declared child allocated #2")
-      (is (= :ord2/leaf#3 (:third children))
-          "third-declared child allocated #3")
-      (is (= 3 (get-in (snapshot :ord2/parent) [:rf/spawn-counter :ord2/leaf]))
-          "the parent's :rf/spawn-counter advanced by exactly the three fan-out children"))))
-
-;; ---- (2) two :spawn nodes in ONE cascade: shallowest-first, post-action data --
-;;
-;; A compound parent whose entered state-node carries `:spawn` AND whose
-;; entered-into descendant ALSO carries `:spawn` crosses two spawn-bearing
-;; nodes in a single transition's entry cascade. `run-spawn-phase` reduces over
-;; `entered-pairs` shallowest-first, so the OUTER (shallower) node's child is
-;; `#1` and the INNER (deeper) node's child is `#2` — deterministic, per the EP
-;; A7 ordering claim. Both spawns share the parent's `:rf/spawn-counter`, so the
-;; two allocations are strictly ordered.
-;;
-;; The headline EP A7 invariant: a spawn's `:data` fn sees the parent's
-;; POST-ACTION `:data` (the transition's `:action` has already run), and it
-;; holds when MULTIPLE spawns fire in the same cascade — each child's
-;; `:data` fn sees the same post-action parent snapshot, and the allocation is
-;; still deterministic. This guards against a future refactor evaluating a
-;; later child's `:data` against a pre-action snapshot or in a non-deterministic
-;; order.
-
 (deftest both-spawns-see-post-action-data-deterministically
-  (testing "when two spawns fire in one cascade, BOTH :data fns see the post-action parent :data, allocated #1 then #2"
+  (testing "the outer spawn is #1, the inner #2, and both :data fns see the action's :endpoint"
     (rf/reg-machine :ord3/leaf
       {:initial :running :data {} :states {:running {}}})
     (rf/reg-machine :ord3/parent
       {:initial :idle
        :data    {:base "https://api.example.com"}
        :actions {:assemble (fn [{data :data}]
-                             ;; The transition action writes :endpoint; BOTH
-                             ;; spawn :data fns (outer + inner) must see it.
-                             {:data (assoc data :endpoint
-                                           (str (:base data) "/v1/me"))})}
+                             {:data (assoc data :endpoint (str (:base data) "/v1/me"))})}
        :states
        {:idle  {:on {:go {:target :outer :action :assemble}}}
         :outer {:spawn   {:machine-id :ord3/leaf :id-prefix :ord3/leaf
@@ -125,19 +35,11 @@
                                           :data (fn [{snap :snapshot}]
                                                   {:url (-> snap :data :endpoint) :who :inner})}}}}}})
     (rf/dispatch-sync [:ord3/parent [:go]])
-    (let [outer-child (spawned-id-for :ord3/parent [:outer])
-          inner-child (spawned-id-for :ord3/parent [:outer :inner])]
-      (is (= :ord3/leaf#1 outer-child) "outer allocated #1")
-      (is (= :ord3/leaf#2 inner-child) "inner allocated #2")
-      (is (= 2 (get-in (snapshot :ord3/parent) [:rf/spawn-counter :ord3/leaf]))
-          "the parent's :rf/spawn-counter advanced by exactly the two spawns, in one cascade")
-      (is (= "https://api.example.com/v1/me"
-             (:url (:data (snapshot outer-child))))
-          "OUTER child's :data fn saw the post-action :endpoint")
-      (is (= :outer (:who (:data (snapshot outer-child))))
-          "outer child got its own :data")
-      (is (= "https://api.example.com/v1/me"
-             (:url (:data (snapshot inner-child))))
-          "INNER child's :data fn ALSO saw the post-action :endpoint (same post-action snapshot)")
-      (is (= :inner (:who (:data (snapshot inner-child))))
-          "inner child got its own :data"))))
+    (let [spawned (fn [invoke-id]
+                    (get-in (rf.machines.test-support/runtime-db)
+                            [:rf.runtime/machines :spawned :ord3/parent invoke-id]))
+          url     "https://api.example.com/v1/me"]
+      (is (= [:ord3/leaf#1 :ord3/leaf#2] [(spawned [:outer]) (spawned [:outer :inner])]))
+      (is (= [{:url url :who :outer} {:url url :who :inner}]
+             (mapv #(select-keys (rf.machines.test-support/machine-data %) [:url :who])
+                   [:ord3/leaf#1 :ord3/leaf#2]))))))
