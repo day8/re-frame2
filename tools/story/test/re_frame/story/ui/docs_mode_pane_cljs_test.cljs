@@ -143,8 +143,11 @@
 (deftest tag-chip-toggles-shell-tag-filter
   (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :dev)
   (is (= #{:dev} (:tag-filter @rf.story.ui.state/shell-state-atom)))
+  (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :docs)
+  (is (= #{:dev :docs} (:tag-filter @rf.story.ui.state/shell-state-atom))
+      "the filter is multi-select")
   (rf.story.ui.state/swap-state! rf.story.ui.state.transitions/toggle-tag-filter :dev)
-  (is (= #{} (:tag-filter @rf.story.ui.state/shell-state-atom))))
+  (is (= #{:docs} (:tag-filter @rf.story.ui.state/shell-state-atom))))
 
 ;; ===========================================================================
 ;; Read-only contract — the user's transient canvas edits survive a docs detour
