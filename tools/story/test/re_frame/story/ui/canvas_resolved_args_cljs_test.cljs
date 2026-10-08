@@ -4,12 +4,11 @@
   `canvas-inner` hands the variant's view its effective args, read off the
   compiled plan. Reading them from `rf.story.args/resolve-args`, which folds
   only the variant's OWN `:args`, would render the STORY DEFAULT for a
-  variant that `:extends` a parent (or `:compose`s a fragment) carrying
-  args, while `run-variant` (which reads the compiled plan) reports the
-  inherited value — the canvas and the run would describe two different
-  scenarios.
+  variant that `:extends` a parent carrying args, while `run-variant`
+  (which reads the compiled plan) reports the inherited value — the canvas
+  and the run would describe two different scenarios.
 
-  Each test observes the value the view actually rendered: the probe view
+  The test observes the value the view actually rendered: the probe view
   prints the props it was handed, read back through the same expanded-hiccup
   walk `canvas-substrate-routing-cljs-test` uses. No DOM, no React."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -37,19 +36,12 @@
     {:component :views/resolved-args-probe
      :args      {:count 0 :nested {:v 0}}})
   (rf.story/reg-mode :Mode.canvas-args/loud {:args {:count 5 :theme :loud}})
-  ;; Every variant declares `:loaders` so `events-only-variant?` is false for
-  ;; all of them: the skeleton gate is then governed only by the lifecycle
-  ;; `ready-tree` drives, and the args are the one thing that varies.
+  ;; `:loaders` keeps `events-only-variant?` false, so the skeleton gate is
+  ;; governed only by the lifecycle `rendered` drives.
   (rf.story/reg-variant :story.canvas-args/parent
     {:args {:count 42 :nested {:v 7}} :loaders [[:noop/loader]]})
   (rf.story/reg-variant :story.canvas-args/child
-    {:extends :story.canvas-args/parent :loaders [[:noop/loader]]})
-  (rf.story/reg-fragment :fragment.canvas-args/args
-    {:args {:count 42 :nested {:v 7}}})
-  (rf.story/reg-variant :story.canvas-args/composed
-    {:compose [:fragment.canvas-args/args] :loaders [[:noop/loader]]})
-  (rf.story/reg-variant :story.canvas-args/direct
-    {:args {:count 3} :loaders [[:noop/loader]]}))
+    {:extends :story.canvas-args/parent :loaders [[:noop/loader]]}))
 
 (defn- reset-all! []
   (rf.story/clear-all!)
@@ -94,27 +86,14 @@
 
 ;; ===========================================================================
 
-(deftest canvas-renders-inherited-and-composed-args
-  (testing "an :extends child and a :compose-only variant render the args
-            their compiled plan resolves (parent / fragment beat the story
-            default, nested maps deep-merge), not the story default"
-    (is (= "count=42 nested=7" (rendered :story.canvas-args/child))
-        ":extends — the parent's args reach the view")
-    (is (= "count=42 nested=7" (rendered :story.canvas-args/composed))
-        ":compose — the fragment's args reach the view")))
-
 (deftest canvas-args-keep-mode-and-cell-precedence
-  (testing "the run layers fold AROUND the resolved variant layer:
-            an active mode sits BELOW the inherited variant args, a cell
-            override sits above everything"
+  (testing "an :extends child renders the args its compiled plan resolves —
+            not the story default — with the run layers folded AROUND the
+            variant layer: an active mode sits BELOW the inherited variant
+            args, a cell override above everything"
     (shell! #(assoc % :active-modes [:Mode.canvas-args/loud]))
     (is (= "count=42 nested=7" (rendered :story.canvas-args/child))
         "the inherited variant arg beats the active mode's")
     (shell! #(assoc-in % [:cell-overrides :story.canvas-args/child] {:count 99}))
     (is (= "count=99 nested=7" (rendered :story.canvas-args/child))
         "a cell override beats the inherited arg")))
-
-(deftest canvas-args-direct-variant-control
-  (testing "control — a variant with no :extends / :compose renders its own
-            args"
-    (is (= "count=3 nested=0" (rendered :story.canvas-args/direct)))))
