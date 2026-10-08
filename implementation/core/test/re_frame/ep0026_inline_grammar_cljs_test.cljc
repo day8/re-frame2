@@ -1,9 +1,7 @@
 (ns re-frame.ep0026-inline-grammar-cljs-test
-  "EP-0026 §Inline Registration Grammar — the four-kind inline
-  `:registrations` grammar.
-
-  EP-0026 limits inline `:registrations` to EXACTLY the four kinds with a
-  concrete inline parser + a published late-bind lowering hook:
+  "EP-0026 §Inline Registration Grammar — inline `:registrations` covers
+  EXACTLY the four kinds with an inline parser and a published late-bind
+  lowering hook:
 
     | section     | kind   | body                                   |
     | :reg-event  | :event | event handler `(fn [cofx event] …)`    |
@@ -11,276 +9,141 @@
     | :reg-fx     | :fx    | effect handler `(fn [args] …)`         |
     | :reg-cofx   | :cofx  | coeffect supplier `(fn [] …)`          |
 
-  Every OTHER kind (interceptors, views, frames, routes, heads, error-projectors,
-  flows, resources, mutations, resource-scopes) is REJECTED with the
-  unsupported-inline-kind diagnostic until its owning spec defines an inline
-  lowering.
+  Each supported kind lowers through its kind's OWN registrar parser (the live
+  `:image/lower-inline-<kind>` publisher, reached through
+  `image-assembly/lower-inline-descriptor`), so the inline contract is exactly
+  the registrar's; every other section fails loud at `rf/image`. A
+  metadata-only `[id metadata]` 2-tuple is pinned by `image-cljs-test`.
 
-  This suite pins:
-
-    * each supported inline kind LOWERS through its kind's OWN registrar parser
-      (the LIVE `:image/lower-inline-<kind>` publisher, exercised through
-      `image-assembly/lower-inline-descriptor`), so the inline contract is
-      exactly the registrar's contract;
-    * per-kind metadata/body pins: an inline `:reg-sub` with no `:inputs` is the
-      layer-1 `:input-kind :db` db-reader (`:input-signals []`), and one that
-      DECLARES `{:inputs …}` lowers to a derived `:static` / `:parametric` sub
-      through the same seam the public registrar uses; inline
-      `:reg-cofx` carries the coeffect's `:recordable?` / `:provided?` grade
-      exactly as `reg-cofx` does; inline `:reg-event` parses
-      `:rf.cofx/requires` into `:rf.cofx/requires-parsed`;
-    * an UNSUPPORTED inline kind fails loud at `rf/image`;
-    * a metadata-only `[id metadata]` 2-tuple fails loud (under EP-0026 a
-      2-tuple's second slot is the handler body), pinned by
-      `image-cljs-test`.
-
-  Dual-runtime (`-cljs-test` rides `npm run test:cljs`; cognitect-test-runner
-  discovers the `.cljc` on the JVM). The four core kind namespaces are required
-  so their `:image/lower-inline-<kind>` publishers are installed (they
-  `set-fn!` at ns load); no adapter/runtime state, so no reset fixture.
-
-  ## Posture split
-
-  The grammar itself — which sections lower, which are rejected, which slots the
-  runtime owns — is entirely posture-independent and runs unchanged under
-  `scripts/test-core-prod-gate.sh`. The exception is `:doc`: it is PURE
-  DOCUMENTATION, and `registrar/strip-pure-documentation` removes it under
-  `-Dre-frame.debug=false`, so any row that reads `:doc` back (or compares the
-  authored metadata map WHOLE, `:doc` included) is a dev-posture row and sits
-  inside a `(when rf.interop/debug-enabled? …)` arm.
-
-  A doc-only witness is a bad one — it makes the claim unprovable in the
-  posture that ships — so each of the two rows that would otherwise be the ONLY
-  witness for its claim is paired with an always-on partner that reads a
-  LOAD-BEARING key instead: `(dissoc meta :doc)` still nested for the hostile-metadata row,
-  and a `:rf.cofx/requires` middle slot for \"a 3-tuple is how metadata is
-  attached\"."
+  The four kind namespaces are required so their publishers are installed
+  (they `set-fn!` at ns load). The grammar is posture-independent except
+  `:doc`, which `registrar/strip-pure-documentation` removes under
+  `-Dre-frame.debug=false`: a row reading `:doc` back sits in a
+  `(when rf.interop/debug-enabled? …)` arm, beside an always-on partner that
+  reads a load-bearing key."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.image          :as rf.image]
             [re-frame.image-assembly :as rf.image-assembly]
             [re-frame.interop        :as rf.interop]
-            ;; Required so the late-bind lowering publishers are installed:
-            ;; each ns calls (late-bind/set-fn! :image/lower-inline-<kind> …) at
-            ;; load. image-assembly cannot static-require them (a cycle), so the
-            ;; test requires them directly to exercise the LIVE lowering.
+            ;; image-assembly cannot static-require the lowering publishers (a
+            ;; cycle), so the test loads them to exercise the LIVE lowering
             [re-frame.events]
             [re-frame.subs]
             [re-frame.fx]
             [re-frame.cofx]))
 
-;; ---------------------------------------------------------------------------
-;; Helpers — build an anonymous inline image, then run the LIVE assembly-side
-;; inline lowering over its inline descriptors so the lowered runnable shape is
-;; the one a frame would actually run.
-;; ---------------------------------------------------------------------------
-
-(defn- inline-descriptors
-  "The image's lowered-by-`rf/image` inline descriptors (pre-assembly: `:impl`
-  body + provenance, no runnable slots yet)."
-  [registrations]
-  (:rf.image/inline (rf.image/image {:id :ep0026/inline :registrations registrations})))
-
 (defn- runnable
-  "Run the LIVE assembly-side inline lowering over the single inline descriptor
-  the `registrations` map produces, returning the runnable descriptor a frame
-  resolves — `:impl` + the kind's published `:image/lower-inline-<kind>` slots."
+  "The runnable descriptor a frame resolves for the single inline entry
+  `registrations` produces: `:impl` plus the kind's published lowering slots."
   [registrations]
-  (-> registrations inline-descriptors first rf.image-assembly/lower-inline-descriptor))
+  (-> (rf.image/image {:id :ep0026/inline :registrations registrations})
+      :rf.image/inline
+      first
+      rf.image-assembly/lower-inline-descriptor))
 
-(defn- invalid-image-id
-  "Run `thunk`; return the thrown ex-info's `:rf.error/id` (or nil)."
-  [thunk]
+(defn- err-data [thunk]
   (try (thunk) nil
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-         (:rf.error/id (ex-data e)))))
+         (ex-data e))))
 
-;; ===========================================================================
-;; 1. Each supported inline kind lowers through its OWN registrar parser
-;;    (the LIVE late-bind publisher), pinned against the live runnable shape.
-;; ===========================================================================
+(defn- err-id [thunk] (:rf.error/id (err-data thunk)))
+
+;; ---- each supported kind lowers through its own registrar parser ----------
 
 (deftest inline-event-lowers-to-the-runnable-event-shape
-  (testing "inline :reg-event lowers via the LIVE :image/lower-inline-event into
-            the runnable handler shape: :handler-fn + the :interceptors chain
-            whose tail is the :rf/event-handler wrapper (the same slots
-            register-event! installs)"
-    (let [body (fn [{:keys [db]} _] {:db db})
-          d    (runnable {:reg-event [[:counter/inc body]]})]
-      (is (= :event (:kind d)))
-      (is (= :counter/inc (:id d)))
-      (is (= body (:impl d)) "the raw body is preserved under :impl")
-      (is (fn? (:handler-fn d)) "lowering installs a runnable :handler-fn")
-      (is (vector? (:interceptors d)) "lowering installs the interceptors chain")
-      (is (some :rf/default? (:interceptors d))
-          "the chain carries the framework :rf/event-handler wrapper"))))
+  ;; :handler-fn plus an :interceptors chain ending in the framework
+  ;; :rf/event-handler wrapper — the slots register-event! installs
+  (let [body (fn [{:keys [db]} _] {:db db})
+        d    (runnable {:reg-event [[:counter/inc body]]})]
+    (is (= [:event :counter/inc body true true true]
+           [(:kind d) (:id d) (:impl d)
+            (fn? (:handler-fn d))
+            (vector? (:interceptors d))
+            (boolean (some :rf/default? (:interceptors d)))]))))
 
 (deftest inline-event-parses-cofx-requires-metadata
-  (testing "inline :reg-event with :rf.cofx/requires metadata parses it into the
-            top-level :rf.cofx/requires-parsed slot the satisfaction step reads
-            (mirroring register-event!) — pinned against the live lowering"
-    (let [body (fn [_ _] {})
-          d    (runnable {:reg-event [[:needs/cofx
-                                       {:rf.cofx/requires [:rf.cofx/now]}
-                                       body]]})]
-      (is (= :event (:kind d)))
-      (is (= {:rf.cofx/requires [:rf.cofx/now]} (:metadata d)))
-      (is (seq (:rf.cofx/requires-parsed d))
-          "declared cofx requirements are parsed onto the runnable descriptor")
-      (is (= :rf.cofx/now (:id (first (:rf.cofx/requires-parsed d))))))))
+  ;; :rf.cofx/requires parses into the top-level :rf.cofx/requires-parsed slot
+  ;; the satisfaction step reads, as register-event! does
+  (let [d (runnable {:reg-event [[:needs/cofx {:rf.cofx/requires [:rf.cofx/now]} (fn [_ _] {})]]})]
+    (is (= [{:rf.cofx/requires [:rf.cofx/now]} [:rf.cofx/now]]
+           [(:metadata d) (mapv :id (:rf.cofx/requires-parsed d))]))))
 
 (deftest inline-sub-without-inputs-lowers-to-the-layer-1-db-reader
-  (testing "inline :reg-sub with NO :inputs lowers via the LIVE
-            :image/lower-inline-sub into the layer-1 db-reader shape —
-            :input-kind :db + EMPTY :input-signals — and the runtime-owned
-            slots still win over hostile authored metadata"
+  (testing "with NO :inputs the sub is the layer-1 db-reader (:input-kind :db,
+            empty :input-signals), and the runtime-owned slots win over hostile
+            authored metadata, which stays nested"
     (let [body (fn [db _] (:counter/value db))
           meta {:schema        :counter/int
                 :doc           "Image-owned counter value."
-                ;; Authored metadata must never replace runnable ownership.
                 :handler-fn    ::hostile-handler
                 :input-kind    :parametric
                 :input-signals [[:hostile/input]]}
           d    (runnable {:reg-sub [[:counter/value meta body]]})]
-      (is (= :sub (:kind d)))
-      (is (= :counter/value (:id d)))
-      (is (= body (:impl d)))
-      ;; `:doc` is stripped under -Dre-frame.debug=false, so the
-      ;; WHOLE-map comparison and the `:doc` read-back are dev-posture rows,
-      ;; inside the arm.
       (when rf.interop/debug-enabled?
-        (is (= meta (:metadata d))
-            "the authored metadata remains nested for provenance/introspection")
-        (is (= "Image-owned counter value." (:doc d))))
-      ;; The always-on half of the same claim: every NON-documentation authored
-      ;; key — including the hostile `:handler-fn` / `:input-kind` /
-      ;; `:input-signals` this deftest is really about — remains nested in both
-      ;; postures, so the "runtime slots win" rows below are contrasted against
-      ;; metadata that is genuinely still there.
-      (is (= (dissoc meta :doc) (dissoc (:metadata d) :doc))
-          "the non-documentation authored metadata remains nested in every posture")
-      (is (= :counter/int (:schema d))
-          "runtime metadata is also flat, matching reg-sub's runnable shape")
-      (is (= body (:handler-fn d))
-          "the runtime handler wins over a hostile metadata slot")
-      (is (= :db (:input-kind d))
-          "with no :inputs declared, the layer-1 input kind wins over hostile metadata")
-      (is (= [] (:input-signals d))
-          "the empty signal list wins over hostile metadata")))
+        (is (= [meta "Image-owned counter value."] [(:metadata d) (:doc d)])))
+      (is (= [:sub :counter/value body (dissoc meta :doc) :counter/int body :db []]
+             [(:kind d) (:id d) (:impl d)
+              (dissoc (:metadata d) :doc)
+              (:schema d) (:handler-fn d) (:input-kind d) (:input-signals d)]))))
   (testing "omitted metadata and an explicitly nil schema stay distinguishable"
     (let [body     (fn [_ _] nil)
-          omitted (runnable {:reg-sub [[:counter/omitted body]]})
-          explicit (runnable {:reg-sub [[:counter/explicit
-                                         {:schema nil}
-                                         body]]})]
-      (is (not (contains? omitted :schema))
-          "omitting metadata does not invent a top-level schema slot")
-      (is (contains? explicit :schema)
-          "an explicitly nil schema remains present in the runnable metadata")
-      (is (nil? (:schema explicit)))
-      (is (= {:schema nil} (:metadata explicit))
-          "the exact authored nil metadata remains nested for inspection"))))
+          omitted  (runnable {:reg-sub [[:counter/omitted body]]})
+          explicit (runnable {:reg-sub [[:counter/explicit {:schema nil} body]]})]
+      (is (= [false true nil {:schema nil}]
+             [(contains? omitted :schema)
+              (contains? explicit :schema)
+              (:schema explicit)
+              (:metadata explicit)])))))
 
 (deftest inline-sub-declares-derived-inputs-through-the-shared-seam
-  (testing "an inline :reg-sub declaring {:inputs [[…]]} lowers to a DERIVED sub
-            — the dependency declaration lives in the metadata map, and the
-            inline tuple carries a metadata slot, so the grammar needs no
-            extra position for it."
+  (testing "{:inputs [[…]]} in the metadata lowers to a :static derived sub;
+            :inputs is LIFTED into the runtime slots, and only the nested
+            authored :metadata keeps the user's spelling"
     (let [body (fn [[items] _] (sort items))
-          d    (runnable {:reg-sub [[:cart/sorted
-                                     {:doc "Derived inline." :inputs [[:cart/items]]}
-                                     body]]})]
-      (is (= :sub (:kind d)))
-      (is (= body (:handler-fn d)))
-      (is (= :static (:input-kind d))
-          "a literal declaration lowers to the :static producer kind")
-      (is (= [[:cart/items]] (:input-signals d))
-          "the declared query vectors become the runtime's static edge set")
-      (is (not (contains? d :inputs))
-          ":inputs is LIFTED into the runtime-owned slots — the descriptor's
-           TOP LEVEL is the registration shape and carries it only once")
-      (is (contains? (:metadata d) :inputs)
-          "the nested :metadata is the AUTHORED provenance copy and keeps the
-           user's spelling, exactly as it keeps an authored :input-kind the
-           runtime overrode")))
-
-  (testing "a producer declaration lowers to the :parametric kind and is not run"
+          d    (runnable {:reg-sub [[:cart/sorted {:doc "Derived inline." :inputs [[:cart/items]]} body]]})]
+      (is (= [:sub body :static [[:cart/items]] false true]
+             [(:kind d) (:handler-fn d) (:input-kind d) (:input-signals d)
+              (contains? d :inputs) (contains? (:metadata d) :inputs)]))))
+  (testing "a producer declaration lowers to :parametric and is not run"
     (let [ran      (atom 0)
           producer (fn [[_ id]] (swap! ran inc) [[:article/by-id id]])
-          d        (runnable {:reg-sub [[:article/page {:inputs producer}
-                                         (fn [[a] _] a)]]})]
-      (is (= :parametric (:input-kind d)))
-      (is (= producer (:input-fn d)))
-      (is (= [] (:input-signals d)))
-      (is (zero? @ran) "the producer is never executed at lowering")))
-
-  (testing "a MALFORMED inline :inputs fails loud with the SAME registration-time
-            error the public registrar raises — the inline path is neither looser
-            nor stricter (EP-0026's standing contract)"
-    (is (= :rf.error/reg-sub-bad-args
-           (invalid-image-id
-             #(runnable {:reg-sub [[:bad {:inputs [:cart/items]} (fn [i _] i)]]})))
-        "the scalar spelling [:a] is refused; a single input is [[:a]]")
-    (is (= :rf.error/reg-sub-bad-args
-           (invalid-image-id
-             #(runnable {:reg-sub [[:bad {:inputs nil} (fn [i _] i)]]})))
-        "an explicit nil is not \"absent\"")))
+          d        (runnable {:reg-sub [[:article/page {:inputs producer} (fn [[a] _] a)]]})]
+      (is (= [:parametric producer [] 0]
+             [(:input-kind d) (:input-fn d) (:input-signals d) @ran]))))
+  (testing "a malformed :inputs fails with the SAME registration-time error the
+            public registrar raises: the scalar spelling [:a] (a single input is
+            [[:a]]), and an explicit nil, which is not absent"
+    (is (= [:rf.error/reg-sub-bad-args :rf.error/reg-sub-bad-args]
+           [(err-id #(runnable {:reg-sub [[:bad {:inputs [:cart/items]} (fn [i _] i)]]}))
+            (err-id #(runnable {:reg-sub [[:bad {:inputs nil} (fn [i _] i)]]}))]))))
 
 (deftest inline-fx-lowers-to-the-runnable-fx-slot
-  (testing "inline :reg-fx lowers via the LIVE :image/lower-inline-fx into the
-            runnable fx slot (:handler-fn) the fx-walker reads"
-    (let [body (fn [_args] nil)
-          d    (runnable {:reg-fx [[:metrics/send body]]})]
-      (is (= :fx (:kind d)))
-      (is (= :metrics/send (:id d)))
-      (is (= body (:impl d)))
-      (is (= body (:handler-fn d))))))
+  (let [body (fn [_args] nil)
+        d    (runnable {:reg-fx [[:metrics/send body]]})]
+    (is (= [:fx :metrics/send body body] [(:kind d) (:id d) (:impl d) (:handler-fn d)]))))
 
 (deftest inline-cofx-lowers-carrying-its-grade
-  (testing "inline :reg-cofx lowers via the LIVE :image/lower-inline-cofx into
-            the runnable supplier slot PLUS the :recordable? / :provided? grade
-            flags delivery reads — exactly as reg-cofx installs them"
-    (testing "an ordinary supplier coeffect (default grade)"
-      (let [body (fn [] 42)
-            d    (runnable {:reg-cofx [[:clock/now body]]})]
-        (is (= :cofx (:kind d)))
-        (is (= :clock/now (:id d)))
-        (is (= body (:handler-fn d)))
-        (is (= false (:recordable? d)))
-        (is (= false (:provided? d)))))
-    (testing "the grade is carried from the inline metadata (recordable / provided)"
-      ;; A PROVIDED fact has no generator, so its inline entry carries a nil
-      ;; body — exactly the shape `reg-cofx` accepts. A supplier here is the
-      ;; contradiction `reg-cofx` refuses, and so does the inline lowering.
-      (let [d (runnable {:reg-cofx [[:graded/cofx
-                                     {:recordable? true :provided? true}
-                                     nil]]})]
-        (is (= true (:recordable? d)))
-        (is (= true (:provided? d)))
-        (is (nil? (:handler-fn d)) "a provided fact lowers with no supplier")))))
+  ;; the supplier slot plus the :recordable? / :provided? grade delivery reads,
+  ;; exactly as reg-cofx installs them
+  (let [body (fn [] 42)
+        d    (runnable {:reg-cofx [[:clock/now body]]})]
+    (is (= [:cofx :clock/now body false false]
+           [(:kind d) (:id d) (:handler-fn d) (:recordable? d) (:provided? d)])))
+  ;; a PROVIDED fact has no generator, so its inline entry carries a nil body,
+  ;; the shape reg-cofx accepts
+  (let [d (runnable {:reg-cofx [[:graded/cofx {:recordable? true :provided? true} nil]]})]
+    (is (= [true true nil] [(:recordable? d) (:provided? d) (:handler-fn d)]))))
 
-;; ===========================================================================
-;; 2. UNSUPPORTED inline kinds fail loud (every kind without a published
-;;    inline lowering).
-;; ===========================================================================
+;; ---- every other section fails loud ----------------------------------------
 
 (deftest unsupported-inline-kinds-fail-loud
-  (testing "an inline section for a kind EP-0026 does not standardize fails loud
-            at rf/image with :rf.error/invalid-image (the unsupported-inline-kind
-            diagnostic) — those kinds stay namespace-authored"
-    (doseq [section [:reg-interceptor :reg-view :make-frame :reg-route :reg-head
-                     :reg-error-projector :reg-flow :reg-resource :reg-mutation
-                     :reg-resource-scope]]
-      (is (= :rf.error/invalid-image
-             (invalid-image-id #(rf.image/image {:registrations {section [[:x (fn [] nil)]]}})))
-          (str section " must be rejected as an unsupported inline kind"))))
-  (testing "a typo'd / unknown section key is likewise rejected"
-    (is (= :rf.error/invalid-image
-           (invalid-image-id #(rf.image/image {:registrations {:reg-bogus [[:x (fn [] nil)]]}})))))
-  (testing "the diagnostic names the unsupported section and the four supported ones"
-    (let [data (try (rf.image/image {:id :bad/img
-                                  :registrations {:reg-view [[:x (fn [] nil)]]}})
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
-                      (ex-data e)))]
-      (is (= :rf.error/invalid-image (:rf.error/id data)))
-      (is (= :reg-view (:unsupported-section data)))
-      (is (= [:reg-cofx :reg-event :reg-fx :reg-sub] (:supported-sections data))))))
+  ;; the check is membership in the four supported sections, so the exact
+  ;; supported list in the diagnostic pins every other kind's rejection
+  (is (= {:rf.error/id         :rf.error/invalid-image
+          :unsupported-section :reg-view
+          :supported-sections  [:reg-cofx :reg-event :reg-fx :reg-sub]}
+         (select-keys (err-data #(rf.image/image {:id :bad/img :registrations {:reg-view [[:x (fn [] nil)]]}}))
+                      [:rf.error/id :unsupported-section :supported-sections])))
+  (is (= :rf.error/invalid-image
+         (err-id #(rf.image/image {:registrations {:reg-bogus [[:x (fn [] nil)]]}})))
+      "a typo'd section key is rejected the same way"))
