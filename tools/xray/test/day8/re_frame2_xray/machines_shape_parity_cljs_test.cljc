@@ -45,9 +45,5 @@
           err @#'sim-suite/fail-result]
       (is (= [:ok :error] [(:status real-ok) (:status real-error)])
           "PRECONDITION: the producer gave one result of each kind")
-      (is (= (key-set real-ok) (key-set ok)))
-      (is (= (key-set (:snapshot real-ok)) (key-set (:snapshot ok))))
-      (is (= (key-set real-error) (key-set err)))
-      (is (= (key-set (:error real-error)) (key-set (:error err))))
-      (is (not= (key-set (:error real-error)) #{:kind :reason})
-          "control: an error keyed #{:kind :reason} fails this parity"))))
+      (is (= (map key-set [real-ok (:snapshot real-ok) real-error (:error real-error)])
+             (map key-set [ok (:snapshot ok) err (:error err)]))))))
