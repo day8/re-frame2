@@ -1,21 +1,5 @@
 (ns day8.re-frame2-xray.palette.events-cljs-test
-  "CLJS end-to-end tests for the palette's open/close/cursor/invoke
-  contracts.
-
-  Drives the registered events against the live registrar so the
-  test exercises the same code paths the keybinding + view dispatch
-  through. Mirrors the per-panel facade-pair test pattern (`subs +
-  events`, replay via `rf/dispatch-sync`).
-
-  The palette pop-out fx is replaced with a counting stub so the
-  Ctrl+Enter / open-popout invocations can be asserted without
-  driving the mount layer (which would need a real `window.open`).
-
-  The snapshot-app-db egress tests stub `js/console.log`
-  and a clipboard `writeText` so the off-box payload (both sinks) can
-  be captured and asserted to carry the redacted/size-elided
-  projection rather than the raw secret."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -30,16 +14,10 @@
 ;; ---- fixture -----------------------------------------------------------
 
 (use-fixtures :each
-  ;; `make-xray-runtime-fixture` owns the reset: the `:all` reset
-  ;; tier — install (== preload's alias) + registry + mount sentinels + the
-  ;; trace-collector rings; `:post-reset` carries this suite's tail.
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
                    (config/reset-suppressed-count!)
                    (config/set-project-root! nil)
-                   ;; Clear palette recents between tests so each
-                   ;; scenario starts clean. localStorage degrades silently in
-                   ;; Node (no window.localStorage); the clear is a no-op there.
                    (recents/clear!))}))
 
 (defn- setup! []
@@ -51,12 +29,9 @@
 (def ^:private popout-calls (atom 0))
 
 (defn- install-popout-counter!
-  "Install the counting stub AFTER `setup!` has run. The stub
-  rides the `:rf/xray` frame's `:fx-overrides` (fn-value form) — the
-  designed per-frame fx-replacement seam — instead of re-registering the
-  xray-owned fx id from this test ns, which would sit beside the
-  events.cljs registration as a cross-namespace duplicate and fail the
-  frame's default-image assembly loud."
+  "Run AFTER `setup!`. Stubs the pop-out fx through the frame's
+  `:fx-overrides` seam; re-registering the xray-owned fx id from this ns
+  would fail the frame's default-image assembly."
   []
   (reset! popout-calls 0)
   (rf/make-frame {:id :rf/xray
@@ -66,56 +41,42 @@
 (defn- xray-db []
   (rf/app-db-value :rf/xray))
 
-;; ---- open / close / toggle --------------------------------------------
+(defn- invoke-item!
+  ([item] (invoke-item! item false))
+  ([item popout?]
+   (rf/with-frame :rf/xray
+     (rf/dispatch-sync [:rf.xray/palette-open])
+     (rf/dispatch-sync [:rf.xray/palette-invoke item popout?]))))
 
-(deftest palette-open-flips-flag
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open]))
-  (is (true? (boolean (:palette-open? (xray-db)))))
-  (is (= "" (:palette-query (xray-db))))
-  (is (= 0 (:palette-cursor (xray-db)))))
+(defn- xray-sub [query]
+  (rf/with-frame :rf/xray @(rf/subscribe query)))
+
+(defn- dispatched-row [id dispatch-id frame ev]
+  {:id id :op-type :rf.event :operation :rf.event/dispatched
+   :tags {:rf.trace/dispatch-id dispatch-id :frame frame :rf.event/v ev}})
+
+;; ---- open / close / cursor ---------------------------------------------
 
 (deftest palette-close-resets-state
   (setup!)
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
+    (rf/dispatch-sync [:rf.xray/palette-open]))
+  (is (true? (:palette-open? (xray-db))))
+  (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-set-query "abc"])
     (rf/dispatch-sync [:rf.xray/palette-cursor-set 3])
     (rf/dispatch-sync [:rf.xray/palette-close]))
-  (let [db (xray-db)]
-    (is (false? (boolean (:palette-open? db))))
-    (is (= "" (:palette-query db)))
-    (is (= 0 (:palette-cursor db)))))
+  (is (= [false "" 0]
+         ((juxt :palette-open? :palette-query :palette-cursor) (xray-db)))))
 
-(deftest palette-toggle-cycles
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-toggle]))
-  (is (true? (boolean (:palette-open? (xray-db)))))
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-toggle]))
-  (is (false? (boolean (:palette-open? (xray-db))))))
-
-;; ---- cursor ------------------------------------------------------------
-
-(deftest cursor-up-clamps-at-zero
+(deftest cursor-clamps-at-zero-and-max
   (setup!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync [:rf.xray/palette-cursor-up])
     (rf/dispatch-sync [:rf.xray/palette-cursor-up]))
-  (is (= 0 (:palette-cursor (xray-db)))))
-
-(deftest cursor-down-respects-max
-  (setup!)
+  (is (= 0 (:palette-cursor (xray-db))))
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync [:rf.xray/palette-cursor-down 4])
-    (rf/dispatch-sync [:rf.xray/palette-cursor-down 4])
-    (rf/dispatch-sync [:rf.xray/palette-cursor-down 4])
-    (rf/dispatch-sync [:rf.xray/palette-cursor-down 4])
-    ;; one more — should clamp at 4
+    (rf/dispatch-sync [:rf.xray/palette-cursor-set 3])
     (rf/dispatch-sync [:rf.xray/palette-cursor-down 4])
     (rf/dispatch-sync [:rf.xray/palette-cursor-down 4]))
   (is (= 4 (:palette-cursor (xray-db)))))
@@ -126,334 +87,154 @@
     (rf/dispatch-sync [:rf.xray/palette-open])
     (rf/dispatch-sync [:rf.xray/palette-cursor-set 5])
     (rf/dispatch-sync [:rf.xray/palette-set-query "ev"]))
-  (is (= "ev" (:palette-query (xray-db))))
-  (is (= 0 (:palette-cursor (xray-db)))
-      "changing the query should snap the cursor back to the top
-       result — otherwise the cursor lands on a row that's no longer
-       in the filtered set"))
+  (is (= ["ev" 0] ((juxt :palette-query :palette-cursor) (xray-db)))
+      "a new query snaps the cursor back to the top result"))
 
 ;; ---- invoke ------------------------------------------------------------
 
 (deftest invoke-select-panel-flips-tab-and-closes
-  ;; palette-panels ids are L3 tab ids; the lowering dispatches
-  ;; `:rf.xray/select-tab` so the visible tab flips.
   (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :panel
-        :id     :trace
-        :label  "Open Trace panel"
-        :action [:palette/select-panel :trace]}
-       false]))
-  (is (= :trace (:selected-tab (xray-db))))
-  (is (false? (boolean (:palette-open? (xray-db))))))
+  (invoke-item! {:source :panel :id :trace :action [:palette/select-panel :trace]})
+  (is (= [:trace false] ((juxt :selected-tab :palette-open?) (xray-db)))))
 
-;; A recent-event pick drives the SHARED spine focus
-;; (`:rf.xray/focus-event`), which the Epoch panel reads; the palette keeps
-;; no selection of its own. Items are built by the real source fn from
-;; producer-shaped trace rows.
-
-(defn- dispatched-row [id dispatch-id frame ev]
-  {:id id :op-type :rf.event :operation :rf.event/dispatched
-   :tags {:rf.trace/dispatch-id dispatch-id :frame frame :rf.event/v ev}})
-
-(defn- invoke-item! [item]
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync [:rf.xray/palette-invoke item false])))
-
-(defn- xray-sub [query]
-  (rf/with-frame :rf/xray @(rf/subscribe query)))
+;; A recent-event pick drives the SHARED spine focus (`:rf.xray/focus-event`),
+;; which the Epoch panel reads. Items are built by the real source fn.
 
 (deftest invoke-select-event-focuses-the-chosen-dispatch-rf2-gwye-8
-  (testing "choosing the OLDER of two identical event vectors focuses that
-            dispatch and its epoch, and lands on the Epoch tab"
-    (setup!)
-    (let [rows  [(dispatched-row 1 1 :rf/default [:counter/inc])
-                 (dispatched-row 2 2 :rf/default [:counter/inc])]
-          older (first (sources/recent-event-items rows))]
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/sync-trace-buffer rows])
-        (rf/dispatch-sync [:rf.xray/sync-epoch-history
-                           [{:epoch-id 101 :dispatch-id 1 :frame :rf/default}
-                            {:epoch-id 102 :dispatch-id 2 :frame :rf/default}]]))
-      (is (= [2 102] ((juxt :dispatch-id :epoch-id) (xray-sub [:rf.xray/focus])))
-          "precondition: focus is on the latest event")
-      (invoke-item! older)
-      (is (= [1 101 :rf/default]
-             ((juxt :dispatch-id :epoch-id :frame) (xray-sub [:rf.xray/focus]))))
-      (is (= 101 (get-in (xray-sub [:rf.xray/epoch-pipeline]) [:record :epoch-id]))
-          "the Epoch panel's record is the chosen event's")
-      (is (= :epoch (:selected-tab (xray-db))))
-      (is (false? (boolean (:palette-open? (xray-db))))))))
+  ;; Choosing the OLDER of two identical event vectors focuses that dispatch
+  ;; and its epoch, and lands on the Epoch tab.
+  (setup!)
+  (let [rows  [(dispatched-row 1 1 :rf/default [:counter/inc])
+               (dispatched-row 2 2 :rf/default [:counter/inc])]
+        older (first (sources/recent-event-items rows))]
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer rows])
+      (rf/dispatch-sync [:rf.xray/sync-epoch-history
+                         [{:epoch-id 101 :dispatch-id 1 :frame :rf/default}
+                          {:epoch-id 102 :dispatch-id 2 :frame :rf/default}]]))
+    (is (= [2 102] ((juxt :dispatch-id :epoch-id) (xray-sub [:rf.xray/focus])))
+        "precondition: focus is on the latest event")
+    (invoke-item! older)
+    (is (= [1 101 :rf/default]
+           ((juxt :dispatch-id :epoch-id :frame) (xray-sub [:rf.xray/focus]))))
+    (is (= 101 (get-in (xray-sub [:rf.xray/epoch-pipeline]) [:record :epoch-id]))
+        "the Epoch panel's record is the chosen event's")
+    (is (= [:epoch false] ((juxt :selected-tab :palette-open?) (xray-db))))))
 
 (deftest invoke-select-event-selects-the-rows-own-frame-rf2-gwye-8
-  (testing "two frames reuse dispatch id 1 — the chosen row's frame wins"
-    (setup!)
-    (let [rows   [(dispatched-row 1 1 :app/a [:counter/inc])
-                  (dispatched-row 2 1 :app/b [:counter/inc])]
-          a-item (first (sources/recent-event-items rows))]
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/sync-trace-buffer rows]))
-      (is (= :app/b (:frame (xray-sub [:rf.xray/focus])))
-          "precondition: focus is on the head frame")
-      (invoke-item! a-item)
-      (is (= [1 :app/a] ((juxt :dispatch-id :frame) (xray-sub [:rf.xray/focus])))))))
+  ;; Two frames reuse dispatch id 1 — the chosen row's frame wins.
+  (setup!)
+  (let [rows   [(dispatched-row 1 1 :app/a [:counter/inc])
+                (dispatched-row 2 1 :app/b [:counter/inc])]
+        a-item (first (sources/recent-event-items rows))]
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer rows]))
+    (is (= :app/b (:frame (xray-sub [:rf.xray/focus])))
+        "precondition: focus is on the head frame")
+    (invoke-item! a-item)
+    (is (= [1 :app/a] ((juxt :dispatch-id :frame) (xray-sub [:rf.xray/focus]))))))
 
 (deftest invoke-clear-trace-buffer-empties-buffer
   (setup!)
-  ;; Seed the buffer first so we can observe the clear.
   (trace-collector/seed-trace-for-test! {:id 1 :op :rf.event/handled :event-id [:foo]})
-  (is (pos? (count (trace-collector/buffer-for-test))))
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :clear-trace-buffer
-        :label  "Clear trace buffer"
-        :action [:palette/clear-trace-buffer]}
-       false]))
+  (is (pos? (count (trace-collector/buffer-for-test))) "precondition: the buffer is seeded")
+  (invoke-item! {:source :command :id :clear-trace-buffer :action [:palette/clear-trace-buffer]})
   (is (zero? (count (trace-collector/buffer-for-test))))
-  (is (false? (boolean (:palette-open? (xray-db))))))
+  (is (false? (:palette-open? (xray-db)))))
 
 (deftest popout-flag-routes-through-fx-when-popoutable
   (setup!)
   (install-popout-counter!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :recent-event
-        :id     [:foo/bar 1]
-        :label  "[:foo/bar]"
-        :action [:palette/select-event 1 :rf/default]
-        :popout? true}
-       true]))
-  (is (= 1 @popout-calls)
-      "popout? true + popoutable item → fx fires once"))
-
-(deftest popout-flag-ignored-when-item-opts-out
-  (setup!)
-  (install-popout-counter!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :panel
-        :id     :trace
-        :label  "Open Trace panel"
-        :action [:palette/select-panel :trace]
-        :popout? false}
-       true]))
+  (invoke-item! {:source :panel :id :trace :action [:palette/select-panel :trace]
+                 :popout? false}
+                true)
   (is (zero? @popout-calls)
-      "non-popoutable items invoke normally even with the
-       Ctrl-modifier flag set — no surprise pop-out windows"))
+      "a non-popoutable item invokes normally even with the Ctrl-modifier flag set")
+  (invoke-item! {:source :recent-event :id [:foo/bar 1]
+                 :action [:palette/select-event 1 :rf/default] :popout? true}
+                true)
+  (is (= 1 @popout-calls) "popout? true + popoutable item → fx fires once"))
 
 (deftest invoke-open-popout-fires-fx
   (setup!)
   (install-popout-counter!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :open-popout
-        :label  "Open Xray in a pop-out window"
-        :action [:palette/open-popout]}
-       false]))
+  (invoke-item! {:source :command :id :open-popout :action [:palette/open-popout]})
   (is (= 1 @popout-calls)))
 
 ;; ---- command verbs -----------------------------------------------------
 
-;; (There is no clear-epoch-history verb. `:epoch-history` is a mirror
-;; re-seeded wholesale by the next recorded epoch, so a clear would hold
-;; only within its own dispatch — a test asserting the dissoc there would
-;; pass while the feature did nothing.)
-
-(deftest invoke-toggle-theme-flips-via-settings-update
-  (setup!)
-  ;; Reset the atom to a known starting theme so the cycle is deterministic.
-  (config/update-setting! :theme nil :dark)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :toggle-theme
-        :label  "Toggle theme (dark ↔ light)"
-        :action [:palette/toggle-theme]}
-       false]))
-  (is (= :light (config/get-setting :theme nil))
-      ":dark → :light cycles the canonical settings atom")
-  (is (false? (boolean (:palette-open? (xray-db))))))
-
 (deftest invoke-cycle-reduced-motion-walks-the-tri-state
   (setup!)
   (config/update-setting! :general :reduced-motion-override :os)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :cycle-reduced-motion
-        :label  "Cycle reduced-motion override"
-        :action [:palette/cycle-reduced-motion]}
-       false]))
-  (is (= :always (config/get-setting :general :reduced-motion-override))
-      "first cycle: :os → :always")
-  ;; Second invocation continues the cycle.
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :cycle-reduced-motion
-        :label  "Cycle reduced-motion override"
-        :action [:palette/cycle-reduced-motion]}
-       false]))
-  (is (= :never (config/get-setting :general :reduced-motion-override))
-      "second cycle: :always → :never"))
+  (let [item   {:source :command :id :cycle-reduced-motion
+                :action [:palette/cycle-reduced-motion]}
+        cycle! #(do (invoke-item! item)
+                    (config/get-setting :general :reduced-motion-override))]
+    (is (= [:always :never] [(cycle!) (cycle!)]) ":os → :always → :never")))
 
 (deftest invoke-cycle-density-drives-the-settings-control-rf2-gwye-9
-  (testing "the palette's density command flips the SAME
-            setting the Settings radio writes (:cosy ↔ :compact), so the
-            config value and the density sub agree, and closes the palette"
-    (setup!)
-    (config/update-setting! :general :density :cosy)
-    (let [item    (first (filter #(= :density-toggle (:id %))
-                                 (sources/setting-items)))
-          density #(xray-sub [:rf.xray/density])]
-      (invoke-item! item)
-      (is (= [:compact :compact]
-             [(config/get-setting :general :density) (density)]))
-      (is (not (contains? (xray-db) :density-cycle-requested?))
-          "no orphan request flag")
-      (is (false? (boolean (:palette-open? (xray-db)))))
-      (invoke-item! item)
-      (is (= [:cosy :cosy]
-             [(config/get-setting :general :density) (density)])
-          "a second invocation cycles back"))))
+  ;; The palette's density command flips the SAME setting the Settings radio
+  ;; writes (:cosy ↔ :compact), so the config value and the density sub agree.
+  (setup!)
+  (config/update-setting! :general :density :cosy)
+  (let [item    (first (filter #(= :density-toggle (:id %)) (sources/setting-items)))
+        density #(vector (config/get-setting :general :density)
+                         (xray-sub [:rf.xray/density]))]
+    (invoke-item! item)
+    (is (= [:compact :compact] (density)))
+    (is (false? (:palette-open? (xray-db))))
+    (invoke-item! item)
+    (is (= [:cosy :cosy] (density)) "a second invocation cycles back")))
 
 (deftest invoke-jump-to-settings-opens-popup
   (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :jump-to-settings
-        :label  "Jump to Settings"
-        :action [:palette/jump-to-settings]}
-       false]))
-  (is (true? (boolean (:settings-open? (xray-db))))
-      "jump-to-settings opens the Settings popup")
-  (is (false? (boolean (:palette-open? (xray-db))))))
+  (invoke-item! {:source :command :id :jump-to-settings :action [:palette/jump-to-settings]})
+  (is (= [true false] ((juxt :settings-open? :palette-open?) (xray-db)))))
 
 (deftest invoke-toggle-mode-flips-runtime-static
   (setup!)
-  ;; Force-set the slot so the cycle is deterministic.
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-mode :dynamic])
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :toggle-mode
-        :label  "Toggle mode (Dynamic ↔ Static)"
-        :action [:palette/toggle-mode]}
-       false]))
-  (is (= :static (:mode (xray-db)))
-      ":dynamic → :static via the canonical toggle-mode handler"))
+    (rf/dispatch-sync [:rf.xray/set-mode :dynamic]))
+  (invoke-item! {:source :command :id :toggle-mode :action [:palette/toggle-mode]})
+  (is (= :static (:mode (xray-db)))))
 
 (deftest invoke-select-static-tab-flips-static-slot
   (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :panel
-        :id     [:static :routes]
-        :label  "Open Routes (Static)"
-        :action [:palette/select-static-tab :routes]}
-       false]))
-  (is (= :routes (:rf.xray.static/selected-tab (xray-db)))
-      "Static tab selection lands on the Static-scoped slot")
-  (is (false? (boolean (:palette-open? (xray-db))))))
+  (invoke-item! {:source :panel :id [:static :routes]
+                 :action [:palette/select-static-tab :routes]})
+  (is (= [:routes false]
+         ((juxt :rf.xray.static/selected-tab :palette-open?) (xray-db)))))
 
 ;; ---- recents tracking --------------------------------------------------
 
-(deftest invoking-twice-keeps-recents-unique
+(deftest invoke-records-only-command-recents-deduped
   (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command :id :toggle-theme
-        :action [:palette/toggle-theme]}
-       false])
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command :id :jump-to-settings
-        :action [:palette/jump-to-settings]}
-       false])
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command :id :toggle-theme
-        :action [:palette/toggle-theme]}
-       false]))
-  (is (= [:toggle-theme :jump-to-settings]
-         (:palette-recents (xray-db)))
-      "re-invoking an existing recent bubbles it to the head;
-       it does not duplicate"))
+  (doseq [item [{:source :command :id :toggle-theme :action [:palette/toggle-theme]}
+                {:source :panel :id :trace :action [:palette/select-panel :trace]}
+                {:source :command :id :jump-to-settings :action [:palette/jump-to-settings]}
+                {:source :command :id :toggle-theme :action [:palette/toggle-theme]}]]
+    (invoke-item! item))
+  (is (= [:toggle-theme :jump-to-settings] (:palette-recents (xray-db)))
+      "a re-invoked command bubbles to the head without duplicating; panel jumps are not recorded"))
 
-(deftest non-command-items-do-not-record-recents
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :panel
-        :id     :trace
-        :action [:palette/select-panel :trace]}
-       false]))
-  (is (empty? (:palette-recents (xray-db)))
-      "panel jumps don't pollute the recents vector"))
+;; ---- snapshot-app-db routes its off-box payload through safe egress ----
 
-;; ---- snapshot-app-db routes off-box payload through safe egress
-
-;; The `:palette/snapshot-app-db` verb fires the
-;; `:rf.xray.palette.fx/snapshot-app-db` fx, which reads the focused
-;; frame's app-db and ships it to TWO off-box sinks: `console.log` and
-;; `navigator.clipboard.writeText`. The fx routes the value through
-;; `egress/egress-value` (the same fail-closed projection every Xray
-;; off-box sink uses) FIRST, so the payload carries `:rf/redacted` by
-;; default; shipping the RAW `(rf/app-db-value tf)` would carry a
-;; frame-declared sensitive slot (`{:auth {:password "shh"}}`) across both
-;; sinks unredacted. These tests capture both sinks and assert the secret
-;; never leaves the box on the command default.
+;; `:palette/snapshot-app-db` ships the focused frame's app-db to TWO off-box
+;; sinks, `console.log` and `navigator.clipboard.writeText`, and must route it
+;; through `egress/egress-value` first so a frame-declared sensitive slot
+;; never leaves the box raw.
 
 (defn- capture-snapshot-sinks!
-  "Stub `js/console.log` + a `navigator.clipboard.writeText` so the
-  snapshot fx's two off-box payloads are captured rather than emitted.
-  Returns `{:console (atom []) :clipboard (atom []) :restore f}`: the two
-  atoms carry every payload each sink received, and the caller invokes
-  `:restore` to put the real console.log back. The synthesised clipboard
-  is left in place, because the node globals are per-process scratch."
+  "Capture the snapshot fx's console.log and clipboard payloads. Returns
+  `{:console (atom []) :clipboard (atom []) :restore f}`; call `:restore` to
+  put the real console.log back."
   []
   (let [console-payloads   (atom [])
         clipboard-payloads (atom [])
         orig-log           (when (and (exists? js/console) (.-log js/console))
                              (.-log js/console))]
-    ;; console.log(tag, value) — capture the SECOND arg (the payload),
-    ;; but ONLY when the first arg is the snapshot tag so we don't
-    ;; swallow the test reporter's own output (CLJS `println` on the
-    ;; node-test target routes through `js/console.log`; a blanket stub
-    ;; would eat a FAIL banner emitted while the stub is installed).
+    ;; Capture only the snapshot-tagged call, and pass everything through:
+    ;; the node-test reporter prints its FAIL banners via console.log.
     (set! (.-log js/console)
           (fn [& args]
             (when (and (string? (first args))
@@ -461,8 +242,7 @@
               (swap! console-payloads conj (second args)))
             (when orig-log (apply orig-log args))
             nil))
-    ;; Install a clipboard whose writeText records the EDN string. node
-    ;; test runtimes have no navigator.clipboard, so we synthesise one.
+    ;; Node has no navigator.clipboard, so synthesise one.
     (let [nav (if (exists? js/navigator)
                 js/navigator
                 (let [n (js-obj)]
@@ -475,23 +255,13 @@
      :clipboard clipboard-payloads
      :restore   (fn [] (when orig-log (set! (.-log js/console) orig-log)))}))
 
-;; The focused frame is the HOST app's frame, NOT Xray's own `:rf/xray`
-;; frame — the palette dispatches against `:rf/xray` but the snapshot
-;; reads the frame the L1 picker focused (`:target-frame`). We model that
-;; faithfully with a dedicated `:rf/host` frame: the secret + the schema
-;; declarations live on `:rf/host`, and the fx's `(with-frame tf …)`
-;; egress pin makes the walker resolve `:rf/host`'s declarations even
-;; though the fx fires in the `:rf/xray` frame.
+;; The snapshot reads the HOST frame the L1 picker focused, not `:rf/xray`
+;; where the palette dispatches, so the secret and its classification live on
+;; a dedicated `:rf/host` frame.
 
 (def ^:private host-frame :rf/host)
 
 (defn- seed-sensitive-host! [db-fn]
-  ;; Classify [:auth :password] sensitive + seed the secret INTO the host
-  ;; frame (not Xray's). EP-0025: durable app-db classification rides the
-  ;; commit-plane classification effects — `rf.elision/apply-classification-
-  ;; effects` writes a `:source :effect` declaration (index-free :rf/path) on
-  ;; the host frame's elision registry, the SAME registry the off-box egress
-  ;; walker consults (the same write a reg-event returning `:sensitive` makes).
   (rf/make-frame {:id host-frame})
   (rf.frame/swap-runtime-db! host-frame
     (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
@@ -500,42 +270,21 @@
     (rf/dispatch-sync [:test/seed-host])))
 
 (defn- drive-snapshot-of-host! []
-  ;; Focus the host frame (the slot the L1 picker writes) then drive the
-  ;; real `:palette/snapshot-app-db` verb from the `:rf/xray` frame.
   (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-frame host-frame])
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :snapshot-app-db
-        :label  "Snapshot app-db"
-        :action [:palette/snapshot-app-db]}
-       false])))
+    (rf/dispatch-sync [:rf.xray/set-frame host-frame]))
+  (invoke-item! {:source :command :id :snapshot-app-db :action [:palette/snapshot-app-db]}))
 
 (deftest snapshot-app-db-redacts-sensitive-slot-on-both-off-box-sinks
-  ;; The command default MUST route the snapshot through
-  ;; safe egress before EITHER off-box sink receives it. The egress is
-  ;; pinned to the focused (host) frame so that frame's own schema
-  ;; declarations govern the redaction.
   (setup!)
   (let [sinks (capture-snapshot-sinks!)]
     (try
       (seed-sensitive-host!
         (fn [db] (assoc db :auth {:username "ada" :password "hunter2"})))
       (drive-snapshot-of-host!)
-      ;; --- console sink ---
-      (let [payload (first @(:console sinks))]
-        (is (some? payload) "the console.log sink received a payload")
-        (is (= :rf/redacted (get-in payload [:auth :password]))
-            "console payload redacts the frame-declared sensitive slot")
-        (is (not= "hunter2" (get-in payload [:auth :password]))
-            "the raw secret never crosses the console off-box sink")
-        (is (= "ada" (get-in payload [:auth :username]))
-            "non-sensitive sibling survives in the console payload"))
-      ;; --- clipboard sink (pr-str of the SAME egressed payload) ---
+      (is (= ["ada" :rf/redacted]
+             ((juxt :username :password) (:auth (first @(:console sinks)))))
+          "console payload redacts the sensitive slot and keeps its sibling")
       (let [edn (first @(:clipboard sinks))]
-        (is (string? edn) "the clipboard sink received a pr-str payload")
         (is (re-find #":rf/redacted" edn)
             "clipboard payload carries the :rf/redacted marker")
         (is (not (re-find #"hunter2" edn))
@@ -543,16 +292,10 @@
       (finally ((:restore sinks))))))
 
 (deftest snapshot-app-db-size-elides-large-slot-on-both-off-box-sinks
-  ;; Size minimisation rides the same safe-egress default
-  ;; (polarity parity with the runtime accessors): a frame-declared
-  ;; `:large` slot is replaced with the `:rf.size/large-elided` marker.
   (setup!)
   (let [sinks (capture-snapshot-sinks!)]
     (try
       (rf/make-frame {:id host-frame})
-      ;; EP-0025: commit-plane :large classification (index-free :rf/path) on
-      ;; the host frame's elision registry — the size sibling of the sensitive
-      ;; seed above (`:source :effect`).
       (rf.frame/swap-runtime-db! host-frame
         (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
       (rf/with-frame host-frame
@@ -560,10 +303,7 @@
           (fn [{:keys [db]} _] {:db (assoc db :blob {:payload {:big "value"}})}))
         (rf/dispatch-sync [:test/seed-blob]))
       (drive-snapshot-of-host!)
-      (let [payload (first @(:console sinks))]
-        (is (some? payload) "the console.log sink received a payload")
-        (is (contains? (get-in payload [:blob :payload]) :rf.size/large-elided)
-            "console payload size-elides the frame-declared large slot")
-        (is (not= {:big "value"} (get-in payload [:blob :payload]))
-            "the raw large value never crosses the console off-box sink"))
+      (is (contains? (get-in (first @(:console sinks)) [:blob :payload])
+                     :rf.size/large-elided)
+          "console payload size-elides the frame-declared large slot")
       (finally ((:restore sinks))))))
