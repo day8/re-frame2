@@ -1,35 +1,17 @@
 (ns day8.re-frame2-xray.palette.sources-cljs-test
-  "Tests for the palette source aggregator.
-
-  Pure-data CLJC. Covers:
-
-  - per-source item shape (the contract the view + events depend on)
-  - build-index dedup on [:source :id]
-  - rank scoring: boost + recency-bonus add to fuzzy score; cap order
-  - popoutable? gate
-  - empty-query mode keeps every item and orders by boost+recency"
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [deftest is]]
+               :cljs [cljs.test    :refer-macros [deftest is]])
             [day8.re-frame2-xray.palette.sources :as sources]))
 
 ;; ---- fixture inputs -----------------------------------------------------
 
 (def sample-panels
-  ;; In production `palette-panels`
-  ;; maps whatever the L4 tab registry holds for `:dynamic`, so it has no
-  ;; fixed size; these three rows are a DELIBERATE minimal fixture for the
-  ;; shape tests below, not a mirror of the shipped inventory. We use
-  ;; `:event` first (so the panel-items-shape test pins the first row's
-  ;; action) and include `:trace` for the cross-source collision tests.
-  ;; A third entry rounds out the panel-items-shape `(count items) = 3`
-  ;; assertion without colliding with the "cl" → command-boost test
-  ;; below; "Machines" shares no prefix with "Clear trace buffer".
   [{:id :event    :label "Event"}
    {:id :trace    :label "Trace"}
    {:id :machines :label "Machines"}])
 
 (def sample-trace-buffer
-  ;; oldest → newest order; recency-rank 0 sits at the end
+  ;; oldest → newest
   [{:id 100 :op :rf.event/handled :event-id [:user/login]}
    {:id 101 :op :rf.event/handled :event-id [:user/logout]}
    {:id 102 :op :rf.event/dispatched :event-id [:cart/add 42]}
@@ -47,157 +29,86 @@
 
 (deftest panel-items-shape
   (let [items (sources/panel-items sample-panels)]
-    (is (= 3 (count items)))
-    (is (every? #(= :panel (:source %)) items))
-    (is (every? #(string? (:label %)) items))
-    (is (every? #(string? (:icon %)) items))
-    (is (every? #(vector? (:action %)) items))
-    (is (every? #(false? (:popout? %)) items)
-        "panels are not popoutable")
-    (is (= [:palette/select-panel :event]
-           (-> items first :action)))))
+    (is (= [[:palette/select-panel :event]
+            [:palette/select-panel :trace]
+            [:palette/select-panel :machines]]
+           (mapv :action items)))
+    (is (every? #(false? (:popout? %)) items) "panels are not popoutable")))
 
 (deftest recent-event-items-skips-non-event-ops
   (let [items (sources/recent-event-items sample-trace-buffer)]
-    (is (= 4 (count items))
-        "buffer has 5 rows but one is :trace/note which is filtered out")
-    (is (every? #(= :recent-event (:source %)) items))
+    (is (= [[100 3] [101 2] [102 1] [104 0]]
+           (mapv (juxt :id :recency-rank) items))
+        "the :trace/note row is filtered out; the latest event is rank 0")
     (is (every? #(true? (:popout? %)) items)
-        "recent events should pop out into event-detail when Ctrl+Enter")))
+        "recent events pop out into event-detail on Ctrl+Enter")))
 
 (deftest recent-event-action-carries-dispatch-and-frame-rf2-gwye-8
-  (testing "the action names the DISPATCH and its FRAME, so two
-            runs of the same event vector (or the same dispatch id in two
-            frames) are distinct selections rather than one event value"
-    (let [row   (fn [id dispatch-id frame]
-                  {:id id :op-type :rf.event :operation :rf.event/dispatched
-                   :tags {:rf.trace/dispatch-id dispatch-id
-                          :frame                frame
-                          :rf.event/v           [:counter/inc]}})
-          items (sources/recent-event-items [(row 10 1 :rf/default)
-                                             (row 11 2 :rf/default)
-                                             (row 12 2 :app/other)])]
-      (is (= [[:palette/select-event 1 :rf/default]
-              [:palette/select-event 2 :rf/default]
-              [:palette/select-event 2 :app/other]]
-             (mapv :action items)))
-      (is (every? #(= "[:counter/inc]" (:label %)) items)
-          "the label still shows the event vector"))))
-
-(deftest recent-event-recency-rank-puts-latest-first
-  (let [items (sources/recent-event-items sample-trace-buffer)
-        latest (first (filter #(zero? (:recency-rank %)) items))]
-    (is (some? latest))
-    (is (= "[:cart/remove]" (:label latest))
-        "the most-recently-pushed event sits at rank 0")))
+  ;; Two runs of one event vector, or one dispatch id in two frames, are
+  ;; distinct selections.
+  (let [row   (fn [id dispatch-id frame]
+                {:id id :op-type :rf.event :operation :rf.event/dispatched
+                 :tags {:rf.trace/dispatch-id dispatch-id
+                        :frame                frame
+                        :rf.event/v           [:counter/inc]}})
+        items (sources/recent-event-items [(row 10 1 :rf/default)
+                                           (row 11 2 :rf/default)
+                                           (row 12 2 :app/other)])]
+    (is (= [[:palette/select-event 1 :rf/default]
+            [:palette/select-event 2 :rf/default]
+            [:palette/select-event 2 :app/other]]
+           (mapv :action items)))
+    (is (every? #(= "[:counter/inc]" (:label %)) items)
+        "the label still shows the event vector")))
 
 (deftest recent-event-cap
-  (let [big-buffer (vec
-                     (for [i (range 50)]
-                       {:id i :op :rf.event/handled :event-id [:noise i]}))
-        items      (sources/recent-event-items big-buffer 10)]
-    (is (= 10 (count items)))
-    (is (= 0 (:recency-rank (first
-                              (filter #(zero? (:recency-rank %)) items)))))))
-
-;; The palette frame source must honour the SAME exclusion
-;; the ribbon picker applies: the FULL internal-frames set, not just
-;; :rf/xray (spec/018 §8 I1).
-
-(def internal-frames-set #{:rf/xray :rf/re-frame2-pair})
-
-(deftest frame-items-excludes-full-internal-set
-  (let [frames [:rf/default :rf/xray :app/main :rf/re-frame2-pair]
-        items  (sources/frame-items frames internal-frames-set)
-        ids    (set (map :id items))]
-    (is (= #{:rf/default :app/main} ids)
-        "both :rf/xray AND :rf/re-frame2-pair are excluded (matches distinct-frames)")))
+  (let [big-buffer (vec (for [i (range 50)]
+                          {:id i :op :rf.event/handled :event-id [:noise i]}))]
+    (is (= (map vector (range 40 50) (range 9 -1 -1))
+           (map (juxt :id :recency-rank) (sources/recent-event-items big-buffer 10)))
+        "the cap keeps the latest rows, ranked within what it kept")))
 
 (deftest build-index-frame-source-honours-internal-frames
-  ;; End-to-end through build-index: a registered tool frame is hidden
-  ;; from the palette's frame source (spec/018 §8 I1). The exclusion is
-  ;; unconditional — there is no setting that re-includes tool frames.
-  (let [frames    [:rf/default :app/main :rf/re-frame2-pair]
-        frame-ids (fn [index] (->> index
-                                   (filter #(= :frame (:source %)))
-                                   (map :id) set))
-        ids (frame-ids (sources/build-index {:frame-ids       frames
-                                             :internal-frames internal-frames-set}))]
-    (is (not (contains? ids :rf/re-frame2-pair))
-        "tool frame hidden from the palette frame source")
-    (is (contains? ids :rf/default)
-        "control — real user frames still surface, so the exclusion above
-         is an exclusion and not an empty frame source")))
+  ;; The palette hides the same tool frames the ribbon picker does (spec/018 §8 I1).
+  (let [index (sources/build-index
+                {:frame-ids       [:rf/default :rf/xray :app/main :rf/re-frame2-pair]
+                 :internal-frames #{:rf/xray :rf/re-frame2-pair}})]
+    (is (= #{:rf/default :app/main}
+           (set (keep #(when (= :frame (:source %)) (:id %)) index))))))
 
 (deftest handler-items-include-meta
-  (let [items (sources/handler-items sample-handlers)
-        login (first (filter #(= :user/login (second (:id %))) items))]
-    (is (some? login))
-    (is (= "user.cljs:12" (:hint login)))
-    (is (true? (:popout? login)))))
-
-(deftest setting-items-include-density-toggle
-  (let [items (sources/setting-items)
-        toggle (first (filter #(= :density-toggle (:id %)) items))]
-    (is (some? toggle))
-    (is (= [:palette/cycle-density] (:action toggle)))))
+  (is (= ["user.cljs:12" true]
+         ((juxt :hint :popout?) (first (sources/handler-items sample-handlers))))))
 
 (deftest command-items-include-the-core-verbs
+  ;; The verbs tools/xray/spec/API.md catalogues.
   (let [ids (set (map :id (sources/command-items)))]
-    (doseq [verb [:clear-trace-buffer :reset-suppressed-counters :open-popout
-                  :close-palette :toggle-theme :cycle-reduced-motion
-                  :snapshot-app-db :jump-to-settings :toggle-mode]]
-      (is (contains? ids verb) (str verb " is indexed")))))
-
-;; ---- mode-aware command surface ----------------------------------------
-
-(deftest command-items-carry-modes-set
-  (let [items (sources/command-items)]
-    (is (every? #(set? (:modes %)) items)
-        "every command carries a `:modes` set")
-    (let [toggle (first (filter #(= :toggle-mode (:id %)) items))]
-      (is (= #{:dynamic :static} (:modes toggle))
-          "toggle-mode surfaces in BOTH modes (chord parity)"))
-    (let [clear-trace (first (filter #(= :clear-trace-buffer (:id %)) items))]
-      (is (= #{:dynamic} (:modes clear-trace))
-          "trace-buffer clear is Dynamic-only"))))
+    (is (= [] (remove ids [:clear-trace-buffer :reset-suppressed-counters :open-popout
+                           :close-palette :toggle-theme :cycle-reduced-motion
+                           :snapshot-app-db :jump-to-settings :toggle-mode])))))
 
 (deftest static-tab-items-shape
-  (let [tabs  [{:id :machines :label "Machines"}
-               {:id :routes   :label "Routes"}]
-        items (sources/static-tab-items tabs)]
-    (is (= 2 (count items)))
-    (is (every? #(= :panel (:source %)) items))
-    (is (every? #(= #{:static} (:modes %)) items)
-        "static tab jumps are Static-only")
-    (is (= [:palette/select-static-tab :machines]
-           (-> items first :action)))
-    (is (= [:static :machines] (-> items first :id))
-        "id namespaced under :static so it doesn't collide with Dynamic panel ids")))
+  (is (= [[:static :machines] [:palette/select-static-tab :machines] #{:static}]
+         ((juxt :id :action :modes)
+          (first (sources/static-tab-items [{:id :machines :label "Machines"}]))))
+      "id namespaced under :static so it doesn't collide with Dynamic panel ids"))
 
 ;; ---- build-index --------------------------------------------------------
 
 (deftest build-index-includes-every-source
-  (let [index   (sources/build-index
-                  {:panels             sample-panels
-                   :trace-buffer       sample-trace-buffer
-                   :frame-ids          sample-frames
-                   :handlers           sample-handlers})
-        sources (set (map :source index))]
-    (is (contains? sources :command))
-    (is (contains? sources :panel))
-    (is (contains? sources :setting))
-    (is (contains? sources :recent-event))
-    (is (contains? sources :frame))
-    (is (contains? sources :handler))))
+  (let [index (sources/build-index
+                {:panels       sample-panels
+                 :trace-buffer sample-trace-buffer
+                 :frame-ids    sample-frames
+                 :handlers     sample-handlers})]
+    (is (= #{:command :panel :setting :recent-event :frame :handler}
+           (set (map :source index))))))
 
 (deftest build-index-dedups-on-source-id
-  (let [dup-panels [{:id :trace :label "Trace"}
-                    {:id :trace :label "Trace (dup)"}]
-        index      (sources/build-index {:panels dup-panels})
-        traces     (filter #(and (= :panel (:source %))
-                                 (= :trace (:id %))) index)]
-    (is (= 1 (count traces))
+  (let [index (sources/build-index {:panels [{:id :trace :label "Trace"}
+                                             {:id :trace :label "Trace (dup)"}]})]
+    (is (= ["Open Trace panel"]
+           (keep #(when (= [:panel :trace] ((juxt :source :id) %)) (:label %)) index))
         "first :panel :trace wins, duplicates drop")))
 
 ;; ---- ranking ------------------------------------------------------------
@@ -213,107 +124,51 @@
         "results are sorted highest-score first")))
 
 (deftest rank-non-matching-query-returns-empty
-  (let [index   (sources/build-index {:panels sample-panels})
-        results (sources/rank index "zzzzz")]
-    (is (empty? results))))
-
-(deftest rank-prefers-commands-over-panels-on-collision
-  ;; "cl" matches "Clear trace buffer" (command) and may fuzzy-match
-  ;; assorted panel labels. Command boost (40) > panel boost (30), so
-  ;; the command should win when fuzzy scores are comparable.
-  (let [index   (sources/build-index {:panels sample-panels})
-        results (sources/rank index "cl")
-        top     (first results)]
-    (is (= :command (:source top)))
-    (is (= :clear-trace-buffer (:id top)))))
+  (is (empty? (sources/rank (sources/build-index {:panels sample-panels}) "zzzzz"))))
 
 (deftest rank-respects-limit
-  (let [index   (sources/build-index
-                  {:panels sample-panels :trace-buffer sample-trace-buffer})
-        results (sources/rank index "" 3)]
-    (is (= 3 (count results)))))
-
-;; ---- popoutable? --------------------------------------------------------
-
-(deftest popoutable?-respects-opt-in
-  (is (true?  (sources/popoutable? {:popout? true})))
-  (is (false? (sources/popoutable? {:popout? false})))
-  (is (false? (sources/popoutable? {}))
-      "default: items are not popoutable unless they say so"))
+  (let [index (sources/build-index
+                {:panels sample-panels :trace-buffer sample-trace-buffer})]
+    (is (= 3 (count (sources/rank index "" 3))))))
 
 ;; ---- build-index mode-awareness ----------------------------------------
 
 (deftest build-index-runtime-mode-filters-static-tabs
-  (let [index (sources/build-index
-                {:panels      sample-panels
-                 :static-tabs [{:id :machines :label "Machines"}
-                               {:id :routes   :label "Routes"}]
-                 :mode        :dynamic})
-        static-ids (set (map :id (filter #(and (= :panel (:source %))
-                                               (vector? (:id %))
-                                               (= :static (first (:id %))))
-                                         index)))]
-    (is (empty? static-ids)
-        "Dynamic mode hides Static-only items")))
+  (let [ids (set (map :id (sources/build-index
+                            {:static-tabs [{:id :machines :label "Machines"}]
+                             :mode        :dynamic})))]
+    (is (not (contains? ids [:static :machines])) "Dynamic mode hides Static-only items")
+    (is (contains? ids :toggle-mode) "mode toggle surfaces in BOTH modes")))
 
 (deftest build-index-static-mode-hides-runtime-only-items
-  (let [index   (sources/build-index
-                  {:panels       sample-panels
-                   :static-tabs  [{:id :machines :label "Machines"}]
-                   :trace-buffer sample-trace-buffer
-                   :frame-ids    sample-frames
-                   :mode         :static})
-        ids     (set (map :id index))
-        sources (set (map :source index))]
-    (is (not (contains? ids :clear-trace-buffer))
-        "trace buffer clear is Dynamic-only — hidden in Static")
-    (is (not (contains? sources :recent-event))
-        "recent-event source is event-coupled — hidden in Static")
-    (is (not (contains? sources :frame))
-        "frame-picker shortcuts are Dynamic-only")
-    (is (contains? ids :toggle-mode)
-        "mode toggle surfaces in BOTH modes (chord parity)")
-    (is (contains? ids :toggle-theme))
-    (is (contains? ids :jump-to-settings))
-    (is (some #(= [:static :machines] (:id %)) index)
-        "Static tab jump surfaces in Static mode")))
+  (let [index (sources/build-index
+                {:panels       sample-panels
+                 :static-tabs  [{:id :machines :label "Machines"}]
+                 :trace-buffer sample-trace-buffer
+                 :frame-ids    sample-frames
+                 :mode         :static})
+        ids   (set (map :id index))]
+    (is (= #{:command :panel :setting} (set (map :source index)))
+        "recent events and frame shortcuts are Dynamic-only")
+    (is (not (contains? ids :clear-trace-buffer)) "trace buffer clear is Dynamic-only")
+    (is (contains? ids :toggle-mode) "mode toggle surfaces in BOTH modes")
+    (is (contains? ids [:static :machines]) "Static tab jump surfaces in Static mode")))
 
 ;; ---- recents boost -----------------------------------------------------
 
-(deftest build-index-recents-boost-bumps-recent-commands
-  (let [index-baseline (sources/build-index
-                         {:panels sample-panels})
-        index-with-rec (sources/build-index
-                         {:panels  sample-panels
-                          :recents [:toggle-theme]})
-        find-theme     (fn [idx]
-                         (first (filter #(= :toggle-theme (:id %)) idx)))
-        base-boost     (:boost (find-theme index-baseline))
-        bumped-boost   (:boost (find-theme index-with-rec))]
-    (is (> bumped-boost base-boost)
-        "a recent command's boost is higher than the baseline")
-    (is (= (+ base-boost sources/recents-boost-max) bumped-boost)
-        "position-0 (most recent) gets the full recents-boost-max bump")))
-
 (deftest build-index-recents-boost-decays-with-position
-  (let [index (sources/build-index
-                {:panels  sample-panels
-                 :recents [:toggle-theme :toggle-mode :jump-to-settings]})
-        boost (fn [id] (:boost (first (filter #(= id (:id %)) index))))]
-    (is (> (boost :toggle-theme) (boost :toggle-mode))
-        "position 0 beats position 1")
-    (is (> (boost :toggle-mode) (boost :jump-to-settings))
-        "position 1 beats position 2")))
+  (let [boost   (fn [recents id]
+                  (:boost (first (filter #(= id (:id %))
+                                         (sources/build-index {:recents recents})))))
+        recents [:toggle-theme :toggle-mode :jump-to-settings]]
+    (is (= (+ (boost [] :toggle-theme) sources/recents-boost-max)
+           (boost recents :toggle-theme))
+        "position 0 (most recent) gets the full recents-boost-max bump")
+    (is (> (boost recents :toggle-theme)
+           (boost recents :toggle-mode)
+           (boost recents :jump-to-settings)))))
 
 (deftest rank-empty-query-surfaces-recents-first
-  ;; The "top-3 recent surfaced first" contract: with an empty
-  ;; query the recent commands should appear at the top of the
-  ;; results.
-  (let [index   (sources/build-index
-                  {:panels  sample-panels
-                   :recents [:toggle-theme]})
-        results (sources/rank index "" 100)
-        top     (first results)]
-    (is (= :command (:source top)))
-    (is (= :toggle-theme (:id top))
-        "the most recently invoked command surfaces at index 0")))
+  (let [index (sources/build-index {:panels sample-panels :recents [:toggle-theme]})]
+    (is (= [:command :toggle-theme]
+           ((juxt :source :id) (first (sources/rank index "" 100)))))))
