@@ -32,7 +32,6 @@
   `spine-filters-cljs-test` and `palette/aria-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.panels.cancellation-cascade
              :as cancellation-cascade]
@@ -58,51 +57,23 @@
 ;; directly; there is no Xray walker facade.
 
 (defn- assert-dialog-contract!
-  "Common assertions: the dialog node must carry role + aria-modal,
-  and either aria-label or aria-labelledby resolving to a real id
-  in the same tree."
+  "The dialog node is a modal dialog with an accessible name, and it
+  attaches the `dialog-ref` focus trap plus the `:tab-index` its
+  focus-on-open fallback needs. `dialog-ref` returns a fresh closure per
+  call, so the ref is checked as a fn rather than by identity; a labelled
+  modal with no trap is an a11y regression this catches."
   [tree dialog-testid label]
-  (let [dialog (rf.test-helpers/find-by-testid tree dialog-testid)
-        attrs  (rf.test-helpers/attrs dialog)]
-    (is (some? dialog) (str label ": dialog wrapper renders"))
-    (is (= "dialog" (:role attrs))
-        (str label ": role=\"dialog\""))
-    (is (= "true" (:aria-modal attrs))
-        (str label ": aria-modal=\"true\""))
-    (let [labelled-by (:aria-labelledby attrs)
-          label-attr  (:aria-label attrs)]
-      (is (or (and labelled-by
-                   (some? (rf.test-helpers/find-by-attr tree :id labelled-by)))
-              (and (string? label-attr) (seq label-attr)))
-          (str label ": accessible name set — either aria-labelledby
-                points at a heading id rendered in the same tree, or
-                aria-label carries a non-empty string")))))
-
-(defn- assert-dialog-focus-ref!
-  "Assert the dialog node actually ATTACHES the focus-trap ref + the
-  `tab-index=\"-1\"` fallback target.
-
-  `assert-dialog-contract!` proves the modal is *labelled*, but a
-  labelled dialog with NO focus trap passes that gate. `dialog-ref`
-  (the WAI-ARIA APG capture/trap/restore closure) is wired via the
-  dialog node's `:ref`. Each `dialog-ref` call returns a FRESH closure
-  so identity comparison is impossible — instead we assert the dialog
-  node carries a `:ref` that is a function, plus the
-  `tab-index=\"-1\"` (or `0`) the ref's focus-on-open fallback
-  requires. A renderer that ships role/aria-modal but drops the `:ref`
-  fails here rather than staying green."
-  [tree dialog-testid label]
-  (let [dialog (rf.test-helpers/find-by-testid tree dialog-testid)
-        attrs  (rf.test-helpers/attrs dialog)]
-    (is (some? dialog) (str label ": dialog wrapper renders"))
-    (is (fn? (:ref attrs))
-        (str label ": dialog node attaches a :ref (the a11y/dialog-ref
-              focus-trap callback) — a labelled modal with no trap is
-              an a11y regression"))
-    (is (contains? attrs :tab-index)
-        (str label ": dialog node carries :tab-index so dialog-ref's
-              focus-on-open fallback (focus the root when there is no
-              focusable child) has a target"))))
+  (let [attrs       (rf.test-helpers/attrs (rf.test-helpers/find-by-testid tree dialog-testid))
+        labelled-by (:aria-labelledby attrs)
+        label-attr  (:aria-label attrs)]
+    (is (= ["dialog" "true" true true]
+           [(:role attrs) (:aria-modal attrs) (fn? (:ref attrs)) (contains? attrs :tab-index)])
+        (str label ": a modal dialog carrying the focus-trap ref and a focus target"))
+    (is (or (and labelled-by
+                 (some? (rf.test-helpers/find-by-attr tree :id labelled-by)))
+            (and (string? label-attr) (seq label-attr)))
+        (str label ": accessible name set — aria-labelledby points at a
+              heading id in the same tree, or aria-label is non-empty"))))
 
 ;; -------------------------------------------------------------------------
 ;; (1) Settings popup
@@ -113,10 +84,7 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray/settings-open]))
   (let [tree (rf/with-frame :rf/xray (modal-trees/settings-popup-tree rf/dispatch))]
-    (assert-dialog-contract! tree "rf-xray-settings-dialog"
-                             "Settings popup")
-    (assert-dialog-focus-ref! tree "rf-xray-settings-dialog"
-                              "Settings popup")))
+    (assert-dialog-contract! tree "rf-xray-settings-dialog" "Settings popup")))
 
 (deftest settings-popup-close-button-has-aria-label
   (testing "Settings ✕ button accessibility name"
@@ -157,10 +125,7 @@
 (deftest mute-manager-is-a-labelled-focus-trapped-dialog
   (xray-setup!)
   (let [tree (rf/with-frame :rf/xray (mute-manager-dialog-tree))]
-    (assert-dialog-contract! tree "rf-xray-mute-manager-dialog"
-                             "Mute manager")
-    (assert-dialog-focus-ref! tree "rf-xray-mute-manager-dialog"
-                              "Mute manager")))
+    (assert-dialog-contract! tree "rf-xray-mute-manager-dialog" "Mute manager")))
 
 ;; -------------------------------------------------------------------------
 ;; (3) Filter edit-popup
@@ -172,10 +137,7 @@
     (rf/dispatch-sync [:rf.xray/open-edit-popup
                        {:source :add :mode :in :pill {}}]))
   (let [tree (rf/with-frame :rf/xray (modal-trees/edit-popup-tree rf/dispatch))]
-    (assert-dialog-contract! tree "rf-xray-edit-popup-dialog"
-                             "Filter edit-popup")
-    (assert-dialog-focus-ref! tree "rf-xray-edit-popup-dialog"
-                              "Filter edit-popup")))
+    (assert-dialog-contract! tree "rf-xray-edit-popup-dialog" "Filter edit-popup")))
 
 ;; -------------------------------------------------------------------------
 ;; (4) Popover — cancellation-cascade
@@ -211,10 +173,6 @@
       (is (some? tree) "Popover renders when open")
       (when tree
         (assert-dialog-contract!
-          tree
-          "rf-xray-cancellation-cascade-popover-dialog"
-          "Cancellation-cascade popover")
-        (assert-dialog-focus-ref!
           tree
           "rf-xray-cancellation-cascade-popover-dialog"
           "Cancellation-cascade popover")))))
