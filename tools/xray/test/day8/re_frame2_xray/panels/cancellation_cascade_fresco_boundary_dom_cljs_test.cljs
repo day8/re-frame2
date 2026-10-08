@@ -172,29 +172,52 @@
             (teardown! root container)))))))
 
 (deftest w5-a-click-inside-the-boundary-dispatches-into-the-named-frame
-  (testing "clicking the collapse expander dispatches
-            `:rf.xray/cancellation-cascade-toggle-expand`, the DOM follows,
-            and the event lands in the frame the `frame-provider` named —
-            not the ambient one, not a neighbouring application frame"
+  (testing "clicking the collapse expander inside the
+            popover dispatches `:rf.xray/cancellation-cascade-toggle-expand`,
+            the DOM follows, and the event lands in the frame the enclosing
+            `frame-provider` NAMED rather than in the ambient one or in a
+            neighbouring application frame. Criterion 3."
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (async done
         (setup!)
         (seed-cascade!)
         (let [{:keys [container root]} (mount-popover! :rf/xray)
-              toggle (q container "[data-testid=\"rf-xray-cancellation-cascade-expand-toggle\"]")]
-          (is (= 5 (aborts-shown container))
-              "the body opens COLLAPSED: the default five of twelve abort rows")
+              toggle (q container "[data-testid=\"rf-xray-cancellation-cascade-expand-toggle\"]")
+              before (aborts-shown container)]
+          (is (some? toggle)
+              "PRECONDITION: the collapse expander rendered — the fixture
+               carries more aborts than the collapse threshold, so there is
+               a real control to press")
+          (is (= 5 before)
+              (str "PRECONDITION: the body opens COLLAPSED, showing the "
+                   "default five of twelve abort rows. Got: " before))
+          (is (false? @(rf/subscribe expanded?-q {:frame :rf/xray}))
+              "PRECONDITION: and the expand flag is off in :rf/xray")
+          (is (false? @(rf/subscribe expanded?-q {:frame app-frame}))
+              "PRECONDITION: and off in the application frame, so the
+               cross-frame control below starts from a real zero")
+
+          ;; ---- the act: a REAL browser click on a REAL button -------------
           (when toggle (.click toggle))
+
           (-> (rf.test-support/poll-until
                 #(= 12 (aborts-shown container))
                 {:label "the popover committed the expanded abort list"})
               (.then
                 (fn [_]
+                  (is (= 12 (aborts-shown container))
+                      "the click reached the handler, the dispatch landed, the
+                       read was invalidated and the boundary committed the
+                       expanded list — the whole round trip through a Fresco
+                       boundary, in a browser")
                   (is (true? @(rf/subscribe expanded?-q {:frame :rf/xray}))
-                      "the flag flipped in :rf/xray, the frame the provider named")
+                      "and the flag flipped in :rf/xray — the frame the
+                       enclosing frame-provider named")
                   (is (false? @(rf/subscribe expanded?-q {:frame app-frame}))
-                      "CROSS-FRAME CONTROL: and NOT in the application frame")))
+                      "CROSS-FRAME CONTROL: and NOT in the application frame.
+                       A handler that had lost its captured frame and fallen
+                       back to an ambient or default one would write here")))
               (.catch (fn [e]
                         (is false (str "W5 never settled: " (.-message e)
                                        " — aborts-shown: "
