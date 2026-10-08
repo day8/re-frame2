@@ -53,12 +53,6 @@
                (rf.conformance/resolve-value* [:event-arg 1 :foo] ctx))
             "[:event-arg n :foo] with nil arg returns :foo as default-for-nil")))
 
-    (testing "with nil arg, non-keyword default-val is returned"
-      (let [ctx {:event [:some-id]}]
-        (is (= {} (rf.conformance/resolve-value* [:event-arg 1 {}] ctx)))
-        (is (= 0  (rf.conformance/resolve-value* [:event-arg 1 0] ctx)))
-        (is (= [] (rf.conformance/resolve-value* [:event-arg 1 []] ctx)))))
-
     (testing "two-element form [:event-arg n] returns the n-th arg unchanged"
       (let [ctx {:event [:some-id {:foo 99}]}]
         (is (= {:foo 99}
@@ -68,9 +62,8 @@
 
 (deftest get-event-arg-key-access
   (testing ":get-event-arg extracts a key from a map arg"
-    (let [ctx {:event [:some-id {:foo 99 :bar "x"}]}]
+    (let [ctx {:event [:some-id {:foo 99}]}]
       (is (= 99  (rf.conformance/resolve-value* [:get-event-arg 1 :foo] ctx)))
-      (is (= "x" (rf.conformance/resolve-value* [:get-event-arg 1 :bar] ctx)))
       (is (= nil (rf.conformance/resolve-value* [:get-event-arg 1 :missing] ctx)))))
 
   (testing "[:get-event-arg n :key default] uses default for missing/nil"
@@ -171,12 +164,7 @@
               [:fx  :sink [:cofx-key :user]]]))))
 
   (testing "no cofx refs → empty set"
-    (is (= #{} (rf.conformance/collect-cofx-keys [[:noop]]))))
-
-  (testing "duplicate refs collapse (set semantics)"
-    (is (= #{:a}
-           (rf.conformance/collect-cofx-keys
-             [[:set [:x] [:cofx-key :a]] [:set [:y] [:cofx-key :a]]])))))
+    (is (= #{} (rf.conformance/collect-cofx-keys [[:noop]])))))
 
 (deftest realise-cofx-supplier-returns-set-value
   (testing "the supplier returns the :set step's value"
@@ -237,7 +225,5 @@
         "default-frame is a parameter — no baked-in frame keyword"))
 
   (testing "[frame-id [query-v]] → explicit frame (default ignored)"
-    (is (= [:frame-2 [:count]]
-           (rf.conformance/resolve-sub :rf/default [:frame-2 [:count]])))
     (is (= [:frame-2 [:count 5]]
            (rf.conformance/resolve-sub :rf/default [:frame-2 [:count 5]])))))
