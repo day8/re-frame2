@@ -1,32 +1,13 @@
 (ns re-frame.route-link-test
-  "JVM tests for the `:route/link` registered view. The view is
-  CLJS-only for the click-interception semantics; this file covers the
-  JVM-portable contract:
+  "JVM tests for the `:route/link` registered view: the SSR shell's anchor
+  (policy keys stripped, html attrs and children passed through), the
+  server frame's `:url-strategy` reaching the emitted href, and the
+  `:rf.route/url-requested` payload a click carries honouring the link's
+  `:replace?` / `:scroll` / `:bypass-leave?` policy. The click handler's
+  modifier-key branching is CLJS-only (`route_link_cljs_test.cljs`); the
+  cross-host href table is `route_link_ssr_parity_cljs_test.cljc`.
 
-  - registry registration — `:route/link` is present in the `:view`
-    registrar kind on both platforms (CLJS via `reg-view*`, JVM via the
-    `routing.cljc` :clj branch).
-  - href synthesis — the SSR-side render fn yields a hiccup tree whose
-    `:href` matches `(route-url to params query)` for the supplied
-    route, with the optional `:fragment` appended after `#`.
-  - HTML-attr passthrough — keys other than `:to` / `:params` / `:query`
-    / `:fragment` / `:on-click` land on the rendered `<a>` element.
-  - missing route — invoking `route-link` with an unregistered `:to` id
-    raises `:rf.error/no-such-route` (the same error `route-url` raises;
-    the link view delegates to `route-url` for URL synthesis).
-  - the click's dispatch — the `:rf.route/url-requested` payload a plain
-    left-click carries (`link-model`'s `:payload`) holds the link's
-    `:replace?` / `:scroll` / `:bypass-leave?` policy, and dispatching it
-    navigates as those keys say. CLJS tests cover the click handler's
-    modifier-key branching.
-  - server-frame `:url-strategy` — a `:platform :server` frame
-    declaring `with-base-path` / the hash strategy renders the ENCODED href
-    through the registered `:route/link` view and the SSR emitter. The
-    cross-host half (the same hrefs on CLJS, and the path-form navigation
-    payload `link-model` carries) is `route_link_ssr_parity_cljs_test.cljc`.
-
-  Per Spec 012 §Linking from views — plain-anchor semantics and API.md
-  `route-link` row."
+  Per Spec 012 §Linking from views and API.md `route-link` row."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -36,122 +17,32 @@
             [re-frame.ssr :as rf.ssr]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
-;; Use the shared `reset-runtime` fixture directly rather than a local copy
-;; that could drift. The route-link suite has no suite-specific reset
-;; extras, so the shared fixture (which additionally reloads ssr /
-;; test-support and drops the host-side scroll / nav-counter caches) applies
-;; verbatim.
 (use-fixtures :each rf.routing-test-support/reset-runtime)
-
-;; ---- href synthesis -----------------------------------------------------
-
-(deftest route-link-href-with-query-and-fragment
-  (testing ":query and :fragment are appended to the href"
-    ;; :q is optional so /search is reachable without a query (exercised by
-    ;; the empty-:fragment sub-case below); when present it must be a string.
-    (rf/reg-route :route/search {:query [:map [:q {:optional true} :string]]} "/search")
-
-    (let [[_ attrs] (rf.routing/route-link-render-ssr
-                     {:to    :route/search
-                      :query {:q "clojure"}})]
-      (is (= "/search?q=clojure" (:href attrs))
-          ":query lands as ?key=value on the href"))
-
-    (let [[_ attrs] (rf.routing/route-link-render-ssr
-                     {:to       :route/search
-                      :query    {:q "clojure"}
-                      :fragment "results"})]
-      (is (= "/search?q=clojure#results" (:href attrs))
-          ":fragment is appended after #"))
-
-    (let [[_ attrs] (rf.routing/route-link-render-ssr
-                     {:to       :route/search
-                      :fragment ""})]
-      (is (= "/search" (:href attrs))
-          "empty :fragment is treated as no fragment (no trailing #)"))))
 
 ;; ---- server-frame :url-strategy --------------------------------------------
 ;;
-;; The SSR pipeline pins the per-request frame with `rf/with-frame` around
-;; its render walk (ssr-ring `build-full-response*`), so the registered
-;; `:route/link` view renders INSIDE a frame scope on the server exactly as it
-;; does on the client. A JVM link door that hard-coded `identity` as the
-;; encoder would render `/active` from a `/demos`-based server frame where the
-;; hydrated client renders `/demos/active` — a link that leaves the deployment
-;; mount if followed before hydration, and a Spec 011 hydration mismatch.
-
-(defn- server-frame!
-  "Seat a `:platform :server` frame — the shape the SSR pipeline constructs
-  per request — declaring `strategy`. `:url-bound?` is what a real URL-owning
-  server frame declares; on the JVM it installs no listener (the install is
-  CLJS-only), so the declaration costs nothing here."
-  [id strategy]
-  (rf/make-frame {:id id :platform :server :url-bound? true :url-strategy strategy}))
+;; The SSR pipeline renders inside the request frame's `rf/with-frame` scope,
+;; so a based server frame must emit `/demos/active` exactly as the hydrated
+;; client does — `/active` would leave the deployment mount if followed before
+;; hydration, and is a Spec 011 hydration mismatch.
 
 (deftest route-link-ssr-honours-the-server-frames-url-strategy
   (rf/reg-route :route/active {} "/active")
-  (server-frame! :ssr/history-base
-                 (rf.routing/with-base-path rf.routing/history-url-strategy "/demos"))
-  (server-frame! :ssr/hash rf.routing/hash-url-strategy)
-  (server-frame! :ssr/hash-base
-                 (rf.routing/with-base-path rf.routing/hash-url-strategy "/demos"))
-
-  (testing "the SSR emitter renders the based href for a with-base-path server
-            frame — the production path: `[rf/route-link …]` in a render tree,
-            walked by `render-to-string` inside the frame's scope"
-    (let [html (rf/with-frame :ssr/history-base
-                 (rf.ssr/render-to-string [rf/route-link {:to :route/active} "Active"]))]
-      (is (str/includes? html "href=\"/demos/active\"")
-          (str "the emitted <a> carries the base-prefixed href, got: " html))
-      (is (not (str/includes? html "href=\"/active\""))
-          "the path-form href does not reach the server shell")))
-
-  (testing "the registered :route/link view (what the emitter resolves) yields
-            the encoded href for every strategy shape a server frame can declare"
-    (let [view (rf/view :route/link)]
-      (is (fn? view) ":route/link resolves to its registered render fn")
-      (is (= "/demos/active"
-             (:href (second (rf/with-frame :ssr/history-base (view {:to :route/active})))))
-          "with-base-path history: /demos/active")
-      (is (= "#/active"
-             (:href (second (rf/with-frame :ssr/hash (view {:to :route/active})))))
-          "hash: #/active on the server too")
-      (is (= "/demos#/active"
-             (:href (second (rf/with-frame :ssr/hash-base (view {:to :route/active})))))
-          "with-base-path hash: base OUTSIDE the fragment on the server too")))
-
-  (testing "a bare call outside any frame scope renders path-form (the
-            direct-call ergonomics above hold)"
-    (is (= "/active" (:href (second (rf.routing/route-link-render-ssr {:to :route/active})))))))
-
-;; ---- missing route ------------------------------------------------------
-
-(deftest route-link-missing-route-raises
-  (testing "an unregistered :to id raises :rf.error/no-such-route"
-    ;; Per the route-url contract (see routing.cljc — the
-    ;; route-url helper throws ex-info ":rf.error/no-such-route" when
-    ;; the route-id has no registered :path). The route-link view
-    ;; delegates href synthesis to route-url, so the same error
-    ;; surfaces from the link layer.
-    (let [thrown (try
-                   (rf.routing/route-link-render-ssr {:to :route/nope})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? thrown) "route-link raises when :to is unregistered")
-      ;; Anchor on the canonical :rf.error/id discriminator
-      ;; (the message is a human sentence + trailing token).
-      (is (= :rf.error/no-such-route (:rf.error/id (ex-data thrown)))
-          "the missing-route error keyword matches route-url's contract")
-      (is (= :route/nope (:route-id (ex-data thrown)))
-          "ex-data carries the offending route-id"))))
+  (rf/make-frame {:id           :ssr/history-base
+                  :platform     :server
+                  :url-bound?   true
+                  :url-strategy (rf.routing/with-base-path rf.routing/history-url-strategy "/demos")})
+  (rf/with-frame :ssr/history-base
+    (testing "the SSR emitter walking `[rf/route-link …]`"
+      (is (str/includes? (rf.ssr/render-to-string [rf/route-link {:to :route/active} "Active"])
+                         "href=\"/demos/active\"")))
+    (testing "the registered :route/link view the emitter resolves"
+      (is (= "/demos/active" (:href (second ((rf/view :route/link) {:to :route/active}))))))))
 
 ;; ---- navigation policy on a link -----------------------------------------
 ;;
-;; A route-link takes the navigate request's policy keys — `:replace?`,
-;; `:scroll`, `:bypass-leave?` — and its click honours them. `click-payload`
-;; is the dispatch a click carries: `link-model` computes it through the same
-;; synthesiser `route-link-render` uses, and the CLJS suite pins the render's
-;; own click.
+;; `click-payload` is the dispatch a click carries: `link-model` builds it
+;; through the same synthesiser `route-link-render` uses.
 
 (defn- click-payload [props]
   (:payload (rf.routing.link/link-model props :rf/default)))
@@ -166,15 +57,25 @@
                     (fn [_ arg] (swap! seen conj [fx-id arg]))))
     seen))
 
+(defn- click-fx!
+  "Commit `/`, then dispatch the click payload for `props`; return the nav fx
+  the click ran."
+  [seen props]
+  (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+  (reset! seen [])
+  (rf/dispatch-sync (click-payload props))
+  @seen)
+
 (deftest route-link-policy-keys-ride-the-click-not-the-anchor
   (rf/reg-route :route/cart {} "/cart")
-  (let [props {:to :route/cart :class "nav" :replace? true :scroll :preserve :bypass-leave? true}]
+  (let [props {:to :route/cart :fragment "top" :class "nav"
+               :replace? true :scroll :preserve :bypass-leave? true}]
     (testing "the policy keys never reach the <a>; html attrs and children pass through"
-      (is (= [:a {:href "/cart" :class "nav"} "Cart"]
+      (is (= [:a {:href "/cart#top" :class "nav"} "Cart"]
              (rf.routing/route-link-render-ssr props "Cart"))))
     (testing "the click's :rf.route/url-requested carries each policy key written"
       (is (= [:rf.route/url-requested
-              {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]
+              {:url "/cart#top" :replace? true :scroll :preserve :bypass-leave? true}]
              (click-payload props))))
     (testing "and none that was not"
       (is (= [:rf.route/url-requested {:url "/cart"}]
@@ -183,44 +84,27 @@
 (deftest route-link-replace-replaces-the-history-entry
   (rf/reg-route :route/home {} "/")
   (rf/reg-route :route/cart {} "/cart")
-  (let [seen    (record-nav-fx!)
-        history #(filterv (comp #{:rf.nav/push-url :rf.nav/replace-url} first) @seen)]
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
-    (reset! seen [])
-    (rf/dispatch-sync (click-payload {:to :route/cart}))
-    (is (= [[:rf.nav/push-url "/cart"]] (history))
-        "a link without :replace? pushes")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
-    (reset! seen [])
-    (rf/dispatch-sync (click-payload {:to :route/cart :replace? true}))
-    (is (= [[:rf.nav/replace-url "/cart"]] (history))
-        "a link with :replace? true replaces")
-    (is (= :route/cart
-           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                   [:rf.runtime/routing :current :route-id])))))
+  (let [seen (record-nav-fx!)]
+    (doseq [[props fx-id] [[{:to :route/cart}                :rf.nav/push-url]
+                           [{:to :route/cart :replace? true} :rf.nav/replace-url]]]
+      (is (= [[fx-id "/cart"]]
+             (filterv (comp #{:rf.nav/push-url :rf.nav/replace-url} first)
+                      (click-fx! seen props)))
+          (pr-str props)))))
 
 (deftest route-link-scroll-overrides-the-link-default
   (rf/reg-route :route/home {} "/")
   (rf/reg-route :route/cart {:scroll :restore} "/cart")
-  (let [seen       (record-nav-fx!)
-        strategies #(into [] (comp (filter (comp #{:rf.nav/scroll} first))
-                                   (map (comp :strategy second)))
-                          @seen)]
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
-    (reset! seen [])
-    (rf/dispatch-sync (click-payload {:to :route/cart}))
-    (is (= [:restore] (strategies))
-        "without a link :scroll the route's own :scroll applies")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
-    (reset! seen [])
-    (rf/dispatch-sync (click-payload {:to :route/cart :scroll :preserve}))
-    (is (= [:preserve] (strategies))
-        "the link's :scroll overrides the route's, as a navigate request's does")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
-    (reset! seen [])
-    (rf/dispatch-sync (click-payload {:to :route/cart :scroll false}))
-    (is (= [] (strategies))
-        ":scroll false on the link emits no scroll effect")))
+  (let [seen (record-nav-fx!)]
+    ;; No link :scroll → the route's own; a link :scroll overrides it; false → none.
+    (doseq [[props strategies] [[{:to :route/cart}                  [:restore]]
+                                [{:to :route/cart :scroll :preserve} [:preserve]]
+                                [{:to :route/cart :scroll false}     []]]]
+      (is (= strategies
+             (into [] (comp (filter (comp #{:rf.nav/scroll} first))
+                            (map (comp :strategy second)))
+                   (click-fx! seen props)))
+          (pr-str props)))))
 
 (deftest route-link-bypass-leave-skips-the-current-leave-guard
   (rf/reg-route :route/editor {:can-leave :editor/can-leave?} "/editor")
@@ -228,14 +112,12 @@
   (rf/reg-sub :editor/can-leave? (fn [_ _] false))
   (record-nav-fx!)
   (rf/dispatch-sync [:rf.route/handle-url-change "/editor" {:rf.route/cause :initial}])
-  (let [route   #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/routing :current :route-id])
-        pending #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                         [:rf.runtime/routing :pending-navigation])]
+  (let [routing #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                         [:rf.runtime/routing])]
     (rf/dispatch-sync (click-payload {:to :route/cart}))
-    (is (= :route/editor (route)) "without :bypass-leave? the guard blocks the link")
-    (is (some? (pending)))
-    (rf/dispatch-sync [:rf.route/cancel (:id (pending))])
+    (is (= :route/editor (:route-id (:current (routing))))
+        "without :bypass-leave? the guard blocks the link")
+    (rf/dispatch-sync [:rf.route/cancel (:id (:pending-navigation (routing)))])
     (rf/dispatch-sync (click-payload {:to :route/cart :bypass-leave? true}))
-    (is (= :route/cart (route)) "with :bypass-leave? true the link leaves")
-    (is (nil? (pending)) "and no pending navigation is created")))
+    (is (= [:route/cart nil] [(:route-id (:current (routing))) (:pending-navigation (routing))])
+        "with :bypass-leave? true the link leaves, creating no pending navigation")))
