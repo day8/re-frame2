@@ -1,16 +1,10 @@
 (ns re-frame.story.ui.cofx-cljs-test
   "Regression guard: the `:story/active-modes` and `:story/active-args`
-  cofx suppliers must RETURN the right value (EP-0017 value-returning
-  `reg-cofx`). The runtime delivers a supplier's return value flat under
-  the declared cofx-id; if a supplier returned the wrong shape the
-  consuming handler would bind nil silently and the chrome's mode/arg
-  awareness would disappear.
-
-  Both suppliers are value-returning nullary fns (ambient grade — a
-  snapshot of shell UI state, never recorded); there is no ctx→ctx
-  supplier shape. The runtime does the `[:coeffects <id>]` placement; the
-  supplier just returns the value."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  cofx suppliers are value-returning nullary fns (EP-0017 `reg-cofx`). The
+  runtime delivers a supplier's return value flat under the declared
+  cofx-id, so a supplier of the wrong shape would leave the consuming
+  handler binding nil silently."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -21,18 +15,9 @@
     {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn [] (rf.story.ui.cofx/install-canonical-cofx!))}))
 
-(deftest story-active-modes-cofx-returns-vector
-  (testing ":story/active-modes supplier returns the active-modes vector"
-    (let [meta     (rf/handler-meta {:source :store :kind :cofx :id :story/active-modes})
-          supplier (:handler-fn meta)
-          result   (supplier)]
-      (is (vector? result)
-          "the supplier returns the snapshot vector directly (default empty)"))))
-
-(deftest story-active-args-cofx-returns-map
-  (testing ":story/active-args supplier returns the deep-merged args map"
-    (let [meta     (rf/handler-meta {:source :store :kind :cofx :id :story/active-args})
-          supplier (:handler-fn meta)
-          result   (supplier)]
-      (is (map? result)
-          "the supplier returns the merged :args map directly (default empty)"))))
+(deftest story-cofx-suppliers-return-their-values
+  (doseq [[cofx-id shape?] [[:story/active-modes vector?]
+                            [:story/active-args  map?]]]
+    (let [supplier (:handler-fn (rf/handler-meta {:source :store :kind :cofx :id cofx-id}))]
+      (is (shape? (supplier))
+          (str cofx-id " — the nullary supplier returns its value directly")))))
