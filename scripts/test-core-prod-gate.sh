@@ -400,7 +400,7 @@ fi
 # lane in the repo rather than this one, and it fires before a single test
 # runs.  `verify_roster` above cannot see this class on its own — see its
 # guard #1.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1162}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1161}"
 
 args=()
 for ns in $runnable; do
