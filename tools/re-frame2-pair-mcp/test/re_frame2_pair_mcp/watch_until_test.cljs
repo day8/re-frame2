@@ -1,110 +1,40 @@
 (ns re-frame2-pair-mcp.watch-until-test
-  "Unit tests for the watch-until tool.
-
-  ## `:timeout-ms` is validated, not silently coerced
-
-  THE HAZARD: a `watch-until` that accepted only a positive numeric
-  `:timeout-ms` and SILENTLY rewrote anything else — `\"bogus\"`, `0`, a
-  negative value, a fractional value — to the 30-second default would let
-  a malformed deadline block the MCP call for 30s and hide the caller's
-  bad input, unlike the other timeout-aware tools (`tail-build :wait-ms`,
-  `eval-cljs` / `dispatch` `:timeout-ms`) which reject bad values via the
-  shared `args/parse-timeout-arg` positive-millisecond contract.
-
-  THE CONTRACT: `:timeout-ms` routes through `args/parse-timeout-arg`, and
-  a bad value short-circuits to an honest `{:ok? false :reason
-  :invalid-numeric-arg}` `isError` envelope BEFORE the runtime preflight —
-  the validation is the first `cond` branch, so a bad value never touches
-  the nREPL socket. An ABSENT arg keeps the documented default. The value
-  table itself (zero, negative, fractional, numeric strings) is pinned on
-  the parser in args_test; these tests pin the tool's wiring of it.
-
-  The validation branch fires ahead of the runtime preflight, so these
-  tests use a `fresh-conn` with no live socket: if validation did NOT
-  short-circuit, the tool would reach the preflight and fail with a
-  different reason, so `:invalid-numeric-arg` is a precise pin on the
-  early-exit."
+  "Unit tests for the watch-until tool's argument validation and poll form.
+  The tool's hold / timeout / missing-pred wiring is pinned in `record_test`."
   (:require [cljs.test :refer-macros [deftest is async]]
-            [clojure.string]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.record :as record]
             [re-frame2-pair-mcp.tools.watch-until :as watch-until]))
 
-(def ^:private read-edn tu/extract-edn)
-(def ^:private err? tu/error?)
-
-(defn- fresh-conn []
-  (nrepl/make-conn 0 "127.0.0.1"))
-
-;; A well-formed signals + pred pair so the ONLY thing under test is the
-;; timeout validation (a missing signals/pred would short-circuit first on
-;; its own reason).
-(def ^:private good-args
-  {:signals "[{:app-db [:upload :status]}]"
-   :pred    "{:signal 0 :equals :done}"})
-
-(defn- watch-with-timeout
-  "Invoke watch-until with the good signals/pred plus the given
-  `:timeout-ms` value. Returns the tool Promise."
-  [timeout-ms]
-  (watch-until/watch-until-tool
-    (fresh-conn)
-    (tu/args->js (assoc good-args :timeout-ms timeout-ms))))
-
-(defn- assert-invalid-timeout [r]
-  (is (err? r) "a bad :timeout-ms surfaces as :isError true")
-  (let [edn (read-edn r)]
-    (is (false? (:ok? edn)))
-    (is (= :invalid-numeric-arg (:reason edn)))
-    (is (= "timeout-ms" (:arg edn))
-        "the error names the offending arg")))
-
-;; ---------------------------------------------------------------------------
-;; Invalid values — reject, don't coerce.
-;; ---------------------------------------------------------------------------
-
 (deftest non-numeric-timeout-ms-rejected
+  ;; Coerced to the 30s default instead, a bad deadline would block the call
+  ;; for 30s and hide the caller's mistake. The conn has no socket, so a
+  ;; validation that did not short-circuit would fail with another reason.
   (async done
-    (-> (watch-with-timeout "bogus")
-        (.then (fn [r] (assert-invalid-timeout r) (done))))))
-
-;; ---------------------------------------------------------------------------
-;; Valid / absent values still flow (the validation only rejects bad input).
-;; ---------------------------------------------------------------------------
-
-(deftest valid-timeout-ms-passes-validation
-  ;; A well-formed positive timeout must NOT be rejected by the validation
-  ;; branch. With no live runtime the call proceeds past validation and
-  ;; fails at the preflight — the key point is the reason is NOT
-  ;; :invalid-numeric-arg.
-  (async done
-    (-> (watch-with-timeout 2000)
+    (-> (watch-until/watch-until-tool
+          (nrepl/make-conn 0 "127.0.0.1")
+          (tu/args->js {:signals    "[{:app-db [:upload :status]}]"
+                        :pred       "{:signal 0 :equals :done}"
+                        :timeout-ms "bogus"}))
         (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not= :invalid-numeric-arg (:reason edn))
-                       "a valid :timeout-ms clears the validation gate"))
+                 (is (tu/error? r))
+                 (is (= {:ok? false :reason :invalid-numeric-arg :arg "timeout-ms"}
+                        (select-keys (tu/extract-edn r) [:ok? :reason :arg])))
                  (done))))))
 
-;; ---------------------------------------------------------------------------
-;; watch-form applies the predicate TO the sample.
-;;
-;; THE HAZARD: a poll form reading `(boolean ((<pred-fn>) sample))` would
-;; invoke the pred fn with ZERO args (binding `sample` to undefined) and
-;; then INVOKE its boolean result with the sample, a TypeError on every
-;; poll. The poll loop's nREPL-hiccup `.catch` would swallow the throw, so
-;; every live watch-until would time out with `:last-sample nil`.
-;; The live turn-observation conformance witness is the end-to-end gate;
-;; this pin makes the emission shape a unit-level regression net.
-;; ---------------------------------------------------------------------------
-
 (deftest watch-form-applies-pred-to-sample
-  (let [pred-src (record/pred-source {:signal 0 :equals :done})
-        form     (watch-until/watch-form [{:app-db [:upload :status]}]
-                                         :rf/default pred-src nil)]
-    (is (clojure.string/includes? form "(boolean ((fn [sample]")
+  ;; Regression: `(boolean ((<pred-fn>) sample))` called the pred with no
+  ;; args and then called its boolean; the poll loop swallowed the TypeError,
+  ;; so every live watch timed out with `:last-sample nil`.
+  (let [form (watch-until/watch-form [{:app-db [:upload :status]}]
+                                     :rf/default
+                                     (record/pred-source {:signal 0 :equals :done})
+                                     nil)]
+    (is (str/includes? form "(boolean ((fn [sample]")
         "the pred fn literal is applied directly inside the boolean")
-    (is (clojure.string/includes? form ") sample))")
+    (is (str/includes? form ") sample))")
         "the sample rides as the pred fn's argument")
-    (is (not (clojure.string/includes? form "(boolean (((fn"))
-        "no zero-arg pred invocation wraps the fn literal")))
+    (is (str/includes? form "{:held? held? :sample sample")
+        "the poll answers the :held? / :sample pair the tool's loop reads")))
