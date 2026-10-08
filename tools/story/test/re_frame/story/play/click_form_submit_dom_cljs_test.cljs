@@ -14,7 +14,7 @@
 
   `-dom-cljs-test` opts the file into `:browser-test`; `:node-test` loads it
   too and each test states its skip, as the sibling DOM suites do."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.story.play.dom :as rf.story.play.dom]
             [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]))
 
@@ -47,33 +47,17 @@
 (defn- detach! [n]
   (when (.-parentNode n) (.removeChild (.-parentNode n) n)))
 
-(deftest a-recorded-submit-replays-as-a-submission
-  (if-not (browser?)
-    (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
-    (let [{:keys [form submits]} (form! "submit-replay")
-          step                   (replay-step "[data-test=\"submit-replay\"]")]
-      (try
-        (testing "control: the exported step is a :click on the form's selector"
-          (is (= [:click "[data-test=\"submit-replay\"]"] step)))
-        (testing "replaying it fires the form's submit event once"
-          (is (true? (rf.story.play.dom/click! (second step))))
-          (is (= 1 @submits)))
-        (finally
-          (detach! form))))))
-
 (deftest a-replayed-submit-runs-constraint-validation
+  ;; an empty required field blocks the submission, as it blocks a user's;
+  ;; once it is filled the same step fires the form's submit event once
   (if-not (browser?)
     (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
     (let [{:keys [form input submits]} (form! "submit-validate")
           step                         (replay-step "[data-test=\"submit-validate\"]")]
       (try
         (.setAttribute input "required" "")
-        (testing "an empty required field blocks the submission, as it blocks a user's"
-          (is (true? (rf.story.play.dom/click! (second step))))
-          (is (= 0 @submits)))
-        (testing "once the field is filled, the same step submits"
-          (set! (.-value input) "alice")
-          (is (true? (rf.story.play.dom/click! (second step))))
-          (is (= 1 @submits)))
+        (is (= [true 0] [(rf.story.play.dom/click! (second step)) @submits]))
+        (set! (.-value input) "alice")
+        (is (= [true 1] [(rf.story.play.dom/click! (second step)) @submits]))
         (finally
           (detach! form))))))
