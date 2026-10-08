@@ -185,35 +185,32 @@
   :no-more-derefers` after the CAS commits, for the call that actually
   drove the eviction (read off the `old` / `new` snapshot diff — the
   same single-fire discipline that gates `rf.interop/dispose!`). `frame-id`
-  rides on the emit's `:frame` tag; the 2-arity form serves call sites
-  that don't carry a frame-id (the emit fires with `:frame nil` and
-  tools fall back to `:rf.sub/id` for grouping)."
-  ([cache k] (dispose-entry-now! cache k nil))
-  ([cache k frame-id]
-   (let [[old new] (swap-vals! cache
-                               (fn [m]
-                                 (if-let [entry (get m k)]
-                                   (if (<= (or (:ref-count entry) 0) 0)
-                                     (dissoc m k)
-                                     m)
-                                   m)))]
-     ;; The slot was evicted by THIS call iff it was present in `old` and
-     ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
-     ;; replace! or clear-sub-cache!) that won the CAS race would
-     ;; have left the slot absent in `old` too, so we don't double-dispose.
-     (when (and (contains? old k) (not (contains? new k)))
-       ;; Emit the dispose trace before tearing down the
-       ;; reaction. Single-fire (gated on the same CAS-winner check as
-       ;; `rf.interop/dispose!`) so we never double-emit under contention.
-       (emit-dispose! frame-id k :no-more-derefers)
-       (when-let [r (get-in old [k :reaction])]
-         ;; Tag a synchronous node-disposed notification
-         ;; with the INTRINSIC cause (→ :disposed) so it can never be mislabelled
-         ;; :hmr by a co-pending HMR drain.
-         (binding [*disposal-cause* :no-more-derefers]
-           (try (rf.interop/dispose! r)
-                (catch #?(:clj Throwable :cljs :default) _ nil)))))
-     nil)))
+  rides on the emit's `:frame` tag."
+  [cache k frame-id]
+  (let [[old new] (swap-vals! cache
+                              (fn [m]
+                                (if-let [entry (get m k)]
+                                  (if (<= (or (:ref-count entry) 0) 0)
+                                    (dissoc m k)
+                                    m)
+                                  m)))]
+    ;; The slot was evicted by THIS call iff it was present in `old` and
+    ;; absent in `new`. A concurrent evictor (e.g. invalidate-sub-on-
+    ;; replace! or clear-sub-cache!) that won the CAS race would
+    ;; have left the slot absent in `old` too, so we don't double-dispose.
+    (when (and (contains? old k) (not (contains? new k)))
+      ;; Emit the dispose trace before tearing down the
+      ;; reaction. Single-fire (gated on the same CAS-winner check as
+      ;; `rf.interop/dispose!`) so we never double-emit under contention.
+      (emit-dispose! frame-id k :no-more-derefers)
+      (when-let [r (get-in old [k :reaction])]
+        ;; Tag a synchronous node-disposed notification
+        ;; with the INTRINSIC cause (→ :disposed) so it can never be mislabelled
+        ;; :hmr by a co-pending HMR drain.
+        (binding [*disposal-cause* :no-more-derefers]
+          (try (rf.interop/dispose! r)
+               (catch #?(:clj Throwable :cljs :default) _ nil)))))
+    nil))
 
 (defn unsubscribe!
   "Decrement the ref-count on the cached subscription for `k`. When
@@ -246,35 +243,32 @@
 
   `frame-id` is threaded through to `dispose-entry-now!`
   so the `:rf.sub/dispose` trace emit at the actual eviction site
-  carries the right `:frame` tag. The 2-arity form serves callers that
-  don't carry a frame-id; the emit falls back to `:frame nil` on that
-  path."
-  ([cache k] (unsubscribe! cache k nil))
-  ([cache k frame-id]
-   (let [;; The swap-fn body is pure — it returns only the new cache
-         ;; map. The drop-to-zero signal is read from the diff between
-         ;; `old` and `new` AFTER the CAS commits. `swap!` is allowed
-         ;; to retry on JVM contention, so a side-effecting
-         ;; `(reset! dropped-to-zero? true)` inside the swap-fn body
-         ;; could fire on a discarded retry whose CAS lost — leading
-         ;; to a spurious dispose.
-         [old new] (swap-vals! cache
-                               (fn [m]
-                                 (if-let [entry (get m k)]
-                                   (let [old-n (or (:ref-count entry) 1)
-                                         n     (max 0 (dec old-n))]
-                                     (assoc-in m [k :ref-count] n))
-                                   m)))
-         ;; This swap drove the 1 → 0 transition iff the entry was
-         ;; present in both old and new AND old's ref-count was 1 AND
-         ;; new's ref-count is 0. Reading from the snapshots avoids the
-         ;; side-effect-in-swap-fn race.
-         dropped-to-zero? (and (contains? new k)
-                               (= 1 (or (get-in old [k :ref-count]) 1))
-                               (zero? (or (get-in new [k :ref-count]) 0)))]
-     (when dropped-to-zero?
-       (dispose-entry-now! cache k frame-id))
-     nil)))
+  carries the right `:frame` tag."
+  [cache k frame-id]
+  (let [;; The swap-fn body is pure — it returns only the new cache
+        ;; map. The drop-to-zero signal is read from the diff between
+        ;; `old` and `new` AFTER the CAS commits. `swap!` is allowed
+        ;; to retry on JVM contention, so a side-effecting
+        ;; `(reset! dropped-to-zero? true)` inside the swap-fn body
+        ;; could fire on a discarded retry whose CAS lost — leading
+        ;; to a spurious dispose.
+        [old new] (swap-vals! cache
+                              (fn [m]
+                                (if-let [entry (get m k)]
+                                  (let [old-n (or (:ref-count entry) 1)
+                                        n     (max 0 (dec old-n))]
+                                    (assoc-in m [k :ref-count] n))
+                                  m)))
+        ;; This swap drove the 1 → 0 transition iff the entry was
+        ;; present in both old and new AND old's ref-count was 1 AND
+        ;; new's ref-count is 0. Reading from the snapshots avoids the
+        ;; side-effect-in-swap-fn race.
+        dropped-to-zero? (and (contains? new k)
+                              (= 1 (or (get-in old [k :ref-count]) 1))
+                              (zero? (or (get-in new [k :ref-count]) 0)))]
+    (when dropped-to-zero?
+      (dispose-entry-now! cache k frame-id))
+    nil))
 
 (defn ^:no-doc unsubscribe-if-reaction!
   "INTERNAL. `unsubscribe!` with an IDENTITY GUARD: decrement
