@@ -116,9 +116,8 @@
 ;; (3) save! / load round-trip
 ;; -------------------------------------------------------------------------
 
-;; The real-storage rows — `save-and-load-round-trip`,
-;; `mute-event-id-event-writes-slot-and-persists`,
-;; `unmute-event-id-event-clears-slot`,
+;; The real-storage rows —
+;; `mute-and-unmute-event-id-write-the-slot-and-persist`,
 ;; `clear-muted-event-ids-drops-every-entry` and
 ;; `hydrate-lifts-localstorage-into-slot` — live in
 ;; `day8.re-frame2-xray.spine-filters-dom-cljs-test`. They need a real

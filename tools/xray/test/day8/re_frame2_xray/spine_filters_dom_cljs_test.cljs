@@ -25,7 +25,7 @@
   THE SKIP BRANCH ASSERTS RATHER THAN VANISHING, so the node lane never
   holds a deftest with zero assertions — a hollow row that passes while
   testing nothing."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.registry :as registry]
@@ -56,37 +56,10 @@
     (rf/dispatch-sync ev)))
 
 ;; -------------------------------------------------------------------------
-;; save! / load round-trip
-;; -------------------------------------------------------------------------
-
-(deftest save-and-load-round-trip
-  (if-not (ls/available?)
-    (is true "skipped: no localStorage (node lane — see ns docstring)")
-    (let [muted #{:auth/login :user/mouse-move}]
-      (spine-filters/clear-raw!)
-      (spine-filters/save! muted)
-      (is (= muted (spine-filters/load))
-          "browser-backed round-trip preserves the whole mute set"))))
-
-;; -------------------------------------------------------------------------
 ;; Event handler wiring + persist fx
 ;; -------------------------------------------------------------------------
 
-(deftest mute-event-id-event-writes-slot-and-persists
-  (if-not (ls/available?)
-    (is true "skipped: no localStorage (node lane — see ns docstring)")
-    (do
-      (spine-filters/clear-raw!)
-      (xray-setup!)
-      (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
-      (is (= #{:user/mouse-move}
-             (frame-sub [:rf.xray/muted-event-ids])))
-      (is (= 1 (frame-sub [:rf.xray/muted-event-ids-count])))
-      (is (= #{:user/mouse-move}
-             (spine-filters/load))
-          "mute round-trips to localStorage"))))
-
-(deftest unmute-event-id-event-clears-slot
+(deftest mute-and-unmute-event-id-write-the-slot-and-persist
   (if-not (ls/available?)
     (is true "skipped: no localStorage (node lane — see ns docstring)")
     (do
@@ -94,10 +67,14 @@
       (xray-setup!)
       (frame-dispatch [:rf.xray/mute-event-id :user/mouse-move])
       (frame-dispatch [:rf.xray/mute-event-id :user/scroll])
+      (is (= [#{:user/mouse-move :user/scroll} 2 #{:user/mouse-move :user/scroll}]
+             [(frame-sub [:rf.xray/muted-event-ids])
+              (frame-sub [:rf.xray/muted-event-ids-count])
+              (spine-filters/load)])
+          "each mute lands in the slot, the count and localStorage")
       (frame-dispatch [:rf.xray/unmute-event-id :user/scroll])
-      (is (= #{:user/mouse-move}
-             (frame-sub [:rf.xray/muted-event-ids])))
-      (is (= #{:user/mouse-move} (spine-filters/load))
+      (is (= [#{:user/mouse-move} #{:user/mouse-move}]
+             [(frame-sub [:rf.xray/muted-event-ids]) (spine-filters/load)])
           "unmute persists the new set"))))
 
 (deftest clear-muted-event-ids-drops-every-entry
