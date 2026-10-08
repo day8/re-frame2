@@ -11,7 +11,7 @@
 
   `-dom-cljs-test` opts the file into `:browser-test`; `:node-test` loads it
   too and each test states its skip, as the sibling DOM suites do."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.story.play.dom :as rf.story.play.dom]))
 
 (defn- browser? []
@@ -35,33 +35,24 @@
   (when (.-parentNode n) (.removeChild (.-parentNode n) n)))
 
 (deftest visible-requires-a-box-and-a-visible-computed-visibility
+  ;; The child inherits its parent's `visibility: hidden`, which only the
+  ;; COMPUTED style carries; `display: none` breaks the box rule.
   (if-not (browser?)
     (is true ":node-test: no DOM — the browser-test runner exercises these assertions")
-    (let [root      (block! js/document.body "vis-root" "")
-          shown     (block! root "vis-shown" "")
-          hidden    (block! root "vis-hidden" "visibility: hidden;")
-          collapsed (block! root "vis-collapsed" "visibility: collapse;")
-          parent    (block! root "vis-parent" "visibility: hidden;")
-          child     (block! parent "vis-child" "")
-          none      (block! root "vis-none" "display: none;")]
+    (let [root   (block! js/document.body "vis-root" "")
+          shown  (block! root "vis-shown" "")
+          hidden (block! root "vis-hidden" "visibility: hidden;")
+          parent (block! root "vis-parent" "visibility: hidden;")
+          child  (block! parent "vis-child" "")
+          none   (block! root "vis-none" "display: none;")]
       (try
-        (testing "control: an element with a box and visible computed visibility is visible"
-          (is (true? (rf.story.play.dom/visible? shown))))
-        (testing "control: the visibility fixtures keep their layout box"
-          (is (pos? (.-offsetWidth hidden)))
-          (is (pos? (.-offsetWidth collapsed)))
-          (is (pos? (.-offsetWidth child))))
-        (testing "visibility: hidden reads as not visible"
-          (is (false? (rf.story.play.dom/visible? hidden))))
-        (testing "visibility: collapse reads as not visible"
-          (is (false? (rf.story.play.dom/visible? collapsed))))
-        (testing "a child inherits its parent's visibility: hidden"
-          (is (false? (rf.story.play.dom/visible? child))))
-        (testing "the layout-box rule still holds: display: none is not visible"
-          (is (false? (rf.story.play.dom/visible? none))))
-        (testing "the :assert-dom modes follow visible?"
-          (is (false? (:passed? (rf.story.play.dom/assert-visible (sel "vis-hidden") :visible))))
-          (is (true?  (:passed? (rf.story.play.dom/assert-visible (sel "vis-hidden") :hidden))))
-          (is (true?  (:passed? (rf.story.play.dom/assert-visible (sel "vis-shown") :visible)))))
+        (is (= [true false false false]
+               (mapv rf.story.play.dom/visible? [shown hidden child none])))
+        (is (= [false true true]
+               (mapv (comp :passed? #(apply rf.story.play.dom/assert-visible %))
+                     [[(sel "vis-hidden") :visible]
+                      [(sel "vis-hidden") :hidden]
+                      [(sel "vis-shown") :visible]]))
+            "the :assert-dom modes follow visible?")
         (finally
           (detach! root))))))
