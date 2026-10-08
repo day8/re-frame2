@@ -4,7 +4,7 @@
   handler; reading only the input names misses browser-only view code."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [malli.core :as m]
             [malli.error :as me]
             [re-frame.core :as rf]
@@ -69,31 +69,33 @@
   (install-action!)
   (doseq [debug? [true false]
           quantity [0 "abc"]]
-    (testing (str "debug=" debug? ", quantity=" (pr-str quantity))
-      (with-redefs [rf.interop/debug-enabled? debug?]
-        (let [{:keys [db fx]} (dispatch-action
-                               {:item-id "sku-1" :quantity quantity
-                                :csrf-token "tok-abc"})]
-          (is (= [[:status 400]] fx))
-          (is (= {:item-id "sku-1" :quantity quantity}
-                 (get-in db [:cart :add-form :draft])))
-          (is (seq (get-in db [:cart :add-form :errors :quantity])))
-          (is (nil? (get-in db [:cart :items]))))))))
+    (with-redefs [rf.interop/debug-enabled? debug?]
+      (let [{:keys [db fx]} (dispatch-action
+                             {:item-id "sku-1" :quantity quantity
+                              :csrf-token "tok-abc"})]
+        (is (= [[[:status 400]] {:item-id "sku-1" :quantity quantity} true nil]
+               [fx
+                (get-in db [:cart :add-form :draft])
+                (boolean (seq (get-in db [:cart :add-form :errors :quantity])))
+                (get-in db [:cart :items])])
+            (str "debug=" debug? ", quantity=" (pr-str quantity)
+                 " — [fx draft quantity-error? cart]"))))))
 
 (deftest valid-fields-still-reach-the-redirect-arm
   (install-action!)
   (let [{:keys [db fx]} (dispatch-action
                          {:item-id "sku-1" :quantity 2 :csrf-token "tok-abc"})]
-    (is (= [[:redirect {:status 303 :location "/cart"}]] fx))
-    (is (= [{:item-id "sku-1" :quantity 2}] (get-in db [:cart :items])))))
+    (is (= [[[:redirect {:status 303 :location "/cart"}]] [{:item-id "sku-1" :quantity 2}]]
+           [fx (get-in db [:cart :items])]))))
 
 (deftest malformed-token-reaches-the-csrf-arm-before-field-validation
   (install-action!)
   (let [{:keys [db fx]} (dispatch-action
                          {:item-id "sku-1" :quantity 0 :csrf-token ""})]
-    (is (= [[:status 403]] fx))
-    (is (seq (get-in db [:cart :add-form :errors :_form])))
-    (is (nil? (get-in db [:cart :items])))))
+    (is (= [[[:status 403]] true nil]
+           [fx
+            (boolean (seq (get-in db [:cart :add-form :errors :_form])))
+            (get-in db [:cart :items])]))))
 
 (deftest shared-view-compiles-on-jvm-and-preserves-native-post
   (rf/reg-sub :form.cart-add/draft (fn [_ _] {:quantity 2}))
@@ -103,9 +105,8 @@
   (let [view @(ns-resolve 're-frame.ssr-skill-form-action-test 'add-to-cart-form)
         [_ attrs & children] (view "sku-1")
         inputs (filter #(and (vector? %) (= :input (first %))) children)]
-    (is (= "POST" (:method attrs)))
-    (is (= "/cart/add" (:action attrs)))
-    (is (nil? (:on-submit attrs)))
-    (is (= #{"csrf-token" "item-id" "quantity"}
-           (set (map #(get-in % [1 :name]) inputs))))
-    (is (every? #(nil? (get-in % [1 :on-change])) inputs))))
+    (is (= ["POST" "/cart/add" nil #{"csrf-token" "item-id" "quantity"} true]
+           [(:method attrs) (:action attrs) (:on-submit attrs)
+            (set (map #(get-in % [1 :name]) inputs))
+            (every? #(nil? (get-in % [1 :on-change])) inputs)])
+        "[method action on-submit input-names no-on-change?]")))
