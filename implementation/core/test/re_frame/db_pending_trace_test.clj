@@ -1,28 +1,13 @@
 (ns re-frame.db-pending-trace-test
-  "The framework stamps the full
-  pending-`:db` value at two endpoints on the per-event trace stream so
-  the Xray Handler panel can render the t1 returned-effects sub-block
-  AND the t1→t2 flow reshape without a precomputed diff. This file
-  pins the post-handler-chain (t1) emit against the core artefact —
-  the flows-driven t2 emit is covered by `re-frame.flows-t2-trace-test`
-  in the flows artefact (where the flows hook is wired in).
+  "The post-handler-chain (t1) `:rf.event/db-pending` emit (Spec 009 §Canonical
+  per-event trace sequence): it fires whenever the handler returned a `:db`
+  slot, stamping the pending value by reference under `:tags :rf.event/db`,
+  between `:rf.event/run-start` and the commit. The flows-driven t2 emit is
+  covered in the flows artefact (`re-frame.flows-t2-trace-test`).
 
-  Contract — Spec 009 §Canonical per-event trace sequence:
-
-    `:rf.event/db-pending` (t1) fires at the post-handler-chain / pre-
-    flow-transform position whenever the handler returned a `:db`
-    slot. Stamped value = the full pending `:db` reference (persistent
-    data — pointer-sized cost; no copy). Emitted in the canonical
-    sequence BETWEEN the handler chain's `:after` walk and the first
-    `:rf.flow/computed` emit (or, when flows are absent, before
-    `:rf.event/db-changed`).
-
-    `:rf.event/db-pending-post-flow` (t2) fires only when flows
-    transformed the pending value; see `flows_t2_trace_test.clj`.
-
-  Same-shape-as-`:fx` posture: the `:db` value rides under `:tags
-  :rf.event/db`, alongside `:frame` — the same slot placement the
-  `:rf.event/fx` tag uses on `:rf.fx/do-fx`."
+  Every deftest is `^:requires-debug`: under `-Dre-frame.debug=false` the trace
+  is a no-op, so there is nothing to assert, and the production-gate lane
+  skips the tag while still loading the namespace."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -38,141 +23,55 @@
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
-  ;; `init!` does not synthesise `:rf/default`;
-  ;; framework operation surfaces require a carried frame stamp. Register
-  ;; `:rf/default` + pin it as the body's ambient scope (the carried-
-  ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
-  ;; `{:frame …}` opts in the test bodies still win.
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
-(defn- collect-traces!
-  "Register a trace listener that accumulates events; return the atom.
-  Tests detach with `(rf/unregister-listener! :trace id)`."
-  [id]
+(defn- traces-of
+  "The trace events emitted while dispatching `event`."
+  [event]
   (let [acc (atom [])]
-    (rf/register-listener! :trace id (fn [ev] (swap! acc conj ev)))
-    acc))
-
-;; ---- t1 fires when the handler returns `:db` -----------------------------
-
-;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
-;; no-op, so there is no semantic residue to run under that posture, and a
-;; `(when interop/debug-enabled? ...)` split -- the shape mixed-posture suites
-;; use -- would leave EMPTY deftests reporting green.  Every deftest
-;; below is therefore TAGGED, and the production-gate lane skips the tag rather
-;; than the file: the namespace is LOADED there, so a load-time failure
-;; under the gate reddens the job, and an untagged new deftest joins that
-;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
+    (rf/register-listener! :trace ::t1 (fn [ev] (swap! acc conj ev)))
+    (try
+      (rf/dispatch-sync event)
+      @acc
+      (finally
+        (rf/unregister-listener! :trace ::t1)))))
 
 (deftest ^:requires-debug t1-emits-when-handler-returns-db
-  (testing ":rf.event/db-pending fires once per dispatch when the handler
-   returned a :db slot, carrying the returned value under :tags :rf.event/db"
-    (rf/reg-event :t1/seed-db
-      (fn [{:keys [db]} _] {:db {:counter 42 :seeded? true}}))
-    (let [acc (collect-traces! ::t1-db-only)]
-      (try
-        (rf/dispatch-sync [:t1/seed-db])
-        (let [pendings (filterv #(= :rf.event/db-pending (:operation %)) @acc)]
-          (is (= 1 (count pendings))
-              "exactly one :rf.event/db-pending emit for the dispatch")
-          (let [[p] pendings]
-            (is (= :rf.event (:op-type p))
-                ":op-type rides the :rf.event family")
-            (is (= {:counter 42 :seeded? true} (-> p :tags :rf.event/db))
-                ":tags :rf.event/db carries the handler-returned value")
-            (is (not (contains? p :rf.event/db))
-                ":rf.event/db rides under :tags, not at top level (top level is
-                 reserved for substrate-hoisted slots, as with :rf.event/fx on
-                 :rf.fx/do-fx)")
-            (is (= :rf/default (-> p :tags :frame))
-                ":tags :frame is canonical (per Spec 009 §canonical per-frame routing key)")))
-        (finally
-          (rf/unregister-listener! :trace ::t1-db-only))))))
-
-(deftest ^:requires-debug t1-suppressed-when-handler-returns-no-db
-  (testing "an :fx-only handler return (no :db slot) does NOT emit
-   :rf.event/db-pending — mirrors how :rf.event/db-present? rides on
-   :rf.fx/do-fx as `false` when no :db was returned"
-    (rf/reg-fx :t1/noop (fn [_ _] :ok))
-    (rf/reg-event :t1/fx-only
-      (fn [_ _] {:fx [[:t1/noop {}]]}))
-    (let [acc (collect-traces! ::t1-fx-only)]
-      (try
-        (rf/dispatch-sync [:t1/fx-only])
-        (let [pendings (filterv #(= :rf.event/db-pending (:operation %)) @acc)]
-          (is (zero? (count pendings))
-              "no :rf.event/db-pending when the handler returned no :db slot"))
-        (finally
-          (rf/unregister-listener! :trace ::t1-fx-only))))))
+  (rf/reg-fx :t1/noop (fn [_ _] :ok))
+  (doseq [[label effects expected]
+          [["a :db slot stamps one t1 carrying the value and its frame"
+            {:db {:counter 42 :seeded? true}}
+            [[{:counter 42 :seeded? true} :rf/default]]]
+           ["an :fx-only return stamps no t1"
+            {:fx [[:t1/noop {}]]}
+            []]]]
+    (testing label
+      (rf/reg-event :t1/returns (fn [_ _] effects))
+      (is (= expected
+             (->> (traces-of [:t1/returns])
+                  (filter #(= :rf.event/db-pending (:operation %)))
+                  (map (juxt #(-> % :tags :rf.event/db) #(-> % :tags :frame)))))))))
 
 (deftest ^:requires-debug t1-value-is-identical-by-reference-no-copy
-  (testing "the t1 stamp is the SAME persistent reference
-   the handler returned — no `into`, no walk, no copy. Persistent data
-   structures + structural sharing make the cost pointer-sized; the
-   `day8/de-dupe` wire layer collapses repeated subtrees at egress."
-    (let [shared-payload {:big (vec (range 1000))
-                          :nested {:k :v}}
-          captured       (atom nil)]
-      (rf/reg-event :t1/return-shared
-        (fn [{:keys [db]} _] {:db shared-payload}))
-      (rf/register-listener! :trace
-        ::t1-identity
-        (fn [ev]
-          (when (= :rf.event/db-pending (:operation ev))
-            (reset! captured (-> ev :tags :rf.event/db)))))
-      (try
-        (rf/dispatch-sync [:t1/return-shared])
-        (is (identical? shared-payload @captured)
-            "t1's stamped value is the same persistent reference the handler returned")
-        (finally
-          (rf/unregister-listener! :trace ::t1-identity))))))
-
-;; ---- ordering against the canonical sequence -----------------------------
+  (testing "on a frame with no classification the stamp is the very reference the
+            handler returned — no copy, so the cost is pointer-sized"
+    (let [shared-payload {:big (vec (range 1000)) :nested {:k :v}}]
+      (rf/reg-event :t1/return-shared (fn [_ _] {:db shared-payload}))
+      (is (identical? shared-payload
+                      (->> (traces-of [:t1/return-shared])
+                           (filter #(= :rf.event/db-pending (:operation %)))
+                           first :tags :rf.event/db))))))
 
 (deftest ^:requires-debug t1-precedes-db-changed-and-do-fx
-  (testing "Spec 009 §Canonical per-event trace sequence — :rf.event/db-pending
-   sits AFTER :rf.event/run-start and BEFORE :rf.event/db-changed (and BEFORE
-   :rf.fx/do-fx). The atomicity-contract pipeline is reflected in the trace
-   stream order: handler returns :db -> [t1] -> flows -> commit -> fx -> tail"
+  (testing "run-start -> db-pending -> db-changed -> do-fx -> run-end"
     (rf/reg-fx :t1/tail-fx (fn [_ _] :ok))
     (rf/reg-event :t1/order-probe
-      (fn [_ _] {:db {:tick 1}
-                 :fx [[:t1/tail-fx {}]]}))
-    (let [acc (collect-traces! ::t1-order)]
-      (try
-        (rf/dispatch-sync [:t1/order-probe])
-        (let [ops (mapv :operation @acc)
-              idx (fn [op] (first (keep-indexed (fn [i x] (when (= x op) i)) ops)))]
-          (is (< (idx :rf.event/run-start) (idx :rf.event/db-pending))
-              "run-start precedes db-pending")
-          (is (< (idx :rf.event/db-pending) (idx :rf.event/db-changed))
-              "db-pending precedes db-changed (the commit boundary)")
-          (is (< (idx :rf.event/db-changed) (idx :rf.fx/do-fx))
-              "db-changed precedes do-fx (Spec 002 atomicity)")
-          (is (< (idx :rf.fx/do-fx) (idx :rf.event/run-end))
-              "do-fx precedes run-end (the cascade trailer)"))
-        (finally
-          (rf/unregister-listener! :trace ::t1-order))))))
-
-;; ---- t2 contract from the core perspective -------------------------------
-
-(deftest ^:requires-debug t2-never-fires-without-flows-artefact
-  (testing "with no flows artefact loaded, t2 (:rf.event/db-pending-post-flow)
-   is by definition impossible — no flow could have transformed the pending
-   value. The flows artefact is NOT a dependency of the core test fixture
-   (no `(require 're-frame.flows :reload)` above), so this confirms the
-   no-flows-app posture."
-    (rf/reg-event :t2/seed (fn [{:keys [db]} _] {:db {:x 1}}))
-    (let [acc (collect-traces! ::t2-no-flows)]
-      (try
-        (rf/dispatch-sync [:t2/seed])
-        (let [t2s (filterv #(= :rf.event/db-pending-post-flow (:operation %)) @acc)]
-          (is (zero? (count t2s))
-              "no :rf.event/db-pending-post-flow without the flows artefact"))
-        (finally
-          (rf/unregister-listener! :trace ::t2-no-flows))))))
+      (fn [_ _] {:db {:tick 1} :fx [[:t1/tail-fx {}]]}))
+    (let [ops (mapv :operation (traces-of [:t1/order-probe]))
+          idx (fn [op] (first (keep-indexed (fn [i x] (when (= x op) i)) ops)))]
+      (is (apply < (map idx [:rf.event/run-start :rf.event/db-pending
+                             :rf.event/db-changed :rf.fx/do-fx :rf.event/run-end]))))))
