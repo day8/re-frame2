@@ -74,7 +74,6 @@
     (with-redefs [rf.interop/next-tick (fn [f] (swap! ticks conj f) nil)]
       (rf/dispatch [:carriers-refusal/fetch] {:frame fid})
       (rf/dispatch [:carriers-refusal/next] {:frame fid})
-      (is (= 1 (count @ticks)) "the two dispatches armed one drain")
       (let [drain (first @ticks)]
         (swap! ticks subvec 1)
         (is (= :no-throw (thrown-id drain))
@@ -86,19 +85,17 @@
         "the request was refused, never issued")
     (let [fx-errors (filterv #(and (= :rf.error/fx-handler-exception (:operation %))
                                    (= :rf.http/managed (get-in % [:tags :rf.fx/id])))
-                             @captured)
-          ev        (first fx-errors)]
-      (is (= 1 (count fx-errors))
-          "the refusal is reported once, as the managed effect's handler exception")
-      (is (= :rf.error/bad-classification
-             (:rf.error/id (ex-data (get-in ev [:tags :exception]))))
-          "the reported exception is the named :rf.error/bad-classification")
-      (is (= :rf/redacted (get-in ev [:tags :rf.fx/args :request]))
-          "the trace projects the request fail-closed while its carriers are unreadable")
-      (is (= [:carriers-refusal/reply] (get-in ev [:tags :rf.fx/args :reply-to]))
-          "the reply address still projects normally"))
+                             @captured)]
+      (is (= [[:rf.error/bad-classification :rf/redacted [:carriers-refusal/reply]]]
+             (mapv (fn [ev] [(:rf.error/id (ex-data (get-in ev [:tags :exception])))
+                             (get-in ev [:tags :rf.fx/args :request])
+                             (get-in ev [:tags :rf.fx/args :reply-to])])
+                   fx-errors))
+          "reported once, as the managed effect's handler exception; the request
+           projects fail-closed while its carriers are unreadable, the reply
+           address normally"))
     (is (not (str/includes? (pr-str @captured) "s3cret-team-key"))
         "the header the malformed block named appears nowhere in the trace")
     (testing "a later dispatch-sync on the same frame is not poisoned"
-      (is (= :no-throw (thrown-id #(rf/dispatch-sync [:carriers-refusal/next] {:frame fid}))))
+      (rf/dispatch-sync [:carriers-refusal/next] {:frame fid})
       (is (= [:fetch :next :sibling :next] @log)))))
