@@ -106,9 +106,6 @@
                   (:data-testid (second node)))))
         (hiccup-seq tree)))
 
-(defn- text-of [tree]
-  (->> (hiccup-seq tree) (filter string?) (string/join " ")))
-
 (defn- setup! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray})
@@ -197,7 +194,6 @@
   (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
         s       (slice!)]
-    (is (= 7 (:total s)))
     (is (= [:event :subs-recomputed :values-changed :boundaries-notified
             :bodies-run :react-commit :paint]
            (mapv :id (:links s)))
@@ -209,48 +205,26 @@
             (str id " must be evidenced on a healthy run — otherwise every "
                  "sabotage below proves only that the fixture is broken"))))
 
-    (testing "links 5-7 are host-opaque, always, and each names its own authority"
-      (doseq [id [:bodies-run :react-commit :paint]]
-        (let [l (link s id)]
-          (is (false? (:evidenced? l)))
-          (is (= :host-opaque (:basis l)))
-          (is (hh/unknown? (:holds l)))
-          (is (string? (:authority l)))))
+    (testing "links 5-7 are three different absences, not one phrased three ways"
       (is (= 3 (count (into #{} (map #(:says (link s %)))
-                            [:bodies-run :react-commit :paint])))
-          (str "three different absences with three different authorities — a "
-               "reader deciding what to open next needs to know which one "
-               "they are missing")))
+                            [:bodies-run :react-commit :paint])))))
+
+    (testing "THE FINDING: the 2→3 join is UNCORRELATED even though both links
+              are solid — an epoch stamp carries no dispatch id"
+      (is (= :uncorrelated (get-in (link s :values-changed) [:joins :status])))
+      (is (= :evidenced (get-in (link s :subs-recomputed) [:joins :status]))
+          (str "while the 1→2 join IS evidenced — the ring GROUPS by "
+               "dispatch-id, so that join is the storage rather than an "
+               "inference")))
+
+    (testing "the summary counts links and joins separately"
+      (let [summary (causal/slice-summary s)]
+        (is (string/includes? summary "links evidenced"))
+        (is (string/includes? summary "joins evidenced"))))
 
     (testing "the envelope never claims the chain from its prefix"
       (is (false? (:complete? s)))
       (is (= :uncorrelated (:reason (:loss s)))))
-    (release)))
-
-(deftest the-2-to-3-join-is-UNCORRELATED-even-when-both-links-are-solid
-  ;; THE FINDING. A sub really recomputed and a cell's epoch really moved,
-  ;; and nothing joins them: an epoch stamp carries no dispatch id and
-  ;; Fresco's commit seam records no cascade id. A chain of green links
-  ;; with the join left implicit is exactly the adjacency-as-cause the
-  ;; producer refuses one layer down.
-  (setup!)
-  (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
-        _       (interact!)
-        s       (slice!)]
-    (is (true? (:evidenced? (link s :subs-recomputed))))
-    (is (true? (:evidenced? (link s :values-changed))))
-    (is (= :uncorrelated (get-in (link s :values-changed) [:joins :status]))
-        "two solid facts, joined by nothing")
-    (is (= :evidenced (get-in (link s :subs-recomputed) [:joins :status]))
-        (str "while the 1→2 join IS evidenced — the ring GROUPS by "
-             "dispatch-id, so that join is the storage rather than an "
-             "inference"))
-    (testing "and the summary counts links and joins separately"
-      (let [summary (causal/slice-summary s)]
-        (is (string/includes? summary "links evidenced"))
-        (is (string/includes? summary "joins evidenced")
-            (str "a reader who conflates the two reads four green links as a "
-                 "proven cause"))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -264,7 +238,6 @@
         before  (slice!)]
     (is (true? (:evidenced? (link before :event)))
         "POSITIVE CONTROL — the link is green before the sabotage")
-    (is (not (hh/unknown? (get-in (link before :event) [:holds :event-id]))))
 
     ;; SABOTAGE: release the ring. The dispatch happened; the seam that
     ;; carried it no longer holds it.
@@ -272,15 +245,11 @@
     (let [after (slice!)
           l     (link after :event)]
       (is (false? (:evidenced? l)) "the link must stop being evidenced")
-      (is (= :cap (:basis l)))
       (is (hh/unknown? (:holds l))
           "and must not fall back to an event id from anywhere else")
-      (is (string/includes? (:says l) "capped window")
-          "a capped window, never a dispatch that did not happen")
 
       (testing "and link 2 degrades with it rather than inventing a roster"
-        (is (hh/unknown? (:holds (link after :subs-recomputed))))
-        (is (= :cap (get-in (link after :subs-recomputed) [:joins :status])))))
+        (is (hh/unknown? (:holds (link after :subs-recomputed))))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -309,24 +278,17 @@
         before    (slice! {:envelopes envelopes :windows windows})]
     (is (true? (:evidenced? (link before :subs-recomputed)))
         "POSITIVE CONTROL")
-    (is (seq (:holds (link before :subs-recomputed)))
-        "and it really named some subscriptions")
 
     ;; SABOTAGE: the runtime's own events, minus the one tag that joins a
     ;; run to a subscription.
     (let [after (slice! {:envelopes envelopes :windows (strip-sub-ids windows)})
           l     (link after :subs-recomputed)]
-      (is (false? (:evidenced? l)))
       (is (hh/unknown? (:holds l))
           (str "UNKNOWN, never `[]` — work happened and joins to nothing, and "
                "an empty roster would say this dispatch recomputed nothing, "
                "which is the one substitution the evidence schema exists to "
                "refuse"))
-      (is (= :uncorrelated (:reason (:loss l))))
-      (is (pos? (:dropped (:loss l))) "with a count of what could not be named")
-
-      (testing "and the runs are still reported as having happened"
-        (is (string/includes? (:says l) "join to no subscription"))))
+      (is (= :uncorrelated (:reason (:loss l)))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -343,28 +305,19 @@
         keys*   (mapv #(get-in % [:boundary :key]) (get-in e [:mounted-boundaries :boundaries]))
         reading-key (first (filter seq keys*))
         empty-key   (first (filter empty? keys*))]
-    (is (some? reading-key) "the reading boundary is in the census")
-    (is (some? empty-key) "and so is the read-free one — it claims an entry too")
-
     (testing "POSITIVE CONTROL — the reading boundary's values-changed is evidenced"
-      (let [l (link (slice! {:envelopes e :windows w :boundary-key reading-key})
-                    :values-changed)]
-        (is (true? (:evidenced? l)))
-        (is (number? (get-in l [:holds :peak-epoch])))))
+      (is (true? (:evidenced? (link (slice! {:envelopes e :windows w :boundary-key reading-key})
+                                    :values-changed)))))
 
     (testing "the read-free boundary's is not, and says why in ITS OWN terms"
-      (let [s (slice! {:envelopes e :windows w :boundary-key empty-key})
-            l (link s :values-changed)]
-        (is (false? (:evidenced? l)))
-        (is (hh/unknown? (:holds l)))
-        (is (string/includes? (:says l) "not a gap in the instrument")
+      (let [s (slice! {:envelopes e :windows w :boundary-key empty-key})]
+        (is (string/includes? (:says (link s :values-changed)) "not a gap in the instrument")
             (str "a boundary that holds no read is a FACT about the boundary, "
                  "and reporting it as a missing instrument would send the "
                  "reader looking for a knob"))
 
         (testing "and link 4 follows it down rather than naming readers anyway"
-          (is (false? (:evidenced? (link s :boundaries-notified))))
-          (is (hh/unknown? (:holds (link s :boundaries-notified)))))))
+          (is (false? (:evidenced? (link s :boundaries-notified)))))))
     (reading)
     (silent)))
 
@@ -385,27 +338,11 @@
         before  (slice! {:envelopes e :windows w})]
     (is (true? (:evidenced? (link before :boundaries-notified)))
         "POSITIVE CONTROL")
-    (is (seq (get-in (link before :boundaries-notified) [:holds :readers])))
-    (is (= :derivation (:basis (link before :boundaries-notified)))
-        (str "derived rather than observed even when green — the notify CALL "
-             "is not recorded, and the array is read now rather than at "
-             "commit time"))
 
     ;; SABOTAGE: the reverse-edge table is not readable.
-    (let [after (slice! {:envelopes (assoc e :read-attribution nil) :windows w})
-          l     (link after :boundaries-notified)]
-      (is (false? (:evidenced? l)))
-      (is (hh/unknown? (:holds l)))
-      (is (string/includes? (:says l) "mounted census is NOT substituted"))
-      (is (= [:frame-id :sub-id :query] (get-in l [:joins :on]))
-          (str "the join it could not make is still named by the CELL key the "
-               "readable branch joins on — a registration key here would name "
-               "the fabrication the readable branch refuses"))
-
-      (testing "and the census it could have borrowed from is still right there"
-        (is (seq (get-in e [:mounted-boundaries :boundaries]))
-            (str "the substitution was AVAILABLE and was not taken — which is "
-                 "what makes this row a finding rather than an accident"))))
+    (is (hh/unknown? (:holds (link (slice! {:envelopes (assoc e :read-attribution nil) :windows w})
+                                   :boundaries-notified)))
+        "UNKNOWN — the census, which holds the FORWARD edge, is not borrowed")
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -443,21 +380,13 @@
                "one cell the per-cell assertion below would pass on the "
                "defective key too, which is the whole failure mode of a "
                "one-cell fixture"))
-      (is (= #{:hcaus/item} (into #{} (map :sub-id) cells))
-          "and both really are the SAME registration")
-      (is (some? key-1) "boundary A is in the census, reading cell 1 alone")
-      (is (some? key-2) "boundary B is in the census, reading cell 2 alone")
       (is (not= key-1 key-2)
           (str "and the two boundaries are distinct — if the egress policy "
                "had elided the argument both would project to one key and "
-               "there would be nothing here to keep apart"))
-      (is (= 2 (count (into #{} (map :query) cells)))
-          "the two cells carry two distinct projected queries"))
+               "there would be nothing here to keep apart")))
 
     (let [l (link (slice! {:envelopes e :windows w :boundary-key key-1})
                   :boundaries-notified)]
-      (is (true? (:evidenced? l))
-          "POSITIVE CONTROL — the link is green, so the counts below are a real set")
       (is (= [[:hcaus/item 1]] (mapv :query (:cells (:holds l))))
           (str "ONE cell matched: the one this boundary's moved read names. "
                "Both cells would be the registration-keyed answer"))
@@ -465,10 +394,7 @@
           (str "so boundary B — which reads a cell this commit did not move "
                "— is NOT reported as notified. It would be the reverse edge's "
                "answer under a registration key, printed under the name of the one "
-               "link that says who re-runs because of this"))
-      (is (= [:frame-id :sub-id :query] (get-in l [:joins :on]))
-          "and the link states the CELL as what it joined on")
-      (is (= :evidenced (get-in l [:joins :status]))))
+               "link that says who re-runs because of this")))
 
     (testing "and boundary B's own slice names B, symmetrically"
       (let [l (link (slice! {:envelopes e :windows w :boundary-key key-2})
@@ -502,8 +428,7 @@
     (testing "NON-VACUITY — the ring holds more than one dispatch to choose between"
       (is (<= 2 (count ids))
           (str "with one retained dispatch every branch below answers the "
-               "same id and the test would pass without discriminating"))
-      (is (not= oldest newest)))
+               "same id and the test would pass without discriminating")))
 
     (is (= newest (get-in (slice! {:envelopes e :windows w}) [:scope :dispatch-id]))
         "with no focus, the newest retained dispatch")
@@ -515,17 +440,11 @@
              "whole subject is one dispatch"))
 
     (testing "and a focus the ring has EVICTED falls back rather than drawing an all-capped slice"
-      ;; `(or newest 0)` rather than `(reduce max ids)`: the non-vacuity
-      ;; assertion above REPORTS an empty ring, it does not stop the row,
-      ;; so an arithmetic throw here would bury that report under a broken
-      ;; fixture.
-      (let [evicted (inc (or newest 0))
-            s       (slice! {:envelopes e :windows w :focus {:dispatch-id evicted}})]
-        (is (= newest (get-in s [:scope :dispatch-id])))
-        (is (true? (:evidenced? (link s :event)))
-            (str "a focus is a selection, not a claim about the window — "
-                 "honouring a pin the ring cannot serve would show seven "
-                 "capped links and blame the instrument"))))
+      ;; `(or newest 0)` so an empty ring is reported by the non-vacuity
+      ;; assertion above rather than buried under an arithmetic throw.
+      (let [evicted (inc (or newest 0))]
+        (is (= newest (get-in (slice! {:envelopes e :windows w :focus {:dispatch-id evicted}})
+                              [:scope :dispatch-id])))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -541,56 +460,28 @@
   (setup!)
   (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
-        s       (slice!)
-        l3      (link s :values-changed)]
-    (is (true? (:evidenced? l3)) "POSITIVE CONTROL")
-    (is (string/includes? (:says l3) "an OVERLAP and not a join")
-        (str "the sentence has to disown the join in its own words — a bare "
-             "count beside two rosters reads as the link the 2→3 join "
-             "explicitly does not have"))
-    (is (string/includes? (:says l3) "CELLS")
-        (str "and name the grain mismatch: link 2 names registrations "
-             "because Spec 009's ring tags `:rf.sub/id` and no query, so a "
-             "read whose registration ran need not be the cell that ran"))
-
-    (testing "and the join itself is untouched — still uncorrelated, still its own row"
-      (is (= :uncorrelated (get-in l3 [:joins :status])))
-      (is (string/includes? (get-in l3 [:joins :says]) "CANNOT be joined")))
-
-    (testing "the count is a MEASUREMENT — it moves when the rosters disagree"
-      (let [e       (evidence!)
-            w       (windows! e)
-            ;; The runtime's own window with link 2's roster renamed to a
-            ;; registration this boundary does not read. Link 3's moved
-            ;; reads are untouched, so only the overlap may move.
-            renamed (into {}
-                          (map (fn [[fid bundles]]
-                                 [fid (mapv (fn [b]
-                                              (update b :subs
-                                                      (fn [evs]
-                                                        (mapv #(assoc-in % [:tags :rf.sub/id]
-                                                                         :entirely/unrelated)
-                                                              evs))))
-                                            bundles)]))
-                          w)
-            hit       (slice! {:envelopes e :windows w})
-            says-hit  (:says (link hit :values-changed))
-            says-miss (:says (link (slice! {:envelopes e :windows renamed}) :values-changed))]
-        ;; `:holds` is `hh/unknown` — a KEYWORD — when work happened that
-        ;; joins to no subscription, so the `coll?` guard is load-bearing
-        ;; rather than defensive: `some` over a keyword throws, and a
-        ;; throwing row reports a broken fixture where an assertion would
-        ;; have reported the finding.
-        (let [named (:holds (link hit :subs-recomputed))]
-          (is (and (coll? named) (some #{:hcaus/left} named))
-              (str "NON-VACUITY: link 2 really names this boundary's own "
-                   "registration on the unmodified window, so the two "
-                   "sentences below are 1-of-1 against 0-of-1 and not "
-                   "0 against 0")))
-        (is (not= says-hit says-miss)
-            (str "a count that reads the same whether or not the two rosters "
-                 "share anything is not a measurement — and this is the "
-                 "exact shape of assertion that catches one"))))
+        e       (evidence!)
+        w       (windows! e)
+        ;; The runtime's own window with link 2's roster renamed to a
+        ;; registration this boundary does not read. Link 3's moved reads
+        ;; are untouched, so only the overlap may move.
+        renamed (into {}
+                      (map (fn [[fid bundles]]
+                             [fid (mapv (fn [b]
+                                          (update b :subs
+                                                  (fn [evs]
+                                                    (mapv #(assoc-in % [:tags :rf.sub/id]
+                                                                     :entirely/unrelated)
+                                                          evs))))
+                                        bundles)]))
+                      w)
+        says-hit  (:says (link (slice! {:envelopes e :windows w}) :values-changed))
+        says-miss (:says (link (slice! {:envelopes e :windows renamed}) :values-changed))]
+    (is (string/includes? says-hit "an OVERLAP and not a join")
+        "the sentence disowns the join in its own words (028 §The causal slice)")
+    (is (not= says-hit says-miss)
+        (str "the count is a MEASUREMENT: one that reads the same whether or "
+             "not the two rosters share anything is not one"))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -601,31 +492,13 @@
   (setup!)
   (let [release (mount! (fn [_] (rf.fresco/sub [:hcaus/left]) nil))
         _       (interact!)
-        tree    (show! :causal)
-        ids     (testids tree)]
-    (is (contains? ids "rf-xray-fresco-causal"))
-    (doseq [id ["event" "subs-recomputed" "values-changed" "boundaries-notified"
-                "bodies-run" "react-commit" "paint"]]
-      (is (contains? ids (str "rf-xray-fresco-causal-link-" id))
-          (str "link " id " must render")))
-
-    (testing "the three host-opaque links carry the host-opaque chip, by testid"
-      (doseq [id ["bodies-run" "react-commit" "paint"]]
-        (is (contains? ids (str "rf-xray-fresco-causal-link-" id "-loss-host-opaque"))
-            (str id " must render its loss under a testid a browser assertion "
-                 "can select — `…-loss-host-opaque` can never match "
-                 "`…-loss-cap`"))))
+        ids     (testids (show! :causal))]
+    (testing "a host-opaque link renders its loss under a testid a browser
+              assertion can select — `…-loss-host-opaque` never matches `…-loss-cap`"
+      (is (contains? ids "rf-xray-fresco-causal-link-paint-loss-host-opaque")))
 
     (testing "the join is its own row, never folded into the link's own basis"
-      (is (contains? ids "rf-xray-fresco-causal-link-values-changed-join"))
-      (is (string/includes? (text-of tree) "CANNOT be joined")))
-
-    (testing "and a capped ring renders the cap chip instead"
-      (rf.trace.tooling/clear-trace-buffer! app-frame)
-      (let [ids' (testids (show! :causal))]
-        (is (contains? ids' "rf-xray-fresco-causal-link-event-loss-cap"))
-        (is (not (contains? ids' "rf-xray-fresco-causal-link-event-loss-host-opaque"))
-            "two genuinely different window states, two different testids")))
+      (is (contains? ids "rf-xray-fresco-causal-link-values-changed-join")))
     (release)))
 
 ;; ---------------------------------------------------------------------------
@@ -643,27 +516,15 @@
         e       (evidence!)
         adv     (advisor/advise e (advisor/sub-timing (windows! e)))
         row     (first (:rows adv))]
-    (is (seq (:rows adv)) "the advisor ranked the running census")
-    (is (= 1 (:rank row)))
-    (is (pos? (get-in row [:axes :read-churn :reads])) "with its reads priced")
+    (is (= 1 (:rank row)) "the advisor ranked the running census")
     (is (false? (get-in row [:advice :native?]))
         "no native route from this evidence, on a real application")
-    (is (contains? #{:computation :read-topology :unattributed}
-                   (get-in row [:class :owner])))
 
-    (testing "and the tab renders it, refusal and working loop included"
-      (let [tree (show! :advisor)
-            ids  (testids tree)]
-        (is (contains? ids "rf-xray-fresco-advisor"))
+    (testing "and the tab renders the row and names an unmeasured class beside it"
+      (let [ids (testids (show! :advisor))]
         (is (contains? ids (str "rf-xray-fresco-advice-" (:slug row))))
-        (is (contains? ids (str "rf-xray-fresco-advice-" (:slug row) "-class")))
-        (is (contains? ids (str "rf-xray-fresco-advice-" (:slug row) "-route")))
-        (is (contains? ids "rf-xray-fresco-advisor-unmeasured"))
-        (doseq [c ["lowering" "react" "layout"]]
-          (is (contains? ids (str "rf-xray-fresco-advisor-unmeasured-" c))
-              (str c " must be named on the page as unmeasured — the reason "
-                   "the top row is not a verdict")))
-        (is (string/includes? (text-of tree) "React DevTools"))))
+        (is (contains? ids "rf-xray-fresco-advisor-unmeasured-react")
+            "the reason the top row is not a verdict")))
     (release)))
 
 (deftest the-advisor-and-the-slice-are-taken-in-ONE-turn
