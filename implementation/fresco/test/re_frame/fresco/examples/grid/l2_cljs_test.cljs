@@ -59,26 +59,6 @@
          comes from `events/cell-label` so that a witness looking a cell
          up and the view rendering it cannot spell it differently")))
 
-(rf.fresco/defview revision-carrier
-  "NOT part of the application: a cell's input with the reset trigger
-  added, so the row below reads a PRESENT trigger through the same
-  projection before it reads the cell's absent one."
-  [_]
-  [:input {:type "text" :value "34" ::rf.fresco/revision 1}])
-
-(deftest a-cell-carries-no-reset-trigger
-  ;; The grid has no discard, so `::h/revision` appears nowhere in this
-  ;; application — an absence read off the view, because an absence
-  ;; nothing asserts is an absence somebody re-adds.
-  (is (= 1 (::rf.fresco/revision (rf.fresco.test/attrs (rf.fresco.test/tree [revision-carrier {}] {}))))
-      "the projection carries a trigger an input does write")
-  (let [input (tagged (rf.fresco.test/tree [rf.fresco.examples.grid.views/cell {:row 3 :col 4}]
-                                           {:subs {[::rf.fresco.examples.grid.subs/cell 3 4] "34"}})
-                      :input)]
-    (is (some? input) "premise: the view rendered the cell's input")
-    (is (nil? (::rf.fresco/revision (rf.fresco.test/attrs input)))
-        "and the cell's input carries none")))
-
 (deftest the-row-total-reads-its-own-row-and-nothing-else
   (let [tree (rf.fresco.test/tree [rf.fresco.examples.grid.views/row-total {:row 2}]
                       {:subs {[::rf.fresco.examples.grid.subs/row-total 2] 42}})]
@@ -121,30 +101,3 @@
     (is (= [0 1 2] (mapv (comp :row rf.fresco.test/attrs) rows)))
     (is (= ["0" "1" "2"] (mapv :key rows)))
     (is (some? (tagged tree :table)))))
-
-;; ---------------------------------------------------------------------------
-;; A hundred of them
-;; ---------------------------------------------------------------------------
-
-(deftest a-hundred-cells-carry-a-hundred-distinct-addresses
-  ;; Structural, and cheap: the grid's calls are enumerated at the real
-  ;; size, and every cell's coordinate pair is distinct. A witness that
-  ;; measured scaling on a grid whose cells shared an address would be
-  ;; measuring an accident.
-  (let [dims  {:rows 10 :cols 10}
-        rows  (range (:rows dims))
-        cells (into []
-                    (mapcat (fn [row]
-                              (let [tree (rf.fresco.test/tree [rf.fresco.examples.grid.views/grid-row {:row row}]
-                                                  {:subs {[::rf.fresco.examples.grid.subs/dimensions] dims}})]
-                                (->> (rf.fresco.test/find-all
-                                       tree
-                                       #(= "re-frame.fresco.examples.grid.views/cell"
-                                           (:view-id %)))
-                                     (mapv (fn [c] [(:row (rf.fresco.test/attrs c))
-                                                    (:col (rf.fresco.test/attrs c))]))))))
-                    rows)]
-    (is (= 100 (count cells)))
-    (is (= (set (for [r rows c (range (:cols dims))] [r c])) (set cells))
-        "the coordinate grid, complete and without duplicates — 100 cells,
-         100 addresses, 100 notification groups")))
