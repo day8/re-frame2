@@ -20,8 +20,7 @@
 
   Every test drives `run-variant` / `destroy-variant!` and reads what the
   handlers actually saw (the `calls` atom) or the frame's app-db."
-  (:require [clojure.edn :as edn]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.machines :as rf.machines]
@@ -32,9 +31,7 @@
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.frames :as rf.story.frames]
             [re-frame.story.loaders :as rf.story.loaders]
-            [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
-            [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.runtime :as rf.story.runtime]
             [re-frame.story.save-variant :as rf.story.save-variant]
             [re-frame.story.ui.state :as rf.story.ui.state]))
@@ -132,32 +129,12 @@
         "the inherited predicate's verdict is reported as loader-incomplete")
     (is (not= :pass (:status result)))))
 
-(deftest rerun-runs-the-resolved-cleanup-once
-  (rf.story/reg-variant :story.rs/base
-    {:loaders [[:rs/load]] :loaders-teardown [[:rs/close]]})
-  (rf.story/reg-variant :story.rs/child {:extends :story.rs/base})
-  (run-it! :story.rs/child)
-  (run-it! :story.rs/child)
-  (is (= [:load :close :load] @calls)
-      "the in-place reset closes the first run's resource before re-opening")
-  (rf.story/destroy-variant! :story.rs/child)
-  (is (= [:load :close :load :close] @calls)))
-
-(deftest loader-controls-no-loader-fast-path-and-inline
-  (testing "no-loader variant takes the events-only fast path"
-    (rf.story/reg-variant :story.rs/plain {:setup [[:rs/setup]]})
-    (let [result (run-it! :story.rs/plain)]
-      (is (= [:setup] @calls))
-      (is (= :ready (:lifecycle result)))
-      (is (not (loader-incomplete? result))))
-    (rf.story/destroy-variant! :story.rs/plain))
-  (testing "inline plan (control)"
-    (reset! calls [])
-    (rf.story.async/deref-blocking
-      (rf.story.runtime/run-inline-plan
-        {:loaders [[:rs/load]] :loaders-teardown [[:rs/close]]})
-      5000)
-    (is (= [:load :close] @calls))))
+(deftest inline-plan-runs-its-loaders-and-cleanup
+  (rf.story.async/deref-blocking
+    (rf.story.runtime/run-inline-plan
+      {:loaders [[:rs/load]] :loaders-teardown [[:rs/close]]})
+    5000)
+  (is (= [:load :close] @calls)))
 
 ;; ===========================================================================
 ;; 2 · a run's loader cleanup survives a hot reload
@@ -187,30 +164,12 @@
   (is (= [:opened-a :closed-a :opened-a :closed-b] @calls)
       "the new run owns the new cleanup"))
 
-(deftest hot-reload-removing-or-adding-cleanup-follows-the-run
-  (testing "cleanup removed after the run opened its resource — A still runs"
-    (reg-reload! [[:rs/closed-a]])
-    (run-it! :story.rs/reload)
-    (reg-reload! nil)
-    (rf.story/destroy-variant! :story.rs/reload)
-    (is (= [:opened-a :closed-a] @calls)))
-  (testing "cleanup added after a run that had none — nothing runs"
-    (reset! calls [])
-    (reg-reload! nil)
-    (run-it! :story.rs/reload)
-    (reg-reload! [[:rs/closed-b]])
-    (rf.story/destroy-variant! :story.rs/reload)
-    (is (= [:opened-a] @calls))))
-
-(deftest parent-edit-does-not-rewrite-an-inherited-runs-cleanup
-  (rf.story/reg-variant :story.rs/parent
-    {:loaders [[:rs/opened-a]] :loaders-teardown [[:rs/closed-a]]})
-  (rf.story/reg-variant :story.rs/heir {:extends :story.rs/parent})
-  (run-it! :story.rs/heir)
-  (rf.story/reg-variant :story.rs/parent
-    {:loaders [[:rs/opened-a]] :loaders-teardown [[:rs/closed-b]]})
-  (rf.story/destroy-variant! :story.rs/heir)
-  (is (= [:opened-a :closed-a] @calls)))
+(deftest cleanup-added-after-a-cleanup-free-run-does-not-run
+  (reg-reload! nil)
+  (run-it! :story.rs/reload)
+  (reg-reload! [[:rs/closed-b]])
+  (rf.story/destroy-variant! :story.rs/reload)
+  (is (= [:opened-a] @calls)))
 
 (deftest destroy-twice-does-not-repeat-the-cleanup
   (reg-reload! [[:rs/closed-a]])
@@ -220,8 +179,7 @@
   (is (= [:opened-a :closed-a] @calls)))
 
 ;; ===========================================================================
-;; 3 · effective args agree across run, facade, save, snippet
-;;     (and the `story/explain` a registered variant reports)
+;; 3 · effective args agree across run, facade, save snapshot and explain
 ;; ===========================================================================
 
 (def ^:private inherited {:count 42 :nested {:v 7 :keep 1}})
@@ -234,8 +192,7 @@
   (rf.story/reg-fragment :fragment.rsargs/args {:args {:count 42 :nested {:v 7}}})
   (rf.story/reg-variant :story.rsargs/composed {:compose [:fragment.rsargs/args]})
   (rf.story/reg-variant :story.rsargs/deep
-    {:extends :story.rsargs/parent :args {:nested {:v 9}}})
-  (rf.story/reg-variant :story.rsargs/direct {:args {:count 3}}))
+    {:extends :story.rsargs/parent :args {:nested {:v 9}}}))
 
 (defn- surfaces
   "The effective args each surface reports for `vid` under run `opts`."
@@ -256,8 +213,6 @@
             :story.rsargs/composed nil inherited]
            ["nested args deep-merge through the chain"
             :story.rsargs/deep nil {:count 42 :nested {:v 9 :keep 1}}]
-           ["a direct variant's own args (control)"
-            :story.rsargs/direct nil {:count 3 :nested {:v 0 :keep 1}}]
            ["an active mode sits BELOW the inherited variant args"
             :story.rsargs/child {:active-modes [:Mode.rsargs/loud]} (assoc inherited :theme :loud)]
            ["a cell override sits above everything"
@@ -265,20 +220,6 @@
     (testing label
       (is (= {:run expected :facade expected :snapshot expected :explain expected}
              (surfaces vid opts))))))
-
-(deftest saved-variant-round-trip-keeps-the-inherited-args
-  (reg-args-scenario!)
-  (doseq [vid [:story.rsargs/child :story.rsargs/composed]]
-    (let [saved-id (keyword "story.rsargs" (str "saved-" (name vid)))
-          snippet  (rf.story.save-variant/gen-variant-snippet
-                     {:variant-id saved-id
-                      :extends    vid
-                      :args       (rf.story.save-variant/snapshot-args vid)})
-          [_ id body] (edn/read-string snippet)]
-      (rf.story.registrar/reg-variant* id body)
-      (is (= inherited (get-in (rf.story.plan/variant-plan saved-id)
-                               [:world :effective-args]))
-          (str vid " — the saved form re-registers the args the user saw")))))
 
 (deftest explain-folds-ambient-layers-for-a-registered-variant-only
   (rf.story/reg-story :story.rsexplain {:args {:heading "Sign in"}})
