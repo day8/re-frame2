@@ -1,49 +1,19 @@
 (ns re-frame.adapter.uix-consumer-deps-recipe-test
   "The clean-consumer guard for the UIx dependency recipe.
 
-   `day8/re-frame2-uix` ships `com.pitch/uix.core` and deliberately does NOT
-   ship `com.pitch/uix.dom` — mounting a React root is the application's call,
-   so the DOM half never arrives transitively. Inside this monorepo every UIx
-   example compiles regardless of what its recipe names, because the aggregate
-   `implementation/shadow-cljs.edn` build injects the UIx artefacts globally.
-   That ambient dependency is precisely why the per-example compile gate cannot
-   see the omission a standalone consumer hits: it is masked at exactly the
-   layer the consumer does not have.
-
-   So the guard is static rather than a compile. It reads the three example
-   sources, collects every `uix.*` namespace they require, and insists each one
-   has a named owner coordinate in every place the project publishes a UIx
-   dependency recipe — the spec's consumer block, the how-to's coordinate
-   table, and the three example READMEs — all pinned to the one version source,
-   the generator template. Drop a coordinate the examples require from any of
-   those and this goes red naming the file.
-
-   The required set is DERIVED from the sources rather than listed here, so it
-   narrows when a mount stops needing something. That is not the guard going
-   quiet: what it protects is the gap between what the copyable source requires
-   and what the published recipes name, and both halves move together.
-
-   The generator template is the VERSION SOURCE, not a fourth recipe, and it
-   alone does not name `uix.dom`: the app it emits mounts through
-   `rf.adapter.uix/client-root` + `render!`, so the Root is minted by the
-   shared React spine and the DOM half is not a day-one dependency. That
-   absence is asserted here positively, because an absence nobody asserts
-   can quietly reverse; `retired-coords` in the template suite is the
-   sibling half, which refuses the coordinate anywhere in the emitted
-   `deps.edn`.
-
-   The three examples mount through the same `client-root` / `render!` door
-   the template emits, so `uix.dom` is not in the derived owner set and the
-   recipe assertions do not demand it. A page may still name it —
-   `docs/core/testing/views.md` has a component-test recipe that really does
-   drive a Root by hand — and nothing here forbids that; the guard only
-   insists that what the examples DO require is nameable and named.
-
-   What this does NOT do is resolve a real classpath. A genuine clean-consumer
-   compile would need its own fixture project, its own Maven resolution and its
-   own build step — a new CI lane, which this guard is not worth. The invariant
-   it can prove cheaply is the one that matters: a namespace the copyable
-   mount requires with no consumer coordinate that owns it."
+   `day8/re-frame2-uix` ships `com.pitch/uix.core` and not `com.pitch/uix.dom`,
+   and inside this monorepo the aggregate shadow-cljs build injects the UIx
+   artefacts globally, so no compile gate sees a recipe that omits a
+   coordinate a standalone consumer needs. So the guard is static: every
+   `uix.*` namespace the three example sources require (DERIVED, so it moves
+   with the sources) must have an owner coordinate named, at the generator
+   template's version, in every published recipe — the spec's consumer block,
+   the how-to's table and the three example READMEs. The template, the version
+   source, deliberately pins no `uix.dom`, because its app mounts through
+   `rf.adapter.uix/client-root`; that absence is asserted rather than assumed
+   (`retired-coords` in the template suite is the sibling half). A page may
+   still name `uix.dom`. This resolves no real classpath — that would need its
+   own fixture project and CI lane."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]))
@@ -129,17 +99,13 @@
 
 (deftest adapter-ships-uix-core-but-not-uix-dom
   (let [deps (deps-map (repo-root) adapter-deps-path)]
-    (testing "the adapter's shipping :deps carry uix.core"
-      (is (contains? deps 'com.pitch/uix.core)
-          (str adapter-deps-path " does not ship com.pitch/uix.core.")))
-    (testing "and deliberately do NOT carry uix.dom"
-      ;; If this ever flips, the DOM half became transitive and the recipe
-      ;; assertions below stop being load-bearing — so the guard must be
-      ;; re-thought rather than left standing as a vacuous pass.
-      (is (not (contains? deps 'com.pitch/uix.dom))
-          (str adapter-deps-path " ships com.pitch/uix.dom. That is a "
-               "deliberate non-goal; if it was intended, this "
-               "whole guard needs revisiting.")))))
+    ;; Were uix.dom ever shipped, the DOM half would be transitive and the
+    ;; recipe assertions below would stop being load-bearing.
+    (is (= [true false] [(contains? deps 'com.pitch/uix.core)
+                         (contains? deps 'com.pitch/uix.dom)])
+        (str adapter-deps-path " must ship com.pitch/uix.core and must not ship"
+             " com.pitch/uix.dom; if that changed deliberately, this whole guard"
+             " needs revisiting."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Every namespace the copyable mount requires has an owner coordinate.
@@ -149,23 +115,14 @@
     (doseq [rel example-sources]
       (testing rel
         (let [required (required-uix-namespaces (slurp-at root rel))]
-          ;; Non-vacuity: a scan that found nothing would satisfy the
-          ;; ownership check below in the same voice as a clean file.
-          ;;
-          ;; The signal namespace is `uix.core`: it is where `$` and `defui`
-          ;; come from, so a file cannot stop requiring it and still be a UIx
-          ;; view file. It is the one require the scan can depend on finding.
-          ;; A mount-specific namespace such as `uix.dom` would make the
-          ;; control an assertion about the MOUNT IDIOM rather than about the
-          ;; scan, red for a change it is not meant to be sensitive to.
+          ;; Non-vacuity: a blind scan would pass the ownership check below.
+          ;; `uix.core` is the signal because every UIx view file needs it for
+          ;; `$` and `defui`, whatever its mount idiom.
           (testing "the scan has signal — the file's uix.core require is seen"
             (is (contains? required "uix.core")
-                (str rel " does not appear to require uix.core. Either it "
+                (str rel " does not appear to require uix.core: either it "
                      "stopped being a UIx view file, or the require-scanning "
-                     "regex in this test has gone blind — and a blind scan "
-                     "passes the ownership check below in the same voice as "
-                     "a clean file, which is what this assertion is here to "
-                     "prevent.")))
+                     "regex has gone blind.")))
           (testing "and every uix.* namespace it requires has a known owner"
             (is (empty? (remove ns->coordinate required))
                 (str rel " requires " (pr-str (vec (remove ns->coordinate required)))
@@ -192,31 +149,21 @@
     (testing "the template pins uix.core — the one version source"
       (is (some? core-ver) (str template-deps-path " has no com.pitch/uix.core.")))
     (testing "and deliberately does NOT pin uix.dom"
-      ;; The absence half, asserted rather than assumed. The emitted app
-      ;; mounts through the adapter's `client-root` / `render!`, so uix.dom
-      ;; is not on its classpath and there is no second version to keep in
-      ;; lockstep. A uix.dom pin would teach a hand-rolled
-      ;; `uix-dom/create-root` boot, so this must go red if one appears.
+      ;; A uix.dom pin would teach a hand-rolled `uix-dom/create-root` boot.
       (is (nil? dom-ver)
           (str template-deps-path " pins com.pitch/uix.dom at "
-               (pr-str dom-ver) ". That coordinate is not part of the "
-               "scaffold: the emitted app mounts through "
-               "`rf.adapter.uix/client-root` + `render!`, so the React Root "
-               "is minted by the shared spine and uix.dom is not a day-one "
-               "dependency. If the pin was added deliberately, this guard "
-               "and `retired-coords` in the template suite both need "
-               "revisiting rather than relaxing.")))
+               (pr-str dom-ver) ", but the emitted app mounts through"
+               " `rf.adapter.uix/client-root`. If the pin was deliberate, this"
+               " guard and `retired-coords` in the template suite both need"
+               " revisiting rather than relaxing.")))
     (doseq [rel recipe-pages]
       (testing rel
         (let [found (recipe-coordinates (slurp-at root rel))]
           (doseq [nm (sort owners)]
-            (testing (str "names com.pitch/" nm)
-              (is (contains? found nm)
-                  (str rel " publishes a UIx dependency recipe that does not "
-                       "name com.pitch/" nm ", but the examples require " nm
-                       ". A consumer copying this recipe cannot resolve it"
-                       ".")))
-            (testing (str "pins com.pitch/" nm " at the template's version")
+            (testing (str "names com.pitch/" nm " at the template's version")
+              ;; A recipe that omits the coordinate reads nil here.
               (is (= core-ver (get found nm))
                   (str rel " pins com.pitch/" nm " at " (pr-str (get found nm))
-                       " but " template-deps-path " pins " core-ver ".")))))))))
+                       " (nil: not named, so a consumer copying it cannot resolve"
+                       " what the examples require) but " template-deps-path
+                       " pins " core-ver ".")))))))))
