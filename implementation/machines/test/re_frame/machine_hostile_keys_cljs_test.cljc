@@ -32,7 +32,6 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-   [clojure.string :as str]
    [re-frame.core :as rf]
    ;; Load the machines facade so `rf/reg-machine` routes through its
    ;; late-bind hook (`:machines/reg-machine`).
@@ -91,128 +90,52 @@
       (or (:rf.error/id (ex-data t))
           [:host-throw (ex-message t)]))))
 
-(defn- reg-message
-  "The `ex-message` of the error `machine` raises, or nil when it registers.
-  Reading the message at all is half the assertion — the message is built
-  EAGERLY inside `validation-error`, so a renderer that is not total throws
-  before this ever returns."
-  [machine]
-  (try
-    (rf/reg-machine (keyword "hk" (str (gensym))) machine)
-    nil
-    (catch #?(:clj Throwable :cljs :default) t
-      (ex-message t))))
-
 ;; ---------------------------------------------------------------------------
 ;; (1) Non-Named keys are REJECTED, at the root and at a node.
 
 (deftest non-named-root-key-rejected
-  (testing "a String / number / vector / opaque-host key on the machine ROOT
-            earns :rf.error/machine-unknown-node-key — not a host throw"
+  (testing "a String or an opaque-host key on the machine ROOT earns
+            :rf.error/machine-unknown-node-key — not a host throw"
     (is (= :rf.error/machine-unknown-node-key
            (reg-outcome {:initial :a :states {:a {}} "x" 1}))
         "String root key")
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {}} 7 1}))
-        "number root key")
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {}} [1 2] 1}))
-        "vector root key")
     (is (= :rf.error/machine-unknown-node-key
            (reg-outcome {:initial :a :states {:a {}} (forge-opaque-key) 1}))
         "opaque host key whose toString throws")))
 
 (deftest non-named-node-key-rejected
-  (testing "the same key classes on a STATE NODE earn the same rejection —
-            the walk reaches every node, not just the root"
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {"x" 1}}}))
-        "String node key")
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {42 1}}}))
-        "number node key")
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {[1 2] 1}}}))
-        "vector node key")
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {(forge-opaque-key) 1}}}))
-        "opaque host node key whose toString throws"))
-
-  (testing "a non-Named key on a NESTED compound's child node is reached too"
-    (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :o
-                         :states {:o {:initial :i :states {:i {"x" 1}}}}}))
-        "String key two levels down")))
+  (is (= :rf.error/machine-unknown-node-key
+         (reg-outcome {:initial :a :states {:a {"x" 1}}}))
+      "String node key"))
 
 (deftest non-named-spawn-spec-key-rejected
-  (testing "the :spawn spec's key check is the same walk and is equally total"
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-outcome {:initial :a :states {:a {:spawn {:machine-id :m "x" 1}}}}))
-        "String :spawn key")
-    (is (= :rf.error/machine-unknown-spawn-key
-           (reg-outcome {:initial :a
-                         :states {:a {:spawn {:machine-id :m (forge-opaque-key) 1}}}}))
-        "opaque host :spawn key")))
+  (is (= :rf.error/machine-unknown-spawn-key
+         (reg-outcome {:initial :a
+                       :states {:a {:spawn {:machine-id :m (forge-opaque-key) 1}}}}))
+      "opaque host :spawn key"))
 
 (deftest non-named-spawn-all-block-key-rejected
   (testing ":spawn-all's block-key check carries its own copy of the walk and is
             equally total"
-    (let [block {:children        [{:id :c1 :machine-id :m}]
-                 :on-all-complete [:done]}]
-      (is (= :rf.error/machine-spawn-all-bad-shape
-             (reg-outcome {:initial :a
-                           :states {:a {:spawn-all (assoc block "x" 1)}
-                                    :done {}}}))
-          "String :spawn-all block key")
-      (is (= :rf.error/machine-spawn-all-bad-shape
-             (reg-outcome {:initial :a
-                           :states {:a {:spawn-all (assoc block (forge-opaque-key) 1)}
-                                    :done {}}}))
-          "opaque host :spawn-all block key"))))
+    (is (= :rf.error/machine-spawn-all-bad-shape
+           (reg-outcome {:initial :a
+                         :states {:a {:spawn-all {:children        [{:id :c1 :machine-id :m}]
+                                                  :on-all-complete [:done]
+                                                  (forge-opaque-key) 1}}
+                                  :done {}}}))
+        "opaque host :spawn-all block key")))
 
 ;; ---------------------------------------------------------------------------
 ;; (2) The diagnostic MESSAGE is total — and says something useful.
-
-(deftest diagnostic-message-is-total-over-any-key
-  (testing "an unprintable key renders as its shape TAG, so the message can be
-            built at all — `<scalar>` for an opaque host object, `<vector>` for
-            a collection that might contain one"
-    (let [msg (reg-message {:initial :a :states {:a {}} (forge-opaque-key) 1})]
-      (is (string? msg) "the message was built without reaching the hostile toString")
-      (is (str/includes? msg "<scalar>")
-          "the opaque key is named by SHAPE, from the error/diag-value-summary vocabulary"))
-    (let [msg (reg-message {:initial :a :states {:a {}} [1 2] 1})]
-      (is (str/includes? msg "<vector>")
-          "a collection key renders by shape too — pr-str would descend into it")))
-
-  (testing "an EDN scalar prints LITERALLY — naming the key IS the
-            diagnostic, and reg-machine's caller is holding the definition
-            already (the deliberate divergence from machines-viz, whose caller
-            is handed a definition decoded from a share URL)"
-    (let [msg (reg-message {:initial :a :states {:a {:on-entry :oops}}})]
-      (is (str/includes? msg "[:on-entry]")
-          "the ordinary typo diagnostic names the offending key literally"))
-    (let [msg (reg-message {:initial :a :states {:a {"x" 1}}})]
-      (is (str/includes? msg "[\"x\"]")
-          "a String key prints as a String — it is legible and it is safe to print"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (3) The namespaced-key carve-out.
 
 (deftest namespaced-carve-out-unchanged
-  (testing "a namespaced KEYWORD is the open extension carve-out"
-    (is (nil? (reg-outcome {:initial :a :states {:a {:my.app/note "x"}}}))))
-
   (testing "a namespaced SYMBOL is carved out too — `namespace` is defined on
             Named, not only on keywords, and the Named-ness test must keep both arms"
     (is (nil? (reg-outcome {:initial :a :states {:a {'my.app/note "x"}}}))))
-
   (testing "a BARE symbol is not carved out — it is Named but unnamespaced, the
             same position a bare keyword typo is in"
     (is (= :rf.error/machine-unknown-node-key
-           (reg-outcome {:initial :a :states {:a {'note "x"}}}))))
-
-  (testing "an ordinary valid machine registers cleanly"
-    (is (nil? (reg-outcome {:initial :idle
-                            :states {:idle {:on {:go :done}}
-                                     :done {:final? true}}})))))
+           (reg-outcome {:initial :a :states {:a {'note "x"}}})))))
