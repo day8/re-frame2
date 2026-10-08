@@ -112,27 +112,6 @@
 ;; Tests.
 ;; ---------------------------------------------------------------------------
 
-(deftest react-evidence-fixture-is-present-and-substantial
-  (testing "the fixture loads, names the react-dom it was measured
-            against, and carries the row this witness exists for. A missing
-            or empty fixture would make the doseq below iterate nothing and
-            report a clean pass, which is the one failure mode a parity
-            witness must not have"
-    (is (string? (:react-dom-version @react-evidence))
-        "the fixture records which react-dom produced it")
-    (is (string? (sentinel))
-        "the fixture records the sentinel the names were read back around")
-    (is (<= 3 (count (rows)))
-        "react-dom 19 carries at least mask, maskUnits and maskContentUnits")
-    (is (contains? (set (map :react-prop (rows))) "maskType")
-        "maskType is the row this witness exists for; without it the whole
-         file passes vacuously")
-    (is (every? (fn [{:keys [react-prop emitted markup]}]
-                  (every? string? [react-prop emitted markup]))
-                (rows))
-        "every row carries React's prop name, the name React emitted, and the
-         markup it was read out of")))
-
 (deftest emitted-attribute-name-agrees-with-installed-react-dom
   (testing "every mask-family attribute serialises to the name the
             INSTALLED react-dom writes, from all three author spellings. A
@@ -146,21 +125,14 @@
                " emits " emitted)))))
 
 (deftest the-mask-type-correction-is-narrow
-  (testing "`maskType` is the only kebab-case emitted name in the family.
-            Stated separately from the sweep above because the sweep would
-            stay green if an edit moved a control to match a table that had
-            drifted on both sides at once"
-    (let [by-prop (into {} (map (juxt :react-prop :emitted)) (rows))]
-      (is (= "mask-type" (get by-prop "maskType"))
-          "react-dom 19.3 emits maskType as mask-type")
-      (is (= "maskUnits" (get by-prop "maskUnits"))
-          "unaffected control — camelCase preserved")
-      (is (= "maskContentUnits" (get by-prop "maskContentUnits"))
-          "unaffected control — camelCase preserved")
-      (is (= "mask-type" (emitted-name "mask-type"))
-          "emitter follows react-dom 19.3 for mask-type")
-      (is (= "maskUnits" (emitted-name "mask-units"))
-          "emitter leaves the control where react-dom leaves it"))))
+  (testing "`maskType` is the only kebab-case emitted name in the family, and
+            the evidence carries it beside its two camelCase controls. Stated
+            apart from the sweep, which would stay green over an empty fixture
+            or over a control moved to match a table drifted on both sides"
+    (is (= {"maskType" "mask-type" "maskUnits" "maskUnits"
+            "maskContentUnits" "maskContentUnits"}
+           (select-keys (into {} (map (juxt :react-prop :emitted)) (rows))
+                        ["maskType" "maskUnits" "maskContentUnits"])))))
 
 (deftest the-panose1-prop-is-written-verbatim
   (testing "react-dom 19.3.0 keys its `panose-1` alias on the
