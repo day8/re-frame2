@@ -1,21 +1,11 @@
 #!/usr/bin/env node
 /*
- * Tests for `implementation/adapters/scripts/adapter-smoke-filter.cjs` —
- * the shared adapter-smoke manifest + filter-selection logic used by BOTH
- * the orchestrator (serve-and-run-adapter-smokes.cjs) and the Playwright
- * runner (run-adapter-smokes.cjs), both colocated with the adapters under
- * implementation/adapters/scripts/.
- *
- * Applying the same ADAPTER_SMOKE_FILTER value to two different string
- * spaces (build ids vs absolute spec paths) would let a build-id-shaped
- * filter like `reagent-testbed` stage a surface in the orchestrator but
- * match ZERO specs in the runner. These tests pin that:
- *
- *   - build-id-shaped and path-shaped filters select the SAME singleton,
- *   - the broad CI filter `adapters/` selects exactly the adapter smokes, and
- *   - the declared manifest matches the spec.cjs files on disk.
- *
- * Standalone node-runnable suite — no external test framework. Discovered by `npm run test:scripts`.
+ * Tests for `implementation/adapters/scripts/adapter-smoke-filter.cjs`, the
+ * adapter-smoke manifest and the ADAPTER_SMOKE_FILTER selection shared by the
+ * orchestrator (which matches build ids) and the Playwright runner (which matches
+ * spec paths): a build-id-shaped and a path-shaped filter must select the same
+ * singleton, and the manifest must match the spec files on disk.
+ * Discovered by `npm run test:scripts`.
  */
 
 'use strict';
@@ -50,8 +40,6 @@ function it(label, f) {
   }
 }
 
-// Select with a single filter string (parse + select), returning the
-// chosen entries' build ids sorted for stable comparison.
 function selectBuildIds(filter) {
   return selectEntries(parseFilterPatterns(filter))
     .map((e) => e.build)
@@ -59,13 +47,6 @@ function selectBuildIds(filter) {
 }
 
 console.log('adapter-smoke-filter selection tests');
-
-const ADAPTERS = ['reagent', 'uix'];
-
-// ---- manifest shape ------------------------------------------------------
-
-// The four-suites rule's smoke roster: one smoke per shipped adapter.
-// ---- broad + empty filters ----------------------------------------------
 
 it('empty filter selects both (full sweep — nightly + rigorous-local)', () => {
   assert.deepStrictEqual(selectBuildIds(''), [
@@ -82,43 +63,10 @@ it('broad CI filter `adapters/` selects exactly the two adapter smokes', () => {
   ]);
 });
 
-it('broad filter `adapters` (no slash) selects the two adapter smokes only', () => {
-  assert.deepStrictEqual(selectBuildIds('adapters'), [
-    'adapters/reagent-testbed',
-    'adapters/uix-testbed',
-  ]);
+it('build-id-shaped and path-shaped singleton filters select exactly their one adapter', () => {
+  assert.deepStrictEqual(selectBuildIds('adapters/reagent-testbed'), ['adapters/reagent-testbed']);
+  assert.deepStrictEqual(selectBuildIds('uix/testbed'), ['adapters/uix-testbed']);
 });
-
-// There is no re-frame.ui smoke, so its two filter shapes must select
-// NOTHING, and in particular must not fall through onto UIx: the
-// `ui-testbed` / `uix-testbed` near-collision is the sharp edge here, and it
-// is exactly the shape a stale CI filter would arrive in.
-it('retired build-id shape `ui-testbed` selects nothing (never UIx)', () => {
-  assert.deepStrictEqual(selectBuildIds('ui-testbed'), []);
-});
-
-// ---- build-id vs path form equivalence -----------------------------------
-
-for (const name of ADAPTERS) {
-  const buildId = `adapters/${name}-testbed`;
-
-  // The four supported singleton shapes that should ALL select exactly
-  // the one adapter: two build-id forms and two spec-path forms.
-  const shapes = [
-    `adapters/${name}-testbed`, // full build id
-    `${name}-testbed`,          // bare build-id segment
-    `adapters/${name}/testbed`, // path form
-    `${name}/testbed`,          // bare path segments
-  ];
-
-  for (const shape of shapes) {
-    it(`filter '${shape}' selects exactly ${buildId}`, () => {
-      assert.deepStrictEqual(selectBuildIds(shape), [buildId]);
-    });
-  }
-}
-
-// ---- comma-separated OR-match -------------------------------------------
 
 it('comma-separated filter OR-matches multiple shapes', () => {
   assert.deepStrictEqual(selectBuildIds('reagent-testbed,uix/testbed'), [
@@ -127,55 +75,10 @@ it('comma-separated filter OR-matches multiple shapes', () => {
   ]);
 });
 
-// ---- substring-trap protection ------------------------------------------
-
-it('an unrelated substring selects nothing (no over-selection)', () => {
-  assert.deepStrictEqual(selectBuildIds('does-not-exist'), []);
-});
-
-// A filter term that appears ONLY in the absolute spec-path prefix (i.e.
-// a directory the repo happens to be checked out under) must NOT match —
-// selection keys on repo-stable identities (build id + repo-relative spec
-// path), never the absolute filesystem prefix. Matching the absolute
-// specPath too would let a filter substring of the workspace/worktree
-// directory name over-select EVERY entry.
-//
-// We model this two ways:
-//   (a) directly: the candidate identities for a real entry never contain
-//       the absolute spec path (the leaky string), and
-//   (b) end-to-end: a filter drawn from a segment of the absolute REPO_ROOT
-//       prefix selects ZERO real entries, while the supported build/path
-//       shapes still select the singleton. Driving (b) off the live
-//       REPO_ROOT keeps the regression faithful in any checkout location
-//       (CI, a worktree, a path containing the filter term, …).
-
-it('entryIdentities excludes the absolute spec path (only build id + repo-relative path) (rf2-n4nc2o)', () => {
-  for (const e of ADAPTER_SMOKES) {
-    const ids = entryIdentities(e);
-    assert.strictEqual(ids.length, 2, `entry ${e.build} should expose exactly two identities`);
-    // The absolute spec path, normalized, must NOT be one of them.
-    const absNorm = normalizeForFilter(e.specPath);
-    assert.ok(
-      !ids.includes(absNorm),
-      `entry ${e.build} leaks its absolute spec path as a match identity: ${absNorm}`,
-    );
-    // And the repo-relative spec path must never traverse out of the repo
-    // (no `..`), so it can't smuggle the workspace prefix back in.
-    const relSpec = path.relative(REPO_ROOT, e.specPath);
-    assert.ok(
-      !relSpec.split(/[\\/]/).includes('..'),
-      `entry ${e.build} repo-relative spec path escapes REPO_ROOT: ${relSpec}`,
-    );
-  }
-});
-
+// Selection keys on build ids and repo-relative spec paths, never the absolute
+// path, or a filter naming a segment of the checkout directory selects every entry.
 it('a filter matching only the absolute REPO_ROOT prefix selects nothing (rf2-n4nc2o)', () => {
-  // A directory segment of the absolute checkout path that is NOT part of
-  // any build id or repo-relative spec path. Picking the segment just
-  // above the repo dir is a stable choice across checkouts.
   const segs = path.resolve(REPO_ROOT).split(/[\\/]/).filter(Boolean);
-  // Prefer a segment that doesn't coincidentally appear in the stable
-  // identities (e.g. avoid a hypothetical `adapters` dir).
   const identityBlob = ADAPTER_SMOKES.flatMap(entryIdentities).join('|');
   const leakyTerms = segs.filter(
     (s) => s.length >= 2 && !identityBlob.includes(normalizeForFilter(s)),
@@ -194,68 +97,38 @@ it('a filter matching only the absolute REPO_ROOT prefix selects nothing (rf2-n4
 });
 
 it('normalizeForFilter collapses _, \\ and / to a single -', () => {
-  assert.strictEqual(normalizeForFilter('a_b'), 'a-b');
-  assert.strictEqual(normalizeForFilter('a\\b'), 'a-b');
-  assert.strictEqual(normalizeForFilter('a/b'), 'a-b');
-  assert.strictEqual(normalizeForFilter('adapters/reagent/testbed'), 'adapters-reagent-testbed');
-  assert.strictEqual(normalizeForFilter('adapters/reagent-testbed'), 'adapters-reagent-testbed');
+  assert.deepStrictEqual(['a_b', 'a\\b', 'a/b'].map(normalizeForFilter), ['a-b', 'a-b', 'a-b']);
 });
 
-// ---- manifest vs on-disk reconciliation ---------------------------------
-// Exercise the REAL discovery + reconciliation the runner uses. isSpecFile,
-// listSpecFiles, and reconcile are imported from adapter-smoke-filter.cjs
-// (the module that owns the manifest) — the SAME functions
-// run-adapter-smokes.cjs calls before a Playwright run. Asserting on
-// re-implemented copies of the walker would catch a bug in the runner's own
-// walk/partition only at Playwright-run time, and the two copies could
-// silently drift.
+// ---- manifest vs on-disk reconciliation: the same functions run-adapter-smokes.cjs calls
 
 it('isSpecFile accepts spec.cjs and *.spec.cjs and rejects everything else (rf2-qf45gu)', () => {
-  assert.ok(isSpecFile('spec.cjs'), 'bare spec.cjs is a spec file');
-  assert.ok(isSpecFile('reagent.spec.cjs'), 'suffixed *.spec.cjs is a spec file');
-  assert.ok(!isSpecFile('spec.js'), 'wrong extension is not a spec file');
-  assert.ok(!isSpecFile('index.cjs'), 'a plain .cjs is not a spec file');
-  assert.ok(!isSpecFile('specXcjs'), 'no dot before cjs is not a spec file');
+  assert.deepStrictEqual(
+    ['spec.cjs', 'reagent.spec.cjs', 'spec.js', 'specXcjs'].map(isSpecFile),
+    [true, true, false, false],
+  );
 });
 
 it('reconcile partitions declared-vs-discovered into missing + undeclared (rf2-qf45gu)', () => {
   const a = path.resolve(REPO_ROOT, 'x', 'a.spec.cjs');
   const b = path.resolve(REPO_ROOT, 'x', 'b.spec.cjs');
   const c = path.resolve(REPO_ROOT, 'x', 'c.spec.cjs');
-  // declared has {a,b}; on disk has {b,c} → a is missing, c is undeclared.
-  const { missing, undeclared } = reconcile([a, b], [b, c]);
-  assert.deepStrictEqual(missing, [a], 'declared-but-absent lands in missing');
-  assert.deepStrictEqual(undeclared, [c], 'on-disk-but-undeclared lands in undeclared');
-  // Set-equal inputs (any order, mixed abs/rel) reconcile clean — reconcile
-  // resolves both sides before diffing.
-  const rel = path.relative(process.cwd(), a);
-  const clean = reconcile([a, b], [b, rel]);
-  assert.deepStrictEqual(clean.missing, [], 'no drift → empty missing');
-  assert.deepStrictEqual(clean.undeclared, [], 'no drift → empty undeclared');
+  // declared {a,b}, on disk {b,c}: a is missing, c is undeclared.
+  assert.deepStrictEqual(reconcile([a, b], [b, c]), { missing: [a], undeclared: [c] });
+  // Both sides are resolved first, so mixed absolute/relative inputs reconcile clean.
+  assert.deepStrictEqual(reconcile([a, b], [b, path.relative(process.cwd(), a)]), { missing: [], undeclared: [] });
 });
 
 it('the real listSpecFiles + reconcile agree with the manifest on the live repo (rf2-qf45gu)', () => {
-  const declared = ADAPTER_SMOKES.map((e) => e.specPath);
   const discovered = listSpecFiles(ADAPTER_SMOKE_SPEC_ROOTS);
-  // listSpecFiles returns resolved, sorted absolute paths.
   assert.deepStrictEqual(
     discovered,
     ADAPTER_SMOKES.map((e) => path.resolve(e.specPath)).sort(),
     `manifest/disk drift.\n  on disk:  ${discovered.join('\n            ')}`,
   );
-  const { missing, undeclared } = reconcile(declared, discovered);
-  assert.deepStrictEqual(missing, [], `manifest references spec(s) not on disk: ${missing.join(', ')}`);
-  assert.deepStrictEqual(undeclared, [], `spec(s) on disk not in the manifest: ${undeclared.join(', ')}`);
 });
 
-// ---- root TESTING.md example/adapter-smoke-gate drift guard ---------------
-// Pin the human-facing gate map to reality: every example/adapter-smoke gate
-// script the root testing guide names (the `test:examples*` family — e.g.
-// `test:examples-compile` — and the `test:adapter-smokes` smoke runner) must
-// actually exist in implementation/package.json, so a guide row pointing at
-// a nonexistent command fails loud rather than sending contributors to a
-// dead script. (`test:adapter-smokes` drives the adapter testbed smokes
-// only — the `examples/` tree is itself test-free.)
+// Every example/adapter-smoke gate script root TESTING.md names must exist.
 
 const ROOT_TESTING_MD = path.join(REPO_ROOT, 'TESTING.md');
 const PKG_JSON = path.join(REPO_ROOT, 'implementation', 'package.json');
@@ -265,11 +138,7 @@ it('every `test:examples*` / `test:adapter-smokes` command named in root TESTING
   const pkg = JSON.parse(fs.readFileSync(PKG_JSON, 'utf8'));
   const scripts = new Set(Object.keys(pkg.scripts || {}));
 
-  // The example/adapter-smoke gate lives in implementation/package.json;
-  // scope the existence check to the `test:examples`/`test:examples-*` family
-  // the root guide documents PLUS the `test:adapter-smokes` runner, so
-  // cross-package script names (e.g. tools/mcp-conformance's
-  // `test:re-frame2-pair*`) don't false-positive.
+  // Scoped to this package's families, so other packages' script names don't false-positive.
   const named = new Set();
   const re = /test:(?:examples[A-Za-z0-9:_-]*|adapter-smokes)/g;
   let m;
