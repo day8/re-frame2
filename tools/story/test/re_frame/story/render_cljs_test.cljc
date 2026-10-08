@@ -1,17 +1,12 @@
 (ns re-frame.story.render-cljs-test
-  "Tests for `render-variant` + the workshop-superset plan slots.
+  "Tests for `render-variant` and the workshop-superset plan slots
+  (`tools/story/spec/017-Testing-Story.md` §Args, controls, and
+  `render-variant`). `prepare-render` is pure data → data, so every test
+  runs on the JVM and on node without a host: bodies and view metadata come
+  through explicit `:lookup` / `:view-lookup` maps, and the host-render path
+  runs against a fake `:render-host` hook.
 
-  Per `tools/story/spec/017-Testing-Story.md` §Args, controls, and
-  `render-variant` + §Workshop superset. The render-prep core
-  (`re-frame.story.render/prepare-render`) is a pure data → data fn, so
-  every test runs on both the JVM and CLJS without a host: variant bodies
-  + view metadata are supplied through explicit `:lookup` / `:view-lookup`
-  maps. The host-render path (`render-variant` proper) is exercised by
-  installing a fake `:render-host` hook so the `:rendered` shape + the
-  no-host `:cannot-run` refusal are both pinned.
-
-  Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
-  selects it; a plain `-test` name would run on the JVM only."
+  Named `-cljs-test` so the `:node-test` build selects it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
@@ -20,323 +15,199 @@
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.render :as rf.story.render]))
 
-;; ---- fixtures ------------------------------------------------------------
-;;
-;; The host-render hook is a process-global late-bind slot shared with the
-;; canonical-vocabulary shims (`:stub-observed-fx-ids`, `:drop-assertion-
-;; accumulators`). We MUST NOT `rf.story.late-bind/clear!` (that wipes those shims +
-;; breaks every sibling test ns). Instead we snapshot the hooks map before
-;; each test (so a stray `:render-host` from a prior test is gone) and
-;; restore it after — surgical, never global.
-
+;; The late-bind hooks map also carries the canonical-vocabulary shims, so
+;; drop only `:render-host` and restore the snapshot afterwards rather than
+;; clearing it.
 (use-fixtures :each
   (fn [t]
     (let [snapshot @rf.story.late-bind/hooks]
-      ;; Drop only the render-host slot so the no-host :cannot-run tests
-      ;; start clean; leave every canonical shim in place.
       (swap! rf.story.late-bind/hooks dissoc :render-host)
       (try (t) (finally (reset! rf.story.late-bind/hooks snapshot))))))
 
-;; ---- helpers -------------------------------------------------------------
-
 (def ^:private malli-validator
-  "The `{:validate :explain}` validator pair the render-prep threads for
-  malformed-value checking — a real Malli runtime, so the JVM tests can
-  pin the malformed-value path, not only required-key presence."
   {:validate (fn [schema value] (m/validate schema value))
    :explain  (fn [schema value] (m/explain schema value))})
 
 (defn- prepare
-  "Run `prepare-render` against an explicit body `lookup` + optional
-  `view-lookup` / opts. The render-prep core; no host needed."
   ([target lookup] (prepare target lookup nil))
-  ([target lookup view-lookup] (prepare target lookup view-lookup nil))
-  ([target lookup view-lookup extra]
-   (rf.story.render/prepare-render
-     target
-     (cond-> {:lookup lookup}
-       (some? view-lookup) (assoc :view-lookup view-lookup)
-       (map? extra)        (merge extra)))))
+  ([target lookup extra]
+   (rf.story.render/prepare-render target (merge {:lookup lookup} extra))))
 
-;; ===========================================================================
-;; Workshop-superset plan slots
-;; ===========================================================================
-
-(deftest workshop-vocabulary-flows-through-the-plan
-  (testing "argtypes / decorators / modes / substrates / viewport / background
-            / component all ride the normalized plan's :world"
-    (let [body {:component   :view.button/primary
-                :args        {:label "Go"}
-                :argtypes    {:label {:control :text}}
-                :decorators  [[:decorator.theme/dark]]
-                :modes       #{:mode/dark}
-                :substrates  #{:reagent :uix}
-                :viewport    :viewport/mobile
-                :background  :background/dark}
-          p    (rf.story.plan/variant-plan :story.button/primary {:lookup {:story.button/primary body}})
-          w    (:world p)]
-      (is (= :view.button/primary (:component w)))
-      (is (= {:label {:control :text}} (:argtypes w)))
-      (is (= [[:decorator.theme/dark]] (:decorators w)))
-      (is (= #{:mode/dark} (:modes w)))
-      (is (= #{:reagent :uix} (:substrates w)))
-      (is (= :viewport/mobile (:viewport w)))
-      (is (= :background/dark (:background w)))
-      (testing ":effective-args is recorded as the post-substitution args"
-        (is (= {:label "Go"} (:effective-args w)))))))
-
-;; ===========================================================================
-;; prepare-render — the documented shape
-;; ===========================================================================
-
-;; ===========================================================================
-;; Controls update :effective-args + render through the SAME plan
-;; ===========================================================================
-
-(deftest control-overrides-update-effective-args
-  (testing "control-overrides deep-merge on top of the plan effective args"
-    (let [body {:component :view.button/primary :args {:label "Go" :size :md}}
-          r    (prepare :story.button/primary {:story.button/primary body}
-                        nil {:control-overrides {:label "Stop"}})]
-      (is (= :prepared (:status r)))
-      (testing "the override wins; un-overridden args persist (deep-merge)"
-        (is (= {:label "Stop" :size :md} (:effective-args r))))
-      (testing "the post-override args feed the render inputs"
-        (is (= {:label "Stop" :size :md}
-               (get-in r [:render-inputs :effective-args])))))))
-
-(deftest control-overrides-perturb-plan-hash
-  (testing "a control override that changes :effective-args perturbs the
-            plan-hash — render tracks what is actually rendered"
-    (let [body {:component :view.button/primary :args {:label "Go"}}
-          lk   {:story.button/primary body}
-          base (prepare :story.button/primary lk)
-          ovr  (prepare :story.button/primary lk nil {:control-overrides {:label "Stop"}})]
-      (is (not= (:plan-hash base) (:plan-hash ovr)))
-      (testing "an override equal to the plan value does NOT change the hash"
-        (let [same (prepare :story.button/primary lk nil
-                            {:control-overrides {:label "Go"}})]
-          (is (= (:plan-hash base) (:plan-hash same))))))))
-
-;; ===========================================================================
-;; View-arg schema failures stop render before an invalid view call
-;; ===========================================================================
+(def ^:private button
+  {:story.button/primary {:component :view.button/primary :args {:label "Go"}}})
 
 (def ^:private button-view-meta
-  "A registered-view metadata map carrying a props schema (the `:rf/props`
-  spec-named key) — a required `:label` string + an optional `:size`."
   {:rf/props [:map
               [:label :string]
               [:size {:optional true} :keyword]]})
 
-(deftest valid-effective-args-prepare-with-ok-validation
-  (testing "valid post-override args carry an :ok validation outcome"
-    (let [body {:component :view.button/primary :args {:label "Go"}}
-          r    (rf.story.render/prepare-render
-                 :story.button/primary
-                 {:lookup      {:story.button/primary body}
-                  :view-lookup {:view.button/primary button-view-meta}
-                  :validator-fns malli-validator})]
-      (is (= :prepared (:status r)))
-      (is (= :ok (get-in r [:validation :status]))))))
+(deftest workshop-vocabulary-flows-through-the-plan
+  (let [p (rf.story.plan/variant-plan
+            :story.button/primary
+            {:lookup {:story.button/primary
+                      {:component  :view.button/primary
+                       :args       {:label "Go"}
+                       :argtypes   {:label {:control :text}}
+                       :decorators [[:decorator.theme/dark]]
+                       :modes      #{:mode/dark}
+                       :substrates #{:reagent :uix}
+                       :viewport   :viewport/mobile
+                       :background :background/dark}}})]
+    (is (= {:component      :view.button/primary
+            :argtypes       {:label {:control :text}}
+            :decorators     [[:decorator.theme/dark]]
+            :modes          #{:mode/dark}
+            :substrates     #{:reagent :uix}
+            :viewport       :viewport/mobile
+            :background     :background/dark
+            :effective-args {:label "Go"}}
+           (select-keys (:world p) [:component :argtypes :decorators :modes :substrates
+                                    :viewport :background :effective-args])))))
 
-;; ===========================================================================
-;; render-variant returns the documented shape + does NOT run script/expect
-;; ===========================================================================
+(deftest control-overrides-update-effective-args
+  (let [r (prepare :story.button/primary
+                   {:story.button/primary {:component :view.button/primary
+                                           :args      {:label "Go" :size :md}}}
+                   {:control-overrides {:label "Stop"}})]
+    (is (= {:label "Stop" :size :md} (:effective-args r))
+        "the override wins; un-overridden args persist")
+    (is (= {:label "Stop" :size :md} (get-in r [:render-inputs :effective-args])))))
+
+(deftest control-overrides-perturb-plan-hash
+  (let [hash #(:plan-hash (prepare :story.button/primary button
+                                   {:control-overrides %}))]
+    (is (not= (hash nil) (hash {:label "Stop"})))
+    (is (= (hash nil) (hash {:label "Go"}))
+        "an override equal to the plan value leaves the hash alone")))
+
+(deftest valid-effective-args-prepare-with-ok-validation
+  (is (= :ok (get-in (prepare :story.button/primary button
+                              {:view-lookup   {:view.button/primary button-view-meta}
+                               :validator-fns malli-validator})
+                     [:validation :status]))))
 
 (deftest render-variant-renders-via-host-hook
-  (testing "with a host hook installed, render-variant returns :rendered +
-            the documented slots, and the host saw the prepared render inputs"
-    (let [seen (atom nil)]
-      (rf.story.render/install-render-host!
-        (fn [inputs] (reset! seen inputs) [:fake-rendered (:view inputs)]))
-      (let [body {:component :view.button/primary :args {:label "Go"}}
-            r    (rf.story.render/render-variant
-                   :story.button/primary
-                   {:lookup {:story.button/primary body}})]
-        (is (= :rendered (:status r)))
-        (is (= :story.button/primary (:frame r)))
-        (is (= {:label "Go"} (:effective-args r)))
-        (is (string? (:plan-hash r)))
-        (is (= [:fake-rendered :view.button/primary] (:rendered r)))
-        (testing "the host received the render inputs, NOT a test run"
-          (is (= :view.button/primary (:view @seen)))
-          (is (= {:label "Go"} (:effective-args @seen)))
-          (is (= :story.button/primary (:frame @seen))))))))
+  (let [seen (atom nil)]
+    (rf.story.render/install-render-host!
+      (fn [inputs] (reset! seen inputs) [:fake-rendered (:view inputs)]))
+    (let [r (rf.story.render/render-variant :story.button/primary {:lookup button})]
+      (is (= {:status         :rendered
+              :frame          :story.button/primary
+              :effective-args {:label "Go"}
+              :rendered       [:fake-rendered :view.button/primary]}
+             (select-keys r [:status :frame :effective-args :rendered])))
+      (is (string? (:plan-hash r)))
+      (is (= [{:label "Go"} :story.button/primary]
+             [(:effective-args @seen) (:frame @seen)])
+          "the host received the prepared render inputs"))))
 
 (deftest render-variant-does-not-run-script-or-expect
-  (testing "render-variant prepares world + renders the view; it NEVER
-            dispatches the :script or evaluates terminal :expect"
-    (rf.story.render/install-render-host!
-      (fn [inputs]
-        ;; A correct host renders the view; it must not be handed (and
-        ;; must not run) the plan's :script / :expect.
-        (is (not (contains? inputs :script)))
-        [:rendered]))
-    ;; The script's event has a counting handler and the variant's frame is
-    ;; live, so a render that dispatched the script would be counted rather
-    ;; than dropped as unhandled or refused for want of a frame.
-    (let [handled (atom 0)
-          seated? (some? (rf/current-adapter))]
-      (try (rf/init! rf.substrate.plain-atom/adapter)
-           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-      (rf/reg-event :should/not-run (fn [_ _] (swap! handled inc) {}))
-      (rf/make-frame {:id :story.button/primary})
-      (try
-        (let [body {:component  :view.button/primary
-                    :args       {:label "Go"}
-                    :script     [[:dispatch [:should/not-run]]]
-                    :assertions [[:rf.assert/path-equals [:x] 1]]}
-              r    (rf.story.render/render-variant
-                     :story.button/primary
-                     {:lookup {:story.button/primary body}})]
-          (is (= :rendered (:status r)))
-          (testing "the plan still carries the script/expect (visible, not run)"
-            (is (= [[:dispatch [:should/not-run]]] (get-in r [:plan :script])))
-            (is (= [[:rf.assert/path-equals [:x] 1]]
-                   (get-in r [:plan :expect :assertions]))))
-          (testing "nothing was dispatched (render is not a run)"
-            (is (zero? @handled)))
-          (testing "the counter sees the script's event when it is dispatched
-                    on purpose into the frame render names"
-            (rf/dispatch-sync (second (first (get-in r [:plan :script])))
-                              {:frame (:frame r)})
-            (is (= 1 @handled))))
-        (finally
-          (rf/destroy-frame! :story.button/primary)
-          (rf/clear :event :should/not-run)
-          (when-not seated? (rf/destroy-adapter!)))))))
+  (rf.story.render/install-render-host! (fn [_] [:rendered]))
+  ;; The script's event has a counting handler and the variant's frame is
+  ;; live, so a render that dispatched the script would be counted.
+  (let [handled (atom 0)
+        seated? (some? (rf/current-adapter))]
+    (try (rf/init! rf.substrate.plain-atom/adapter)
+         (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+    (rf/reg-event :should/not-run (fn [_ _] (swap! handled inc) {}))
+    (rf/make-frame {:id :story.button/primary})
+    (try
+      (let [r (rf.story.render/render-variant
+                :story.button/primary
+                {:lookup {:story.button/primary
+                          {:component  :view.button/primary
+                           :args       {:label "Go"}
+                           :script     [[:dispatch [:should/not-run]]]
+                           :assertions [[:rf.assert/path-equals [:x] 1]]}}})]
+        (is (= :rendered (:status r)))
+        (testing "the plan carries the script and expect, visible but not run"
+          (is (= [[:dispatch [:should/not-run]]] (get-in r [:plan :script])))
+          (is (= [[:rf.assert/path-equals [:x] 1]] (get-in r [:plan :expect :assertions]))))
+        (is (zero? @handled) "render is not a run")
+        (testing "control: the counter sees the event dispatched on purpose"
+          (rf/dispatch-sync (second (first (get-in r [:plan :script]))) {:frame (:frame r)})
+          (is (= 1 @handled))))
+      (finally
+        (rf/destroy-frame! :story.button/primary)
+        (rf/clear :event :should/not-run)
+        (when-not seated? (rf/destroy-adapter!))))))
 
 (deftest render-variant-no-host-is-cannot-run
-  (testing "without a host render hook (the bare JVM), render-variant
-            returns :cannot-run — never a silent empty render"
-    (let [body {:component :view.button/primary :args {:label "Go"}}
-          r    (rf.story.render/render-variant
-                 :story.button/primary
-                 {:lookup {:story.button/primary body}})]
-      (is (= :cannot-run (:status r)))
-      (is (= #{:hiccup-structure} (:required-runner r)))
-      (is (= #{} (:available-runner r)))
-      (is (= :no-render-host (:reason r)))
-      (testing "the prepared plan + hash still ride the refusal"
-        (is (string? (:plan-hash r)))
-        (is (= :story.button/primary (:frame r)))))))
+  (let [r (rf.story.render/render-variant :story.button/primary {:lookup button})]
+    (is (= {:status           :cannot-run
+            :required-runner  #{:hiccup-structure}
+            :available-runner #{}
+            :reason           :no-render-host
+            :frame            :story.button/primary}
+           (select-keys r [:status :required-runner :available-runner :reason :frame])))
+    (is (string? (:plan-hash r)))))
 
 (deftest render-variant-invalid-args-skips-host
-  (testing "an :invalid-args result is returned BEFORE the host hook runs"
-    (let [called (atom false)]
-      (rf.story.render/install-render-host! (fn [_] (reset! called true) [:rendered]))
-      (let [body {:component :view.button/primary :args {:label "Go"}}
-            r    (rf.story.render/render-variant
-                   :story.button/primary
-                   {:lookup      {:story.button/primary body}
-                    :view-lookup {:view.button/primary button-view-meta}
-                    :validator-fns malli-validator
-                    :control-overrides {:label 42}})]
-        (is (= :invalid-args (:status r)))
-        (is (false? @called))
-        (testing "the documented :invalid-args slots are present"
-          (is (= :story.button/primary (:frame r)))
-          (is (= :invalid (get-in r [:validation :status]))))))))
+  (let [called (atom false)]
+    (rf.story.render/install-render-host! (fn [_] (reset! called true) [:rendered]))
+    (let [r (rf.story.render/render-variant
+              :story.button/primary
+              {:lookup            button
+               :view-lookup       {:view.button/primary button-view-meta}
+               :validator-fns     malli-validator
+               :control-overrides {:label 42}})]
+      (is (= [:invalid-args :story.button/primary :invalid]
+             [(:status r) (:frame r) (get-in r [:validation :status])]))
+      (is (false? @called) "the host never ran"))))
 
 (deftest render-variant-host-throw-is-error-with-the-prepared-slots
-  ;; On the host-render-throw path, prepare-render has already
-  ;; produced :plan / :plan-hash / :effective-args, so the :error result
-  ;; MUST thread them onto the documented shape rather than dropping them.
-  (testing "a host-render throw projects to :error WITH the prepared plan
-            context (spec/017 §Args — :plan/:plan-hash/:effective-args)"
-    (rf.story.render/install-render-host!
-      (fn [_] (throw (ex-info "boom" {:rf.error/id :test/boom}))))
-    (let [body {:component :view.button/primary :args {:label "Go"}}
-          r    (rf.story.render/render-variant
-                 :story.button/primary
-                 {:lookup {:story.button/primary body}})]
-      (is (= :error (:status r)))
-      (is (= :test/boom (get-in r [:error :data :rf.error/id])))
-      (is (= :story.button/primary (:frame r)))
-      (is (= {:label "Go"} (:effective-args r)))
-      (is (string? (:plan-hash r)))
-      (is (map? (:plan r)))
-      (testing "the threaded :plan-hash matches the prepared plan's hash"
-        (let [prep (rf.story.render/prepare-render
-                     :story.button/primary
-                     {:lookup {:story.button/primary body}})]
-          (is (= (:plan-hash prep) (:plan-hash r))))))))
+  ;; The host threw after prepare-render succeeded, so the prepared plan
+  ;; context rides the :error result (spec/017 §Args).
+  (rf.story.render/install-render-host!
+    (fn [_] (throw (ex-info "boom" {:rf.error/id :test/boom}))))
+  (let [r (rf.story.render/render-variant :story.button/primary {:lookup button})]
+    (is (= {:status :error :frame :story.button/primary :effective-args {:label "Go"}}
+           (select-keys r [:status :frame :effective-args])))
+    (is (= :test/boom (get-in r [:error :data :rf.error/id])))
+    (is (string? (:plan-hash r)))
+    (is (map? (:plan r)))))
 
 (deftest render-variant-unknown-variant-is-error
-  (testing "an unknown keyword target throws in the compiler → :error"
-    (let [r (rf.story.render/render-variant :story.nope/missing {:lookup {}})]
-      (is (= :error (:status r)))
-      (is (= :rf.error/story-unknown-variant
-             (get-in r [:error :data :rf.error/id])))
-      (testing "plan-CONSTRUCTION throw carries no plan slots (none prepared)"
-        ;; The frame-free shape (spec/017): plan construction threw before a
-        ;; rf.story.plan/effective-args existed, so only :frame + :error ride.
-        (is (not (contains? r :plan)))
-        (is (not (contains? r :plan-hash)))
-        (is (not (contains? r :effective-args)))))))
-
-;; ===========================================================================
-;; Inline-plan map target (render-variant for BOTH registered + inline
-;; plans)
-;; ===========================================================================
+  (let [r (rf.story.render/render-variant :story.nope/missing {:lookup {}})]
+    (is (= :rf.error/story-unknown-variant (get-in r [:error :data :rf.error/id])))
+    (is (= {:status :error :frame :story.nope/missing} (dissoc r :error))
+        "plan construction threw, so no plan slots ride the result")))
 
 (deftest render-variant-accepts-inline-plan-map
-  (testing "a map target is an inline plan — rendered the same as a
-            registered keyword (no registration needed)"
-    (rf.story.render/install-render-host! (fn [inputs] [:rendered (:view inputs)]))
-    (let [r (rf.story.render/render-variant
-              {:variant/id :story.inline/v
-               :component  :view.button/primary
-               :args       {:label "Inline"}})]
-      (is (= :rendered (:status r)))
-      (is (= :story.inline/v (:frame r)))
-      (is (= {:label "Inline"} (:effective-args r)))
-      (is (= [:rendered :view.button/primary] (:rendered r))))))
-
-;; ===========================================================================
-;; Runner ↔ render-variant agree on :plan-hash where inputs match
-;; ===========================================================================
-
-;; ===========================================================================
-;; Decorators are view-wrapping; fx-overrides live in :fx-overrides
-;; ===========================================================================
+  (rf.story.render/install-render-host! (fn [inputs] [:rendered (:view inputs)]))
+  (is (= {:status         :rendered
+          :frame          :story.inline/v
+          :effective-args {:label "Inline"}
+          :rendered       [:rendered :view.button/primary]}
+         (select-keys (rf.story.render/render-variant
+                        {:variant/id :story.inline/v
+                         :component  :view.button/primary
+                         :args       {:label "Inline"}})
+                      [:status :frame :effective-args :rendered]))))
 
 (deftest decorators-are-view-wrapping-fx-overrides-are-separate
-  (testing "decorators ride :world :decorators (view wrapping); fx overrides
-            ride [:world :frame :fx-overrides] — distinct surfaces"
-    (let [body {:component    :view.button/primary
-                :args         {:label "Go"}
-                :decorators   [[:decorator.theme/dark]]
-                :fx-overrides {:http/get :stub.http/ok}}
-          r    (prepare :story.button/primary {:story.button/primary body})
-          plan (:plan r)]
-      (is (= :prepared (:status r)))
-      (testing "decorators are view-wrapping render inputs"
-        (is (= [[:decorator.theme/dark]] (get-in r [:render-inputs :decorators])))
-        (is (= [[:decorator.theme/dark]] (get-in plan [:world :decorators]))))
-      (testing "fx-overrides are a frame slot, NOT a render-input decorator"
-        (is (= {:http/get :stub.http/ok}
-               (get-in plan [:world :frame :fx-overrides])))))))
-
-;; ===========================================================================
-;; sub-overrides re-resolve against the post-control effective args
-;; ===========================================================================
+  (let [r (prepare :story.button/primary
+                   {:story.button/primary {:component    :view.button/primary
+                                           :args         {:label "Go"}
+                                           :decorators   [[:decorator.theme/dark]]
+                                           :fx-overrides {:http/get :stub.http/ok}}})]
+    (is (= [[:decorator.theme/dark]] (get-in r [:render-inputs :decorators])))
+    (is (= [[:decorator.theme/dark]] (get-in r [:plan :world :decorators])))
+    (is (= {:http/get :stub.http/ok} (get-in r [:plan :world :frame :fx-overrides]))
+        "fx-overrides are a frame slot, not a render-input decorator")))
 
 (deftest sub-overrides-reflect-control-overrides
   (testing "a sub-override value driven by an [:arg key] re-resolves against
-            the POST-control effective args (a control drives the design state)"
+            the post-control effective args"
     (rf.story.render/install-render-host! (fn [inputs] inputs))
-    (let [body {:component     :view.login/form
-                :args          {:message "Invalid password"}
-                :sub-overrides {[:login/state] :error
-                                [:login/error] [:arg :message]}}
-          r    (rf.story.render/render-variant
-                 :story.login/error
-                 {:lookup {:story.login/error body}
-                  :control-overrides {:message "Account locked"}})]
-      (is (= :rendered (:status r)))
-      (testing "the rendered inputs carry the control-driven override value"
-        (is (= {[:login/state] :error
-                [:login/error] "Account locked"}
-               (get-in r [:rendered :sub-overrides])))))))
+    (let [r (rf.story.render/render-variant
+              :story.login/error
+              {:lookup            {:story.login/error
+                                   {:component     :view.login/form
+                                    :args          {:message "Invalid password"}
+                                    :sub-overrides {[:login/state] :error
+                                                    [:login/error] [:arg :message]}}}
+               :control-overrides {:message "Account locked"}})]
+      (is (= {[:login/state] :error
+              [:login/error] "Account locked"}
+             (get-in r [:rendered :sub-overrides]))))))
