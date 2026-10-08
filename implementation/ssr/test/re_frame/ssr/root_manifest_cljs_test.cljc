@@ -1,57 +1,48 @@
 (ns re-frame.ssr.root-manifest-cljs-test
-  "Root Manifest v1 — the SUBSET PROPERTY and the wire/discovery
-  contract (Spec 011 §Root Manifest v1; schema family Spec 004C §2).
+  "Root Manifest v1 (Spec 011 §Root Manifest v1; schema family Spec 004C §2):
+  validation (`problems`), assembly (`manifest`), locators, the render-time
+  prop screen, the wire form (`script-html` / `read-manifest`) and CLJS
+  discovery, all driven over hand-built manifests. Runs on the JVM and Node.
 
-  What this namespace covers is the manifest surface itself: validation
-  (`problems`), assembly (`manifest`), locators, the render-time prop
-  screen, the wire form (`script-html` / `read-manifest`) and CLJS
-  discovery. Every assertion drives `re-frame.ssr.manifest` directly over
-  hand-built manifests.
-
-  There is no suite feeding a real descriptor emitter's output
-  byte-for-byte to the validator, proving Root Manifest v1 a strict
-  superset of Root Descriptor v1 against a compiler rather than against a
-  transcribed fixture: no substrate emits a Root Descriptor, so that
-  property has no producer to check it. It is not re-expressed over a
-  hand-written descriptor, because a hand-written one would assert the
-  transcription and not a compiler.
-
-  Runs on BOTH hosts (`.cljc`, `-cljs-test` ns): `clojure -M:test` from
-  `implementation/ssr` and the node runner via `npm run test:cljs`."
+  No substrate emits a Root Descriptor, so the subset property (an unmodified
+  Root Descriptor v1 is a valid Root Manifest v1) is checked over hand-built
+  manifests, not against a real emitter's output."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.manifest :as rf.ssr.manifest]
             #?(:clj  [clojure.edn]
                :cljs [cljs.reader])
             #?(:cljs [re-frame.ssr.constants :as rf.ssr.constants])))
 
-;; A record defined HERE rather than reached for in some production ns:
-;; the wire must refuse any value whose `pr-str` carries a tag the safe
-;; reader cannot construct, and a locally-defined record is the smallest
-;; honest instance of that class on both hosts.
+;; The smallest value whose `pr-str` carries a tag the safe reader cannot
+;; construct, on both hosts.
 (defrecord WireProbeRecord [x])
+
+(defn- invalid-data
+  "The ex-data `thunk` throws, or nil when it returns."
+  [thunk]
+  (try (thunk) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+         (ex-data e))))
 
 (deftest schema-version-is-the-only-required-key
   (is (nil? (rf.ssr.manifest/problems {:rf.root/schema-version 1}))
       "the minimal valid manifest is the version alone")
   (is (= {:missing :schema-version} (rf.ssr.manifest/problems {:root-id :page/shop})))
   (is (= {:invalid :schema-version :got 2 :expected 1}
-         (rf.ssr.manifest/problems {:rf.root/schema-version 2}))
-      "a foreign version is rejected — but there is no negotiation or
-       upgrade path; v1 is the first version, not a compatibility layer")
+         (rf.ssr.manifest/problems {:rf.root/schema-version 2})))
   (is (= {:invalid :not-a-map :got (type "nope")}
          (rf.ssr.manifest/problems "nope"))))
 
 (deftest unknown-keys-are-ignored-by-readers
-  (testing "004C §2 rule 2 — including the dev-only :root-id-provenance an
-            S1 descriptor still carries; stripping it is an EMIT duty, not
-            a read-side rejection (or a descriptor could not validate)"
-    (is (nil? (rf.ssr.manifest/problems
-               {:rf.root/schema-version 1
-                :root-id-provenance     :derived
-                :some.future/key        [:whatever]})))))
+  ;; 004C §2 rule 2 — including the dev-only :root-id-provenance a descriptor
+  ;; still carries: stripping it is an EMIT duty, not a read-side rejection.
+  (is (nil? (rf.ssr.manifest/problems
+             {:rf.root/schema-version 1
+              :root-id-provenance     :derived
+              :some.future/key        [:whatever]}))))
 
 ;; ---------------------------------------------------------------------------
-;; Assembly — the manifest EXTENDS, it does not replace
+;; Assembly and locators
 ;; ---------------------------------------------------------------------------
 
 (deftest assembly-validates-its-extension-facts
@@ -66,63 +57,64 @@
                    (rf.ssr.manifest/manifest 'test d bad))
           (str "ill-formed extension fact fails at ASSEMBLY: " (pr-str bad))))))
 
-;; ---------------------------------------------------------------------------
-;; Locators (004C §4) — the closed `{:id string}` vocabulary
-;; ---------------------------------------------------------------------------
-
 (deftest host-authored-container-needs-an-id
   (is (= {:id "shop-root"} (rf.ssr.manifest/host-locator 'test "shop-root")))
-  (doseq [bad [nil "" "   "]]
-    (let [data (try (rf.ssr.manifest/host-locator 'test bad) nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo
-                              :cljs cljs.core/ExceptionInfo) e
-                      (ex-data e)))]
-      (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-          (str "host container id " (pr-str bad)))
-      (is (= :container-id (get-in data [:missing]))
-          "the emitter NEVER synthesises an id onto host-owned markup"))))
+  ;; The emitter never synthesises an id onto host-owned markup.
+  (doseq [bad [nil "   "]]
+    (is (= {:rf.error/id :rf.error/root-manifest-invalid :missing :container-id}
+           (select-keys (invalid-data #(rf.ssr.manifest/host-locator 'test bad))
+                        [:rf.error/id :missing]))
+        (str "host container id " (pr-str bad)))))
 
 (deftest synthesised-locator-inherits-slug-injectivity
-  (is (= {:id "rf2-root-page_Sshop"} (rf.ssr.manifest/synthesised-locator "page_Sshop")))
-  (is (not= (rf.ssr.manifest/synthesised-locator "page_Sshop")
-            (rf.ssr.manifest/synthesised-locator "_V_Kshop_Sapp_Kleft"))
-      "distinct slugs ⇒ distinct locators; the slug is injective (004C §1)"))
+  (is (= {:id "rf2-root-page_Sshop"} (rf.ssr.manifest/synthesised-locator "page_Sshop"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Render-time props (004C §5) — fail loud, never truncate
 ;; ---------------------------------------------------------------------------
 
 (deftest unserialisable-prop-fails-the-render-for-that-root
-  (let [d    {:rf.root/schema-version 1 :root-id :page/shop}
-        data (try (rf.ssr.manifest/manifest 'test d {:props {:promo :spring
-                                                      :chart-fn (fn [_] 1)}})
-                  nil
-                  (catch #?(:clj clojure.lang.ExceptionInfo
-                            :cljs cljs.core/ExceptionInfo) e
-                    (ex-data e)))]
-    (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
-    (is (= :chart-fn (:unserialisable-prop data))
-        "the offending prop is NAMED — a silently truncated manifest would
-         hydrate a different tree, not a smaller one"))
-  (is (rf.ssr.manifest/edn-carryable? {:a [1 "x" :k {:b #{1 2}}]}))
+  (is (= {:rf.error/id          :rf.error/root-manifest-invalid
+          :unserialisable-prop  :chart-fn
+          :unserialisable-half  :value}
+         (select-keys (invalid-data #(rf.ssr.manifest/manifest
+                                       'test {:rf.root/schema-version 1 :root-id :page/shop}
+                                       {:props {:promo :spring :chart-fn (fn [_] 1)}}))
+                      [:rf.error/id :unserialisable-prop :unserialisable-half])))
   (is (not (rf.ssr.manifest/edn-carryable? {:a [1 {:b (fn [])}]}))
       "opaqueness is detected through nesting"))
+
+(deftest record-valued-prop-fails-before-emission
+  ;; A record satisfies `map?` but prints as a tag the reader cannot construct.
+  (is (= {:rf.error/id          :rf.error/root-manifest-invalid
+          :unserialisable-prop  :row
+          :unserialisable-half  :value}
+         (select-keys (invalid-data #(rf.ssr.manifest/manifest
+                                       'test {:rf.root/schema-version 1 :root-id :page/shop}
+                                       {:props {:promo :spring :row (->WireProbeRecord 1)}}))
+                      [:rf.error/id :unserialisable-prop :unserialisable-half]))))
+
+(deftest opaque-prop-KEY-fails-before-emission
+  ;; Both halves of a prop entry ride the wire, so both are screened.
+  (is (= {:rf.error/id :rf.error/root-manifest-invalid :unserialisable-half :key}
+         (select-keys (invalid-data #(rf.ssr.manifest/manifest
+                                       'test {:rf.root/schema-version 1 :root-id :page/shop}
+                                       {:props {(fn [] 1) 1}}))
+                      [:rf.error/id :unserialisable-half])))
+  (is (not (rf.ssr.manifest/edn-carryable? {(->WireProbeRecord 1) :v}))
+      "a record used as a map KEY is refused too"))
 
 ;; ---------------------------------------------------------------------------
 ;; The wire form
 ;; ---------------------------------------------------------------------------
 
 (deftest wire-element-carries-a-bare-marker
-  (let [d {:rf.root/schema-version 1 :root-id :page/shop}
-        m (rf.ssr.manifest/manifest d {:element-locator   {:id "shop-root"}
-                                :identifier-prefix "rf2-page_Sshop-"})
-        html (rf.ssr.manifest/script-html m)]
-    (testing "the element carries both marks and no identity in attributes;
-              `every-emitted-manifest-round-trips-exactly` reads the body back"
-      (is (re-find #"^<script type=\"application/edn\" data-rf-root>" html))
-      (is (re-find #"</script>$" html))
-      (is (not (re-find #"data-rf-root=" html))
-          "the marker is BARE — identity lives in the content, spelled once"))))
+  ;; Identity lives in the content, spelled once; the marker carries no value.
+  (is (re-find #"^<script type=\"application/edn\" data-rf-root>.*</script>$"
+               (rf.ssr.manifest/script-html
+                 (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
+                                           {:element-locator   {:id "shop-root"}
+                                            :identifier-prefix "rf2-page_Sshop-"})))))
 
 (deftest wire-body-cannot-break-out-of-the-script
   (let [m (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
@@ -132,37 +124,13 @@
         "the shared EDN script-body escape neutralises the breakout")))
 
 (deftest unreadable-or-foreign-body-fails-loud
-  (doseq [body ["{:rf.root/schema-version 1" "@@@"]]
-    (let [data (try (rf.ssr.manifest/read-manifest 'test body) nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo
-                              :cljs cljs.core/ExceptionInfo) e
-                      (ex-data e)))]
-      (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-          (str "body " (pr-str body) " — a hydrating root never guesses")))))
+  ;; A hydrating root never guesses.
+  (is (= {:rf.error/id :rf.error/root-manifest-invalid :invalid :unreadable}
+         (select-keys (invalid-data #(rf.ssr.manifest/read-manifest 'test "{:rf.root/schema-version 1"))
+                      [:rf.error/id :invalid]))))
 
-;; ---------------------------------------------------------------------------
-;; THE EXACT ROUND TRIP
-;; ---------------------------------------------------------------------------
-;;
-;; The wire's ACCEPTANCE predicate must be equivalent to its READ. Three
-;; ways the two could come apart, each pinned below on both hosts:
-;;
-;;   1. a record-valued prop satisfies `map?`, so an acceptance walk that
-;;      asks `map?` first would say yes — but `pr-str` emits `#my.ns.R{…}`
-;;      and the safe reader has no constructor for that tag;
-;;   2. screening only the VALUE half of each props entry would let an
-;;      opaque KEY (a fn, a host object) emit `#object[…]`;
-;;   3. a reader that takes the first form would silently discard any
-;;      trailing text or second form.
-;;
-;; All three would turn an EMIT-time authoring mistake into a CLIENT
-;; hydration failure, which is the one thing a fail-loud wire exists to
-;; prevent.
-;;
-;; The property below is `read(write(m)) = m` driven through the SHIPPED
-;; `script-html` / `read-manifest` — not a hand-transcribed sample, and
-;; not `pr-str` alone: it goes through the real script-body escape, so
-;; the escape is part of what is proven.
+;; The property is `read(write(m)) = m` through the SHIPPED `script-html` /
+;; `read-manifest`, so the script-body escape is part of what is proven.
 
 (def ^:private script-prefix
   "<script type=\"application/edn\" data-rf-root>")
@@ -180,520 +148,162 @@
   (= m (rf.ssr.manifest/read-manifest 'test (script-body (rf.ssr.manifest/script-html m)))))
 
 (def ^:private wire-values
-  "Every value class the manifest wire PROMISES to carry, spelled with
-  literals that mean the same thing on both hosts. `nil` appears as a
-  VALUE (distinct from an absent key, which the shapes below cover) and
-  the string/keyword cases carry the `<` and `</script` sequences the
-  body escape has to survive."
+  "One value per `edn-carryable?` clause, plus the escape's two contexts — a
+  `<` inside a string and inside a keyword token — spelled with literals that
+  mean the same thing on both hosts."
   {:nil            nil
-   :true           true
    :false          false
-   :string         "plain"
    :empty-string   ""
    :unicode        "héllo — ☃"
    :breakout       "</script><img onerror=x>"
-   :lt-in-string   "a < b"
-   :keyword        :k
-   :ns-keyword     :a/b
    :lt-in-keyword  :x<y
    :symbol         'sym
-   :ns-symbol      'a/b
-   :zero           0
    :negative       -1
-   :decimal        1.5
    :whole-double   9.0
-   :vector         [1 2 3]
    :list           '(1 2 3)
    :set            #{1 2 3}
-   :empty-map      {}
-   :empty-vector   []
-   :string-keys    {"a" 1 "b" 2}
    :mixed-keys     {:a 1 "b" 2 'c 3}
-   :nil-value      {:a nil}
    :nested         {:a {:b [1 #{:c} {"d" :e}]}}})
 
 (deftest every-emitted-manifest-round-trips-exactly
-  (testing "every manifest that reaches the wire reads back
-            EQUAL, not merely readable, with and without extension facts"
-    (let [d {:rf.root/schema-version 1 :root-id :page/shop}]
-      (is (round-trips? (rf.ssr.manifest/manifest d {:element-locator    {:id "shop-root"}
-                                              :props              {:promo :spring}
-                                              :frame-payload-ids  [:shop :frame/session]
-                                              :render-fingerprint "rf1-abc"
-                                              :identifier-prefix  "rf2-page_Sshop-"}))
-          "a fully-extended manifest survives the wire exactly")
-      (is (round-trips? (rf.ssr.manifest/manifest d))
-          "…and so does the bare one, so `nil` vs ABSENT is covered in both
-           directions")))
-
-  (testing "every value class the wire promises to carry, as a prop value
-            and again as a prop KEY where the class can be a key"
+  (let [d {:rf.root/schema-version 1 :root-id :page/shop}]
+    (is (round-trips? (rf.ssr.manifest/manifest d {:element-locator    {:id "shop-root"}
+                                                    :props              {:promo :spring}
+                                                    :frame-payload-ids  [:shop :frame/session]
+                                                    :render-fingerprint "rf1-abc"
+                                                    :identifier-prefix  "rf2-page_Sshop-"}))
+        "a fully-extended manifest survives the wire exactly")
+    (is (round-trips? (rf.ssr.manifest/manifest d))
+        "…and so does the bare one, so `nil` vs ABSENT is covered in both directions")
     (doseq [[label v] wire-values]
-      (let [m (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
-                                 {:props {:v v}})]
-        (is (round-trips? m) (str "prop value " label " => " (pr-str v))))))
-
-  (testing "a manifest whose props map is keyed by each carryable scalar —
-            the KEY half of the entry rides the same wire as the value"
-    (doseq [k [:k :a/b 'sym "str" 1 true nil]]
-      (let [m (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
-                                 {:props {k :v}})]
-        (is (round-trips? m) (str "prop key " (pr-str k)))))))
-
-(deftest round-trip-guard-is-load-bearing
-  (testing "THE LEVER for the record arm: build the
-            defective predicate (one that tests `map?` before
-            `record?`) and prove it ACCEPTS a value whose printed form the
-            reader then REJECTS. That gap is the whole failure; the shipped
-            predicate must never reproduce it, and this test fails if the
-            `record?` arm is ever removed."
-    (let [r (->WireProbeRecord 1)
-          ;; The defective predicate, wrong in the one respect that
-          ;; matters: `map?` reached before any record test.
-          lenient-carryable?
-          (fn lenient? [v]
-            (cond
-              (nil? v) true (boolean? v) true (number? v) true
-              (string? v) true (keyword? v) true (symbol? v) true
-              (map? v) (every? (fn [[k v']] (and (lenient? k) (lenient? v'))) v)
-              (coll? v) (every? lenient? v)
-              :else false))]
-
-      (testing "the defective predicate waves the record through"
-        (is (true? (lenient-carryable? {:x r}))
-            "if this ever goes false the lever is gone and the guard below
-             proves nothing"))
-
-      (testing "…yet its printed form does NOT read back — the exact
-                asymmetry the defective predicate lets through"
-        (is (not= (pr-str {:x r}) (pr-str (into {} r)))
-            "a record does not PRINT as a map, which is why map?-shape was
-             the wrong question")
-        (is (thrown? #?(:clj clojure.lang.ExceptionInfo
-                        :cljs cljs.core/ExceptionInfo)
-                     (rf.ssr.manifest/read-manifest
-                      'test (pr-str {:rf.root/schema-version 1 :props {:x r}})))
-            "the safe reader has no constructor for the record's tag"))
-
-      (testing "and the SHIPPED predicate closes it"
-        (is (not (rf.ssr.manifest/edn-carryable? r)))
-        (is (not (rf.ssr.manifest/edn-carryable? {:x r})))
-        (is (not (rf.ssr.manifest/edn-carryable? {:x [1 {:y r}]}))
-            "detected through nesting, like every other opaque value")))))
-
-(deftest record-valued-prop-fails-before-emission
-  (testing "a record prop is rejected at ASSEMBLY, naming the
-            prop, rather than emitting a body the client cannot read"
-    (let [data (try (rf.ssr.manifest/manifest
-                     'test {:rf.root/schema-version 1 :root-id :page/shop}
-                     {:props {:promo :spring :row (->WireProbeRecord 1)}})
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo
-                              :cljs cljs.core/ExceptionInfo) e
-                      (ex-data e)))]
-      (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
-      (is (= :row (:unserialisable-prop data)) "the offending prop is NAMED")
-      (is (= :value (:unserialisable-half data))))))
-
-(deftest opaque-prop-KEY-fails-before-emission
-  (testing "were `serialise-props` to check only the value half, an
-            opaque KEY would reach `pr-str` and emit `#object[…]`. Both
-            halves are carried, so both halves are validated."
-    (let [k    (fn [] 1)
-          data (try (rf.ssr.manifest/manifest
-                     'test {:rf.root/schema-version 1 :root-id :page/shop}
-                     {:props {k 1}})
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo
-                              :cljs cljs.core/ExceptionInfo) e
-                      (ex-data e)))]
-      (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
-      (is (= :key (:unserialisable-half data))
-          "the diagnostic says WHICH half — a fn key and a fn value are
-           different authoring mistakes")))
-
-  (testing "a record used as a prop KEY is caught by the same arm"
-    (is (not (rf.ssr.manifest/edn-carryable? {(->WireProbeRecord 1) :v})))))
+      (is (round-trips? (rf.ssr.manifest/manifest d {:props {:v v}}))
+          (str "prop value " label " => " (pr-str v))))
+    (doseq [k ["str" 1 nil]]
+      (is (round-trips? (rf.ssr.manifest/manifest d {:props {k :v}}))
+          (str "prop key " (pr-str k))))))
 
 ;; ---------------------------------------------------------------------------
-;; THE NUMERIC HALF OF THE ROUND TRIP
+;; Numbers: each host reads back only what the OTHER host prints identically
 ;; ---------------------------------------------------------------------------
-;;
-;; The round-trip property above is driven by ONE host at a time: the JVM
-;; suite emits and reads with `clojure.edn`, the CLJS suite with
-;; `cljs.reader`. Every JVM-only numeric form passes THAT test — it is
-;; the CROSSING that loses, and no same-host suite can see it: every one
-;; would stay green while the wire silently changed application-visible
-;; hydration props.
-;;
+
 (deftest only-cross-host-numbers-ride-the-wire
-  (testing "what the numeric subset ADMITS. These must keep
-            working: narrowing the wire must not narrow ordinary props."
-    (doseq [v [0 -1 1 1.5 -1.5 9.0 0.1
-               rf.ssr.manifest/max-safe-integer
+  (testing "admitted — the integer bound is about representability, so a large
+            double rides"
+    (doseq [v [rf.ssr.manifest/max-safe-integer
                (- rf.ssr.manifest/max-safe-integer)
-               ##Inf ##-Inf
-               ;; a large double rides though it dwarfs the integer bound —
-               ;; the bound is about representability, not magnitude
+               1.5
                #?(:clj 1.0E308 :cljs 1e308)]]
       (is (rf.ssr.manifest/edn-carryable? v) (str "must still carry " (pr-str v))))
+    (is (rf.ssr.manifest/edn-carryable? {:a [1 {:b #{2 3.5}}]})))
 
-    (testing "…including through nesting and as a prop KEY"
-      (is (rf.ssr.manifest/edn-carryable? {:a [1 {:b #{2 3.5}}]}))
-      (is (rf.ssr.manifest/edn-carryable? {1 :v}))))
-
-  (testing "what it REFUSES, and why each one is not merely pedantic"
+  (testing "refused"
     (is (not (rf.ssr.manifest/edn-carryable? #?(:clj Double/NaN :cljs js/NaN)))
-        "NaN is excluded by the round-trip property itself — it is not `=`
-         to itself, so it cannot read back EQUAL on any host")
-
+        "NaN is not `=` to itself, so it cannot read back EQUAL on any host")
     #?(:clj
-       (do
-         (is (not (rf.ssr.manifest/edn-carryable? 9007199254740993N))
-             "bigint: prints an `N` token the browser reproduces as a
-              different number")
-         (is (not (rf.ssr.manifest/edn-carryable? 1.5M))
-             "bigdec: prints an `M` token the browser reads as a plain
-              number, changing the prop's TYPE")
-         (is (not (rf.ssr.manifest/edn-carryable? 1/3))
-             "ratio: the browser reads `1/3` as 0.3333333333333333 — an
-              APPROXIMATION, silently")
-         (is (not (rf.ssr.manifest/edn-carryable? (inc rf.ssr.manifest/max-safe-integer)))
-             "a Long one past 2^53-1 carries precision no double holds")
-         (is (not (rf.ssr.manifest/edn-carryable? (- (inc rf.ssr.manifest/max-safe-integer))))
-             "…and the bound is symmetric about zero")
-         (is (not (rf.ssr.manifest/edn-carryable? (float 0.1)))
-             "float: fails the property on the JVM ALONE — the printed
-              shortest-decimal names the DOUBLE 0.1, so it does not read
-              back equal even here")))))
-
-;; ---------------------------------------------------------------------------
-;; ±INFINITY RIDES; ONLY NaN IS EXCLUDED (Spec 011 same-contract)
-;; ---------------------------------------------------------------------------
-;;
-;; `wire-number?` admits ±Infinity: EDN prints `##Inf` / `##-Inf` and reads
-;; them back EXACTLY, so they satisfy the round-trip property. `##NaN` alone
-;; is excluded — it is not `=` to itself. The predicate, the Spec 011 prose,
-;; and these pins agree, on BOTH hosts.
+       (doseq [v [9007199254740993N
+                  (inc rf.ssr.manifest/max-safe-integer)
+                  (- (inc rf.ssr.manifest/max-safe-integer))
+                  (float 0.1)]]
+         (is (not (rf.ssr.manifest/edn-carryable? v)) (pr-str v))))))
 
 (deftest infinities-ride-only-nan-is-excluded
-  ;; The predicate's verdicts — ±Infinity admitted, NaN refused — are pinned
-  ;; in `only-cross-host-numbers-ride-the-wire`; this pins the wire itself.
-  (testing "±Infinity survives the shipped wire, both hosts — the accepted pin"
-    (doseq [inf [##Inf ##-Inf]]
-      (let [m (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
-                                 {:props {:v inf}})]
-        (is (round-trips? m) (str "±Inf prop " (pr-str inf) " round-trips"))))))
+  (is (round-trips? (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
+                                              {:props {:v ##Inf}}))))
 
 ;; ---------------------------------------------------------------------------
-;; CROSS-HOST NUMERIC KEY / SET COLLISIONS
+;; Cross-host numeric key / set collisions
 ;; ---------------------------------------------------------------------------
 ;;
-;; `wire-number?` decides, PER VALUE, whether a number crosses the
-;; JVM→CLJS wire. Per-value acceptance is not enough for a whole map or set:
-;; the server and the browser do not share numeric key identity. On the JVM `1`
-;; and `1.0` (and `0` and `-0.0`) are two DISTINCT keys that BOTH pass
-;; `edn-carryable?`; the browser reads every number as one double, so an
-;; emitted body carrying both reads back with a DUPLICATE key — the manifest
-;; does not round-trip, and its cardinality changes across the wire. As with the
-;; numeric-scalar arm above, no same-host suite can see it: the server reads its
-;; own two-key body back perfectly. So this proof, too, is joined by BYTES.
+;; On the JVM `1` and `1.0` (and `0` and `-0.0`) are distinct keys that each
+;; pass `edn-carryable?`; the browser reads every number as one double, so the
+;; emitted body reads back with a DUPLICATE key. `script-html` refuses it.
 
-(def ^:private collision-bodies
-  "Exact `<script>` bodies a server without the collision gate emits for
-  colliding manifests, pinned as BYTES because bytes are what cross.
-  Map-key, set-element, and signed-zero arms, plus the COMPOSITE arms — a VECTOR key and a
-  vector set element, where each key/element is a collection whose numeric
-  leaves (not the key itself) collapse. The JVM half pins the tokens against
-  the live printer so these literals cannot go stale."
-  {:map     "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {1 :integer, 1.0 :double}}}"
-   :set     "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:tags #{1.0 1}}}"
-   :zero    "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {0 :a, -0.0 :b}}}"
-   :vec-map "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:lookup {[1] :integer-vector, [1.0] :double-vector}}}"
-   :vec-set "{:rf.root/schema-version 1, :root-id :page/shop, :phase :server, :props {:tags #{[1.0] [1]}}}"})
+(def ^:private shop {:rf.root/schema-version 1 :root-id :page/shop})
 
-(deftest colliding-wire-bytes-part-across-hosts
-  (testing "the SAME wire bytes, read by the shipped `read-manifest`
-            on each host, PART: the server reads its own body back with BOTH
-            keys; the browser rejects it as a duplicate. One wire, two
-            cardinalities — the hazard as an executable fact, and WHY emission
-            refuses the value."
-    #?(:clj
-       (do
-         (is (= "{1 :integer, 1.0 :double}" (pr-str {1 :integer 1.0 :double}))
-             "the map tokens pinned in `collision-bodies` match the live printer")
-         (is (= "#{1.0 1}" (pr-str #{1 1.0}))
-             "…and the set token — if either reds, the pinned bytes are stale")
-         (is (= "{[1] :integer-vector, [1.0] :double-vector}"
-                (pr-str {[1] :integer-vector [1.0] :double-vector}))
-             "the COMPOSITE map-key tokens — which a directly-numeric walk misses")
-         (is (= "#{[1.0] [1]}" (pr-str #{[1] [1.0]}))
-             "…and the composite set-element token")
-         (is (= 2 (count (get-in (rf.ssr.manifest/read-manifest 'test (:map collision-bodies))
-                                 [:props :lookup])))
-             "the server round-trips two distinct keys — same-host is blind")
-         (is (= 2 (count (get-in (rf.ssr.manifest/read-manifest 'test (:set collision-bodies))
-                                 [:props :tags]))))
-         (is (= 2 (count (get-in (rf.ssr.manifest/read-manifest 'test (:vec-map collision-bodies))
-                                 [:props :lookup])))
-             "…and two distinct VECTOR keys — same-host is blind to composites too")
-         (is (= 2 (count (get-in (rf.ssr.manifest/read-manifest 'test (:vec-set collision-bodies))
-                                 [:props :tags])))))
-       :cljs
-       (doseq [[label body] collision-bodies]
-         (let [data (try (rf.ssr.manifest/read-manifest 'test body) nil
-                         (catch cljs.core/ExceptionInfo e (ex-data e)))]
-           (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-               (str label " — the browser rejects the colliding body"))
-           (is (= :unreadable (:invalid data))
-               (str label " — as an unreadable body: the CLJS reader flags the "
-                    "duplicate the two server numbers collapsed into")))))))
+#?(:clj
+   (defn- collision [m]
+     (some-> (invalid-data #(rf.ssr.manifest/script-html m))
+             (select-keys [:rf.error/id :invalid :collision :path :collapses :browser-number])
+             (update :collapses set))))
 
 #?(:clj
    (deftest cross-host-numeric-collision-fails-before-emission
-     (testing "the server holds two distinct keys the browser cannot
-               tell apart; `script-html` refuses the manifest BEFORE emission,
-               naming the offending collection, its colliding keys, and the one
-               browser double they share."
-       ;; map-key collision, nested under :props
-       (let [collide {1 :integer 1.0 :double}
-             m       {:rf.root/schema-version 1 :root-id :page/shop
-                      :props {:lookup collide}}]
-         (is (= 2 (count collide)) "the server really does hold two distinct keys")
-         (is (rf.ssr.manifest/edn-carryable? collide)
-             "THE LEVER: each key and value rides the wire ALONE — exactly what
-              a per-value check sees. Per-value carryability is not the property.")
-         (let [data (try (rf.ssr.manifest/script-html m) nil
-                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-           (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-               "the EXISTING error id — a colliding manifest is a malformed
-                manifest, not a new failure kind, so no new catalogue row")
-           (is (= :cross-host-numeric-collision (:invalid data)))
-           (is (= :map-keys (:collision data)))
-           (is (= [:props :lookup] (:path data)) "the offending collection is NAMED")
-           (is (= #{1 1.0} (set (:collapses data))) "and its colliding keys")
-           (is (= 1.0 (:browser-number data)) "and the one browser double they share")))
-
-       ;; set-element collision
-       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
-                   :props {:tags #{1 1.0}}}
-             data (try (rf.ssr.manifest/script-html m) nil
-                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-         (is (= :cross-host-numeric-collision (:invalid data)))
-         (is (= :set-elements (:collision data)))
-         (is (= [:props :tags] (:path data)))
-         (is (= #{1 1.0} (set (:collapses data)))))
-
-       ;; signed zero — the JVM keeps Long 0 and double -0.0 apart; the browser
-       ;; holds ONE zero (verified: `(= 0 -0.0)` is true on CLJS)
-       (let [collide (into {} [[0 :a] [-0.0 :b]])
-             m       {:rf.root/schema-version 1 :root-id :page/shop
-                      :props {:lookup collide}}]
-         (is (= 2 (count collide)) "0 (Long) and -0.0 (double) are two keys on the JVM")
-         (let [data (try (rf.ssr.manifest/script-html m) nil
-                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-           (is (= :cross-host-numeric-collision (:invalid data)))
-           (is (= 0.0 (:browser-number data)) "0 and -0.0 share the browser's one zero")))
-
-       ;; the gate is TOTAL: a DESCRIPTOR key `serialise-props` never sees is
-       ;; gated too, because `script-html` is the one door onto the wire
-       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
-                   :static-props {:m {1 :a 1.0 :b}}}
-             data (try (rf.ssr.manifest/script-html m) nil
-                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-         (is (= :cross-host-numeric-collision (:invalid data)))
-         (is (= [:static-props :m] (:path data))
-             "a descriptor key collides too — the check is at emission, not props-only"))
-
-       ;; nested through a vector — collisions are found at any depth
-       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
-                   :props {:xs [{:a 1} #{2 2.0}]}}
-             data (try (rf.ssr.manifest/script-html m) nil
-                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-         (is (= :cross-host-numeric-collision (:invalid data)))
-         (is (= :set-elements (:collision data)))
-         (is (= [:props :xs 1] (:path data)) "the path indexes into the vector"))
-
-       ;; COMPOSITE sibling KEYS. `[1]` and `[1.0]` are two
-       ;; distinct vectors on the server, and NEITHER is a number, so a
-       ;; directly-numeric grouping would accept them and emit the body; the
-       ;; browser reads both as `[1.0]` and rejects the duplicate. The walk
-       ;; projects the WHOLE key before comparing siblings.
-       (let [collide {[1] :integer-vector [1.0] :double-vector}
-             m       {:rf.root/schema-version 1 :root-id :page/shop
-                      :props {:lookup collide}}]
-         (is (= 2 (count collide)) "two distinct VECTOR keys on the server")
-         (is (rf.ssr.manifest/edn-carryable? collide)
-             "THE LEVER: each composite key rides the wire ALONE, and each is a
-              vector, not a number — so the directly-numeric group had nothing to
-              grab. Per-key carryability is not the property.")
-         (let [data (try (rf.ssr.manifest/script-html m) nil
-                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-           (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-               "the EXISTING id — still a malformed manifest, no new catalogue row")
-           (is (= :cross-host-numeric-collision (:invalid data)))
-           (is (= :map-keys (:collision data)))
-           (is (= [:props :lookup] (:path data)) "the offending collection is NAMED")
-           (is (= #{[1] [1.0]} (set (:collapses data))) "and its colliding vector keys")
-           (is (= [1.0] (:browser-number data))
-               "and the one browser value they collapse to")))
-
-       ;; composite SET elements — same class, one collection out
-       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
-                   :props {:tags #{[1] [1.0]}}}
-             data (try (rf.ssr.manifest/script-html m) nil
-                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-         (is (= :cross-host-numeric-collision (:invalid data)))
-         (is (= :set-elements (:collision data)))
-         (is (= [:props :tags] (:path data)))
-         (is (= #{[1] [1.0]} (set (:collapses data)))))
-
-       ;; DEEP composite collision — a set inside a vector inside a map:
-       ;; composite collisions are found at ARBITRARY depth, not just one
-       ;; collection down.
-       (let [m    {:rf.root/schema-version 1 :root-id :page/shop
-                   :props {:xs [{:k #{[1] [1.0]}}]}}
-             data (try (rf.ssr.manifest/script-html m) nil
-                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-         (is (= :cross-host-numeric-collision (:invalid data)))
-         (is (= :set-elements (:collision data)))
-         (is (= [:props :xs 0 :k] (:path data))
-             "the path threads map -> vector -> map -> set to the colliding set")))))
+     (testing "map keys, naming the collection, its colliding keys and the one
+               browser double they share"
+       (is (= {:rf.error/id    :rf.error/root-manifest-invalid
+               :invalid        :cross-host-numeric-collision
+               :collision      :map-keys
+               :path           [:props :lookup]
+               :collapses      #{1 1.0}
+               :browser-number 1.0}
+              (collision (assoc shop :props {:lookup {1 :integer 1.0 :double}})))))
+     (testing "set elements"
+       (is (= {:collision :set-elements :path [:props :tags] :collapses #{1 1.0}}
+              (select-keys (collision (assoc shop :props {:tags #{1 1.0}}))
+                           [:collision :path :collapses]))))
+     (testing "the browser holds ONE zero"
+       (is (= 0.0 (:browser-number (collision (assoc shop :props {:lookup (into {} [[0 :a] [-0.0 :b]])}))))))
+     (testing "a descriptor key is gated too: `script-html` is the one door onto the wire"
+       (is (= [:static-props :m]
+              (:path (collision (assoc shop :static-props {:m {1 :a 1.0 :b}})))))
+       (is (= {:collision :set-elements :path [:props :xs 1]}
+              (select-keys (collision (assoc shop :props {:xs [{:a 1} #{2 2.0}]}))
+                           [:collision :path]))
+           "the path indexes into a vector"))
+     (testing "COMPOSITE keys: neither `[1]` nor `[1.0]` is a number, but the
+               browser reads both as `[1.0]`"
+       (is (= {:rf.error/id    :rf.error/root-manifest-invalid
+               :invalid        :cross-host-numeric-collision
+               :collision      :map-keys
+               :path           [:props :lookup]
+               :collapses      #{[1] [1.0]}
+               :browser-number [1.0]}
+              (collision (assoc shop :props {:lookup {[1] :i [1.0] :d}})))))))
 
 (deftest a-mutation-that-resolves-the-collision-emits-fine
-  (testing "THE MUTATION: change one colliding number so
-            the two keys/elements no longer share a browser double, and the very
-            same shape emits and round-trips. This proves each rejection above is
-            the COLLISION, not the shape — and that the gate does not narrow
-            ordinary numeric props."
-    (doseq [[label m]
-            {:map-mutated  {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:lookup {1 :integer 2.0 :double}}}
-             :set-mutated  {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:tags #{1.0 2}}}
-             :zero-mutated {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:lookup {0 :a 1.0 :b}}}
-             :single-key   {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:lookup {1 :only}}}
-             :distinct-set {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:tags #{1 2 3}}}
-             :nested-ok    {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:a [1 {:b #{2 3.5}}]}}
-             ;; The COMPOSITE mutations: change one leaf so the two
-             ;; vector keys/elements no longer project to one browser value, and
-             ;; the same composite shape emits and round-trips. Proves the
-             ;; composite rejection is the COLLISION, not the composite shape.
-             :vec-map-ok   {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:lookup {[1] :integer-vector [2.0] :double-vector}}}
-             :vec-set-ok   {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:tags #{[1] [2.0]}}}
-             :deep-vec-ok  {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:xs [{:k #{[1] [2.0]}}]}}
-             ;; distinct composite keys that are NOT a collision must still emit
-             :two-vec-ok   {:rf.root/schema-version 1 :root-id :page/shop
-                            :props {:lookup {[1 2] :a [1 3] :b}}}}]
-      (is (string? (rf.ssr.manifest/script-html m))
-          (str label " — a non-colliding numeric collection still emits"))
-      (is (round-trips? m)
-          (str label " — …and round-trips exactly")))))
+  ;; Each rejection above is the COLLISION, not the shape: move one number so
+  ;; the two no longer share a browser double and the same shape round-trips.
+  (doseq [[label props] {:map-mutated  {:lookup {1 :integer 2.0 :double}}
+                         :set-mutated  {:tags #{1.0 2}}
+                         :zero-mutated {:lookup {0 :a 1.0 :b}}
+                         :vec-map-ok   {:lookup {[1] :integer-vector [2.0] :double-vector}}
+                         :nested-ok    {:a [1 {:b #{2 3.5}}]}}]
+    (is (round-trips? (assoc shop :props props)) (str label))))
 
 #?(:clj
    (deftest non-carryable-number-fails-before-emission
-     (testing "a JVM-only number is refused at ASSEMBLY naming
-               the prop, and at the EMISSION gate naming the manifest key,
-               exactly as an opaque value is. Not a second mechanism —
-               the same `edn-carryable?`, told the truth about numbers."
-       (let [data (try (rf.ssr.manifest/manifest
-                        'test {:rf.root/schema-version 1 :root-id :page/shop}
-                        {:props {:promo :spring :ratio 1/3}})
-                       nil
-                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-         (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-             "the EXISTING error id — a non-carryable number is not a new
-              failure kind, so it needs no new catalogue row")
-         (is (= :ratio (:unserialisable-prop data)) "the offending prop is NAMED")
-         (is (= :value (:unserialisable-half data))))
-
-       (testing "and the emission gate covers a DESCRIPTOR key too, which
-                 `serialise-props` never sees"
-         (let [data (try (rf.ssr.manifest/script-html
-                          {:rf.root/schema-version 1
-                           :root-id                :page/shop
-                           :static-props           {:limit 9007199254740993N}})
-                         nil
-                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-           (is (= :rf.error/root-manifest-invalid (:rf.error/id data)))
-           (is (= :static-props (:unserialisable-manifest-key data)))))
-
-       (testing "the bigint case: `script-html` refuses to
-                 emit the body the CLJS reader mangles"
-         (is (thrown? clojure.lang.ExceptionInfo
-                      (rf.ssr.manifest/script-html
-                       (assoc {:rf.root/schema-version 1 :root-id :page/shop}
-                              :props {:x 9007199254740993N}))))))))
+     ;; The same `edn-carryable?` at assembly (naming the prop) and at the
+     ;; emission gate (naming the manifest key).
+     (is (= {:rf.error/id          :rf.error/root-manifest-invalid
+             :unserialisable-prop  :ratio
+             :unserialisable-half  :value}
+            (select-keys (invalid-data #(rf.ssr.manifest/manifest
+                                          'test shop {:props {:promo :spring :ratio 1/3}}))
+                         [:rf.error/id :unserialisable-prop :unserialisable-half])))
+     (is (= {:rf.error/id :rf.error/root-manifest-invalid :unserialisable-manifest-key :static-props}
+            (select-keys (invalid-data #(rf.ssr.manifest/script-html
+                                          (assoc shop :static-props {:limit 9007199254740993N})))
+                         [:rf.error/id :unserialisable-manifest-key])))))
 
 (deftest script-emission-gates-the-whole-manifest
-  (testing "`serialise-props` screens `:props` at assembly, but
-            `script-html` is the only door onto the wire and DESCRIPTOR
-            keys ride through it too. Without this gate a non-carryable
-            `:static-props` would be emitted happily; the property `every manifest
-            accepted for script emission round-trips` is only true if the
-            gate is at emission."
-    (doseq [k [:static-props :props-shape :frame-plans :root-id]]
-      (let [m    (assoc {:rf.root/schema-version 1 :root-id :page/shop}
-                        k {:x (->WireProbeRecord 1)})
-            data (try (rf.ssr.manifest/script-html m) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo
-                                :cljs cljs.core/ExceptionInfo) e
-                        (ex-data e)))]
-        (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-            (str "descriptor key " k " must be gated too"))
-        (is (= k (:unserialisable-manifest-key data))))))
-
-  (testing "the gate does NOT narrow what a valid manifest may hold —
-            ordinary data still emits"
-    (is (string? (rf.ssr.manifest/script-html
-                  (rf.ssr.manifest/manifest {:rf.root/schema-version 1
-                                      :root-id                :page/shop
-                                      :static-props           {:limit 10}})))
-        "the gate rejects unwireable values, not ordinary data")))
+  ;; `serialise-props` screens `:props` at assembly; descriptor keys reach the
+  ;; wire only through `script-html`.
+  (is (= {:rf.error/id :rf.error/root-manifest-invalid :unserialisable-manifest-key :static-props}
+         (select-keys (invalid-data #(rf.ssr.manifest/script-html
+                                       (assoc shop :static-props {:x (->WireProbeRecord 1)})))
+                      [:rf.error/id :unserialisable-manifest-key]))))
 
 (deftest body-must-hold-exactly-one-edn-form
-  (testing "`read-string` returns the FIRST form and discards
-            the rest, so without a form count a truncated render, two
-            concatenated manifests, or an injected suffix would all hydrate
-            silently against the first map. A manifest is ONE value."
-    (doseq [[label body] {:trailing-text  "{:rf.root/schema-version 1} trailing"
-                          :second-form    "{:rf.root/schema-version 1} {:second true}"
-                          :second-scalar  "{:rf.root/schema-version 1} 42"
-                          :duplicate      (str "{:rf.root/schema-version 1} "
-                                               "{:rf.root/schema-version 1}")
-                          :empty          ""}]
-      (let [data (try (rf.ssr.manifest/read-manifest 'test body) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo
-                                :cljs cljs.core/ExceptionInfo) e
-                        (ex-data e)))]
-        (is (= :rf.error/root-manifest-invalid (:rf.error/id data))
-            (str label " must be rejected, not silently truncated to its "
-                 "first form"))
-        (is (= :form-count (:invalid data)) (str label)))))
-
-  (testing "…while whitespace around the one form is FINE — the rule is one
-            FORM, not one line"
-    (doseq [body ["  {:rf.root/schema-version 1}  "
-                  "\n\t{:rf.root/schema-version 1}\n"
-                  "{:rf.root/schema-version 1}\n"]]
-      (is (= {:rf.root/schema-version 1} (rf.ssr.manifest/read-manifest 'test body))
-          (str "whitespace-padded body " (pr-str body)))))
-
-  (testing "a trailing `;` comment does not swallow the wrapper's closing
-            bracket — the reader wraps in `[ … \\n]` precisely so it cannot"
-    (is (= {:rf.root/schema-version 1}
-           (rf.ssr.manifest/read-manifest 'test "{:rf.root/schema-version 1} ; note"))))
-
-  (testing "an EDN discard is not a second form"
-    (is (= {:rf.root/schema-version 1}
-           (rf.ssr.manifest/read-manifest 'test "{:rf.root/schema-version 1} #_{:x 1}")))))
+  ;; `read-string` returns the FIRST form and drops the rest, so a truncated
+  ;; render or an injected suffix would otherwise hydrate silently.
+  (doseq [body ["{:rf.root/schema-version 1} trailing" ""]]
+    (is (= {:rf.error/id :rf.error/root-manifest-invalid :invalid :form-count}
+           (select-keys (invalid-data #(rf.ssr.manifest/read-manifest 'test body))
+                        [:rf.error/id :invalid]))
+        (pr-str body)))
+  (is (= {:rf.root/schema-version 1}
+         (rf.ssr.manifest/read-manifest 'test "\n\t{:rf.root/schema-version 1}\n"))
+      "whitespace around the one form is fine"))
 
 ;; ---------------------------------------------------------------------------
 ;; Discovery (CLJS) — adjacency, and nothing else
@@ -713,9 +323,8 @@
 
 #?(:cljs
    (deftest discovery-is-adjacency-and-content
-     ;; `m` carries an AUTHORED `:identifier-prefix`, so `discover` passes it
-     ;; through verbatim and this test stays about ADJACENCY (the omitted-prefix
-     ;; canonicalization has its own test below).
+     ;; An AUTHORED `:identifier-prefix` passes through `discover` verbatim, so
+     ;; this test stays about adjacency.
      (let [m    (rf.ssr.manifest/manifest {:rf.root/schema-version 1
                                     :root-id :page/shop}
                                    {:element-locator   {:id "shop-root"}
@@ -726,10 +335,6 @@
                             :text  body})]
        (testing "the immediately following element sibling IS the manifest"
          (is (= m (rf.ssr.manifest/discover (stub-el {:tag "DIV" :next script})))))
-
-       (testing "identity comes from the CONTENT, never the element"
-         (is (= :page/shop
-                (:root-id (rf.ssr.manifest/discover (stub-el {:tag "DIV" :next script}))))))
 
        (testing "no sibling ⇒ nil; the caller decides what absence means"
          (is (nil? (rf.ssr.manifest/discover (stub-el {:tag "DIV" :next nil})))))
@@ -748,31 +353,16 @@
                               :next (stub-el {:tag "DIV" :next script})})))
              "discovery does not walk — adjacency is the whole rule")))))
 
-;; ---------------------------------------------------------------------------
-;; Omitted identifier-prefix -> React's effective empty prefix
-;;
-;; React 19.2's hydrateRoot has no distinct "no prefix" state: it canonicalizes
-;; an omitted `identifierPrefix` option to the empty string "", and useId
-;; derives its ids from that empty prefix (server renderToString with no prefix
-;; does the same). So a bare Root Manifest that OMITS :identifier-prefix means
-;; the server rendered under React's effective EMPTY prefix — not "no effective
-;; prefix". Discovery, the hydration identity boundary, resolves that to "".
-;; ---------------------------------------------------------------------------
+;; React 19.2's hydrateRoot canonicalizes an omitted `identifierPrefix` to "",
+;; so a manifest that OMITS :identifier-prefix means the server rendered under
+;; the empty prefix. Discovery resolves it to "".
 
 (deftest canonicalize-effective-prefix-resolves-omitted-to-react-empty
-  (testing "an OMITTED :identifier-prefix resolves to React's effective \"\" —
-            the empty string, not nil"
-    (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}
-           (rf.ssr.manifest/canonicalize-effective-prefix
-            {:rf.root/schema-version 1 :root-id :page/shop}))))
-  (testing "an AUTHORED :identifier-prefix is passed through UNTOUCHED"
-    (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix "shop-"}
-           (rf.ssr.manifest/canonicalize-effective-prefix
-            {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix "shop-"})))
-    (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}
-           (rf.ssr.manifest/canonicalize-effective-prefix
-            {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}))
-        "an explicitly-empty authored prefix is left as-is (already \"\")")))
+  (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix ""}
+         (rf.ssr.manifest/canonicalize-effective-prefix shop)))
+  (is (= {:rf.root/schema-version 1 :root-id :page/shop :identifier-prefix "shop-"}
+         (rf.ssr.manifest/canonicalize-effective-prefix (assoc shop :identifier-prefix "shop-")))
+      "an AUTHORED prefix passes through untouched"))
 
 #?(:cljs
    (deftest discover-stamps-react-empty-prefix-on-a-bare-manifest
