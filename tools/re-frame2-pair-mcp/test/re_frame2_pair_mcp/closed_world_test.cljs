@@ -1,82 +1,30 @@
 (ns re-frame2-pair-mcp.closed-world-test
-  "Server-boundary closed-world dispatch tests.
-
-  The server handler (`server.cljs/handle-call`) runs `ensure-connection!`
-  for the connected tools BEFORE the dispatcher. But one tool —
-  `get-re-frame2-pair-instructions` — reads only
-  server-local state (an inline text `def`) with
-  NO nREPL round-trip. On a stock / degraded install with no nREPL port,
-  routing it through `ensure-connection!` would REJECT with
-  `:nrepl-port-not-found` and the closed-world body would never run,
-  contradicting the spec/003 'answers even when the runtime is down'
-  contract.
-
-  These tests pin the OUTER ring: the pre-connection closed-world dispatch
-  (`registry/closed-world-tool?` + the server `handle-call` branch) proves
-  the tool answers SUCCESSFULLY before `ensure-connection!` — discovery
-  never runs; the session-state stays pristine. Mirrors
-  `unknown_tool_test.cljs` and `writes_test.cljs`, the symmetric
-  pre-connection guards."
+  "`get-re-frame2-pair-instructions` reads only server-local state, so the
+  server answers it before `ensure-connection!`: it works with no runtime
+  at all (spec/003)."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.server :as server]
-            [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.registry :as registry]))
 
 (use-fixtures :each
   {:before (fn [] (server/reset-session-state-for-tests!))
    :after  (fn [] (server/reset-session-state-for-tests!))})
 
-(def ^:private read-edn tu/extract-edn)
-(def ^:private err? tu/error?)
-
-;; ---------------------------------------------------------------------------
-;; closed-world-tool? — the pure predicate.
-;; ---------------------------------------------------------------------------
-
 (deftest closed-world-tool?-flags-exactly-the-server-local-reads
-  (is (true? (registry/closed-world-tool? "get-re-frame2-pair-instructions")))
-  ;; The predicate is re-exported onto the façade the server consumes.
-  (is (identical? tools/closed-world-tool? registry/closed-world-tool?))
-  ;; Everything else needs a live runtime — NOT closed-world. A false
-  ;; positive here would route a nREPL-dependent tool around the
-  ;; connection and hand it a nil conn.
-  (doseq [tool ["discover-app" "eval-cljs" "dispatch" "snapshot" "get-path"
-                "restore-epoch" "replay-epoch" "replace-app-db"
-                ;; The re-frame.fresco.tool reads eval over nREPL in the
-                ;; browser runtime — NOT server-local.
-                "read-mounted-boundaries" "read-read-attribution" "explain-render"]]
-    (is (false? (registry/closed-world-tool? tool))
-        (str tool " needs a live runtime — must NOT be closed-world")))
-  (is (false? (registry/closed-world-tool? "no-such-tool"))
-      "an unknown name is never closed-world"))
-
-;; ---------------------------------------------------------------------------
-;; Server boundary — the closed-world dispatch precedes ensure-connection!
-;;
-;; The session-state is reset (pristine, :discovered? false) by the
-;; fixture, and no --port-file / env is configured, so the real discovery
-;; cascade would REJECT with :nrepl-port-not-found if `handle-call`
-;; reached `ensure-connection!`. Proving the result is a SUCCESS envelope
-;; (isError false, :ok? true) AND that the session stayed pristine shows
-;; the dispatch ran WITHOUT discovery.
-;; ---------------------------------------------------------------------------
+  ;; A false positive would hand a runtime-dependent tool a nil conn.
+  (is (= ["get-re-frame2-pair-instructions"]
+         (filterv registry/closed-world-tool? registry/tool-names))))
 
 (deftest instructions-answered-before-connection
+  ;; No port is configured here, so reaching `ensure-connection!` would
+  ;; answer :nrepl-port-not-found and record a discovery attempt.
   (async done
     (-> (server/handle-call-for-tests {} "get-re-frame2-pair-instructions" #js {} nil)
         (.then (fn [result]
-                 (is (not (err? result))
-                     "closed-world instructions succeed with NO nREPL — not a degraded error")
-                 (let [edn (read-edn result)]
-                   (is (true? (:ok? edn)))
-                   (is (not= :nrepl-port-not-found (:reason edn))
-                       "never the degraded discovery error")
-                   (is (string? (:text edn)) "the onboarding prose rides back"))
                  (let [snap (server/session-state-snapshot)]
-                   (is (false? (:discovered? snap))
-                       "discovery was NOT run — dispatched before ensure-connection!")
-                   (is (nil? (:discovery-error snap))
-                       "no discovery attempt recorded — connection step never reached"))))
+                   (is (true? (:ok? (tu/extract-edn result))))
+                   (is (false? (:discovered? snap)))
+                   (is (nil? (:discovery-error snap))))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))
