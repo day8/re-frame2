@@ -19,17 +19,11 @@
             active-filters slot; the `:rf.xray/active-filters` sub
             re-fires with the new bucket contents."
     (h/setup-xray-frame!)
-    (let [filters-0 (h/read-sub :rf.xray/active-filters)]
-      (is (= {:in [] :out []} filters-0)
-          "default state — both buckets empty")
-      (h/dispatch-xray!
-        [:rf.xray/add-filter :out
-         {:pattern :evt/inc}])
-      (let [filters-1 (h/read-sub :rf.xray/active-filters)]
-        (is (= 1 (count (:out filters-1)))
-            "one pill added to :out bucket")
-        (is (= :evt/inc (-> filters-1 :out first :pattern))
-            "pill carries the filter pattern")
-        (is (not= filters-0 filters-1)
-            "active-filters sub re-fired on add-filter")))))
+    (is (= {:in [] :out []} (h/read-sub :rf.xray/active-filters))
+        "default state — both buckets empty")
+    (h/dispatch-xray!
+      [:rf.xray/add-filter :out
+       {:pattern :evt/inc}])
+    (is (= [:evt/inc] (mapv :pattern (:out (h/read-sub :rf.xray/active-filters))))
+        "one pill, carrying the filter pattern, added to the :out bucket")))
 
