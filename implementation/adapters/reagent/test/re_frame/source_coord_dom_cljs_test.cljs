@@ -1,29 +1,12 @@
 (ns re-frame.source-coord-dom-cljs-test
-  "Per Spec 006 §Source-coord annotation: when
-  `interop/debug-enabled?` is true, the Reagent substrate adapter MUST
-  inject `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"` on the
-  rendered root DOM element of every registered view. The annotation
-  lets pair-shaped tools (re-frame-pair, re-frame-10x, IDE jump-to-
-  source) map a clicked DOM node back to the reg-view call site.
-
-  Coverage:
-
-    - DOM-keyword root with no attrs map: the wrapper splices an attrs
-      map carrying data-rf2-source-coord.
-    - User-supplied data-rf2-source-coord wins (don't overwrite).
-    - React Fragment root (`:<>`): root is exempt; no attribute injected;
-      one-shot warning emitted (pair tools fall back to :rf/id).
-    - Programmatic reg-view* without source-coords: annotation degrades
-      gracefully — emits `<ns>:<sym>:?:?`.
-    - Format: the attribute value matches `<ns>:<sym>:<line>:<col>`.
-
-  A root WITH an existing attrs map, and the inner render of a Form-2
-  render-fn, get both attributes from the same splice;
-  `re-frame.view-id-attr-cljs-test` pins those cases for both of them.
-
-  Production elision (interop/debug-enabled? = false at build time) is
-  verified separately by the elision-probe build (Spec 009 §Production
-  builds, scripts/check-elision.cjs, sentinel `data-rf2-source-coord`)."
+  "In debug builds the Reagent adapter stamps every registered view's DOM
+  root with `data-rf2-source-coord=\"<ns>:<sym>:<line>:<col>\"` (Spec 006
+  §Source-coord annotation), so pair-shaped tools can map a clicked node back
+  to its `reg-view`: spliced into a bare root, never over a user-supplied
+  value, never on a Fragment or `[:> Cmp …]` root, and as `<ns>:<sym>:?:?`
+  for a programmatic `reg-view*`. The existing-attrs and Form-2 cases are in
+  `re-frame.view-id-attr-cljs-test`; production elision is the elision-probe
+  build's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -51,17 +34,14 @@
             attrs map carrying :data-rf2-source-coord"
     (rf/reg-view ^{:rf/id :rf.src-coord-test/no-attrs} no-attrs-view []
       [:span "hi"])
-    (let [render (rf/view :rf.src-coord-test/no-attrs)
-          out    (render)
-          attr   (root-attr out)]
-      (is (vector? out))
-      (is (= :span (first out)) "root tag preserved")
-      (is (string? attr) ":data-rf2-source-coord present")
-      ;; Format: <ns>:<sym>:<line>:<col>. The <ns>/<sym> are taken from
-      ;; the registry id keyword — here the explicit :rf/id override
-      ;; (rf.src-coord-test/no-attrs), not the call-site symbol.
-      (is (re-find #"^rf\.src-coord-test:no-attrs:\d+:\d+$" attr)
-          (str ":data-rf2-source-coord matches <ns>:<sym>:<line>:<col>; got "
+    (let [out  ((rf/view :rf.src-coord-test/no-attrs))
+          attr (root-attr out)]
+      ;; <ns>/<sym> come from the registry id — here the :rf/id override,
+      ;; not the call-site symbol.
+      (is (= [:span true]
+             [(first out) (boolean (and (string? attr)
+                                        (re-find #"^rf\.src-coord-test:no-attrs:\d+:\d+$" attr)))])
+          (str "the root tag is kept and the coord is <ns>:<sym>:<line>:<col>; got "
                (pr-str attr))))))
 
 ;; ---- user-supplied coord wins ---------------------------------------------
@@ -85,13 +65,11 @@
       [:<> [:p "a"] [:p "b"]])
     (let [render (rf/view :rf.src-coord-test/fragment)
           out    (render)]
-      (is (= :<> (first out)) "fragment marker preserved")
-      ;; Per the documented exemption, the wrapper does NOT splice attrs
-      ;; into a fragment — Reagent fragments don't accept attrs at the
-      ;; React level.
-      (is (not (and (map? (second out))
-                    (contains? (second out) :data-rf2-source-coord)))
-          "no :data-rf2-source-coord on fragment root"))))
+      ;; A Reagent fragment takes no attrs at the React level.
+      (is (= [:<> false]
+             [(first out) (boolean (and (map? (second out))
+                                        (contains? (second out) :data-rf2-source-coord)))])
+          "the fragment root is kept, with no :data-rf2-source-coord"))))
 
 (deftest interop-react-component-root-is-exempt
   (testing "a render-fn whose root is a React-component head (`[:> Cmp …]`)
@@ -100,15 +78,10 @@
       [:> "div" {} "body"])           ;; `:>` interop marker
     (let [render (rf/view :rf.src-coord-test/interop-root)
           out    (render)]
-      (is (= :> (first out))
-          "interop marker preserved, no :data-rf2-source-coord injected")
-      ;; `[:> Cmp {} "body"]` — second slot is the React props map; we
-      ;; should NOT have added :data-rf2-source-coord into THAT map
-      ;; (that would set a DOM attribute via React's component, which is
-      ;; the right shape only if Cmp is a DOM tag string — but the rule,
-      ;; per the documented exemption, is "skip and warn").
-      (is (not (contains? (second out) :data-rf2-source-coord))
-          "no :data-rf2-source-coord merged into the interop props map"))))
+      ;; The second slot is the component's props map; the exemption is
+      ;; skip-and-warn, never a merge into it.
+      (is (= [:> false] [(first out) (contains? (second out) :data-rf2-source-coord)])
+          "the interop marker is kept, with no :data-rf2-source-coord in its props map"))))
 
 ;; ---- programmatic registration without macro source-coords ---------------
 
@@ -120,7 +93,6 @@
     (let [render (rf/view :rf.src-coord-test/programmatic)
           out    (render)
           attr   (root-attr out)]
-      (is (string? attr))
       (is (= "rf.src-coord-test:programmatic:?:?" attr)
           "format degrades to <ns>:<sym>:?:? when coords are absent"))))
 
@@ -135,6 +107,6 @@
     (let [render (rf/view :re-frame.source-coord-dom-cljs-test/auto-id-view)
           out    (render)
           attr   (root-attr out)]
-      (is (string? attr))
-      (is (re-find #"^re-frame\.source-coord-dom-cljs-test:auto-id-view:\d+:\d+$" attr)
+      (is (and (string? attr)
+               (re-find #"^re-frame\.source-coord-dom-cljs-test:auto-id-view:\d+:\d+$" attr))
           (str "auto-derived id drives <ns>:<sym>; got " (pr-str attr))))))
