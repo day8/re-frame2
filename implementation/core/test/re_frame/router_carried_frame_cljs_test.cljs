@@ -1,97 +1,45 @@
 (ns re-frame.router-carried-frame-cljs-test
-  "Per EP-0002 §Dispatch And Router / Reference Impl Plan §3
-  — the CLJS-side router frame-resolution tier: dispatch under a
-  frame-provider (React-context) scope works.
-
-  The JVM companion `re-frame.router-carried-frame-test` pins the
-  dynamic-var scope / hold / override / absence matrix. This file pins
-  the remaining EP §3 case that is platform-specific: when no dynamic
-  `*current-frame*` binding and no explicit `:frame` opt are present, the
-  router resolves a frame from the enclosing frame-provider via the
-  React-context tier of `rf.frame/resolve-current-frame` (the
-  `:adapter/current-frame` late-bind hook).
-
-  A full React mount + `frame-provider` render is the root/view suites'
-  territory; here we exercise the router's consumption of
-  the React-context tier directly by publishing a context-returning
-  `:adapter/current-frame` hook (exactly what an adapter's frame-provider
-  installs), then asserting (a) a bare dispatch resolves the provider
-  frame, and (b) once the provider context is gone, the same bare
-  dispatch raises :rf.error/no-frame-context (no :rf/default floor).
-
-  An explicit `{:frame …}` opt is read before the scope tiers are consulted,
-  so its precedence over a provider frame is the shared `(or (:frame opts) …)`
-  that `re-frame.router-carried-frame-test`'s `explicit-frame-overrides-scope`
-  pins.
-
-  Naming: `-cljs-test$` opts this file into the node-test build."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "The router's React-context frame tier (Spec 002 §Frame target resolution):
+  with no `*current-frame*` binding and no explicit `:frame` opt, a dispatch
+  resolves the enclosing `frame-provider`'s frame through the
+  `:adapter/current-frame` late-bind hook, which this suite publishes the way
+  an adapter's provider does. Absence and explicit-override precedence are
+  platform-neutral and pinned by `re-frame.router-carried-frame-test`'s
+  `explicit-frame-overrides-scope` and its no-frame-context tests."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.substrate.adapter :as rf.substrate.adapter]
-            [re-frame.trace.tooling :as rf.trace.tooling]))
+            [re-frame.substrate.adapter :as rf.substrate.adapter]))
 
-;; The provider's "current React-context frame" — a test-controlled
-;; stand-in for what a real `frame-provider` render publishes. nil means
-;; no enclosing provider.
+;; The enclosing provider's frame; nil means no provider.
 (def ^:private provider-frame (atom nil))
 
 (defn reset-runtime [test-fn]
   (reset! rf.frame/frames {})
   (rf.substrate.adapter/dispose-adapter!)
-  (rf.trace.tooling/clear-listeners!)
   (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
   (reset! provider-frame nil)
-  ;; Publish a React-context tier that reports the enclosing provider
-  ;; frame. `set-fn!` invalidates the sticky `get-fn-cached` slot, so
-  ;; `resolve-current-frame` observes the live value each test sets. This
-  ;; is the same hook an adapter's frame-provider drives during render.
+  ;; `set-fn!` invalidates the sticky `get-fn-cached` slot, so resolution
+  ;; sees this hook.
   (rf.late-bind/set-fn! :adapter/current-frame
-                     (fn [] (or rf.frame/*current-frame* @provider-frame)))
+                        (fn [] (or rf.frame/*current-frame* @provider-frame)))
   (try
     (test-fn)
     (finally
-      ;; Restore the adapter's real hook so sibling suites are unaffected.
       (reset! provider-frame nil)
       (rf.substrate.adapter/dispose-adapter!)
       (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))))
 
 (use-fixtures :each reset-runtime)
 
-(defn- record-traces! [listener-id]
-  (let [a (atom [])]
-    (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
-    a))
-
 (deftest dispatch-under-frame-provider-works
-  (testing "with no dynamic binding and no explicit frame, the router
-            resolves the enclosing frame-provider (React-context) frame"
-    (rf/make-frame {:id :app/provided :doc "frame the provider supplies"})
-    (rf/reg-event :app/inc {:frame :app/provided}
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    ;; Simulate being inside a `frame-provider {:frame :app/provided}`
-    ;; render: the React-context tier reports the frame, the dynamic var
-    ;; is unbound.
-    (reset! provider-frame :app/provided)
-    (binding [rf.frame/*current-frame* nil]
-      (rf/dispatch-sync [:app/inc]))
-    (is (= 1 (:n (rf/app-db-value :app/provided)))
-        "the dispatch resolved the provider frame and ran the handler")))
-
-(deftest bare-dispatch-without-provider-fails
-  (testing "once the provider context is gone (no dynamic binding, no
-            provider, no explicit frame) the same bare dispatch raises
-            :rf.error/no-frame-context — there is no :rf/default floor"
-    (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
-    (let [recorded (record-traces! ::no-provider)]
-      (reset! provider-frame nil)
-      (binding [rf.frame/*current-frame* nil]
-        (let [ex (try (rf/dispatch-sync [:app/noop]) nil
-                      (catch :default e e))]
-          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
-              "the throw carries :rf.error/no-frame-context")))
-      (rf/unregister-listener! :trace ::no-provider)
-      (is (empty? (filter #(= :rf.event/dispatched (:operation %)) @recorded))
-          "no enqueue — the absence is caught before the registry lookup"))))
+  (rf/make-frame {:id :app/provided :doc "frame the provider supplies"})
+  (rf/reg-event :app/inc {:frame :app/provided}
+    (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+  (reset! provider-frame :app/provided)
+  (binding [rf.frame/*current-frame* nil]
+    (rf/dispatch-sync [:app/inc]))
+  (is (= 1 (:n (rf/app-db-value :app/provided)))
+      "the bare dispatch resolved the provider's frame"))
