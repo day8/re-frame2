@@ -187,7 +187,10 @@
         "a fresh install succeeds after the exact cleanup owner settles")
     (is (false? (rf.substrate.adapter/adapter-disposed?)))))
 
-(deftest init-keyword-arg-raises-no-adapter-specified
+(deftest init-non-map-arg-raises-no-adapter-specified
+  (is (= :rf.error/no-adapter-specified
+         (:rf.error/id (try (rf/init! nil) nil
+                            (catch clojure.lang.ExceptionInfo e (ex-data e))))))
   (let [data (try (rf/init! :reagent) nil
                   (catch clojure.lang.ExceptionInfo e (ex-data e)))]
     (is (= {:rf.error/id :rf.error/no-adapter-specified
