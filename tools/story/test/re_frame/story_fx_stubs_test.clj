@@ -1,20 +1,10 @@
 (ns re-frame.story-fx-stubs-test
-  "JVM tests for Story's `:rf.story/force-fx-stub` decorator.
-
-  Covers:
-
-  - `:rf.story/force-fx-stub` registers at boot.
-  - Ref-args expansion: `[:rf.story/force-fx-stub :http {...}]`
-    materialises a per-reference body with `:fx-id` + `:response`.
-  - Multiple references with distinct fx-ids each get a distinct
-    stub-event-id.
-  - The fx-overrides map threads onto the variant frame's config so
-    re-frame's router redirects the fx.
-  - `:rf.assert/effect-emitted` observes a stubbed fx.
-  - The per-frame stub-call log records each stubbed call's fx-id and
-    payload, isolated by frame, and `observed-fx-ids` reads it."
+  "The `:rf.story/force-fx-stub` decorator: ref-args expansion, the per-frame
+  stub-call log, and `:rf.assert/effect-emitted` over a stubbed fx."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
+            ;; `:rf.assert/effect-emitted` reads the epoch tape.
+            [re-frame.epoch]
             [re-frame.frame            :as rf.frame]
             [re-frame.machines         :as rf.machines]
             [re-frame.registrar        :as rf.registrar]
@@ -48,123 +38,64 @@
 
 (use-fixtures :each reset-all)
 
-;; ===========================================================================
-;; Ref-args expansion
-;; ===========================================================================
+(defn- run-v! [vid]
+  (rf.story.async/deref-blocking (rf.story/run-variant vid) 5000))
+
+(defn- reg-http-variant! [vid event url script-tail]
+  (rf/reg-event event (fn [_ _] {:fx [[:http {:url url}]]}))
+  (rf.story/reg-variant vid
+    {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
+     :setup      []
+     :script     (into [[:dispatch-sync [event]]] script-tail)}))
 
 (deftest force-fx-stub-ref-args-expansion
-  (testing "ref-args expand into a per-reference body with fx-id + response"
-    (rf.story/reg-variant :story.fxstub/v
-      {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
-       :setup     []})
-    (let [r (rf.story/resolve-decorators :story.fxstub/v)]
-      (is (= 1 (count (:fx-override r))))
-      (let [body (-> r :fx-override first :body)]
-        (is (= :http              (:fx-id body)))
-        (is (= {:status :pending} (:response body)))
-        (is (= :fx-override       (:kind body)))))))
+  (rf.story/reg-variant :story.fxstub/v
+    {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]] :setup []})
+  (is (= [{:fx-id :http :response {:status :pending} :kind :fx-override}]
+         (mapv #(select-keys (:body %) [:fx-id :response :kind])
+               (:fx-override (rf.story/resolve-decorators :story.fxstub/v))))))
 
 (deftest force-fx-stub-multiple-refs-distinct-fx-ids
-  (testing "multiple force-fx-stub references with distinct fx-ids get distinct stub-event-ids"
-    (rf.story/reg-variant :story.fxstub-multi/v
-      {:decorators [[:rf.story/force-fx-stub :http      {:status :a}]
-                    [:rf.story/force-fx-stub :websocket {:status :b}]]
-       :setup     []})
-    (let [r       (rf.story/resolve-decorators :story.fxstub-multi/v)
-          stack   (rf.story.decorators/fx-overrides-map (:fx-override r))]
-      (is (= #{:http :websocket} (set (keys (:overrides stack)))))
-      (let [http-stub (get-in stack [:overrides :http])
-            ws-stub   (get-in stack [:overrides :websocket])]
-        (is (not= http-stub ws-stub)
-            "different fx-ids yield distinct stub-event-ids")))))
-
-;; ===========================================================================
-;; :rf.assert/effect-emitted with force-fx-stub
-;; ===========================================================================
+  (rf.story/reg-variant :story.fxstub-multi/v
+    {:decorators [[:rf.story/force-fx-stub :http      {:status :a}]
+                  [:rf.story/force-fx-stub :websocket {:status :b}]]
+     :setup      []})
+  (let [ov (:overrides (rf.story.decorators/fx-overrides-map
+                         (:fx-override (rf.story/resolve-decorators :story.fxstub-multi/v))))]
+    (is (= #{:http :websocket} (set (keys ov))))
+    (is (not= (:http ov) (:websocket ov)))))
 
 (deftest force-fx-stub-emits-fx-into-accumulator
-  (testing "a stubbed fx lands in the per-frame stub-call log so :rf.assert/effect-emitted passes"
-    (rf/reg-event :do/http-call
-      (fn [_ _]
-        {:fx [[:http {:url "/test" :method :get}]]}))
-    (rf.story/reg-variant :story.fxemit/v
-      {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {:n 1}}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/http-call]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxemit/v) 5000)
-          last-a (last (:assertions r))]
-      (is (true? (:passed? last-a))
-          "force-fx-stub's stub event records the call in the stub-call log, which :rf.assert/effect-emitted reads"))
-    (rf.story/destroy-variant! :story.fxemit/v)))
-
-;; ===========================================================================
-;; Stub event log inspection
-;; ===========================================================================
+  (reg-http-variant! :story.fxemit/v :do/http-call "/test"
+                     [[:dispatch-sync [:rf.assert/effect-emitted :http]]])
+  (is (true? (:passed? (last (:assertions (run-v! :story.fxemit/v))))))
+  (rf.story/destroy-variant! :story.fxemit/v))
 
 (deftest force-fx-stub-log-captures-payload
-  (testing "the stub fx-handler records the fx payload + response in the per-frame stub-call log"
-    (rf/reg-event :do/http-call2
-      (fn [_ _]
-        {:fx [[:http {:url "/api" :method :post}]]}))
-    (rf.story/reg-variant :story.fxlog/v
-      {:decorators [[:rf.story/force-fx-stub :http {:status :ok :body {}}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/http-call2]]]})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.fxlog/v) 5000)
-    (let [log (re-frame.story.frames/stub-call-log-for :story.fxlog/v)]
-      (is (= 1 (count log)))
-      (is (= :http (:fx-id (first log)))
-          "the stub log entry carries the original fx-id")
-      (is (= {:url "/api" :method :post} (:payload (first log)))
-          "the stub log entry carries the original fx payload"))
-    ;; observed-fx-ids should also see the stub.
-    (is (contains? (rf.story.fx-stubs/observed-fx-ids :story.fxlog/v) :http)
-        "observed-fx-ids surfaces the stubbed fx after the run")
-    (rf.story/destroy-variant! :story.fxlog/v)))
+  (reg-http-variant! :story.fxlog/v :do/http-call2 "/api" [])
+  (run-v! :story.fxlog/v)
+  (is (= [{:fx-id :http :payload {:url "/api"}}]
+         (mapv #(select-keys % [:fx-id :payload]) (rf.story.frames/stub-call-log-for :story.fxlog/v))))
+  (is (= #{:http} (rf.story.fx-stubs/observed-fx-ids :story.fxlog/v)))
+  (rf.story/destroy-variant! :story.fxlog/v))
 
 (deftest force-fx-stub-log-is-per-frame
-  (testing "two variants emitting the same fx id keep stub logs and effect assertions isolated by frame"
-    (rf/reg-event :do/http-a
-      (fn [_ _]
-        {:fx [[:http {:url "/a"}]]}))
-    (rf/reg-event :do/http-b
-      (fn [_ _]
-        {:fx [[:http {:url "/b"}]]}))
-    (rf.story/reg-variant :story.fxisolation/a
-      {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/http-a]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (rf.story/reg-variant :story.fxisolation/b
-      {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/http-b]]
-                    [:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [ra (rf.story.async/deref-blocking (rf.story/run-variant :story.fxisolation/a) 5000)
-          rb (rf.story.async/deref-blocking (rf.story/run-variant :story.fxisolation/b) 5000)
-          log-a (rf.story.frames/stub-call-log-for :story.fxisolation/a)
-          log-b (rf.story.frames/stub-call-log-for :story.fxisolation/b)]
-      (is (every? :passed? (:assertions ra)))
-      (is (every? :passed? (:assertions rb)))
-      (is (= [{:url "/a"}] (mapv :payload log-a)))
-      (is (= [{:url "/b"}] (mapv :payload log-b)))
-      (is (= #{:http} (rf.story.fx-stubs/observed-fx-ids :story.fxisolation/a)))
-      (is (= #{:http} (rf.story.fx-stubs/observed-fx-ids :story.fxisolation/b))))
+  (testing "two variants emitting the same fx id keep stub logs and effect
+            assertions isolated by frame"
+    (doseq [[vid event url] [[:story.fxisolation/a :do/http-a "/a"]
+                             [:story.fxisolation/b :do/http-b "/b"]]]
+      (reg-http-variant! vid event url [[:dispatch-sync [:rf.assert/effect-emitted :http]]]))
+    (doseq [[vid url] [[:story.fxisolation/a "/a"] [:story.fxisolation/b "/b"]]]
+      (is (every? :passed? (:assertions (run-v! vid))))
+      (is (= [[{:url url}] #{:http}]
+             [(mapv :payload (rf.story.frames/stub-call-log-for vid))
+              (rf.story.fx-stubs/observed-fx-ids vid)])))
     (rf.story/destroy-variant! :story.fxisolation/a)
     (rf.story/destroy-variant! :story.fxisolation/b)))
 
 (deftest destroy-variant-drops-stub-call-log
-  (testing "destroy-variant! clears the destroyed variant's stub-call log"
-    (rf/reg-event :do/http-drop
-      (fn [_ _]
-        {:fx [[:http {:url "/drop"}]]}))
-    (rf.story/reg-variant :story.fxdrop/v
-      {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
-       :setup     []
-       :script [[:dispatch-sync [:do/http-drop]]]})
-    (rf.story.async/deref-blocking (rf.story/run-variant :story.fxdrop/v) 5000)
-    (is (= 1 (count (rf.story.frames/stub-call-log-for :story.fxdrop/v)))
-        "precondition: the run logged the stubbed call")
-    (rf.story/destroy-variant! :story.fxdrop/v)
-    (is (empty? (rf.story.frames/stub-call-log-for :story.fxdrop/v)))))
+  (reg-http-variant! :story.fxdrop/v :do/http-drop "/drop" [])
+  (run-v! :story.fxdrop/v)
+  (is (= 1 (count (rf.story.frames/stub-call-log-for :story.fxdrop/v))) "precondition")
+  (rf.story/destroy-variant! :story.fxdrop/v)
+  (is (empty? (rf.story.frames/stub-call-log-for :story.fxdrop/v))))
