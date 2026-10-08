@@ -1,42 +1,23 @@
 (ns day8.re-frame2-xray.filters.right-click-integration-cljs-test
-  "Right-click event-row → OUT pill integration test.
-
-  Wires:
-   - drop a trace event into the buffer
-   - render the shell
-   - fire `on-context-menu` on the row
-   - assert it dispatches :rf.xray/open-row-context-menu with the
-     event-id + click coords; the menu's hide item dispatches
-     :rf.xray/hide-event-type, whose pre-filled popup and save path
-     `filters.edit-popup-cljs-test` pins
-
-  Plus the OUT-pill → filtered-event-bundles round-trip: once a pill is
-  installed via the canonical add-filter event, the L2 event list
-  re-renders without the matching row."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  "Right-click event-row integration. The row's `on-context-menu` opens
+  the row context menu, whose hide item dispatches
+  `:rf.xray/hide-event-type` (the pre-filled popup and its save path are
+  pinned in `filters.edit-popup-cljs-test`). And once an OUT pill is
+  installed, the rendered L2 list drops the matching row."
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-helpers.dynamic-shell-tree
              :as dynamic-shell-tree]
-            [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
-(use-fixtures :each
-  ;; `make-xray-runtime-fixture` owns the reset: plain-atom adapter + the
-  ;; default `:all` reset tier, which includes the trace-collector ring
-  ;; reset.
-  (xray-test-support/make-xray-runtime-fixture))
+(use-fixtures :each (xray-test-support/make-xray-runtime-fixture))
 
 (defn- xray-setup! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
-
-;; ---- hiccup walker ------------------------------------------------------
-;; Tests call `rf.test-helpers/find-by-testid` directly; there is no Xray
-;; walker facade.
 
 (defn- dispatch-trace-ev [id event-vec]
   {:id           id
@@ -46,52 +27,26 @@
                   :frame       :rf/default
                   :rf.trace/dispatch-id id}})
 
-;; -------------------------------------------------------------------------
-;; (1) Right-click row opens the context menu
-;; -------------------------------------------------------------------------
-
-(defn- mk-context-event
-  "Right-click event stub. Carries clientX/clientY so the menu can
-  position itself at the cursor."
-  []
-  (let [called? (atom false)]
-    {:event  #js {:preventDefault (fn [] (reset! called? true))
-                  :clientX        128
-                  :clientY        256}
-     :called called?}))
-
 (deftest right-click-row-opens-context-menu
-  (testing "`on-context-menu` on a row fires
-            `:rf.xray/open-row-context-menu` with the event-id +
-            click coords. The browser context menu is suppressed via
-            preventDefault."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 7 [:user/mouse-move {:x 1}]))
-    (let [dispatches      (atom [])
-          {:keys [event called]} (mk-context-event)]
-      (with-redefs [rf/dispatch-impl (fn
-                                        ([ev]       (swap! dispatches conj ev) nil)
-                                        ([ev _opts] (swap! dispatches conj ev) nil))]
-        (rf/with-frame :rf/xray
-          (let [tree (dynamic-shell-tree/shell-view-tree)
-                row  (rf.test-helpers/find-by-testid tree "rf-xray-event-row-7")
-                h    (:on-context-menu (second row))]
-            (is (some? row) "row mounted")
-            (is (fn? h) "row has on-context-menu handler")
-            (when h (h event)))))
-      (is @called "preventDefault called so the browser menu is suppressed")
-      (is (some (fn [ev]
-                  (and (vector? ev)
-                       (= :rf.xray/open-row-context-menu (first ev))
-                       (= :user/mouse-move (:event-id (second ev)))
-                       (= 128 (:x (second ev)))
-                       (= 256 (:y (second ev)))))
-                @dispatches)
-          ":rf.xray/open-row-context-menu fired with event-id + coords"))))
-
-;; -------------------------------------------------------------------------
-;; (2) Once OUT pill is set, filtered-event-bundles drops the matching row
-;; -------------------------------------------------------------------------
+  ;; preventDefault suppresses the browser's own menu; the click coords
+  ;; position ours.
+  (xray-setup!)
+  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 7 [:user/mouse-move {:x 1}]))
+  (let [dispatches (atom [])
+        prevented? (atom false)
+        event      #js {:preventDefault (fn [] (reset! prevented? true))
+                        :clientX        128
+                        :clientY        256}]
+    (with-redefs [rf/dispatch-impl (fn
+                                     ([ev]       (swap! dispatches conj ev) nil)
+                                     ([ev _opts] (swap! dispatches conj ev) nil))]
+      (rf/with-frame :rf/xray
+        (let [row (rf.test-helpers/find-by-testid (dynamic-shell-tree/shell-view-tree)
+                                                  "rf-xray-event-row-7")]
+          ((:on-context-menu (second row)) event))))
+    (is (true? @prevented?))
+    (is (some #{[:rf.xray/open-row-context-menu {:event-id :user/mouse-move :x 128 :y 256}]}
+              @dispatches))))
 
 (deftest out-pill-removes-matching-row-from-event-list
   (xray-setup!)
@@ -99,16 +54,10 @@
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:mouse-move]))
   (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
   (rf/with-frame :rf/xray
-    ;; Sanity — all three rows present pre-filter.
-    (let [tree (dynamic-shell-tree/shell-view-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))
-    ;; Install the OUT pill via the canonical add-filter event.
-    (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :mouse-move}])
-    ;; Re-render and assert :mouse-move dropped.
-    (let [tree (dynamic-shell-tree/shell-view-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
-      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
-          "row 2 (:mouse-move) filtered out")
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))))
+    (let [rows-present (fn []
+                         (let [tree (dynamic-shell-tree/shell-view-tree)]
+                           (mapv #(some? (rf.test-helpers/find-by-testid tree (str "rf-xray-event-row-" %)))
+                                 [1 2 3])))]
+      (is (= [true true true] (rows-present)))
+      (rf/dispatch-sync [:rf.xray/add-filter :out {:pattern :mouse-move}])
+      (is (= [true false true] (rows-present)) "row 2 (:mouse-move) filtered out"))))
