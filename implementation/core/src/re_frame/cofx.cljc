@@ -1038,37 +1038,37 @@
   frame-state via the `:cofx/eval-recordable-sub` hook, structural-EDN-check the
   value, write it back into `:rf.cofx` under `fact-id` (epoch captures it),
   deliver. Absent + `:strict` (replay / the `:test` preset) →
-  `:rf.error/missing-required-cofx` (loud, never re-derived)."
+  `:rf.error/missing-required-cofx` (loud, never re-derived).
+
+  The hook is bound whenever this runs: only the machines artefact parses a
+  sub source (the `allow-sub?` arity of `parse-requires`), and it publishes
+  the hook when it loads."
   [acc fact-id query-v failing-id frame-id mint-policy continue?]
   (cond
     (contains? (:rf.cofx acc) fact-id)
     (assoc-in acc [:coeffects fact-id] (get (:rf.cofx acc) fact-id))
 
     (mint-policy-generates? mint-policy)
-    (if-let [eval-sub (rf.late-bind/get-fn-cached :cofx/eval-recordable-sub)]
-      (let [value (try
-                    (eval-sub query-v frame-id)
-                    (catch #?(:clj Throwable :cljs :default) e
-                      ;; A destroy+throw from the authored evaluator is inert;
-                      ;; otherwise the throw propagates as a hard failure.
-                      (if (continue?) (throw e) nil)))]
-        ;; The resolved value rides the durable causal record — structural
-        ;; recordable-EDN check at write-back (a sub yielding a host handle is
-        ;; `:rf.error/cofx-value-invalid`, dev AND production), reusing the
-        ;; generated-value floor.
-        (when (continue?)
-          (try
-            (validate-generated-recordable-value! fact-id value failing-id frame-id)
-            (catch #?(:clj Throwable :cljs :default) e
-              (when (continue?) (throw e)))))
-        (when (continue?)
-          (-> acc
-              (assoc-in [:coeffects fact-id] value)
-              (assoc-in [:rf.cofx fact-id] value))))
-      ;; The machines evaluator is unbound (machines artefact not loaded). A
-      ;; sub source can only be PARSED from a machine named entry, so this is
-      ;; unreachable in practice; fail loud rather than silently deliver nil.
-      (emit-missing-required-cofx! fact-id failing-id frame-id))
+    (let [eval-sub (rf.late-bind/get-fn-cached :cofx/eval-recordable-sub)
+          value    (try
+                     (eval-sub query-v frame-id)
+                     (catch #?(:clj Throwable :cljs :default) e
+                       ;; A destroy+throw from the authored evaluator is inert;
+                       ;; otherwise the throw propagates as a hard failure.
+                       (if (continue?) (throw e) nil)))]
+      ;; The resolved value rides the durable causal record — structural
+      ;; recordable-EDN check at write-back (a sub yielding a host handle is
+      ;; `:rf.error/cofx-value-invalid`, dev AND production), reusing the
+      ;; generated-value floor.
+      (when (continue?)
+        (try
+          (validate-generated-recordable-value! fact-id value failing-id frame-id)
+          (catch #?(:clj Throwable :cljs :default) e
+            (when (continue?) (throw e)))))
+      (when (continue?)
+        (-> acc
+            (assoc-in [:coeffects fact-id] value)
+            (assoc-in [:rf.cofx fact-id] value))))
 
     :else
     (emit-missing-required-cofx! fact-id failing-id frame-id)))
