@@ -1420,7 +1420,7 @@
   Public so that fx wrappers (per Spec 012 §Navigation tokens
   `:rf.route/with-nav-token`, and any future single-fx re-entry helper)
   can route a single inner fx entry through the same machinery as the
-  outer walk — without re-emitting the `:event/do-fx` boundary marker
+  outer walk — without re-emitting the `:rf.fx/do-fx` boundary marker
   that `do-fx` terminates each walk with. `do-fx` is the entry
   point for the whole `:fx` vector."
   ([frame-id pair active-platform overrides origin-event]
@@ -2031,7 +2031,7 @@
     :effects          the originating handler's full effects map (the
                       closed `{:db ... :fx ...}` shape). Used ONLY to
                       stamp shape info onto the terminating
-                      `:event/do-fx` trace marker's `:tags`: `:fx` (the
+                      `:rf.fx/do-fx` trace marker's `:tags`: `:fx` (the
                       vector returned) and
                       `:db-present?` (boolean, true iff the handler
                       returned a `:db` slot). NOT threaded into per-fx
