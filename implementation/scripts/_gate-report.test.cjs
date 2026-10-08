@@ -3,10 +3,7 @@
 'use strict';
 
 const assert = require('assert/strict');
-const {
-  createGateReporter,
-  isVerboseTests,
-} = require('./lib/gate-report.cjs');
+const { createGateReporter } = require('./lib/gate-report.cjs');
 
 const tests = [];
 
