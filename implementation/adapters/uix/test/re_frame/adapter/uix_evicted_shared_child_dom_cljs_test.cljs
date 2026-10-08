@@ -26,12 +26,7 @@
   P2.
 
   So the release goes through `re-frame.subs/unsubscribe-if-reaction`,
-  carrying the reaction the build actually acquired.
-
-  ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test` (ns-regexp
-  `-dom-cljs-test$`) discovers it for the real DOM assertions; `:node-test`'s
-  `cljs-test$` regex also matches, where the test self-gates on `(browser?)`
-  and no-ops cleanly."
+  carrying the reaction the build actually acquired."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
@@ -42,10 +37,7 @@
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.test-support :as rf.test-support]))
 
-;; MAP-FORM fixture with `:async? true`: the assertions below cross the spine's
-;; provisional-acquisition horizon (`settle-past-the-horizon!`), so they are
-;; `(async done …)` tests and cljs.test refuses those under a plain-fn `:each`
-;; fixture.
+;; `:async? true`: the assertions cross the spine's provisional horizon.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.uix/adapter :async? true}))
@@ -116,10 +108,8 @@
               (act-fn (fn [] (.render root ($ BothParents))))
               (settle!
                 (fn []
-                  (is (= 2 (ref-count-of [::child]))
-                      "baseline: the shared child carries one ref per mounted parent")
-                  (is (= "a=10b=100" (.-textContent mount-node))
-                      "baseline: both parents committed their derived values")
+                  (is (= [2 "a=10b=100"] [(ref-count-of [::child]) (.-textContent mount-node)])
+                      "baseline: both parents committed, and the shared child carries one ref per parent")
 
                   ;; THE FRAMEWORK-OWNED EVICTION. Every slot leaves the cache
                   ;; before any of them is disposed, so the second parent's
@@ -129,16 +119,8 @@
 
                   (settle!
                     (fn []
-                      (is (= 2 (ref-count-of [::child]))
-                          "the shared child keeps both refs across the eviction —
-                           an address-only input release would read 1 here, the
-                           second parent's teardown decrementing and disposing
-                           the SUCCESSOR child the first parent had just built,
-                           and its own reacquisition building a third")
-                      (is (= 1 (ref-count-of [::p1]))
-                          "P1 holds exactly one reference to its rebuilt reaction")
-                      (is (= 1 (ref-count-of [::p2]))
-                          "P2 holds exactly one reference to its rebuilt reaction")
+                      (is (= [2 1 1] (mapv ref-count-of [[::child] [::p1] [::p2]]))
+                          "[child p1 p2] ref-counts: the shared child keeps both refs across the eviction (an address-only release reads 1, having disposed the successor), and each parent holds its rebuilt reaction once")
 
                       ;; The point of the ref-count: a parent left holding the
                       ;; disposed intermediate child stops re-committing.
