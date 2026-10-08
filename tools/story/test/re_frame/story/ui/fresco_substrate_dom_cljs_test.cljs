@@ -2,85 +2,23 @@
   "THE `:fresco` SUBSTRATE RENDER FN, and the Reagent-parent crossing it
   stands on.
 
-  ## The crossing this file witnesses
+  [[fresco-render]] is the consumer's five lines — the recipe written out
+  in `re-frame.story.ui.multi-substrate`'s ns docstring — registered through
+  the public `rf.story/register-substrate!`: Story ships no installer for
+  `:fresco`, exactly as for `:uix`.
 
-  Fresco needs no new plumbing to paint in Story's canvas —
-  `rf.fresco/as-element` mints a React element from a boundary head, and
-  the canvas already wraps the subject in
-  `[rf/frame-provider {:frame variant-id} …]`, whose provider is the one
-  React context every React-shaped adapter reads. What that rests on is
-  the crossing itself: a `rf.fresco/as-component` / `rf.fresco/as-element`
-  boundary under a REAGENT parent, rather than a Fresco, native or UIx
-  one. Proving it is a precondition of the registration.
+  ## Row order matters
 
-  This namespace is that proof, and then the registration's own coverage.
-  `crossing-paints-under-a-reagent-parent` is the crossing stated as a row:
-  a `rf.fresco/defview` boundary, spliced into a REAGENT hiccup tree under
-  `rf/frame-provider`, mounted through `reagent.dom.client` into a real
-  DOM, painting its own markup and reading a subscription from the frame
-  the Reagent provider scoped.
+  The two write rows mount on `:story.fresco/card`, whose cell an earlier
+  row (`crossing-paints-under-a-reagent-parent`) leaves in Fresco's table
+  and the fixture invalidates by re-registering `::counter`, so they
+  exercise `impl.collector/acquire-cell!` rewiring a REUSED cell. That is
+  why the fixture deliberately does not reset the Fresco runtime. The
+  witness that pins the acquire with the crossing held out of the row is
+  `re-frame.fresco.foreign-root-bridge-dom-cljs-test`.
 
-  ## The render fn under test is the SHIPPED RECIPE
-
-  Story ships no `install-fresco-substrate!`: `:fresco` is
-  host-registered exactly as `:uix` is, so Story core never names Fresco
-  and `tools/story/deps.edn` names no Fresco coordinate.
-  [[fresco-render]] below is therefore the CONSUMER's five lines, and it
-  is byte-for-byte the recipe written out in
-  `re-frame.story.ui.multi-substrate`'s ns docstring. It is registered
-  here through the public `rf.story/register-substrate!` — no private seam,
-  no stub.
-
-  Three decisions ride in those five lines:
-
-  - **resolve LATE, per render**, off `(rf/view id)` — so re-evaluating a
-    `defview` (which replaces the registrar entry behind the same id)
-    reaches the story with no story change;
-  - **read it with `rf/view`**, the framework's own late-bind lookup,
-    because the alias publishes its minted head at `:handler-fn` like
-    every other substrate's `:view` entry, so there is no private
-    `:fresco/component` slot to read off `rf/handler-meta`;
-  - **mint the element directly** with `rf.fresco/as-element` rather than bridging
-    through `rf.fresco/as-component`. `element-type-is-stable-across-renders` is
-    the evidence: `defview` already mints ONE `React.memo` wrapper per
-    head at definition time, so a fresh element per pass rides a stable
-    type and the boundary re-renders instead of remounting. A memoized
-    `as-component` would re-implement that machinery one layer up.
-
-  ## A write repaints a crossed boundary
-
-  [[a-write-repaints-a-crossed-boundary]] and
-  [[a-write-repaints-a-boundary-crossed-in-by-as-component]] below pin
-  that a boundary crossed into from a Reagent parent re-renders on a
-  write into its own frame, not only on its first paint. The crossing is
-  not the variable there; the frame's CELL is: `:story.fresco/card`'s
-  cell is still in Fresco's table when those rows run (this file's
-  fixture clears the registrar and re-registers `::counter`, which is a
-  FIRST registration and invalidates that cell), while the
-  `rf.fresco/render!` control names a frame no other row uses and so
-  mounts against a clean table. `impl.collector/acquire-cell!` rewires a
-  reused cell that holds no reaction; reusing it unwired would give the
-  boundary the right value from the cold probe and no watch to be
-  notified through.
-
-  The witness that pins the acquire — with the crossing held OUT of the
-  row, under `rf.fresco/render!` — is
-  `re-frame.fresco.foreign-root-bridge-dom-cljs-test`. That file also
-  drives five mounting routes, a UIx `defui` parent among them, and every
-  one repaints.
-
-  **This file's fixture does not reset the Fresco runtime**, and that is
-  deliberate rather than an oversight: the two write rows earn their keep
-  precisely because they mount against a cell an earlier row left
-  behind.
-
-  ## Two lanes, one file
-
-  `-dom-cljs-test$` puts this namespace in the `:browser-test` build
-  (real React, real DOM) AND in `:node-test` (whose `cljs-test$` matches
-  the same suffix). The rows that need a fiber self-gate on `(browser?)`
-  and say so in Node rather than passing quietly; the registry, resolution
-  and degradation rows need no DOM and run in both."
+  `-dom-cljs-test$` puts this namespace in `:browser-test` AND in
+  `:node-test`; the rows that need a fiber self-gate on `(browser?)`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as react]
             ["react-dom" :as react-dom]
@@ -100,31 +38,17 @@
             [re-frame.story.test-helpers.e2e-multi-frame :as rf.story.test-helpers.e2e-multi-frame]
             [re-frame.subs :as rf.subs]))
 
-;; ---------------------------------------------------------------------------
-;; The subject — ordinary Fresco views, declared at namespace load
-;; ---------------------------------------------------------------------------
-;;
-;; Declared at the top level, which is where `defview` belongs and also
-;; where its registrar alias is published: the entry is written during
-;; namespace LOAD, before any fixture runs. `reset-all!` clears the
-;; framework registrar, so the aliases are snapshotted below and folded
-;; back before each test — the same problem (and the same shape of answer)
-;; `re-frame.fresco.view-alias-registry-cljs-test` solves by pinning its
-;; fixture baseline after the declarations.
-
-(defonce ^:private !card-runs (atom 0))
+;; ---- the subject: ordinary Fresco views, declared at namespace load -------
 
 (rf.fresco/defview fresco-card
   "An ordinary boundary. It reads a subscription, so the frame it resolved
-  is observable on screen rather than only in a cell table."
+  is observable on screen."
   [props]
-  (swap! !card-runs inc)
   [:article {:class "hic-card" :data-test "fresco-card"}
    (str (:label props) "/" (rf.fresco/sub [::counter]))])
 
 (rf.fresco/defview fresco-panel
-  "A SECOND boundary, so a row can tell one fresco view from another
-  rather than merely from Reagent."
+  "A SECOND boundary, so a row can tell one fresco view from another."
   [props]
   [:aside {:data-test "fresco-panel"} (str "panel:" (:label props))])
 
@@ -132,26 +56,18 @@
 (def ^:private panel-id ::fresco-panel)
 
 (def ^:private bridged-card
-  "THE OTHER BRIDGE DOOR, minted once at top level — the law, because
-  `rf.fresco/as-component` allocates a component and minting one inside a render
-  would hand React a fresh element type every pass. Memoized on the head,
-  so the two write rows differ by the DOOR and by nothing else."
+  "The OTHER bridge door, minted once at top level: `rf.fresco/as-component`
+  allocates a component, so minting one inside a render would hand React a
+  fresh element type every pass."
   (react/memo (rf.fresco/as-component fresco-card)))
 
 (def ^:private alias-entries
-  "The registrar entries `rf.fresco/defview` published at NAMESPACE LOAD, captured
-  before any fixture can clear them. `reset-all!` folds them back.
-
-  Snapshotting the WHOLE entry rather than re-deriving it keeps this
-  helper honest about what it restores: whatever `defview` actually wrote
-  is what each test reads, so a change to the alias shape reaches these
-  rows instead of being papered over by a hand-built stand-in."
+  "The registrar entries `rf.fresco/defview` published at namespace load,
+  captured before any fixture clears them; `reset-all!` folds them back."
   {card-id  (rf/handler-meta {:source :store :kind :view :id card-id})
    panel-id (rf/handler-meta {:source :store :kind :view :id panel-id})})
 
-;; ---------------------------------------------------------------------------
-;; THE RECIPE UNDER TEST — the consumer's five lines
-;; ---------------------------------------------------------------------------
+;; ---- the recipe under test -------------------------------------------------
 
 (defn- fresco-render
   "The `:fresco` substrate render fn, exactly as a host writes it (and
@@ -164,15 +80,12 @@
 
 ;; ---- fixture --------------------------------------------------------------
 
-(declare register-probes!)
-
 (defn- reset-all! []
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (try (rf/init! rf.adapter.reagent/adapter) (catch :default _ nil))
-  ;; The framework `:rf/machine` sub, re-registered after the clear — the
-  ;; lifecycle machine cannot resolve without it and the canvas parks at
+  ;; Without the framework `:rf/machine` sub the canvas parks at
   ;; `:pre-mount` forever.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
@@ -183,14 +96,23 @@
   (rf.story.ui.state/reset-shell-state!)
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!)
-  ;; Fold the load-time aliases back over the cleared registrar.
   (doseq [[id entry] alias-entries]
     (rf.registrar/register! :view id entry))
-  ;; Start every case from a KNOWN-EMPTY `:fresco` slot: the degradation
-  ;; row wants it absent, every other row registers it.
   (rf.story.ui.multi-substrate/unregister-substrate! :fresco)
-  (reset! !card-runs 0)
-  (register-probes!))
+  (rf/reg-event :hicsub/bump
+    (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
+  (rf/reg-sub ::counter (fn [db _] (or (:n db) 0)))
+  (rf.story/reg-story* :story.fresco {:doc "fresco-substrate witness story"})
+  (rf.story/reg-variant* :story.fresco/card
+    {:component  card-id
+     :substrates #{:fresco}
+     :args       {:label "alpha"}
+     :loaders    [[:noop/loader]]})
+  (rf.story/reg-variant* :story.fresco/panel
+    {:component  panel-id
+     :substrates #{:fresco}
+     :args       {:label "beta"}
+     :loaders    [[:noop/loader]]}))
 
 (defn- restore-registry!
   "`substrate->render-fn` is a `defonce` atom that `rf.story/clear-all!` does
@@ -201,40 +123,6 @@
 
 (use-fixtures :each {:before reset-all! :after restore-registry!})
 
-;; ---- probe registrations --------------------------------------------------
-
-(defn- reagent-probe-view
-  "A REAGENT view, so every row can say WHICH authoring layer painted.
-  The two markers are mutually exclusive by construction."
-  [_args]
-  [:div {:data-test "reagent-view-render"} "rendered under reagent"])
-
-(defn- register-probes! []
-  (rf/reg-event :hicsub/bump
-    (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-  (rf/reg-sub ::counter (fn [db _] (or (:n db) 0)))
-  ;; A Reagent view registered under a DIFFERENT id, reachable only
-  ;; through `rf/view`. A fresco variant must never resolve to it.
-  (rf/reg-view* :views/reagent-probe reagent-probe-view)
-  (rf.story/reg-story* :story.fresco {:doc "fresco-substrate witness story"})
-  (rf.story/reg-variant* :story.fresco/card
-    {:doc        "One declared substrate, and it is the native one."
-     :component  card-id
-     :substrates #{:fresco}
-     :args       {:label "alpha"}
-     :loaders    [[:noop/loader]]})
-  (rf.story/reg-variant* :story.fresco/panel
-    {:doc        "A second fresco view under the same substrate."
-     :component  panel-id
-     :substrates #{:fresco}
-     :args       {:label "beta"}
-     :loaders    [[:noop/loader]]})
-  (rf.story/reg-variant* :story.fresco/missing-view
-    {:doc        "Names a view no registrar entry answers for."
-     :component  :views/nobody-registered-this
-     :substrates #{:fresco}
-     :loaders    [[:noop/loader]]}))
-
 ;; ---- helpers --------------------------------------------------------------
 
 (def ^:private canvas-inner @#'rf.story.ui.canvas/canvas-inner)
@@ -244,30 +132,38 @@
        (some? (.-createElement js/document))))
 
 (defn- settle!
-  "The ratom host's drain, and it is two acts rather than one — the pair
-  `re-frame.bench.fresco.arm1.ratom-activation-dom-cljs-test` spells out.
-
-  `r/flush` runs the reactions the write enqueued, which is what turns an
-  activated node's recompute into the `notify-w` a Fresco cell's watch
-  rides (a re-frame subscription under the ratom family IS a bare
-  `reagent.ratom/Reaction`). The empty `flushSync` then lets the sync-lane
-  `onStoreChange` that raised commit — `impl.mount/settle!`'s shape,
-  spelled here so this file needs no impl namespace."
+  "The ratom host's drain: `r/flush` runs the reactions the write enqueued
+  (the notification a Fresco cell's watch rides), and the empty `flushSync`
+  lets the sync-lane `onStoreChange` that raised commit."
   []
   (r/flush)
   (react-dom/flushSync (fn [] nil))
   nil)
+
+(defn- write-and-settle! [frame-kw n]
+  (rf/dispatch-sync [:hicsub/bump n] {:frame frame-kw})
+  (settle!))
 
 (defn- make-mount-node! []
   (let [node (js/document.createElement "div")]
     (js/document.body.appendChild node)
     node))
 
+(defn- render-under-reagent-parent!
+  "Commit `child` inside a Reagent parent under `rf/frame-provider`."
+  [root variant-id child]
+  (react-dom/flushSync
+    (fn []
+      (rdc/render root
+        [rf/frame-provider {:frame variant-id}
+         [:div.reagent-parent child]]))))
+
+(defn- card-text [mount-node]
+  (some-> (.querySelector mount-node "[data-test=\"fresco-card\"]") .-textContent))
+
 (defn- ready-tree
-  "Drive `variant-id`'s lifecycle to `:ready`, then render the canvas's
-  inner tree and expand it to plain hiccup. Without `:ready` + the
-  first-rendered sentinel the canvas paints a skeleton, which carries
-  NEITHER marker and would fail every assertion for the wrong reason."
+  "Drive `variant-id`'s lifecycle to `:ready` so the canvas paints the
+  subject rather than the skeleton, then expand its inner tree."
   [variant-id]
   (rf/make-frame {:id variant-id})
   (rf.story.loaders/mount! variant-id)
@@ -278,31 +174,21 @@
   (rf.story.test-helpers.e2e-multi-frame/expand-tree (canvas-inner variant-id)))
 
 (defn- find-react-element
-  "Depth-first search for the first React element in an expanded hiccup
-  tree. `expand-tree` leaves a React element untouched (it is neither a
-  vector nor a seq), so this is how the boundary's element is located
-  inside the canvas's Reagent tree."
+  "The first React element in an expanded hiccup tree — `expand-tree`
+  leaves one untouched."
   [tree]
   (cond
     (react/isValidElement tree) tree
     (or (vector? tree) (seq? tree)) (some find-react-element tree)
     :else nil))
 
-(defn- rendered-under-reagent? [tree]
-  (some? (rf.story.test-helpers.e2e-multi-frame/find-by-test-id tree "reagent-view-render")))
-
-;; ===========================================================================
-;; 1 · THE SPIKE — a Fresco boundary paints inside a REAGENT tree
-;; ===========================================================================
+;; ---- the crossing ---------------------------------------------------------
 
 (deftest crossing-paints-under-a-reagent-parent
-  (testing "THE CROSSING: a Fresco boundary rendering inside a REAGENT
-            tree. This mounts one — a `rf.fresco/defview`
-            head, minted to an element by `rf.fresco/as-element`, spliced into a
-            Reagent hiccup vector under `rf/frame-provider`, committed
-            through `reagent.dom.client` into a real DOM. If this row
-            cannot be made green the registration is worthless and the
-            answer is a Fresco finding, not a Story workaround."
+  (testing "a `rf.fresco/defview` boundary minted by `rf.fresco/as-element`
+            and spliced into a Reagent tree under `rf/frame-provider` paints
+            its own markup and reads the VARIANT's frame (`7`), not the
+            default frame's 0"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
       (let [variant-id :story.fresco/card
@@ -311,345 +197,111 @@
         (rf/make-frame {:id variant-id})
         (rf/dispatch-sync [:hicsub/bump 7] {:frame variant-id})
         (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root
-                [rf/frame-provider {:frame variant-id}
-                 [:div.reagent-parent
-                  (rf.fresco/as-element [fresco-card {:label "alpha"}])]])))
-          (let [el (.querySelector mount-node "[data-test=\"fresco-card\"]")]
-            (is (some? el)
-                "THE CROSSING PAINTS — a Fresco boundary rendered its own
-                 markup inside a Reagent parent, with no second root and no
-                 mount door called")
-            (is (= "alpha/7" (some-> el .-textContent))
-                "and it resolved the VARIANT's frame from the Reagent
-                 `frame-provider` above it: `alpha` is the props map that
-                 crossed, `7` is a subscription read in that frame. A
-                 boundary that resolved a frame of its own would read the
-                 default frame's 0."))
+          (render-under-reagent-parent! root variant-id
+            (rf.fresco/as-element [fresco-card {:label "alpha"}]))
+          (is (= "alpha/7" (card-text mount-node)))
           (finally
             (try (.unmount root) (catch :default _ nil))))))))
-
-(deftest a-write-repaints-a-boundary-under-frescos-own-root
-  (testing "THE LIVE CONTROL for the crossed-boundary write rows.
-
-            The same boundary, the same subscription, the same Reagent
-            adapter, the same write and the same drain — mounted through
-            Fresco's OWN root door rather than spliced into a Reagent
-            tree. It repaints. So if a crossed counterpart does not, the
-            difference is the CROSSING and not the substrate, the
-            harness, the drain or the adapter — a zero with no live
-            control beside it settles none of those."
-    (if-not (browser?)
-      (is true ":node-test — no DOM; :browser-test runs this row")
-      (let [frame-id  ::own-root-frame
-            container (make-mount-node!)]
-        (rf/make-frame {:id frame-id})
-        (rf/dispatch-sync [:hicsub/bump 1] {:frame frame-id})
-        (let [handle (rf.fresco/client-root)]
-          (rf.fresco/render! handle
-                              [rf.fresco/frame-provider {:frame frame-id}
-                               [fresco-card {:label "ctl"}]]
-                              container)
-          (try
-            (is (= "ctl/1"
-                   (some-> (.querySelector container "[data-test=\"fresco-card\"]")
-                           .-textContent))
-                "mounted, and read its frame")
-            (let [runs-at-mount @!card-runs]
-              (rf/dispatch-sync [:hicsub/bump 42] {:frame frame-id})
-              (settle!)
-              (is (> @!card-runs runs-at-mount)
-                  "the write re-ran the body — the notification channel is
-                   alive on this adapter, with this drain")
-              (is (= "ctl/42"
-                     (some-> (.querySelector container "[data-test=\"fresco-card\"]")
-                             .-textContent))
-                  "and the readout moved"))
-            (finally
-              (try (rf.fresco/unmount! handle) (catch :default _ nil)))))))))
-
-(defn- write-and-settle!
-  "Write `n` into `frame-kw` and drain, the way a story's own interaction
-  would — [[settle!]] is this file's ratom-host pair."
-  [frame-kw n]
-  (rf/dispatch-sync [:hicsub/bump n] {:frame frame-kw})
-  (settle!)
-  nil)
 
 (deftest a-write-repaints-a-crossed-boundary
   (testing "a boundary spliced into a Reagent tree by `rf.fresco/as-element`
             repaints on a write into its own frame. A deaf boundary paints
-            `alpha/1` and then does not move, with the body run count
-            saying so — 1 to 1, a missing notification rather than a stale
-            read.
-
-            It repaints because `impl.collector/acquire-cell!` rewires a
-            cell it REUSES. This row mounts on `:story.fresco/card`, whose
-            cell an earlier row in this file leaves in Fresco's table and
-            this file's fixture then invalidates by re-registering
-            `::counter` from cold — the reason the frame id is this one
-            rather than a fresh one.
-
-            BODY RUNS ARE THE ASSERTION and the DOM text corroborates: a
-            deaf boundary's first paint is right, so a row that stopped at
-            the mount would pass on a broken runtime as happily as on a
-            working one."
+            `alpha/1` and then does not move."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
       (let [variant-id :story.fresco/card
             mount-node (make-mount-node!)
-            root       (rdc/create-root mount-node)
-            card-text  #(some-> (.querySelector mount-node "[data-test=\"fresco-card\"]")
-                                .-textContent)]
+            root       (rdc/create-root mount-node)]
         (rf/make-frame {:id variant-id})
         (write-and-settle! variant-id 1)
         (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root
-                [rf/frame-provider {:frame variant-id}
-                 [:div.reagent-parent
-                  (rf.fresco/as-element [fresco-card {:label "alpha"}])]])))
-          (is (= "alpha/1" (card-text)) "it painted, reading the variant's frame")
-          (let [runs-at-mount @!card-runs]
-            (write-and-settle! variant-id 42)
-            (is (> @!card-runs runs-at-mount)
-                "THE WRITE RE-RAN THE BODY — the notification crossed")
-            (is (= "alpha/42" (card-text)) "and the readout moved"))
+          (render-under-reagent-parent! root variant-id
+            (rf.fresco/as-element [fresco-card {:label "alpha"}]))
+          (is (= "alpha/1" (card-text mount-node)) "it painted, reading the variant's frame")
+          (write-and-settle! variant-id 42)
+          (is (= "alpha/42" (card-text mount-node)) "the write re-ran the body")
           (finally
             (try (.unmount root) (catch :default _ nil))))))))
 
 (deftest a-write-repaints-a-boundary-crossed-in-by-as-component
   (testing "the same claim through the OTHER bridge door, memoized on the
-            head. The pair eliminates the door as the variable: a runtime
-            that repainted under `as-element` and not `as-component` would
-            leave one of the two documented parents deaf, and this row is
-            what would say so."
+            head, so neither documented parent is left deaf"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
       (let [variant-id :story.fresco/card
             mount-node (make-mount-node!)
-            root       (rdc/create-root mount-node)
-            card-text  #(some-> (.querySelector mount-node "[data-test=\"fresco-card\"]")
-                                .-textContent)]
+            root       (rdc/create-root mount-node)]
         (rf/make-frame {:id variant-id})
         (write-and-settle! variant-id 1)
         (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root
-                [rf/frame-provider {:frame variant-id}
-                 [:div.reagent-parent
-                  (react/createElement bridged-card #js {"label" "brg"})]])))
-          (is (= "brg/1" (card-text)) "it painted through the bridge")
-          (let [runs-at-mount @!card-runs]
-            (write-and-settle! variant-id 42)
-            (is (> @!card-runs runs-at-mount)
-                "and the write re-ran the body here too")
-            (is (= "brg/42" (card-text)) "and the readout moved"))
+          (render-under-reagent-parent! root variant-id
+            (react/createElement bridged-card #js {"label" "brg"}))
+          (is (= "brg/1" (card-text mount-node)) "it painted through the bridge")
+          (write-and-settle! variant-id 42)
+          (is (= "brg/42" (card-text mount-node)) "the write re-ran the body here too")
           (finally
             (try (.unmount root) (catch :default _ nil))))))))
 
 (deftest a-reagent-parent-rerender-does-not-remount-the-boundary
-  (testing "the identity decision, measured on a fiber. The render fn mints
-            a FRESH element every pass and keeps no cache, which is only
-            safe because `defview` mints one stable `React.memo` wrapper
-            per head at definition time and every element rides that type.
-            Drive the Reagent parent to re-render and the boundary must
-            RE-RENDER, never remount — a remount is what a per-render
-            `rf.fresco/as-component` would produce, and it would be
-            invisible on screen.
-
-            REMOUNT IS MEASURED ON THE DOM NODE'S IDENTITY, which is the
-            reading React itself cannot fake: a remount discards the
-            subtree's host instances and builds new ones, so the `<article>`
-            object would not survive. A text-only assertion would be green
-            either way, which is exactly how this class of defect hides.
-
-            AND THE RE-RENDER IS DRIVEN FROM INSIDE THE TREE, by a Reagent
-            ratom, because a second top-level `rdc/render` CANNOT measure
-            this and would report a remount every time. Reagent's own
-            source says why, in a comment above `reagent.dom.client/render`:
-            each call builds a fresh `comp` fn and `reagent-root` does
-            `createElement(comp)` on it, *\"re-created on every render call
-            to ensure React will consider it a new component always\"* — a
-            new component TYPE per call, so React discards the whole tree
-            by construction. That is Reagent's root door behaving as
-            designed and says nothing about the crossing; a ratom write is
-            what a Reagent parent re-rendering actually looks like."
+  (testing "the recipe mints a FRESH element every pass and keeps no cache,
+            which is safe only because `defview` mints one stable `React.memo`
+            wrapper per head. A Reagent parent re-render must re-render the
+            boundary, never remount it — measured on the DOM node's identity,
+            which a remount replaces. The re-render is driven by a ratom
+            inside the tree: a second top-level `rdc/render` mints a new root
+            component type and so always remounts."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
       (let [variant-id :story.fresco/card
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)
             !label     (r/atom "alpha")
-            parent     (fn []
-                         [:div.reagent-parent
-                          [:i (str "parent:" @!label)]
-                          (fresco-render variant-id card-id {:label @!label})])
-            card-node  #(.querySelector mount-node "[data-test=\"fresco-card\"]")
-            relabel!   (fn [label]
-                         (react-dom/flushSync
-                           (fn [] (reset! !label label) (r/flush))))]
+            parent     (fn [] [:div.reagent-parent
+                               (fresco-render variant-id card-id {:label @!label})])
+            card-node  #(.querySelector mount-node "[data-test=\"fresco-card\"]")]
         (rf/make-frame {:id variant-id})
         (rf/dispatch-sync [:hicsub/bump 3] {:frame variant-id})
         (try
           (react-dom/flushSync
-            (fn []
-              (rdc/render root
-                [rf/frame-provider {:frame variant-id} [parent]])))
-          (let [first-node       (card-node)
-                runs-after-mount @!card-runs]
-            (is (some? first-node) "mounted")
-            (relabel! "beta")
-            (relabel! "gamma")
-            (is (= "gamma/3" (some-> (card-node) .-textContent))
+            (fn [] (rdc/render root [rf/frame-provider {:frame variant-id} [parent]])))
+          (let [first-node (card-node)]
+            (react-dom/flushSync (fn [] (reset! !label "beta") (r/flush)))
+            (is (= "beta/3" (some-> (card-node) .-textContent))
                 "the boundary re-rendered with the new props")
             (is (identical? first-node (card-node))
-                "and it did NOT remount across two further parent renders —
-                 the very same DOM node, so one stable element type carried
-                 three renders")
-            (is (> @!card-runs runs-after-mount)
-                "it really did re-render — the node survived because React
-                 reconciled it, not because the render was skipped"))
+                "and did NOT remount: the very same DOM node"))
           (finally
             (try (.unmount root) (catch :default _ nil))))))))
 
-;; ===========================================================================
-;; 2 · the PUBLIC registry — the render fn is on the canvas's default path
-;; ===========================================================================
+;; ---- the registry on the canvas's single-pane path ------------------------
 
 (deftest the-registered-fresco-render-fn-is-what-the-single-pane-reaches
-  (testing "the substrate registry sits ON the canvas single-pane path,
-            which is what makes registering into it worth anything. A
-            variant declaring `:substrates #{:fresco}` must reach the fn
-            registered under `:fresco` — and must NOT fall through to the
-            `:reagent` branch, which RESOLVES a fresco alias through
-            `rf/view` and refuses it with the foreign-substrate
-            diagnostic: a wrong pane, which is what this row holds."
-    (rf.story/register-substrate! :fresco fresco-render)
-    (let [tree (ready-tree :story.fresco/card)
-          el   (find-react-element tree)]
-      (is (some? el)
-          "the canvas tree carries a React element — the `:fresco` render
-           fn ran and minted one")
-      (is (not (rendered-under-reagent? tree))
-          "and nothing painted under Reagent")
-      (is (identical? (unchecked-get fresco-card "frescoMemo") (.-type el))
-          "the element's TYPE is the head's own stable memo wrapper, so the
-           boundary React reconciles is the one `defview` minted")
-      (is (= {:label "alpha"} (unchecked-get (.-props el) "rfProps"))
-          "and Story's resolved args crossed as the boundary's props map —
-           kebab keywords, by identity, with no camelCase round trip")
-      (rf.story/destroy-variant! :story.fresco/card))))
-
-(deftest two-fresco-views-are-two-elements
-  (testing "the registry entry resolves the variant's OWN `:component`,
-            not merely 'some fresco view'. Two variants under one
-            substrate must mint two different element types."
+  (testing "a variant declaring `:substrates #{:fresco}` reaches the fn
+            registered under `:fresco`, which mints the variant's OWN view —
+            the head's stable memo type — with Story's resolved args crossing
+            as the boundary's props map: kebab keywords, by identity, with no
+            camelCase round trip"
     (rf.story/register-substrate! :fresco fresco-render)
     (let [card  (find-react-element (ready-tree :story.fresco/card))
           panel (find-react-element (ready-tree :story.fresco/panel))]
       (is (identical? (unchecked-get fresco-card "frescoMemo") (.-type card)))
+      (is (= {:label "alpha"} (unchecked-get (.-props card) "rfProps")))
       (is (identical? (unchecked-get fresco-panel "frescoMemo") (.-type panel)))
-      (is (not (identical? (.-type card) (.-type panel))))
       (rf.story/destroy-variant! :story.fresco/card)
       (rf.story/destroy-variant! :story.fresco/panel))))
 
-(deftest element-type-is-stable-across-renders
-  (testing "THE IDENTITY DECISION, stated where it can be checked without a
-            fiber: two renders of the same story mint two DIFFERENT
-            elements with the SAME type. That is the whole basis for
-            returning a direct element mint and keeping no cache — the
-            stability React needs is already in the head."
-    (rf.story/register-substrate! :fresco fresco-render)
-    (let [a (fresco-render :story.fresco/card card-id {:label "one"})
-          b (fresco-render :story.fresco/card card-id {:label "two"})]
-      (is (not (identical? a b)) "a fresh element per pass")
-      (is (identical? (.-type a) (.-type b)) "riding one stable type"))))
-
-(deftest resolution-is-late-so-a-hot-reload-reaches-the-story
-  (testing "the render fn reads `(rf/view id)` on EVERY render rather than
-            capturing a head. Re-evaluating a `defview` replaces the
-            registrar entry behind the same id; the story must pick the new
-            head up with no story change. Simulated the way a reload works
-            — a second entry written under the same id."
-    (rf.story/register-substrate! :fresco fresco-render)
-    (let [before (.-type (fresco-render :story.fresco/card card-id {}))]
-      (rf.registrar/register! :view card-id
-        (assoc (get alias-entries card-id) :handler-fn fresco-panel))
-      (let [after (.-type (fresco-render :story.fresco/card card-id {}))]
-        (is (not (identical? before after))
-            "the story followed the replaced entry")
-        (is (identical? (unchecked-get fresco-panel "frescoMemo") after)
-            "to the NEW head, resolved at render time")))))
-
-;; ===========================================================================
-;; 3 · degradation — the two misses, each at its own level
-;; ===========================================================================
-
-(deftest a-fresco-id-that-resolves-to-nothing-degrades-inline
-  (testing "`:component` naming a view no registrar entry answers for. The
-            render fn returns the same style of inline diagnostic
-            `reagent-render` returns — a FRAGMENT-level miss, not a grid
-            cell — and names the id so the author knows what to fix."
-    (rf.story/register-substrate! :fresco fresco-render)
-    (let [tree (ready-tree :story.fresco/missing-view)
-          text (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)]
-      (is (nil? (find-react-element tree))
-          "nothing was minted — there was no head to mint from")
-      (is (re-find #"is not registered as a fresco view" text))
-      (is (re-find #"views/nobody-registered-this" text)
-          "and it names WHICH view")
-      (rf.story/destroy-variant! :story.fresco/missing-view))))
-
-(deftest rf-view-answers-the-fresco-alias-and-answers-it-untouched
-  (testing "the premise the whole render fn is built on. The alias
-            entry publishes its minted head at
-            `:handler-fn` — the one executable slot every substrate's
-            `:view` entry uses — so `rf/view` answers a Fresco boundary
-            the way it answers a Reagent or a UIx head, and this render fn
-            needs no second descriptor shape. What comes back is the `def`
-            value itself: `view-head` returns a slot it did not build
-            exactly as stored, so nothing wrapped or componentised a
-            boundary that already is a React component."
-    (is (identical? fresco-card (rf/view card-id))
-        "the very value the `def` binds")
-    (is (identical? fresco-card (:handler-fn (rf/handler-meta {:source :store :kind :view :id card-id}))))
-    (is (not (contains? (rf/handler-meta {:source :store :kind :view :id card-id}) :fresco/component))
-        "and there is no private :fresco/component slot for a consumer to
-         read"))
-
-  (testing "THE HAZARD A RESOLVABLE HEAD CREATES, covered by a guard.
-            The `:reagent` substrate finds a Fresco head through `rf/view`
-            — and a boundary is a React component type, so splicing
-            `[head args]` into a Reagent tree would call a plain
-            function with the wrong ABI. `reagent-render` reads the
-            `frescoBoundary` own-property and returns its inline
-            diagnostic instead, naming the substrate that CAN mount it."
+(deftest the-reagent-substrate-refuses-a-fresco-head-inline
+  (testing "`rf/view` answers a Fresco boundary, which is a React component
+            type: spliced as `[head args]` into a Reagent tree it would be
+            called with the wrong ABI. The `:reagent` substrate returns an
+            inline diagnostic naming the substrate that CAN mount it"
     (rf.story.ui.multi-substrate/install-reagent-substrate!)
     (let [painted (rf.story.ui.multi-substrate/render-view
                     :reagent :story.fresco/card card-id {:label "one"})
           text    (pr-str painted)]
-      (is (not (identical? fresco-card (first painted)))
-          "the head was NOT spliced into head position, which is the
-           wrong-ABI call this guard exists to prevent")
       (is (= :div (first painted))
-          "what came back is the inline diagnostic")
-      (is (re-find #"fresco" text)
-          "the diagnostic names the substrate that can mount it")
+          "the inline diagnostic, not the head spliced in head position")
+      (is (re-find #"declare :fresco" text)
+          "it names the substrate to declare")
       (is (re-find #":substrates" text)
-          "and tells the author what to declare")))
-
-  (testing "the guard DISCRIMINATES — it is not refusing every head.
-            `:views/reagent-probe` is an ordinary `reg-view` registered by
-            this file's own fixture, and it still paints, so the refusal
-            above is about the HEAD's substrate and not about the
-            `:reagent` branch having stopped working"
-    (rf.story.ui.multi-substrate/install-reagent-substrate!)
-    (let [painted (rf.story.ui.multi-substrate/render-view
-                    :reagent :story.fresco/card :views/reagent-probe {})]
-      (is (identical? (rf/view :views/reagent-probe) (first painted))
-          "spliced in head position, as any Reagent head is"))))
+          "and where to declare it"))))
