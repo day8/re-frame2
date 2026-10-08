@@ -12,9 +12,9 @@
   silently skip the very assertion that catches it. On CLJS the option
   returns the `{:before :after}` map every `(async done …)` suite needs in
   order to run at all, so this namespace has no CLJS test."
-  (:require #?(:clj [clojure.test :refer [deftest is join-fixtures]])
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.test-support :as rf.test-support]))
+  #?(:clj (:require [clojure.test :refer [deftest is join-fixtures]]
+                    [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+                    [re-frame.test-support :as rf.test-support])))
 
 #?(:clj
    (deftest jvm-async-capable-fixture-actually-runs-the-test-body
