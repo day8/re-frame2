@@ -1,33 +1,11 @@
 (ns re-frame.story-help-dom-cljs-test
-  "Browser-lane half of the first-time-user help overlay's persistence:
-  the `seen?` / `mark-seen!` round-trip, and the seen flag `close!`
-  writes.
-
-  ## Why these rows live here and not in `re-frame.story-help-cljs-test`
-
-  They need `window.localStorage`. This repo ships no jsdom, no
-  happy-dom and no DOM shim in any dependency list, so
-  `window.localStorage` is absent under Node, and `:browser-test`
-  (`:ns-regexp \".*-dom-cljs-test$\"`) loads only namespaces ending
-  `-dom-cljs-test`. In a namespace ending `-cljs-test` a
-  `(when (browser?) ...)` row would execute in NEITHER lane — a
-  permanent silence rather than a routing decision.
-
-  ## Each row keeps its guard, because this file runs on BOTH lanes
-
-  `:node-test`'s `cljs-test$` is a bare SUFFIX match that
-  `-dom-cljs-test` satisfies, so this file runs on the browser lane AND
-  the node lane. Each row answers the node lane with a VISIBLE marker
-  assertion rather than a silent `when`.
-
-  ## What stays in the sibling
-
-  `open-then-close-toggles-atom` makes the two `open?` ratom assertions,
-  which run on node; the persistence half of that claim is
-  `close!-marks-the-overlay-seen` below.
-
-  `seen-defaults-to-false` asserts the NO-storage degradation path, so
-  the node lane is exactly where it belongs."
+  "The help overlay's persistence: the `seen?` / `mark-seen!` round trip and
+  the seen flag `close!` writes. They need `window.localStorage`, which only
+  the browser lane has; `:browser-test` loads namespaces ending
+  `-dom-cljs-test`, which `:node-test`'s `cljs-test$` suffix match also
+  catches. So each row answers the node lane with a visible marker assertion
+  rather than a silent `when`. The `open?` ratom half and the no-storage
+  `seen-defaults-to-false` run on node in `re-frame.story-help-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.story.ui.help :as rf.story.ui.help]))
 
@@ -61,17 +39,13 @@
         (is (false? (rf.story.ui.help/seen?)))))))
 
 (deftest close!-marks-the-overlay-seen
-  (testing "closing the overlay persists the seen flag, so a returning
-            user is not shown it again. The ratom half of this claim
-            is asserted on the node lane in the sibling namespace."
+  (testing "closing the overlay persists the seen flag, so a returning user is
+            not shown it again"
     (if-not (browser?)
       (is true skip-msg)
       (do
-        ;; Precondition, so the true below is evidence that `close!`
-        ;; wrote rather than evidence that the flag was already set.
         (is (false? (rf.story.ui.help/seen?))
-            "precondition: the fixture cleared the flag")
+            "precondition: the fixture cleared the flag, so the true below is close!'s write")
         (rf.story.ui.help/open!)
         (rf.story.ui.help/close!)
-        (is (true? (rf.story.ui.help/seen?))
-            "close! marked the overlay seen")))))
+        (is (true? (rf.story.ui.help/seen?)))))))
