@@ -1,29 +1,9 @@
 (ns re-frame.story.assertion-redaction-cljs-test
-  "Assertion-with-redaction scenario.
-
-  Per `tools/story/spec/015-Test-Coverage.md` §Assertion vocabulary
-  scenarios, row 'Assertion-with-redaction (sensitive payload)':
-  registering an assertion against a path-marked sensitive value MUST
-  surface `:rf/redacted` in the recorded `:actual` slot, not the raw
-  sensitive payload — the assertion's serialised form lands in tooling
-  surfaces (test-mode pane, MCP read-assertions, JSON-log-egress
-  pipelines) and the contract is 'never leak the raw value to
-  observation surfaces' per spec/015-Data-Classification.
-
-  The assertion evaluators (`evaluate-path-equals` /
-  `evaluate-path-matches` / `evaluate-sub-equals` in
-  `tools/story/src/re_frame/story/assertions.cljc`) project the
-  captured value through `re-frame.elision/elide-wire-value` (keyed
-  on the asserted path + the variant frame) BEFORE stamping `:actual`.
-  Durable app-db classification is FRAME-OWNED (EP-0015): a variant
-  declares its sensitive paths via the `:sensitive` slot on its body
-  (`:sensitive {:app-db [[:auth :token]]}`) and the runtime applies
-  them as EP-0025 commit-plane classification effects into the variant
-  frame's elision registry right after `make-frame` — there is no
-  public post-creation `add-marks` / `set-marks` mutation. A sensitive
-  path records `:rf/redacted` instead of the raw value; a
-  non-sensitive path passes through unchanged. The same projection
-  covers `:expected` / `:payload` / `:reason`."
+  "Assertion-with-redaction (`tools/story/spec/015-Test-Coverage.md`
+  §Assertion vocabulary scenarios): an assertion against a path the
+  variant declares sensitive (`:sensitive {:app-db [...]}`) records
+  `:rf/redacted`, never the raw value, because the whole assertion record
+  egresses to the test pane, MCP and log sinks."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core             :as rf]
             [re-frame.frame            :as rf.frame]
@@ -36,17 +16,13 @@
             [re-frame.story.ui.state   :as rf.story.ui.state]
             [re-frame.subs             :as rf.subs]))
 
-;; ---- fixtures ------------------------------------------------------------
-
 (defn reset-all! []
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
   (try (rf/init! rf.substrate.plain-atom/adapter)
        (catch :default _ nil))
-  ;; Re-register the framework `:rf/machine` sub after the registrar clear.
-  ;; EP-0001: a runtime-db sub reading
-  ;; [:rf.runtime/machines :snapshots <id>] — mirror `re-frame.machines`.
+  ;; The registrar clear drops the framework `:rf/machine` sub; re-register it.
   (rf.subs/reg-runtime-sub :rf/machine
     (fn [runtime-db [_ machine-id]]
       (get-in runtime-db [:rf.runtime/machines :snapshots machine-id])))
@@ -58,23 +34,9 @@
 
 (use-fixtures :each {:before reset-all!})
 
-;; ===========================================================================
-;; Assertion-with-redaction (frame-owned)
-;;
-;;   A variant declares its sensitive app-db paths at registration via the
-;;   EP-0015 frame-owned `:sensitive` slot on its body
-;;   (`:sensitive {:app-db [[:auth :token]]}`). The runtime applies that as
-;;   commit-plane classification effects into the variant frame's elision
-;;   registry right after `make-frame`, before the setup runs — a single
-;;   `run-variant` is enough; there is NO public post-creation `add-marks` /
-;;   `set-marks` mutation. An assertion against that path records
-;;   `:rf/redacted` in `:actual` and in `:expected` / `:payload` / `:reason`,
-;;   NOT the raw token.
-;; ===========================================================================
-
 (deftest assertion-path-equals-redacts-sensitive-actual
-  (testing "a frame-owned :sensitive declaration drives
-            :rf.assert/path-equals to record :rf/redacted (not the raw token)"
+  (testing ":rf.assert/path-equals against a sensitive path records
+            :rf/redacted in :actual, :expected, :payload and :reason"
     (rf/reg-event :auth/login
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-12345")}))
     (rf.story/reg-variant :story.redaction.path-equals/probe
@@ -91,15 +53,9 @@
                                      (:assertions result)))]
                 (is (= :rf/redacted (:actual pe))
                     "assertion :actual is :rf/redacted, NOT the raw token")
-                ;; The assertion still PASSES — equality is checked against
-                ;; the raw value before projection.
                 (is (true? (:passed? pe))
-                    "redaction does not change the pass/fail outcome")
-                ;; :expected / :payload / :reason MUST NOT carry
-                ;; the raw secret either (the whole record egresses to the
-                ;; test pane / MCP / log sinks).
-                (is (= :rf/redacted (:expected pe))
-                    ":expected is projected — the raw token does not leak")
+                    "equality is checked against the raw value before projection")
+                (is (= :rf/redacted (:expected pe)))
                 (is (= [[:auth :token] :rf/redacted] (:payload pe))
                     ":payload is rebuilt from the redacted expected")
                 (is (not (re-find #"BEARER-secret-12345" (str (:reason pe))))
@@ -108,9 +64,8 @@
               (done)))))))
 
 (deftest assertion-path-equals-sentinel-expected-passes
-  (testing "an author who pins the documented :rf/redacted
-            sentinel as :expected against a frame-owned sensitive path gets a
-            PASSING assertion (the sentinel contract), with no raw value anywhere"
+  (testing "pinning the documented :rf/redacted sentinel as :expected against
+            a sensitive path PASSES"
     (rf/reg-event :auth/login2
       (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "BEARER-secret-99999")}))
     (rf.story/reg-variant :story.redaction.sentinel/probe
@@ -125,29 +80,18 @@
             (fn [result]
               (let [pe (last (filter #(= :rf.assert/path-equals (:assertion %))
                                      (:assertions result)))]
-                (is (true? (:passed? pe))
-                    "the sentinel-expected assertion PASSES against a sensitive path")
-                (is (= :rf/redacted (:expected pe)))
-                (is (= :rf/redacted (:actual pe))))
+                (is (true? (:passed? pe))))
               (rf.story/destroy-variant! :story.redaction.sentinel/probe)
               (done)))))))
 
+;; The projection keys on the sub-vec's args, so only a sub whose args carry
+;; the app-db path can be redacted here: classification does not propagate
+;; through a sub's derivation (spec/015 §No propagation, no taint).
 (deftest assertion-sub-equals-redacts-on-path-bearing-sub-vec
-  (testing ":rf.assert/sub-equals redacts :actual + :expected when
-            the sub-vec carries the app-db path as its args (the projection
-            keys on (rest sub-vec)) and that path is frame-owned sensitive.
-            A parameterised sub [:sub/id :user :ssn] → args path [:user :ssn];
-            a `:sensitive {:app-db [[:user :ssn]]}` variant declaration
-            redacts the recorded value.
-
-            Note: a bare sub-id whose args carry NO app-db path (e.g.
-            [:user/ssn]) cannot be auto-redacted at the assertion layer —
-            classification does not propagate through a sub's derivation
-            (spec/015 §No propagation, no taint). The assertion layer
-            redacts what its path-key reaches."
+  (testing ":rf.assert/sub-equals redacts :actual and :expected when the
+            sub-vec's args are a sensitive app-db path"
     (rf/reg-event :session/save-pii
       (fn [{:keys [db]} _] {:db (assoc-in db [:user :ssn] "123-45-6789")}))
-    ;; Parameterised sub: reads the path passed as args.
     (rf/reg-sub :pii/at (fn [db [_ & path]] (get-in db (vec path))))
     (rf.story/reg-variant :story.redaction.sub-equals/probe
       {:setup    [[:session/save-pii]]
@@ -161,10 +105,8 @@
             (fn [result]
               (let [se (last (filter #(= :rf.assert/sub-equals (:assertion %))
                                      (:assertions result)))]
-                (is (= :rf/redacted (:actual se))
-                    "sub-equals :actual redacts the sensitive value")
-                (is (= :rf/redacted (:expected se))
-                    "sub-equals :expected is projected too")
+                (is (= :rf/redacted (:actual se)))
+                (is (= :rf/redacted (:expected se)))
                 (is (true? (:passed? se))
                     "redaction does not change the pass/fail outcome"))
               (rf.story/destroy-variant! :story.redaction.sub-equals/probe)
