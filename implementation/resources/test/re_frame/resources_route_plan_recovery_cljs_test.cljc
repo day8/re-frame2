@@ -1,52 +1,22 @@
 (ns re-frame.resources-route-plan-recovery-cljs-test
-  "WHEN a `:url-bound?` frame plans its route's resources, and what
-  a FAILED plan can be recovered by.
+  "WHEN a `:url-bound?` frame plans its route's resources, and what a FAILED
+  plan can be recovered by.
 
-  An app whose `init!` does `(rf/make-frame {:id :rf/default :url-bound?
-  true})` FIRST and registers its resources / mutations / fx AFTERWARDS can
-  look as if the frame 'never picks up anything registered after make-frame'.
-  It does — late registration IS reprojected. The symptom comes from an
-  ORDERING fact about `:url-bound?` frames plus a recovery door the app has
-  to reach for. This file pins both.
+  On CLJS a `:url-bound?` `make-frame` installs the URL listener, whose initial
+  sync (Spec 012 §URL changes are events) enters the route matching the current
+  URL and plans its `:resources` INSIDE the `make-frame` call; a resource
+  registered on the next line is too late for that plan. On the JVM the hook's
+  listener reconcile is `#?(:cljs …)`, so no URL sync happens and the ordering
+  question does not arise: hence the two CLJS-only deftests.
 
-  ## 1. A `:url-bound?` frame syncs the CURRENT URL at CONSTRUCTION (CLJS)
-
-  `frame/upsert-frame!` fires `:routing/on-frame-registered!`, whose body
-  reconciles the browser URL listener, and installing that listener performs an
-  INITIAL SYNC — `[:rf.route/handle-url-change <current url> {:rf.route/cause
-  :initial}]`, dispatched SYNCHRONOUSLY (Spec 012 §URL changes are events).
-  So a route matching the URL the page is already on is entered, and its
-  `:resources` are planned, INSIDE the `make-frame` call. A resource the app
-  registers on the next line is registered too late for that plan — not because
-  the frame cannot see it, but because the plan already ran.
-
-  This is CLJS-only: the hook body's listener reconcile is `#?(:cljs …)`, so on
-  the JVM a `:url-bound?` `make-frame` performs no URL sync at all and the
-  ordering question does not arise. Hence the two `#?(:cljs …)` deftests below.
-
-  ## 2. A FAILED plan is STICKY under identical navigation — and REPAIRABLE
-
-  Navigating to the route the app is already on is deliberately a no-op (Spec
-  012 §Navigation is an event, rule 3), so a `[:rf.route/navigate {:to <same
-  route>}]` issued after the missing resource IS registered does NOT re-plan:
-  the slice keeps its `:rf.error/resource-route-plan`. The recovery is not a
-  navigation at all — it is `[:rf.route/replan-resources {:cause …}]` (Spec 012
-  §Replanning the active route's resources / Spec 016 §Route-plan replan), the
-  same-token command whose stated purpose is that a successful replan CLEARS an
-  earlier `:rf.error/resource-route-plan`. It repairs a failed ACTIVATION the
-  same way it repairs a failed replan: the token's plan slot is absent after a
-  committed failed activation, so every identity is `added`.
-
-  The `re-frame.resources-route-replan-cljs-test` sibling pins replan's
-  reconciliation semantics against an unresolved SCOPE. What is pinned HERE is
-  the unregistered-RESOURCE failure — the one a consumer hits by ordering
-  `make-frame` before `reg-resource` — and the same-route-navigate no-op that
-  makes the error look permanent.
-
-  Dual-target (`.cljc` + `_cljs_test`): the JVM runner picks it up via the
-  `.*-test$` ns regex; Shadow's `:node-test` build via `cljs-test$`."
+  A failed plan is sticky under identical navigation (navigating to the current
+  route is a no-op, Spec 012 §Navigation is an event, rule 3) and repaired by
+  `[:rf.route/replan-resources {:cause …}]` under the same token (Spec 016
+  §Route-plan replan), which clears an earlier `:rf.error/resource-route-plan`.
+  `re-frame.resources-route-replan-cljs-test` pins replan against an unresolved
+  scope; this file pins the unregistered-resource failure."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+   #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
@@ -137,34 +107,21 @@
 ;; ===========================================================================
 
 (deftest same-route-navigate-does-not-replan-a-failed-plan-but-replan-resources-repairs-it
-  (testing "a route whose blocking resource is unregistered fails its plan"
-    (rf/dispatch-sync [:rf.route/navigate {:to :ma8r/board}])
-    (is (= :ma8r/board (:route-id (slice))))
-    (is (= :error (:transition (slice))))
-    (is (unregistered-resource-plan-failure?)
-        "the plan fails with :rf.error/resource-route-plan caused by :rf.error/resource-not-registered")
-    (is (empty? @requests) "a failed plan issues no request"))
-
+  (rf/dispatch-sync [:rf.route/navigate {:to :ma8r/board}])
+  (is (= [:ma8r/board :error true []]
+         [(:route-id (slice)) (:transition (slice)) (unregistered-resource-plan-failure?) @requests])
+      "a route whose blocking resource is unregistered fails its plan and issues no request")
   (let [tok (token)]
-    (testing "registering the resource afterwards does not, by itself, re-plan"
-      (reg-board-resource!)
-      (is (some? (rf.registrar/lookup :resource :ma8r/board-data))
-          "control: the resource IS registered and visible now")
-      (rf/dispatch-sync [:rf.route/navigate {:to :ma8r/board}])
-      (is (= tok (token))
-          "identical navigation is a deliberate no-op — no new nav-token")
-      (is (= :error (:transition (slice))))
-      (is (unregistered-resource-plan-failure?)
-          "so the stale planning error survives a same-route navigate")
-      (is (empty? @requests) "and still no request"))
-
-    (testing "[:rf.route/replan-resources] repairs it under the SAME token"
-      (rf/dispatch-sync [:rf.route/replan-resources {:cause [:ma8r/resource-registered]}])
-      (is (= tok (token)) "a replan is not a navigation — the token is preserved")
-      (is (nil? (slice-error)) "the planning error is CLEARED")
-      (is (= :loading (:transition (slice))))
-      (is (= 1 (count @requests)) "and the blocking read is finally requested")
-      (is (= "/api/board" (get-in (first @requests) [:request :url]))))))
+    (reg-board-resource!)
+    (is (some? (rf.registrar/lookup :resource :ma8r/board-data)) "FIXTURE — the resource is registered now")
+    (rf/dispatch-sync [:rf.route/navigate {:to :ma8r/board}])
+    (is (= [tok :error true []]
+           [(token) (:transition (slice)) (unregistered-resource-plan-failure?) @requests])
+        "identical navigation is a no-op under the same token, so the stale planning error survives")
+    (rf/dispatch-sync [:rf.route/replan-resources {:cause [:ma8r/resource-registered]}])
+    (is (= [tok nil :loading ["/api/board"]]
+           [(token) (slice-error) (:transition (slice)) (mapv #(get-in % [:request :url]) @requests)])
+        "the replan clears the error under the same token, and the blocking read is requested")))
 
 ;; ===========================================================================
 ;; 2. WHERE the plan actually runs: inside `make-frame`, for a `:url-bound?`
