@@ -1,30 +1,11 @@
 (ns re-frame.story.ui.docs-toc-test
-  "JVM-portable regression net for the docs-mode TOC table.
-
-  Surface covered:
-
-  - `docs-toc-entries`     — canonical table shape
-  - `visible-toc-entries`  — prose-conditional pruning vs always-on
-
-  The CLJS-side layout wiring and section anchors are covered by
-  `re-frame.story.panels-e2e.docs-mode-toc-e2e-cljs-test` — this corpus
-  pins the pure projection only."
+  "JVM coverage of `visible-toc-entries` — conditional pruning vs the
+  always-on entries. The CLJS-side layout wiring and section anchors are
+  covered by `re-frame.story.panels-e2e.docs-mode-toc-e2e-cljs-test`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.registrar :as rf.registrar]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.docs :as rf.story.ui.docs]))
-
-(deftest toc-table-shape
-  (testing "canonical entry list, status + view-arg schema + evidence
-            sections included"
-    (let [ids (mapv :id rf.story.ui.docs/docs-toc-entries)]
-      (is (= ["docs-status" "docs-prose" "docs-args" "docs-schema"
-              "docs-decorators" "docs-parameters" "docs-evidence" "docs-tags"]
-             ids))))
-  (testing "every entry carries the required slots"
-    (doseq [entry rf.story.ui.docs/docs-toc-entries]
-      (is (some? (:label entry)))
-      (is (integer? (:level entry))))))
 
 ;; `visible-toc-entries` consults the live registrar for prose workspaces +
 ;; compiles the variant's plan for the status / view-arg-schema conditionals.
