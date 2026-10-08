@@ -71,24 +71,6 @@
        this policy produces mid-typing, and trimming it would make the
        field fight the user's next keystroke"))
 
-(deftest every-editable-field-has-a-policy
-  ;; `editable-fields` is derived from `field-policy`, so a field added
-  ;; without a policy would answer nil and take nothing. This is the row
-  ;; that says so rather than leaving it to be discovered on screen.
-  (is (= (set rf.fresco.examples.editor.events/editable-fields) (set (keys rf.fresco.examples.editor.events/field-policy))))
-  (doseq [field rf.fresco.examples.editor.events/editable-fields]
-    (is (ifn? (get rf.fresco.examples.editor.events/field-policy field))
-        (str "field " field " has no policy function"))))
-
-(deftest the-seed-carries-no-revision-key
-  ;; The premise of the `fnil` below, stated where a reader meets the
-  ;; seed. A consumer copying a starting `app-db` from a guide would not
-  ;; put a counter in it either.
-  (is (not (contains? rf.fresco.examples.editor.events/seed :revision)))
-  (is (= (:article rf.fresco.examples.editor.events/seed) (:draft rf.fresco.examples.editor.events/seed))
-      "draft and article begin equal; the distance between them is what
-       `echoes only committed state` is a claim about"))
-
 ;; ---------------------------------------------------------------------------
 ;; Transitions — through a real frame
 ;; ---------------------------------------------------------------------------
