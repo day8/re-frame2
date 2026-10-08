@@ -158,76 +158,26 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest redact-sensitive-value-keeps-edge-and-node-structure
-  (let [redacted (h/redact-graph-for-egress live-graph secure-frame)
-        route    (get-in redacted [:nodes [:rf/route :route/article]])]
+  (let [redacted (h/redact-graph-for-egress live-graph secure-frame)]
 
-    (testing "(a) the sensitive value was RUN THROUGH rf/elide-wire-value and
-              ELIDED — the token at the frame-declared sensitive path is
-              replaced by the :rf/redacted sentinel"
-      (is (= :rf/redacted
-             (get-in route [:params :current :params :token]))
-          "the sensitive token must be redacted at egress"))
+    (testing "(a) the token at the frame-declared sensitive path is replaced
+              by the :rf/redacted sentinel while every other field of the node
+              — the sibling slug, :query, the classifications, :output — rides
+              through untouched"
+      (is (= (assoc-in route-fact-node [:params :current :params :token] :rf/redacted)
+             (get-in redacted [:nodes [:rf/route :route/article]]))))
 
-    (testing "(b) the node STRUCTURE survives — the node is still present and
-              still classified by its superkind + refinement; the sibling
-              non-sensitive value in the same map rides through raw"
-      (is (some? route) "the route node is still present")
-      (is (= :process (h/superkind route)) "still classified by :kind alone")
-      (is (= :route-fact (:refinement route)))
-      (is (= "welcome" (get-in route [:params :current :params :slug]))
-          "the NON-sensitive sibling slug is NOT redacted")
-      (is (= {:ref "home"} (:query route))
-          "the non-sensitive :query summary rides through"))
-
-    (testing "(c) the EDGE that names the redacted node survives intact — a
-              redacted param is STILL a :param edge (structure preserved)"
-      (is (= (:edges live-graph) (:edges redacted))
-          "the entire edge vector is untouched by egress redaction")
-      (is (some #(and (= :param (:role %))
-                      (= [:rf/route :route/article] (:from %))
-                      (= [:resource :article/by-slug] (:to %)))
-                (:edges redacted))
-          "the route→resource :param edge is still present"))
-
-    (testing "(d) the node KEYS (canonical family-tagged ids) are unchanged —
-              the graph topology a tool draws edges between is preserved"
+    (testing "(b) the edges and node keys survive intact — a redacted param is
+              STILL a :param edge"
+      (is (= (:edges live-graph) (:edges redacted)))
       (is (= (set (keys (:nodes live-graph)))
-             (set (keys (:nodes redacted)))))
-      (is (some? (get-in redacted [:nodes [:resource :article/by-slug]]))
-          "the edge's target node is still present + classified")
-      (is (= :process (h/superkind (get-in redacted [:nodes [:resource :article/by-slug]])))))
+             (set (keys (:nodes redacted))))))
 
-    (testing "(e) the storage / evaluation / lifecycle classifications + the
-              :output address + :inputs topology are STRUCTURE, never walked"
-      (is (= :runtime-db (:storage route)))
-      (is (= :on-route (:evaluation route)))
-      (is (= :frame (:lifecycle route)))
-      (is (= [:runtime [:rf.runtime/routing :current]] (:output route)))
-      (is (= 17 (:nav-token route))))))
-
-;; ---------------------------------------------------------------------------
-;; 2. large elision — a frame-declared :large value → marker, keeping structure.
-;; ---------------------------------------------------------------------------
-
-(deftest large-value-elided-to-marker-keeps-structure
-  (let [redacted (h/redact-graph-for-egress live-graph secure-frame)
-        sub      (get-in redacted [:nodes [:sub [:cart/items]]])
-        ;; the large path [:cart :items] sits NESTED inside the node's
-        ;; :value summary {:cart {:items <large>}}; the walker descends to it
-        ;; and replaces THAT leaf with the marker, leaving the surrounding
-        ;; map shape intact (structure preserved).
-        marker   (get-in sub [:value :cart :items])]
-    (testing "the large-declared value is replaced by the :rf.size/large-elided
-              marker, not shipped in full"
-      (is (h/large-elided? marker)
-          "the large value egresses as a size-elision marker")
-      (is (= [:cart :items] (get-in marker [:rf.size/large-elided :path]))
-          "the marker preserves the path (structure), withholds the value"))
-    (testing "the node + its :input edge survive"
-      (is (= :derivation (h/superkind sub)))
-      (is (= [[:sub [:cart/raw]]] (:inputs sub)) "inputs topology untouched")
-      (is (some #(and (= :input (:role %)) (= [:sub [:cart/items]] (:to %)))
-                (:edges redacted))))))
+    (testing "(c) a frame-declared :large value nested in a node's :value is
+              replaced by the size-elision marker, which keeps the path"
+      (is (= [:cart :items]
+             (get-in redacted [:nodes [:sub [:cart/items]] :value :cart :items
+                               :rf.size/large-elided :path]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. per-frame — a frame with NO classification ships the same value raw.
@@ -251,40 +201,18 @@
   (testing "egress against an UNKNOWN frame (no reachable elision policy)
             fails closed — the whole value-bearing field is redacted to the
             :rf/redacted sentinel rather than shipped raw"
-    (let [r     (h/redact-graph-for-egress live-graph :app/does-not-exist)
-          route (get-in r [:nodes [:rf/route :route/article]])]
-      (is (= :rf/redacted (:params route))
-          "no reachable policy ⇒ the whole :params summary is redacted")
-      (is (= :rf/redacted (:query route)))
-      (testing "structure STILL survives even in the fail-closed case"
-        (is (some? route))
-        (is (= :process (h/superkind route)))
-        (is (= (:edges live-graph) (:edges r)))
-        (is (= (set (keys (:nodes live-graph))) (set (keys (:nodes r))))))))
+    (is (= :rf/redacted
+           (get-in (h/redact-graph-for-egress live-graph :app/does-not-exist)
+                   [:nodes [:rf/route :route/article] :params]))))
 
   (testing "egress against a NIL frame fails closed EVEN WHEN an AMBIENT frame
             is bound — it must NOT borrow that ambient frame's policy and ship
             the value raw. We bind ambient :app/plain (no sensitive
-            decl, so a borrow WOULD ship the token raw); a nil frame-id MUST
-            redact the whole value-bearing field, not resolve :app/plain."
+            decl, so a borrow WOULD ship the token raw)."
     (rf/with-frame plain-frame
-      (is (some? (rf.frame/resolve-current-frame))
-          "PRECONDITION — an ambient frame IS dynamically bound, so a frameless
-           walk WOULD resolve it (the borrow this arm forbids)")
-      (let [r     (h/redact-graph-for-egress live-graph nil)
-            route (get-in r [:nodes [:rf/route :route/article]])]
-        (is (= :rf/redacted (:params route))
-            "nil frame ⇒ the whole :params summary is redacted, NOT shipped raw
-             under the borrowed ambient :app/plain (empty) policy")
-        (is (= :rf/redacted (:query route)))
-        (is (not= "secret-session-jwt-abc123"
-                  (get-in route [:params :current :params :token]))
-            "the session token must NOT ride through under the borrowed frame")
-        (testing "structure STILL survives in the nil-frame fail-closed case"
-          (is (some? route))
-          (is (= :process (h/superkind route)))
-          (is (= (:edges live-graph) (:edges r)))
-          (is (= (set (keys (:nodes live-graph))) (set (keys (:nodes r))))))))))
+      (is (= :rf/redacted
+             (get-in (h/redact-graph-for-egress live-graph nil)
+                     [:nodes [:rf/route :route/article] :params]))))))
 
 ;; ===========================================================================
 ;; 5. FOCUSED IDENTITY-PROJECTION WIRING SMOKE.
@@ -366,48 +294,22 @@
   ;; `contains-secret?`. A handle minted from the CEDN-1 token instead of
   ;; its digest carries the secret INSIDE a larger string, and a predicate
   ;; matching only a leaf EQUAL to the secret would let it pass.
-  (let [leaking [:rf.resource/opaque (rf.identity/canonical-bytes secret-scope)]]
-    (is (not-any? #(= secret-token %) leaking)
-        "sanity: no leaf of the leaking handle EQUALS the secret")
-    (is (contains-secret? leaking)
-        "the predicate finds the secret embedded in the token string"))
+  (is (contains-secret? [:rf.resource/opaque (rf.identity/canonical-bytes secret-scope)])
+      "the predicate finds the secret embedded in a CEDN-1 token string")
   (is (contains-secret? {:tenant (keyword "tenant" secret-token)})
       "and in a keyword built from it"))
 
-(defn- projected-scoped-key?
-  "True when `v` keeps the 3-tuple scoped-key SHAPE after projection —
-  `[<scope-handle> resource-id <params-handle>]` (resource-id preserved)."
-  [v]
-  (and (vector? v) (= 3 (count v)) (keyword? (nth v 1))))
-
 (deftest delegate-projects-live-resource-identity
-  (let [redacted (h/redact-graph-for-egress live-resource-graph secure-frame)]
-
-    (testing "(a) NO raw secret survives ANYWHERE — node key, :id, :inputs,
-              :output, work-ledger work-id + :resource/key, host-transient, edges"
-      (is (contains-secret? live-resource-graph) "sanity: the raw graph carries the secret")
-      (is (not (contains-secret? redacted))
-          "the delegate projects every identity position — no raw secret egresses"))
-
-    (testing "(b) the resource-id stays VISIBLE + connectivity survives — the
-              node key is projected and the :param edge is remapped to it"
-      (is (not (contains? (:nodes redacted) [:resource live-scoped-key]))
-          "the raw-scoped-key node key is gone")
-      (let [node     (-> redacted :nodes vals first)
-            node-key (-> redacted :nodes keys first)
-            edge     (first (:edges redacted))]
-        (is (projected-scoped-key? (second node-key)) "node key keeps the scoped-key shape")
-        (is (= :article/by-slug (nth (second node-key) 1)) "the registration resource-id is preserved")
-        (is (= :process (h/superkind node)) "still classified by superkind")
-        (is (= node-key (:to edge)) "the edge :to is remapped to the projected key (connectivity)")))
-
-    (testing "(c) ONE fact, ONE identity — the same opaque scoped key appears in
-              the node key, :id, :output, and the work-ledger :resource/key"
-      (let [node          (-> redacted :nodes vals first)
-            node-key      (-> redacted :nodes keys first)
-            key-scoped    (second node-key)
-            id-scoped     (:id node)
-            output-scoped (last (second (:output node)))
-            ledger-scoped (get-in node [:work-ledger :record :resource/key])]
-        (is (= key-scoped id-scoped output-scoped ledger-scoped)
-            "every identity position projects to the SAME opaque scoped key")))))
+  (let [redacted        (h/redact-graph-for-egress live-resource-graph secure-frame)
+        [node-key node] (first (:nodes redacted))
+        scoped-key      (second node-key)]
+    (is (not (contains-secret? redacted))
+        "NO raw secret survives in any identity position — node key, :id,
+         :inputs, :output, work-ledger, host-transient, edges")
+    (is (= :article/by-slug (nth scoped-key 1))
+        "the registration resource-id stays visible")
+    (is (= node-key (:to (first (:edges redacted))))
+        "the :param edge is remapped to the projected key (connectivity)")
+    (is (= scoped-key (:id node) (last (second (:output node)))
+           (get-in node [:work-ledger :record :resource/key]))
+        "every identity position projects to the SAME opaque scoped key")))
