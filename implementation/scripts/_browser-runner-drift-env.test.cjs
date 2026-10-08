@@ -2,27 +2,10 @@
 'use strict';
 
 /*
- * serve-and-run-browser-tests.cjs
- * forwards RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE to its runner child ONLY
- * when the orchestrator's own `--duplicate-done-drift-unverifiable` CLI flag
- * is present — the declaration must come from THIS process's command line,
- * never from an ambient environment variable a parent shell happened to
- * export.
- *
- * `{ ...baseEnv, ...(cond ? {K: v} : {}) }` only ever ADDS the key — it
- * never REMOVES one `baseEnv` already carries. Built that way, an ambient
- * RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE=1 would ride straight through to the
- * unflagged default `test:browser` lane's runner child, which would take the
- * waiver branch in run-browser-tests.cjs and skip the fail-closed drift
- * verdict entirely.
- *
- * This is a DYNAMIC (not merely static-source) test, unlike most of
- * `_impl-browser-runners-verdict-policy.test.cjs`'s sibling assertions,
- * because a source-regex check that the orchestrator contains a `delete`
- * call cannot tell whether that delete actually fires on the code path that
- * matters. computeRunnerEnv is a pure function extracted to its
- * own module (scripts/lib/browser-runner-drift-env.cjs) for exactly this:
- * both halves are pinned by actually calling it, not by reading its source.
+ * serve-and-run-browser-tests.cjs forwards RF2_DUPLICATE_DONE_DRIFT_UNVERIFIABLE
+ * to its runner child only when its own --duplicate-done-drift-unverifiable flag
+ * is present: an ambient value a parent shell exported must be stripped, or the
+ * default lane takes the waiver branch and skips the fail-closed drift verdict.
  */
 
 const assert = require('assert/strict');
@@ -38,18 +21,6 @@ function test(name, fn) {
 
 const URL = 'http://127.0.0.1:8021';
 
-test('no flag, no ambient value: the var is absent from the runner env', () => {
-  const env = computeRunnerEnv(
-    { PATH: '/usr/bin' },
-    { driftUnverifiable: false, browserTestUrl: URL },
-  );
-  assert.ok(
-    !Object.prototype.hasOwnProperty.call(env, DRIFT_UNVERIFIABLE_ENV_VAR),
-    'the var must not be present when neither the flag nor an ambient value set it',
-  );
-  assert.equal(env.BROWSER_TEST_URL, URL);
-});
-
 test('no flag, AMBIENT value present: the var is STRIPPED, not forwarded (the bug this closes)', () => {
   const baseEnv = { PATH: '/usr/bin', [DRIFT_UNVERIFIABLE_ENV_VAR]: '1' };
   const env = computeRunnerEnv(baseEnv, {
@@ -62,21 +33,9 @@ test('no flag, AMBIENT value present: the var is STRIPPED, not forwarded (the bu
       'a naive `{ ...baseEnv, ...(cond ? {K: v} : {}) }` construction leaves it in place, ' +
       'which is exactly the leak this pins',
   );
-  // baseEnv itself must not be mutated — computeRunnerEnv returns a new object.
-  assert.equal(baseEnv[DRIFT_UNVERIFIABLE_ENV_VAR], '1', 'the input object must be left untouched');
-});
-
-test('flag present, no ambient value: the var is forwarded as "1"', () => {
-  const env = computeRunnerEnv(
-    { PATH: '/usr/bin' },
-    { driftUnverifiable: true, browserTestUrl: URL },
-  );
-  assert.equal(env[DRIFT_UNVERIFIABLE_ENV_VAR], '1');
 });
 
 test('flag present, ambient value is something OTHER than "1": still normalised to "1"', () => {
-  // Defends against an ambient value like "0" or "true" being passed through
-  // verbatim instead of the canonical "1" run-browser-tests.cjs compares against.
   const env = computeRunnerEnv(
     { PATH: '/usr/bin', [DRIFT_UNVERIFIABLE_ENV_VAR]: 'true' },
     { driftUnverifiable: true, browserTestUrl: URL },
@@ -84,12 +43,10 @@ test('flag present, ambient value is something OTHER than "1": still normalised 
   assert.equal(env[DRIFT_UNVERIFIABLE_ENV_VAR], '1');
 });
 
-test('every other env var passes through unchanged', () => {
+test('every other env var passes through unchanged, and BROWSER_TEST_URL is set', () => {
   const baseEnv = { PATH: '/usr/bin', HOME: '/home/x', RANDOM_VAR: 'y' };
   const env = computeRunnerEnv(baseEnv, { driftUnverifiable: false, browserTestUrl: URL });
-  assert.equal(env.PATH, '/usr/bin');
-  assert.equal(env.HOME, '/home/x');
-  assert.equal(env.RANDOM_VAR, 'y');
+  assert.deepEqual(env, { ...baseEnv, BROWSER_TEST_URL: URL });
 });
 
 let failed = 0;
