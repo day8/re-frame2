@@ -1,16 +1,8 @@
 (ns re-frame.choice-node-keys-test
-  "A `:type :choice` state is held to the state-node key vocabulary, per
-  Conventions §No silent swallow and Spec 005 §`:type :choice`.
-
-  - An unknown BARE key on a choice state is refused with
-    `:rf.error/machine-unknown-node-key`; a namespaced key passes.
-  - A choice state is a leaf, so an `:on-done` on it is refused as any leaf's
-    is (pinned in `machine_registration_refusals_test`), and a waiting-state
-    key keeps `:rf.error/machine-choice-extra-keys` (pinned in `choice_test`).
-
-  Controls: a well-formed choice state registers, with `:meta` and a
-  namespaced extension; the same checks hold for a choice state inside a
-  parallel region."
+  "A `:type :choice` state is held to the state-node key vocabulary (Conventions
+  §No silent swallow, Spec 005 §`:type :choice`): an unknown BARE key is refused
+  with `:rf.error/machine-unknown-node-key`, in a flat machine and inside a
+  parallel region, while `:meta` and a namespaced key pass."
   (:require [clojure.test :refer [deftest is]]
             [re-frame.machines :as rf.machines]))
 
@@ -40,11 +32,8 @@
 
 (deftest choice-state-refuses-an-unknown-bare-key
   (doseq [build [with-choice-key region-with-choice-key]]
-    (let [d (refusal (build :bogus 1))]
-      (is (= :rf.error/machine-unknown-node-key (:rf.error/id d)))
-      (is (= [:bogus] (:offending-keys d))))))
-
-;; ---- controls ----------------------------------------------------------------
+    (is (= {:rf.error/id :rf.error/machine-unknown-node-key :offending-keys [:bogus]}
+           (select-keys (refusal (build :bogus 1)) [:rf.error/id :offending-keys])))))
 
 (deftest well-formed-choice-states-register
   (is (nil? (refusal (with-choice-key :meta {:note "x"}))))
