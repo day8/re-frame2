@@ -61,20 +61,12 @@
 ;; ---- fires: source-blind ---------------------------------------------------
 
 (deftest warns-for-bare-def-source-blind-spec
-  (testing "a plain (def m …) + (reg-machine :id m): the macro sees only the
-            symbol so the spec arrives source-blind — emits the advisory once,
-            at :warning grade, naming the machine and carrying :warned-and-
-            proceeded recovery (recoverable — registration still succeeds)"
+  (testing "a plain (def m …) + (reg-machine :id m) arrives source-blind: one
+            advisory at :warning grade, naming the machine, recoverable"
     (rf/reg-machine :src-warn/blind blind-spec)
-    (let [w (warns)]
-      (is (= 1 (count w)) "exactly one source-unstamped advisory")
-      (is (= :src-warn/blind (:machine-id (:tags (first w))))
-          "the advisory names the machine")
-      (is (= :warning (:op-type (first w))) "emitted at :warning grade")
-      (is (= :warned-and-proceeded (:recovery (first w)))
-          "advisory — warned, never threw; registration proceeded")
-      (is (string? (:reason (:tags (first w))))
-          "carries a :reason naming what is lost and the fix"))))
+    (is (= [[:src-warn/blind :warning :warned-and-proceeded true]]
+           (mapv (juxt (comp :machine-id :tags) :op-type :recovery (comp string? :reason :tags))
+                 (warns))))))
 
 ;; ---- silent: source-bearing (defmachine / inline) --------------------------
 
@@ -98,21 +90,12 @@
 ;; ---- once-per-id -----------------------------------------------------------
 
 (deftest once-per-id-on-reregistration
-  (testing "re-registering the SAME source-blind id emits the advisory only
-            once (dev-only once-per-id de-dup)"
+  (testing "the advisory is de-duplicated per id: a re-registered id warns
+            once, a distinct id warns again"
     (rf/reg-machine :src-warn/dup blind-spec)
     (rf/reg-machine :src-warn/dup blind-spec)
-    (is (= 1 (count (warns)))
-        "one advisory across two registrations of the same id")))
-
-(deftest distinct-ids-each-warn-once
-  (testing "two DIFFERENT source-blind ids each warn once — the de-dup is
-            per-id, not a single global one-shot"
-    (rf/reg-machine :src-warn/a blind-spec)
     (rf/reg-machine :src-warn/b blind-spec)
-    (is (= #{:src-warn/a :src-warn/b}
-           (set (map #(:machine-id (:tags %)) (warns))))
-        "each distinct id gets its own single advisory")))
+    (is (= [:src-warn/dup :src-warn/b] (mapv #(:machine-id (:tags %)) (warns))))))
 
 ;; ---- runtime-built (reg-machine*) also warns -------------------------------
 
